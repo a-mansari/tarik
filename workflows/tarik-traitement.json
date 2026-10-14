@@ -1,0 +1,1210 @@
+{
+  "id": "TarikTraitement1",
+  "name": "Tarik - Traitement",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "nodes": [
+    {
+      "id": "9bbfbb70-c46f-52ca-a6d1-6c8e18939db9",
+      "name": "Appel",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "mode",
+              "type": "string"
+            },
+            {
+              "name": "session_id",
+              "type": "string"
+            },
+            {
+              "name": "dossier_id",
+              "type": "number"
+            },
+            {
+              "name": "file_ids",
+              "type": "any"
+            },
+            {
+              "name": "invoice_id",
+              "type": "number"
+            },
+            {
+              "name": "answer",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "e4425a08-09f5-50b5-b293-662b953ac9ec",
+      "name": "Fichiers ou reponse ?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.mode === 'answer' ? 1 : 0 }}"
+      }
+    },
+    {
+      "id": "4f1bc170-8944-5db6-927f-5c53933e19e4",
+      "name": "Un element par fichier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// The files the agent passed, one item each. The model sends them as a list, a number or text (\"[40]\", \"40, 41\").\nconst raw = $('Appel').first().json.file_ids;\nconst ids = (Array.isArray(raw) ? raw : String(raw ?? '').match(/\\d+/g) || []).map(Number).filter(Boolean);\nreturn [...new Set(ids)].map(file_id => ({ json: { file_id } }));"
+      }
+    },
+    {
+      "id": "96538f72-9234-5bd0-a7b8-feabe538ddf9",
+      "name": "Identification (identify_document)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "identify_document"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ file_id: $json.file_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "21b64976-ebf5-513e-8772-4214f2e8185c",
+      "name": "Suite apres identify_document",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        880,
+        200
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 2 : ($json.content[0].text.kind === 'statement' ? 0 : 1) }}"
+      }
+    },
+    {
+      "id": "eb8f2a6f-cb90-5eac-bca7-ba9512234928",
+      "name": "Releve bancaire (import_bank_statement)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        40
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "import_bank_statement"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ file_id: $json.content[0].text.file_id, dossier_id: $('Appel').first().json.dossier_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "26239024-c130-56d8-bdff-829a9aa63034",
+      "name": "Decoupage (split_invoices)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        240
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "split_invoices"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ file_id: $json.content[0].text.file_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "a4ac39d7-85f1-509e-baca-191d05f54698",
+      "name": "Suite apres split_invoices",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1320,
+        240
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "f339d694-3bd6-5d36-b0b0-750c045ca751",
+      "name": "Une facture par fichier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// Each invoice found in the file becomes its own item.\nreturn $input.all().flatMap(item => item.json.content[0].text.files.map(file_id => ({ json: { file_id } })));"
+      }
+    },
+    {
+      "id": "d11e8c16-9718-57d3-b10e-611066dd5164",
+      "name": "Brouillon (create_draft_invoice)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        200
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "create_draft_invoice"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ file_id: $json.file_id, dossier_id: $('Appel').first().json.dossier_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "35e49397-45fd-55cc-a7f3-fe98417156a4",
+      "name": "Suite apres create_draft_invoice",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1870,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "cda5d695-2a23-5d4c-a510-cc89c2e2f8ed",
+      "name": "Lecture Experio (wait_until_read)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        2000,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "wait_until_read"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "65cc1508-7706-57e8-8b63-c103142e3f9e",
+      "name": "Suite apres wait_until_read",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2110,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "3dbc191b-1152-55e5-af40-5c1b2763deb3",
+      "name": "Verification (check_invoice)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        2240,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "check_invoice"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "eb719106-5bec-5545-bcbe-41ce922c1434",
+      "name": "Suite apres check_invoice",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2350,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "e56ce2c0-b107-56bd-b618-2f48ee00bdde",
+      "name": "Correction (correct_invoice)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        2480,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "correct_invoice"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "90a5684f-0f9c-553b-8a45-0d753b9f8c24",
+      "name": "Suite apres correct_invoice",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2590,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "e1942be2-6ce6-5081-a569-e312706049ed",
+      "name": "Classement (classify_invoice)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        2720,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "classify_invoice"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "9692067f-dc15-5e83-8368-a08013f1f28e",
+      "name": "Suite apres classify_invoice",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2830,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "a0c26125-a194-53d2-aafe-d525aefa1cf9",
+      "name": "Tiers (link_tiers)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        2960,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "link_tiers"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "4f24c462-39f5-58bc-8fff-8202f88c30fd",
+      "name": "Suite apres link_tiers",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3070,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "01cc0a00-2c0c-5b28-b7c2-5ff7288e07c0",
+      "name": "Doublon (check_duplicate)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        3200,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "check_duplicate"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "903c19c0-2a62-5978-b019-2f4320f44e2a",
+      "name": "Suite apres check_duplicate",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3310,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "02011869-bade-5fa3-9f4e-53cf9a755c74",
+      "name": "Compte (assign_account)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        3440,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "assign_account"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "da0d1c79-e45d-5481-aff6-b98849b297f3",
+      "name": "Suite apres assign_account",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3550,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "d3a51588-d331-5429-b847-a7516c9da488",
+      "name": "TVA (settle_tva)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        3680,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "settle_tva"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "77efbf3c-a71b-5c85-97d5-771b3f145bf7",
+      "name": "Suite apres settle_tva",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        3790,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "cafce2f4-52c0-5f15-8563-85da097d45e1",
+      "name": "Reponse du client (answer_pending)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        760
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "answer_pending"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $('Appel').first().json.invoice_id, answer: $('Appel').first().json.answer }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "c3ecb334-a840-5027-b23b-5a5869df50c4",
+      "name": "Reprendre ou ?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        660,
+        760
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2 }[$json.content[0].text.next_step] ?? 0) }}"
+      }
+    },
+    {
+      "id": "83ee4da8-d9f3-5b4e-985d-0e2bad4c2daa",
+      "name": "Enregistrer",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        4120,
+        640
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "record_step"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ run_id: String($execution.id), session_id: $('Appel').first().json.session_id, origin: $prevNode.name, result: $json.error ? { status: 'error', message: String($json.error) } : $json.content[0].text }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "9ed10d13-8229-5494-8ed5-fefe7a41ab57",
+      "name": "Resume",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        1100
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "run_summary"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ run_id: String($execution.id) }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Appel": {
+      "main": [
+        [
+          {
+            "node": "Fichiers ou reponse ?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fichiers ou reponse ?": {
+      "main": [
+        [
+          {
+            "node": "Un element par fichier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reponse du client (answer_pending)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Un element par fichier": {
+      "main": [
+        [
+          {
+            "node": "Identification (identify_document)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Identification (identify_document)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres identify_document",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres identify_document": {
+      "main": [
+        [
+          {
+            "node": "Releve bancaire (import_bank_statement)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Decoupage (split_invoices)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Decoupage (split_invoices)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres split_invoices",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres split_invoices": {
+      "main": [
+        [
+          {
+            "node": "Une facture par fichier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Une facture par fichier": {
+      "main": [
+        [
+          {
+            "node": "Brouillon (create_draft_invoice)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brouillon (create_draft_invoice)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres create_draft_invoice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres create_draft_invoice": {
+      "main": [
+        [
+          {
+            "node": "Lecture Experio (wait_until_read)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lecture Experio (wait_until_read)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres wait_until_read",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres wait_until_read": {
+      "main": [
+        [
+          {
+            "node": "Verification (check_invoice)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verification (check_invoice)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres check_invoice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres check_invoice": {
+      "main": [
+        [
+          {
+            "node": "Correction (correct_invoice)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Correction (correct_invoice)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres correct_invoice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres correct_invoice": {
+      "main": [
+        [
+          {
+            "node": "Classement (classify_invoice)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classement (classify_invoice)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres classify_invoice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres classify_invoice": {
+      "main": [
+        [
+          {
+            "node": "Tiers (link_tiers)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tiers (link_tiers)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres link_tiers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres link_tiers": {
+      "main": [
+        [
+          {
+            "node": "Doublon (check_duplicate)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Doublon (check_duplicate)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres check_duplicate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres check_duplicate": {
+      "main": [
+        [
+          {
+            "node": "Compte (assign_account)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compte (assign_account)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres assign_account",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres assign_account": {
+      "main": [
+        [
+          {
+            "node": "TVA (settle_tva)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TVA (settle_tva)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres settle_tva",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres settle_tva": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Releve bancaire (import_bank_statement)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reponse du client (answer_pending)": {
+      "main": [
+        [
+          {
+            "node": "Reprendre ou ?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reprendre ou ?": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Doublon (check_duplicate)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "TVA (settle_tva)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

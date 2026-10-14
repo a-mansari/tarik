@@ -9,6 +9,7 @@ import correct  # noqa: F401
 import dossiers  # noqa: F401
 import duplicates  # noqa: F401
 import intake  # noqa: F401
+import pipeline  # noqa: F401
 import tiers  # noqa: F401
 import tva  # noqa: F401
 from app import server

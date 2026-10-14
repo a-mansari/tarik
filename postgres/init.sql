@@ -28,3 +28,23 @@ create table if not exists tarik_classifications (
     reason text not null,
     classified_at timestamptz not null default now()
 );
+
+-- Each step outcome of each processing run (n8n "Tarik - Traitement"), and the questions waiting for the client.
+create table if not exists tarik_results (
+    id serial primary key,
+    run_id text not null,
+    session_id text not null,
+    file_id integer,
+    invoice_id integer,
+    step text not null,
+    status text not null,
+    message text not null,
+    created_at timestamptz not null default now()
+);
+create table if not exists tarik_pending (
+    invoice_id integer primary key,
+    session_id text not null,
+    step text not null,
+    question text not null,
+    created_at timestamptz not null default now()
+);

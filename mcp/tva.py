@@ -11,7 +11,7 @@ import re
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from app import server
+from app import with_ids, ok, question, server
 from experio import DRY_RUN, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
 from tiers import side_of
 
@@ -41,7 +41,8 @@ def experio_messages(invoice_id, context):
 
 
 @server.tool()
-def settle_tva(invoice_id: int, answer: str = "") -> str:
+@with_ids
+def settle_tva(invoice_id: int, answer: str = "") -> dict:
     """Settle a draft invoice's TVA once its account is set: recoverable or not,
     the cabinet's prorata, and the tax Experio puts on each line. When the answer
     is a question (non-recoverable TVA?), ask the client and call again with
@@ -51,6 +52,9 @@ def settle_tva(invoice_id: int, answer: str = "") -> str:
     if invoice["state"] != "draft":
         raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut etre modifiee.")
     if not invoice["account_id"]:
+        if DRY_RUN:  # the account step only simulated its write
+            return ok(f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : "
+                      "la TVA sera reglee une fois le compte enregistre.")
         raise ToolError(f"Facture {invoice_id} : pas encore de compte, appelez d'abord assign_account (la TVA en depend).")
     kind = side_of(invoice)
     context = invoice_context(invoice)
@@ -59,10 +63,10 @@ def settle_tva(invoice_id: int, answer: str = "") -> str:
     if kind == "purchase" and not invoice["amount_tax_non_recoverable"] and invoice["amount_tva"]:
         told = vat_answer(answer) if answer else None
         if answer and told is None:
-            return f"Facture {invoice_id} : reponse non comprise, la TVA est-elle non recuperable ? oui / non"
+            return question(f"Facture {invoice_id} : reponse non comprise, la TVA est-elle non recuperable ? oui / non")
         if told is None and code.startswith(NON_RECOVERABLE_ACCOUNTS):
             tier = (invoice["partner_id"] or [0, "ce fournisseur"])[1]
-            return (f"Facture de {tier} : la TVA est-elle non recuperable (voyage, carburant, vehicule de tourisme) ? oui / non")
+            return question(f"Facture de {tier} : la TVA est-elle non recuperable (voyage, carburant, vehicule de tourisme) ? oui / non")
         if told:
             changes.update({"amount_tax_non_recoverable": True, "multi_tva": False})
     non_recoverable = invoice["amount_tax_non_recoverable"] or changes.get("amount_tax_non_recoverable")
@@ -93,4 +97,4 @@ def settle_tva(invoice_id: int, answer: str = "") -> str:
     body = f"Facture {invoice_id} : TVA {'non recuperable' if non_recoverable else 'recuperable'}"
     body += (f", {', '.join(notes)}" if notes and not non_recoverable else "") + ". "
     body += ("Lignes : " + "; ".join(taxed) + "." if taxed else "Pas encore de ligne de TVA.")
-    return head + body + ("" if not messages else " " + " ".join(messages))
+    return ok(head + body + ("" if not messages else " " + " ".join(messages)))

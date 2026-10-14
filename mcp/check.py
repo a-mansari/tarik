@@ -7,7 +7,7 @@ from datetime import date
 import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
-from app import server
+from app import with_ids, ok, server, stop, wait
 from documents import scan_pages
 from dossiers import MIN_SIMILARITY, normalized, similarity
 from experio import POSTGRES, odoo_call, require_invoice
@@ -187,21 +187,22 @@ def drop_false_alarms(bad, stored, extracted):
     return kept
 
 @server.tool()
-def check_invoice(invoice_id: int) -> str:
+@with_ids
+def check_invoice(invoice_id: int) -> dict:
     """Check a draft invoice once Experio has read it: compares what Experio
     captured with what the scan shows, and lists every difference. Changes
     nothing. invoice_id is the draft invoice number given at its creation."""
     invoice = require_invoice(invoice_id, ["bluejay_state", "document_pdf", "file_type", *CHECKED_FIELDS[:-2], "partner_id"])
     if invoice["bluejay_state"] in ("pending", "sent"):
-        return f"Facture {invoice_id} : Experio est encore en train de la lire, reessayez dans une minute."
+        return wait(f"Facture {invoice_id} : Experio est encore en train de la lire, reessayez dans une minute.")
     if invoice["bluejay_state"] != "done":
-        return f"Facture {invoice_id} : Experio n'a pas lu cette facture automatiquement, rien a comparer."
+        return ok(f"Facture {invoice_id} : Experio n'a pas lu cette facture automatiquement, rien a comparer.")
     partner = invoice["partner_id"]
     stored = {name: invoice.get(name) for name in CHECKED_FIELDS[:-2]}
     stored["tier"] = partner[1] if partner else None
     stored["ice"] = (odoo_call("exp.partner", "read", [partner[0]], fields=["ice"])[0]["ice"] or None) if partner else None
     if not invoice["document_pdf"] or invoice["file_type"] not in (False, None, "pdf"):
-        return f"Facture {invoice_id} : pas de scan PDF a verifier."
+        return ok(f"Facture {invoice_id} : pas de scan PDF a verifier.")
     pages = scan_pages(invoice["document_pdf"])
     # The model is told "Experio", never "Odoo": its explanations reach the client.
     # Asked twice when it says "unreadable": MiniMax-M3 sometimes does on a page it reads fine the next time.
@@ -223,8 +224,8 @@ def check_invoice(invoice_id: int) -> str:
                    "bad_fields = excluded.bad_fields, checked_at = now()",
                    (invoice_id, report["readable"], json.dumps(report["extracted"]), json.dumps(report["bad_fields"])))
     if not report["readable"]:
-        return f"Facture {invoice_id} : scan illisible."
+        return stop(f"Facture {invoice_id} : scan illisible, demandez au client de la renvoyer plus nette.")
     if not report["bad_fields"]:
-        return f"Facture {invoice_id} : conforme, ce qu'Experio a lu correspond au scan."
-    return f"Facture {invoice_id} : {len(report['bad_fields'])} ecart(s) entre Experio et le scan :\n" + "\n".join(
-        f"- {b['field']} : {b['problem']}" for b in report["bad_fields"])
+        return ok(f"Facture {invoice_id} : conforme, ce qu'Experio a lu correspond au scan.")
+    return ok(f"Facture {invoice_id} : {len(report['bad_fields'])} ecart(s) entre Experio et le scan :\n" + "\n".join(
+        f"- {b['field']} : {b['problem']}" for b in report["bad_fields"]))

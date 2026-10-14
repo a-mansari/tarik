@@ -11,18 +11,19 @@ import re
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from app import server
+from app import with_ids, ok, server, stop
 from experio import invoice_context, odoo_call, odoo_json, require_invoice
 
 
 @server.tool()
-def check_duplicate(invoice_id: int) -> str:
+@with_ids
+def check_duplicate(invoice_id: int) -> dict:
     """Check whether this invoice is already recorded in its dossier (same number,
     tiers and date). Call it once the tiers is set. A duplicate must not be
     processed any further."""
     invoice = require_invoice(invoice_id, ["company_id", "exercice_id", "invoice_number", "partner_id", "type"])
     if not invoice["invoice_number"] or not invoice["partner_id"]:
-        return f"Facture {invoice_id} : numero ou tiers manquant, la verification des doublons attend qu'ils soient renseignes."
+        return ok(f"Facture {invoice_id} : numero ou tiers manquant, la verification des doublons attend qu'ils soient renseignes.")
     context = invoice_context(invoice)
     try:
         # 1. Against posted invoices: Experio's check on this invoice alone.
@@ -38,13 +39,13 @@ def check_duplicate(invoice_id: int) -> str:
                 ("invoice_number", "ilike", invoice["invoice_number"].strip())], fields=["invoice_number"], context=context)
             batch = sorted([invoice_id] + [d["id"] for d in drafts if (d["invoice_number"] or "").replace(" ", "") == number])
             if len(batch) == 1 or not odoo_json("exp.invoice", "get_duplicated_invoice_ids", batch, context=context):
-                return f"Facture {invoice_id} : pas de doublon dans le dossier."
+                return ok(f"Facture {invoice_id} : pas de doublon dans le dossier.")
             if invoice_id == batch[0]:
-                return (f"Facture {invoice_id} : pas de doublon, c'est la premiere saisie ; les brouillons "
-                        f"{', '.join(map(str, batch[1:]))} en sont des doublons.")
+                return ok(f"Facture {invoice_id} : pas de doublon, c'est la premiere saisie ; les brouillons "
+                          f"{', '.join(map(str, batch[1:]))} en sont des doublons.")
             message = f"Meme facture que le brouillon {batch[0]}, saisi avant."
     except Exception as error:
         print(f"check_duplicate {invoice_id}: {error}", flush=True)
         raise ToolError(f"Facture {invoice_id} : Experio n'a pas pu verifier les doublons.") from None
     detail = re.sub(r"\s*<br\s*/?>\s*", " ", message).strip()
-    return f"Facture {invoice_id} : DOUBLON, deja enregistree dans le dossier. {detail} Ne pas la traiter."
+    return stop(f"Facture {invoice_id} : DOUBLON, deja enregistree dans le dossier. {detail} Ne pas la traiter.")

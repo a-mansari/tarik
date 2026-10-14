@@ -15,7 +15,7 @@ from dossiers import MIN_SIMILARITY, similarity
 from experio import exact_cabinet, expected_uid, require_dossier, require_invoice
 from intake import require_kind, split_pdf
 from server import server
-from tiers import TIERS_MIN_SIMILARITY, set_tiers
+from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
 from accounts import resolve_account
 from tva import vat_answer
 
@@ -176,4 +176,13 @@ assert resolve_account(chart, "611") is None and resolve_account(chart, "carbura
 assert vat_answer("Oui") is True and vat_answer("non recuperable") is True
 assert vat_answer("non") is False and vat_answer("recuperable") is False
 assert vat_answer("je ne sais pas") is None and vat_answer("") is None
+
+# A client's free-text answer to a tiers question (fictional tiers).
+tiers = [{"id": 7, "name": "ATLAS DE ROULEMENT - 12345678"}, {"id": 8, "name": "ATLAS TRANSPORT"}, {"id": 9, "name": "NOVA TELECOM"}]
+assert pick_tiers(tiers, "Oui, c'est bien ATLAS DE ROULEMENT (id 7).")["id"] == 7
+assert pick_tiers(tiers, "c'est ATLAS DE ROULEMENT")["id"] == 7
+assert pick_tiers(tiers, "oui", proposed_ids=[9])["id"] == 9
+assert pick_tiers(tiers, "oui", proposed_ids=[7, 9]) is None  # two proposals: a yes doesn't choose
+assert pick_tiers(tiers, "atlas") is None  # two tiers start with it
+assert pick_tiers(tiers, "nova telecom sa")["id"] == 9
 print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account and tva checks ok")
