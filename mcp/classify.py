@@ -3,7 +3,7 @@
 import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
-from app import server
+from app import with_ids, ok, server, stop, wait
 from documents import scan_pages
 from experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, require_invoice
 from model import ask_model
@@ -28,16 +28,17 @@ table of bank movements. Give a one-sentence reason in French.
 CATEGORY_TO_TYPE = {"achat": "purchase", "vente": "sale"}
 
 @server.tool()
-def classify_invoice(invoice_id: int) -> str:
+@with_ids
+def classify_invoice(invoice_id: int) -> dict:
     """Decide what a draft really is once Experio has read it: a purchase
     (achat), a sale (vente) or a bank statement (rb, not an invoice at all).
     Sets the invoice's type when Experio has it wrong; writes nothing for a
     bank statement."""
     invoice = require_invoice(invoice_id, ["state", "type", "company_id", "exercice_id", "bluejay_state", "document_pdf", "file_type"])
     if invoice["bluejay_state"] in ("pending", "sent"):
-        return f"Facture {invoice_id} : Experio est encore en train de la lire, reessayez dans une minute."
+        return wait(f"Facture {invoice_id} : Experio est encore en train de la lire, reessayez dans une minute.")
     if not invoice["document_pdf"] or invoice["file_type"] not in (False, None, "pdf"):
-        return f"Facture {invoice_id} : pas de scan PDF a classer."
+        return ok(f"Facture {invoice_id} : pas de scan PDF a classer.")
     result = ask_model(CLASSIFY_PROMPT, scan_pages(invoice["document_pdf"]),
                        'Answer with only a JSON object: {"category": "achat"|"vente"|"rb", "reason": "one French sentence"}',
                        "Classement de la facture")
@@ -50,10 +51,10 @@ def classify_invoice(invoice_id: int) -> str:
                    "on conflict (invoice_id) do update set category = excluded.category, reason = excluded.reason, classified_at = now()",
                    (invoice_id, category, reason))
     if category == "rb":
-        return f"Facture {invoice_id} : ce n'est pas une facture mais un releve bancaire ({reason}). Rien n'a ete modifie."
+        return stop(f"Facture {invoice_id} : ce n'est pas une facture mais un releve bancaire ({reason}). Rien n'a ete modifie.", category=category)
     wanted = CATEGORY_TO_TYPE[category]
     if invoice["type"] == wanted:
-        return f"Facture {invoice_id} : {category}, deja enregistree comme telle ({reason})."
+        return ok(f"Facture {invoice_id} : {category}, deja enregistree comme telle ({reason}).", category=category)
     if invoice["state"] != "draft":
         raise ToolError(f"Facture {invoice_id} : {category}, mais seule une facture brouillon peut changer de type.")
     context = invoice_context(invoice)
@@ -63,5 +64,5 @@ def classify_invoice(invoice_id: int) -> str:
         print(f"classify_invoice {invoice_id}: {error}", flush=True)
         raise ToolError(f"Facture {invoice_id} : Experio a refuse le changement de type.") from None
     if DRY_RUN:
-        return f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : {category} ({reason}), le type passerait a {wanted}."
-    return f"Facture {invoice_id} : {category} ({reason}), type change en {wanted}."
+        return ok(f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : {category} ({reason}), le type passerait a {wanted}.", category=category)
+    return ok(f"Facture {invoice_id} : {category} ({reason}), type change en {wanted}.", category=category)

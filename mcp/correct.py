@@ -3,7 +3,7 @@
 import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
-from app import server
+from app import with_ids, ok, server
 from experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
 
 
@@ -33,7 +33,8 @@ def planned_changes(extracted, bad_fields, invoice):
     return changes
 
 @server.tool()
-def correct_invoice(invoice_id: int) -> str:
+@with_ids
+def correct_invoice(invoice_id: int) -> dict:
     """Correct a draft invoice from its check: writes what check_invoice read on
     the scan over the fields Experio captured differently (amounts, number,
     date, credit note, multi-TVA, currency, payment method), then lets Experio
@@ -48,7 +49,7 @@ def correct_invoice(invoice_id: int) -> str:
         raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice.")
     readable, extracted, bad_fields = row
     if not readable:
-        return f"Facture {invoice_id} : scan illisible, rien a corriger."
+        return ok(f"Facture {invoice_id} : scan illisible, rien a corriger.")
     changes = planned_changes(extracted, bad_fields, invoice)
     notes = []
     try:
@@ -65,11 +66,11 @@ def correct_invoice(invoice_id: int) -> str:
             if found:
                 changes["payment_method_id"] = found[0]["id"]
         if not changes:
-            return f"Facture {invoice_id} : rien a corriger." + (f" ({'; '.join(notes)})" if notes else "")
+            return ok(f"Facture {invoice_id} : rien a corriger." + (f" ({'; '.join(notes)})" if notes else ""))
         context = invoice_context(invoice)
         changed = fill_invoice(invoice_id, changes, context)
         if not changed:
-            return f"Facture {invoice_id} : deja a jour, rien a changer."
+            return ok(f"Facture {invoice_id} : deja a jour, rien a changer.")
         if not DRY_RUN:
             odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)  # Experio's own "Actualiser"; returns None, hence JSON-RPC
     except Exception as error:
@@ -79,4 +80,4 @@ def correct_invoice(invoice_id: int) -> str:
     other = sorted(set(changed) - set(changes))
     head = (f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id}, correction prevue : {shown}."
             if DRY_RUN else f"Facture {invoice_id} : corrigee : {shown}.")
-    return head + (f" Experio a aussi mis a jour : {', '.join(other)}." if other else "") + (f" ({'; '.join(notes)})" if notes else "")
+    return ok(head + (f" Experio a aussi mis a jour : {', '.join(other)}." if other else "") + (f" ({'; '.join(notes)})" if notes else ""))

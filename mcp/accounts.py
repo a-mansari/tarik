@@ -10,7 +10,7 @@ what Experio can't: classify what was billed among the dossier's real accounts.
 import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
-from app import server
+from app import with_ids, ok, question, server
 from experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
 from model import ask_model
 from tiers import side_of
@@ -79,7 +79,7 @@ def apply_account(invoice, account_id, why):
         raise ToolError(f"Facture {invoice['id']} : Experio a refuse le compte.") from None
     account = odoo_call("exp.account", "read", [account_id], fields=["code", "name"])[0]
     head = "MODE TEST : aucune modification enregistree dans Experio. " if DRY_RUN else ""
-    return f"{head}Facture {invoice['id']} : compte {account['code']} {account['name']} ({why})."
+    return ok(f"{head}Facture {invoice['id']} : compte {account['code']} {account['name']} ({why}).")
 
 
 INVOICE_FIELDS = ["state", "type", "company_id", "exercice_id", "partner_id", "account_id", "invoice_number",
@@ -94,21 +94,22 @@ def draft_invoice(invoice_id):
 
 
 @server.tool()
-def assign_account(invoice_id: int) -> str:
+@with_ids
+def assign_account(invoice_id: int) -> dict:
     """Give a draft invoice its account (Compte): the one Experio memorized for
     its tiers, else the one matching what the invoice bills. Call it after
     link_tiers and check_invoice. When none fits, the answer is the question to
     ask the client; give their answer to set_account."""
     invoice = draft_invoice(invoice_id)
     if invoice["account_id"]:
-        return f"Facture {invoice_id} : compte deja renseigne, {invoice['account_id'][1]}."
+        return ok(f"Facture {invoice_id} : compte deja renseigne, {invoice['account_id'][1]}.")
     kind = side_of(invoice)
     company_id = invoice["company_id"][0]
     context = invoice_context(invoice)
     try:
         if not odoo_call("exp.account", "search_count", [("company_id", "=", company_id)]):
             if DRY_RUN:
-                return f"MODE TEST : plan comptable vide, les comptes de base seraient crees (dossier de la facture {invoice_id})."
+                return ok(f"MODE TEST : plan comptable vide, les comptes de base seraient crees (dossier de la facture {invoice_id}).")
             # Experio's "Creer les comptes manquants" button: its wizard lists the base CGNC accounts the dossier lacks.
             wizard_id = odoo_call("exp.account.missing.wizard", "create", {}, context={"allowed_company_ids": [company_id]})
             odoo_json("exp.account.missing.wizard", "action_confirm", [wizard_id], context={"allowed_company_ids": [company_id]})
@@ -128,7 +129,7 @@ def assign_account(invoice_id: int) -> str:
         raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice (il faut ce qui est facture).")
     designation = row[0]
     if not designation:
-        return account_question(invoice, None)
+        return question(account_question(invoice, None))
     accounts = odoo_call("exp.account", "search_read", [("company_id", "=", company_id), ("code", "=like", f"{CLASS[kind]}%")],
                          fields=["id", "code", "name"], order="code")
     by_code = {a["code"]: a for a in accounts}
@@ -141,7 +142,7 @@ def assign_account(invoice_id: int) -> str:
     if code not in by_code:
         if code:
             print(f"assign_account {invoice_id}: model chose {code!r}, not in the chart", flush=True)
-        return account_question(invoice, designation)
+        return question(account_question(invoice, designation))
     return apply_account(invoice, by_code[code]["id"], reason)
 
 
@@ -175,7 +176,8 @@ def resolve_account(accounts, answer):
 
 
 @server.tool()
-def set_account(invoice_id: int, answer: str) -> str:
+@with_ids
+def set_account(invoice_id: int, answer: str) -> dict:
     """Put the account the client asked for on a draft invoice. ``answer``: their
     own words, a code ("6111", "61110000") or a label ("achats de marchandises").
     When it is ambiguous, the answer lists the accounts to choose from."""
@@ -187,4 +189,4 @@ def set_account(invoice_id: int, answer: str) -> str:
     account = resolve_account(accounts, answer)
     if account:
         return apply_account(invoice, account["id"], f"demande du client : {answer.strip()}")
-    return f"Facture {invoice_id} : « {answer.strip()} » est ambigu. " + search_accounts(invoice_id, answer)
+    return question(f"Facture {invoice_id} : « {answer.strip()} » est ambigu. " + search_accounts(invoice_id, answer))

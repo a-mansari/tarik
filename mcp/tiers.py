@@ -7,11 +7,13 @@ its own wizard assigns the Compte Tiers. So this phase only links the right dete
 party and has Experio assign its Compte Tiers.
 """
 
+import re
+
 import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
-from app import server
-from dossiers import similarity
+from app import with_ids, ok, question, server
+from dossiers import normalized, similarity
 from experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, odoo_call, odoo_json, require_dossier, require_invoice
 
 # Per invoice type: the detected party, the partner's role flag and its Compte Tiers field.
@@ -77,7 +79,7 @@ def link(invoice, partner_id, kind):
         print(f"tiers {invoice['id']} -> {partner_id}: {error}", flush=True)
         raise ToolError(f"Facture {invoice['id']} : Experio a refuse le tiers {name}.") from None
     head = "MODE TEST : aucune modification enregistree dans Experio. " if DRY_RUN else ""
-    return f"{head}Facture {invoice['id']} : {SIDE[kind][3]} {name}, {account}."
+    return ok(f"{head}Facture {invoice['id']} : {SIDE[kind][3]} {name}, {account}.")
 
 
 def draft_invoice(invoice_id):
@@ -90,7 +92,8 @@ def draft_invoice(invoice_id):
 
 
 @server.tool()
-def link_tiers(invoice_id: int) -> str:
+@with_ids
+def link_tiers(invoice_id: int) -> dict:
     """Give a draft invoice its tiers -- the supplier of a purchase, the customer
     of a sale -- as Experio detected it from the scan, and make sure that tiers has
     its Compte Tiers (needed to post). Call it after classify_invoice. When no tiers
@@ -105,8 +108,8 @@ def link_tiers(invoice_id: int) -> str:
         return link(invoice, invoice["partner_id"][0], kind)
     printed = invoice[name_field]
     if not printed:
-        return f"Facture {invoice_id} : aucun {role} detecte sur le scan. Demandez au client son nom, puis find_tiers."
-    return f"Facture {invoice_id} : {role} « {printed} » introuvable par ICE/IF. " + find_tiers(invoice_id, printed)
+        return question(f"Facture {invoice_id} : aucun {role} detecte sur le scan. Quel est son nom ?")
+    return question(f"Facture {invoice_id} : {role} « {printed} » introuvable par ICE/IF. " + find_tiers(invoice_id, printed))
 
 
 @server.tool()
@@ -126,7 +129,8 @@ def find_tiers(invoice_id: int, name: str) -> str:
 
 
 @server.tool()
-def set_tiers(invoice_id: int, partner_id: int) -> str:
+@with_ids
+def set_tiers(invoice_id: int, partner_id: int) -> dict:
     """Put the tiers the client confirmed (an id from find_tiers) on a draft
     invoice, and make sure it has its Compte Tiers."""
     if not isinstance(partner_id, int) or isinstance(partner_id, bool) or partner_id <= 0:
@@ -170,3 +174,38 @@ def enable_tiers_autofill(dossier_id: int) -> str:
     if not all(saved[switch] for switch in values):
         return f"Dossier {dossier} : reglage refuse par Experio, a activer par le cabinet (Configuration > Parametres)."
     return f"Dossier {dossier} : numerotation automatique des Comptes Tiers activee."
+
+
+AFFIRMATIVE = ("oui", "yes", "c'est ca", "c'est bien", "exact", "ok", "d'accord")
+
+
+def pick_tiers(partners, answer, proposed_ids=()):
+    """The tiers the client means, or None. Their answer is free text: it may carry a
+    proposed tiers' id or full name ("oui, c'est bien ATLAS DE ROULEMENT"), be a plain yes
+    to a single proposal, or be a name to compare (80 % and 10 points ahead)."""
+    by_id = {p["id"]: p for p in partners}
+    named = [int(n) for n in re.findall(r"\d+", answer) if int(n) in by_id]
+    if len(set(named)) == 1:
+        return by_id[named[0]]
+    said = normalized(answer)
+    contained = [p for p in partners if normalized(re.sub(r"\s+-\s+\d+\s*$", "", p["name"])) in said]
+    if len(contained) == 1:
+        return contained[0]
+    if len(proposed_ids) == 1 and proposed_ids[0] in by_id and said.startswith(tuple(normalized(a) for a in AFFIRMATIVE)):
+        return by_id[proposed_ids[0]]
+    ranked = sorted(((similarity(answer, p["name"]), p) for p in partners), key=lambda pair: -pair[0])
+    if ranked and ranked[0][0] >= TIERS_MIN_SIMILARITY and (len(ranked) == 1 or ranked[0][0] - ranked[1][0] >= 0.1):
+        return ranked[0][1]
+    return None
+
+
+def set_tiers_by_name(invoice_id, answer, question_asked=""):
+    """Link the tiers the client named in answer to a tiers question; else the close ones."""
+    invoice = draft_invoice(invoice_id)
+    partners = odoo_call("exp.partner", "search_read", [("company_id", "=", invoice["company_id"][0])], fields=["id", "name"],
+                         context={"allowed_company_ids": [invoice["company_id"][0]]})
+    proposed = [int(n) for n in re.findall(r"\(id (\d+)", question_asked)]
+    partner = pick_tiers(partners, answer, proposed)
+    if partner:
+        return link(invoice, partner["id"], side_of(invoice))
+    return question(f"Facture {invoice_id} : « {answer} » ne designe pas un seul tiers. " + find_tiers(invoice_id, answer))

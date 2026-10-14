@@ -7,7 +7,7 @@ import psycopg
 import pypdfium2
 from mcp.server.mcpserver.exceptions import ToolError
 
-from app import server
+from app import with_ids, ok, question, server, stop
 from classify import CLASSIFY_PROMPT
 from documents import pdf_pages, to_pdf
 from experio import POSTGRES, odoo_call, require_dossier
@@ -26,7 +26,8 @@ def require_kind(name, kind, wanted):
         raise ToolError(f"{name} est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")
 
 @server.tool()
-def identify_document(file_id: int) -> str:
+@with_ids
+def identify_document(file_id: int) -> dict:
     """Call it first for every file the client sends: says whether it is an
     invoice (then split_invoices, create_draft_invoice) or a bank statement
     (then import_bank_statement). Nothing else accepts a file it hasn't seen."""
@@ -36,7 +37,7 @@ def identify_document(file_id: int) -> str:
             raise ToolError(f"Aucun fichier n° {file_id}.")
         name, mime, data, kind = row
         if kind:
-            return f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id})."
+            return ok(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
         raw = to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
         if mime != "application/pdf" and not mime.startswith("image/"):
             raise ToolError(f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
@@ -53,7 +54,7 @@ def identify_document(file_id: int) -> str:
             raise ToolError("Identification du document : echec, reessayez plus tard.")
         kind = "statement" if result["category"] == "rb" else "invoice"
         db.execute("update tarik_files set kind = %s where id = %s", (kind, file_id))
-    return f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id})."
+    return ok(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
 
 # tarik-master/tarik/agents/pages.py, verbatim.
 PAGES_PROMPT = """You are given the pages of one scanned PDF, in order, from a Moroccan
@@ -96,7 +97,8 @@ def pages_of(first, last):
     return f"page {first}" if first == last else f"pages {first}-{last}"
 
 @server.tool()
-def split_invoices(file_id: int) -> str:
+@with_ids
+def split_invoices(file_id: int) -> dict:
     """Call it first for every file the client sends: a PDF may hold several
     invoices. Returns the file number of each invoice found (the same file
     when it holds only one); create one draft per number returned."""
@@ -109,15 +111,16 @@ def split_invoices(file_id: int) -> str:
         require_kind(name, kind, "invoice")
         parts = db.execute("select id, file_name from tarik_files where parent_id = %s order by id", (file_id,)).fetchall()
         if parts:
-            return f"{name} : deja decoupe en {len(parts)} factures : " + ", ".join(f"fichier n° {i} ({n})" for i, n in parts) + "."
+            return ok(f"{name} : deja decoupe en {len(parts)} factures : " + ", ".join(f"fichier n° {i} ({n})" for i, n in parts) + ".",
+                      files=[i for i, _ in parts])
         if invoice_id or mime != "application/pdf":
-            return f"{name} : 1 facture, fichier n° {file_id}."
+            return ok(f"{name} : 1 facture, fichier n° {file_id}.", files=[file_id])
         try:
             pdf = pypdfium2.PdfDocument(bytes(data))
         except pypdfium2.PdfiumError:
-            return f"{name} : PDF illisible, 1 document, fichier n° {file_id}."
+            return ok(f"{name} : PDF illisible, 1 document, fichier n° {file_id}.", files=[file_id])
         if len(pdf) == 1:
-            return f"{name} : 1 facture, fichier n° {file_id}."
+            return ok(f"{name} : 1 facture, fichier n° {file_id}.", files=[file_id])
         pages = []
         for page in pdf:
             buffer = io.BytesIO()
@@ -125,19 +128,21 @@ def split_invoices(file_id: int) -> str:
             pages.append(buffer.getvalue())
         documents = split_pdf(bytes(data), invoice_starts(pages))
         if len(documents) == 1:
-            return f"{name} : 1 facture sur {len(pdf)} pages, fichier n° {file_id}."
+            return ok(f"{name} : 1 facture sur {len(pdf)} pages, fichier n° {file_id}.", files=[file_id])
         stem = name.removesuffix(".pdf")
-        made = []
+        made, ids = [], []
         for first, last, document in documents:
             label = f"{stem} - {pages_of(first, last)}.pdf"
             (new_id,) = db.execute(
                 "insert into tarik_files (session_id, file_name, mime_type, data, parent_id, kind) values (%s, %s, %s, %s, %s, 'invoice') returning id",
                 (session_id, label, "application/pdf", document, file_id)).fetchone()
             made.append(f"fichier n° {new_id} ({pages_of(first, last)})")
-    return f"{name} : {len(made)} factures : " + ", ".join(made) + "."
+            ids.append(new_id)
+    return ok(f"{name} : {len(made)} factures : " + ", ".join(made) + ".", files=ids)
 
 @server.tool()
-def create_draft_invoice(file_id: int, dossier_id: int) -> str:
+@with_ids
+def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
     """Create a draft invoice in Experio from a file the client sent, in the
     client's dossier. file_id is the number shown next to the file name;
     dossier_id comes from find_dossier. Safe to call again for the same file:
@@ -148,18 +153,18 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> str:
         row = db.execute("select file_name, mime_type, data, invoice_id, kind from tarik_files where id = %s for update",
                          (file_id,)).fetchone()
         if not row:
-            return f"Aucun fichier n° {file_id}."
+            raise ToolError(f"Aucun fichier n° {file_id}.")
         name, mime, data, existing, kind = row
         require_kind(name, kind, "invoice")
         if existing:
-            return f"{name} : facture brouillon deja creee (n° {existing})."
+            return ok(f"{name} : facture brouillon deja creee (n° {existing}).", invoice_id=existing)
         parts = [part for (part,) in db.execute("select id from tarik_files where parent_id = %s order by id", (file_id,))]
         if parts:
             raise ToolError(f"{name} a ete decoupe : creez les brouillons des fichiers n° {', '.join(map(str, parts))}.")
         if mime.startswith("image/"):
             data = to_pdf(bytes(data))
         elif mime != "application/pdf":
-            return f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo."
+            return stop(f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
         try:
             # Experio's own import wizard, as the upload screen uses it: its defaults, the
             # pending state and the Bluejay OCR job. A bare exp.invoice create skips all three.
@@ -175,12 +180,13 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> str:
             invoice_id = created[0]
         except Exception as error:
             print(f"create_draft_invoice: file {file_id}: {error}", flush=True)
-            return f"Experio n'a pas pu creer la facture pour {name}."
+            raise ToolError(f"Experio n'a pas pu creer la facture pour {name}.") from None
         db.execute("update tarik_files set invoice_id = %s where id = %s", (invoice_id, file_id))
-    return f"{name} : facture brouillon n° {invoice_id} creee dans le dossier {dossier}."
+    return ok(f"{name} : facture brouillon n° {invoice_id} creee dans le dossier {dossier}.", invoice_id=invoice_id)
 
 @server.tool()
-def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) -> str:
+@with_ids
+def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) -> dict:
     """Import a bank statement the client sent into the dossier's bank journal,
     through Experio's own statement import (Experio then reads its lines).
     journal_id: leave 0 when the dossier has one bank journal; with several,
@@ -195,7 +201,7 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
         name, mime, data, kind, existing = row
         require_kind(name, kind, "statement")
         if existing:
-            return f"{name} : releve deja importe (n° {existing})."
+            return ok(f"{name} : releve deja importe (n° {existing}).", statement_id=existing)
         try:
             journals = odoo_call("exp.journal", "search_read", [("company_id", "=", dossier_id), ("type", "=", "bank")],
                                  fields=["id", "name", "bank_id"], order="name")
@@ -205,11 +211,11 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
         usable = [j for j in journals if j["bank_id"]]  # Experio refuses a journal without its bank
         if not usable:
             unset = f" ({', '.join(j['name'] for j in journals)} sans banque renseignee)" if journals else ""
-            return f"Le dossier {dossier} n'a aucun journal de banque utilisable{unset} : a configurer par le cabinet."
+            return stop(f"Le dossier {dossier} n'a aucun journal de banque utilisable{unset} : a configurer par le cabinet.")
         if not journal_id:
             if len(usable) > 1:
-                return f"{name} : le dossier {dossier} a plusieurs comptes bancaires, lequel ? " + ", ".join(
-                    f"{j['name']} - {j['bank_id'][1]} (journal_id {j['id']})" for j in usable)
+                return question(f"{name} : le dossier {dossier} a plusieurs comptes bancaires, lequel ? " + ", ".join(
+                    f"{j['name']} - {j['bank_id'][1]} (journal_id {j['id']})" for j in usable))
             journal_id = usable[0]["id"]
         elif journal_id not in {j["id"] for j in usable}:
             raise ToolError(f"journal_id {journal_id} n'est pas un journal de banque utilisable du dossier {dossier}.")
@@ -229,4 +235,4 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
             raise ToolError(f"Experio n'a pas pu importer le releve {name}.") from None
         db.execute("update tarik_files set statement_id = %s where id = %s", (created[0], file_id))
     journal = next(j for j in usable if j["id"] == journal_id)
-    return f"{name} : releve importe (n° {created[0]}) dans le dossier {dossier}, journal {journal['name']}."
+    return ok(f"{name} : releve importe (n° {created[0]}) dans le dossier {dossier}, journal {journal['name']}.", statement_id=created[0])
