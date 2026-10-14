@@ -18,6 +18,7 @@ from server import server
 from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
 from accounts import resolve_account
 from tva import vat_answer
+from exercice import exercice_choice
 from prepaid import prepaid_period, yes_no
 from withholding import described, local_withholding_answer, withholding_answer
 
@@ -206,4 +207,12 @@ assert prepaid_period("2026-12-31", "2026-01-01") is None
 assert yes_no("Oui, vas-y") is True and yes_no("répartis-la") is True and yes_no("ok") is True
 assert yes_no("Non, c'est ponctuel") is False and yes_no("pas besoin") is False and yes_no("ne pas repartir") is False
 assert yes_no("je ne sais pas") is None and yes_no("") is None
-print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account, tva, withholding and prepaid checks ok")
+
+# Exercice choice, read in code (tarik-master asked a model).
+opens = [{"id": 1, "name": "Exercice 2024", "date_start": "2024-01-01", "date_end": "2024-12-31"},
+         {"id": 2, "name": "Exercice 2025", "date_start": "2025-01-01", "date_end": "2025-12-31"}]
+assert exercice_choice("dans l'exercice 2025 svp", opens) == ("old", opens[1])
+assert exercice_choice("Exercice 2024", opens) == ("old", opens[0])
+assert exercice_choice("cree un nouvel exercice", opens) == ("new", None) and exercice_choice("nouveau", opens) == ("new", None)
+assert exercice_choice("le premier", opens) is None and exercice_choice("2023", opens) is None  # unclear, or not an open one
+print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account, tva, withholding, prepaid and exercice checks ok")

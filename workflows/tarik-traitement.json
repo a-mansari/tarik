@@ -675,6 +675,46 @@
       }
     },
     {
+      "id": "10aa50f5-07d4-543b-a3fa-9ce044aafe15",
+      "name": "Exercice (settle_exercice)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        4640,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "settle_exercice"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "ab25e974-7f4b-5aa9-9787-168c1094627b",
+      "name": "Suite apres settle_exercice",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        4750,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
       "id": "cafce2f4-52c0-5f15-8563-85da097d45e1",
       "name": "Reponse du client (answer_pending)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -710,8 +750,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 6,
-        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2, check_journal: 3, settle_withholding: 4, settle_prepaid: 5 }[$json.content[0].text.next_step] ?? 0) }}"
+        "numberOutputs": 7,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2, check_journal: 3, settle_withholding: 4, settle_prepaid: 5, settle_exercice: 6 }[$json.content[0].text.next_step] ?? 0) }}"
       }
     },
     {
@@ -720,7 +760,7 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        4840,
+        5080,
         640
       ],
       "parameters": {
@@ -1374,6 +1414,47 @@
       "main": [
         [
           {
+            "node": "Exercice (settle_exercice)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Exercice (settle_exercice)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres settle_exercice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres settle_exercice": {
+      "main": [
+        [
+          {
             "node": "Enregistrer",
             "type": "main",
             "index": 0
@@ -1464,6 +1545,13 @@
         [
           {
             "node": "Constatee d'avance (settle_prepaid)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Exercice (settle_exercice)",
             "type": "main",
             "index": 0
           }
