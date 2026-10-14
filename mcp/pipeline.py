@@ -20,7 +20,7 @@ STEPS = {
     "identify_document": "identification", "import_bank_statement": "releve bancaire", "split_invoices": "decoupage",
     "create_draft_invoice": "brouillon", "wait_until_read": "lecture par Experio", "check_invoice": "verification",
     "correct_invoice": "correction", "classify_invoice": "classement", "link_tiers": "tiers",
-    "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA", "check_journal": "journal", "settle_withholding": "retenue a la source", "settle_prepaid": "constatee d'avance", "settle_exercice": "exercice",
+    "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA", "check_journal": "journal", "settle_withholding": "retenue a la source", "settle_prepaid": "constatee d'avance", "settle_exercice": "exercice", "post_invoice": "comptabilisation",
 }
 # A pending question, the call that applies the client's answer, and the step that follows.
 ANSWERS = {
@@ -29,7 +29,7 @@ ANSWERS = {
     "settle_tva": (settle_tva, "check_journal"),
     "settle_withholding": (settle_withholding, "settle_prepaid"),
     "settle_prepaid": (settle_prepaid, "settle_exercice"),
-    "settle_exercice": (settle_exercice, None),
+    "settle_exercice": (settle_exercice, "post_invoice"),
 }
 
 
