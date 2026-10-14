@@ -76,9 +76,9 @@
       ],
       "parameters": {
         "promptType": "define",
-        "text": "={{ $('Message a Tarik').item.json.chatInput || '(pas de message)' }}{{ $('Enregistrer fichiers').item.json.files.length ? '\\n\\nFichiers joints : ' + $('Enregistrer fichiers').item.json.files.map(f => f.file_name + ' (fichier n° ' + f.id + ')').join(', ') : '' }}{{ $json.pending.length ? '\\n\\nQuestions en attente : ' + $json.pending.map(p => 'facture ' + p.invoice_id + ' : ' + p.question).join(' | ') : '' }}",
+        "text": "={{ $('Message a Tarik').item.json.chatInput || '(pas de message)' }}{{ $('Enregistrer fichiers').item.json.files.length ? '\\n\\nFichiers joints : ' + $('Enregistrer fichiers').item.json.files.map(f => f.file_name + ' (fichier n° ' + f.id + ')').join(', ') : '' }}{{ $('Questions en attente').item.json.pending.length ? '\\n\\nQuestions en attente : ' + $('Questions en attente').item.json.pending.map(p => 'facture ' + p.invoice_id + ' : ' + p.question).join(' | ') : '' }}{{ $json.content?.[0]?.text?.invoices?.length ? '\\n\\nFactures en attente de lecture par Experio : ' + $json.content[0].text.invoices.join(', ') : '' }}",
         "options": {
-          "systemMessage": "Tu es Tarik, assistant comptable d'un cabinet marocain. Réponds dans la langue du client, en phrases courtes. Vouvoie-le, sans civilité.\n\nCe que tu fais, et seulement cela :\n1. Fichiers reçus : trouve le dossier avec find_dossier, à partir du nom donné par le client. S'il n'a pas dit quel dossier, ou si plusieurs dossiers se ressemblent, demande-lui lequel. Puis appelle traiter_fichiers une seule fois, avec l'id du dossier et les numéros de tous les fichiers joints. Recopie son résultat mot pour mot, facture par facture, sans le reformuler (les numéros surtout).\n2. Questions en attente : elles te sont données avec le message du client. S'il y répond, appelle repondre avec le numéro de la facture et sa réponse, puis recopie le résultat mot pour mot. Sinon, rappelle-lui les questions.\n3. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.\n\nRègles :\n- N'invente aucun résultat. Ne propose aucune action que tu ne peux pas faire. Ne dis jamais que tu transmets quelque chose au cabinet.\n- Ne cite ni le nom de tes outils, ni d'autres numéros que ceux des factures.\n- Si un résultat contient « MODE TEST », dis que c'est un essai et que rien n'a été enregistré.",
+          "systemMessage": "Tu es Tarik, assistant comptable d'un cabinet marocain. Réponds dans la langue du client, en phrases courtes. Vouvoie-le, sans civilité.\n\nCe que tu fais, et seulement cela :\n1. Fichiers reçus : trouve le dossier avec find_dossier, à partir du nom donné par le client. S'il n'a pas dit quel dossier, ou si plusieurs dossiers se ressemblent, demande-lui lequel. Puis appelle traiter_fichiers une seule fois, avec l'id du dossier et les numéros de tous les fichiers joints. Recopie son résultat mot pour mot, facture par facture, sans le reformuler (les numéros surtout).\n2. Questions en attente : elles te sont données avec le message du client. S'il y répond, appelle repondre avec le numéro de la facture et sa réponse, puis recopie le résultat mot pour mot. Sinon, rappelle-lui les questions.\n3. Factures en attente de lecture : elles te sont données avec le message du client. Appelle reprendre une seule fois, puis recopie son résultat mot pour mot.\n4. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.\n\nRègles :\n- N'invente aucun résultat. Ne propose aucune action que tu ne peux pas faire. Ne dis jamais que tu transmets quelque chose au cabinet.\n- Ne cite ni le nom de tes outils, ni d'autres numéros que ceux des factures.",
           "passthroughBinaryImages": false
         }
       },
@@ -149,7 +149,8 @@
         "includeTools": [
           "experio_connection",
           "list_dossiers",
-          "find_dossier"
+          "find_dossier",
+          "list_invoices"
         ]
       }
     },
@@ -365,6 +366,126 @@
           "name": "Tarik Postgres"
         }
       }
+    },
+    {
+      "id": "bea448c1-1139-55b3-b34b-6ac4a4252471",
+      "name": "Brouillons en attente",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        0
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "waiting_drafts"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Message a Tarik').item.json.sessionId }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "094759d5-3ec6-5be8-a71a-e6bb1377ccb6",
+      "name": "reprendre",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        1060,
+        380
+      ],
+      "parameters": {
+        "description": "Reprend les factures en attente de lecture par Experio, a l'etape de lecture, puis la suite du traitement. Renvoie le resultat facture par facture.",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "TarikTraitement1",
+          "cachedResultName": "Tarik - Traitement"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "mode": "resume",
+            "session_id": "={{ $('Message a Tarik').item.json.sessionId }}",
+            "dossier_id": 0,
+            "file_ids": "={{ [] }}",
+            "invoice_id": 0,
+            "answer": ""
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "mode",
+              "displayName": "mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "session_id",
+              "displayName": "session_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "dossier_id",
+              "displayName": "dossier_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number",
+              "removed": false
+            },
+            {
+              "id": "file_ids",
+              "displayName": "file_ids",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "any",
+              "removed": false
+            },
+            {
+              "id": "invoice_id",
+              "displayName": "invoice_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number",
+              "removed": false
+            },
+            {
+              "id": "answer",
+              "displayName": "answer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
     }
   ],
   "connections": {
@@ -460,8 +581,30 @@
       "main": [
         [
           {
+            "node": "Brouillons en attente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brouillons en attente": {
+      "main": [
+        [
+          {
             "node": "Tarik",
             "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "reprendre": {
+      "ai_tool": [
+        [
+          {
+            "node": "Tarik",
+            "type": "ai_tool",
             "index": 0
           }
         ]

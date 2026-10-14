@@ -59,8 +59,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.mode === 'answer' ? 1 : 0 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.mode === 'answer' ? 1 : ($json.mode === 'resume' ? 2 : 0) }}"
       }
     },
     {
@@ -780,6 +780,44 @@
       }
     },
     {
+      "id": "d59f61c8-4cc7-57a4-a945-ff6a52f28e74",
+      "name": "Brouillons en attente (waiting_drafts)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        1000
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "waiting_drafts"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "585fe094-8fc3-5b8a-ae3e-41ff1deb9f53",
+      "name": "Une facture par brouillon",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        1000
+      ],
+      "parameters": {
+        "jsCode": "// Each waiting draft, shaped like a step's answer so the reading step takes its invoice_id.\nreturn $input.first().json.content[0].text.invoices.map(invoice_id => ({ json: { content: [{ type: 'text', text: { status: 'ok', invoice_id } }] } }));"
+      }
+    },
+    {
       "id": "cafce2f4-52c0-5f15-8563-85da097d45e1",
       "name": "Reponse du client (answer_pending)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -851,7 +889,7 @@
       "typeVersion": 1.1,
       "position": [
         220,
-        1100
+        1250
       ],
       "parameters": {
         "endpointUrl": "http://tarik-mcp:8000/mcp",
@@ -899,6 +937,13 @@
         [
           {
             "node": "Reponse du client (answer_pending)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Brouillons en attente (waiting_drafts)",
             "type": "main",
             "index": 0
           }
@@ -1605,6 +1650,35 @@
         [
           {
             "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brouillons en attente (waiting_drafts)": {
+      "main": [
+        [
+          {
+            "node": "Une facture par brouillon",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Une facture par brouillon": {
+      "main": [
+        [
+          {
+            "node": "Lecture Experio (wait_until_read)",
             "type": "main",
             "index": 0
           }

@@ -9,7 +9,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from accounts import set_account
 from app import ok, server, stop, wait, with_ids
-from experio import POSTGRES, require_invoice
+from experio import POSTGRES, odoo_call, require_invoice
 from tiers import set_tiers_by_name
 from tva import settle_tva
 from exercice import settle_exercice
@@ -43,7 +43,7 @@ def wait_until_read(invoice_id: int) -> dict:
         if state not in ("pending", "sent"):
             return ok(f"Facture {invoice_id} : lue par Experio.")
         time.sleep(15)
-    return wait(f"Facture {invoice_id} : Experio la lit encore, elle sera traitee a votre prochain message.")
+    return wait(f"Facture {invoice_id} : Experio la lit encore, elle sera reprise a votre prochain message.")
 
 
 @server.tool()
@@ -133,3 +133,18 @@ def files_to_process(session_id: str, file_ids: list | dict | str | int | None =
                 "select id from tarik_files where session_id = %s and parent_id is null and kind is null "
                 "and invoice_id is null and statement_id is null order by id", (session_id,))]
     return ok(f"{len(own)} fichier(s) a traiter.", files=own)
+
+
+@server.tool()
+def waiting_drafts(session_id: str) -> dict:
+    """This conversation's drafts still waiting on Experio's reading, to resume from
+    there: the last time, wait_until_read gave up and no later step ran."""
+    with psycopg.connect(**POSTGRES) as db:
+        waiting = [i for (i,) in db.execute(
+            "select distinct invoice_id from tarik_results r where session_id = %s and step = 'wait_until_read' "
+            "and status = 'wait' and not exists (select 1 from tarik_results later where later.invoice_id = r.invoice_id "
+            "and (later.step not in ('create_draft_invoice', 'wait_until_read') "
+            "or (later.step = 'wait_until_read' and later.status <> 'wait'))) order by invoice_id", (session_id,))]
+    if waiting:  # a draft deleted in Experio since then is not resumed
+        waiting = sorted(odoo_call("exp.invoice", "search", [("id", "in", waiting), ("state", "in", ["pending", "draft"])]))
+    return ok(f"{len(waiting)} facture(s) en attente de lecture.", invoices=waiting)
