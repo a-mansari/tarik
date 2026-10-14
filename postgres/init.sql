@@ -7,6 +7,8 @@ create table if not exists tarik_files (
     data bytea not null,
     invoice_id integer, -- the draft invoice made from it: a second call must not make another
     parent_id integer references tarik_files (id), -- set on each invoice cut out of a multi-invoice PDF
+    kind text check (kind in ('invoice', 'statement')), -- set by identify_document, before anything is created
+    statement_id integer, -- the bank statement imported from it: a second call must not import it again
     created_at timestamptz not null default now()
 );
 
@@ -17,4 +19,12 @@ create table if not exists tarik_checks (
     extracted jsonb not null,
     bad_fields jsonb not null,
     checked_at timestamptz not null default now()
+);
+
+-- What classify_invoice decided: achat, vente or rb (bank statement). The tiers and account steps read it.
+create table if not exists tarik_classifications (
+    invoice_id integer primary key,
+    category text not null check (category in ('achat', 'vente', 'rb')),
+    reason text not null,
+    classified_at timestamptz not null default now()
 );
