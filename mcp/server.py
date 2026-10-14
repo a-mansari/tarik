@@ -44,6 +44,7 @@ ODOO_DB = exact_cabinet(os.getenv("ODOO_DB"))
 ODOO_UID = expected_uid(os.getenv("ODOO_UID"))
 ODOO_USER = os.environ["ODOO_USER"]
 ODOO_KEY = os.getenv("ODOO_API_KEY") or os.environ["ODOO_PASSWORD"]
+DRY_RUN = os.getenv("DRY_RUN", "1") == "1"  # 1: tools that write to Experio only say what they would write
 POSTGRES = {"host": "postgres", "dbname": os.environ["POSTGRES_DB"], "user": os.environ["POSTGRES_USER"],
             "password": os.environ["POSTGRES_PASSWORD"]}
 
@@ -70,15 +71,30 @@ def experio_connection() -> str:
     return "Connecte au systeme Experio."
 
 
-def odoo_call(model, method, *args, **kw):
-    """One authenticated call to Experio's Odoo."""
+def login():
+    """Tarik's uid in the cabinet, checked against ODOO_UID."""
     uid = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common").authenticate(ODOO_DB, ODOO_USER, ODOO_KEY, {})
     if not uid:
         raise PermissionError(f"login refused for {ODOO_USER} on {ODOO_DB}")
     if uid != ODOO_UID:
         raise PermissionError(f"{ODOO_USER} on {ODOO_DB} is uid {uid}, expected {ODOO_UID}: wrong cabinet or user")
+    return uid
+
+
+def odoo_call(model, method, *args, **kw):
+    """One authenticated call to Experio's Odoo."""
     models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object", allow_none=True)
-    return models.execute_kw(ODOO_DB, uid, ODOO_KEY, model, method, list(args), kw)
+    return models.execute_kw(ODOO_DB, login(), ODOO_KEY, model, method, list(args), kw)
+
+
+def odoo_json(model, method, *args, **kw):
+    """The same call over JSON-RPC, for answers holding None (onchange), which XML-RPC can't carry."""
+    answer = httpx.post(f"{ODOO_URL}/jsonrpc", timeout=600, json={"jsonrpc": "2.0", "method": "call", "params": {
+        "service": "object", "method": "execute_kw",
+        "args": [ODOO_DB, login(), ODOO_KEY, model, method, list(args), kw]}}).json()
+    if "error" in answer:
+        raise RuntimeError(answer["error"].get("data", {}).get("message") or answer["error"].get("message"))
+    return answer.get("result")
 
 
 def to_pdf(raw):
@@ -534,14 +550,19 @@ def check_invoice(invoice_id: int) -> str:
         page.render(scale=150 / 72).to_pil().save(buffer, format="PNG")
         pages.append(buffer.getvalue())
     # The model is told "Experio", never "Odoo": its explanations reach the client.
-    answer = ask_model(f"{OCR_PROMPT.replace('Odoo', 'Experio')}\nToday's date is {date.today()}.", pages,
-                       "Values captured in Experio:\n" + json.dumps(stored, default=str, ensure_ascii=False, indent=2)
-                       + "\n\n" + OCR_SHAPE, "Verification de la facture")
-    try:
-        report = resolve_report(answer, stored)
-    except ValueError as error:
-        print(f"check_invoice {invoice_id}: {error}", flush=True)
-        raise ToolError("Verification de la facture : echec, reessayez plus tard.") from None
+    # Asked twice when it says "unreadable": MiniMax-M3 sometimes does on a page it reads fine the next time.
+    for attempt in range(2):
+        answer = ask_model(f"{OCR_PROMPT.replace('Odoo', 'Experio')}\nToday's date is {date.today()}.", pages,
+                           "Values captured in Experio:\n" + json.dumps(stored, default=str, ensure_ascii=False, indent=2)
+                           + "\n\n" + OCR_SHAPE, "Verification de la facture")
+        try:
+            report = resolve_report(answer, stored)
+        except ValueError as error:
+            print(f"check_invoice {invoice_id}: {error}", flush=True)
+            raise ToolError("Verification de la facture : echec, reessayez plus tard.") from None
+        if report["readable"]:
+            break
+        print(f"check_invoice {invoice_id}: model said unreadable (attempt {attempt + 1})", flush=True)
     with psycopg.connect(**POSTGRES) as db:
         db.execute("insert into tarik_checks (invoice_id, readable, extracted, bad_fields) values (%s, %s, %s, %s) "
                    "on conflict (invoice_id) do update set readable = excluded.readable, extracted = excluded.extracted, "
@@ -553,6 +574,115 @@ def check_invoice(invoice_id: int) -> str:
         return f"Facture {invoice_id} : conforme, ce qu'Experio a lu correspond au scan."
     return f"Facture {invoice_id} : {len(report['bad_fields'])} ecart(s) entre Experio et le scan :\n" + "\n".join(
         f"- {b['field']} : {b['problem']}" for b in report["bad_fields"])
+
+
+# Header fields the correction may write (tarik-master odoo.WRITABLE); tiers, account, journal... are later steps.
+WRITABLE = {"invoice_number", "invoice_date", "amount_untaxed", "amount_tva", "amount_stamp", "amount_disbursement",
+            "amount_guarantee_holdback", "amount_prorata", "amount_insurance", "amount_ts", "amount_tsp",
+            "advance_amount", "amount_total"}
+MULTI_TVA_RATES = {7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20}  # the amount_tva_<rate> fields Experio has
+PAYMENT_METHODS = {"especes": "Esp", "cheque": "Ch", "virement": "Virement", "effet": "Effet",
+                   "prelevement": "Pr", "compensation": "Compensation"}
+
+
+def planned_changes(extracted, bad_fields, invoice):
+    """What the check says to write: the differing header fields, the credit note and
+    the multi-TVA split (tarik-master orchestrator.correct + odoo.apply_variants)."""
+    changes = {b["field"]: extracted[b["field"]] for b in bad_fields
+               if b["field"] in WRITABLE and extracted.get(b["field"]) is not None}
+    if extracted.get("is_credit_note") and not invoice.get("refund"):
+        changes["refund"] = True
+    rates = {int(line["rate"]): line["amount_tva"] for line in extracted.get("tva_lines") or []
+             if line.get("amount_ht") and line.get("rate") is not None}
+    if len(rates) > 1 and not invoice.get("amount_tax_non_recoverable") and set(rates) - {0} <= MULTI_TVA_RATES:
+        changes["multi_tva"] = True
+        changes.update({f"amount_tva_{rate}": amount for rate, amount in rates.items() if rate})
+        changes["amount_tva"] = round(sum(rates.values()), 2)
+    return changes
+
+
+FORM_SKIP = {"one2many", "many2many", "binary", "html", "properties", "json"}
+_form = {}
+
+
+def fill_invoice(invoice_id, changes, context):
+    """Type ``changes`` into the invoice form one field at a time, as a user does:
+    after each one Experio's onchange fills what it fills on screen (exchange
+    rate, withholding...). Then save, unless DRY_RUN. Returns every field that
+    ends up changed, Experio's included (tarik-master odoo.fill)."""
+    if not _form:
+        meta = odoo_call("exp.invoice", "fields_get", [], attributes=["type", "store", "readonly"])
+        _form["types"] = {name: m["type"] for name, m in meta.items() if m.get("store") and m["type"] not in FORM_SKIP
+                          and not name.startswith("__") and name not in ("id", "create_uid", "write_uid", "create_date", "write_date")}
+        _form["editable"] = {name for name, m in meta.items() if not m.get("readonly")}
+    types = _form["types"]
+    current = odoo_call("exp.invoice", "read", [invoice_id], fields=list(types), context=context)[0]
+    values = {k: (v[0] if types.get(k) == "many2one" and v else v) for k, v in current.items() if k in types}
+    start = dict(values)
+    spec = {name: {} for name in types}
+    for name, value in changes.items():
+        values[name] = value
+        answer = odoo_json("exp.invoice", "onchange", [invoice_id], values, [name], spec, context=context)
+        for key, new in ((answer or {}).get("value") or {}).items():
+            if key in types:
+                values[key] = new.get("id") if isinstance(new, dict) else new
+    changed = {k: v for k, v in values.items() if v != start.get(k) and (k in _form["editable"] or k in changes)}
+    if changed and not DRY_RUN:
+        odoo_call("exp.invoice", "write", [invoice_id], changed, context=context)
+    return changed
+
+
+@server.tool()
+def correct_invoice(invoice_id: int) -> str:
+    """Correct a draft invoice from its check: writes what check_invoice read on
+    the scan over the fields Experio captured differently (amounts, number,
+    date, credit note, multi-TVA, currency, payment method), then lets Experio
+    rebuild its TVA lines. Call check_invoice first."""
+    invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "refund", "amount_tax_non_recoverable",
+                                           "payment_method_id", "currency_id"])
+    if invoice["state"] != "draft":
+        raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut etre corrigee.")
+    with psycopg.connect(**POSTGRES) as db:
+        row = db.execute("select readable, extracted, bad_fields from tarik_checks where invoice_id = %s", (invoice_id,)).fetchone()
+    if not row:
+        raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice.")
+    readable, extracted, bad_fields = row
+    if not readable:
+        return f"Facture {invoice_id} : scan illisible, rien a corriger."
+    changes = planned_changes(extracted, bad_fields, invoice)
+    notes = []
+    try:
+        code = (extracted.get("currency") or "MAD").upper()
+        if code != "MAD":
+            currency = odoo_call("res.currency", "search_read", [("name", "=", code)], fields=["id"], limit=1)
+            if currency:
+                changes["currency_id"] = currency[0]["id"]  # Experio fetches the rate for the invoice date itself
+            else:
+                notes.append(f"devise {code} inconnue dans Experio")
+        method = PAYMENT_METHODS.get((extracted.get("payment_method") or "").lower())
+        if method and not invoice["payment_method_id"]:
+            found = odoo_call("exp.payment.method", "search_read", [("name", "=ilike", f"{method}%")], fields=["id"], limit=1)
+            if found:
+                changes["payment_method_id"] = found[0]["id"]
+        if not changes:
+            return f"Facture {invoice_id} : rien a corriger." + (f" ({'; '.join(notes)})" if notes else "")
+        # Validate against this invoice's own exercice, not the cabinet's latest (odoo._exercice_context).
+        context = {"allowed_company_ids": [invoice["company_id"][0]]}
+        if invoice["exercice_id"]:
+            context["cron_fiscal_entry_id"] = invoice["exercice_id"][0]
+        changed = fill_invoice(invoice_id, changes, context)
+        if not changed:
+            return f"Facture {invoice_id} : deja a jour, rien a changer."
+        if not DRY_RUN:
+            odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)  # Experio's own "Actualiser"; returns None, hence JSON-RPC
+    except Exception as error:
+        print(f"correct_invoice {invoice_id}: {error}", flush=True)
+        raise ToolError(f"Facture {invoice_id} : Experio a refuse la correction.") from None
+    shown = ", ".join(f"{field} = {changed.get(field, value)}" for field, value in changes.items())
+    other = sorted(set(changed) - set(changes))
+    head = (f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id}, correction prevue : {shown}."
+            if DRY_RUN else f"Facture {invoice_id} : corrigee : {shown}.")
+    return head + (f" Experio a aussi mis a jour : {', '.join(other)}." if other else "") + (f" ({'; '.join(notes)})" if notes else "")
 
 
 if __name__ == "__main__":
