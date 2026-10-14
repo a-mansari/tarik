@@ -9,7 +9,13 @@ import io
 import pypdfium2
 from PIL import Image
 
-from server import MIN_SIMILARITY, exact_cabinet, expected_uid, drop_false_alarms, planned_changes, require_kind, require_invoice, resolve_date, resolve_report, split_pdf, require_dossier, server, similarity
+from check import drop_false_alarms, resolve_date, resolve_report
+from correct import planned_changes
+from dossiers import MIN_SIMILARITY, similarity
+from experio import exact_cabinet, expected_uid, require_dossier, require_invoice
+from intake import require_kind, split_pdf
+from server import server
+from tiers import TIERS_MIN_SIMILARITY, set_tiers
 
 DOSSIERS = ["STE ALLIANCE GENIE CIVIL SARL", "Alliance Transport", "Boulangerie Atlas", "ATLAS IMMOBILIER", "Cabinet Benali"]
 
@@ -145,4 +151,15 @@ for kind, wanted, hint in ((None, "invoice", "identify_document"), ("statement",
         assert hint in str(error), error
     else:
         raise AssertionError(f"require_kind accepted {kind} as {wanted}")
-print("similarity, dossier, cabinet, split, check, false-alarm, correction and kind checks ok")
+
+for bad in (None, 0, -3, True):
+    try:
+        set_tiers(1, bad)
+    except ToolError as error:
+        assert "partner_id" in str(error)
+    else:
+        raise AssertionError(f"set_tiers accepted {bad!r}")
+assert similarity("GAMMA DISTRIBUTION SARL", "DELTA FAIR DISTRIBUTION") < TIERS_MIN_SIMILARITY  # shared generic words only
+assert similarity("atlas roulement", "ATLAS DE ROULEMENT") >= TIERS_MIN_SIMILARITY
+assert similarity("Nova Telecom SA", "NOVA TELECOM") >= TIERS_MIN_SIMILARITY > similarity("Nova Telecom SA", "ORBIT TELECOM")
+print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind and tiers checks ok")
