@@ -9,7 +9,7 @@ import io
 import pypdfium2
 from PIL import Image
 
-from server import MIN_SIMILARITY, exact_cabinet, expected_uid, drop_false_alarms, planned_changes, require_invoice, resolve_date, resolve_report, split_pdf, require_dossier, server, similarity
+from server import MIN_SIMILARITY, exact_cabinet, expected_uid, drop_false_alarms, planned_changes, require_kind, require_invoice, resolve_date, resolve_report, split_pdf, require_dossier, server, similarity
 
 DOSSIERS = ["STE ALLIANCE GENIE CIVIL SARL", "Alliance Transport", "Boulangerie Atlas", "ATLAS IMMOBILIER", "Cabinet Benali"]
 
@@ -134,4 +134,15 @@ assert "multi_tva" not in planned_changes({"tva_lines": [{"rate": 20, "amount_ht
                                                          {"rate": 19, "amount_ht": 50, "amount_tva": 9.5}]}, [], {})  # no amount_tva_19 field
 assert "multi_tva" not in planned_changes({"tva_lines": multi and [{"rate": 20, "amount_ht": 100, "amount_tva": 20},
                                                                   {"rate": 10, "amount_ht": 50, "amount_tva": 5}]}, [], {"amount_tax_non_recoverable": True})
-print("similarity, dossier, cabinet, split, check, false-alarm and correction checks ok")
+
+# A file is identified before anything is made from it.
+require_kind("f.pdf", "invoice", "invoice")
+for kind, wanted, hint in ((None, "invoice", "identify_document"), ("statement", "invoice", "import_bank_statement"),
+                           ("invoice", "statement", "split_invoices")):
+    try:
+        require_kind("f.pdf", kind, wanted)
+    except ToolError as error:
+        assert hint in str(error), error
+    else:
+        raise AssertionError(f"require_kind accepted {kind} as {wanted}")
+print("similarity, dossier, cabinet, split, check, false-alarm, correction and kind checks ok")

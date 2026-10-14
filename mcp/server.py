@@ -44,7 +44,9 @@ ODOO_DB = exact_cabinet(os.getenv("ODOO_DB"))
 ODOO_UID = expected_uid(os.getenv("ODOO_UID"))
 ODOO_USER = os.environ["ODOO_USER"]
 ODOO_KEY = os.getenv("ODOO_API_KEY") or os.environ["ODOO_PASSWORD"]
-DRY_RUN = os.getenv("DRY_RUN", "1") == "1"  # 1: tools that write to Experio only say what they would write
+DRY_RUN = os.getenv("DRY_RUN", "1") == "1"
+# IPv4 only: the container has no IPv6 route, and httpx does not fall back when a host's IPv6 address comes first.
+HTTP = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"))  # 1: tools that write to Experio only say what they would write
 POSTGRES = {"host": "postgres", "dbname": os.environ["POSTGRES_DB"], "user": os.environ["POSTGRES_USER"],
             "password": os.environ["POSTGRES_PASSWORD"]}
 
@@ -89,7 +91,7 @@ def odoo_call(model, method, *args, **kw):
 
 def odoo_json(model, method, *args, **kw):
     """The same call over JSON-RPC, for answers holding None (onchange), which XML-RPC can't carry."""
-    answer = httpx.post(f"{ODOO_URL}/jsonrpc", timeout=600, json={"jsonrpc": "2.0", "method": "call", "params": {
+    answer = HTTP.post(f"{ODOO_URL}/jsonrpc", timeout=600, json={"jsonrpc": "2.0", "method": "call", "params": {
         "service": "object", "method": "execute_kw",
         "args": [ODOO_DB, login(), ODOO_KEY, model, method, list(args), kw]}}).json()
     if "error" in answer:
@@ -191,11 +193,12 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> str:
     dossier = require_dossier(dossier_id)
     with psycopg.connect(**POSTGRES) as db:
         # Locked until the draft is recorded, so a retry can't create a second one.
-        row = db.execute("select file_name, mime_type, data, invoice_id from tarik_files where id = %s for update",
+        row = db.execute("select file_name, mime_type, data, invoice_id, kind from tarik_files where id = %s for update",
                          (file_id,)).fetchone()
         if not row:
             return f"Aucun fichier n° {file_id}."
-        name, mime, data, existing = row
+        name, mime, data, existing, kind = row
+        require_kind(name, kind, "invoice")
         if existing:
             return f"{name} : facture brouillon deja creee (n° {existing})."
         parts = [part for (part,) in db.execute("select id from tarik_files where parent_id = %s order by id", (file_id,))]
@@ -252,7 +255,7 @@ def ask_model(system, pages, instruction, what):
                                             "data": base64.b64encode(page).decode()}} for page in pages]
     content.append({"type": "text", "text": instruction})
     try:
-        answer = httpx.post(f"{url.rstrip('/')}/v1/messages", timeout=300, headers={
+        answer = HTTP.post(f"{url.rstrip('/')}/v1/messages", timeout=300, headers={
             "x-api-key": key, "anthropic-version": "2023-06-01"}, json={
             "model": model, "max_tokens": 8192, "temperature": 0, "system": system, "messages": [{"role": "user", "content": content}]})
         answer.raise_for_status()
@@ -299,11 +302,12 @@ def split_invoices(file_id: int) -> str:
     invoices. Returns the file number of each invoice found (the same file
     when it holds only one); create one draft per number returned."""
     with psycopg.connect(**POSTGRES) as db:
-        row = db.execute("select session_id, file_name, mime_type, data, invoice_id from tarik_files where id = %s for update",
+        row = db.execute("select session_id, file_name, mime_type, data, invoice_id, kind from tarik_files where id = %s for update",
                          (file_id,)).fetchone()
         if not row:
             raise ToolError(f"Aucun fichier n° {file_id}.")
-        session_id, name, mime, data, invoice_id = row
+        session_id, name, mime, data, invoice_id, kind = row
+        require_kind(name, kind, "invoice")
         parts = db.execute("select id, file_name from tarik_files where parent_id = %s order by id", (file_id,)).fetchall()
         if parts:
             return f"{name} : deja decoupe en {len(parts)} factures : " + ", ".join(f"fichier n° {i} ({n})" for i, n in parts) + "."
@@ -328,7 +332,7 @@ def split_invoices(file_id: int) -> str:
         for first, last, document in documents:
             label = f"{stem} - {pages_of(first, last)}.pdf"
             (new_id,) = db.execute(
-                "insert into tarik_files (session_id, file_name, mime_type, data, parent_id) values (%s, %s, %s, %s, %s) returning id",
+                "insert into tarik_files (session_id, file_name, mime_type, data, parent_id, kind) values (%s, %s, %s, %s, %s, 'invoice') returning id",
                 (session_id, label, "application/pdf", document, file_id)).fetchone()
             made.append(f"fichier n° {new_id} ({pages_of(first, last)})")
     return f"{name} : {len(made)} factures : " + ", ".join(made) + "."
@@ -544,11 +548,7 @@ def check_invoice(invoice_id: int) -> str:
     stored["ice"] = (odoo_call("exp.partner", "read", [partner[0]], fields=["ice"])[0]["ice"] or None) if partner else None
     if not invoice["document_pdf"] or invoice["file_type"] not in (False, None, "pdf"):
         return f"Facture {invoice_id} : pas de scan PDF a verifier."
-    pages = []
-    for page in list(pypdfium2.PdfDocument(base64.b64decode(invoice["document_pdf"])))[:MAX_PAGES]:
-        buffer = io.BytesIO()
-        page.render(scale=150 / 72).to_pil().save(buffer, format="PNG")
-        pages.append(buffer.getvalue())
+    pages = scan_pages(invoice["document_pdf"])
     # The model is told "Experio", never "Odoo": its explanations reach the client.
     # Asked twice when it says "unreadable": MiniMax-M3 sometimes does on a page it reads fine the next time.
     for attempt in range(2):
@@ -683,6 +683,178 @@ def correct_invoice(invoice_id: int) -> str:
     head = (f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id}, correction prevue : {shown}."
             if DRY_RUN else f"Facture {invoice_id} : corrigee : {shown}.")
     return head + (f" Experio a aussi mis a jour : {', '.join(other)}." if other else "") + (f" ({'; '.join(notes)})" if notes else "")
+
+
+# tarik-master/tarik/agents/classify.py, verbatim.
+CLASSIFY_PROMPT = """You look at a scanned document from a Moroccan accounting cabinet
+and decide what it is, before anything else is done with it.
+
+- achat: a supplier invoice ("Facture", "Facture N°") addressed TO the cabinet's
+  client -- the cabinet's client is the buyer, named in "Facturé à" / "Bill to".
+- vente: an invoice the cabinet's client itself issued to one of ITS OWN
+  customers -- the cabinet's client is the seller, its own letterhead is at the
+  top billing someone else.
+- rb: a releve bancaire (bank statement) -- a list of transactions/movements
+  over a period, issued by a bank, not a single invoice with a HT/TVA/TTC total.
+
+Look at the whole page: who bills whom, and whether it is a single invoice or a
+table of bank movements. Give a one-sentence reason in French.
+"""
+CATEGORY_TO_TYPE = {"achat": "purchase", "vente": "sale"}
+
+
+def scan_pages(document_pdf, scale=150 / 72):
+    """The first MAX_PAGES pages of a scan stored in Experio (base64), as PNG bytes."""
+    return pdf_pages(base64.b64decode(document_pdf), scale)
+
+
+def pdf_pages(raw, scale=150 / 72):
+    """The first MAX_PAGES pages of a PDF, as PNG bytes."""
+    pages = []
+    for page in list(pypdfium2.PdfDocument(raw))[:MAX_PAGES]:
+        buffer = io.BytesIO()
+        page.render(scale=scale).to_pil().save(buffer, format="PNG")
+        pages.append(buffer.getvalue())
+    return pages
+
+
+@server.tool()
+def classify_invoice(invoice_id: int) -> str:
+    """Decide what a draft really is once Experio has read it: a purchase
+    (achat), a sale (vente) or a bank statement (rb, not an invoice at all).
+    Sets the invoice's type when Experio has it wrong; writes nothing for a
+    bank statement."""
+    invoice = require_invoice(invoice_id, ["state", "type", "company_id", "exercice_id", "bluejay_state", "document_pdf", "file_type"])
+    if invoice["bluejay_state"] in ("pending", "sent"):
+        return f"Facture {invoice_id} : Experio est encore en train de la lire, reessayez dans une minute."
+    if not invoice["document_pdf"] or invoice["file_type"] not in (False, None, "pdf"):
+        return f"Facture {invoice_id} : pas de scan PDF a classer."
+    result = ask_model(CLASSIFY_PROMPT, scan_pages(invoice["document_pdf"]),
+                       'Answer with only a JSON object: {"category": "achat"|"vente"|"rb", "reason": "one French sentence"}',
+                       "Classement de la facture")
+    category, reason = result.get("category"), str(result.get("reason") or "")
+    if category not in ("achat", "vente", "rb"):
+        print(f"classify_invoice {invoice_id}: unexpected category {category!r}", flush=True)
+        raise ToolError("Classement de la facture : echec, reessayez plus tard.")
+    with psycopg.connect(**POSTGRES) as db:
+        db.execute("insert into tarik_classifications (invoice_id, category, reason) values (%s, %s, %s) "
+                   "on conflict (invoice_id) do update set category = excluded.category, reason = excluded.reason, classified_at = now()",
+                   (invoice_id, category, reason))
+    if category == "rb":
+        return f"Facture {invoice_id} : ce n'est pas une facture mais un releve bancaire ({reason}). Rien n'a ete modifie."
+    wanted = CATEGORY_TO_TYPE[category]
+    if invoice["type"] == wanted:
+        return f"Facture {invoice_id} : {category}, deja enregistree comme telle ({reason})."
+    if invoice["state"] != "draft":
+        raise ToolError(f"Facture {invoice_id} : {category}, mais seule une facture brouillon peut changer de type.")
+    context = {"allowed_company_ids": [invoice["company_id"][0]]}
+    if invoice["exercice_id"]:
+        context["cron_fiscal_entry_id"] = invoice["exercice_id"][0]
+    try:
+        fill_invoice(invoice_id, {"type": wanted}, context)  # Experio's onchange on type runs, as on screen
+    except Exception as error:
+        print(f"classify_invoice {invoice_id}: {error}", flush=True)
+        raise ToolError(f"Facture {invoice_id} : Experio a refuse le changement de type.") from None
+    if DRY_RUN:
+        return f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : {category} ({reason}), le type passerait a {wanted}."
+    return f"Facture {invoice_id} : {category} ({reason}), type change en {wanted}."
+
+
+KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
+
+
+def require_kind(name, kind, wanted):
+    """Files are identified before anything is made from them: a bank statement must
+    never become an invoice draft (nor be cut page by page), nor the reverse."""
+    if kind is None:
+        raise ToolError(f"{name} n'est pas encore identifie : appelez d'abord identify_document.")
+    if kind != wanted:
+        other = "import_bank_statement" if kind == "statement" else "split_invoices puis create_draft_invoice"
+        raise ToolError(f"{name} est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")
+
+
+@server.tool()
+def identify_document(file_id: int) -> str:
+    """Call it first for every file the client sends: says whether it is an
+    invoice (then split_invoices, create_draft_invoice) or a bank statement
+    (then import_bank_statement). Nothing else accepts a file it hasn't seen."""
+    with psycopg.connect(**POSTGRES) as db:
+        row = db.execute("select file_name, mime_type, data, kind from tarik_files where id = %s for update", (file_id,)).fetchone()
+        if not row:
+            raise ToolError(f"Aucun fichier n° {file_id}.")
+        name, mime, data, kind = row
+        if kind:
+            return f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id})."
+        raw = to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
+        if mime != "application/pdf" and not mime.startswith("image/"):
+            raise ToolError(f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
+        try:
+            pages = pdf_pages(raw)
+        except pypdfium2.PdfiumError:
+            raise ToolError(f"{name} : PDF illisible.") from None
+        # shortcut: one decision per file from its first pages; a PDF mixing invoices and a statement needs splitting by kind.
+        result = ask_model(CLASSIFY_PROMPT, pages,
+                           'Answer with only a JSON object: {"category": "achat"|"vente"|"rb", "reason": "one French sentence"}',
+                           "Identification du document")
+        if result.get("category") not in ("achat", "vente", "rb"):
+            print(f"identify_document {file_id}: unexpected category {result.get('category')!r}", flush=True)
+            raise ToolError("Identification du document : echec, reessayez plus tard.")
+        kind = "statement" if result["category"] == "rb" else "invoice"
+        db.execute("update tarik_files set kind = %s where id = %s", (kind, file_id))
+    return f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id})."
+
+
+@server.tool()
+def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) -> str:
+    """Import a bank statement the client sent into the dossier's bank journal,
+    through Experio's own statement import (Experio then reads its lines).
+    journal_id: leave 0 when the dossier has one bank journal; with several,
+    the answer lists them and the client chooses. Safe to call again."""
+    dossier = require_dossier(dossier_id)
+    with psycopg.connect(**POSTGRES) as db:
+        # Locked until the statement is recorded, so a retry can't import it twice.
+        row = db.execute("select file_name, mime_type, data, kind, statement_id from tarik_files where id = %s for update",
+                         (file_id,)).fetchone()
+        if not row:
+            raise ToolError(f"Aucun fichier n° {file_id}.")
+        name, mime, data, kind, existing = row
+        require_kind(name, kind, "statement")
+        if existing:
+            return f"{name} : releve deja importe (n° {existing})."
+        try:
+            journals = odoo_call("exp.journal", "search_read", [("company_id", "=", dossier_id), ("type", "=", "bank")],
+                                 fields=["id", "name", "bank_id"], order="name")
+        except Exception as error:
+            print(f"import_bank_statement {file_id}: {error}", flush=True)
+            raise ToolError("Experio est injoignable : les journaux de banque n'ont pas pu etre lus.") from None
+        usable = [j for j in journals if j["bank_id"]]  # Experio refuses a journal without its bank
+        if not usable:
+            unset = f" ({', '.join(j['name'] for j in journals)} sans banque renseignee)" if journals else ""
+            return f"Le dossier {dossier} n'a aucun journal de banque utilisable{unset} : a configurer par le cabinet."
+        if not journal_id:
+            if len(usable) > 1:
+                return f"{name} : le dossier {dossier} a plusieurs comptes bancaires, lequel ? " + ", ".join(
+                    f"{j['name']} - {j['bank_id'][1]} (journal_id {j['id']})" for j in usable)
+            journal_id = usable[0]["id"]
+        elif journal_id not in {j["id"] for j in usable}:
+            raise ToolError(f"journal_id {journal_id} n'est pas un journal de banque utilisable du dossier {dossier}.")
+        raw = to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
+        context = {"allowed_company_ids": [dossier_id]}
+        try:
+            # Experio's own statement import, as its upload screen uses it: bank code as doctype, Bluejay job.
+            wizard_id = odoo_call("exp.bank.statement.import", "create", {
+                "data": base64.b64encode(raw).decode(), "mimetype": "application/pdf", "name": name.rsplit(".", 1)[0],
+                "company_id": dossier_id, "invoice_journal_id": journal_id, "split_type": "by_document",
+                "to_document_manager": False}, context=context)
+            created = odoo_call("exp.bank.statement.import", "read", [wizard_id], fields=["record_ids"], context=context)[0]["record_ids"]
+            if len(created) != 1:
+                raise RuntimeError(f"statement import wizard {wizard_id} created {created}, expected one statement")
+        except Exception as error:
+            print(f"import_bank_statement {file_id}: {error}", flush=True)
+            raise ToolError(f"Experio n'a pas pu importer le releve {name}.") from None
+        db.execute("update tarik_files set statement_id = %s where id = %s", (created[0], file_id))
+    journal = next(j for j in usable if j["id"] == journal_id)
+    return f"{name} : releve importe (n° {created[0]}) dans le dossier {dossier}, journal {journal['name']}."
 
 
 if __name__ == "__main__":
