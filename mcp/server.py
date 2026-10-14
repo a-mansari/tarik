@@ -17,21 +17,22 @@ server = MCPServer("tarik")
 
 
 @server.tool()
-def odoo_connection() -> str:
-    """Check that Tarik can reach Experio (Odoo) and log in. Call it when asked
-    whether Experio works, or before anything else when in doubt."""
-    # Connection details stay in this server's log, never in the agent's answer.
+def experio_connection() -> str:
+    """Check that Tarik can reach the Experio system and log in. Call it when
+    asked whether Experio works, or before anything else when in doubt."""
+    # Connection details, and the fact that Experio runs on Odoo, stay in this log: the agent never sees them.
     try:
         common = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common")
         version = common.version()["server_version"]
         uid = common.authenticate(ODOO_DB, ODOO_USER, ODOO_KEY, {})
     except Exception as error:
-        print(f"odoo_connection: {ODOO_URL} unreachable: {error}", flush=True)
+        print(f"experio_connection: {ODOO_URL} unreachable: {error}", flush=True)
         return "Experio est injoignable pour le moment."
     if not uid:
-        print(f"odoo_connection: login refused for {ODOO_USER} on {ODOO_DB}", flush=True)
+        print(f"experio_connection: login refused for {ODOO_USER} on {ODOO_DB}", flush=True)
         return "Experio repond, mais la connexion de Tarik est refusee."
-    return f"Connecte a Experio (Odoo {version})."
+    print(f"experio_connection: ok, Odoo {version}", flush=True)
+    return "Connecte au systeme Experio."
 
 
 if __name__ == "__main__":
