@@ -91,7 +91,8 @@ def settle_exercice(invoice_id: int, answer: str = "") -> dict:
                 raise ToolError(f"Facture {invoice_id} : Experio a refuse la facture anterieure.") from None
         return ok(f"{head}Facture {invoice_id} : facture anterieure dans l'exercice {exercice['name']}.{warning}")
     year = when[:4]
-    values = {"company_id": company_id, "date_start": f"{year}-01-01", "date_end": f"{year}-12-31"}
+    # The name is Experio's own formula (_compute_name), which doesn't run before the required check over RPC.
+    values = {"company_id": company_id, "date_start": f"{year}-01-01", "date_end": f"{year}-12-31", "name": f"Exercice {year}"}
     if DRY_RUN:
         return ok(f"{head}Facture {invoice_id} : un exercice {year} ({values['date_start']} au {values['date_end']}) serait cree.")
     try:
