@@ -11,6 +11,7 @@ import duplicates  # noqa: F401
 import intake  # noqa: F401
 import journal  # noqa: F401
 import pipeline  # noqa: F401
+import prepaid  # noqa: F401
 import tiers  # noqa: F401
 import tva  # noqa: F401
 import withholding  # noqa: F401

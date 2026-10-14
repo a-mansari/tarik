@@ -180,11 +180,15 @@ AFFIRMATIVE = ("oui", "yes", "c'est ca", "c'est bien", "exact", "ok", "d'accord"
 
 
 def pick_tiers(partners, answer, proposed_ids=()):
-    """The tiers the client means, or None. Their answer is free text: it may carry a
-    proposed tiers' id or full name ("oui, c'est bien ATLAS DE ROULEMENT"), be a plain yes
+    """The tiers the client means, or None. Their answer is free text: it may carry an
+    ICE, a proposed tiers' id or full name ("oui, c'est bien ATLAS DE ROULEMENT"), be a plain yes
     to a single proposal, or be a name to compare (80 % and 10 points ahead)."""
     by_id = {p["id"]: p for p in partners}
-    named = [int(n) for n in re.findall(r"\d+", answer) if int(n) in by_id]
+    numbers = re.findall(r"\d+", answer)
+    by_ice = [p for p in partners if p.get("ice") and p["ice"] in numbers]  # duplicates of one company differ by ICE
+    if len(by_ice) == 1:
+        return by_ice[0]
+    named = [int(n) for n in numbers if int(n) in by_id]
     if len(set(named)) == 1:
         return by_id[named[0]]
     said = normalized(answer)
@@ -202,7 +206,7 @@ def pick_tiers(partners, answer, proposed_ids=()):
 def set_tiers_by_name(invoice_id, answer, question_asked=""):
     """Link the tiers the client named in answer to a tiers question; else the close ones."""
     invoice = draft_invoice(invoice_id)
-    partners = odoo_call("exp.partner", "search_read", [("company_id", "=", invoice["company_id"][0])], fields=["id", "name"],
+    partners = odoo_call("exp.partner", "search_read", [("company_id", "=", invoice["company_id"][0])], fields=["id", "name", "ice"],
                          context={"allowed_company_ids": [invoice["company_id"][0]]})
     proposed = [int(n) for n in re.findall(r"\(id (\d+)", question_asked)]
     partner = pick_tiers(partners, answer, proposed)

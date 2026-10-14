@@ -11,6 +11,7 @@ from app import ok, server, stop, wait, with_ids
 from experio import POSTGRES, require_invoice
 from tiers import set_tiers_by_name
 from tva import settle_tva
+from prepaid import settle_prepaid
 from withholding import settle_withholding
 
 # The sequence, in order: step tool -> what the client reads it as.
@@ -18,14 +19,15 @@ STEPS = {
     "identify_document": "identification", "import_bank_statement": "releve bancaire", "split_invoices": "decoupage",
     "create_draft_invoice": "brouillon", "wait_until_read": "lecture par Experio", "check_invoice": "verification",
     "correct_invoice": "correction", "classify_invoice": "classement", "link_tiers": "tiers",
-    "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA", "check_journal": "journal", "settle_withholding": "retenue a la source",
+    "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA", "check_journal": "journal", "settle_withholding": "retenue a la source", "settle_prepaid": "constatee d'avance",
 }
 # A pending question, the call that applies the client's answer, and the step that follows.
 ANSWERS = {
     "link_tiers": (set_tiers_by_name, "check_duplicate"),
     "assign_account": (set_account, "settle_tva"),
     "settle_tva": (settle_tva, "check_journal"),
-    "settle_withholding": (settle_withholding, None),
+    "settle_withholding": (settle_withholding, "settle_prepaid"),
+    "settle_prepaid": (settle_prepaid, None),
 }
 
 
@@ -45,7 +47,7 @@ def wait_until_read(invoice_id: int) -> dict:
 def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict:
     """Record a step's outcome for this run. ``origin``: the n8n node that routed here,
     whose name holds the step tool; ``result``: that step's answer. A question becomes
-    the invoice's pending question; any other outcome clears it."""
+    the invoice's pending question; an outcome at or after that step clears it."""
     step = next((tool for tool in STEPS if tool in origin), result.get("step") or origin)
     status, message = result.get("status", "error"), result.get("message") or result.get("error") or str(result)
     invoice_id, file_id = result.get("invoice_id"), result.get("file_id")
@@ -57,7 +59,11 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
                        "on conflict (invoice_id) do update set step = excluded.step, question = excluded.question, created_at = now()",
                        (invoice_id, session_id, step, message))
         elif invoice_id:
-            db.execute("delete from tarik_pending where invoice_id = %s", (invoice_id,))
+            # Only an outcome at or after the pending step settles it: n8n records the earlier steps after the question.
+            pending = db.execute("select step from tarik_pending where invoice_id = %s", (invoice_id,)).fetchone()
+            order = list(STEPS)
+            if pending and (pending[0] not in order or step not in order or order.index(step) >= order.index(pending[0])):
+                db.execute("delete from tarik_pending where invoice_id = %s", (invoice_id,))
     return ok("enregistre", step=step, status_recorded=status)
 
 
