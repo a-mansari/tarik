@@ -1,6 +1,7 @@
 """The fixed processing sequence, run by the n8n workflow "Tarik - Traitement": waiting for
 Experio's reading, recording each step's outcome, pending questions and the client's answers."""
 
+import re
 import time
 
 import psycopg
@@ -117,3 +118,18 @@ def answer_pending(invoice_id: int, answer: str) -> dict:
         result["next_step"] = following or "done"
     result["step"] = row[0]
     return result
+
+
+@server.tool()
+def files_to_process(session_id: str, file_ids: list | str | int | None = None) -> dict:
+    """The files a run works on: the numbers the agent passed when they are this
+    conversation's files, else the conversation's files not processed yet (the model
+    sometimes passes none, or garbles them)."""
+    asked = [int(n) for n in re.findall(r"\d+", str(file_ids))] if file_ids is not None else []
+    with psycopg.connect(**POSTGRES) as db:
+        own = [i for (i,) in db.execute("select id from tarik_files where session_id = %s and id = any(%s)", (session_id, asked))]
+        if not own:
+            own = [i for (i,) in db.execute(
+                "select id from tarik_files where session_id = %s and parent_id is null and kind is null "
+                "and invoice_id is null and statement_id is null order by id", (session_id,))]
+    return ok(f"{len(own)} fichier(s) a traiter.", files=own)

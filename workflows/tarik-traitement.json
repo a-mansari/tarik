@@ -64,6 +64,31 @@
       }
     },
     {
+      "id": "41f173c6-adea-5f75-b533-a45517d82d6b",
+      "name": "Fichiers du message (files_to_process)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        330,
+        200
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "files_to_process"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, file_ids: $('Appel').first().json.file_ids ?? null }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
       "id": "4f1bc170-8944-5db6-927f-5c53933e19e4",
       "name": "Un element par fichier",
       "type": "n8n-nodes-base.code",
@@ -73,7 +98,7 @@
         200
       ],
       "parameters": {
-        "jsCode": "// The files the agent passed, one item each. The model sends them as a list, a number or text (\"[40]\", \"40, 41\").\nconst raw = $('Appel').first().json.file_ids;\nconst ids = (Array.isArray(raw) ? raw : String(raw ?? '').match(/\\d+/g) || []).map(Number).filter(Boolean);\nreturn [...new Set(ids)].map(file_id => ({ json: { file_id } }));"
+        "jsCode": "// One item per file to process (files_to_process already checked they belong to the conversation).\nreturn $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));"
       }
     },
     {
@@ -866,7 +891,7 @@
       "main": [
         [
           {
-            "node": "Un element par fichier",
+            "node": "Fichiers du message (files_to_process)",
             "type": "main",
             "index": 0
           }
@@ -874,6 +899,24 @@
         [
           {
             "node": "Reponse du client (answer_pending)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fichiers du message (files_to_process)": {
+      "main": [
+        [
+          {
+            "node": "Un element par fichier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }
