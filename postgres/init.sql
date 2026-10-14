@@ -9,3 +9,12 @@ create table if not exists tarik_files (
     parent_id integer references tarik_files (id), -- set on each invoice cut out of a multi-invoice PDF
     created_at timestamptz not null default now()
 );
+
+-- What check_invoice read on each scan, against what Experio captured. The correction step reads it back.
+create table if not exists tarik_checks (
+    invoice_id integer primary key,
+    readable boolean not null,
+    extracted jsonb not null,
+    bad_fields jsonb not null,
+    checked_at timestamptz not null default now()
+);
