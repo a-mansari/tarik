@@ -79,9 +79,7 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
         if changes:
             fill_invoice(invoice_id, changes, context)
             if changes.get("amount_tax_non_recoverable"):
-                notes.append("TVA non recuperable")
-                if invoice["partner_id"] and not DRY_RUN:  # remembered on the supplier, as tarik-master does
-                    odoo_call("exp.partner", "write", [invoice["partner_id"][0]], {"supplier_tax_non_recoverable": True}, context=context)
+                notes.append("TVA non recuperable")  # Experio saves it on the supplier when the invoice is posted
         if not DRY_RUN:
             odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)  # Experio picks the tax for each rate
         line_ids = odoo_call("exp.invoice", "read", [invoice_id], fields=["tva_line_ids"], context=context)[0]["tva_line_ids"]

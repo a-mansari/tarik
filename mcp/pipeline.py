@@ -11,19 +11,21 @@ from app import ok, server, stop, wait, with_ids
 from experio import POSTGRES, require_invoice
 from tiers import set_tiers_by_name
 from tva import settle_tva
+from withholding import settle_withholding
 
 # The sequence, in order: step tool -> what the client reads it as.
 STEPS = {
     "identify_document": "identification", "import_bank_statement": "releve bancaire", "split_invoices": "decoupage",
     "create_draft_invoice": "brouillon", "wait_until_read": "lecture par Experio", "check_invoice": "verification",
     "correct_invoice": "correction", "classify_invoice": "classement", "link_tiers": "tiers",
-    "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA", "check_journal": "journal",
+    "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA", "check_journal": "journal", "settle_withholding": "retenue a la source",
 }
 # A pending question, the call that applies the client's answer, and the step that follows.
 ANSWERS = {
     "link_tiers": (set_tiers_by_name, "check_duplicate"),
     "assign_account": (set_account, "settle_tva"),
     "settle_tva": (settle_tva, "check_journal"),
+    "settle_withholding": (settle_withholding, None),
 }
 
 
