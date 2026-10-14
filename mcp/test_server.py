@@ -4,7 +4,12 @@ import asyncio
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from server import MIN_SIMILARITY, exact_cabinet, expected_uid, require_dossier, server, similarity
+import io
+
+import pypdfium2
+from PIL import Image
+
+from server import MIN_SIMILARITY, exact_cabinet, expected_uid, split_pdf, require_dossier, server, similarity
 
 DOSSIERS = ["STE ALLIANCE GENIE CIVIL SARL", "Alliance Transport", "Boulangerie Atlas", "ATLAS IMMOBILIER", "Cabinet Benali"]
 
@@ -54,4 +59,16 @@ for bad in (None, "", "0", "-1", "abc", " 430"):
     except SystemExit:
         continue
     raise AssertionError(f"expected_uid accepted {bad!r}")
-print("similarity, dossier and cabinet checks ok")
+
+# Cutting a 4-page PDF where invoices start on pages 1 and 3.
+buffer = io.BytesIO()
+pages = [Image.new("RGB", (200, 280), color) for color in ("white", "gray", "white", "gray")]
+pages[0].save(buffer, format="PDF", save_all=True, append_images=pages[1:])
+four = buffer.getvalue()
+parts = split_pdf(four, [1, 3])
+assert [(first, last) for first, last, _ in parts] == [(1, 2), (3, 4)]
+assert [len(pypdfium2.PdfDocument(raw)) for _, _, raw in parts] == [2, 2]
+assert [(f, l) for f, l, _ in split_pdf(four, [3, 0, 9, 3])] == [(1, 2), (3, 4)]  # page 1 added, out of range dropped
+assert [(f, l) for f, l, _ in split_pdf(four, [])] == [(1, 4)]
+assert len(split_pdf(four, [1, 2, 3, 4])) == 4
+print("similarity, dossier, cabinet and split checks ok")
