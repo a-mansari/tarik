@@ -17,7 +17,27 @@ from mcp.server.mcpserver.exceptions import ToolError
 from PIL import Image
 
 ODOO_URL = os.environ["ODOO_URL"].rstrip("/")
-ODOO_DB = os.environ["ODOO_DB"]
+
+
+def exact_cabinet(name):
+    """The cabinet's database name, taken exactly as configured. No default, no
+    trimming, no case change: a name that isn't exact must stop Tarik, never
+    land it in another cabinet."""
+    if not name or not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
+        raise SystemExit(f"ODOO_DB must be the cabinet's exact database name, got {name!r}")
+    return name
+
+
+def expected_uid(value):
+    """The user id Tarik has in this cabinet. A login returning any other id
+    means another cabinet (or user): every call then fails."""
+    if not value or not value.isdigit() or int(value) <= 0:
+        raise SystemExit(f"ODOO_UID must be Tarik's user id in this cabinet, got {value!r}")
+    return int(value)
+
+
+ODOO_DB = exact_cabinet(os.getenv("ODOO_DB"))
+ODOO_UID = expected_uid(os.getenv("ODOO_UID"))
 ODOO_USER = os.environ["ODOO_USER"]
 ODOO_KEY = os.getenv("ODOO_API_KEY") or os.environ["ODOO_PASSWORD"]
 POSTGRES = {"host": "postgres", "dbname": os.environ["POSTGRES_DB"], "user": os.environ["POSTGRES_USER"],
@@ -51,6 +71,8 @@ def odoo_call(model, method, *args, **kw):
     uid = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common").authenticate(ODOO_DB, ODOO_USER, ODOO_KEY, {})
     if not uid:
         raise PermissionError(f"login refused for {ODOO_USER} on {ODOO_DB}")
+    if uid != ODOO_UID:
+        raise PermissionError(f"{ODOO_USER} on {ODOO_DB} is uid {uid}, expected {ODOO_UID}: wrong cabinet or user")
     models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object", allow_none=True)
     return models.execute_kw(ODOO_DB, uid, ODOO_KEY, model, method, list(args), kw)
 

@@ -4,7 +4,7 @@ import asyncio
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from server import MIN_SIMILARITY, require_dossier, server, similarity
+from server import MIN_SIMILARITY, exact_cabinet, expected_uid, require_dossier, server, similarity
 
 DOSSIERS = ["STE ALLIANCE GENIE CIVIL SARL", "Alliance Transport", "Boulangerie Atlas", "ATLAS IMMOBILIER", "Cabinet Benali"]
 
@@ -38,4 +38,20 @@ for args in ({"file_id": 1}, {"file_id": 1, "dossier_id": None}, {"file_id": 1, 
         assert "dossier_id" in str(error), error
     else:
         raise AssertionError(f"create_draft_invoice accepted {args}")
-print("similarity and dossier checks ok")
+
+# The cabinet's database name is used exactly, or Tarik doesn't start.
+assert exact_cabinet("experio_cabinet_8") == "experio_cabinet_8"
+for bad in (None, "", " experio_cabinet_8", "experio_cabinet_8 ", "experio cabinet 8", "experio_cabinet_8\n"):
+    try:
+        exact_cabinet(bad)
+    except SystemExit:
+        continue
+    raise AssertionError(f"exact_cabinet accepted {bad!r}")
+assert expected_uid("430") == 430
+for bad in (None, "", "0", "-1", "abc", " 430"):
+    try:
+        expected_uid(bad)
+    except SystemExit:
+        continue
+    raise AssertionError(f"expected_uid accepted {bad!r}")
+print("similarity, dossier and cabinet checks ok")
