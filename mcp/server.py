@@ -1,7 +1,8 @@
 """Tarik's Experio tools, served over MCP for the n8n agent. One module per phase,
 ported from tarik-master as each step needs it."""
 
-import check  # noqa: F401 -- each phase module registers its tools on app.server
+import accounts  # noqa: F401 -- each phase module registers its tools on app.server
+import check  # noqa: F401
 import classify  # noqa: F401
 import connection  # noqa: F401
 import correct  # noqa: F401

@@ -16,6 +16,7 @@ from experio import exact_cabinet, expected_uid, require_dossier, require_invoic
 from intake import require_kind, split_pdf
 from server import server
 from tiers import TIERS_MIN_SIMILARITY, set_tiers
+from accounts import resolve_account
 
 DOSSIERS = ["STE ALLIANCE GENIE CIVIL SARL", "Alliance Transport", "Boulangerie Atlas", "ATLAS IMMOBILIER", "Cabinet Benali"]
 
@@ -162,4 +163,13 @@ for bad in (None, 0, -3, True):
 assert similarity("GAMMA DISTRIBUTION SARL", "DELTA FAIR DISTRIBUTION") < TIERS_MIN_SIMILARITY  # shared generic words only
 assert similarity("atlas roulement", "ATLAS DE ROULEMENT") >= TIERS_MIN_SIMILARITY
 assert similarity("Nova Telecom SA", "NOVA TELECOM") >= TIERS_MIN_SIMILARITY > similarity("Nova Telecom SA", "ORBIT TELECOM")
-print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind and tiers checks ok")
+# The client's words -> one account (fictional chart, same shapes as a real one).
+chart = [{"id": 1, "code": "61110000", "name": "Achats de marchandises"}, {"id": 2, "code": "61120000", "name": "Achats de marchandises"},
+         {"id": 3, "code": "61190000", "name": "Rabais, remises et ristournes obtenus sur achats de marchandises"},
+         {"id": 4, "code": "61251000", "name": "Achats de fournitures non stockables"}, {"id": 5, "code": "61455000", "name": "Frais de téléphone"}]
+assert resolve_account(chart, "achats de marchandises")["id"] == 1  # same label twice: lowest code
+assert resolve_account(chart, "6111")["id"] == 1 and resolve_account(chart, "61455000")["id"] == 5
+assert resolve_account(chart, "téléphone")["id"] == 5
+assert resolve_account(chart, "marchandises") is None  # three different labels: ask
+assert resolve_account(chart, "611") is None and resolve_account(chart, "carburant") is None
+print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers and account checks ok")
