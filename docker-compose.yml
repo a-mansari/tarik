@@ -14,9 +14,26 @@ services:
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_PERSONALIZATION_ENABLED: "false"
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
-      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
     volumes:
       - n8n_data:/home/node/.n8n
 
+  # Tarik's Odoo tools over MCP. Reached by n8n at http://tarik-mcp:8000/mcp, not exposed to the host.
+  tarik-mcp:
+    build: ./mcp
+    restart: unless-stopped
+    env_file: .env
+
+  # Tarik's chat memory (Postgres Chat Memory node). Not exposed to the host.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
 volumes:
   n8n_data:
+  postgres_data:
