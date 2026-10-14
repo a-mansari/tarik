@@ -12,7 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from app import server
 from dossiers import similarity
-from experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
+from experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, odoo_call, odoo_json, require_dossier, require_invoice
 
 # Per invoice type: the detected party, the partner's role flag and its Compte Tiers field.
 SIDE = {
@@ -133,3 +133,40 @@ def set_tiers(invoice_id: int, partner_id: int) -> str:
         raise ToolError("partner_id manquant ou invalide : cherchez le tiers avec find_tiers.")
     invoice = draft_invoice(invoice_id)
     return link(invoice, partner_id, side_of(invoice))
+
+
+AUTOFILL = {"third_party_supplier_autofill": "third_party_supplier_account",
+            "third_party_customer_autofill": "third_party_customer_account"}  # switch -> the prefix it needs
+
+
+@server.tool()
+def enable_tiers_autofill(dossier_id: int) -> str:
+    """Turn on automatic Compte Tiers numbering (suppliers and customers) for a
+    dossier, so link_tiers can create missing ones. A cabinet setting: only when
+    the cabinet asks for it explicitly."""
+    dossier = require_dossier(dossier_id)
+    context = {"allowed_company_ids": [dossier_id]}
+    company = odoo_call("res.company", "read", [dossier_id], fields=[*AUTOFILL, *AUTOFILL.values()], context=context)[0]
+    if all(company[switch] for switch in AUTOFILL):
+        return f"Dossier {dossier} : numerotation automatique des Comptes Tiers deja active."
+    missing = [prefix for switch, prefix in AUTOFILL.items() if not company[prefix]]
+    if missing:
+        return f"Dossier {dossier} : prefixes de Comptes Tiers non configures ({', '.join(missing)}), a regler par le cabinet d'abord."
+    if DRY_RUN:
+        return f"MODE TEST : aucune modification enregistree dans Experio. Dossier {dossier} : la numerotation automatique serait activee."
+    values = {switch: True for switch in AUTOFILL}
+    try:
+        # Configuration > Parametres as the user saves it (tarik-master odoo.save_settings), never the dossier record itself.
+        settings_id = odoo_call("res.config.settings", "create", values, context=context)
+        try:
+            odoo_json("res.config.settings", "execute", [settings_id], context=context)
+        except RuntimeError as error:  # "Enregistrer" is for admins; a manager's form save already went through
+            if "administrat" not in str(error).lower():
+                raise
+        saved = odoo_call("res.company", "read", [dossier_id], fields=list(values), context=context)[0]
+    except Exception as error:
+        print(f"enable_tiers_autofill {dossier_id}: {error}", flush=True)
+        raise ToolError(f"Experio n'a pas pu modifier les parametres du dossier {dossier}.") from None
+    if not all(saved[switch] for switch in values):
+        return f"Dossier {dossier} : reglage refuse par Experio, a activer par le cabinet (Configuration > Parametres)."
+    return f"Dossier {dossier} : numerotation automatique des Comptes Tiers activee."
