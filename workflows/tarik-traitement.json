@@ -715,6 +715,46 @@
       }
     },
     {
+      "id": "8b60f4a1-e4f0-5fb6-be40-5e5915e8e529",
+      "name": "Comptabilisation (post_invoice)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        4880,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "post_invoice"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "10281f25-10d9-5da9-9325-b846f5fc7d38",
+      "name": "Suite apres post_invoice",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        4990,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
       "id": "cafce2f4-52c0-5f15-8563-85da097d45e1",
       "name": "Reponse du client (answer_pending)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -750,8 +790,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 7,
-        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2, check_journal: 3, settle_withholding: 4, settle_prepaid: 5, settle_exercice: 6 }[$json.content[0].text.next_step] ?? 0) }}"
+        "numberOutputs": 8,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2, check_journal: 3, settle_withholding: 4, settle_prepaid: 5, settle_exercice: 6, post_invoice: 7 }[$json.content[0].text.next_step] ?? 0) }}"
       }
     },
     {
@@ -760,7 +800,7 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        5080,
+        5320,
         640
       ],
       "parameters": {
@@ -1455,6 +1495,47 @@
       "main": [
         [
           {
+            "node": "Comptabilisation (post_invoice)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comptabilisation (post_invoice)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres post_invoice",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres post_invoice": {
+      "main": [
+        [
+          {
             "node": "Enregistrer",
             "type": "main",
             "index": 0
@@ -1552,6 +1633,13 @@
         [
           {
             "node": "Exercice (settle_exercice)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Comptabilisation (post_invoice)",
             "type": "main",
             "index": 0
           }
