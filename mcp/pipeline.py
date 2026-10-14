@@ -121,7 +121,7 @@ def answer_pending(invoice_id: int, answer: str) -> dict:
 
 
 @server.tool()
-def files_to_process(session_id: str, file_ids: list | str | int | None = None) -> dict:
+def files_to_process(session_id: str, file_ids: list | dict | str | int | None = None) -> dict:
     """The files a run works on: the numbers the agent passed when they are this
     conversation's files, else the conversation's files not processed yet (the model
     sometimes passes none, or garbles them)."""
