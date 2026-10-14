@@ -17,13 +17,13 @@ STEPS = {
     "identify_document": "identification", "import_bank_statement": "releve bancaire", "split_invoices": "decoupage",
     "create_draft_invoice": "brouillon", "wait_until_read": "lecture par Experio", "check_invoice": "verification",
     "correct_invoice": "correction", "classify_invoice": "classement", "link_tiers": "tiers",
-    "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA",
+    "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA", "check_journal": "journal",
 }
 # A pending question, the call that applies the client's answer, and the step that follows.
 ANSWERS = {
     "link_tiers": (set_tiers_by_name, "check_duplicate"),
     "assign_account": (set_account, "settle_tva"),
-    "settle_tva": (settle_tva, None),
+    "settle_tva": (settle_tva, "check_journal"),
 }
 
 
@@ -71,6 +71,9 @@ def run_summary(run_id: str) -> dict:
                           "where run_id = %s order by id", (run_id,)).fetchall()
     if not rows:
         return ok("Rien n'a ete traite.")
+    # n8n records a step after running the next ones, so rows come in reverse: sort by the sequence instead.
+    order = list(STEPS)
+    rows = sorted(rows, key=lambda row: order.index(row[1]) if row[1] in order else len(order))
     test = any(message.startswith(TEST_PREFIX) for *_, message in rows)
     blocks, seen = {}, set()
     for key, step, status, message in rows:

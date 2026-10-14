@@ -555,6 +555,46 @@
       }
     },
     {
+      "id": "5c4ab35c-c90d-5c7a-b873-e68018c09e7c",
+      "name": "Journal (check_journal)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        3920,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "check_journal"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "d9a9789d-b318-5668-9e81-e229ee6f49e5",
+      "name": "Suite apres check_journal",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        4030,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
       "id": "cafce2f4-52c0-5f15-8563-85da097d45e1",
       "name": "Reponse du client (answer_pending)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -590,8 +630,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 3,
-        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2 }[$json.content[0].text.next_step] ?? 0) }}"
+        "numberOutputs": 4,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2, check_journal: 3 }[$json.content[0].text.next_step] ?? 0) }}"
       }
     },
     {
@@ -600,7 +640,7 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        4120,
+        4360,
         640
       ],
       "parameters": {
@@ -1131,6 +1171,47 @@
       "main": [
         [
           {
+            "node": "Journal (check_journal)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Journal (check_journal)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres check_journal",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres check_journal": {
+      "main": [
+        [
+          {
             "node": "Enregistrer",
             "type": "main",
             "index": 0
@@ -1200,6 +1281,13 @@
         [
           {
             "node": "TVA (settle_tva)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Journal (check_journal)",
             "type": "main",
             "index": 0
           }
