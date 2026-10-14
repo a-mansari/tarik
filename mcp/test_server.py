@@ -17,6 +17,7 @@ from intake import require_kind, split_pdf
 from server import server
 from tiers import TIERS_MIN_SIMILARITY, set_tiers
 from accounts import resolve_account
+from tva import vat_answer
 
 DOSSIERS = ["STE ALLIANCE GENIE CIVIL SARL", "Alliance Transport", "Boulangerie Atlas", "ATLAS IMMOBILIER", "Cabinet Benali"]
 
@@ -172,4 +173,7 @@ assert resolve_account(chart, "6111")["id"] == 1 and resolve_account(chart, "614
 assert resolve_account(chart, "téléphone")["id"] == 5
 assert resolve_account(chart, "marchandises") is None  # three different labels: ask
 assert resolve_account(chart, "611") is None and resolve_account(chart, "carburant") is None
-print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers and account checks ok")
+assert vat_answer("Oui") is True and vat_answer("non recuperable") is True
+assert vat_answer("non") is False and vat_answer("recuperable") is False
+assert vat_answer("je ne sais pas") is None and vat_answer("") is None
+print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account and tva checks ok")
