@@ -18,6 +18,7 @@ from server import server
 from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
 from accounts import resolve_account
 from tva import vat_answer
+from withholding import described, local_withholding_answer, withholding_answer
 
 DOSSIERS = ["STE ALLIANCE GENIE CIVIL SARL", "Alliance Transport", "Boulangerie Atlas", "ATLAS IMMOBILIER", "Cabinet Benali"]
 
@@ -185,4 +186,13 @@ assert pick_tiers(tiers, "oui", proposed_ids=[9])["id"] == 9
 assert pick_tiers(tiers, "oui", proposed_ids=[7, 9]) is None  # two proposals: a yes doesn't choose
 assert pick_tiers(tiers, "atlas") is None  # two tiers start with it
 assert pick_tiers(tiers, "nova telecom sa")["id"] == 9
-print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account and tva checks ok")
+
+# Withholding answers (tarik-master's parsers) and how they read back.
+assert withholding_answer("2") == {"retenue": True, "foreign_withholding": "supplier", "local_service": True}
+assert withholding_answer("a la charge de la société, hors Maroc") == {"retenue": True, "foreign_withholding": "society", "local_service": False}
+assert withholding_answer("sans")["retenue"] is False and withholding_answer("je ne sais pas") is None
+assert local_withholding_answer("10 et 75") == {"retenue": True, "local_withholding_percentage": "10", "tax_withholding_percentage": "75"}
+assert local_withholding_answer("sans")["retenue"] is False and local_withholding_answer("peut-etre") is None
+assert described(local_withholding_answer("10 et 75")) == "retenue a la source IS/IR 10 % et TVA 75 %"
+assert described(withholding_answer("2, hors maroc")) == "retenue etrangere a la charge du fournisseur, service rendu hors Maroc"
+print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account, tva and withholding checks ok")

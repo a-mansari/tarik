@@ -13,6 +13,7 @@ import journal  # noqa: F401
 import pipeline  # noqa: F401
 import tiers  # noqa: F401
 import tva  # noqa: F401
+import withholding  # noqa: F401
 from app import server
 
 if __name__ == "__main__":
