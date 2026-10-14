@@ -13,6 +13,7 @@ from difflib import SequenceMatcher
 
 import psycopg
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from PIL import Image
 
 ODOO_URL = os.environ["ODOO_URL"].rstrip("/")
@@ -118,12 +119,29 @@ def find_dossier(name: str) -> str:
     return "\n".join(f"- {c['name']} (id {c['id']}) : ressemblance {round(score * 100)} %" for score, c in close)
 
 
+def require_dossier(dossier_id):
+    """The dossier's name. Every tool working in a dossier calls this first:
+    without a real dossier id from find_dossier, it fails instead of guessing.
+    ToolError, not ValueError: only a ToolError's message reaches the agent."""
+    if not isinstance(dossier_id, int) or isinstance(dossier_id, bool) or dossier_id <= 0:
+        raise ToolError("dossier_id manquant ou invalide : trouvez d'abord le dossier avec find_dossier.")
+    try:
+        found = odoo_call("res.company", "search_read", [("id", "=", dossier_id)], fields=["name"])
+    except Exception as error:
+        print(f"require_dossier {dossier_id}: {error}", flush=True)
+        raise ToolError("Experio est injoignable : le dossier n'a pas pu etre verifie.") from None
+    if not found:
+        raise ToolError(f"Aucun dossier n° {dossier_id} : trouvez-le avec find_dossier.")
+    return found[0]["name"]
+
+
 @server.tool()
 def create_draft_invoice(file_id: int, dossier_id: int) -> str:
     """Create a draft invoice in Experio from a file the client sent, in the
     client's dossier. file_id is the number shown next to the file name;
     dossier_id comes from find_dossier. Safe to call again for the same file:
     it answers with the draft already made."""
+    dossier = require_dossier(dossier_id)
     with psycopg.connect(**POSTGRES) as db:
         # Locked until the draft is recorded, so a retry can't create a second one.
         row = db.execute("select file_name, mime_type, data, invoice_id from tarik_files where id = %s for update",
@@ -138,16 +156,13 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> str:
         elif mime != "application/pdf":
             return f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo."
         try:
-            found = odoo_call("res.company", "search_read", [("id", "=", dossier_id)], fields=["name"])
-            if not found:
-                return f"Aucun dossier n° {dossier_id} : cherchez-le avec find_dossier."
             invoice_id = odoo_call("exp.invoice", "create", {
                 "company_id": dossier_id, "document_pdf": base64.b64encode(bytes(data)).decode(), "file_type": "pdf"})
         except Exception as error:
             print(f"create_draft_invoice: file {file_id}: {error}", flush=True)
             return f"Experio n'a pas pu creer la facture pour {name}."
         db.execute("update tarik_files set invoice_id = %s where id = %s", (invoice_id, file_id))
-    return f"{name} : facture brouillon n° {invoice_id} creee dans le dossier {found[0]['name']}."
+    return f"{name} : facture brouillon n° {invoice_id} creee dans le dossier {dossier}."
 
 
 if __name__ == "__main__":
