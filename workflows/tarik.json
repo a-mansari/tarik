@@ -15,7 +15,6 @@
         0,
         0
       ],
-      "webhookId": "7304d10e-ea71-4883-be8d-dcd560c62f4e",
       "parameters": {
         "public": true,
         "mode": "hostedChat",
@@ -27,7 +26,8 @@
           "subtitle": "Assistant comptable",
           "inputPlaceholder": "Votre message..."
         }
-      }
+      },
+      "webhookId": "7304d10e-ea71-4883-be8d-dcd560c62f4e"
     },
     {
       "id": "c1a0b5e2-0001-4000-8000-000000000006",
@@ -64,6 +64,54 @@
           "name": "Tarik Postgres"
         }
       }
+    },
+    {
+      "id": "1a10c278-5986-5ed6-a2d4-7573e8d5078f",
+      "name": "Questions en attente",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        580,
+        0
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select coalesce(json_agg(json_build_object('invoice_id', invoice_id, 'question', question) order by created_at), '[]'::json) as pending from tarik_pending where session_id = $1",
+        "options": {
+          "queryReplacement": "={{ $('Message a Tarik').item.json.sessionId }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "TarikPostgres001",
+          "name": "Tarik Postgres"
+        }
+      }
+    },
+    {
+      "id": "bea448c1-1139-55b3-b34b-6ac4a4252471",
+      "name": "Brouillons en attente",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        0
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "waiting_drafts"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Message a Tarik').item.json.sessionId }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "id": "c1a0b5e2-0001-4000-8000-000000000002",
@@ -164,7 +212,7 @@
         380
       ],
       "parameters": {
-        "description": "Traite les fichiers recus pour un dossier, toujours dans le meme ordre : identification (facture ou releve bancaire), import du releve ou decoupage des factures, brouillon, lecture par Experio, verification, correction, classement, tiers, doublon, compte, TVA. Renvoie le resultat facture par facture et les questions a poser au client.",
+        "description": "Traite les fichiers recus pour un dossier, toujours dans le meme ordre : identification (facture ou releve bancaire), import du releve ou decoupage des factures, brouillon, lecture par Experio, verification, correction, classement, tiers, doublon, compte, TVA, journal, retenue a la source, charges constatees d'avance, exercice, comptabilisation. Renvoie le resultat facture par facture et les questions a poser au client.",
         "workflowId": {
           "__rl": true,
           "mode": "id",
@@ -174,12 +222,12 @@
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
-            "mode": "files",
             "session_id": "={{ $('Message a Tarik').item.json.sessionId }}",
             "dossier_id": "={{ $fromAI('dossier_id', 'L id du dossier, donne par find_dossier', 'number') }}",
             "file_ids": "={{ $fromAI('file_ids', 'Les numeros de tous les fichiers joints au message, ex. [12, 13]', 'json') }}",
             "invoice_id": 0,
-            "answer": ""
+            "answer": "",
+            "mode": "files"
           },
           "matchingColumns": [],
           "schema": [
@@ -269,12 +317,12 @@
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
-            "mode": "answer",
             "session_id": "={{ $('Message a Tarik').item.json.sessionId }}",
             "dossier_id": 0,
             "file_ids": "={{ [] }}",
             "invoice_id": "={{ $fromAI('invoice_id', 'Le numero de la facture concernee par la question', 'number') }}",
-            "answer": "={{ $fromAI('answer', 'La reponse du client, avec ses mots', 'string') }}"
+            "answer": "={{ $fromAI('answer', 'La reponse du client, avec ses mots', 'string') }}",
+            "mode": "answer"
           },
           "matchingColumns": [],
           "schema": [
@@ -345,54 +393,6 @@
       }
     },
     {
-      "id": "1a10c278-5986-5ed6-a2d4-7573e8d5078f",
-      "name": "Questions en attente",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
-      "position": [
-        580,
-        0
-      ],
-      "parameters": {
-        "operation": "executeQuery",
-        "query": "select coalesce(json_agg(json_build_object('invoice_id', invoice_id, 'question', question) order by created_at), '[]'::json) as pending from tarik_pending where session_id = $1",
-        "options": {
-          "queryReplacement": "={{ $('Message a Tarik').item.json.sessionId }}"
-        }
-      },
-      "credentials": {
-        "postgres": {
-          "id": "TarikPostgres001",
-          "name": "Tarik Postgres"
-        }
-      }
-    },
-    {
-      "id": "bea448c1-1139-55b3-b34b-6ac4a4252471",
-      "name": "Brouillons en attente",
-      "type": "@n8n/n8n-nodes-langchain.mcpClient",
-      "typeVersion": 1.1,
-      "position": [
-        800,
-        0
-      ],
-      "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
-        "serverTransport": "httpStreamable",
-        "tool": {
-          "__rl": true,
-          "mode": "id",
-          "value": "waiting_drafts"
-        },
-        "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ session_id: $('Message a Tarik').item.json.sessionId }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "onError": "continueRegularOutput"
-    },
-    {
       "id": "094759d5-3ec6-5be8-a71a-e6bb1377ccb6",
       "name": "reprendre",
       "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
@@ -412,12 +412,12 @@
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
-            "mode": "resume",
             "session_id": "={{ $('Message a Tarik').item.json.sessionId }}",
             "dossier_id": 0,
             "file_ids": "={{ [] }}",
             "invoice_id": 0,
-            "answer": ""
+            "answer": "",
+            "mode": "resume"
           },
           "matchingColumns": [],
           "schema": [
@@ -500,28 +500,6 @@
         ]
       ]
     },
-    "Outils Experio": {
-      "ai_tool": [
-        [
-          {
-            "node": "Tarik",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Memory": {
-      "ai_memory": [
-        [
-          {
-            "node": "Tarik",
-            "type": "ai_memory",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Fichiers recus": {
       "main": [
         [
@@ -544,12 +522,56 @@
         ]
       ]
     },
+    "Questions en attente": {
+      "main": [
+        [
+          {
+            "node": "Brouillons en attente",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brouillons en attente": {
+      "main": [
+        [
+          {
+            "node": "Tarik",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "MiniMax-M3": {
       "ai_languageModel": [
         [
           {
             "node": "Tarik",
             "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Tarik",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outils Experio": {
+      "ai_tool": [
+        [
+          {
+            "node": "Tarik",
+            "type": "ai_tool",
             "index": 0
           }
         ]
@@ -572,28 +594,6 @@
           {
             "node": "Tarik",
             "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Questions en attente": {
-      "main": [
-        [
-          {
-            "node": "Brouillons en attente",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Brouillons en attente": {
-      "main": [
-        [
-          {
-            "node": "Tarik",
-            "type": "main",
             "index": 0
           }
         ]
