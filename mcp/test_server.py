@@ -14,6 +14,7 @@ from correct import planned_changes
 from dossiers import MIN_SIMILARITY, similarity
 from experio import exact_cabinet, expected_uid, require_dossier, require_invoice
 from intake import require_kind, split_pdf
+from invoices import label, status_of
 from server import server
 from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
 from accounts import resolve_account
@@ -215,4 +216,12 @@ assert exercice_choice("dans l'exercice 2025 svp", opens) == ("old", opens[1])
 assert exercice_choice("Exercice 2024", opens) == ("old", opens[0])
 assert exercice_choice("cree un nouvel exercice", opens) == ("new", None) and exercice_choice("nouveau", opens) == ("new", None)
 assert exercice_choice("le premier", opens) is None and exercice_choice("2023", opens) is None  # unclear, or not an open one
+# Invoice list filters, as the client words them.
+assert status_of("") == "" and status_of("toutes") == ""
+assert status_of("en cours") == "en cours" and status_of("Brouillons") == "brouillon"
+assert status_of("Comptabilisées") == "comptabilisee" and status_of("payées") == "payee"
+assert status_of("annulee") is None and status_of("brouillon ou payee") is None
+assert label({"state": "post", "payment_state": "paid"}) == "payee" and label({"state": "export", "payment_state": "partial"}) == "comptabilisee"
+assert label({"state": "pending", "payment_state": "unpaid"}) == "en cours"
+print("invoice list ok")
 print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account, tva, withholding, prepaid and exercice checks ok")
