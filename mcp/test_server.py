@@ -18,6 +18,7 @@ from server import server
 from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
 from accounts import resolve_account
 from tva import vat_answer
+from prepaid import prepaid_period, yes_no
 from withholding import described, local_withholding_answer, withholding_answer
 
 DOSSIERS = ["STE ALLIANCE GENIE CIVIL SARL", "Alliance Transport", "Boulangerie Atlas", "ATLAS IMMOBILIER", "Cabinet Benali"]
@@ -179,13 +180,15 @@ assert vat_answer("non") is False and vat_answer("recuperable") is False
 assert vat_answer("je ne sais pas") is None and vat_answer("") is None
 
 # A client's free-text answer to a tiers question (fictional tiers).
-tiers = [{"id": 7, "name": "ATLAS DE ROULEMENT - 12345678"}, {"id": 8, "name": "ATLAS TRANSPORT"}, {"id": 9, "name": "NOVA TELECOM"}]
+tiers = [{"id": 7, "name": "ATLAS DE ROULEMENT - 12345678"}, {"id": 8, "name": "ATLAS TRANSPORT"}, {"id": 9, "name": "NOVA TELECOM"},
+         {"id": 10, "name": "NOVA TELECOM", "ice": "001234567000089"}]
 assert pick_tiers(tiers, "Oui, c'est bien ATLAS DE ROULEMENT (id 7).")["id"] == 7
 assert pick_tiers(tiers, "c'est ATLAS DE ROULEMENT")["id"] == 7
 assert pick_tiers(tiers, "oui", proposed_ids=[9])["id"] == 9
 assert pick_tiers(tiers, "oui", proposed_ids=[7, 9]) is None  # two proposals: a yes doesn't choose
 assert pick_tiers(tiers, "atlas") is None  # two tiers start with it
-assert pick_tiers(tiers, "nova telecom sa")["id"] == 9
+assert pick_tiers(tiers, "nova telecom sa") is None  # the same name twice: ask
+assert pick_tiers(tiers, "celui avec l'ICE 001234567000089")["id"] == 10
 
 # Withholding answers (tarik-master's parsers) and how they read back.
 assert withholding_answer("2") == {"retenue": True, "foreign_withholding": "supplier", "local_service": True}
@@ -195,4 +198,12 @@ assert local_withholding_answer("10 et 75") == {"retenue": True, "local_withhold
 assert local_withholding_answer("sans")["retenue"] is False and local_withholding_answer("peut-etre") is None
 assert described(local_withholding_answer("10 et 75")) == "retenue a la source IS/IR 10 % et TVA 75 %"
 assert described(withholding_answer("2, hors maroc")) == "retenue etrangere a la charge du fournisseur, service rendu hors Maroc"
-print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account, tva and withholding checks ok")
+
+# Prepaid: the period rule (tarik-master) and the yes/no read in code.
+assert prepaid_period("2026-01-01", "2026-12-31") == {"prepaid_start_date": "2026-01-01", "prepaid_end_date": "2026-12-31", "prepaid_months": 12}
+assert prepaid_period("2026-09-01", "2026-09-30") is None and prepaid_period(None, "2026-12-31") is None
+assert prepaid_period("2026-12-31", "2026-01-01") is None
+assert yes_no("Oui, vas-y") is True and yes_no("répartis-la") is True and yes_no("ok") is True
+assert yes_no("Non, c'est ponctuel") is False and yes_no("pas besoin") is False and yes_no("ne pas repartir") is False
+assert yes_no("je ne sais pas") is None and yes_no("") is None
+print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account, tva, withholding and prepaid checks ok")

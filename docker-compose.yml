@@ -5,6 +5,9 @@ services:
     ports:
       - "127.0.0.1:5678:5678" # local only, not exposed on the LAN
     env_file: .env
+    # Public resolvers: right after a restart the host's DNS sometimes failed (EAI_AGAIN api.minimax.io).
+    # Service names (tarik-mcp, postgres) still resolve through Docker's own DNS.
+    dns: [1.1.1.1, 8.8.8.8]
     environment:
       GENERIC_TIMEZONE: Africa/Casablanca
       TZ: Africa/Casablanca
@@ -22,6 +25,7 @@ services:
     build: ./mcp
     restart: unless-stopped
     env_file: .env
+    dns: [1.1.1.1, 8.8.8.8]
 
   # Tarik's chat memory (Postgres Chat Memory node). Not exposed to the host.
   postgres:

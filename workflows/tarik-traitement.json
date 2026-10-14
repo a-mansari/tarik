@@ -635,6 +635,46 @@
       }
     },
     {
+      "id": "a2a6a630-7b97-5c75-aa98-9fb61c47dd4d",
+      "name": "Constatee d'avance (settle_prepaid)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        4400,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "settle_prepaid"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "becd42f6-2a1b-5a9a-9bbf-eb4199f521fc",
+      "name": "Suite apres settle_prepaid",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        4510,
+        620
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
       "id": "cafce2f4-52c0-5f15-8563-85da097d45e1",
       "name": "Reponse du client (answer_pending)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -670,8 +710,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 5,
-        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2, check_journal: 3, settle_withholding: 4 }[$json.content[0].text.next_step] ?? 0) }}"
+        "numberOutputs": 6,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2, check_journal: 3, settle_withholding: 4, settle_prepaid: 5 }[$json.content[0].text.next_step] ?? 0) }}"
       }
     },
     {
@@ -680,7 +720,7 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        4600,
+        4840,
         640
       ],
       "parameters": {
@@ -1293,6 +1333,47 @@
       "main": [
         [
           {
+            "node": "Constatee d'avance (settle_prepaid)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Constatee d'avance (settle_prepaid)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres settle_prepaid",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres settle_prepaid": {
+      "main": [
+        [
+          {
             "node": "Enregistrer",
             "type": "main",
             "index": 0
@@ -1376,6 +1457,13 @@
         [
           {
             "node": "Retenue a la source (settle_withholding)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Constatee d'avance (settle_prepaid)",
             "type": "main",
             "index": 0
           }
