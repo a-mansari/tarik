@@ -91,12 +91,21 @@ written once, one file per skill in `workflows/skills/` (front matter `name`, `d
 the instructions), and `workflows/build_tarik_agents.py` gives every agent the same copy, found by
 name, updated in place, and removed from all agents when its file goes.
 
-There is none for now. A "Nouveau dossier" skill was tested (2026-10-15, 10 new-dossier requests
-each way, the tools' fields listed in their descriptions both times): with it, MiniMax loaded it
-10 times in 10 and made 4 fully right calls; without it, 2. Both are poor for the same reasons,
-which the skill does not change: calls without their fields (`{}`), and ICE or IF sent as numbers,
-which loses their leading zeros. `allowedTools` in a skill is
-not enforced by n8n 2.43: a skill never restricts tools; the workflows and MCP tools do.
+Two skills, each a whole process in plain decisions ("If ... → do ..."), its steps and a short
+"never" list: "Nouveau dossier" (a new dossier, or a FEC or grand livre for one) and "Traitement des
+documents" (invoices and bank statements). The base instructions keep the rules that always hold,
+and send each case to its skill: "charge la compétence ... et suis-la, dans ce même tour".
+
+A skill names tools by the agent's own tool names (`parametrer_dossier`, `traiter_fichiers`,
+`find_dossier`), never by a workflow's id or name: the agent's configuration maps each tool to its
+workflow, with the values the model never sets (cabinet, conversation, client's message). The build
+refuses a skill naming a tool or field the agents do not have.
+
+Tested on GECAFISC (2026-10-15, dry run, MiniMax-M3): 10 new-dossier requests and 10 document
+requests all ended right (the dossier set up with every field right; the right dossier processed
+once; the client asked when the dossier was unclear), and 2 unrelated requests loaded no skill.
+`allowedTools` in a skill is not enforced by n8n 2.43: a skill never restricts tools; the workflows
+and MCP tools do.
 
 ## Vault
 

@@ -10,6 +10,7 @@ there are allowed in n8n MCP, which "Tarik - Emails" needs (ask_agent). Prints e
 for <CABINET>__AGENT_ID in .env."""
 
 import json
+import re
 import sys
 import time
 import urllib.error
@@ -99,6 +100,26 @@ def skill_files():
         yield {"name": meta["name"], "description": meta["description"], "instructions": body.strip()}
 
 
+def unknown_names(skills, config):
+    """The tool and field names a skill mentions that the agent does not have. A skill names tools by
+    the agent's own tool names (never a workflow's id or name): one renamed in the template, but not in
+    the skill, would point the model at a tool that no longer exists. Names are snake_case words."""
+    known = {"load_skill"}
+    for tool in config.get("tools", []):
+        known |= {tool["name"], *tool.get("inputs", {})}
+    for server in config.get("mcpServers", []):
+        known |= set((server.get("toolFilter") or {}).get("tools", []))
+    return {skill["name"]: sorted(set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", skill["instructions"] + " " + skill["description"])) - known)
+            for skill in skills}
+
+
+def check_skills():
+    """Refuse to build when a skill names a tool or field the agents do not have."""
+    wrong = {name: names for name, names in unknown_names(list(skill_files()), config_for("check", "check")).items() if names}
+    if wrong:
+        raise SystemExit(f"skills name tools or fields the agents do not have: {wrong}")
+
+
 def mutate(agent_id, operation):
     """One change to an agent, on its latest configuration (n8n refuses a change made on an older one)."""
     return n8n("mutate_agent", agentId=agent_id, baseConfigHash=n8n("get_agent", agentId=agent_id)["configHash"], operation=operation)
@@ -120,6 +141,7 @@ def sync_skills(agent_id):
 
 
 def main():
+    check_skills()
     existing = agents_by_cabinet()
     if any(len(agents) > 1 for agents in existing.values()):
         raise SystemExit(f"several agents for one cabinet, settle it in n8n first: {existing}")
