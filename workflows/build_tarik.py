@@ -103,10 +103,17 @@ node("c1a0b5e2-0001-4000-8000-000000000002", "Tarik", "@n8n/n8n-nodes-langchain.
 node("8c3e0b7a-4f51-5d2e-b6a9-1e7c2d9f4a30", "Reponse au client", "n8n-nodes-base.code", 2, [1100, 0], {"jsCode": (
     "// The agent needs the dossiers' ids for its tools, and MiniMax sometimes writes them: never shown to the client.\n"
     "const text = $input.first().json.output || '';\n"
-    "const output = text\n"
+    "let output = text\n"
     "  .replace(/\\s*\\((?:dossier\\s+)?id\\s*:?\\s*\\d+\\)/gi, '')\n"
-    "  .replace(/,?\\s*\\b(?:dossier\\s+)?id\\s*:?\\s*\\d+\\b/gi, '');\n"
-    "return [{ json: { output } }];")})
+    "  .replace(/,?\\s*\\b(?:dossier\\s+)?id\\s*:?\\s*\\d+\\b/gi, '')\n"
+    "  .trim();\n"
+    "// MiniMax sometimes quotes a result it copies, the opening quote taking the first line's dash.\n"
+    "const quoted = output.match(/^[«\"“]\\s*([\\s\\S]*?)\\s*[»\"”]$/);\n"
+    "if (quoted) output = quoted[1];\n"
+    "const lines = output.split('\\n');\n"
+    "const step = /^[a-zàâçéèêëîïôûù' ]+ : \\S/;  // a summary line: \"integration : Dossier ...\"\n"
+    "if (lines.length > 1 && step.test(lines[0]) && lines.slice(1).some(line => line.startsWith('- '))) lines[0] = '- ' + lines[0];\n"
+    "return [{ json: { output: lines.join('\\n') } }];")})
 connect("Tarik", "Reponse au client")
 node("c1a0b5e2-0001-4000-8000-000000000003", "MiniMax-M3", "@n8n/n8n-nodes-langchain.lmChatAnthropic", 1.3, [800, 220], {
     "model": {"__rl": True, "mode": "id", "value": "MiniMax-M3"}, "options": {},
