@@ -50,6 +50,7 @@ def told(n8n, agents):
     return secret, session
 
 
+@pytest.mark.live
 def test_another_agent_never_knows_it(n8n, agents, told):
     secret, _ = told
     answer = n8n.ask(agents[1], "Quel est le code secret ?")
@@ -57,6 +58,7 @@ def test_another_agent_never_knows_it(n8n, agents, told):
     assert secret not in json.dumps(answer)
 
 
+@pytest.mark.live
 def test_another_agent_cannot_enter_its_conversation(n8n, agents, told):
     secret, session = told
     answer = n8n.ask(agents[1], "Quel est le code secret ?", session)
@@ -64,6 +66,7 @@ def test_another_agent_cannot_enter_its_conversation(n8n, agents, told):
     assert not answer.get("ok") and answer.get("code") == "session_not_found", answer
 
 
+@pytest.mark.live
 def test_a_new_conversation_starts_empty(n8n, agents, told):
     secret, _ = told
     answer = n8n.ask(agents[0], "Quel est le code secret ?")

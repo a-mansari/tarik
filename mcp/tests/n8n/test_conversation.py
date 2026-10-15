@@ -70,6 +70,7 @@ def conversation(n8n, agent):
         db.execute("delete from tarik_client_messages where session_id = %s", (session,))
 
 
+@pytest.mark.live
 @pytest.mark.parametrize("turns, dossier, invoice_type", SCENARIOS, ids=[s[0][-1][:40] for s in SCENARIOS])
 def test_the_last_message_is_handled_with_what_was_said_before(conversation, dossier_ids, turns, dossier, invoice_type):
     calls = conversation(turns)

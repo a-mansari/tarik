@@ -7,13 +7,12 @@ the tax for each rate from the dossier's tax settings (or says which setting is 
 Left here: the question on the usual non-recoverable accounts, and the cabinet's prorata.
 """
 
-import re
-
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, question, server
-from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
-from tarik.invoices.tiers import side_of
+from tarik.core.experio import (TEST_MODE, dry_run, experio_messages, fill_invoice, invoice_context, odoo_call, odoo_json,
+                                refused, require_draft, require_invoice, test_mode_note)
+from tarik.invoices.classify import side_of
 
 # tarik-master: "A confirmer par le comptable (CGI art. 106) avant usage en production."
 NON_RECOVERABLE_ACCOUNTS = ("6142", "6143", "61251", "2340")  # travel, receptions, fuel, passenger cars
@@ -29,17 +28,6 @@ def vat_answer(reply):
     return None
 
 
-def experio_messages(invoice_id, context):
-    """Experio's own error and warning on the invoice, as plain text."""
-    invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=["error_msg", "warning_msg"], context=context)[0]
-    found = []
-    for label, html in (("Erreur Experio", invoice["error_msg"]), ("Avertissement Experio", invoice["warning_msg"])):
-        text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html or "")).strip()
-        if text:
-            found.append(f"{label} : {text}")
-    return found
-
-
 @server.tool()
 @with_ids
 def settle_tva(invoice_id: int, answer: str = "") -> dict:
@@ -49,12 +37,10 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
     their oui/non as ``answer``."""
     invoice = require_invoice(invoice_id, ["state", "type", "company_id", "exercice_id", "partner_id", "account_id",
                                            "amount_tva", "amount_tax_non_recoverable", "tax_prorata", "tva_line_ids"])
-    if invoice["state"] != "draft":
-        raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut etre modifiee.")
+    require_draft(invoice_id, invoice)
     if not invoice["account_id"]:
         if dry_run():  # the account step only simulated its write
-            return ok(f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : "
-                      "la TVA sera reglee une fois le compte enregistre.")
+            return ok(f"{TEST_MODE}Facture {invoice_id} : la TVA sera reglee une fois le compte enregistre.")
         raise ToolError(f"Facture {invoice_id} : pas encore de compte, appelez d'abord assign_account (la TVA en depend).")
     kind = side_of(invoice)
     context = invoice_context(invoice)
@@ -70,7 +56,7 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
         if told:
             changes.update({"amount_tax_non_recoverable": True, "multi_tva": False})
     non_recoverable = invoice["amount_tax_non_recoverable"] or changes.get("amount_tax_non_recoverable")
-    try:
+    with refused(f"settle_tva {invoice_id}", f"Facture {invoice_id} : Experio a refuse la mise a jour de la TVA."):
         if kind == "purchase" and not non_recoverable and invoice["amount_tva"] and not invoice["tax_prorata"]:
             company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["use_prorata", "prorata_rate"])[0]
             if company["use_prorata"]:
@@ -86,13 +72,9 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
         lines = odoo_call("exp.invoice.line", "read", line_ids, fields=["line_type", "tax_id", "tax_rate", "amount_ht", "amount_tva"],
                           context=context) if line_ids else []
         messages = experio_messages(invoice_id, context)
-    except Exception as error:
-        print(f"settle_tva {invoice_id}: {error}", flush=True)
-        raise ToolError(f"Facture {invoice_id} : Experio a refuse la mise a jour de la TVA.") from None
     taxed = [f"{line['amount_ht']} HT a {line['tax_rate']} % ({line['tax_id'][1] if line['tax_id'] else 'sans taxe'})"
              for line in lines if line["line_type"] == "untaxed"]
-    head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
-    body = f"Facture {invoice_id} : TVA {'non recuperable' if non_recoverable else 'recuperable'}"
+    body = f"{test_mode_note()}Facture {invoice_id} : TVA {'non recuperable' if non_recoverable else 'recuperable'}"
     body += (f", {', '.join(notes)}" if notes and not non_recoverable else "") + ". "
     body += ("Lignes : " + "; ".join(taxed) + "." if taxed else "Pas encore de ligne de TVA.")
-    return ok(head + body + ("" if not messages else " " + " ".join(messages)))
+    return ok(body + ("" if not messages else " " + " ".join(messages)))

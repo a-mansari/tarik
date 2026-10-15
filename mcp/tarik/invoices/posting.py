@@ -6,20 +6,14 @@ state read back, since action_post returns nothing to trust. Posting also saves 
 invoice's account, RAS and TVA flags on its tiers for next time (Experio's memorization).
 """
 
-import re
 import time
 
-from mcp.server.mcpserver.exceptions import ToolError
-
 from tarik.core.app import ok, server, stop, with_ids
-from tarik.core.experio import dry_run, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.experio import (TEST_MODE, dry_run, experio_refusal, invoice_context, odoo_call, odoo_json, plain, refused,
+                                require_invoice)
 
 POSTED = ("post", "export")
 RETRIES, PAUSE = 3, 1.0  # as tarik-master: the check can lag right after a refresh
-
-
-def plain(html):
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html or "")).strip()
 
 
 @server.tool()
@@ -33,7 +27,7 @@ def post_invoice(invoice_id: int) -> dict:
     if invoice["state"] != "draft":
         return stop(f"Facture {invoice_id} : en etat {invoice['state']}, elle ne peut pas etre comptabilisee.")
     context = invoice_context(invoice)
-    try:
+    with refused(f"post_invoice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu verifier la facture."):
         if not dry_run():
             odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)
         for attempt in range(RETRIES + 1):
@@ -42,22 +36,18 @@ def post_invoice(invoice_id: int) -> dict:
             if not blocking or attempt == RETRIES:
                 break
             time.sleep(PAUSE)
-    except Exception as error:
-        print(f"post_invoice {invoice_id}: {error}", flush=True)
-        raise ToolError(f"Facture {invoice_id} : Experio n'a pas pu verifier la facture.") from None
     if blocking:
         return stop(f"Facture {invoice_id} : pas comptabilisee, Experio signale : " + " ; ".join(blocking))
     if dry_run():
-        return ok(f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : "
-                  "rien ne bloque, elle serait comptabilisee.")
+        return ok(f"{TEST_MODE}Facture {invoice_id} : rien ne bloque, elle serait comptabilisee.")
     try:
         # skip_due_date_detected_check: what the "date d'echeance detectee" popup's Confirmer does; over RPC the popup
         # would come back instead and nothing would post.
         odoo_json("exp.invoice", "action_post", [invoice_id], context={**context, "skip_due_date_detected_check": True})
         after = odoo_call("exp.invoice", "read", [invoice_id], fields=["state", "error_msg"], context=context)[0]
-    except Exception as error:
+    except Exception as error:  # not refused(): a refusal here stops this invoice, with Experio's own reason
         print(f"post_invoice {invoice_id}: {error}", flush=True)
-        return stop(f"Facture {invoice_id} : Experio a refuse la comptabilisation : {str(error).strip().splitlines()[-1][:300]}")
+        return stop(f"Facture {invoice_id} : Experio a refuse la comptabilisation : {experio_refusal(error)}")
     if after["state"] in POSTED:
         return ok(f"Facture {invoice_id} : comptabilisee.")
     return stop(f"Facture {invoice_id} : pas comptabilisee ({plain(after['error_msg']) or 'etat ' + after['state']}).")

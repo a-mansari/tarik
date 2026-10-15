@@ -1,5 +1,6 @@
-"""Experio: the current cabinet's login and calls, the cabinet lock, and the guards every tool goes through."""
+"""Experio: the current cabinet's login and calls, test mode, and the guards every tool goes through."""
 
+import contextlib
 import os
 import re
 import xmlrpc.client
@@ -12,14 +13,6 @@ from tarik.core.cabinets import current, setting
 
 ODOO_URL = os.environ["ODOO_URL"].rstrip("/")  # the Experio server, the same for every cabinet
 
-def exact_cabinet(name):
-    """The cabinet's database name, taken exactly as configured. No default, no
-    trimming, no case change: a name that isn't exact must stop Tarik, never
-    land it in another cabinet."""
-    if not name or not re.fullmatch(r"[A-Za-z0-9_.-]+", name):
-        raise SystemExit(f"ODOO_DB must be the cabinet's exact database name, got {name!r}")
-    return name
-
 def expected_uid(value):
     """The user id Tarik has in this cabinet. A login returning any other id
     means another cabinet (or user): every call then fails."""
@@ -28,13 +21,32 @@ def expected_uid(value):
     return int(value)
 
 def account():
-    """The current cabinet's Experio database, Tarik's user id there, login and key."""
-    return (exact_cabinet(current()), expected_uid(setting("ODOO_UID")), setting("ODOO_USER"),
+    """The current cabinet's Experio database (its name, checked by cabinets.cabinet_names), Tarik's user
+    id there, login and key."""
+    return (current(), expected_uid(setting("ODOO_UID")), setting("ODOO_USER"),
             setting("ODOO_API_KEY", "") or setting("ODOO_PASSWORD"))
 
 def dry_run():
     """1 (the default): tools that write to Experio only say what they would write. Per cabinet."""
     return setting("DRY_RUN", "1") == "1"
+
+TEST_MODE = "MODE TEST : aucune modification enregistree dans Experio. "  # run_summary spots test runs by it
+
+def test_mode_note():
+    """TEST_MODE in test mode, else nothing: the start of a step's message."""
+    return TEST_MODE if dry_run() else ""
+
+@contextlib.contextmanager
+def refused(log, message):
+    """Whatever fails inside is logged here with ``log``, and the agent is told only ``message``
+    (a ToolError's own message is the only text that reaches it)."""
+    try:
+        yield
+    except ToolError:
+        raise
+    except Exception as error:
+        print(f"{log}: {error}", flush=True)
+        raise ToolError(message) from None
 
 # IPv4 only: the container has no IPv6 route, and httpx does not fall back when a host's IPv6 address comes first.
 HTTP = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"))
@@ -57,9 +69,9 @@ def odoo_call(model, method, *args, **kw):
 
 def odoo_json(model, method, *args, **kw):
     """The same call over JSON-RPC, for answers holding None (onchange), which XML-RPC can't carry."""
+    database, _, _, key = account()
     answer = HTTP.post(f"{ODOO_URL}/jsonrpc", timeout=600, json={"jsonrpc": "2.0", "method": "call", "params": {
-        "service": "object", "method": "execute_kw",
-        "args": [account()[0], login(), account()[3], model, method, list(args), kw]}}).json()
+        "service": "object", "method": "execute_kw", "args": [database, login(), key, model, method, list(args), kw]}}).json()
     if "error" in answer:
         raise RuntimeError(answer["error"].get("data", {}).get("message") or answer["error"].get("message"))
     return answer.get("result")
@@ -74,11 +86,8 @@ def require_dossier(dossier_id):
     ToolError, not ValueError: only a ToolError's message reaches the agent."""
     if not isinstance(dossier_id, int) or isinstance(dossier_id, bool) or dossier_id <= 0:
         raise ToolError("dossier_id manquant ou invalide : trouvez d'abord le dossier avec Experio_find_dossier.")
-    try:
+    with refused(f"require_dossier {dossier_id}", "Experio est injoignable : le dossier n'a pas pu etre verifie."):
         found = odoo_call("res.company", "search_read", [("id", "=", dossier_id), *DOSSIER_DOMAIN], fields=["name"])
-    except Exception as error:
-        print(f"require_dossier {dossier_id}: {error}", flush=True)
-        raise ToolError("Experio est injoignable : le dossier n'a pas pu etre verifie.") from None
     if not found:
         raise ToolError(f"Aucun dossier n° {dossier_id} : trouvez-le avec Experio_find_dossier.")
     return found[0]["name"]
@@ -89,11 +98,8 @@ def require_invoice(invoice_id, fields):
     if not isinstance(invoice_id, int) or isinstance(invoice_id, bool) or invoice_id <= 0:
         raise ToolError("invoice_id manquant ou invalide : c'est le numero de facture brouillon donne a sa creation.")
     domain = [("id", "=", invoice_id), *[(f"company_id.{field}", op, value) for field, op, value in DOSSIER_DOMAIN]]
-    try:
+    with refused(f"require_invoice {invoice_id}", "Experio est injoignable : la facture n'a pas pu etre lue."):
         found = odoo_call("exp.invoice", "search_read", domain, fields=fields)
-    except Exception as error:
-        print(f"require_invoice {invoice_id}: {error}", flush=True)
-        raise ToolError("Experio est injoignable : la facture n'a pas pu etre lue.") from None
     if not found:
         raise ToolError(f"Aucune facture n° {invoice_id} dans les dossiers du cabinet.")
     return found[0]
@@ -106,6 +112,26 @@ def invoice_context(invoice):
     if invoice["exercice_id"]:
         context["cron_fiscal_entry_id"] = invoice["exercice_id"][0]
     return context
+
+
+def require_draft(invoice_id, invoice, what="etre modifiee"):
+    """Only a draft invoice may be changed."""
+    if invoice["state"] != "draft":
+        raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut {what}.")
+
+def experio_refusal(error):
+    """Experio's own message, the last line of its traceback."""
+    return str(error).strip().splitlines()[-1][:300]
+
+def plain(html):
+    """Experio's HTML message as one line of text."""
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html or "")).strip()
+
+def experio_messages(invoice_id, context):
+    """Experio's own error and warning on the invoice, as plain text."""
+    invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=["error_msg", "warning_msg"], context=context)[0]
+    return [f"{label} : {plain(html)}" for label, html in (("Erreur Experio", invoice["error_msg"]),
+                                                            ("Avertissement Experio", invoice["warning_msg"])) if plain(html)]
 
 
 FORM_SKIP = {"one2many", "many2many", "binary", "html", "properties", "json"}

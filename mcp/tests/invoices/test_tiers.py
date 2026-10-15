@@ -1,27 +1,22 @@
-"""The invoice's tiers: a real id, names compared, the client's free-text answer (fictional tiers)."""
+"""The invoice's tiers: names compared, the client's free-text answer (fictional tiers)."""
 
 import pytest
-from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.dossiers.search import similarity
-from tarik.invoices.tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
+from tarik.invoices.tiers import TIERS_MIN_SIMILARITY, pick_tiers
 
 TIERS = [{"id": 7, "name": "ATLAS DE ROULEMENT - 12345678"}, {"id": 8, "name": "ATLAS TRANSPORT"}, {"id": 9, "name": "NOVA TELECOM"},
          {"id": 10, "name": "NOVA TELECOM", "ice": "001234567000089"}]
 
 
-@pytest.mark.parametrize("bad", [None, 0, -3, True])
-def test_a_tiers_needs_a_real_id(bad):
-    with pytest.raises(ToolError, match="partner_id"):
-        set_tiers(1, bad)
-
-
+@pytest.mark.functionality
 def test_names_compared():
     assert similarity("GAMMA DISTRIBUTION SARL", "DELTA FAIR DISTRIBUTION") < TIERS_MIN_SIMILARITY  # shared generic words only
     assert similarity("atlas roulement", "ATLAS DE ROULEMENT") >= TIERS_MIN_SIMILARITY
     assert similarity("Nova Telecom SA", "NOVA TELECOM") >= TIERS_MIN_SIMILARITY > similarity("Nova Telecom SA", "ORBIT TELECOM")
 
 
+@pytest.mark.functionality
 def test_the_client_answer_picks_one_tiers_or_none():
     assert pick_tiers(TIERS, "Oui, c'est bien ATLAS DE ROULEMENT (id 7).")["id"] == 7
     assert pick_tiers(TIERS, "c'est ATLAS DE ROULEMENT")["id"] == 7

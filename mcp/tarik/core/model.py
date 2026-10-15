@@ -10,11 +10,8 @@ from tarik.core.experio import HTTP
 
 
 def ask_model(system, pages, instruction, what):
-    """MiniMax-M3's JSON answer about some page images (PNG bytes, in order).
-
-    MiniMax is called in the Anthropic message format it imitates: hence the
-    /v1/messages path and the anthropic-version header. The model is MiniMax's.
-    ``what`` names the step in the log and in the agent's error."""
+    """MiniMax-M3's JSON answer about some page images (PNG bytes, in order): hence the /v1/messages
+    path and the anthropic-version header. ``what`` names the step in the log and in the agent's error."""
     url, key, model = (setting(name, "") for name in ("MODEL_API_URL", "MODEL_API_KEY", "MODEL_API_NAME"))
     if not (url and key and model):
         raise ToolError(f"{what} : le modele n'est pas encore configure.")

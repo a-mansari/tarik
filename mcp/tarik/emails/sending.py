@@ -24,6 +24,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server
 from tarik.core.cabinets import current, setting
+from tarik.core.experio import odoo_call
 
 
 def cert_pin():
@@ -45,6 +46,14 @@ def check_pin(sock):
     if pin and hashlib.sha256(sock.getpeercert(binary_form=True)).hexdigest() != pin:
         sock.close()
         raise ssl.SSLError("mail server certificate does not match MAIL_CERT_SHA256")
+
+
+def imap_login():
+    """The current cabinet's mailbox over IMAP, logged in on the pinned (or verified) certificate."""
+    box = imaplib.IMAP4_SSL(setting("IMAP_HOST"), int(setting("IMAP_PORT", "993")), ssl_context=tls_context(), timeout=60)
+    check_pin(box.sock)
+    box.login(setting("IMAP_USER"), setting("IMAP_PASSWORD"))
+    return box
 
 
 def allowed_recipients():
@@ -77,7 +86,6 @@ def cabinet_name():
 @functools.cache  # keyed by cabinet: one cabinet's name never signs another's email
 def _cabinet_name(cabinet):
     try:
-        from tarik.core.experio import odoo_call
         return odoo_call("res.company", "read", [1], fields=["name"])[0]["name"]
     except Exception as error:
         print(f"cabinet_name: {error}", flush=True)
@@ -145,9 +153,7 @@ def save_sent(message):
     """A copy of what Tarik sent, in the mailbox's Sent folder, read: SMTP keeps none, and the
     cabinet must see Tarik's replies there. The email is already sent: a failure here is only logged."""
     try:
-        box = imaplib.IMAP4_SSL(setting("IMAP_HOST"), int(setting("IMAP_PORT", "993")), ssl_context=tls_context(), timeout=60)
-        check_pin(box.sock)
-        box.login(setting("IMAP_USER"), setting("IMAP_PASSWORD"))
+        box = imap_login()
         box.append(f'"{sent_folder(box)}"', "(\\Seen)", imaplib.Time2Internaldate(time.time()), message.as_bytes())
         box.logout()
     except Exception as error:

@@ -7,12 +7,12 @@ import pypdfium2
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, question, server, stop
-from tarik.invoices.classify import CLASSIFY_PROMPT, client_side
-from tarik.core.documents import pdf_pages, to_pdf
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import dry_run, odoo_call, require_dossier
+from tarik.core.conversation import client_messages
+from tarik.core.documents import pdf_pages, to_pdf
+from tarik.core.experio import TEST_MODE, dry_run, odoo_call, refused, require_dossier
 from tarik.core.model import ask_model
-from tarik.dossiers.onboarding import client_messages
+from tarik.invoices.classify import classify_pages, client_side
 
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
@@ -39,21 +39,15 @@ def identify_document(file_id: int) -> dict:
         name, mime, data, kind = row
         if kind:
             return ok(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
-        raw = to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
         if mime != "application/pdf" and not mime.startswith("image/"):
             raise ToolError(f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
         try:
-            pages = pdf_pages(raw)
+            pages = pdf_pages(to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data))
         except pypdfium2.PdfiumError:
             raise ToolError(f"{name} : PDF illisible.") from None
         # shortcut: one decision per file from its first pages; a PDF mixing invoices and a statement needs splitting by kind.
-        result = ask_model(CLASSIFY_PROMPT, pages,
-                           'Answer with only a JSON object: {"category": "achat"|"vente"|"rb", "reason": "one French sentence"}',
-                           "Identification du document")
-        if result.get("category") not in ("achat", "vente", "rb"):
-            print(f"identify_document {file_id}: unexpected category {result.get('category')!r}", flush=True)
-            raise ToolError("Identification du document : echec, reessayez plus tard.")
-        kind = "statement" if result["category"] == "rb" else "invoice"
+        category, _ = classify_pages(pages, "Identification du document")
+        kind = "statement" if category == "rb" else "invoice"
         db.execute("update tarik_files set kind = %s where id = %s", (kind, file_id))
     return ok(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
 
@@ -166,14 +160,11 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
         parts = [part for (part,) in db.execute("select id from tarik_files where parent_id = %s order by id", (file_id,))]
         if parts:
             raise ToolError(f"{name} a ete decoupe : creez les brouillons des fichiers n° {', '.join(map(str, parts))}.")
-        if mime.startswith("image/"):
+        if mime.startswith("image/"):  # identify_document let only PDFs and images through
             data = to_pdf(bytes(data))
-        elif mime != "application/pdf":
-            return stop(f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
         if dry_run():  # stop: without a draft, the steps after this one have nothing to work on
-            return stop(f"MODE TEST : aucune modification enregistree dans Experio. {name} : la facture brouillon "
-                        f"serait creee dans le dossier {dossier}.")
-        try:
+            return stop(f"{TEST_MODE}{name} : la facture brouillon serait creee dans le dossier {dossier}.")
+        with refused(f"create_draft_invoice: file {file_id}", f"Experio n'a pas pu creer la facture pour {name}."):
             # Experio's own import wizard, as the upload screen uses it: its defaults, the
             # pending state and the Bluejay OCR job. A bare exp.invoice create skips all three.
             wizard_id = odoo_call("exp.invoice.import", "create", {
@@ -186,9 +177,6 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
             if len(created) != 1:
                 raise RuntimeError(f"import wizard {wizard_id} created {created}, expected one invoice")
             invoice_id = created[0]
-        except Exception as error:
-            print(f"create_draft_invoice: file {file_id}: {error}", flush=True)
-            raise ToolError(f"Experio n'a pas pu creer la facture pour {name}.") from None
         db.execute("update tarik_files set invoice_id = %s where id = %s", (invoice_id, file_id))
     return ok(f"{name} : facture brouillon n° {invoice_id} creee dans le dossier {dossier}.", invoice_id=invoice_id)
 
@@ -210,12 +198,9 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
         require_kind(name, kind, "statement")
         if existing:
             return ok(f"{name} : releve deja importe (n° {existing}).", statement_id=existing)
-        try:
+        with refused(f"import_bank_statement {file_id}", "Experio est injoignable : les journaux de banque n'ont pas pu etre lus."):
             journals = odoo_call("exp.journal", "search_read", [("company_id", "=", dossier_id), ("type", "=", "bank")],
                                  fields=["id", "name", "bank_id"], order="name")
-        except Exception as error:
-            print(f"import_bank_statement {file_id}: {error}", flush=True)
-            raise ToolError("Experio est injoignable : les journaux de banque n'ont pas pu etre lus.") from None
         usable = [j for j in journals if j["bank_id"]]  # Experio refuses a journal without its bank
         if not usable:
             unset = f" ({', '.join(j['name'] for j in journals)} sans banque renseignee)" if journals else ""
@@ -227,13 +212,12 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
             journal_id = usable[0]["id"]
         elif journal_id not in {j["id"] for j in usable}:
             raise ToolError(f"journal_id {journal_id} n'est pas un journal de banque utilisable du dossier {dossier}.")
+        journal = next(j for j in usable if j["id"] == journal_id)["name"]
         if dry_run():
-            journal = next(j for j in usable if j["id"] == journal_id)
-            return ok(f"MODE TEST : aucune modification enregistree dans Experio. {name} : le releve serait importe "
-                      f"dans le dossier {dossier}, journal {journal['name']}.")
+            return ok(f"{TEST_MODE}{name} : le releve serait importe dans le dossier {dossier}, journal {journal}.")
         raw = to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
         context = {"allowed_company_ids": [dossier_id]}
-        try:
+        with refused(f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le releve {name}."):
             # Experio's own statement import, as its upload screen uses it: bank code as doctype, Bluejay job.
             wizard_id = odoo_call("exp.bank.statement.import", "create", {
                 "data": base64.b64encode(raw).decode(), "mimetype": "application/pdf", "name": name.rsplit(".", 1)[0],
@@ -242,9 +226,5 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
             created = odoo_call("exp.bank.statement.import", "read", [wizard_id], fields=["record_ids"], context=context)[0]["record_ids"]
             if len(created) != 1:
                 raise RuntimeError(f"statement import wizard {wizard_id} created {created}, expected one statement")
-        except Exception as error:
-            print(f"import_bank_statement {file_id}: {error}", flush=True)
-            raise ToolError(f"Experio n'a pas pu importer le releve {name}.") from None
         db.execute("update tarik_files set statement_id = %s where id = %s", (created[0], file_id))
-    journal = next(j for j in usable if j["id"] == journal_id)
-    return ok(f"{name} : releve importe (n° {created[0]}) dans le dossier {dossier}, journal {journal['name']}.", statement_id=created[0])
+    return ok(f"{name} : releve importe (n° {created[0]}) dans le dossier {dossier}, journal {journal}.", statement_id=created[0])

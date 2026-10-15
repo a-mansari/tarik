@@ -7,7 +7,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from tarik.core.app import with_ids, ok, server, stop, wait
 from tarik.core.documents import scan_pages
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import dry_run, fill_invoice, invoice_context, require_invoice
+from tarik.core.experio import fill_invoice, invoice_context, refused, require_draft, require_invoice, test_mode_note
 from tarik.core.model import ask_model
 from tarik.dossiers.search import normalized
 
@@ -34,6 +34,28 @@ SIDE_WORDS = {"achat": r"achats?|fournisseurs?|purchases?", "vente": r"ventes?|s
 SIDES = {"achat": {"achat"}, "vente": {"vente"}, "mixte": {"achat", "vente"}}
 
 
+def classify_pages(pages, what):
+    """The model's (category, reason) for a document's pages: achat, vente or rb (bank statement)."""
+    result = ask_model(CLASSIFY_PROMPT, pages,
+                       'Answer with only a JSON object: {"category": "achat"|"vente"|"rb", "reason": "one French sentence"}', what)
+    if result.get("category") not in ("achat", "vente", "rb"):
+        print(f"{what}: unexpected category {result.get('category')!r}", flush=True)
+        raise ToolError(f"{what} : echec, reessayez plus tard.")
+    return result["category"], str(result.get("reason") or "")
+
+
+def side_of(invoice):
+    """The invoice's side, purchase or sale: from its classification when there is one, else Experio's type."""
+    with cabinet_db() as db:
+        row = db.execute("select category from tarik_classifications where invoice_id = %s", (invoice["id"],)).fetchone()
+    if row and row[0] == "rb":
+        raise ToolError(f"Facture {invoice['id']} : c'est un releve bancaire, pas une facture.")
+    side = CATEGORY_TO_TYPE[row[0]] if row else invoice["type"]
+    if side not in ("purchase", "sale"):
+        raise ToolError(f"Facture {invoice['id']} : ni achat ni vente, classez-la d'abord avec classify_invoice.")
+    return side
+
+
 def client_side(invoice_type, words):
     """``invoice_type`` (achat, vente, or mixte for both) when the client wrote it themselves, else None:
     a model may not choose the side of the client's invoices."""
@@ -54,13 +76,7 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
         return wait(f"Facture {invoice_id} : Experio est encore en train de la lire, reessayez dans une minute.")
     if not invoice["document_pdf"] or invoice["file_type"] not in (False, None, "pdf"):
         return ok(f"Facture {invoice_id} : pas de scan PDF a classer.")
-    result = ask_model(CLASSIFY_PROMPT, scan_pages(invoice["document_pdf"]),
-                       'Answer with only a JSON object: {"category": "achat"|"vente"|"rb", "reason": "one French sentence"}',
-                       "Classement de la facture")
-    category, reason = result.get("category"), str(result.get("reason") or "")
-    if category not in ("achat", "vente", "rb"):
-        print(f"classify_invoice {invoice_id}: unexpected category {category!r}", flush=True)
-        raise ToolError("Classement de la facture : echec, reessayez plus tard.")
+    category, reason = classify_pages(scan_pages(invoice["document_pdf"]), "Classement de la facture")
     with cabinet_db() as db:
         db.execute("insert into tarik_classifications (invoice_id, category, reason) values (%s, %s, %s) "
                    "on conflict (invoice_id) do update set category = excluded.category, reason = excluded.reason, classified_at = now()",
@@ -73,14 +89,8 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     wanted = CATEGORY_TO_TYPE[category]
     if invoice["type"] == wanted:
         return ok(f"Facture {invoice_id} : {category}, deja enregistree comme telle ({reason}).", category=category)
-    if invoice["state"] != "draft":
-        raise ToolError(f"Facture {invoice_id} : {category}, mais seule une facture brouillon peut changer de type.")
-    context = invoice_context(invoice)
-    try:
-        fill_invoice(invoice_id, {"type": wanted}, context)  # Experio's onchange on type runs, as on screen
-    except Exception as error:
-        print(f"classify_invoice {invoice_id}: {error}", flush=True)
-        raise ToolError(f"Facture {invoice_id} : Experio a refuse le changement de type.") from None
-    if dry_run():
-        return ok(f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : {category} ({reason}), le type passerait a {wanted}.", category=category)
-    return ok(f"Facture {invoice_id} : {category} ({reason}), type change en {wanted}.", category=category)
+    require_draft(invoice_id, invoice, "changer de type")
+    with refused(f"classify_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refuse le changement de type."):
+        fill_invoice(invoice_id, {"type": wanted}, invoice_context(invoice))  # Experio's onchange on type runs, as on screen
+    changed = "le type passerait a" if test_mode_note() else "type change en"
+    return ok(f"{test_mode_note()}Facture {invoice_id} : {category} ({reason}), {changed} {wanted}.", category=category)

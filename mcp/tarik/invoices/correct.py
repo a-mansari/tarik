@@ -4,13 +4,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, server
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, refused, require_draft, require_invoice
+from tarik.invoices.check import CAPTURED
 
-
-# Header fields the correction may write (tarik-master odoo.WRITABLE); tiers, account, journal... are later steps.
-WRITABLE = {"invoice_number", "invoice_date", "amount_untaxed", "amount_tva", "amount_stamp", "amount_disbursement",
-            "amount_guarantee_holdback", "amount_prorata", "amount_insurance", "amount_ts", "amount_tsp",
-            "advance_amount", "amount_total"}
+WRITABLE = set(CAPTURED)  # the header fields only (tarik-master odoo.WRITABLE): tiers, account, journal... are later steps
 
 MULTI_TVA_RATES = {7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20}  # the amount_tva_<rate> fields Experio has
 
@@ -41,8 +38,7 @@ def correct_invoice(invoice_id: int) -> dict:
     rebuild its TVA lines. Call check_invoice first."""
     invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "refund", "amount_tax_non_recoverable",
                                            "payment_method_id", "currency_id"])
-    if invoice["state"] != "draft":
-        raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut etre corrigee.")
+    require_draft(invoice_id, invoice, "etre corrigee")
     with cabinet_db() as db:
         row = db.execute("select readable, extracted, bad_fields from tarik_checks where invoice_id = %s", (invoice_id,)).fetchone()
     if not row:
@@ -52,7 +48,7 @@ def correct_invoice(invoice_id: int) -> dict:
         return ok(f"Facture {invoice_id} : scan illisible, rien a corriger.")
     changes = planned_changes(extracted, bad_fields, invoice)
     notes = []
-    try:
+    with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refuse la correction."):
         code = (extracted.get("currency") or "MAD").upper()
         if code != "MAD":
             currency = odoo_call("res.currency", "search_read", [("name", "=", code)], fields=["id"], limit=1)
@@ -73,9 +69,6 @@ def correct_invoice(invoice_id: int) -> dict:
             return ok(f"Facture {invoice_id} : deja a jour, rien a changer.")
         if not dry_run():
             odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)  # Experio's own "Actualiser"; returns None, hence JSON-RPC
-    except Exception as error:
-        print(f"correct_invoice {invoice_id}: {error}", flush=True)
-        raise ToolError(f"Facture {invoice_id} : Experio a refuse la correction.") from None
     shown = ", ".join(f"{field} = {changed.get(field, value)}" for field, value in changes.items())
     other = sorted(set(changed) - set(changes))
     head = (f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id}, correction prevue : {shown}."

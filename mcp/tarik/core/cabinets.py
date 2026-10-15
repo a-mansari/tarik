@@ -6,7 +6,7 @@ Postgres schema (its files, results, questions, mail). A setting is either the c
 shared by all of them (SHARED_SETTINGS: the mail server, n8n's MCP token, the model), never both.
 
 They come from Vault (tarik.core.vault: secret/tarik/shared, secret/tarik/cabinets/<cabinet>, the
-cabinets being those paths), or, without Vault, from the environment: TARIK_CABINETS lists the
+cabinets being those paths). The tests set them in the environment instead: TARIK_CABINETS lists the
 cabinets, a cabinet's own settings are prefixed with its name (EXPERIO_CABINET_8__ODOO_UID).
 
 Settings stay on the server: no tool returns one, and only a ToolError's own message reaches
@@ -96,19 +96,6 @@ def setting(key, default=None):
             raise KeyError(f"{current()}: {key} is not set")  # stays on the server: not a ToolError
         return default
     return value
-
-
-def misplaced_settings(environ=os.environ):
-    """Settings set where they don't belong: a cabinet setting without its cabinet's prefix (it
-    would be nobody's), a shared one under a cabinet's prefix (it would be ignored), or a prefix
-    of no listed cabinet. The server refuses to start with any."""
-    found = sorted(key for key in CABINET_SETTINGS if environ.get(key))
-    for name, value in environ.items():
-        prefix, separator, key = name.partition("__")
-        if separator and value and (key in CABINET_SETTINGS or key in SHARED_SETTINGS) and prefix.isupper():
-            if key in SHARED_SETTINGS or prefix.lower() not in CABINETS:
-                found.append(name)
-    return sorted(found)
 
 
 def misplaced_in_vault(shared, cabinets, environ=os.environ):

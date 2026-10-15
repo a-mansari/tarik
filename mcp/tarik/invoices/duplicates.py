@@ -9,10 +9,8 @@ format instead, and the label field overrides it, so that part is not ported.
 
 import re
 
-from mcp.server.mcpserver.exceptions import ToolError
-
 from tarik.core.app import with_ids, ok, server, stop
-from tarik.core.experio import invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.experio import invoice_context, odoo_call, odoo_json, refused, require_invoice
 
 
 @server.tool()
@@ -25,7 +23,7 @@ def check_duplicate(invoice_id: int) -> dict:
     if not invoice["invoice_number"] or not invoice["partner_id"]:
         return ok(f"Facture {invoice_id} : numero ou tiers manquant, la verification des doublons attend qu'ils soient renseignes.")
     context = invoice_context(invoice)
-    try:
+    with refused(f"check_duplicate {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu verifier les doublons."):
         # 1. Against posted invoices: Experio's check on this invoice alone.
         if invoice_id in (odoo_json("exp.invoice", "get_duplicated_invoice_ids", [invoice_id], context=context) or []):
             message = odoo_json("exp.invoice", "get_duplicated_invoice_msg", [invoice_id], context=context) or ""
@@ -44,8 +42,5 @@ def check_duplicate(invoice_id: int) -> dict:
                 return ok(f"Facture {invoice_id} : pas de doublon, c'est la premiere saisie ; les brouillons "
                           f"{', '.join(map(str, batch[1:]))} en sont des doublons.")
             message = f"Meme facture que le brouillon {batch[0]}, saisi avant."
-    except Exception as error:
-        print(f"check_duplicate {invoice_id}: {error}", flush=True)
-        raise ToolError(f"Facture {invoice_id} : Experio n'a pas pu verifier les doublons.") from None
     detail = re.sub(r"\s*<br\s*/?>\s*", " ", message).strip()
     return stop(f"Facture {invoice_id} : DOUBLON, deja enregistree dans le dossier. {detail} Ne pas la traiter.")

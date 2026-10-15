@@ -7,6 +7,7 @@ from tarik.emails import sending
 from tarik.emails.sending import recipient_allowed, render, send_email
 
 
+@pytest.mark.security
 def test_the_whitelist():  # exact addresses, @domain, * patterns; nobody when empty
     allowed = ["test@example.com", "@cabinet.example"]
     assert recipient_allowed("Test <TEST@example.com>", allowed) and recipient_allowed("x@cabinet.example", allowed)
@@ -18,12 +19,14 @@ def test_the_whitelist():  # exact addresses, @domain, * patterns; nobody when e
     assert not recipient_allowed("testXali@experio.ma", ["test.ali@experio.ma"])  # "." is literal, not a wildcard
 
 
+@pytest.mark.security
 def test_an_email_outside_the_whitelist_is_refused_before_smtp(monkeypatch):
     monkeypatch.setattr(sending, "allowed_recipients", lambda: ["test@example.com"])  # whatever the container's own list
     with pytest.raises(ToolError, match="hors de la liste autorisee"):
         send_email("client@other.example", "s", "b")
 
 
+@pytest.mark.communication
 def test_the_template(monkeypatch):
     monkeypatch.setattr(sending, "cabinet_name", lambda: "CABINET TEST")
     text, page = render("## Récapitulatif\n\nVoici le **dossier** ALPHA :\n- création : ok\n* import : `7197` lignes\n\n"
@@ -37,6 +40,7 @@ def test_the_template(monkeypatch):
     assert '<a href="https://experio.ma">Experio</a>' in page and "A &lt; B" in page and "<em>important</em>" in page
 
 
+@pytest.mark.communication
 def test_ordinary_underscores_and_stars_stay(monkeypatch):
     monkeypatch.setattr(sending, "cabinet_name", lambda: "")
     assert "fichier_2026_mars.pdf" in render("fichier_2026_mars.pdf")[0] and "4411 * 2" in render("4411 * 2")[0]
@@ -50,6 +54,7 @@ class FakeBox:
         return "OK", self.folders
 
 
+@pytest.mark.technical
 def test_the_sent_folder_is_the_one_the_server_flags():
     assert sending.sent_folder(FakeBox([b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren \\Sent) "/" "Envoyes"'])) == "Envoyes"
     assert sending.sent_folder(FakeBox([b'(\\HasNoChildren) "/" "INBOX"'])) == "Sent"  # none flagged: the usual name

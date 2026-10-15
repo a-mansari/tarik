@@ -57,7 +57,6 @@ above; the workflows call the rest.
 | `copy_configuration` | Copies a model dossier's configuration, only when the client asked for it. |
 | `import_entries` | Imports a FEC or grand livre through Experio's Importation screen. |
 | `finish_setup` / `setup_status` | Finishes a new dossier's onboarding / where its setup stands. |
-| `enable_tiers_autofill` | Turns on automatic tiers account numbering for a dossier (only when the cabinet asks). |
 
 ### Invoices and statements (`tarik/invoices`)
 
@@ -70,13 +69,13 @@ above; the workflows call the rest.
 | `create_draft_invoice` / `wait_until_read` | Creates the draft / waits for Experio's reading (up to 3 minutes). |
 | `check_invoice` / `correct_invoice` | Compares what Experio read with the scan / corrects the differences. |
 | `classify_invoice` | Purchase, sale, or bank statement; stops an invoice whose scan contradicts the side the client gave. |
-| `link_tiers` / `find_tiers` / `set_tiers` | The invoice's supplier or customer. |
+| `link_tiers` | The invoice's supplier or customer; when none is detected, a question with the close names. |
 | `check_duplicate` | Refuses an invoice already recorded. |
-| `assign_account` / `search_accounts` / `set_account` | The invoice's account. |
+| `assign_account` | The invoice's account; when none fits, a question. |
 | `settle_tva` / `check_journal` / `settle_withholding` / `settle_prepaid` / `settle_exercice` | TVA, journal, withholding tax, prepaid charges, fiscal year: each settled, or a question to the client. |
 | `post_invoice` | Posts the invoice when nothing blocks it. |
 | `list_invoices` | A dossier's invoices, amounts as Experio shows them. |
-| `answer_pending` / `pending_questions` / `waiting_drafts` | Questions waiting for the client, drafts waiting for Experio. |
+| `answer_pending` / `waiting_drafts` | The client's answer to a pending question (the tiers, account, TVA... it names) / drafts waiting for Experio. |
 | `record_step` / `run_summary` | A run's step outcomes / its summary for the client. |
 
 ### Emails (`tarik/emails`)
@@ -94,4 +93,4 @@ above; the workflows call the rest.
 |---|---|
 | `workflows/build_tarik_traitement.py`, `build_tarik_dossier.py`, `build_tarik_modification.py`, `build_tarik_emails.py` | Rebuild a workflow's JSON; then import and publish it (README). |
 | `workflows/build_tarik_agents.py` | Create or update every cabinet's agent from the template and the skills; checks the tool names first. |
-| `vault/setup.sh` / `vault/migrate_env.py` | Set up the local Vault / move an old `.env`'s settings into it. |
+| `vault/setup.sh` | Sets up the local Vault. |

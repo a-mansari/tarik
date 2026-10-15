@@ -1,28 +1,19 @@
 """Build workflows/tarik-traitement.json: the fixed processing sequence as n8n nodes.
 
-Edit this script, not the JSON: python3 workflows/build_tarik_traitement.py"""
+Modes: files (the conversation's files, from identification to posting), answer (the client's answer
+to a pending question, then the sequence resumes there), resume (drafts Experio hadn't read yet)."""
 
-import json
 import sys
 from pathlib import Path
 
-from steps import ATTACHMENTS, CABINET, SAVE_ATTACHMENTS, CALL, OK_ELSE, RESULT, Workflow
+from steps import ATTACHMENTS, CABINET_INPUT, CALL, OK_ELSE, RESULT, SAVE_ATTACHMENTS, Workflow
 
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-traitement.json")
 flow = Workflow("tarik-traitement")
 node, connect, mcp, route = flow.node, flow.connect, flow.mcp, flow.route
-nodes, connections = flow.nodes, flow.connections
 
-RECORD = "Enregistrer"
-
-node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], {
-    "inputSource": "workflowInputs",
-    "workflowInputs": {"values": [{"name": "mode", "type": "string"}, {"name": "session_id", "type": "string"},
-                                  {"name": "dossier_id", "type": "number"},
-                                  {"name": "invoice_id", "type": "number"}, {"name": "answer", "type": "string"},
-                                  {"name": "invoice_type", "type": "string"}, {"name": "client_message", "type": "string"},
-                                  ATTACHMENTS, CABINET]},
-})
+flow.trigger([{"name": "mode", "type": "string"}, {"name": "session_id", "type": "string"},
+              {"name": "dossier_id", "type": "number"}, {"name": "invoice_id", "type": "number"}, {"name": "answer", "type": "string"},
+              {"name": "invoice_type", "type": "string"}, {"name": "client_message", "type": "string"}, ATTACHMENTS, CABINET_INPUT])
 flow.save_attachments([110, 300])
 route("Fichiers ou reponse ?", f"{CALL}.mode === 'answer' ? 1 : ({CALL}.mode === 'resume' ? 2 : 0)", 3, [220, 300])
 mcp("Fichiers du message (files_to_process)", "files_to_process",
@@ -31,18 +22,16 @@ node("Un element par fichier", "n8n-nodes-base.code", 2, [440, 200], {"jsCode": 
     "// One item per file to process (files_to_process picked the conversation's invoices and statements not processed yet).\n"
     "return $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));")})
 # Work on an existing dossier: the email's sender must have it assigned in Experio (the agent's own chat has no sender).
-mcp("Expediteur (check_sender)", "check_sender", f"{{ session_id: {CALL}.session_id, dossier_id: {CALL}.dossier_id }}", [260, 120])
-route("Suite apres check_sender", OK_ELSE, 2, [300, 160])
+sender = flow.checked("Expediteur (check_sender)", "check_sender", f"{{ session_id: {CALL}.session_id, dossier_id: {CALL}.dossier_id }}",
+                      [260, 120], [300, 160])
 connect("Appel", SAVE_ATTACHMENTS)
 connect(SAVE_ATTACHMENTS, "Fichiers ou reponse ?", 0)
-connect(SAVE_ATTACHMENTS, RECORD, 1)
+flow.to_record(SAVE_ATTACHMENTS, 1)
 connect("Fichiers ou reponse ?", "Expediteur (check_sender)", 0)
-connect("Expediteur (check_sender)", "Suite apres check_sender", 0)
-connect("Expediteur (check_sender)", RECORD, 1)
-connect("Suite apres check_sender", "Fichiers du message (files_to_process)", 0)
-connect("Suite apres check_sender", RECORD, 1)
+connect(sender, "Fichiers du message (files_to_process)", 0)
+flow.to_record(sender, 1)
 connect("Fichiers du message (files_to_process)", "Un element par fichier", 0)
-connect("Fichiers du message (files_to_process)", RECORD, 1)
+flow.to_record("Fichiers du message (files_to_process)", 1)
 
 # Files: identify -> statement import, or split -> drafts.
 mcp("Identification (identify_document)", "identify_document", "{ file_id: $json.file_id }", [660, 200])
@@ -90,22 +79,17 @@ for index, (name, tool) in enumerate(CHAIN):
     router = f"Suite apres {tool}"
     route(router, OK_ELSE, 2, [x + 110, 620])
     connect(name, router, 0)
-    connect(name, RECORD, 1)  # tool error
+    flow.to_record(name, 1)  # tool error
     if index + 1 < len(CHAIN):
         connect(router, CHAIN[index + 1][0], 0)
-        connect(router, RECORD, 0)  # every outcome is recorded, so the summary tells all of it
-        connect(router, RECORD, 1)
-    else:
-        connect(router, RECORD, 0)  # end of the sequence: recorded as done
-        connect(router, RECORD, 1)
+    flow.to_record(router, 0, 1)  # every outcome is recorded, so the summary tells all of it
     x += 240
 
 for name in ("Identification (identify_document)", "Decoupage (split_invoices)"):
-    connect(name, RECORD, 1)
-connect("Suite apres identify_document", RECORD, 2)
-connect("Suite apres split_invoices", RECORD, 1)
-connect("Releve bancaire (import_bank_statement)", RECORD, 0)
-connect("Releve bancaire (import_bank_statement)", RECORD, 1)
+    flow.to_record(name, 1)
+flow.to_record("Suite apres identify_document", 2)
+flow.to_record("Suite apres split_invoices", 1)
+flow.to_record("Releve bancaire (import_bank_statement)", 0, 1)
 
 # Resume: the conversation's drafts Experio hadn't read yet go back to the reading step.
 mcp("Brouillons en attente (waiting_drafts)", "waiting_drafts", f"{{ session_id: {CALL}.session_id }}", [440, 1000])
@@ -115,44 +99,31 @@ node("Une facture par brouillon", "n8n-nodes-base.code", 2, [660, 1000], {"jsCod
     "({ json: { content: [{ type: 'text', text: { status: 'ok', invoice_id } }] } }));")})
 connect("Fichiers ou reponse ?", "Brouillons en attente (waiting_drafts)", 2)
 connect("Brouillons en attente (waiting_drafts)", "Une facture par brouillon", 0)
-connect("Brouillons en attente (waiting_drafts)", RECORD, 1)
+flow.to_record("Brouillons en attente (waiting_drafts)", 1)
 connect("Une facture par brouillon", "Lecture Experio (wait_until_read)", 0)
 
-# Answer: apply the client's answer to the pending question, then resume where it left off.
+# Answer: apply the client's answer to the pending question, then resume at the step after it
+# (answer_pending's next_step; output 0, anything else, is only recorded).
+RESUMED = ["check_duplicate", "settle_tva", "check_journal", "settle_withholding", "settle_prepaid", "settle_exercice", "post_invoice"]
 mcp("Reponse du client (answer_pending)", "answer_pending",
     f"{{ invoice_id: {CALL}.invoice_id, answer: {CALL}.answer }}", [440, 760])
-route("Reprendre ou ?", (f"{RESULT}.status !== 'ok' ? 0 : ({{ check_duplicate: 1, settle_tva: 2, check_journal: 3, settle_withholding: 4, settle_prepaid: 5, settle_exercice: 6, post_invoice: 7 }}[{RESULT}.next_step] ?? 0)"),
-      8, [660, 760])
+outputs = ", ".join(f"{tool}: {output}" for output, tool in enumerate(RESUMED, 1))
+route("Reprendre ou ?", f"{RESULT}.status !== 'ok' ? 0 : ({{ {outputs} }}[{RESULT}.next_step] ?? 0)", len(RESUMED) + 1, [660, 760])
 mcp("Expediteur de la reponse (check_sender)", "check_sender",
     f"{{ session_id: {CALL}.session_id, invoice_id: {CALL}.invoice_id }}", [330, 760])
 route("Suite apres check_sender de la reponse", OK_ELSE, 2, [380, 800])
 connect("Fichiers ou reponse ?", "Expediteur de la reponse (check_sender)", 1)
 connect("Expediteur de la reponse (check_sender)", "Suite apres check_sender de la reponse", 0)
-connect("Expediteur de la reponse (check_sender)", RECORD, 1)
+flow.to_record("Expediteur de la reponse (check_sender)", 1)
 connect("Suite apres check_sender de la reponse", "Reponse du client (answer_pending)", 0)
-connect("Suite apres check_sender de la reponse", RECORD, 1)
+flow.to_record("Suite apres check_sender de la reponse", 1)
 connect("Reponse du client (answer_pending)", "Reprendre ou ?", 0)
-connect("Reponse du client (answer_pending)", RECORD, 1)
-connect("Reprendre ou ?", RECORD, 0)
-connect("Reprendre ou ?", "Doublon (check_duplicate)", 1)
-connect("Reprendre ou ?", "TVA (settle_tva)", 2)
-connect("Reprendre ou ?", "Journal (check_journal)", 3)
-connect("Reprendre ou ?", "Retenue a la source (settle_withholding)", 4)
-connect("Reprendre ou ?", "Constatee d'avance (settle_prepaid)", 5)
-connect("Reprendre ou ?", "Exercice (settle_exercice)", 6)
-connect("Reprendre ou ?", "Comptabilisation (post_invoice)", 7)
+flow.to_record("Reponse du client (answer_pending)", 1)
+flow.to_record("Reprendre ou ?", 0)
+step_node = {tool: name for name, tool in CHAIN}
+for output, tool in enumerate(RESUMED, 1):
+    connect("Reprendre ou ?", step_node[tool], output)
 
-mcp(RECORD, "record_step", (
-    f"{{ run_id: String($execution.id), session_id: {CALL}.session_id, origin: $prevNode.name, "
-    f"result: $json.error ? {{ status: 'error', message: String($json.error.message ?? $json.error) }} : {RESULT} }}"),
-    [x + 200, 640])
-
-# Last (lowest branch, so n8n runs it after the whole sequence): the run's summary is the answer.
-mcp("Resume", "run_summary", "{ run_id: String($execution.id) }", [220, 1250])
-connect("Appel", "Resume")
-
-workflow = {"id": "TarikTraitement1", "name": "Tarik - Traitement", "active": False,
-            "settings": {"executionOrder": "v1", "callerPolicy": "workflowsFromSameOwner", "saveExecutionProgress": True},
-            "nodes": nodes, "connections": connections}
-OUT.write_text(json.dumps(workflow, indent=2, ensure_ascii=False) + "\n")
-print(len(nodes), "nodes")
+flow.record_and_summary([x + 200, 640], [220, 1250])
+flow.save(Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-traitement.json"),
+          "TarikTraitement1", "Tarik - Traitement")

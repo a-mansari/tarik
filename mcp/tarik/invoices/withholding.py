@@ -10,11 +10,9 @@ supplier with no known rule, local fees (6136) with none.
 
 import re
 
-from mcp.server.mcpserver.exceptions import ToolError
-
 from tarik.core.app import ok, question, server, with_ids
-from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
-from tarik.invoices.tva import experio_messages
+from tarik.core.experio import (dry_run, experio_messages, fill_invoice, invoice_context, odoo_call, odoo_json, refused,
+                                require_draft, require_invoice, test_mode_note)
 
 # tarik-master/tarik/orchestrator.py, verbatim.
 WITHHOLDING_CHOICES = {"1": "none", "2": "supplier", "3": "society"}
@@ -79,8 +77,7 @@ def settle_withholding(invoice_id: int, answer: str = "") -> dict:
                                            "account_id", "retenue", *FIELDS["foreign"][1:], *FIELDS["local"][1:]])
     if invoice["type"] != "purchase" or not invoice["partner_id"]:
         return ok(f"Facture {invoice_id} : pas de retenue a la source a regler ici (vente ou tiers absent).")
-    if invoice["state"] != "draft":
-        raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut etre modifiee.")
+    require_draft(invoice_id, invoice)
     kind = "local" if invoice["is_local_invoice"] else "foreign"
     if invoice["retenue"]:  # the tiers' remembered rule, applied by Experio when the tiers was picked
         return ok(f"Facture {invoice_id} : {described({name: invoice[name] for name in FIELDS[kind]})} (regle connue du tiers).")
@@ -103,13 +100,9 @@ def settle_withholding(invoice_id: int, answer: str = "") -> dict:
             return ok(f"Facture {invoice_id} : sans retenue a la source.")
         return question(f"Facture de {invoice['partner_id'][1]} : {QUESTIONS['local']}")
     context = invoice_context(invoice)
-    try:
+    with refused(f"settle_withholding {invoice_id}", f"Facture {invoice_id} : Experio a refuse la retenue a la source."):
         fill_invoice(invoice_id, values, context)  # Experio's onchange sets the RAS lines and accounts, as on screen
         if not dry_run():
             odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)
         messages = experio_messages(invoice_id, context)
-    except Exception as error:
-        print(f"settle_withholding {invoice_id}: {error}", flush=True)
-        raise ToolError(f"Facture {invoice_id} : Experio a refuse la retenue a la source.") from None
-    head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
-    return ok(f"{head}Facture {invoice_id} : {described(values)}." + ("" if not messages else " " + " ".join(messages)))
+    return ok(f"{test_mode_note()}Facture {invoice_id} : {described(values)}." + ("" if not messages else " " + " ".join(messages)))

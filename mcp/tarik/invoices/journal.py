@@ -11,7 +11,7 @@ when the dossier has none -- creating journals is the cabinet's setup, not Tarik
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server, with_ids
-from tarik.core.experio import dry_run, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.experio import TEST_MODE, dry_run, invoice_context, odoo_call, odoo_json, refused, require_draft, require_invoice
 
 SETTING = {  # (type, local?) -> the dossier setting Experio takes the journal from
     ("purchase", True): ("local_purchase_journal_id", "journal d'achats local"),
@@ -37,18 +37,13 @@ def check_journal(invoice_id: int) -> dict:
                   "(Configuration > Parametres) avant de comptabiliser.")
     if invoice["journal_id"] and invoice["journal_id"][0] == expected[0]:
         return ok(f"Facture {invoice_id} : journal {expected[1]}.")
+    require_draft(invoice_id, invoice, "changer de journal")
     if dry_run():
-        return ok(f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : "
-                  f"elle passerait au journal {expected[1]}.")
-    if invoice["state"] != "draft":
-        raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut changer de journal.")
+        return ok(f"{TEST_MODE}Facture {invoice_id} : elle passerait au journal {expected[1]}.")
     context = invoice_context(invoice)
-    try:
+    with refused(f"check_journal {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu mettre a jour le journal."):
         odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)  # Experio sets its own journal
         now = odoo_call("exp.invoice", "read", [invoice_id], fields=["journal_id"], context=context)[0]["journal_id"]
-    except Exception as error:
-        print(f"check_journal {invoice_id}: {error}", flush=True)
-        raise ToolError(f"Facture {invoice_id} : Experio n'a pas pu mettre a jour le journal.") from None
     if not now or now[0] != expected[0]:
         raise ToolError(f"Facture {invoice_id} : Experio a garde le journal {(now or [0, 'vide'])[1]} au lieu de {expected[1]}.")
     return ok(f"Facture {invoice_id} : journal {expected[1]}.")

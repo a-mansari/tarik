@@ -77,15 +77,16 @@ a cabinet missing a setting stops the server instead of starting half configured
 Tool calls wait their turn: at most `TARIK_CALLS_PER_CABINET` at once for one cabinet (10), so one
 cabinet's long batch never holds up the others, and `TARIK_CALLS_TOTAL` in all (40).
 
-`mcp/tests/core/test_cabinets.py` checks the isolation against the real Postgres and over HTTP,
+`mcp/tests/isolation/` checks the isolation against the real Postgres and over HTTP,
 with two throwaway cabinets: names, scopes, settings, threads, schemas, addresses, 200 overlapping
 calls, the call caps, and every tool's answers, with Experio unreachable, empty, refusing or
 logging in the wrong user, for any setting. `mcp/tests/n8n/test_agent_memory.py` checks, on the
 running n8n with the real model, that two agents never share memory nor conversations; it needs
-n8n's MCP server on (Settings > n8n MCP) and its token in Vault (`N8N_MCP_API_TOKEN`), and skips without:
+n8n's MCP server on (Settings > n8n MCP) and its token in Vault (`N8N_MCP_API_TOKEN`), and skips without.
+These live tests run only when asked:
 
 ```bash
-docker compose exec -T tarik-mcp python -m pytest tests/n8n
+python3 mcp/tests/run.py -m live
 ```
 
 ## Skills
@@ -127,7 +128,7 @@ docker compose up -d vault
 docker compose exec -T -e HOST_UID=$(id -u) vault sh /vault/config/setup.sh
 ```
 
-Then write the settings (or move them from an older `.env`: `python3 vault/migrate_env.py`):
+Then write the settings:
 
 ```bash
 docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault vault kv put secret/tarik/shared IMAP_HOST=... N8N_MCP_API_TOKEN=...
@@ -206,23 +207,28 @@ The tools live in `mcp/tarik/`, one package per kind of work, and their tests in
 
 | Package | What it holds |
 |---------|---------------|
-| `tarik/core/` | The MCP server and step results (`app`), the cabinets and the current one (`cabinets`), Experio calls and guards (`experio`), the vision model, documents, the connection check. |
+| `tarik/core/` | The MCP server and step results (`app`), the cabinets and the current one (`cabinets`), Experio calls, guards and test mode (`experio`), the client's own words in a conversation (`conversation`), the vision model, documents, the connection check. |
 | `tarik/invoices/` | "Tarik - Traitement": one module per step, in sequence order, `pipeline` for its bookkeeping, `listing` for `list_invoices`. |
-| `tarik/dossiers/` | Finding dossiers (`search`), "Tarik - Dossier" (`onboarding`), collaborators and who may work on which dossier (`people`). |
+| `tarik/dossiers/` | Finding dossiers (`search`), creating and modifying one (`identity`), its setup: configuration, entries, onboarding (`setup`), collaborators and who may work on which dossier (`people`). |
 | `tarik/emails/` | "Tarik - Emails": reading the mailbox (`inbox`), the agent's reply (`agent`), sending replies (`sending`). |
 
 `mcp/server.py` and `mcp/watcher.py` are the two entry points (the MCP server, the IMAP
-IDLE watcher of one cabinet's mailbox: `python watcher.py <cabinet>`). Edit a module, then rebuild the containers and run the tests:
+IDLE watcher of one cabinet's mailbox: `python watcher.py <cabinet>`). Edit a module, run the tests that
+cover what you changed (in a throwaway container on your working copy), then rebuild the containers:
+
+```bash
+python3 mcp/tests/run.py
+```
 
 ```bash
 docker compose up -d --build --force-recreate tarik-mcp tarik-mail-watch
 ```
 
-```bash
-docker compose exec -T tarik-mcp python -m pytest
-```
+`run.py` picks the tests that import the changed files; `--all` runs every test, `-m <category>` one
+category. Each test has one: `security`, `functionality`, `communication`, `technical`, `style` (lint,
+workflows rebuilt from their scripts, tool names), `live` (the real n8n and model, only with `-m live`).
 
-A new tool is registered by importing its module in `mcp/server.py`. To give it to the
+A new tool is registered by importing its module in `mcp/server.py` (`TOOL_MODULES`). To give it to the
 agent, add it to the Experio MCP server's tool list in the agent's configuration; to make it a
 step of the sequence, add it to `CHAIN` in `workflows/build_tarik_traitement.py` and to
 `STEPS` in `mcp/tarik/invoices/pipeline.py`. Its tests go in the matching file under `mcp/tests/`.

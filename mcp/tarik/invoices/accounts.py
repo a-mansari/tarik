@@ -11,9 +11,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, question, server
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.experio import (TEST_MODE, dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, refused, require_draft,
+                                require_invoice, test_mode_note)
 from tarik.core.model import ask_model
-from tarik.invoices.tiers import side_of
+from tarik.invoices.classify import side_of
 
 # tarik-master/tarik/agents/account.py, its CGNC guidance and rules verbatim; the steps about
 # its own tools (memorized_account, search_accounts) are what Experio and the list below replace.
@@ -70,26 +71,20 @@ def apply_account(invoice, account_id, why):
     """Put the account on the invoice through Experio's form, then let Experio's own refresh
     carry it onto the HT lines (tarik-master wrote the lines itself)."""
     context = invoice_context(invoice)
-    try:
+    with refused(f"apply_account {invoice['id']} -> {account_id}", f"Facture {invoice['id']} : Experio a refuse le compte."):
         fill_invoice(invoice["id"], {"account_id": account_id}, context)
         if not dry_run():
             odoo_json("exp.invoice", "action_refresh", [invoice["id"]], context=context)
-    except Exception as error:
-        print(f"apply_account {invoice['id']} -> {account_id}: {error}", flush=True)
-        raise ToolError(f"Facture {invoice['id']} : Experio a refuse le compte.") from None
     account = odoo_call("exp.account", "read", [account_id], fields=["code", "name"])[0]
-    head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
-    return ok(f"{head}Facture {invoice['id']} : compte {account['code']} {account['name']} ({why}).")
+    return ok(f"{test_mode_note()}Facture {invoice['id']} : compte {account['code']} {account['name']} ({why}).")
 
 
-INVOICE_FIELDS = ["state", "type", "company_id", "exercice_id", "partner_id", "account_id", "invoice_number",
-                  "amount_total", "bluejay_state"]
+INVOICE_FIELDS = ["state", "type", "company_id", "exercice_id", "partner_id", "account_id", "invoice_number", "amount_total"]
 
 
 def draft_invoice(invoice_id):
     invoice = require_invoice(invoice_id, INVOICE_FIELDS)
-    if invoice["state"] != "draft":
-        raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut changer de compte.")
+    require_draft(invoice_id, invoice, "changer de compte")
     return invoice
 
 
@@ -99,17 +94,17 @@ def assign_account(invoice_id: int) -> dict:
     """Give a draft invoice its account (Compte): the one Experio memorized for
     its tiers, else the one matching what the invoice bills. Call it after
     link_tiers and check_invoice. When none fits, the answer is the question to
-    ask the client; give their answer to set_account."""
+    ask the client; their answer goes to set_account (answer_pending)."""
     invoice = draft_invoice(invoice_id)
     if invoice["account_id"]:
         return ok(f"Facture {invoice_id} : compte deja renseigne, {invoice['account_id'][1]}.")
     kind = side_of(invoice)
     company_id = invoice["company_id"][0]
     context = invoice_context(invoice)
-    try:
+    with refused(f"assign_account {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu proposer de compte."):
         if not odoo_call("exp.account", "search_count", [("company_id", "=", company_id)]):
             if dry_run():
-                return ok(f"MODE TEST : plan comptable vide, les comptes de base seraient crees (dossier de la facture {invoice_id}).")
+                return ok(f"{TEST_MODE}Plan comptable vide, les comptes de base seraient crees (dossier de la facture {invoice_id}).")
             # Experio's "Creer les comptes manquants" button: its wizard lists the base CGNC accounts the dossier lacks.
             wizard_id = odoo_call("exp.account.missing.wizard", "create", {}, context={"allowed_company_ids": [company_id]})
             odoo_json("exp.account.missing.wizard", "action_confirm", [wizard_id], context={"allowed_company_ids": [company_id]})
@@ -118,11 +113,6 @@ def assign_account(invoice_id: int) -> dict:
             memorized = fill_invoice(invoice_id, {"partner_id": invoice["partner_id"][0]}, context).get("account_id")
             if memorized:
                 return apply_account(invoice, memorized, "compte memorise pour ce tiers")
-    except ToolError:
-        raise
-    except Exception as error:
-        print(f"assign_account {invoice_id}: {error}", flush=True)
-        raise ToolError(f"Facture {invoice_id} : Experio n'a pas pu proposer de compte.") from None
     with cabinet_db() as db:
         row = db.execute("select extracted->>'designation' from tarik_checks where invoice_id = %s", (invoice_id,)).fetchone()
     if not row:
@@ -146,10 +136,8 @@ def assign_account(invoice_id: int) -> dict:
     return apply_account(invoice, by_code[code]["id"], reason)
 
 
-@server.tool()
-def search_accounts(invoice_id: int, query: str) -> str:
-    """Search the invoice's dossier chart by code prefix or label word ("6125",
-    "carburant", "honoraires"), to show the client what exists."""
+def search_accounts(invoice_id, query):
+    """The invoice's dossier accounts matching a code prefix or label word ("6125", "carburant"), to show the client."""
     invoice = require_invoice(invoice_id, ["company_id"])
     found = odoo_call("exp.account", "search_read", [("company_id", "=", invoice["company_id"][0]), "|",
                       ("code", "=like", f"{query.strip()}%"), ("name", "ilike", query.strip())],
@@ -175,12 +163,10 @@ def resolve_account(accounts, answer):
     return None
 
 
-@server.tool()
 @with_ids
-def set_account(invoice_id: int, answer: str) -> dict:
-    """Put the account the client asked for on a draft invoice. ``answer``: their
-    own words, a code ("6111", "61110000") or a label ("achats de marchandises").
-    When it is ambiguous, the answer lists the accounts to choose from."""
+def set_account(invoice_id, answer):
+    """Put the account the client asked for on a draft invoice (their answer to assign_account's question):
+    a code ("6111", "61110000") or a label ("achats de marchandises"). When ambiguous, the accounts to choose from."""
     if not (answer or "").strip():
         raise ToolError("answer manquant : le code ou l'intitule donne par le client.")
     invoice = draft_invoice(invoice_id)
