@@ -25,10 +25,11 @@ import openpyxl
 import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
-from app import ok, server, stop, with_ids
-from dossiers import normalized
+from app import ok, question, server, stop, with_ids
+from dossiers import dossiers, normalized, similarity
 from exercice import open_exercice
-from experio import DRY_RUN, POSTGRES, odoo_call, odoo_json, require_dossier
+from experio import DOSSIER_DOMAIN, DRY_RUN, POSTGRES, odoo_call, odoo_json, require_dossier
+from prepaid import yes_no
 
 TEST = "MODE TEST : aucune modification enregistree dans Experio. "
 FOLDER_TYPES = {"company": "societe", "person": "personne physique", "cpu": "CPU", "st": "ST"}
@@ -50,6 +51,27 @@ def experio_refusal(error):
     return str(error).strip().splitlines()[-1][:300]
 
 
+PLACEHOLDER_IDS = {"1111", "2222"}  # Experio's own "not known yet" ICE/IF, shared by many dossiers
+SIMILAR_NAME = 0.9  # dossiers.similarity: "TARIK FEC XLSX 2" against "TARIK FEC XLSX" is 0.93
+
+
+def lookalikes(name, ice, if_number):
+    """Existing dossiers a new one may duplicate: the same ICE or IF, or a very similar name."""
+    keys = [(field, value.strip()) for field, value in (("ice", ice), ("vat", if_number))
+            if value and value.strip() and value.strip() not in PLACEHOLDER_IDS]
+    same = odoo_call("res.company", "search_read", [*DOSSIER_DOMAIN, *["|"] * (len(keys) - 1),
+                                                    *[(field, "=", value) for field, value in keys]], fields=["name"]) if keys else []
+    return same, [dossier for dossier in dossiers() if similarity(name, dossier["name"]) >= SIMILAR_NAME]
+
+
+def similar_confirmed(session_id, name, client_message):
+    """The client said yes to the question about a dossier with a very similar name, asked in this conversation."""
+    with psycopg.connect(**POSTGRES) as db:
+        asked = [message for (message,) in db.execute("select message from tarik_results where session_id = %s and "
+                                                       "step = 'create_dossier' and status = 'question'", (session_id,))]
+    return yes_no(client_message) is True and any(normalized(name) in normalized(message) for message in asked)
+
+
 def skip_agreed(client_message):
     """Did the client ask, in their own words, for the dossier without the ICE/IF check?
     Read from their message, not from the agent: MiniMax set the skip on its own."""
@@ -66,7 +88,8 @@ def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: s
     official registry; ``skip_ice_if_check`` ticks the dossier form's "Ignore ICE/IF
     Verification", only when ``client_message``, the client's own message, asks for it.
     A dossier of that name this conversation (``session_id``) already created is reused:
-    MiniMax sometimes asks for it again to import its entries."""
+    MiniMax sometimes asks for it again to import its entries. Nothing is created when a
+    dossier has the same ICE or IF; a very similar name is a question to the client first."""
     name = " ".join((name or "").split())
     if not name:
         raise ToolError("Nom du dossier manquant.")
@@ -80,6 +103,12 @@ def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: s
         if normalized(dossier["name"]) == normalized(name):
             return ok(f"Dossier {dossier['name']} deja cree dans cette conversation : il est repris.",
                       dossier_id=dossier["id"], reused=True)
+    same, similar = lookalikes(name, ice, if_number)
+    if same:
+        return stop(f"Dossier {name} non cree : un dossier existe deja avec cet ICE ou cet IF ({', '.join(d['name'] for d in same)}).")
+    if similar and not similar_confirmed(session_id, name, client_message):
+        return question(f"Un dossier au nom tres proche existe deja ({', '.join(d['name'] for d in similar)}). "
+                        f"Faut-il quand meme creer un nouveau dossier {name} ? oui / non")
     if skip_ice_if_check:
         if not skip_agreed(client_message):
             raise ToolError("Creation sans verification de l'ICE et de l'IF refusee : le client doit la demander lui-meme "
