@@ -15,7 +15,7 @@ resumes from there with the answer.
 | Part | What it does |
 |------|--------------|
 | n8n Agents section | Tarik: one native agent per cabinet, "Tarik - <cabinet's name>" (MiniMax-M3). It only finds the dossier, lists invoices and hands the work over to the workflows below. All are made from `workflows/tarik-agent.json` by `workflows/build_tarik_agents.py`, which lists the cabinets: edit those, not the agents in n8n. |
-| `workflows/tarik-emails.json` | The cabinet's mailbox: each email thread is answered by the cabinet's agent (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own conversation). |
+| `workflows/tarik-emails.json` | Every cabinet's mailbox, woken per cabinet by `tarik-mail-watch`: each email thread is answered by that cabinet's agent (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own conversation). |
 | `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
 | `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent (`traiter_fichiers`, mode `files`; the workflow also has `answer` and `resume`). |
 | `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), in the `tarik` package (see below). They use Experio's own wizards and onchanges, never a parallel logic. |
@@ -50,15 +50,24 @@ Experio database (`experio_cabinet_8`): its Vault path, `secret/tarik/cabinets/<
 
 Workflows and agents pass the cabinet as a fixed value, never chosen by a model: "Tarik - Traitement"
 and "Tarik - Dossier" take it as their `cabinet` input; each cabinet's native agent has its own
-MCP address and its own fixed `cabinet` tool input. "Tarik - Emails" and `tarik-mail-watch` serve
-`experio_cabinet_8`'s mailbox (`MAIL_CABINET` in `workflows/steps.py`); a second cabinet's mailbox
-needs its own copy of both. An email thread's conversation id includes its cabinet, as n8n's
-conversation ids are shared by every agent.
+MCP address and its own fixed `cabinet` tool input.
+
+Each cabinet has its own Tarik mailbox (its `IMAP_USER`, `IMAP_PASSWORD`, `SMTP_*` in Vault).
+`tarik-mail-watch` watches every cabinet that has one, and wakes "Tarik - Emails" for that cabinet
+the moment an email arrives (IMAP IDLE) and every 2 minutes in case one was missed; the webhook only
+answers its `X-Tarik-Webhook` header, the secret both share (`MAIL_WEBHOOK_SECRET` in Vault, the n8n
+credential "Tarik mail webhook"; change both together). The workflow is
+one for all cabinets: each run works in the cabinet the watcher named, every step at its address,
+and the reply comes from that cabinet's own agent. An email thread's conversation id includes its
+cabinet, as n8n's conversation ids are shared by every agent. Every cabinet's
+`MAIL_ALLOWED_RECIPIENTS` is `@experio.ma,@sarnec.com,achraf.mansari.1@gmail.com`: Tarik writes to
+those addresses only, and only answers senders among them.
 
 To add a cabinet: give Tarik a user in that cabinet's Experio, add the cabinet to `CABINETS` in
 `workflows/build_tarik_agents.py` and run it (`python3 workflows/build_tarik_agents.py`: it creates
 the cabinet's agent, updates the others, and prints each `AGENT_ID`), write its settings to Vault
-(`AGENT_ID` included, see Vault below), then `docker compose up -d --force-recreate tarik-mcp tarik-mail-watch`. Its schema is created at start;
+(`AGENT_ID` and `MAIL_ALLOWED_RECIPIENTS` included, see Vault below), then
+`docker compose up -d --force-recreate tarik-mcp tarik-mail-watch`: the watcher picks up its mailbox. Its schema is created at start;
 a cabinet missing a setting stops the server instead of starting half configured.
 
 Tool calls wait their turn: at most `TARIK_CALLS_PER_CABINET` at once for one cabinet (10), so one

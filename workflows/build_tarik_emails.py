@@ -1,30 +1,33 @@
 """Build workflows/tarik-emails.json: Tarik answering his mailbox.
 
 Edit this script, not the JSON: python3 workflows/build_tarik_emails.py
-As soon as an email arrives (tarik-mail-watch calls its webhook), and every 2 minutes in
-case it missed one: read the new emails (the mailbox is not changed), then for each thread
-waiting for an answer, the cabinet's own n8n agent answers its client's emails (ask_agent),
-and the reply goes out in the thread, to whitelisted addresses only. A thread whose run
+One workflow for every cabinet: tarik-mail-watch (mcp/watcher.py) calls its webhook for a cabinet
+as soon as an email arrives in that cabinet's mailbox, and every 2 minutes in case it missed one.
+The run works in that cabinet only, every step at its address: read the new emails (the mailbox
+is not changed), then for each thread waiting for an answer, the cabinet's own n8n agent answers
+its client's emails (ask_agent), and the reply goes out in the thread, to whitelisted addresses only. A thread whose run
 fails is picked up again 30 minutes later; after 3 failures it is set aside in error."""
 
 import json
 import sys
 from pathlib import Path
 
-from steps import MAIL_CABINET, Workflow
+from steps import Workflow
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-emails.json")
-flow = Workflow("tarik-emails", MAIL_CABINET)
+# The cabinet tarik-mail-watch named: every MCP step goes to its address (an unknown one: 404, nothing done).
+CABINET = "$('Nouvel email').first().json.body.cabinet"
+flow = Workflow("tarik-emails", CABINET)
 node, connect, mcp = flow.node, flow.connect, flow.mcp
 
 THREAD = "$('Un element par fil').item.json"
 
-node("Toutes les 2 minutes", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 300],
-     {"rule": {"interval": [{"field": "minutes", "minutesInterval": 2}]}})
-# Called by tarik-mail-watch (mcp/watcher.py) the moment an email arrives; the schedule stays as the fallback.
-node("Nouvel email", "n8n-nodes-base.webhook", 2, [0, 120],
-     {"httpMethod": "POST", "path": "tarik-nouvel-email", "responseMode": "onReceived", "options": {}},
-     webhookId="5d0f6c2a-8e4b-4f17-9a3c-2b7e1d6f8a40")
+node("Nouvel email", "n8n-nodes-base.webhook", 2, [0, 300],
+     {"httpMethod": "POST", "path": "tarik-nouvel-email", "responseMode": "onReceived", "options": {},
+      # Only tarik-mail-watch: its X-Tarik-Webhook header carries the secret both share (Vault MAIL_WEBHOOK_SECRET).
+      "authentication": "headerAuth"},
+     webhookId="5d0f6c2a-8e4b-4f17-9a3c-2b7e1d6f8a40",
+     credentials={"httpHeaderAuth": {"id": "TarikMailWebhook1", "name": "Tarik mail webhook"}})
 mcp("Nouveaux emails (fetch_emails)", "fetch_emails", "{}", [220, 300])
 node("Un element par fil", "n8n-nodes-base.code", 2, [440, 300], {"jsCode": (
     "// One item per thread waiting for an answer (fetch_emails locked them for this run).\n"
@@ -39,7 +42,6 @@ mcp("Fil traite (finish_thread)", "finish_thread", (
     f"{{ thread_id: {THREAD}.thread_id, message_ids: {THREAD}.message_ids, sent: !$json.error, "
     "reason: $json.error ? String($json.error.message ?? $json.error).replace(/^Error executing tool \\w+: /, '') : '' }"),
     [1100, 300])
-connect("Toutes les 2 minutes", "Nouveaux emails (fetch_emails)")
 connect("Nouvel email", "Nouveaux emails (fetch_emails)")
 connect("Nouveaux emails (fetch_emails)", "Un element par fil", 0)
 connect("Un element par fil", "Tarik")

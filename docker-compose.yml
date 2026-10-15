@@ -41,14 +41,14 @@ services:
     depends_on: [vault]
     dns: [1.1.1.1, 8.8.8.8]
 
-  # Wakes "Tarik - Emails" as soon as an email arrives in this cabinet's mailbox (IMAP IDLE), instead of
-  # at its next 2-minute check. "Tarik - Emails" serves this one cabinet (workflows/steps.py MAIL_CABINET).
+  # Wakes "Tarik - Emails" for each cabinet with a Tarik mailbox: as soon as an email arrives (IMAP IDLE),
+  # and every 2 minutes in case one was missed. Each wake-up names its cabinet (mcp/watcher.py).
   tarik-mail-watch:
     build: ./mcp
     restart: unless-stopped
     env_file: .env
     dns: [1.1.1.1, 8.8.8.8]
-    command: ["python", "watcher.py", "experio_cabinet_8"]
+    command: ["python", "watcher.py"]
     environment:
       VAULT_ADDR: http://vault:8200
     volumes:

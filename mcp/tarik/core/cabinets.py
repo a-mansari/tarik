@@ -69,7 +69,7 @@ CABINET_SETTINGS = frozenset({"ODOO_UID", "ODOO_USER", "ODOO_PASSWORD", "ODOO_AP
                               "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "AGENT_ID"})
 # The same for every cabinet: Vault secret/tarik/shared, or env <KEY>.
 SHARED_SETTINGS = frozenset({"IMAP_HOST", "IMAP_PORT", "IMAP_FOLDER", "SMTP_HOST", "SMTP_PORT", "MAIL_CERT_SHA256",
-                             "N8N_MCP_API_TOKEN", "MODEL_API_KEY", "MODEL_API_URL", "MODEL_API_NAME"})
+                             "N8N_MCP_API_TOKEN", "MODEL_API_KEY", "MODEL_API_URL", "MODEL_API_NAME", "MAIL_WEBHOOK_SECRET"})
 
 
 def source():
