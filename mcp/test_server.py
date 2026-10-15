@@ -19,6 +19,7 @@ from experio import exact_cabinet, expected_uid, require_dossier, require_invoic
 from intake import require_kind, split_pdf
 from invoices import label, status_of
 from mail import recipient_allowed, send_email
+from inbox import attachments, automatic, client_text
 from onboarding import copy_asked, entries_kind, file_text, sheet_text, skip_agreed
 from server import server
 from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
@@ -245,6 +246,29 @@ try:
 except ToolError as error:
     assert "hors de la liste autorisee" in str(error)
 print("email whitelist ok")
+
+# Emails: the client's own words, their files, automatic replies.
+from email.message import EmailMessage
+mail_in = EmailMessage()
+mail_in["From"], mail_in["Subject"] = "Client <client@example.com>", "Factures"
+mail_in.set_content("Bonjour,\nci-joint nos factures.\n\nLe lun. 13 oct. 2026, Tarik <tarik@example.com> a écrit :\n> Envoyez-moi vos factures\n")
+mail_in.add_attachment(b"%PDF-1.4", maintype="application", subtype="pdf", filename="facture.pdf")
+mail_in.add_attachment(b"PNG", maintype="image", subtype="png", filename="logo.png", disposition="inline")
+mail_in.add_attachment(b"zip", maintype="application", subtype="zip", filename="archive.zip")
+assert client_text(mail_in) == "Bonjour,\nci-joint nos factures."
+assert [name for name, _, _ in attachments(mail_in)] == ["facture.pdf"]
+assert not automatic(mail_in)
+html_in = EmailMessage()
+html_in["From"] = "client@example.com"
+html_in.set_content("<p>Oui, je confirme.</p><div>-----Original Message-----</div><p>ancien</p>", subtype="html")
+assert client_text(html_in) == "Oui, je confirme."
+for header, value in (("Auto-Submitted", "auto-replied"), ("Precedence", "bulk"), ("From", "no-reply@example.com")):
+    away = EmailMessage()
+    away["From"] = "client@example.com"
+    del away[header]
+    away[header] = value
+    assert automatic(away), header
+print("mailbox ok")
 
 # FEC or grand livre, from the file alone.
 HEAD = "JournalCode;JournalLib;EcritureNum;EcritureDate;CompteNum;CompteLib;EcritureLib;Debit;Credit"

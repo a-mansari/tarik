@@ -49,3 +49,33 @@ create table if not exists tarik_pending (
     question text not null,
     created_at timestamptz not null default now()
 );
+
+-- Tarik's mailbox, read over IMAP without changing it: where the reading stopped, each email
+-- thread (one conversation, its own session), and each email received in it.
+create table if not exists tarik_mail_state (
+    folder text primary key,
+    uidvalidity bigint not null,
+    last_uid bigint not null -- emails up to this one were read; the first run starts here, skipping the backlog
+);
+create table if not exists tarik_mail_threads (
+    thread_id text primary key, -- the Message-ID of the thread's first email
+    session_id text not null unique, -- the conversation's session: memory, files and questions
+    client_address text not null,
+    subject text not null,
+    state text not null default 'new' check (state in ('new', 'in_progress', 'waiting', 'done', 'ignored', 'error')),
+    reason text, -- why it is ignored or in error
+    attempts integer not null default 0, -- runs that did not finish: after 3 the thread is set aside in error
+    claimed_at timestamptz, -- a run working on it: another one leaves it alone for 30 minutes
+    updated_at timestamptz not null default now()
+);
+create table if not exists tarik_mail_messages (
+    message_id text primary key,
+    thread_id text not null references tarik_mail_threads (thread_id),
+    uid bigint not null,
+    from_address text not null,
+    subject text not null,
+    body text not null, -- the client's own text, quoted history removed
+    references_ids text not null default '', -- its References, for the reply's
+    handled boolean not null default false, -- answered by Tarik
+    received_at timestamptz not null default now()
+);

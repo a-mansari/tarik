@@ -13,6 +13,7 @@ import intake  # noqa: F401
 import invoices  # noqa: F401
 import journal  # noqa: F401
 import mail  # noqa: F401
+import inbox  # noqa: F401
 import pipeline  # noqa: F401
 import posting  # noqa: F401
 import prepaid  # noqa: F401

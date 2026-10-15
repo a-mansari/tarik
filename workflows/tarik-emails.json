@@ -1,0 +1,247 @@
+{
+  "id": "TarikEmails00001",
+  "name": "Tarik - Emails",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true
+  },
+  "nodes": [
+    {
+      "id": "6335ccf4-0458-551b-8ccd-ef3c35edfed5",
+      "name": "Toutes les 2 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "d5265d5a-940d-5ae8-8ce7-f91b92bec63d",
+      "name": "Nouveaux emails (fetch_emails)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "fetch_emails"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({}) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "fe9b1390-56b4-5275-a24c-94fd1dd57e1f",
+      "name": "Un element par fil",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// One item per thread waiting for an answer (fetch_emails locked them for this run).\nreturn $input.first().json.content[0].text.threads.map(thread => ({ json: thread }));"
+      }
+    },
+    {
+      "id": "28285773-1f60-5e25-87ad-6eefd09d3a22",
+      "name": "Tarik",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "TarikAgent000001",
+          "cachedResultName": "Tarik - Agent"
+        },
+        "mode": "each",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "session_id": "={{ $json.session_id }}",
+            "message": "={{ $json.message }}",
+            "files": "={{ $json.files }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "session_id",
+              "displayName": "session_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "message",
+              "displayName": "message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "files",
+              "displayName": "files",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "array",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "574c325a-dabd-5051-8386-a0f1b5577dff",
+      "name": "Reponse (send_email)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "send_email"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ to: $('Un element par fil').item.json.to, subject: $('Un element par fil').item.json.subject, body: $json.output + '\\n\\n--\\nTarik, assistant comptable', in_reply_to: $('Un element par fil').item.json.in_reply_to, references: $('Un element par fil').item.json.references }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "e484cade-acf6-5298-bb41-f7364af5d84e",
+      "name": "Fil traite (finish_thread)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "finish_thread"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ thread_id: $('Un element par fil').item.json.thread_id, message_ids: $('Un element par fil').item.json.message_ids, sent: !$json.error, reason: $json.error ? String($json.error.message ?? $json.error).replace(/^Error executing tool \\w+: /, '') : '' }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Toutes les 2 minutes": {
+      "main": [
+        [
+          {
+            "node": "Nouveaux emails (fetch_emails)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nouveaux emails (fetch_emails)": {
+      "main": [
+        [
+          {
+            "node": "Un element par fil",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Un element par fil": {
+      "main": [
+        [
+          {
+            "node": "Tarik",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tarik": {
+      "main": [
+        [
+          {
+            "node": "Reponse (send_email)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reponse (send_email)": {
+      "main": [
+        [
+          {
+            "node": "Fil traite (finish_thread)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fil traite (finish_thread)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}
