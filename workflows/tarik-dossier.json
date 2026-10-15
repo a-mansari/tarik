@@ -1,0 +1,614 @@
+{
+  "id": "TarikDossier0001",
+  "name": "Tarik - Dossier",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "nodes": [
+    {
+      "id": "c4a438d8-f432-5091-9501-7e270ab1867b",
+      "name": "Appel",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "inputSource": "workflowInputs",
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "session_id",
+              "type": "string"
+            },
+            {
+              "name": "dossier_id",
+              "type": "number"
+            },
+            {
+              "name": "name",
+              "type": "string"
+            },
+            {
+              "name": "ice",
+              "type": "string"
+            },
+            {
+              "name": "if_number",
+              "type": "string"
+            },
+            {
+              "name": "folder_type",
+              "type": "string"
+            },
+            {
+              "name": "model_dossier_id",
+              "type": "number"
+            },
+            {
+              "name": "file_ids",
+              "type": "any"
+            },
+            {
+              "name": "kind",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "eb584d04-b828-50c8-a5b3-52b085292317",
+      "name": "Nouveau dossier ?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $('Appel').first().json.dossier_id > 0 ? 1 : 0 }}"
+      }
+    },
+    {
+      "id": "de09fced-765b-5ce2-91ff-9651f3202972",
+      "name": "Creation (create_dossier)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        200
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "create_dossier"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ name: $('Appel').first().json.name, ice: $('Appel').first().json.ice || '', if_number: $('Appel').first().json.if_number || '', folder_type: $('Appel').first().json.folder_type || 'company' }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "a0a9516f-b443-54cb-b350-f514101d8bc0",
+      "name": "Suite apres create_dossier",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        660,
+        200
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "53e037ea-0ddb-5666-9227-bb20596ad5c1",
+      "name": "Modele ?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        880,
+        200
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $('Appel').first().json.model_dossier_id > 0 ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "a7d48546-d418-56e2-9ae1-9d0b4383d00e",
+      "name": "Configuration (copy_configuration)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        120
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "copy_configuration"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Creation (create_dossier)').first().json.content[0].text.dossier_id, model_dossier_id: $('Appel').first().json.model_dossier_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "552e83f6-325b-5551-a47b-5750daf2af34",
+      "name": "Suite apres copy_configuration",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1320,
+        120
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "3ecb627e-5800-5fd2-b1c0-c5cfcec74d34",
+      "name": "Dossier cible",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// The dossier the rest works on: the one given, or the one just created.\nconst call = $('Appel').first().json;\nreturn [{ json: { dossier_id: call.dossier_id > 0 ? call.dossier_id : $('Creation (create_dossier)').first().json.content[0].text.dossier_id } }];"
+      }
+    },
+    {
+      "id": "cfced91b-caad-5f5a-8a46-9eb4621f4184",
+      "name": "Fichiers du message (files_to_process)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        200
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "files_to_process"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, file_ids: $('Appel').first().json.file_ids ?? null }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "12f3721d-4efe-5482-b562-aad1871397e7",
+      "name": "Un element par fichier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1980,
+        200
+      ],
+      "parameters": {
+        "jsCode": "// One item per file to import (files_to_process already checked they belong to the conversation).\nreturn $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));"
+      }
+    },
+    {
+      "id": "50237e88-35a4-573b-9640-4273bb492797",
+      "name": "Ecritures (import_entries)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        2200,
+        200
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "import_entries"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id, file_id: $json.file_id, kind: $('Appel').first().json.kind || '' }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "5fe52d81-4d0d-5c40-a633-2530f60b2bbf",
+      "name": "Imports acceptes ?",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        460
+      ],
+      "parameters": {
+        "jsCode": "// Finishing hands the entries to Experio: not with a refused file, which the client sends again.\nconst imports = $('Ecritures (import_entries)').isExecuted ? [...$('Ecritures (import_entries)').all(0), ...$('Ecritures (import_entries)').all(1)] : [];  // answers and errors\nconst refused = imports.some(item => item.json.error || item.json.content?.[0]?.text?.status !== 'ok');\nreturn refused ? [] : [{ json: {} }];"
+      }
+    },
+    {
+      "id": "83fb6823-1a77-50c1-bb76-a07544f91edd",
+      "name": "Integration (finish_setup)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        460
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "finish_setup"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "dfa2e31e-7fb6-543a-b271-2d6cba122838",
+      "name": "Etat du dossier (setup_status)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        2200,
+        560
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "setup_status"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "82843314-53ff-5258-9721-fcf2a1cb820e",
+      "name": "Enregistrer",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        2500,
+        400
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "record_step"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ run_id: String($execution.id), session_id: $('Appel').first().json.session_id, origin: $prevNode.name, result: $json.error ? { status: 'error', message: String($json.error.message ?? $json.error) } : $json.content[0].text }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "b6b9c985-b621-54ce-9707-1ff6cbdba683",
+      "name": "Resume",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        800
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "run_summary"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ run_id: String($execution.id) }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    }
+  ],
+  "connections": {
+    "Appel": {
+      "main": [
+        [
+          {
+            "node": "Nouveau dossier ?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nouveau dossier ?": {
+      "main": [
+        [
+          {
+            "node": "Creation (create_dossier)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dossier cible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Creation (create_dossier)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres create_dossier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres create_dossier": {
+      "main": [
+        [
+          {
+            "node": "Modele ?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modele ?": {
+      "main": [
+        [
+          {
+            "node": "Configuration (copy_configuration)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dossier cible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration (copy_configuration)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres copy_configuration",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres copy_configuration": {
+      "main": [
+        [
+          {
+            "node": "Dossier cible",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dossier cible": {
+      "main": [
+        [
+          {
+            "node": "Fichiers du message (files_to_process)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Imports acceptes ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fichiers du message (files_to_process)": {
+      "main": [
+        [
+          {
+            "node": "Un element par fichier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Un element par fichier": {
+      "main": [
+        [
+          {
+            "node": "Ecritures (import_entries)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ecritures (import_entries)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Imports acceptes ?": {
+      "main": [
+        [
+          {
+            "node": "Integration (finish_setup)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Integration (finish_setup)": {
+      "main": [
+        [
+          {
+            "node": "Etat du dossier (setup_status)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Etat du dossier (setup_status)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

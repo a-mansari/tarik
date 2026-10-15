@@ -3,7 +3,8 @@
 Tarik, Experio's accounting assistant, rebuilt on n8n from the LangGraph version in
 `tarik-master`, to compare speed, maintenance, scaling and adaptability.
 
-A client chats with Tarik and sends invoices or bank statements. Tarik finds the dossier,
+A client chats with Tarik and sends invoices or bank statements, or asks for a new dossier
+with its FEC. Tarik finds the dossier,
 then a fixed sequence puts each document into Experio: draft, check against the scan,
 correction, tiers, duplicate, account, TVA, journal, withholding, prepaid charges,
 fiscal year and posting. When a step needs the client, Tarik asks, and the sequence
@@ -14,6 +15,7 @@ resumes from there with the answer.
 | Part | What it does |
 |------|--------------|
 | `workflows/tarik.json` | The chat page and the agent (MiniMax-M3). The agent only finds the dossier, lists invoices and hands the work over. |
+| `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
 | `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent in three modes: `files`, `answer`, `resume`. |
 | `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), one module per phase. They use Experio's own wizards and onchanges, never a parallel logic. |
 | `postgres/init.sql` | Tarik's own tables: received files, check results, step results, pending questions. The chat memory table is created by n8n. |
@@ -68,6 +70,12 @@ python3 workflows/build_tarik.py
 python3 workflows/build_tarik_traitement.py
 ```
 
+```bash
+python3 workflows/build_tarik_dossier.py
+```
+
+`workflows/steps.py` holds what the builders share.
+
 Then deploy. Importing a workflow unpublishes it, so publish it again and restart n8n:
 
 ```bash
@@ -77,7 +85,7 @@ docker compose exec n8n n8n publish:workflow --id=TarikTraitement1
 docker compose restart n8n
 ```
 
-Same for `tarik.json`, whose id is `Sca0Bh73nUct7ixj`. To check the published version is the
+Same for `tarik.json` (id `Sca0Bh73nUct7ixj`) and `tarik-dossier.json` (id `TarikDossier0001`). To check the published version is the
 new one, export the workflow (`n8n export:workflow --id=...`): `versionId` must equal
 `activeVersionId`.
 
@@ -97,6 +105,15 @@ A new tool is registered by importing its module in `mcp/server.py`. To give it 
 agent, add it to the "Outils Experio" tools in `workflows/build_tarik.py`; to make it a
 step of the sequence, add it to `CHAIN` in `workflows/build_tarik_traitement.py` and to
 `STEPS` in `mcp/pipeline.py`.
+
+## New dossiers
+
+Tarik asks for the name, ICE and IF, and the model dossier whose configuration is copied, then
+waits for the client's confirmation: Experio can't delete a dossier, only archive it. The model's
+configuration is copied before the entries are imported, because the copy rewrites every setting
+and would erase what the import detected. The import (FEC or grand livre, CSV or TXT) goes through
+Experio's Importation screen, which creates the missing accounts, journals, tiers and fiscal years.
+Finishing the onboarding hands the entries to Experio's processing.
 
 ## Real posting
 

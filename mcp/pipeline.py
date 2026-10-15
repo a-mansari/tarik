@@ -18,6 +18,8 @@ from withholding import settle_withholding
 
 # The sequence, in order: step tool -> what the client reads it as.
 STEPS = {
+    "create_dossier": "creation du dossier", "copy_configuration": "configuration", "import_entries": "ecritures",
+    "finish_setup": "integration", "setup_status": "etat du dossier",
     "identify_document": "identification", "import_bank_statement": "releve bancaire", "split_invoices": "decoupage",
     "create_draft_invoice": "brouillon", "wait_until_read": "lecture par Experio", "check_invoice": "verification",
     "correct_invoice": "correction", "classify_invoice": "classement", "link_tiers": "tiers",
