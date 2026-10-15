@@ -149,6 +149,95 @@ def create_dossier(name: str = "", ice: str | int = "", if_number: str | int = "
     return ok(f"Dossier {name} cree dans Experio.{unchecked}", dossier_id=dossier_id)
 
 
+# What a client may change in a dossier: the fields of Experio's dossier form, before its tabs (the
+# currency and the logo aside). Tool argument -> Experio field, and how Tarik names it to the client.
+EDITABLE = {"name": ("name", "nom"), "folder_type": ("folder_type", "type"), "ice": ("ice", "ICE"), "if_number": ("vat", "IF"),
+            "rc": ("rc", "RC"), "patente": ("pat", "patente"), "tsc": ("tsc", "T.S.C"), "capital": ("capital", "capital"),
+            "cnss": ("cnss_number", "CNSS"), "street": ("street", "adresse"), "street2": ("street2", "complement d'adresse"),
+            "city": ("city", "ville"), "zip": ("zip", "code postal")}
+NUMBERS = {"ice", "if_number", "rc", "patente", "tsc", "capital", "cnss", "zip"}  # checked digit for digit
+TYPE_WORDS = {"person": ("personne physique", "physique"), "company": ("societe", "personne morale", "morale"),
+              "cpu": ("cpu",), "st": ("sole trader", "commercant", "entreprise individuelle")}
+
+
+def digits(text):
+    """The numbers in a text, their spaces, dots and commas between digits removed (100 000 -> 100000)."""
+    return re.findall(r"\d+", re.sub(r"(?<=\d)[ .,\u202f\u00a0](?=\d)", "", text or ""))
+
+
+def client_wrote(key, value, words):
+    """Did the client write this new value themselves? A model may not choose nor "correct" one."""
+    if key in NUMBERS:
+        number = re.sub(r"\.0+$", "", str(value)).replace(" ", "")
+        return number.isdigit() and number in digits(words)
+    if key == "folder_type":
+        return any(word in normalized(words) for word in TYPE_WORDS.get(value, ()))
+    return bool(normalized(value)) and normalized(value) in normalized(words)
+
+
+@server.tool()
+@with_ids
+def update_dossier(dossier_id: int, name: str = "", folder_type: str = "", ice: str | int = "", if_number: str | int = "",
+                   rc: str | int = "", patente: str | int = "", tsc: str | int = "", capital: str | int | float = "",
+                   cnss: str | int = "", street: str = "", street2: str = "", city: str = "", zip: str | int = "",
+                   skip_ice_if_check: bool = False, client_message: str = "", session_id: str = "") -> dict:
+    """Change fields of an existing dossier, as its Experio form does: only those given (empty: unchanged),
+    and only to values the client wrote themselves (``client_message`` and their earlier messages in
+    ``session_id``). An ICE or IF another dossier has, or a name another dossier has, is refused; Experio
+    checks the ICE and IF against the registry, skipped only when the client asks for it in their words."""
+    remember_client_message(session_id, client_message)
+    dossier = require_dossier(dossier_id)
+    asked = {key: str(value).strip() for key, value in (
+        ("name", name), ("folder_type", folder_type), ("ice", ice), ("if_number", if_number), ("rc", rc), ("patente", patente),
+        ("tsc", tsc), ("capital", capital), ("cnss", cnss), ("street", street), ("street2", street2), ("city", city), ("zip", zip))
+        if value is not None and str(value).strip()}
+    if not asked:  # MiniMax sometimes calls with no fields: told how to call again, it does
+        raise ToolError("Aucun champ a modifier : rappelle Experio_modifier_dossier avec le dossier_id et les seuls champs "
+                        "que le client veut changer, remplis avec ses valeurs.")
+    words = "\n".join(client_messages(session_id, client_message))
+    for key, found in (("ice", ICE_WRITTEN), ("if_number", IF_WRITTEN)):
+        if key in asked:
+            asked[key] = as_written(asked[key], found.findall(words))
+    if asked.get("folder_type") and asked["folder_type"] not in FOLDER_TYPES:
+        raise ToolError(f"Type de dossier inconnu : {', '.join(FOLDER_TYPES)}.")
+    not_written = [EDITABLE[key][1] for key, value in asked.items() if not client_wrote(key, value, words)]
+    asked = {key: value for key, value in asked.items() if client_wrote(key, value, words)}
+    unchanged = f" Non modifie, le client ne l'a pas ecrit : {', '.join(not_written)}." if not_written else ""
+    fields = [EDITABLE[key][0] for key in asked]
+    current = odoo_call("res.company", "read", [dossier_id], fields=fields)[0] if fields else {}
+    changes = {}
+    for key, value in asked.items():
+        field = EDITABLE[key][0]
+        new = float(value) if key == "capital" else (" ".join(value.split()) if key == "name" else value)
+        if (current.get(field) or "") != new and not (key == "capital" and float(current.get(field) or 0) == new):
+            changes[field] = new
+    if not changes:
+        return stop(f"Dossier {dossier} : rien a modifier.{unchanged}")
+    for field in ("ice", "vat"):
+        if changes.get(field) and changes[field] not in PLACEHOLDER_IDS:
+            other = odoo_call("res.company", "search_read", [*DOSSIER_DOMAIN, (field, "=", changes[field]), ("id", "!=", dossier_id)], fields=["name"])
+            if other:
+                label = "ICE" if field == "ice" else "IF"
+                return stop(f"Dossier {dossier} non modifie : le dossier {other[0]['name']} a deja cet {label} ({changes[field]}).")
+    if "name" in changes and any(normalized(d["name"]) == normalized(changes["name"]) and d["id"] != dossier_id for d in dossiers()):
+        return stop(f"Dossier {dossier} non modifie : un autre dossier s'appelle deja {changes['name']}.")
+    if skip_ice_if_check:
+        if not skip_agreed(words):
+            raise ToolError("Modification sans verification de l'ICE et de l'IF refusee : le client doit la demander lui-meme "
+                            "(par exemple « sans verification »).")
+        changes["ignore_ice_if_verification"] = True
+    shown = " ; ".join(f"{EDITABLE[key][1]} : {current.get(EDITABLE[key][0]) or 'vide'} -> {changes[EDITABLE[key][0]]}"
+                       for key in asked if EDITABLE[key][0] in changes)
+    if dry_run():
+        return ok(f"{TEST}Le dossier {dossier} serait modifie : {shown}.{unchanged}")
+    try:
+        odoo_json("res.company", "write", [dossier_id], changes)
+    except Exception as error:
+        print(f"update_dossier {dossier_id}: {error}", flush=True)
+        raise ToolError(f"Experio refuse de modifier le dossier {dossier} : {experio_refusal(error)}") from None
+    return ok(f"Dossier {dossier} modifie : {shown}.{unchanged}")
+
+
 COPY_WORDS = ("configuration", "config", "parametrage", "copie", "copier", "modele", "comme", "meme")
 GENERIC_WORDS = {"sarl", "sa", "sas", "ste", "societe", "test", "the", "et", "de", "du", "la", "le"}
 

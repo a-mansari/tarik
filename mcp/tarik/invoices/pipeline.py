@@ -21,7 +21,8 @@ from tarik.invoices.withholding import settle_withholding
 # The sequence, in order: step tool -> what the client reads it as.
 STEPS = {
     "check_sender": "expediteur",
-    "create_dossier": "creation du dossier", "copy_configuration": "configuration", "import_entries": "ecritures",
+    "create_dossier": "creation du dossier", "update_dossier": "modification du dossier",
+    "copy_configuration": "configuration", "import_entries": "ecritures",
     "finish_setup": "integration", "setup_status": "etat du dossier",
     "identify_document": "identification", "import_bank_statement": "releve bancaire", "split_invoices": "decoupage",
     "create_draft_invoice": "brouillon", "wait_until_read": "lecture par Experio", "check_invoice": "verification",
@@ -29,7 +30,7 @@ STEPS = {
     "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA", "check_journal": "journal", "settle_withholding": "retenue a la source", "settle_prepaid": "constatee d'avance", "settle_exercice": "exercice", "post_invoice": "comptabilisation",
 }
 ENTRY_FILES = (".csv", ".txt", ".xlsx", ".xlsm")  # FEC and grand livre files, as import_entries reads them
-SETUP_STEPS = {"create_dossier", "copy_configuration", "import_entries", "finish_setup", "setup_status"}
+SETUP_STEPS = {"create_dossier", "update_dossier", "copy_configuration", "import_entries", "finish_setup", "setup_status"}
 # A pending question, the call that applies the client's answer, and the step that follows.
 ANSWERS = {
     "link_tiers": (set_tiers_by_name, "check_duplicate"),
