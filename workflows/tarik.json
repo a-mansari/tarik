@@ -124,15 +124,28 @@
       ],
       "parameters": {
         "promptType": "define",
-        "text": "={{ $('Message a Tarik').item.json.chatInput || '(pas de message)' }}{{ $('Enregistrer fichiers').item.json.files.length ? '\\n\\nFichiers joints : ' + $('Enregistrer fichiers').item.json.files.map(f => f.file_name + ' (fichier n° ' + f.id + ')').join(', ') : '' }}{{ $('Questions en attente').item.json.pending.length ? '\\n\\nQuestions en attente : ' + $('Questions en attente').item.json.pending.map(p => 'facture ' + p.invoice_id + ' : ' + p.question).join(' | ') : '' }}{{ $json.content?.[0]?.text?.invoices?.length ? '\\n\\nFactures en attente de lecture par Experio : ' + $json.content[0].text.invoices.join(', ') : '' }}",
+        "text": "={{ $('Message a Tarik').item.json.chatInput || '(pas de message)' }}{{ $('Enregistrer fichiers').item.json.files.length ? '\\n\\nFichiers joints : ' + $('Enregistrer fichiers').item.json.files.map(f => f.file_name).join(', ') : '' }}{{ $('Questions en attente').item.json.pending.length ? '\\n\\nQuestions en attente : ' + $('Questions en attente').item.json.pending.map(p => 'facture ' + p.invoice_id + ' : ' + p.question).join(' | ') : '' }}{{ $json.content?.[0]?.text?.invoices?.length ? '\\n\\nFactures en attente de lecture par Experio : ' + $json.content[0].text.invoices.join(', ') : '' }}",
         "options": {
-          "systemMessage": "Tu es Tarik, assistant comptable d'un cabinet marocain. Réponds dans la langue du client, en phrases courtes. Vouvoie-le, sans civilité.\n\nCe que tu fais, et seulement cela :\n1. Factures et relevés reçus : trouve le dossier avec find_dossier, à partir du nom donné par le client. S'il n'a pas dit quel dossier, ou si plusieurs dossiers se ressemblent, demande-lui lequel. Puis appelle traiter_fichiers une seule fois, avec l'id du dossier et les numéros de tous les fichiers joints. Recopie son résultat mot pour mot, facture par facture, sans le reformuler (les numéros surtout).\n2. Questions en attente : elles te sont données avec le message du client. S'il y répond, appelle repondre avec le numéro de la facture et sa réponse, puis recopie le résultat mot pour mot. Sinon, rappelle-lui les questions.\n3. Factures en attente de lecture : elles te sont données avec le message du client. Appelle reprendre une seule fois, puis recopie son résultat mot pour mot.\n4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Vérifie avec find_dossier qu'il n'existe pas déjà. Demande de quel dossier existant copier la configuration (le dossier modèle, cherché avec find_dossier), ou aucun. Récapitule (nom, ICE, IF, modèle, fichiers) et attends que le client confirme : un dossier créé ne peut pas être supprimé. Puis appelle parametrer_dossier avec dossier_id 0, et les numéros des fichiers FEC ou grand livre joints. Recopie son résultat mot pour mot.\n5. FEC ou grand livre (fichier d'écritures CSV, TXT ou Excel) pour un dossier existant : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id et les numéros des fichiers. Un FEC ou un grand livre ne va jamais à traiter_fichiers.\n6. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.\n\nRègles :\n- N'invente aucun résultat. Ne propose aucune action que tu ne peux pas faire. Ne dis jamais que tu transmets quelque chose au cabinet.\n- Ne cite ni le nom de tes outils, ni d'autres numéros que ceux des factures.",
+          "systemMessage": "Tu es Tarik, assistant comptable d'un cabinet marocain. Réponds dans la langue du client, en phrases courtes. Vouvoie-le, sans civilité.\n\nCe que tu fais, et seulement cela :\n1. Factures et relevés reçus : trouve le dossier avec find_dossier, à partir du nom donné par le client. S'il n'a pas dit quel dossier, ou si plusieurs dossiers se ressemblent, demande-lui lequel. Puis appelle traiter_fichiers une seule fois, avec l'id du dossier : il prend les fichiers joints lui-même. Recopie son résultat mot pour mot, facture par facture, sans le reformuler (les numéros surtout).\n2. Questions en attente : elles te sont données avec le message du client. S'il y répond, appelle repondre avec le numéro de la facture et sa réponse, puis recopie le résultat mot pour mot. Sinon, rappelle-lui les questions.\n3. Factures en attente de lecture : elles te sont données avec le message du client. Appelle reprendre une seule fois, puis recopie son résultat mot pour mot.\n4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Vérifie avec find_dossier qu'il n'existe pas déjà. Demande de quel dossier existant copier la configuration (le dossier modèle, cherché avec find_dossier), ou aucun. Récapitule (nom, ICE, IF, modèle, fichiers) et attends que le client confirme : un dossier créé ne peut pas être supprimé. Puis appelle parametrer_dossier avec dossier_id 0 : il prend les fichiers FEC ou grand livre joints lui-même. Recopie son résultat mot pour mot.\n5. FEC ou grand livre (fichier d'écritures CSV, TXT ou Excel) pour un dossier existant : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id. Un FEC ou un grand livre ne va jamais à traiter_fichiers.\n6. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.\n\nRègles :\n- N'invente aucun résultat. Ne propose aucune action que tu ne peux pas faire. Ne dis jamais que tu transmets quelque chose au cabinet.\n- Ne cite ni le nom de tes outils, ni l'id d'un dossier, ni d'autres numéros que ceux des factures : un dossier se nomme par son nom.",
           "passthroughBinaryImages": false
         }
       },
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000
+    },
+    {
+      "id": "8c3e0b7a-4f51-5d2e-b6a9-1e7c2d9f4a30",
+      "name": "Reponse au client",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// The agent needs the dossiers' ids for its tools, and MiniMax sometimes writes them: never shown to the client.\nconst text = $input.first().json.output || '';\nconst output = text\n  .replace(/\\s*\\((?:dossier\\s+)?id\\s*:?\\s*\\d+\\)/gi, '')\n  .replace(/,?\\s*\\b(?:dossier\\s+)?id\\s*:?\\s*\\d+\\b/gi, '');\nreturn [{ json: { output } }];"
+      }
     },
     {
       "id": "c1a0b5e2-0001-4000-8000-000000000003",
@@ -229,7 +242,6 @@
             "if_number": "={{ $fromAI('if_number', 'L IF du nouveau dossier, vide si inconnu', 'string') }}",
             "folder_type": "={{ $fromAI('folder_type', 'company (societe, par defaut) ou person (personne physique)', 'string') }}",
             "model_dossier_id": "={{ $fromAI('model_dossier_id', 'L id du dossier modele (find_dossier), 0 si aucun', 'number') }}",
-            "file_ids": "={{ $fromAI('file_ids', 'Les numeros des fichiers FEC ou grand livre joints, ex. [12], [] si aucun', 'json') }}",
             "kind": "={{ $fromAI('kind', 'fec ou grand livre si le client l a dit, sinon vide', 'string') }}"
           },
           "matchingColumns": [],
@@ -305,16 +317,6 @@
               "removed": false
             },
             {
-              "id": "file_ids",
-              "displayName": "file_ids",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "any",
-              "removed": false
-            },
-            {
               "id": "kind",
               "displayName": "kind",
               "required": false,
@@ -352,7 +354,6 @@
           "value": {
             "session_id": "={{ $('Message a Tarik').item.json.sessionId }}",
             "dossier_id": "={{ $fromAI('dossier_id', 'L id du dossier, donne par find_dossier', 'number') }}",
-            "file_ids": "={{ $fromAI('file_ids', 'Les numeros de tous les fichiers joints au message, ex. [12, 13]', 'json') }}",
             "invoice_id": 0,
             "answer": "",
             "mode": "files"
@@ -387,16 +388,6 @@
               "display": true,
               "canBeUsedToMatch": true,
               "type": "number",
-              "removed": false
-            },
-            {
-              "id": "file_ids",
-              "displayName": "file_ids",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "any",
               "removed": false
             },
             {
@@ -447,7 +438,6 @@
           "value": {
             "session_id": "={{ $('Message a Tarik').item.json.sessionId }}",
             "dossier_id": 0,
-            "file_ids": "={{ [] }}",
             "invoice_id": "={{ $fromAI('invoice_id', 'Le numero de la facture concernee par la question', 'number') }}",
             "answer": "={{ $fromAI('answer', 'La reponse du client, avec ses mots', 'string') }}",
             "mode": "answer"
@@ -482,16 +472,6 @@
               "display": true,
               "canBeUsedToMatch": true,
               "type": "number",
-              "removed": false
-            },
-            {
-              "id": "file_ids",
-              "displayName": "file_ids",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "any",
               "removed": false
             },
             {
@@ -542,7 +522,6 @@
           "value": {
             "session_id": "={{ $('Message a Tarik').item.json.sessionId }}",
             "dossier_id": 0,
-            "file_ids": "={{ [] }}",
             "invoice_id": 0,
             "answer": "",
             "mode": "resume"
@@ -577,16 +556,6 @@
               "display": true,
               "canBeUsedToMatch": true,
               "type": "number",
-              "removed": false
-            },
-            {
-              "id": "file_ids",
-              "displayName": "file_ids",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "any",
               "removed": false
             },
             {
@@ -666,6 +635,17 @@
         [
           {
             "node": "Tarik",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tarik": {
+      "main": [
+        [
+          {
+            "node": "Reponse au client",
             "type": "main",
             "index": 0
           }

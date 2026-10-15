@@ -26,7 +26,7 @@ node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], {
     "workflowInputs": {"values": [{"name": "session_id", "type": "string"}, {"name": "dossier_id", "type": "number"},
                                   {"name": "name", "type": "string"}, {"name": "ice", "type": "string"},
                                   {"name": "if_number", "type": "string"}, {"name": "folder_type", "type": "string"},
-                                  {"name": "model_dossier_id", "type": "number"}, {"name": "file_ids", "type": "any"},
+                                  {"name": "model_dossier_id", "type": "number"},
                                   {"name": "kind", "type": "string"}]},
 })
 route("Nouveau dossier ?", f"{CALL}.dossier_id > 0 ? 1 : 0", 2, [220, 300])
@@ -62,9 +62,9 @@ connect("Suite apres copy_configuration", RECORD, 1)
 
 # Upper branch, run first: each file of the message imported.
 mcp("Fichiers du message (files_to_process)", "files_to_process",
-    f"{{ session_id: {CALL}.session_id, file_ids: {CALL}.file_ids ?? null }}", [1760, 200])
+    f"{{ session_id: {CALL}.session_id, entries: true }}", [1760, 200])
 node("Un element par fichier", "n8n-nodes-base.code", 2, [1980, 200], {"jsCode": (
-    "// One item per file to import (files_to_process already checked they belong to the conversation).\n"
+    "// One item per file to import (files_to_process picked the conversation's FEC and grand livre files not imported yet).\n"
     "return $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));")})
 mcp(IMPORT, "import_entries", f"{{ dossier_id: {TARGET}, file_id: $json.file_id, kind: {CALL}.kind || '' }}", [2200, 200])
 connect("Dossier cible", "Fichiers du message (files_to_process)")

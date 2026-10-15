@@ -1,7 +1,6 @@
 """The fixed processing sequence, run by the n8n workflow "Tarik - Traitement": waiting for
 Experio's reading, recording each step's outcome, pending questions and the client's answers."""
 
-import re
 import time
 
 import psycopg
@@ -25,6 +24,7 @@ STEPS = {
     "correct_invoice": "correction", "classify_invoice": "classement", "link_tiers": "tiers",
     "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA", "check_journal": "journal", "settle_withholding": "retenue a la source", "settle_prepaid": "constatee d'avance", "settle_exercice": "exercice", "post_invoice": "comptabilisation",
 }
+ENTRY_FILES = (".csv", ".txt", ".xlsx", ".xlsm")  # FEC and grand livre files, as import_entries reads them
 SETUP_STEPS = {"create_dossier", "copy_configuration", "import_entries", "finish_setup", "setup_status"}
 # A pending question, the call that applies the client's answer, and the step that follows.
 ANSWERS = {
@@ -126,17 +126,14 @@ def answer_pending(invoice_id: int, answer: str) -> dict:
 
 
 @server.tool()
-def files_to_process(session_id: str, file_ids: list | dict | str | int | None = None) -> dict:
-    """The files a run works on: the numbers the agent passed when they are this
-    conversation's files, else the conversation's files not processed yet (the model
-    sometimes passes none, or garbles them)."""
-    asked = [int(n) for n in re.findall(r"\d+", str(file_ids))] if file_ids is not None else []
+def files_to_process(session_id: str, entries: bool = False) -> dict:
+    """The conversation's files not processed yet: its invoices and statements, or with
+    ``entries`` its FEC and grand livre files. Picked here, not by the agent: it never
+    sees the files' numbers, so it can't show them to the client."""
     with psycopg.connect(**POSTGRES) as db:
-        own = [i for (i,) in db.execute("select id from tarik_files where session_id = %s and id = any(%s)", (session_id, asked))]
-        if not own:
-            own = [i for (i,) in db.execute(
-                "select id from tarik_files where session_id = %s and parent_id is null and kind is null "
-                "and invoice_id is null and statement_id is null order by id", (session_id,))]
+        rows = db.execute("select id, file_name from tarik_files where session_id = %s and parent_id is null and kind is null "
+                          "and invoice_id is null and statement_id is null order by id", (session_id,)).fetchall()
+    own = [i for i, name in rows if name.lower().endswith(ENTRY_FILES) == entries]
     return ok(f"{len(own)} fichier(s) a traiter.", files=own)
 
 
