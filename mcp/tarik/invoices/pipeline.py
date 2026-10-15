@@ -133,7 +133,7 @@ def answer_pending(invoice_id: int, answer: str) -> dict:
 @server.tool()
 def save_files(payload: str = "") -> dict:
     """Save a conversation's files, sent by n8n as base64 of { session_id (or thread_id), files:
-    [{ id?, file_name, mime_type, data }] }: the chat's uploads, or the native agent's attachments
+    [{ id?, file_name, mime_type, data }] }: the native agent's attachments
     (n8n/patch.js), whose id saves each one once however many times the sequence runs."""
     body = json.loads(base64.b64decode(payload or "e30=")) or {}
     session_id = body.get("session_id") or body.get("thread_id") or ""

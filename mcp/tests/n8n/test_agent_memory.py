@@ -3,9 +3,9 @@ from n8n's code. Two throwaway agents, A and B, alike but for their name: A is t
 B, a new conversation with A, and B in A's own conversation are asked for it.
 
 Needs n8n's MCP server (Settings > n8n MCP: on, and an access token):
-  N8N_MCP_TOKEN       the token
-  N8N_MCP_PROJECT_ID  the project the throwaway agents are made in (deleted at the end)
-  N8N_MCP_URL         default http://n8n:5678/mcp-server/http
+  N8N_MCP_API_TOKEN   the token (.env)
+  N8N_MCP_API_URL     n8n's MCP address from this container (docker-compose.yml)
+  N8N_MCP_PROJECT_ID  the project the throwaway agents are made in, default the first agent's (deleted at the end)
   N8N_MCP_CREDENTIAL  the model credential's id, default MiniMaxAnthr0p1c
 Skipped without a token. Run: docker compose exec -T tarik-mcp python -m pytest tests/n8n"""
 
@@ -16,12 +16,12 @@ import uuid
 import httpx
 import pytest
 
-URL = os.getenv("N8N_MCP_URL", "http://n8n:5678/mcp-server/http")
-TOKEN = os.getenv("N8N_MCP_TOKEN", "")
+URL = os.getenv("N8N_MCP_API_URL", "http://n8n:5678/mcp-server/http")
+TOKEN = os.getenv("N8N_MCP_API_TOKEN", "")
 PROJECT = os.getenv("N8N_MCP_PROJECT_ID", "")
 CREDENTIAL = os.getenv("N8N_MCP_CREDENTIAL", "MiniMaxAnthr0p1c")
 
-pytestmark = pytest.mark.skipif(not (TOKEN and PROJECT), reason="N8N_MCP_TOKEN and N8N_MCP_PROJECT_ID not set")
+pytestmark = pytest.mark.skipif(not TOKEN, reason="N8N_MCP_API_TOKEN not set")
 
 INSTRUCTIONS = ("Tu es un agent de test. Quand on te donne un code secret, retiens-le et reponds OK. "
                 "Quand on te demande le code secret, donne-le exactement s'il t'a ete donne, sinon reponds AUCUN. "
@@ -45,8 +45,8 @@ class N8nMcp:
         answer.raise_for_status()
         return answer
 
-    def tool(self, name, **arguments):
-        answer = self.post({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": arguments}})
+    def tool(self, tool, /, **arguments):
+        answer = self.post({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}})
         text = answer.text
         if "data:" in text:
             text = next(line[5:] for line in text.splitlines() if line.startswith("data:"))
@@ -66,9 +66,10 @@ def n8n():
 
 @pytest.fixture(scope="module")
 def agents(n8n):
+    project = PROJECT or n8n.tool("search_agents")["data"][0]["projectId"]
     made = []
     for name in ("A", "B"):
-        created = n8n.tool("create_agent", projectId=PROJECT, name=f"Test memoire {name} {uuid.uuid4().hex[:6]}", config={
+        created = n8n.tool("create_agent", projectId=project, name=f"Test memoire {name} {uuid.uuid4().hex[:6]}", config={
             "model": "anthropic/MiniMax-M3", "credential": CREDENTIAL, "instructions": INSTRUCTIONS,
             "memory": {"enabled": True, "storage": "n8n"}})
         made.append(created.get("agentId") or created.get("id") or created["agent"]["id"])

@@ -20,6 +20,7 @@ import tarik.core.connection  # noqa: F401
 import tarik.dossiers.onboarding  # noqa: F401
 import tarik.dossiers.people  # noqa: F401
 import tarik.dossiers.search  # noqa: F401
+import tarik.emails.agent  # noqa: F401
 import tarik.emails.inbox  # noqa: F401
 import tarik.emails.sending  # noqa: F401
 import tarik.invoices.accounts  # noqa: F401

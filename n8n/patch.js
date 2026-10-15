@@ -4,15 +4,28 @@ const path = require('path');
 
 const dist = process.argv[2];
 const TOOLS = 'modules/agents/tools/workflow-tool-factory.js';
+const MCP_AGENTS = 'modules/mcp/tools/agents/agent-tools.service.js';
 const patches = [{
-  // A workflow tool input fixed to "{{threadId}}" receives the agent conversation's id, and one fixed to
-  // "{{attachments}}" the files attached in that conversation: both set by n8n, never by the model.
+  // n8n's MCP call_agent may start a conversation under an id of the caller's (newSession): an email
+  // thread's conversation then has the thread's own id, under which its files are already saved.
+  file: MCP_AGENTS,
+  find: "        sessionId: zod_1.z.string().trim().min(1).optional(),",
+  add: "\n        newSession: zod_1.z.literal(true).optional(),",
+}, {
+  file: MCP_AGENTS,
+  find: "                    sessionId: request.sessionId,",
+  add: "\n                    newSession: request.newSession,",
+}, {
+  // A workflow tool input fixed to "{{threadId}}" receives the agent conversation's id, one fixed to
+  // "{{attachments}}" the files attached in that conversation, and one fixed to "{{clientMessage}}" the
+  // client's latest message in it, word for word: all set by n8n, never by the model.
   file: TOOLS,
   find: 'const parsedInput = mergeWorkflowToolInput(currentSchema.parse(input), toolInputs, currentFullSchema);',
   add: `
             for (const key of Object.keys(parsedInput)) {
                 if (parsedInput[key] === '{{threadId}}') parsedInput[key] = ctx.persistence?.threadId ?? '';
                 if (parsedInput[key] === '{{attachments}}') parsedInput[key] = await tarikThreadAttachments(context, ctx.persistence?.threadId);
+                if (parsedInput[key] === '{{clientMessage}}') parsedInput[key] = await tarikClientMessage(ctx.persistence?.threadId);
             }`,
 }, {
   file: TOOLS,
@@ -30,6 +43,17 @@ async function tarikThreadAttachments(context, threadId) {
         files.push({ id: row.id, file_name: row.fileName, mime_type: row.mimeType, data: data.toString('base64') });
     }
     return Buffer.from(JSON.stringify({ thread_id: threadId, files })).toString('base64');
+}
+// The conversation's latest client message, its text only. Empty without a conversation.
+async function tarikClientMessage(threadId) {
+    if (!threadId)
+        return '';
+    const messages = di_1.Container.get(require('../repositories/agent-message.repository').AgentMessageRepository);
+    const latest = await messages.findOne({ where: { threadId, role: 'user' }, order: { createdAt: 'DESC' } });
+    const parts = latest?.content?.content;
+    if (typeof parts === 'string')
+        return parts;
+    return Array.isArray(parts) ? parts.filter((part) => part?.type === 'text').map((part) => part.text).join('\\n') : '';
 }
 `,
 }];

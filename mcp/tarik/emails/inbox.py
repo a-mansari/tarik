@@ -19,7 +19,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server
 from tarik.dossiers.people import collaborator
-from tarik.core.cabinets import cabinet_db, setting
+from tarik.core.cabinets import cabinet_db, current, setting
 from tarik.core.experio import odoo_call
 from tarik.emails.sending import check_pin, recipient_allowed, send_email, tls_context
 
@@ -87,7 +87,9 @@ def automatic(message):
 
 
 def session_of(thread_id):
-    return "mail-" + hashlib.sha256(thread_id.encode()).hexdigest()[:20]
+    """The thread's conversation id, the cabinet's own: n8n's conversation ids are shared by every agent,
+    and one email may reach two cabinets' mailboxes."""
+    return "mail-" + hashlib.sha256(f"{current()}\n{thread_id}".encode()).hexdigest()[:20]
 
 
 def store(db, uid, message):

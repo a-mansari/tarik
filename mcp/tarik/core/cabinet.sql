@@ -91,3 +91,13 @@ create table if not exists tarik_mail_alerts (
     sender text not null,
     alerted_at timestamptz not null default now()
 );
+
+-- The client's own messages, word for word, as n8n handed them to Tarik's tools (create_dossier,
+-- copy_configuration, ask_agent): what the client asked earlier in a conversation, never the agent's words.
+create table if not exists tarik_client_messages (
+    id serial primary key,
+    session_id text not null,
+    message text not null,
+    created_at timestamptz not null default now()
+);
+create index if not exists tarik_client_messages_session on tarik_client_messages (session_id);

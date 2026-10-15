@@ -4,7 +4,8 @@ A cabinet is named by its Experio database (experio_cabinet_8). The same name is
 Postgres schema (its files, results, questions, mail) and the prefix of its own settings in
 the environment (EXPERIO_CABINET_8__ODOO_UID). TARIK_CABINETS lists them all. A setting is
 either the cabinet's own (CABINET_SETTINGS: its Experio login, its mailbox's credentials and
-addresses) or shared by all of them (SHARED_SETTINGS: the mail server), never both.
+addresses, its n8n agent) or shared by all of them (SHARED_SETTINGS: the mail server, n8n's MCP
+server), never both.
 
 Settings stay on the server: no tool returns one, and only a ToolError's own message reaches
 the agent (tests/core/test_cabinets.py checks every tool).
@@ -61,9 +62,10 @@ def using(name):
 # Each cabinet's own: env <CABINET>__<KEY>.
 CABINET_SETTINGS = frozenset({"ODOO_UID", "ODOO_USER", "ODOO_PASSWORD", "ODOO_API_KEY", "DRY_RUN",
                               "IMAP_USER", "IMAP_PASSWORD", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM",
-                              "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS"})
+                              "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "AGENT_ID"})
 # The same for every cabinet: env <KEY>.
-SHARED_SETTINGS = frozenset({"IMAP_HOST", "IMAP_PORT", "IMAP_FOLDER", "SMTP_HOST", "SMTP_PORT", "MAIL_CERT_SHA256"})
+SHARED_SETTINGS = frozenset({"IMAP_HOST", "IMAP_PORT", "IMAP_FOLDER", "SMTP_HOST", "SMTP_PORT", "MAIL_CERT_SHA256",
+                             "N8N_MCP_API_URL", "N8N_MCP_API_TOKEN"})
 
 
 def setting(key, default=None):
