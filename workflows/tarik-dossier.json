@@ -189,6 +189,46 @@
       }
     },
     {
+      "id": "87d468f0-2dfc-5900-8062-790393e828da",
+      "name": "Expediteur (check_sender)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        420
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "check_sender"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, dossier_id: $('Appel').first().json.dossier_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "5c6c25b4-100a-5002-95f5-cab4e3820f14",
+      "name": "Suite apres check_sender",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        660,
+        420
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
       "id": "cfced91b-caad-5f5a-8a46-9eb4621f4184",
       "name": "Fichiers du message (files_to_process)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -393,7 +433,43 @@
         ],
         [
           {
+            "node": "Expediteur (check_sender)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expediteur (check_sender)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres check_sender",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres check_sender": {
+      "main": [
+        [
+          {
             "node": "Dossier cible",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }

@@ -18,6 +18,7 @@ from withholding import settle_withholding
 
 # The sequence, in order: step tool -> what the client reads it as.
 STEPS = {
+    "check_sender": "expediteur",
     "create_dossier": "creation du dossier", "copy_configuration": "configuration", "import_entries": "ecritures",
     "finish_setup": "integration", "setup_status": "etat du dossier",
     "identify_document": "identification", "import_bank_statement": "releve bancaire", "split_invoices": "decoupage",
@@ -76,7 +77,7 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
 
 
 TEST_PREFIX = "MODE TEST : aucune modification enregistree dans Experio. "
-QUIET = {"wait_until_read"}  # outcomes the client doesn't need when they went fine
+QUIET = {"wait_until_read", "check_sender"}  # outcomes the client doesn't need when they went fine
 
 
 @server.tool()

@@ -4,6 +4,7 @@ ported from tarik-master as each step needs it."""
 import accounts  # noqa: F401 -- each phase module registers its tools on app.server
 import check  # noqa: F401
 import classify  # noqa: F401
+import collaborators  # noqa: F401
 import connection  # noqa: F401
 import correct  # noqa: F401
 import dossiers  # noqa: F401

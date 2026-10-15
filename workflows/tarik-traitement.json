@@ -99,6 +99,46 @@
       }
     },
     {
+      "id": "432b61e8-e965-530a-9d0e-1293b74117b3",
+      "name": "Expediteur (check_sender)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        260,
+        120
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "check_sender"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, dossier_id: $('Appel').first().json.dossier_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "96cd8795-5153-5d57-b0ce-186ca7023d6a",
+      "name": "Suite apres check_sender",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        300,
+        160
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
       "id": "96538f72-9234-5bd0-a7b8-feabe538ddf9",
       "name": "Identification (identify_document)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -855,6 +895,46 @@
       }
     },
     {
+      "id": "aa48382b-bc49-5085-9bd5-c1622580adf4",
+      "name": "Expediteur de la reponse (check_sender)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        330,
+        760
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "check_sender"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, invoice_id: $('Appel').first().json.invoice_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "1194e847-54e2-5410-957a-07b2289f5887",
+      "name": "Suite apres check_sender de la reponse",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        380,
+        800
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
       "id": "83ee4da8-d9f3-5b4e-985d-0e2bad4c2daa",
       "name": "Enregistrer",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -926,14 +1006,14 @@
       "main": [
         [
           {
-            "node": "Fichiers du message (files_to_process)",
+            "node": "Expediteur (check_sender)",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Reponse du client (answer_pending)",
+            "node": "Expediteur de la reponse (check_sender)",
             "type": "main",
             "index": 0
           }
@@ -941,6 +1021,42 @@
         [
           {
             "node": "Brouillons en attente (waiting_drafts)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expediteur (check_sender)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres check_sender",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres check_sender": {
+      "main": [
+        [
+          {
+            "node": "Fichiers du message (files_to_process)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }
@@ -1676,6 +1792,42 @@
         [
           {
             "node": "Lecture Experio (wait_until_read)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expediteur de la reponse (check_sender)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres check_sender de la reponse",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres check_sender de la reponse": {
+      "main": [
+        [
+          {
+            "node": "Reponse du client (answer_pending)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }

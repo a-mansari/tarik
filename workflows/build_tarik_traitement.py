@@ -27,8 +27,15 @@ mcp("Fichiers du message (files_to_process)", "files_to_process",
 node("Un element par fichier", "n8n-nodes-base.code", 2, [440, 200], {"jsCode": (
     "// One item per file to process (files_to_process picked the conversation's invoices and statements not processed yet).\n"
     "return $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));")})
+# Work on an existing dossier: the email's sender must have it assigned in Experio (the chat has no sender).
+mcp("Expediteur (check_sender)", "check_sender", f"{{ session_id: {CALL}.session_id, dossier_id: {CALL}.dossier_id }}", [260, 120])
+route("Suite apres check_sender", OK_ELSE, 2, [300, 160])
 connect("Appel", "Fichiers ou reponse ?")
-connect("Fichiers ou reponse ?", "Fichiers du message (files_to_process)", 0)
+connect("Fichiers ou reponse ?", "Expediteur (check_sender)", 0)
+connect("Expediteur (check_sender)", "Suite apres check_sender", 0)
+connect("Expediteur (check_sender)", RECORD, 1)
+connect("Suite apres check_sender", "Fichiers du message (files_to_process)", 0)
+connect("Suite apres check_sender", RECORD, 1)
 connect("Fichiers du message (files_to_process)", "Un element par fichier", 0)
 connect("Fichiers du message (files_to_process)", RECORD, 1)
 
@@ -108,7 +115,14 @@ mcp("Reponse du client (answer_pending)", "answer_pending",
     f"{{ invoice_id: {CALL}.invoice_id, answer: {CALL}.answer }}", [440, 760])
 route("Reprendre ou ?", (f"{RESULT}.status !== 'ok' ? 0 : ({{ check_duplicate: 1, settle_tva: 2, check_journal: 3, settle_withholding: 4, settle_prepaid: 5, settle_exercice: 6, post_invoice: 7 }}[{RESULT}.next_step] ?? 0)"),
       8, [660, 760])
-connect("Fichiers ou reponse ?", "Reponse du client (answer_pending)", 1)
+mcp("Expediteur de la reponse (check_sender)", "check_sender",
+    f"{{ session_id: {CALL}.session_id, invoice_id: {CALL}.invoice_id }}", [330, 760])
+route("Suite apres check_sender de la reponse", OK_ELSE, 2, [380, 800])
+connect("Fichiers ou reponse ?", "Expediteur de la reponse (check_sender)", 1)
+connect("Expediteur de la reponse (check_sender)", "Suite apres check_sender de la reponse", 0)
+connect("Expediteur de la reponse (check_sender)", RECORD, 1)
+connect("Suite apres check_sender de la reponse", "Reponse du client (answer_pending)", 0)
+connect("Suite apres check_sender de la reponse", RECORD, 1)
 connect("Reponse du client (answer_pending)", "Reprendre ou ?", 0)
 connect("Reponse du client (answer_pending)", RECORD, 1)
 connect("Reprendre ou ?", RECORD, 0)

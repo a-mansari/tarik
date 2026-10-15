@@ -3,8 +3,9 @@ fetched with BODY.PEEK): no flag is set, nothing is moved. What Tarik did with e
 is tracked in Postgres instead, thread by thread, so an email someone already read in the
 mailbox is still answered, and a thread waiting for the client comes back when they reply.
 
-Only senders on the whitelist (MAIL_ALLOWED_RECIPIENTS) are processed: Tarik can only answer
-them, and an email it can't answer must not create anything in Experio.
+Only the cabinet's collaborators in Experio are answered, and only if the whitelist
+(MAIL_ALLOWED_RECIPIENTS) lets Tarik write to them: any other email is set aside unread by
+Tarik, so it creates nothing in Experio.
 """
 
 import hashlib
@@ -17,6 +18,7 @@ from email.utils import getaddresses, parseaddr
 import psycopg
 
 from app import ok, server
+from collaborators import collaborator
 from experio import POSTGRES
 from mail import check_pin, recipient_allowed, tls_context
 
@@ -94,7 +96,8 @@ def store(db, uid, message):
     subject = str(message.get("Subject", "") or "").strip()
     thread_id = row[0] if row else message_id
     reason = ("reponse automatique ou liste de diffusion" if automatic(message)
-              else None if recipient_allowed(sender) else "expediteur hors de la liste autorisee")
+              else "expediteur hors de la liste autorisee" if not recipient_allowed(sender)
+              else None if collaborator(sender) else "expediteur hors des collaborateurs du cabinet dans Experio")
     if row:  # the client wrote again: back to Tarik, even after an error (the attempts start over)
         db.execute("update tarik_mail_threads set state = 'new', attempts = 0, reason = null, updated_at = now() "
                    "where thread_id = %s and state <> 'ignored'", (thread_id,))
