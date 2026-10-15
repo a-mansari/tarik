@@ -40,3 +40,16 @@ def test_the_template(monkeypatch):
 def test_ordinary_underscores_and_stars_stay(monkeypatch):
     monkeypatch.setattr(sending, "cabinet_name", lambda: "")
     assert "fichier_2026_mars.pdf" in render("fichier_2026_mars.pdf")[0] and "4411 * 2" in render("4411 * 2")[0]
+
+
+class FakeBox:
+    def __init__(self, folders):
+        self.folders = folders
+
+    def list(self):
+        return "OK", self.folders
+
+
+def test_the_sent_folder_is_the_one_the_server_flags():
+    assert sending.sent_folder(FakeBox([b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren \\Sent) "/" "Envoyes"'])) == "Envoyes"
+    assert sending.sent_folder(FakeBox([b'(\\HasNoChildren) "/" "INBOX"'])) == "Sent"  # none flagged: the usual name

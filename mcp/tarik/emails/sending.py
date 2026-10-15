@@ -12,10 +12,12 @@ the connection stays safe from interception. Empty: the usual verification.
 import functools
 import hashlib
 import html
+import imaplib
 import os
 import re
 import smtplib
 import ssl
+import time
 from email.message import EmailMessage
 from email.utils import getaddresses, make_msgid
 
@@ -120,6 +122,28 @@ def render(body):
     return text + "\n\n" + "\n".join(signature), page
 
 
+def sent_folder(box):
+    """The mailbox's Sent folder, as the server flags it (special-use \\Sent), else "Sent"."""
+    for line in box.list()[1] or []:
+        found = re.match(rb'\(([^)]*)\) "[^"]*" "?([^"]+)"?$', line or b"")
+        if found and b"\\Sent" in found.group(1):
+            return found.group(2).decode()
+    return "Sent"
+
+
+def save_sent(message):
+    """A copy of what Tarik sent, in the mailbox's Sent folder, read: SMTP keeps none, and the
+    cabinet must see Tarik's replies there. The email is already sent: a failure here is only logged."""
+    try:
+        box = imaplib.IMAP4_SSL(os.environ["IMAP_HOST"], int(os.getenv("IMAP_PORT") or 993), ssl_context=tls_context(), timeout=60)
+        check_pin(box.sock)
+        box.login(os.environ["IMAP_USER"], os.environ["IMAP_PASSWORD"])
+        box.append(f'"{sent_folder(box)}"', "(\\Seen)", imaplib.Time2Internaldate(time.time()), message.as_bytes())
+        box.logout()
+    except Exception as error:
+        print(f"save_sent: {error}", flush=True)
+
+
 @server.tool()
 def send_email(to: str, subject: str, body: str, in_reply_to: str = "", references: str = "") -> dict:
     """Send Tarik's email to ``to`` (one or more addresses, comma-separated), in the thread
@@ -157,4 +181,5 @@ def send_email(to: str, subject: str, body: str, in_reply_to: str = "", referenc
     except Exception as error:
         print(f"send_email: {error}", flush=True)
         raise ToolError("Email non envoye : le serveur d'envoi a refuse.") from None
+    save_sent(message)
     return ok(f"Email envoye a {', '.join(recipients)}.", message_id=message["Message-ID"])
