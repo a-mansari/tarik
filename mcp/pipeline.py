@@ -58,10 +58,10 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     step = next((tool for tool in STEPS if tool in origin), result.get("step") or origin)
     status, message = result.get("status", "error"), result.get("message") or result.get("error") or str(result)
     message = re.sub(r"^Error executing tool \w+: ", "", message)  # n8n's wrapper around a tool's refusal
-    invoice_id, file_id = result.get("invoice_id"), result.get("file_id")
+    invoice_id, file_id, dossier_id = result.get("invoice_id"), result.get("file_id"), result.get("dossier_id")
     with psycopg.connect(**POSTGRES) as db:
-        db.execute("insert into tarik_results (run_id, session_id, file_id, invoice_id, step, status, message) "
-                   "values (%s, %s, %s, %s, %s, %s, %s)", (run_id, session_id, file_id, invoice_id, step, status, message))
+        db.execute("insert into tarik_results (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message) "
+                   "values (%s, %s, %s, %s, %s, %s, %s, %s)", (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message))
         if invoice_id and status == "question":
             db.execute("insert into tarik_pending (invoice_id, session_id, step, question) values (%s, %s, %s, %s) "
                        "on conflict (invoice_id) do update set step = excluded.step, question = excluded.question, created_at = now()",
