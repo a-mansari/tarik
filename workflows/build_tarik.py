@@ -75,20 +75,20 @@ for source, target in [("Message a Tarik", "Fichiers recus"), ("Fichiers recus",
 PROMPT = """Tu es Tarik, assistant comptable d'un cabinet marocain. Réponds dans la langue du client, en phrases courtes. Vouvoie-le, sans civilité.
 
 Ce que tu fais, et seulement cela :
-1. Factures et relevés reçus : trouve le dossier avec find_dossier, à partir du nom donné par le client. S'il n'a pas dit quel dossier, ou si plusieurs dossiers se ressemblent, demande-lui lequel. Puis appelle traiter_fichiers une seule fois, avec l'id du dossier et les numéros de tous les fichiers joints. Recopie son résultat mot pour mot, facture par facture, sans le reformuler (les numéros surtout).
+1. Factures et relevés reçus : trouve le dossier avec find_dossier, à partir du nom donné par le client. S'il n'a pas dit quel dossier, ou si plusieurs dossiers se ressemblent, demande-lui lequel. Puis appelle traiter_fichiers une seule fois, avec l'id du dossier : il prend les fichiers joints lui-même. Recopie son résultat mot pour mot, facture par facture, sans le reformuler (les numéros surtout).
 2. Questions en attente : elles te sont données avec le message du client. S'il y répond, appelle repondre avec le numéro de la facture et sa réponse, puis recopie le résultat mot pour mot. Sinon, rappelle-lui les questions.
 3. Factures en attente de lecture : elles te sont données avec le message du client. Appelle reprendre une seule fois, puis recopie son résultat mot pour mot.
-4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Vérifie avec find_dossier qu'il n'existe pas déjà. Demande de quel dossier existant copier la configuration (le dossier modèle, cherché avec find_dossier), ou aucun. Récapitule (nom, ICE, IF, modèle, fichiers) et attends que le client confirme : un dossier créé ne peut pas être supprimé. Puis appelle parametrer_dossier avec dossier_id 0, et les numéros des fichiers FEC ou grand livre joints. Recopie son résultat mot pour mot.
-5. FEC ou grand livre (fichier d'écritures CSV, TXT ou Excel) pour un dossier existant : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id et les numéros des fichiers. Un FEC ou un grand livre ne va jamais à traiter_fichiers.
+4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Vérifie avec find_dossier qu'il n'existe pas déjà. Demande de quel dossier existant copier la configuration (le dossier modèle, cherché avec find_dossier), ou aucun. Récapitule (nom, ICE, IF, modèle, fichiers) et attends que le client confirme : un dossier créé ne peut pas être supprimé. Puis appelle parametrer_dossier avec dossier_id 0 : il prend les fichiers FEC ou grand livre joints lui-même. Recopie son résultat mot pour mot.
+5. FEC ou grand livre (fichier d'écritures CSV, TXT ou Excel) pour un dossier existant : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id. Un FEC ou un grand livre ne va jamais à traiter_fichiers.
 6. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.
 
 Règles :
 - N'invente aucun résultat. Ne propose aucune action que tu ne peux pas faire. Ne dis jamais que tu transmets quelque chose au cabinet.
-- Ne cite ni le nom de tes outils, ni d'autres numéros que ceux des factures."""
+- Ne cite ni le nom de tes outils, ni l'id d'un dossier, ni d'autres numéros que ceux des factures : un dossier se nomme par son nom."""
 MESSAGE = (
     "={{ $('Message a Tarik').item.json.chatInput || '(pas de message)' }}"
     "{{ $('Enregistrer fichiers').item.json.files.length ? '\\n\\nFichiers joints : ' + $('Enregistrer fichiers').item.json.files"
-    ".map(f => f.file_name + ' (fichier n° ' + f.id + ')').join(', ') : '' }}"
+    ".map(f => f.file_name).join(', ') : '' }}"
     "{{ $('Questions en attente').item.json.pending.length ? '\\n\\nQuestions en attente : ' + $('Questions en attente').item.json.pending"
     ".map(p => 'facture ' + p.invoice_id + ' : ' + p.question).join(' | ') : '' }}"
     "{{ $json.content?.[0]?.text?.invoices?.length ? '\\n\\nFactures en attente de lecture par Experio : ' + "
@@ -96,6 +96,14 @@ MESSAGE = (
 node("c1a0b5e2-0001-4000-8000-000000000002", "Tarik", "@n8n/n8n-nodes-langchain.agent", 3.1, [880, 0], {
     "promptType": "define", "text": MESSAGE, "options": {"systemMessage": PROMPT, "passthroughBinaryImages": False},
 }, retryOnFail=True, maxTries=3, waitBetweenTries=5000)
+node("8c3e0b7a-4f51-5d2e-b6a9-1e7c2d9f4a30", "Reponse au client", "n8n-nodes-base.code", 2, [1100, 0], {"jsCode": (
+    "// The agent needs the dossiers' ids for its tools, and MiniMax sometimes writes them: never shown to the client.\n"
+    "const text = $input.first().json.output || '';\n"
+    "const output = text\n"
+    "  .replace(/\\s*\\((?:dossier\\s+)?id\\s*:?\\s*\\d+\\)/gi, '')\n"
+    "  .replace(/,?\\s*\\b(?:dossier\\s+)?id\\s*:?\\s*\\d+\\b/gi, '');\n"
+    "return [{ json: { output } }];")})
+connect("Tarik", "Reponse au client")
 node("c1a0b5e2-0001-4000-8000-000000000003", "MiniMax-M3", "@n8n/n8n-nodes-langchain.lmChatAnthropic", 1.3, [800, 220], {
     "model": {"__rl": True, "mode": "id", "value": "MiniMax-M3"}, "options": {},
 }, credentials={"anthropicApi": {"id": "MiniMaxAnthr0p1c", "name": "MiniMax (Anthropic-compatible)"}},
@@ -112,7 +120,7 @@ connect("Memory", "Tarik", "ai_memory")
 connect("Outils Experio", "Tarik", "ai_tool")
 
 # The agent's ways into "Tarik - Traitement", one per mode.
-INPUTS = [("mode", "string"), ("session_id", "string"), ("dossier_id", "number"), ("file_ids", "any"),
+INPUTS = [("mode", "string"), ("session_id", "string"), ("dossier_id", "number"),
           ("invoice_id", "number"), ("answer", "string")]
 
 
@@ -121,7 +129,7 @@ def processing_tool(id_, name, position, description, values):
         "description": description,
         "workflowId": {"__rl": True, "mode": "id", "value": "TarikTraitement1", "cachedResultName": "Tarik - Traitement"},
         "workflowInputs": {
-            "mappingMode": "defineBelow", "value": {"session_id": SESSION, "dossier_id": 0, "file_ids": "={{ [] }}",
+            "mappingMode": "defineBelow", "value": {"session_id": SESSION, "dossier_id": 0,
                                                     "invoice_id": 0, "answer": "", **values},
             "matchingColumns": [],
             "schema": [{"id": key, "displayName": key, "required": False, "defaultMatch": False, "display": True,
@@ -146,14 +154,13 @@ node("6f1d3a52-dc4e-5b7e-9a1c-7d2e4b9c0a11", "parametrer_dossier", "@n8n/n8n-nod
             "if_number": "={{ $fromAI('if_number', 'L IF du nouveau dossier, vide si inconnu', 'string') }}",
             "folder_type": "={{ $fromAI('folder_type', 'company (societe, par defaut) ou person (personne physique)', 'string') }}",
             "model_dossier_id": "={{ $fromAI('model_dossier_id', 'L id du dossier modele (find_dossier), 0 si aucun', 'number') }}",
-            "file_ids": "={{ $fromAI('file_ids', 'Les numeros des fichiers FEC ou grand livre joints, ex. [12], [] si aucun', 'json') }}",
             "kind": "={{ $fromAI('kind', 'fec ou grand livre si le client l a dit, sinon vide', 'string') }}"},
         "matchingColumns": [],
         "schema": [{"id": key, "displayName": key, "required": False, "defaultMatch": False, "display": True,
                     "canBeUsedToMatch": True, "type": kind, "removed": False}
                    for key, kind in [("session_id", "string"), ("dossier_id", "number"), ("name", "string"), ("ice", "string"),
                                      ("if_number", "string"), ("folder_type", "string"), ("model_dossier_id", "number"),
-                                     ("file_ids", "any"), ("kind", "string")]],
+                                     ("kind", "string")]],
         "attemptToConvertTypes": False, "convertFieldsToString": False},
 })
 connect("parametrer_dossier", "Tarik", "ai_tool")
@@ -165,7 +172,7 @@ processing_tool("2dc18984-0bf1-5c55-99a0-3353d48845d2", "traiter_fichiers", [700
     "Renvoie le resultat facture par facture et les questions a poser au client."), {
     "mode": "files",
     "dossier_id": "={{ $fromAI('dossier_id', 'L id du dossier, donne par find_dossier', 'number') }}",
-    "file_ids": "={{ $fromAI('file_ids', 'Les numeros de tous les fichiers joints au message, ex. [12, 13]', 'json') }}"})
+})
 processing_tool("5c58fd2a-7a23-5608-b249-21bc975ace65", "repondre", [860, 380], (
     "Applique la reponse du client a la question en attente d'une facture, puis reprend le traitement de cette facture "
     "la ou il s'etait arrete. Renvoie le resultat."), {

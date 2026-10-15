@@ -18,14 +18,14 @@ RECORD = "Enregistrer"
 node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], {
     "inputSource": "workflowInputs",
     "workflowInputs": {"values": [{"name": "mode", "type": "string"}, {"name": "session_id", "type": "string"},
-                                  {"name": "dossier_id", "type": "number"}, {"name": "file_ids", "type": "any"},
+                                  {"name": "dossier_id", "type": "number"},
                                   {"name": "invoice_id", "type": "number"}, {"name": "answer", "type": "string"}]},
 })
 route("Fichiers ou reponse ?", "$json.mode === 'answer' ? 1 : ($json.mode === 'resume' ? 2 : 0)", 3, [220, 300])
 mcp("Fichiers du message (files_to_process)", "files_to_process",
-    f"{{ session_id: {CALL}.session_id, file_ids: {CALL}.file_ids ?? null }}", [330, 200])
+    f"{{ session_id: {CALL}.session_id }}", [330, 200])
 node("Un element par fichier", "n8n-nodes-base.code", 2, [440, 200], {"jsCode": (
-    "// One item per file to process (files_to_process already checked they belong to the conversation).\n"
+    "// One item per file to process (files_to_process picked the conversation's invoices and statements not processed yet).\n"
     "return $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));")})
 connect("Appel", "Fichiers ou reponse ?")
 connect("Fichiers ou reponse ?", "Fichiers du message (files_to_process)", 0)

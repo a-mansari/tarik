@@ -49,10 +49,6 @@
               "type": "number"
             },
             {
-              "name": "file_ids",
-              "type": "any"
-            },
-            {
               "name": "kind",
               "type": "string"
             }
@@ -201,7 +197,7 @@
           "value": "files_to_process"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, file_ids: $('Appel').first().json.file_ids ?? null }) }}",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, entries: true }) }}",
         "options": {
           "timeout": 300000
         }
@@ -218,7 +214,7 @@
         200
       ],
       "parameters": {
-        "jsCode": "// One item per file to import (files_to_process already checked they belong to the conversation).\nreturn $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));"
+        "jsCode": "// One item per file to import (files_to_process picked the conversation's FEC and grand livre files not imported yet).\nreturn $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));"
       }
     },
     {
