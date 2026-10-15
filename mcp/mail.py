@@ -9,7 +9,9 @@ authority signed (mailcow's own, self-signed): only that exact certificate is ac
 the connection stays safe from interception. Empty: the usual verification.
 """
 
+import functools
 import hashlib
+import html
 import os
 import re
 import smtplib
@@ -51,6 +53,73 @@ def recipient_allowed(address, allowed=None):
     return bool(address) and any(re.fullmatch(re.escape(pattern).replace(r"\*", ".*"), address) for pattern in patterns)
 
 
+TAG = re.compile(r"</?[a-zA-Z][^<>]*>")  # an HTML tag, not "a < b"
+BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
+ITALIC = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])")
+CODE = re.compile(r"`([^`\n]+)`")
+LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")
+BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
+
+
+@functools.lru_cache(maxsize=1)
+def cabinet_name():
+    """The cabinet's name in Experio, for the signature ("" when Experio can't be reached)."""
+    try:
+        from experio import odoo_call
+        return odoo_call("res.company", "read", [1], fields=["name"])[0]["name"]
+    except Exception as error:
+        print(f"cabinet_name: {error}", flush=True)
+        return ""
+
+
+def blocks(body):
+    """The message as paragraphs and lists, cleaned of HTML tags and Markdown headings and rules:
+    [("p", [lines]) | ("ul", [items])]."""
+    found = []
+    for line in TAG.sub("", body or "").replace("\r", "").split("\n"):
+        line = re.sub(r"^\s*#{1,6}\s*", "", line).rstrip()
+        if re.fullmatch(r"\s*([-*_]\s*){3,}", line) or not line.strip():  # a rule or a blank line ends a block
+            found.append(None)
+            continue
+        kind, text = ("ul", BULLET.sub("", line)) if BULLET.match(line) else ("p", line.strip())
+        if found and found[-1] and found[-1][0] == kind:
+            found[-1][1].append(text)
+        else:
+            found.append((kind, [text]))
+    return [block for block in found if block]
+
+
+def inline_text(text):
+    text = LINK.sub(lambda m: f"{m.group(1)} ({m.group(2)})", text)
+    text = BOLD.sub(lambda m: m.group(1) or m.group(2), text)
+    return ITALIC.sub(r"\1", CODE.sub(r"\1", text))
+
+
+def inline_html(text):
+    text = html.escape(text, quote=False)
+    text = LINK.sub(lambda m: f'<a href="{html.escape(m.group(2))}">{m.group(1)}</a>', text)
+    text = BOLD.sub(lambda m: f"<strong>{m.group(1) or m.group(2)}</strong>", text)
+    return ITALIC.sub(r"<em>\1</em>", CODE.sub(r"\1", text))
+
+
+def render(body):
+    """The email Tarik sends, as plain text and HTML: the same message in the cabinet's
+    template, with its signature. No Markdown or HTML tag ever reaches the client raw."""
+    parts = blocks(body)
+    signature = ["Cordialement,", "", "Tarik", "Assistant comptable" + (f" | {cabinet_name()}" if cabinet_name() else "")]
+    text = "\n\n".join("\n".join((f"- {inline_text(line)}" if kind == "ul" else inline_text(line)) for line in lines)
+                       for kind, lines in parts)
+    rendered = "".join(f"<ul style=\"margin:0 0 14px;padding-left:22px\">{''.join(f'<li>{inline_html(item)}</li>' for item in lines)}</ul>"
+                       if kind == "ul" else f"<p style=\"margin:0 0 14px\">{'<br>'.join(inline_html(line) for line in lines)}</p>"
+                       for kind, lines in parts)
+    signed = ("<p style=\"margin:22px 0 0;padding-top:12px;border-top:1px solid #dddddd;color:#555555\">"
+              f"Cordialement,<br><br><strong>Tarik</strong><br>{html.escape(signature[3])}</p>")
+    page = ("<!doctype html><html><body style=\"margin:0;padding:24px;background:#ffffff\">"
+            "<div style=\"max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222\">"
+            f"{rendered}{signed}</div></body></html>")
+    return text + "\n\n" + "\n".join(signature), page
+
+
 @server.tool()
 def send_email(to: str, subject: str, body: str, in_reply_to: str = "", references: str = "") -> dict:
     """Send Tarik's email to ``to`` (one or more addresses, comma-separated), in the thread
@@ -74,7 +143,9 @@ def send_email(to: str, subject: str, body: str, in_reply_to: str = "", referenc
     if in_reply_to:
         message["In-Reply-To"] = in_reply_to
         message["References"] = " ".join(filter(None, [references, in_reply_to]))
-    message.set_content(body)
+    text, page = render(body)
+    message.set_content(text)
+    message.add_alternative(page, subtype="html")
     port, context = int(os.getenv("SMTP_PORT") or 465), tls_context()
     try:
         with (smtplib.SMTP_SSL(host, port, context=context, timeout=60) if port == 465 else smtplib.SMTP(host, port, timeout=60)) as smtp:

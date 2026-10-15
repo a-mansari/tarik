@@ -18,7 +18,6 @@ flow = Workflow("tarik-emails")
 node, connect, mcp = flow.node, flow.connect, flow.mcp
 
 THREAD = "$('Un element par fil').item.json"
-SIGNATURE = "\\n\\n--\\nTarik, assistant comptable"
 
 node("Toutes les 2 minutes", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 300],
      {"rule": {"interval": [{"field": "minutes", "minutesInterval": 2}]}})
@@ -43,7 +42,7 @@ node("Tarik", "n8n-nodes-base.executeWorkflow", 1.2, [660, 300], {
     "options": {},
 }, onError="continueErrorOutput")  # a failed run leaves the thread locked: fetch_emails takes it again later
 mcp("Reponse (send_email)", "send_email", (
-    f"{{ to: {THREAD}.to, subject: {THREAD}.subject, body: $('Tarik').item.json.output + '{SIGNATURE}', "
+    f"{{ to: {THREAD}.to, subject: {THREAD}.subject, body: $('Tarik').item.json.output, "
     f"in_reply_to: {THREAD}.in_reply_to, references: {THREAD}.references }}"), [880, 300])
 mcp("Fil traite (finish_thread)", "finish_thread", (
     f"{{ thread_id: {THREAD}.thread_id, message_ids: {THREAD}.message_ids, sent: !$json.error, "
