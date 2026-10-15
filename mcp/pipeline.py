@@ -1,6 +1,7 @@
 """The fixed processing sequence, run by the n8n workflow "Tarik - Traitement": waiting for
 Experio's reading, recording each step's outcome, pending questions and the client's answers."""
 
+import re
 import time
 
 import psycopg
@@ -56,6 +57,7 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     the invoice's pending question; an outcome at or after that step clears it."""
     step = next((tool for tool in STEPS if tool in origin), result.get("step") or origin)
     status, message = result.get("status", "error"), result.get("message") or result.get("error") or str(result)
+    message = re.sub(r"^Error executing tool \w+: ", "", message)  # n8n's wrapper around a tool's refusal
     invoice_id, file_id = result.get("invoice_id"), result.get("file_id")
     with psycopg.connect(**POSTGRES) as db:
         db.execute("insert into tarik_results (run_id, session_id, file_id, invoice_id, step, status, message) "

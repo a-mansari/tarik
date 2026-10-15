@@ -26,6 +26,7 @@ node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], {
     "workflowInputs": {"values": [{"name": "session_id", "type": "string"}, {"name": "dossier_id", "type": "number"},
                                   {"name": "name", "type": "string"}, {"name": "ice", "type": "string"},
                                   {"name": "if_number", "type": "string"}, {"name": "folder_type", "type": "string"},
+                                  {"name": "skip_ice_if_check", "type": "boolean"}, {"name": "client_message", "type": "string"},
                                   {"name": "model_dossier_id", "type": "number"},
                                   {"name": "kind", "type": "string"}]},
 })
@@ -34,7 +35,8 @@ connect("Appel", "Nouveau dossier ?")
 
 # A new dossier: created, then its configuration copied from the model, before any import.
 mcp(CREATE, "create_dossier", (f"{{ name: {CALL}.name, ice: {CALL}.ice || '', if_number: {CALL}.if_number || '', "
-                               f"folder_type: {CALL}.folder_type || 'company' }}"), [440, 200])
+                               f"folder_type: {CALL}.folder_type || 'company', skip_ice_if_check: {CALL}.skip_ice_if_check === true, "
+                               f"client_message: {CALL}.client_message || '' }}"), [440, 200])
 route("Suite apres create_dossier", OK_ELSE, 2, [660, 200])
 route("Modele ?", f"{CALL}.model_dossier_id > 0 ? 0 : 1", 2, [880, 200])
 mcp("Configuration (copy_configuration)", "copy_configuration",
