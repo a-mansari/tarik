@@ -16,11 +16,12 @@ from email import message_from_bytes, policy
 from email.utils import getaddresses, parseaddr
 
 import psycopg
+from mcp.server.mcpserver.exceptions import ToolError
 
 from app import ok, server
 from collaborators import collaborator
-from experio import POSTGRES
-from mail import check_pin, recipient_allowed, tls_context
+from experio import POSTGRES, odoo_call
+from mail import check_pin, recipient_allowed, send_email, tls_context
 
 FOLDER = os.getenv("IMAP_FOLDER") or "INBOX"
 LEASE_MINUTES = 30  # a run longer than this is taken as dead: the thread is picked up again
@@ -84,7 +85,8 @@ def session_of(thread_id):
 
 
 def store(db, uid, message):
-    """Record one email in its thread (found by In-Reply-To and References), with its files."""
+    """Record one email in its thread (found by In-Reply-To and References), with its files.
+    Returns what the cabinet's manager must hear of when its sender may not use Tarik, else None."""
     message_id = (message.get("Message-ID") or f"<uid-{uid}@{FOLDER}>").strip()
     if db.execute("select 1 from tarik_mail_messages where message_id = %s", (message_id,)).fetchone():
         return
@@ -95,9 +97,9 @@ def store(db, uid, message):
     row = db.execute("select thread_id from tarik_mail_messages where message_id = any(%s) limit 1", (linked,)).fetchone()
     subject = str(message.get("Subject", "") or "").strip()
     thread_id = row[0] if row else message_id
-    reason = ("reponse automatique ou liste de diffusion" if automatic(message)
-              else "expediteur hors de la liste autorisee" if not recipient_allowed(sender)
-              else None if collaborator(sender) else "expediteur hors des collaborateurs du cabinet dans Experio")
+    unauthorized = (None if automatic(message) else "expediteur hors de la liste autorisee" if not recipient_allowed(sender)
+                    else None if collaborator(sender) else "expediteur hors des collaborateurs du cabinet dans Experio")
+    reason = "reponse automatique ou liste de diffusion" if automatic(message) else unauthorized
     if row:  # the client wrote again: back to Tarik, even after an error (the attempts start over)
         db.execute("update tarik_mail_threads set state = 'new', attempts = 0, reason = null, updated_at = now() "
                    "where thread_id = %s and state <> 'ignored'", (thread_id,))
@@ -113,6 +115,7 @@ def store(db, uid, message):
         for name, mime, data in attachments(message):
             db.execute("insert into tarik_files (session_id, file_name, mime_type, data) values (%s, %s, %s, %s)",
                        (session, name, mime, data))
+    return {"sender": sender, "subject": subject, "reason": unauthorized} if unauthorized else None
 
 
 def claim(db):
@@ -153,19 +156,73 @@ def fetch_emails() -> dict:
             if not state or state[0] != uidvalidity:  # first run, or the folder was rebuilt: start from now
                 db.execute("insert into tarik_mail_state (folder, uidvalidity, last_uid) values (%s, %s, %s) on conflict (folder) "
                            "do update set uidvalidity = excluded.uidvalidity, last_uid = excluded.last_uid", (FOLDER, uidvalidity, newest))
-                return ok("Boite aux lettres prise en compte a partir de maintenant.", threads=claim(db))
+                return ok("Boite aux lettres prise en compte a partir de maintenant.", threads=claim(db), alerts=[])
             uids = [int(uid) for uid in box.uid("search", None, f"UID {state[1] + 1}:*")[1][0].split()]
+            alerts = []
             for uid in sorted(u for u in uids if u > state[1]):  # "n:*" also returns the last email when there's nothing new
                 data = box.uid("fetch", str(uid), "(BODY.PEEK[])")[1]
                 raw = next((part[1] for part in data if isinstance(part, tuple)), None)
-                if raw:
-                    store(db, uid, message_from_bytes(raw, policy=policy.default))
+                alert = store(db, uid, message_from_bytes(raw, policy=policy.default)) if raw else None
+                if alert:
+                    alerts.append(alert)
                 db.execute("update tarik_mail_state set last_uid = %s where folder = %s", (uid, FOLDER))
                 db.commit()  # each email recorded for good before the next
             threads = claim(db)
     finally:
         box.logout()
-    return ok(f"{len(threads)} fil(s) a traiter.", threads=threads)
+    return ok(f"{len(threads)} fil(s) a traiter, {len(alerts)} expediteur(s) refuse(s).", threads=threads, alerts=alerts)
+
+
+@server.tool()
+def thread_refusal(thread_id: str) -> dict:
+    """After Tarik's run on a thread: was the work refused because the sender lacks the
+    dossier (check_sender)? Then nothing goes back to the sender: the thread is set aside,
+    its emails counted as handled, and ``refused`` says the manager is to be told."""
+    with psycopg.connect(**POSTGRES) as db:
+        thread = db.execute("select session_id, client_address, subject, claimed_at from tarik_mail_threads where thread_id = %s",
+                            (thread_id,)).fetchone()
+        if not thread:
+            return ok("Fil inconnu.", refused=False)
+        session_id, sender, subject, claimed_at = thread
+        refusal = db.execute("select message from tarik_results where session_id = %s and step = 'check_sender' and status = 'stop' "
+                             "and created_at >= %s order by id desc limit 1", (session_id, claimed_at)).fetchone()
+        if not refusal:
+            return ok("Pas de refus.", refused=False)
+        db.execute("update tarik_mail_messages set handled = true where thread_id = %s", (thread_id,))
+        db.execute("update tarik_mail_threads set state = 'ignored', reason = %s, claimed_at = null, updated_at = now() "
+                   "where thread_id = %s", (refusal[0][:300], thread_id))
+    return ok("Travail refuse : l'expediteur n'a pas ce dossier.", refused=True, sender=sender, subject=subject, reason=refusal[0])
+
+
+def cabinet_manager():
+    """The cabinet's manager: the "Responsable" of the cabinet's own company in Experio, else
+    MAIL_MANAGER. Only an active collaborator counts. Experio has no other place for it."""
+    responsable = odoo_call("res.company", "read", [1], fields=["responsable_id"])[0]["responsable_id"]
+    if responsable:
+        found = odoo_call("res.users", "read", [responsable[0]], fields=["login"])
+        if found and collaborator(found[0]["login"]):
+            return found[0]["login"]
+    fallback = os.getenv("MAIL_MANAGER", "").strip()
+    return fallback if fallback and collaborator(fallback) else None
+
+
+@server.tool()
+def notify_manager(sender: str, subject: str, reason: str) -> dict:
+    """Tell the cabinet's manager that ``sender`` wrote to Tarik and was refused, at most
+    once a day per sender. The sender gets nothing."""
+    manager = cabinet_manager()
+    if not manager:
+        raise ToolError("Manager non prevenu : aucun Responsable sur la societe du cabinet dans Experio, et MAIL_MANAGER "
+                        "n'est pas l'email d'un collaborateur du cabinet.")
+    with psycopg.connect(**POSTGRES) as db:
+        if db.execute("select 1 from tarik_mail_alerts where sender = %s and alerted_at > now() - interval '1 day'",
+                      (sender,)).fetchone():
+            return ok(f"Manager deja prevenu aujourd'hui pour {sender}.")
+        send_email(manager, f"Tarik : email de {sender} non traite",
+                   f"Bonjour,\n\n{sender} a ecrit a Tarik (objet : « {subject or 'sans objet'} »).\n"
+                   f"Son email n'a pas ete traite : {reason}.\nL'expediteur n'a recu aucune reponse.\n\n--\nTarik, assistant comptable")
+        db.execute("insert into tarik_mail_alerts (sender) values (%s)", (sender,))
+    return ok(f"Manager prevenu : {sender}.")
 
 
 @server.tool()

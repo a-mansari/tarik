@@ -164,7 +164,7 @@
           "value": "send_email"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ to: $('Un element par fil').item.json.to, subject: $('Un element par fil').item.json.subject, body: $json.output + '\\n\\n--\\nTarik, assistant comptable', in_reply_to: $('Un element par fil').item.json.in_reply_to, references: $('Un element par fil').item.json.references }) }}",
+        "jsonInput": "={{ JSON.stringify({ to: $('Un element par fil').item.json.to, subject: $('Un element par fil').item.json.subject, body: $('Tarik').item.json.output + '\\n\\n--\\nTarik, assistant comptable', in_reply_to: $('Un element par fil').item.json.in_reply_to, references: $('Un element par fil').item.json.references }) }}",
         "options": {
           "timeout": 300000
         }
@@ -190,6 +190,109 @@
         },
         "inputMode": "json",
         "jsonInput": "={{ JSON.stringify({ thread_id: $('Un element par fil').item.json.thread_id, message_ids: $('Un element par fil').item.json.message_ids, sent: !$json.error, reason: $json.error ? String($json.error.message ?? $json.error).replace(/^Error executing tool \\w+: /, '') : '' }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "d8451cd4-0197-5917-8fe1-34125097fd8d",
+      "name": "Refus de droits ? (thread_refusal)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        770,
+        300
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "thread_refusal"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ thread_id: $('Un element par fil').item.json.thread_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "aad568d9-8492-5f97-b177-4736c5a5c7ec",
+      "name": "Refuse ?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        820,
+        360
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.refused ? 1 : 0 }}"
+      }
+    },
+    {
+      "id": "39dc80d4-d7cc-51be-ba0e-0ff880d8e0f9",
+      "name": "Manager prevenu (notify_manager)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        480
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "notify_manager"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ sender: $json.content[0].text.sender, subject: $json.content[0].text.subject, reason: $json.content[0].text.reason }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "cd0994b5-4614-538b-ae38-7b699f91cc21",
+      "name": "Une alerte par refus",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        520
+      ],
+      "parameters": {
+        "jsCode": "// One item per email whose sender fetch_emails refused.\nreturn $input.first().json.content[0].text.alerts.map(alert => ({ json: alert }));"
+      }
+    },
+    {
+      "id": "ad698c05-bad7-5a8f-b795-17bc79b156a0",
+      "name": "Manager prevenu de l'expediteur (notify_manager)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        660,
+        520
+      ],
+      "parameters": {
+        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "notify_manager"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ sender: $json.sender, subject: $json.subject, reason: $json.reason }) }}",
         "options": {
           "timeout": 300000
         }
@@ -227,6 +330,11 @@
             "node": "Un element par fil",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Une alerte par refus",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -246,7 +354,47 @@
       "main": [
         [
           {
+            "node": "Refus de droits ? (thread_refusal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refus de droits ? (thread_refusal)": {
+      "main": [
+        [
+          {
+            "node": "Refuse ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Refuse ?": {
+      "main": [
+        [
+          {
             "node": "Reponse (send_email)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Manager prevenu (notify_manager)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Une alerte par refus": {
+      "main": [
+        [
+          {
+            "node": "Manager prevenu de l'expediteur (notify_manager)",
             "type": "main",
             "index": 0
           }

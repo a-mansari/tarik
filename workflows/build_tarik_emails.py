@@ -43,7 +43,7 @@ node("Tarik", "n8n-nodes-base.executeWorkflow", 1.2, [660, 300], {
     "options": {},
 }, onError="continueErrorOutput")  # a failed run leaves the thread locked: fetch_emails takes it again later
 mcp("Reponse (send_email)", "send_email", (
-    f"{{ to: {THREAD}.to, subject: {THREAD}.subject, body: $json.output + '{SIGNATURE}', "
+    f"{{ to: {THREAD}.to, subject: {THREAD}.subject, body: $('Tarik').item.json.output + '{SIGNATURE}', "
     f"in_reply_to: {THREAD}.in_reply_to, references: {THREAD}.references }}"), [880, 300])
 mcp("Fil traite (finish_thread)", "finish_thread", (
     f"{{ thread_id: {THREAD}.thread_id, message_ids: {THREAD}.message_ids, sent: !$json.error, "
@@ -53,7 +53,25 @@ connect("Toutes les 2 minutes", "Nouveaux emails (fetch_emails)")
 connect("Nouvel email", "Nouveaux emails (fetch_emails)")
 connect("Nouveaux emails (fetch_emails)", "Un element par fil", 0)
 connect("Un element par fil", "Tarik")
-connect("Tarik", "Reponse (send_email)", 0)
+# Refused for the sender's rights on the dossier: the sender gets nothing, the manager is told.
+mcp("Refus de droits ? (thread_refusal)", "thread_refusal", f"{{ thread_id: {THREAD}.thread_id }}", [770, 300])
+flow.route("Refuse ?", "$json.content[0].text.refused ? 1 : 0", 2, [820, 360])
+mcp("Manager prevenu (notify_manager)", "notify_manager",
+    "{ sender: $json.content[0].text.sender, subject: $json.content[0].text.subject, reason: $json.content[0].text.reason }",
+    [880, 480])
+connect("Tarik", "Refus de droits ? (thread_refusal)", 0)
+connect("Refus de droits ? (thread_refusal)", "Refuse ?", 0)
+connect("Refuse ?", "Reponse (send_email)", 0)
+connect("Refuse ?", "Manager prevenu (notify_manager)", 1)
+
+# Senders who may not use Tarik (not collaborators, or off the whitelist): the manager is told, the sender gets nothing.
+node("Une alerte par refus", "n8n-nodes-base.code", 2, [440, 520], {"jsCode": (
+    "// One item per email whose sender fetch_emails refused.\n"
+    "return $input.first().json.content[0].text.alerts.map(alert => ({ json: alert }));")})
+mcp("Manager prevenu de l'expediteur (notify_manager)", "notify_manager",
+    "{ sender: $json.sender, subject: $json.subject, reason: $json.reason }", [660, 520])
+connect("Nouveaux emails (fetch_emails)", "Une alerte par refus", 0)
+connect("Une alerte par refus", "Manager prevenu de l'expediteur (notify_manager)")
 connect("Reponse (send_email)", "Fil traite (finish_thread)", 0)
 connect("Reponse (send_email)", "Fil traite (finish_thread)", 1)  # not sent (whitelist, SMTP): set aside, with why
 
