@@ -36,6 +36,7 @@ create table if not exists tarik_results (
     session_id text not null,
     file_id integer,
     invoice_id integer,
+    dossier_id integer, -- the dossier a setup step worked on
     step text not null,
     status text not null,
     message text not null,

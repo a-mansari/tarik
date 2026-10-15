@@ -79,7 +79,7 @@ Ce que tu fais, et seulement cela :
 2. Questions en attente : elles te sont données avec le message du client. S'il y répond, appelle repondre avec le numéro de la facture et sa réponse, puis recopie le résultat mot pour mot. Sinon, rappelle-lui les questions.
 3. Factures en attente de lecture : elles te sont données avec le message du client. Appelle reprendre une seule fois, puis recopie son résultat mot pour mot.
 4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Vérifie avec find_dossier qu'il n'existe pas déjà. Demande de quel dossier existant copier la configuration (le dossier modèle, cherché avec find_dossier), ou aucun. Récapitule (nom, ICE, IF, modèle, fichiers) et attends que le client confirme : un dossier créé ne peut pas être supprimé. Puis appelle parametrer_dossier avec dossier_id 0 : il prend les fichiers FEC ou grand livre joints lui-même. Experio vérifie l'ICE et l'IF auprès du registre officiel : s'il les refuse, transmets son refus et demande au client de vérifier les numéros. Propose alors de vérifier les numéros, ou de créer le dossier sans vérification s'il l'écrit lui-même (« créez-le sans vérification ») : ce n'est qu'alors que tu mets skip_ice_if_check à true, jamais de toi-même. Recopie son résultat mot pour mot.
-5. FEC ou grand livre (fichier d'écritures CSV, TXT ou Excel) pour un dossier existant : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id. Un FEC ou un grand livre ne va jamais à traiter_fichiers.
+5. FEC ou grand livre (fichier d'écritures CSV, TXT ou Excel) pour un dossier existant, y compris un dossier que tu viens de créer : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id, jamais avec dossier_id 0. Si le client dit avoir joint un fichier mais qu'aucun n'est arrivé, dis-le-lui. Un FEC ou un grand livre ne va jamais à traiter_fichiers.
 6. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.
 
 Règles :
@@ -89,6 +89,9 @@ MESSAGE = (
     "={{ $('Message a Tarik').item.json.chatInput || '(pas de message)' }}"
     "{{ $('Enregistrer fichiers').item.json.files.length ? '\\n\\nFichiers joints : ' + $('Enregistrer fichiers').item.json.files"
     ".map(f => f.file_name).join(', ') : '' }}"
+    # Said, not guessed: MiniMax took "ci-joint notre FEC" for a file that never came.
+    "{{ !$('Enregistrer fichiers').item.json.files.length && /joint|attach|fichier|fec|pi[eè]ce/i.test($('Message a Tarik').item.json.chatInput || '') "
+    "? '\\n\\nFichiers joints : aucun, rien n est arrive avec ce message.' : '' }}"
     "{{ $('Questions en attente').item.json.pending.length ? '\\n\\nQuestions en attente : ' + $('Questions en attente').item.json.pending"
     ".map(p => 'facture ' + p.invoice_id + ' : ' + p.question).join(' | ') : '' }}"
     "{{ $json.content?.[0]?.text?.invoices?.length ? '\\n\\nFactures en attente de lecture par Experio : ' + "

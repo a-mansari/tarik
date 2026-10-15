@@ -59,18 +59,27 @@ def skip_agreed(client_message):
 
 @server.tool()
 def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: str = "company",
-                   skip_ice_if_check: bool = False, client_message: str = "") -> dict:
+                   skip_ice_if_check: bool = False, client_message: str = "", session_id: str = "") -> dict:
     """Create a new dossier in Experio, as the Folders screen does. ``ice`` and
     ``if_number`` are the client's ICE and IF, ``folder_type`` company (default),
     person, cpu or st. Experio checks the name is free and the ICE/IF against the
     official registry; ``skip_ice_if_check`` ticks the dossier form's "Ignore ICE/IF
-    Verification", only when ``client_message``, the client's own message, asks for it."""
+    Verification", only when ``client_message``, the client's own message, asks for it.
+    A dossier of that name this conversation (``session_id``) already created is reused:
+    MiniMax sometimes asks for it again to import its entries."""
     name = " ".join((name or "").split())
     if not name:
         raise ToolError("Nom du dossier manquant.")
     if folder_type not in FOLDER_TYPES:
         raise ToolError(f"Type de dossier inconnu : {', '.join(FOLDER_TYPES)}.")
     values = {"name": name, "folder_type": folder_type, "enabled": True}  # enabled, as Experio's dossier import sets it
+    with psycopg.connect(**POSTGRES) as db:
+        created = [i for (i,) in db.execute("select distinct dossier_id from tarik_results where session_id = %s and "
+                                            "step = 'create_dossier' and status = 'ok' and dossier_id is not null", (session_id,))]
+    for dossier in odoo_call("res.company", "read", created, fields=["name"]) if created else []:
+        if normalized(dossier["name"]) == normalized(name):
+            return ok(f"Dossier {dossier['name']} deja cree dans cette conversation : il est repris.",
+                      dossier_id=dossier["id"], reused=True)
     if skip_ice_if_check:
         if not skip_agreed(client_message):
             raise ToolError("Creation sans verification de l'ICE et de l'IF refusee : le client doit la demander lui-meme "
