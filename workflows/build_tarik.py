@@ -1,18 +1,21 @@
-"""Build workflows/tarik.json: the chat with Tarik, its agent, memory and tools.
+"""Build workflows/tarik.json (the chat) and workflows/tarik-agent.json (Tarik himself: agent,
+memory and tools), which the chat and the emails ("Tarik - Emails") both call.
 
 Edit this script, not the JSON: python3 workflows/build_tarik.py
 The agent only finds the dossier and hands the work to "Tarik - Traitement"
 (build_tarik_traitement.py), which runs the fixed sequence."""
 
 import json
-import sys
 from pathlib import Path
 
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik.json")
+HERE = Path(__file__).parent
 MCP_URL = "http://tarik-mcp:8000/mcp"
 POSTGRES = {"postgres": {"id": "TarikPostgres001", "name": "Tarik Postgres"}}
-SESSION = "={{ $('Message a Tarik').item.json.sessionId }}"
-nodes, connections = [], {}
+AGENT_ID = "TarikAgent000001"
+CALL = "$('Appel').item.json"
+SESSION = "={{ " + CALL + ".session_id }}"
+chat, agent = ([], {}), ([], {})
+nodes, connections = chat
 
 
 def node(id_, name, type_, version, position, parameters, **extra):
@@ -25,7 +28,12 @@ def connect(source, target, kind="main"):
     connections.setdefault(source, {}).setdefault(kind, [[]])[0].append({"node": target, "type": kind, "index": 0})
 
 
-# The chat page, and what comes with each message: its files, pending questions, drafts Experio hasn't read.
+def inputs_schema(fields):
+    return [{"id": key, "displayName": key, "required": False, "defaultMatch": False, "display": True,
+             "canBeUsedToMatch": True, "type": kind, "removed": False} for key, kind in fields]
+
+
+# The chat page: each message's files saved, then Tarik ("Tarik - Agent") answers.
 node("c1a0b5e2-0001-4000-8000-000000000001", "Message a Tarik", "@n8n/n8n-nodes-langchain.chatTrigger", 1.4, [0, 0], {
     "public": True, "mode": "hostedChat",
     "initialMessages": "Bonjour, je suis Tarik. Envoyez-moi vos factures (PDF ou photos), ou le FEC d'un dossier.",
@@ -54,6 +62,23 @@ node("c1a0b5e2-0001-4000-8000-000000000007", "Enregistrer fichiers", "n8n-nodes-
               "select coalesce(json_agg(json_build_object('id', id, 'file_name', file_name) order by id), '[]'::json) as files from saved"),
     "options": {"queryReplacement": "={{ $json.payload }}"},
 }, credentials=POSTGRES)
+AGENT_INPUTS = [("session_id", "string"), ("message", "string"), ("files", "array")]
+node("c1a0b5e2-0001-4000-8000-000000000002", "Tarik", "n8n-nodes-base.executeWorkflow", 1.2, [660, 0], {
+    "workflowId": {"__rl": True, "mode": "id", "value": AGENT_ID, "cachedResultName": "Tarik - Agent"},
+    "workflowInputs": {"mappingMode": "defineBelow", "value": {
+        "session_id": "={{ $('Message a Tarik').item.json.sessionId }}",
+        "message": "={{ $('Message a Tarik').item.json.chatInput || '' }}",
+        "files": "={{ $json.files.map(f => f.file_name) }}"},
+        "matchingColumns": [], "schema": inputs_schema(AGENT_INPUTS), "attemptToConvertTypes": False, "convertFieldsToString": False},
+    "options": {},
+})
+for source, target in [("Message a Tarik", "Fichiers recus"), ("Fichiers recus", "Enregistrer fichiers"), ("Enregistrer fichiers", "Tarik")]:
+    connect(source, target)
+
+# Tarik himself, called with a conversation's session, the client's message and the files that came with it.
+nodes, connections = agent
+node("2b6f0c1e-7d3a-5a40-9e21-4c8b7f1d2e01", "Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 0], {
+    "inputSource": "workflowInputs", "workflowInputs": {"values": [{"name": key, "type": kind} for key, kind in AGENT_INPUTS]}})
 node("1a10c278-5986-5ed6-a2d4-7573e8d5078f", "Questions en attente", "n8n-nodes-base.postgres", 2.6, [580, 0], {
     "operation": "executeQuery",
     "query": ("select coalesce(json_agg(json_build_object('invoice_id', invoice_id, 'question', question) order by created_at), "
@@ -63,11 +88,10 @@ node("1a10c278-5986-5ed6-a2d4-7573e8d5078f", "Questions en attente", "n8n-nodes-
 node("bea448c1-1139-55b3-b34b-6ac4a4252471", "Brouillons en attente", "@n8n/n8n-nodes-langchain.mcpClient", 1.1, [800, 0], {
     "endpointUrl": MCP_URL, "serverTransport": "httpStreamable",
     "tool": {"__rl": True, "mode": "id", "value": "waiting_drafts"}, "inputMode": "json",
-    "jsonInput": "={{ JSON.stringify({ session_id: $('Message a Tarik').item.json.sessionId }) }}",
+    "jsonInput": "={{ JSON.stringify({ session_id: " + CALL + ".session_id }) }}",
     "options": {"timeout": 60000},
-}, onError="continueRegularOutput")  # the chat still answers when the check fails
-for source, target in [("Message a Tarik", "Fichiers recus"), ("Fichiers recus", "Enregistrer fichiers"),
-                       ("Enregistrer fichiers", "Questions en attente"), ("Questions en attente", "Brouillons en attente"),
+}, onError="continueRegularOutput")  # Tarik still answers when the check fails
+for source, target in [("Appel", "Questions en attente"), ("Questions en attente", "Brouillons en attente"),
                        ("Brouillons en attente", "Tarik")]:
     connect(source, target)
 
@@ -87,17 +111,16 @@ Règles :
 - N'invente aucun résultat. Ne propose aucune action que tu ne peux pas faire. Ne dis jamais que tu transmets quelque chose au cabinet.
 - Ne cite ni le nom de tes outils, ni l'id d'un dossier, ni d'autres numéros que ceux des factures : un dossier se nomme par son nom."""
 MESSAGE = (
-    "={{ $('Message a Tarik').item.json.chatInput || '(pas de message)' }}"
-    "{{ $('Enregistrer fichiers').item.json.files.length ? '\\n\\nFichiers joints : ' + $('Enregistrer fichiers').item.json.files"
-    ".map(f => f.file_name).join(', ') : '' }}"
+    "={{ " + CALL + ".message || '(pas de message)' }}"
+    "{{ (" + CALL + ".files || []).length ? '\\n\\nFichiers joints : ' + " + CALL + ".files.join(', ') : '' }}"
     # Said, not guessed: MiniMax took "ci-joint notre FEC" for a file that never came.
-    "{{ !$('Enregistrer fichiers').item.json.files.length && /joint|attach|fichier|fec|pi[eè]ce/i.test($('Message a Tarik').item.json.chatInput || '') "
+    "{{ !(" + CALL + ".files || []).length && /joint|attach|fichier|fec|pi[eè]ce/i.test(" + CALL + ".message || '') "
     "? '\\n\\nFichiers joints : aucun, rien n est arrive avec ce message.' : '' }}"
     "{{ $('Questions en attente').item.json.pending.length ? '\\n\\nQuestions en attente : ' + $('Questions en attente').item.json.pending"
     ".map(p => 'facture ' + p.invoice_id + ' : ' + p.question).join(' | ') : '' }}"
     "{{ $json.content?.[0]?.text?.invoices?.length ? '\\n\\nFactures en attente de lecture par Experio : ' + "
     "$json.content[0].text.invoices.join(', ') : '' }}")
-node("c1a0b5e2-0001-4000-8000-000000000002", "Tarik", "@n8n/n8n-nodes-langchain.agent", 3.1, [880, 0], {
+node("7e3c9a41-2d5b-5f86-b0a7-3c1e8d4f6a92", "Tarik", "@n8n/n8n-nodes-langchain.agent", 3.1, [880, 0], {
     "promptType": "define", "text": MESSAGE, "options": {"systemMessage": PROMPT, "passthroughBinaryImages": False},
 }, retryOnFail=True, maxTries=3, waitBetweenTries=5000)
 node("8c3e0b7a-4f51-5d2e-b6a9-1e7c2d9f4a30", "Reponse au client", "n8n-nodes-base.code", 2, [1100, 0], {"jsCode": (
@@ -158,7 +181,7 @@ node("6f1d3a52-dc4e-5b7e-9a1c-7d2e4b9c0a11", "parametrer_dossier", "@n8n/n8n-nod
         "mappingMode": "defineBelow",
         "value": {
             "session_id": SESSION,
-            "client_message": "={{ $('Message a Tarik').item.json.chatInput }}",  # the client's words, not the agent's
+            "client_message": "={{ " + CALL + ".message }}",  # the client's words, not the agent's
             "dossier_id": "={{ $fromAI('dossier_id', 'L id du dossier existant (find_dossier), 0 pour un nouveau dossier', 'number') }}",
             "name": "={{ $fromAI('name', 'Le nom du nouveau dossier, vide pour un dossier existant', 'string') }}",
             "ice": "={{ $fromAI('ice', 'L ICE du nouveau dossier, vide si inconnu', 'string') }}",
@@ -195,7 +218,11 @@ processing_tool("094759d5-3ec6-5be8-a71a-e6bb1377ccb6", "reprendre", [1060, 380]
     "Reprend les factures en attente de lecture par Experio, a l'etape de lecture, puis la suite du traitement. "
     "Renvoie le resultat facture par facture."), {"mode": "resume"})
 
-workflow = {"id": "Sca0Bh73nUct7ixj", "name": "Tarik", "active": False, "settings": {"executionOrder": "v1", "saveExecutionProgress": True},  # each node saved as it ends: runs show live
-            "nodes": nodes, "connections": connections}
-OUT.write_text(json.dumps(workflow, indent=2, ensure_ascii=False) + "\n")
-print(len(nodes), "nodes")
+SETTINGS = {"executionOrder": "v1", "saveExecutionProgress": True}  # each node saved as it ends: runs show live
+for file_name, workflow in (("tarik.json", {"id": "Sca0Bh73nUct7ixj", "name": "Tarik", "settings": SETTINGS, "graph": chat}),
+                            ("tarik-agent.json", {"id": AGENT_ID, "name": "Tarik - Agent",
+                                                  "settings": {**SETTINGS, "callerPolicy": "workflowsFromSameOwner"}, "graph": agent})):
+    graph_nodes, graph_connections = workflow.pop("graph")
+    (HERE / file_name).write_text(json.dumps({**workflow, "active": False, "nodes": graph_nodes, "connections": graph_connections},
+                                             indent=2, ensure_ascii=False) + "\n")
+    print(file_name, len(graph_nodes), "nodes")
