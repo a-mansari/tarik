@@ -12,7 +12,7 @@ import time
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server, stop, with_ids
-from tarik.core.experio import DRY_RUN, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.experio import dry_run, invoice_context, odoo_call, odoo_json, require_invoice
 
 POSTED = ("post", "export")
 RETRIES, PAUSE = 3, 1.0  # as tarik-master: the check can lag right after a refresh
@@ -34,7 +34,7 @@ def post_invoice(invoice_id: int) -> dict:
         return stop(f"Facture {invoice_id} : en etat {invoice['state']}, elle ne peut pas etre comptabilisee.")
     context = invoice_context(invoice)
     try:
-        if not DRY_RUN:
+        if not dry_run():
             odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)
         for attempt in range(RETRIES + 1):
             blocking = [plain(text) for _level, text in odoo_json("exp.invoice", "collect_validation_messages", [invoice_id],
@@ -47,7 +47,7 @@ def post_invoice(invoice_id: int) -> dict:
         raise ToolError(f"Facture {invoice_id} : Experio n'a pas pu verifier la facture.") from None
     if blocking:
         return stop(f"Facture {invoice_id} : pas comptabilisee, Experio signale : " + " ; ".join(blocking))
-    if DRY_RUN:
+    if dry_run():
         return ok(f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : "
                   "rien ne bloque, elle serait comptabilisee.")
     try:

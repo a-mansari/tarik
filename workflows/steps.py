@@ -2,18 +2,26 @@
 
 import uuid
 
-MCP_URL = "http://tarik-mcp:8000/mcp"
+# tarik-mcp serves each cabinet at its own address only (mcp/server.py).
+MCP_ADDRESS = "http://tarik-mcp:8000/c/{}/mcp"
+# The chat, "Tarik - Agent" and "Tarik - Emails" serve this cabinet only, until its native agent replaces them.
+LEGACY_CABINET = "experio_cabinet_8"
 CALL = "$('Appel').first().json"
 RESULT = "$json.content[0].text"
 OK_ELSE = f"{RESULT}.status === 'ok' ? 0 : 1"
 # The native n8n agent's chat files: an "Appel" input, filled by n8n (n8n/patch.js), never by the model.
 ATTACHMENTS = {"name": "attachments", "type": "string"}
+# The cabinet a shared workflow works for: an "Appel" input, fixed by its caller (never chosen by a model).
+CABINET = {"name": "cabinet", "type": "string"}
 SAVE_ATTACHMENTS = "Pieces jointes de l'agent"
 
 
 class Workflow:
-    def __init__(self, prefix):
+    def __init__(self, prefix, cabinet=None):
+        """``cabinet``: the cabinet's name, or None for a shared workflow, whose MCP steps go to the
+        cabinet its "Appel" was given (no cabinet: the steps fail, never reach another cabinet)."""
         self.prefix, self.nodes, self.connections = prefix, [], {}
+        self.mcp_url = MCP_ADDRESS.format(cabinet) if cabinet else "=" + MCP_ADDRESS.format("{{ " + CALL + ".cabinet }}")
 
     def node(self, name, type_, version, position, parameters, **extra):
         """Node ids are derived from node names, so a rebuild only changes what changed."""
@@ -30,7 +38,7 @@ class Workflow:
     def mcp(self, name, tool, arguments, position):
         """One step: an MCP call. Output 0 = its answer, output 1 = a tool error."""
         return self.node(name, "@n8n/n8n-nodes-langchain.mcpClient", 1.1, position, {
-            "endpointUrl": MCP_URL, "serverTransport": "httpStreamable",
+            "endpointUrl": self.mcp_url, "serverTransport": "httpStreamable",
             "tool": {"__rl": True, "mode": "id", "value": tool},
             "inputMode": "json", "jsonInput": "={{ JSON.stringify(" + arguments + ") }}",
             "options": {"timeout": 300000},
@@ -41,18 +49,6 @@ class Workflow:
                          {"mode": "expression", "numberOutputs": outputs, "output": "={{ " + expression + " }}"})
 
     def save_attachments(self, position):
-        """The native agent's chat files (base64 of { thread_id, files }), saved once each in tarik_files
-        like the chat's. The chat and the emails save theirs before calling, and send none."""
-        return self.node(SAVE_ATTACHMENTS, "n8n-nodes-base.postgres", 2.6, position, {
-            "operation": "executeQuery",
-            "query": ("with payload as (select convert_from(decode($1, 'base64'), 'UTF8')::jsonb as body),\n"
-                      "saved as (\n"
-                      "  insert into tarik_files (session_id, file_name, mime_type, data, source_id)\n"
-                      "  select body->>'thread_id', file->>'file_name', file->>'mime_type', decode(file->>'data', 'base64'), file->>'id'\n"
-                      "  from payload, jsonb_array_elements(coalesce(body->'files', '[]'::jsonb)) as file\n"
-                      "  on conflict (session_id, source_id) do nothing\n"
-                      "  returning id\n"
-                      ")\n"
-                      "select count(*) as saved from saved"),
-            "options": {"queryReplacement": "={{ " + CALL + ".attachments || 'e30=' }}"},  # e30= is {}
-        }, credentials={"postgres": {"id": "TarikPostgres001", "name": "Tarik Postgres"}})
+        """The native agent's chat files (base64 of { thread_id, files }), saved once each in the
+        cabinet's tarik_files. The chat and the emails save theirs before calling, and send none."""
+        return self.mcp(SAVE_ATTACHMENTS, "save_files", "{ payload: " + CALL + ".attachments || '' }", position)

@@ -3,7 +3,7 @@
 import xmlrpc.client
 
 from tarik.core.app import server
-from tarik.core.experio import ODOO_DB, ODOO_URL, ODOO_USER, odoo_call
+from tarik.core.experio import ODOO_URL, account, odoo_call
 
 
 @server.tool()
@@ -20,7 +20,8 @@ def experio_connection() -> str:
         # A real read, not only the login: a password can log in yet be refused every call.
         odoo_call("res.company", "search_count", [])
     except Exception as error:
-        print(f"experio_connection: {ODOO_USER} on {ODOO_DB} refused: {error}", flush=True)
+        database, _, user, _ = account()
+        print(f"experio_connection: {user} on {database} refused: {error}", flush=True)
         return "Experio repond, mais la connexion de Tarik est refusee."
     print(f"experio_connection: ok, Odoo {version}", flush=True)
     return "Connecte au systeme Experio."

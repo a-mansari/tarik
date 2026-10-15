@@ -9,12 +9,12 @@ party and has Experio assign its Compte Tiers.
 
 import re
 
-import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, question, server
 from tarik.dossiers.search import normalized, similarity
-from tarik.core.experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, odoo_call, odoo_json, require_dossier, require_invoice
+from tarik.core.cabinets import cabinet_db
+from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, require_dossier, require_invoice
 
 # Per invoice type: the detected party, the partner's role flag and its Compte Tiers field.
 SIDE = {
@@ -30,7 +30,7 @@ INVOICE_FIELDS = ["state", "type", "company_id", "exercice_id", "partner_id", "d
 
 def side_of(invoice):
     """The invoice's side, from its classification when there is one, else from Experio's type."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         row = db.execute("select category from tarik_classifications where invoice_id = %s", (invoice["id"],)).fetchone()
     if row and row[0] == "rb":
         raise ToolError(f"Facture {invoice['id']} : c'est un releve bancaire, pas une facture : pas de tiers.")
@@ -55,7 +55,7 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
     if not code:
         return (f"pas de Compte Tiers {role} : dans ce dossier le cabinet les attribue lui-meme "
                 "(numerotation automatique desactivee), la facture ne pourra pas etre comptabilisee avant")
-    if DRY_RUN:
+    if dry_run():
         return f"Compte Tiers {role} {code} serait cree"
     odoo_json("exp.invoice.partner.account.wizard", "action_confirm", [wizard_id], context=context)
     return f"Compte Tiers {role} {code} cree"
@@ -78,7 +78,7 @@ def link(invoice, partner_id, kind):
     except Exception as error:
         print(f"tiers {invoice['id']} -> {partner_id}: {error}", flush=True)
         raise ToolError(f"Facture {invoice['id']} : Experio a refuse le tiers {name}.") from None
-    head = "MODE TEST : aucune modification enregistree dans Experio. " if DRY_RUN else ""
+    head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
     return ok(f"{head}Facture {invoice['id']} : {SIDE[kind][3]} {name}, {account}.")
 
 
@@ -156,7 +156,7 @@ def enable_tiers_autofill(dossier_id: int) -> str:
     missing = [prefix for switch, prefix in AUTOFILL.items() if not company[prefix]]
     if missing:
         return f"Dossier {dossier} : prefixes de Comptes Tiers non configures ({', '.join(missing)}), a regler par le cabinet d'abord."
-    if DRY_RUN:
+    if dry_run():
         return f"MODE TEST : aucune modification enregistree dans Experio. Dossier {dossier} : la numerotation automatique serait activee."
     values = {switch: True for switch in AUTOFILL}
     try:

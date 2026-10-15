@@ -12,7 +12,7 @@ import re
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, question, server
-from tarik.core.experio import DRY_RUN, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
 from tarik.invoices.tiers import side_of
 
 # tarik-master: "A confirmer par le comptable (CGI art. 106) avant usage en production."
@@ -52,7 +52,7 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
     if invoice["state"] != "draft":
         raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut etre modifiee.")
     if not invoice["account_id"]:
-        if DRY_RUN:  # the account step only simulated its write
+        if dry_run():  # the account step only simulated its write
             return ok(f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : "
                       "la TVA sera reglee une fois le compte enregistre.")
         raise ToolError(f"Facture {invoice_id} : pas encore de compte, appelez d'abord assign_account (la TVA en depend).")
@@ -80,7 +80,7 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
             fill_invoice(invoice_id, changes, context)
             if changes.get("amount_tax_non_recoverable"):
                 notes.append("TVA non recuperable")  # Experio saves it on the supplier when the invoice is posted
-        if not DRY_RUN:
+        if not dry_run():
             odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)  # Experio picks the tax for each rate
         line_ids = odoo_call("exp.invoice", "read", [invoice_id], fields=["tva_line_ids"], context=context)[0]["tva_line_ids"]
         lines = odoo_call("exp.invoice.line", "read", line_ids, fields=["line_type", "tax_id", "tax_rate", "amount_ht", "amount_tva"],
@@ -91,7 +91,7 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
         raise ToolError(f"Facture {invoice_id} : Experio a refuse la mise a jour de la TVA.") from None
     taxed = [f"{line['amount_ht']} HT a {line['tax_rate']} % ({line['tax_id'][1] if line['tax_id'] else 'sans taxe'})"
              for line in lines if line["line_type"] == "untaxed"]
-    head = "MODE TEST : aucune modification enregistree dans Experio. " if DRY_RUN else ""
+    head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
     body = f"Facture {invoice_id} : TVA {'non recuperable' if non_recoverable else 'recuperable'}"
     body += (f", {', '.join(notes)}" if notes and not non_recoverable else "") + ". "
     body += ("Lignes : " + "; ".join(taxed) + "." if taxed else "Pas encore de ligne de TVA.")

@@ -4,13 +4,13 @@ import json
 import re
 from datetime import date
 
-import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, server, stop, wait
 from tarik.core.documents import scan_pages
 from tarik.dossiers.search import MIN_SIMILARITY, normalized, similarity
-from tarik.core.experio import POSTGRES, odoo_call, require_invoice
+from tarik.core.cabinets import cabinet_db
+from tarik.core.experio import odoo_call, require_invoice
 from tarik.core.model import ask_model
 
 
@@ -218,7 +218,7 @@ def check_invoice(invoice_id: int) -> dict:
         if report["readable"]:
             break
         print(f"check_invoice {invoice_id}: model said unreadable (attempt {attempt + 1})", flush=True)
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         db.execute("insert into tarik_checks (invoice_id, readable, extracted, bad_fields) values (%s, %s, %s, %s) "
                    "on conflict (invoice_id) do update set readable = excluded.readable, extracted = excluded.extracted, "
                    "bad_fields = excluded.bad_fields, checked_at = now()",

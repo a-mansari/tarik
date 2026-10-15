@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from steps import ATTACHMENTS, SAVE_ATTACHMENTS, CALL, OK_ELSE, RESULT, Workflow
+from steps import ATTACHMENTS, CABINET, SAVE_ATTACHMENTS, CALL, OK_ELSE, RESULT, Workflow
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-traitement.json")
 flow = Workflow("tarik-traitement")
@@ -20,7 +20,7 @@ node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], {
     "workflowInputs": {"values": [{"name": "mode", "type": "string"}, {"name": "session_id", "type": "string"},
                                   {"name": "dossier_id", "type": "number"},
                                   {"name": "invoice_id", "type": "number"}, {"name": "answer", "type": "string"},
-                                  ATTACHMENTS]},
+                                  ATTACHMENTS, CABINET]},
 })
 flow.save_attachments([110, 300])
 route("Fichiers ou reponse ?", f"{CALL}.mode === 'answer' ? 1 : ({CALL}.mode === 'resume' ? 2 : 0)", 3, [220, 300])
@@ -33,7 +33,8 @@ node("Un element par fichier", "n8n-nodes-base.code", 2, [440, 200], {"jsCode": 
 mcp("Expediteur (check_sender)", "check_sender", f"{{ session_id: {CALL}.session_id, dossier_id: {CALL}.dossier_id }}", [260, 120])
 route("Suite apres check_sender", OK_ELSE, 2, [300, 160])
 connect("Appel", SAVE_ATTACHMENTS)
-connect(SAVE_ATTACHMENTS, "Fichiers ou reponse ?")
+connect(SAVE_ATTACHMENTS, "Fichiers ou reponse ?", 0)
+connect(SAVE_ATTACHMENTS, RECORD, 1)
 connect("Fichiers ou reponse ?", "Expediteur (check_sender)", 0)
 connect("Expediteur (check_sender)", "Suite apres check_sender", 0)
 connect("Expediteur (check_sender)", RECORD, 1)

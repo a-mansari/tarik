@@ -22,13 +22,13 @@ import time
 from datetime import date, datetime
 
 import openpyxl
-import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, question, server, stop, with_ids
 from tarik.dossiers.search import dossiers, normalized, similarity
 from tarik.invoices.exercice import open_exercice
-from tarik.core.experio import DOSSIER_DOMAIN, DRY_RUN, POSTGRES, odoo_call, odoo_json, require_dossier
+from tarik.core.cabinets import cabinet_db
+from tarik.core.experio import DOSSIER_DOMAIN, dry_run, odoo_call, odoo_json, require_dossier
 from tarik.invoices.prepaid import yes_no
 
 TEST = "MODE TEST : aucune modification enregistree dans Experio. "
@@ -66,7 +66,7 @@ def lookalikes(name, ice, if_number):
 
 def similar_confirmed(session_id, name, client_message):
     """The client said yes to the question about a dossier with a very similar name, asked in this conversation."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         asked = [message for (message,) in db.execute("select message from tarik_results where session_id = %s and "
                                                        "step = 'create_dossier' and status = 'question'", (session_id,))]
     return yes_no(client_message) is True and any(normalized(name) in normalized(message) for message in asked)
@@ -96,7 +96,7 @@ def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: s
     if folder_type not in FOLDER_TYPES:
         raise ToolError(f"Type de dossier inconnu : {', '.join(FOLDER_TYPES)}.")
     values = {"name": name, "folder_type": folder_type, "enabled": True}  # enabled, as Experio's dossier import sets it
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         created = [i for (i,) in db.execute("select distinct dossier_id from tarik_results where session_id = %s and "
                                             "step = 'create_dossier' and status = 'ok' and dossier_id is not null", (session_id,))]
     for dossier in odoo_call("res.company", "read", created, fields=["name"]) if created else []:
@@ -115,7 +115,7 @@ def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: s
                             "(par exemple « creez-le sans verification »).")
         values["ignore_ice_if_verification"] = True
     values.update({key: value.strip() for key, value in (("ice", ice), ("vat", if_number)) if value and value.strip()})
-    if DRY_RUN:
+    if dry_run():
         return ok(f"{TEST}Le dossier {name} serait cree.")
     try:
         dossier_id = odoo_json("res.company", "create", values)
@@ -143,7 +143,7 @@ def copy_asked(client_messages, model_name):
 
 def client_messages(session_id, client_message):
     """The client's messages in this conversation, the current one included (n8n saves it after the run)."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         said = [text for (text,) in db.execute("select message->>'content' from tarik_chat_histories "
                                                "where session_id = %s and message->>'type' = 'human'", (session_id,))]
     return said + [client_message]
@@ -164,7 +164,7 @@ def copy_configuration(dossier_id: int, model_dossier_id: int, session_id: str =
     if odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id)]):
         raise ToolError(f"Le dossier {dossier} a deja des ecritures importees : copier la configuration "
                         "effacerait les reglages qu'Experio en a tires.")
-    if DRY_RUN:
+    if dry_run():
         return ok(f"{TEST}La configuration du dossier {model} serait copiee dans {dossier}.")
     try:
         wizard_id = odoo_json("company.config.wizard", "create", {
@@ -227,7 +227,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     exercices. ``kind``: "fec", "grand livre", or empty to tell from the file.
     Experio tests the file first; nothing is imported when its test finds errors."""
     dossier = require_dossier(dossier_id)
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         row = db.execute("select file_name, mime_type, data from tarik_files where id = %s", (file_id,)).fetchone()
     if not row:
         raise ToolError(f"Aucun fichier n° {file_id}.")
@@ -272,7 +272,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         return stop(f"{label} {name} refuse par le test Experio ({len(errors)} erreur(s)) : " + " | ".join(errors[:3]),
                     file_id=file_id)
     lines = len(test.get("ids") or [])
-    if DRY_RUN:
+    if dry_run():
         return ok(f"{TEST}{label} {name} : test Experio reussi ({lines} lignes), rien n'est importe.", file_id=file_id)
     try:
         result = odoo_json("base_import.import", "execute_import", [import_id], fields, headers, options, False, context=context)
@@ -282,7 +282,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     errors = [m.get("message", "") for m in result.get("messages") or [] if m.get("type") == "error"]
     if errors:
         return stop(f"{label} {name} refuse par Experio : " + " | ".join(errors[:3]), file_id=file_id)
-    with psycopg.connect(**POSTGRES) as db:  # not an invoice: the invoice sequence leaves it alone
+    with cabinet_db() as db:  # not an invoice: the invoice sequence leaves it alone
         db.execute("update tarik_files set kind = 'entries' where id = %s", (file_id,))
     return ok(f"{label} {name} importe dans le dossier {dossier} : {len(result.get('ids') or [])} lignes. "
               "Experio a cree les comptes, journaux, tiers et exercices manquants.", file_id=file_id)
@@ -308,7 +308,7 @@ def finish_setup(dossier_id: int) -> dict:
     notes = []
     if not odoo_call("exp.fiscal.entries", "search_count", [("company_id", "=", dossier_id), ("state", "=", "open")]):
         year = date.today().year
-        if DRY_RUN:
+        if dry_run():
             notes.append(f"un exercice {year} serait ouvert")
         else:
             try:
@@ -317,7 +317,7 @@ def finish_setup(dossier_id: int) -> dict:
                 print(f"finish_setup {dossier_id}: {error}", flush=True)
                 raise ToolError(f"Dossier {dossier} : Experio refuse d'ouvrir l'exercice {year} ({experio_refusal(error)}).") from None
             notes.append(f"exercice {year} ouvert")
-    if DRY_RUN:
+    if dry_run():
         return ok(f"{TEST}Dossier {dossier} : integration terminee ({', '.join(notes + ['stepper termine'])}).")
     # Experio hands over only lines imported more than a minute ago: wait for the newest.
     newest = odoo_call("experio.history", "search_read", [("company_id", "=", dossier_id), ("state", "=", "new")],

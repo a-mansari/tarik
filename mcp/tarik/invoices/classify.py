@@ -1,11 +1,11 @@
 """Phase 5: purchase, sale, or not an invoice at all (tarik-master agents/classify.py)."""
 
-import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, server, stop, wait
 from tarik.core.documents import scan_pages
-from tarik.core.experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, require_invoice
+from tarik.core.cabinets import cabinet_db
+from tarik.core.experio import dry_run, fill_invoice, invoice_context, require_invoice
 from tarik.core.model import ask_model
 
 
@@ -46,7 +46,7 @@ def classify_invoice(invoice_id: int) -> dict:
     if category not in ("achat", "vente", "rb"):
         print(f"classify_invoice {invoice_id}: unexpected category {category!r}", flush=True)
         raise ToolError("Classement de la facture : echec, reessayez plus tard.")
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         db.execute("insert into tarik_classifications (invoice_id, category, reason) values (%s, %s, %s) "
                    "on conflict (invoice_id) do update set category = excluded.category, reason = excluded.reason, classified_at = now()",
                    (invoice_id, category, reason))
@@ -63,6 +63,6 @@ def classify_invoice(invoice_id: int) -> dict:
     except Exception as error:
         print(f"classify_invoice {invoice_id}: {error}", flush=True)
         raise ToolError(f"Facture {invoice_id} : Experio a refuse le changement de type.") from None
-    if DRY_RUN:
+    if dry_run():
         return ok(f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : {category} ({reason}), le type passerait a {wanted}.", category=category)
     return ok(f"Facture {invoice_id} : {category} ({reason}), type change en {wanted}.", category=category)

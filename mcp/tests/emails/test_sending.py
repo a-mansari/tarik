@@ -19,7 +19,7 @@ def test_the_whitelist():  # exact addresses, @domain, * patterns; nobody when e
 
 
 def test_an_email_outside_the_whitelist_is_refused_before_smtp(monkeypatch):
-    monkeypatch.setattr(sending, "ALLOWED_RECIPIENTS", ["test@example.com"])  # whatever the container's own list
+    monkeypatch.setattr(sending, "allowed_recipients", lambda: ["test@example.com"])  # whatever the container's own list
     with pytest.raises(ToolError, match="hors de la liste autorisee"):
         send_email("client@other.example", "s", "b")
 

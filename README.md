@@ -18,21 +18,68 @@ resumes from there with the answer.
 | `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
 | `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent in three modes: `files`, `answer`, `resume`. |
 | `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), in the `tarik` package (see below). They use Experio's own wizards and onchanges, never a parallel logic. |
-| `n8n/` | n8n 2.43.5 patched (`patch.js`): a native agent's workflow tool input fixed to `{{threadId}}` gets the conversation's id, and one fixed to `{{attachments}}` its attached files, from n8n, not from the model. "Tarik - Traitement" saves those files in `tarik_files` (once each, by `source_id`). The build fails if an n8n upgrade moves a patched line. |
-| `postgres/init.sql` | Tarik's own tables: received files, check results, step results, pending questions. The chat memory table is created by n8n. |
+| `n8n/` | n8n 2.43.5 patched (`patch.js`): a native agent's workflow tool input fixed to `{{threadId}}` gets the conversation's id, and one fixed to `{{attachments}}` its attached files, from n8n, not from the model. "Tarik - Traitement" and "Tarik - Dossier" save those files (`save_files`, once each by `source_id`). The build fails if an n8n upgrade moves a patched line. |
+| `mcp/tarik/core/cabinet.sql` | One cabinet's tables (received files, check results, step results, pending questions, mail), created in that cabinet's own Postgres schema. The old chat's memory table is n8n's, in `public`. |
 
 Rules the tools keep:
 
 - Odoo, its URL, database and user are never shown to the agent or the client: it is "Experio".
-- Every dossier tool needs a real dossier id and fails without one. The cabinet is locked
-  by its exact database name and Tarik's user id (`ODOO_DB`, `ODOO_UID`).
-- `DRY_RUN=1` (default): drafts and bank statements are created, but nothing else is written and nothing is posted.
+- Every dossier tool needs a real dossier id and fails without one. Each cabinet is locked
+  by its exact database name and Tarik's user id there (`<CABINET>__ODOO_UID`).
+- `<CABINET>__DRY_RUN=1` (default): drafts and bank statements are created, but nothing else is written and nothing is posted.
   Replies then start with "MODE TEST".
+
+## Cabinets
+
+One Tarik serves several cabinets, and never mixes them. A cabinet is named by its exact
+Experio database (`experio_cabinet_8`), listed in `TARIK_CABINETS`. That name is also:
+
+- **its address**: `tarik-mcp` answers at `http://tarik-mcp:8000/c/<cabinet>/mcp` only, and every
+  call runs for that cabinet (`mcp/server.py`). There is no address without a cabinet, and the
+  server is stateless, so no session carries one cabinet's call into another's.
+- **its settings**: its own Experio login (`<CABINET>__ODOO_UID`, `__ODOO_USER`, `__ODOO_PASSWORD`),
+  `__DRY_RUN`, its mailbox's credentials and addresses (`__IMAP_USER`, `__IMAP_PASSWORD`, `__SMTP_USER`,
+  `__SMTP_PASSWORD`, `__SMTP_FROM`, `__MAIL_MANAGER`, `__MAIL_ALLOWED_RECIPIENTS`). What every cabinet
+  shares stays unprefixed: the mail server (`IMAP_HOST`, `IMAP_PORT`, `IMAP_FOLDER`, `SMTP_HOST`,
+  `SMTP_PORT`, `MAIL_CERT_SHA256`), `ODOO_URL`, the model. Each setting is one or the other
+  (`CABINET_SETTINGS`, `SHARED_SETTINGS` in `tarik/core/cabinets.py`): one in the wrong place stops the
+  server. No setting is ever shown to the agent.
+- **its data**: a Postgres schema of the same name. A tool's connection only sees that schema.
+
+Workflows and agents pass the cabinet as a fixed value, never chosen by a model: "Tarik - Traitement"
+and "Tarik - Dossier" take it as their `cabinet` input; each cabinet's native agent has its own
+MCP address and its own fixed `cabinet` tool input. The chat, "Tarik - Agent" and "Tarik - Emails"
+serve `experio_cabinet_8` only (`LEGACY_CABINET` in `workflows/steps.py`) until the native agents
+replace them.
+
+To add a cabinet: add its name to `TARIK_CABINETS` and its prefixed settings to `.env`, then
+`docker compose up -d --force-recreate tarik-mcp tarik-mail-watch`. Its schema is created at start;
+a cabinet missing a setting stops the server instead of starting half configured.
+
+Tool calls wait their turn: at most `TARIK_CALLS_PER_CABINET` at once for one cabinet (10), so one
+cabinet's long batch never holds up the others, and `TARIK_CALLS_TOTAL` in all (40).
+
+`mcp/tests/core/test_cabinets.py` checks the isolation against the real Postgres and over HTTP,
+with two throwaway cabinets: names, scopes, settings, threads, schemas, addresses, 200 overlapping
+calls, the call caps, and every tool's answers, with Experio unreachable, empty, refusing or
+logging in the wrong user, for any setting. `mcp/tests/n8n/test_agent_memory.py` checks, on the
+running n8n with the real model, that two agents never share memory nor conversations; it needs
+n8n's MCP server on (Settings > n8n MCP) and its token:
+
+```bash
+docker compose exec -T -e N8N_MCP_TOKEN=... -e N8N_MCP_PROJECT_ID=... tarik-mcp python -m pytest tests/n8n
+```
 
 ## Setup
 
 1. Copy `.env.example` to `.env` and fill it in (Experio access, Postgres password,
-   MiniMax key and URL, n8n encryption key).
+   MiniMax key and URL, n8n encryption key). n8n keeps its own data in Postgres too
+   (database `N8N_POSTGRES_DB`), created once by:
+
+   ```bash
+   docker compose up -d postgres
+   docker compose exec postgres sh -c 'createdb -U "$POSTGRES_USER" "$N8N_POSTGRES_DB"'
+   ```
 2. Start everything:
 
    ```bash
@@ -97,13 +144,13 @@ The tools live in `mcp/tarik/`, one package per kind of work, and their tests in
 
 | Package | What it holds |
 |---------|---------------|
-| `tarik/core/` | The MCP server and step results (`app`), Experio calls and guards (`experio`), the vision model, documents, the connection check. |
+| `tarik/core/` | The MCP server and step results (`app`), the cabinets and the current one (`cabinets`), Experio calls and guards (`experio`), the vision model, documents, the connection check. |
 | `tarik/invoices/` | "Tarik - Traitement": one module per step, in sequence order, `pipeline` for its bookkeeping, `listing` for `list_invoices`. |
 | `tarik/dossiers/` | Finding dossiers (`search`), "Tarik - Dossier" (`onboarding`), collaborators and who may work on which dossier (`people`). |
 | `tarik/emails/` | "Tarik - Emails": reading the mailbox (`inbox`), sending replies (`sending`). |
 
 `mcp/server.py` and `mcp/watcher.py` are the two entry points (the MCP server, the IMAP
-IDLE watcher). Edit a module, then rebuild the containers and run the tests:
+IDLE watcher of one cabinet's mailbox: `python watcher.py <cabinet>`). Edit a module, then rebuild the containers and run the tests:
 
 ```bash
 docker compose up -d --build --force-recreate tarik-mcp tarik-mail-watch
@@ -129,7 +176,7 @@ Finishing the onboarding hands the entries to Experio's processing.
 
 ## Real posting
 
-Set `DRY_RUN=0` in `.env`, then recreate the tools container (it only reads `.env` when
+Set `<CABINET>__DRY_RUN=0` in `.env` for that cabinet, then recreate the tools container (it only reads `.env` when
 recreated):
 
 ```bash

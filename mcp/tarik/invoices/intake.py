@@ -3,14 +3,14 @@
 import base64
 import io
 
-import psycopg
 import pypdfium2
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, question, server, stop
 from tarik.invoices.classify import CLASSIFY_PROMPT
 from tarik.core.documents import pdf_pages, to_pdf
-from tarik.core.experio import POSTGRES, odoo_call, require_dossier
+from tarik.core.cabinets import cabinet_db
+from tarik.core.experio import odoo_call, require_dossier
 from tarik.core.model import ask_model
 
 
@@ -31,7 +31,7 @@ def identify_document(file_id: int) -> dict:
     """Call it first for every file the client sends: says whether it is an
     invoice (then split_invoices, create_draft_invoice) or a bank statement
     (then import_bank_statement). Nothing else accepts a file it hasn't seen."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         row = db.execute("select file_name, mime_type, data, kind from tarik_files where id = %s for update", (file_id,)).fetchone()
         if not row:
             raise ToolError(f"Aucun fichier n° {file_id}.")
@@ -102,7 +102,7 @@ def split_invoices(file_id: int) -> dict:
     """Call it first for every file the client sends: a PDF may hold several
     invoices. Returns the file number of each invoice found (the same file
     when it holds only one); create one draft per number returned."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         row = db.execute("select session_id, file_name, mime_type, data, invoice_id, kind from tarik_files where id = %s for update",
                          (file_id,)).fetchone()
         if not row:
@@ -148,7 +148,7 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
     dossier_id comes from find_dossier. Safe to call again for the same file:
     it answers with the draft already made."""
     dossier = require_dossier(dossier_id)
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         # Locked until the draft is recorded, so a retry can't create a second one.
         row = db.execute("select file_name, mime_type, data, invoice_id, kind from tarik_files where id = %s for update",
                          (file_id,)).fetchone()
@@ -192,7 +192,7 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
     journal_id: leave 0 when the dossier has one bank journal; with several,
     the answer lists them and the client chooses. Safe to call again."""
     dossier = require_dossier(dossier_id)
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         # Locked until the statement is recorded, so a retry can't import it twice.
         row = db.execute("select file_name, mime_type, data, kind, statement_id from tarik_files where id = %s for update",
                          (file_id,)).fetchone()

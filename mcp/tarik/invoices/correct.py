@@ -1,10 +1,10 @@
 """Phase 4: write what the scan shows over what Experio captured differently."""
 
-import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, server
-from tarik.core.experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.cabinets import cabinet_db
+from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
 
 
 # Header fields the correction may write (tarik-master odoo.WRITABLE); tiers, account, journal... are later steps.
@@ -43,7 +43,7 @@ def correct_invoice(invoice_id: int) -> dict:
                                            "payment_method_id", "currency_id"])
     if invoice["state"] != "draft":
         raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut etre corrigee.")
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         row = db.execute("select readable, extracted, bad_fields from tarik_checks where invoice_id = %s", (invoice_id,)).fetchone()
     if not row:
         raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice.")
@@ -71,7 +71,7 @@ def correct_invoice(invoice_id: int) -> dict:
         changed = fill_invoice(invoice_id, changes, context)
         if not changed:
             return ok(f"Facture {invoice_id} : deja a jour, rien a changer.")
-        if not DRY_RUN:
+        if not dry_run():
             odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)  # Experio's own "Actualiser"; returns None, hence JSON-RPC
     except Exception as error:
         print(f"correct_invoice {invoice_id}: {error}", flush=True)
@@ -79,5 +79,5 @@ def correct_invoice(invoice_id: int) -> dict:
     shown = ", ".join(f"{field} = {changed.get(field, value)}" for field, value in changes.items())
     other = sorted(set(changed) - set(changes))
     head = (f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id}, correction prevue : {shown}."
-            if DRY_RUN else f"Facture {invoice_id} : corrigee : {shown}.")
+            if dry_run() else f"Facture {invoice_id} : corrigee : {shown}.")
     return ok(head + (f" Experio a aussi mis a jour : {', '.join(other)}." if other else "") + (f" ({'; '.join(notes)})" if notes else ""))

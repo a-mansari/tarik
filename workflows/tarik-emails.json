@@ -54,7 +54,7 @@
         300
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -156,7 +156,7 @@
         300
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -181,7 +181,7 @@
         300
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -206,7 +206,7 @@
         300
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -246,7 +246,7 @@
         480
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -284,7 +284,7 @@
         520
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,

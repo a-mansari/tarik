@@ -7,11 +7,11 @@ form, and its own refresh rebuilds the lines from the header. So the model only 
 what Experio can't: classify what was billed among the dossier's real accounts.
 """
 
-import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, question, server
-from tarik.core.experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.cabinets import cabinet_db
+from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
 from tarik.core.model import ask_model
 from tarik.invoices.tiers import side_of
 
@@ -72,13 +72,13 @@ def apply_account(invoice, account_id, why):
     context = invoice_context(invoice)
     try:
         fill_invoice(invoice["id"], {"account_id": account_id}, context)
-        if not DRY_RUN:
+        if not dry_run():
             odoo_json("exp.invoice", "action_refresh", [invoice["id"]], context=context)
     except Exception as error:
         print(f"apply_account {invoice['id']} -> {account_id}: {error}", flush=True)
         raise ToolError(f"Facture {invoice['id']} : Experio a refuse le compte.") from None
     account = odoo_call("exp.account", "read", [account_id], fields=["code", "name"])[0]
-    head = "MODE TEST : aucune modification enregistree dans Experio. " if DRY_RUN else ""
+    head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
     return ok(f"{head}Facture {invoice['id']} : compte {account['code']} {account['name']} ({why}).")
 
 
@@ -108,7 +108,7 @@ def assign_account(invoice_id: int) -> dict:
     context = invoice_context(invoice)
     try:
         if not odoo_call("exp.account", "search_count", [("company_id", "=", company_id)]):
-            if DRY_RUN:
+            if dry_run():
                 return ok(f"MODE TEST : plan comptable vide, les comptes de base seraient crees (dossier de la facture {invoice_id}).")
             # Experio's "Creer les comptes manquants" button: its wizard lists the base CGNC accounts the dossier lacks.
             wizard_id = odoo_call("exp.account.missing.wizard", "create", {}, context={"allowed_company_ids": [company_id]})
@@ -123,7 +123,7 @@ def assign_account(invoice_id: int) -> dict:
     except Exception as error:
         print(f"assign_account {invoice_id}: {error}", flush=True)
         raise ToolError(f"Facture {invoice_id} : Experio n'a pas pu proposer de compte.") from None
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         row = db.execute("select extracted->>'designation' from tarik_checks where invoice_id = %s", (invoice_id,)).fetchone()
     if not row:
         raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice (il faut ce qui est facture).")

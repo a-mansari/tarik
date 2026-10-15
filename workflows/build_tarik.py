@@ -8,8 +8,10 @@ The agent only finds the dossier and hands the work to "Tarik - Traitement"
 import json
 from pathlib import Path
 
+from steps import LEGACY_CABINET, MCP_ADDRESS
+
 HERE = Path(__file__).parent
-MCP_URL = "http://tarik-mcp:8000/mcp"
+MCP_URL = MCP_ADDRESS.format(LEGACY_CABINET)
 POSTGRES = {"postgres": {"id": "TarikPostgres001", "name": "Tarik Postgres"}}
 AGENT_ID = "TarikAgent000001"
 CALL = "$('Appel').item.json"
@@ -41,7 +43,7 @@ node("c1a0b5e2-0001-4000-8000-000000000001", "Message a Tarik", "@n8n/n8n-nodes-
                 "subtitle": "Assistant comptable", "inputPlaceholder": "Votre message..."},
 }, webhookId="7304d10e-ea71-4883-be8d-dcd560c62f4e")
 node("c1a0b5e2-0001-4000-8000-000000000006", "Fichiers recus", "n8n-nodes-base.code", 2, [220, 0], {"jsCode": (
-    "// The uploaded files as one base64 payload: a single query parameter, free of the commas the Postgres node splits on.\n"
+    "// The uploaded files as one base64 payload, saved by save_files in this cabinet's tarik_files.\n"
     "const message = $input.first().json;\n"
     "const files = [];\n"
     "for (const file of message.files || []) {\n"
@@ -50,25 +52,19 @@ node("c1a0b5e2-0001-4000-8000-000000000006", "Fichiers recus", "n8n-nodes-base.c
     "}\n"
     "const payload = Buffer.from(JSON.stringify({ session_id: message.sessionId, files })).toString('base64');\n"
     "return [{ json: { payload } }];")})
-node("c1a0b5e2-0001-4000-8000-000000000007", "Enregistrer fichiers", "n8n-nodes-base.postgres", 2.6, [440, 0], {
-    "operation": "executeQuery",
-    "query": ("with payload as (select convert_from(decode($1, 'base64'), 'UTF8')::jsonb as body),\n"
-              "saved as (\n"
-              "  insert into tarik_files (session_id, file_name, mime_type, data)\n"
-              "  select body->>'session_id', file->>'file_name', file->>'mime_type', decode(file->>'data', 'base64')\n"
-              "  from payload, jsonb_array_elements(body->'files') as file\n"
-              "  returning id, file_name\n"
-              ")\n"
-              "select coalesce(json_agg(json_build_object('id', id, 'file_name', file_name) order by id), '[]'::json) as files from saved"),
-    "options": {"queryReplacement": "={{ $json.payload }}"},
-}, credentials=POSTGRES)
+node("c1a0b5e2-0001-4000-8000-000000000007", "Enregistrer fichiers", "@n8n/n8n-nodes-langchain.mcpClient", 1.1, [440, 0], {
+    "endpointUrl": MCP_URL, "serverTransport": "httpStreamable",
+    "tool": {"__rl": True, "mode": "id", "value": "save_files"}, "inputMode": "json",
+    "jsonInput": "={{ JSON.stringify({ payload: $json.payload }) }}",
+    "options": {"timeout": 300000},
+})
 AGENT_INPUTS = [("session_id", "string"), ("message", "string"), ("files", "array")]
 node("c1a0b5e2-0001-4000-8000-000000000002", "Tarik", "n8n-nodes-base.executeWorkflow", 1.2, [660, 0], {
     "workflowId": {"__rl": True, "mode": "id", "value": AGENT_ID, "cachedResultName": "Tarik - Agent"},
     "workflowInputs": {"mappingMode": "defineBelow", "value": {
         "session_id": "={{ $('Message a Tarik').item.json.sessionId }}",
         "message": "={{ $('Message a Tarik').item.json.chatInput || '' }}",
-        "files": "={{ $json.files.map(f => f.file_name) }}"},
+        "files": "={{ $json.content[0].text.files.map(f => f.file_name) }}"},
         "matchingColumns": [], "schema": inputs_schema(AGENT_INPUTS), "attemptToConvertTypes": False, "convertFieldsToString": False},
     "options": {},
 })
@@ -79,12 +75,12 @@ for source, target in [("Message a Tarik", "Fichiers recus"), ("Fichiers recus",
 nodes, connections = agent
 node("2b6f0c1e-7d3a-5a40-9e21-4c8b7f1d2e01", "Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 0], {
     "inputSource": "workflowInputs", "workflowInputs": {"values": [{"name": key, "type": kind} for key, kind in AGENT_INPUTS]}})
-node("1a10c278-5986-5ed6-a2d4-7573e8d5078f", "Questions en attente", "n8n-nodes-base.postgres", 2.6, [580, 0], {
-    "operation": "executeQuery",
-    "query": ("select coalesce(json_agg(json_build_object('invoice_id', invoice_id, 'question', question) order by created_at), "
-              "'[]'::json) as pending from tarik_pending where session_id = $1"),
-    "options": {"queryReplacement": SESSION},
-}, credentials=POSTGRES)
+node("1a10c278-5986-5ed6-a2d4-7573e8d5078f", "Questions en attente", "@n8n/n8n-nodes-langchain.mcpClient", 1.1, [580, 0], {
+    "endpointUrl": MCP_URL, "serverTransport": "httpStreamable",
+    "tool": {"__rl": True, "mode": "id", "value": "pending_questions"}, "inputMode": "json",
+    "jsonInput": "={{ JSON.stringify({ session_id: " + CALL + ".session_id }) }}",
+    "options": {"timeout": 60000},
+})
 node("bea448c1-1139-55b3-b34b-6ac4a4252471", "Brouillons en attente", "@n8n/n8n-nodes-langchain.mcpClient", 1.1, [800, 0], {
     "endpointUrl": MCP_URL, "serverTransport": "httpStreamable",
     "tool": {"__rl": True, "mode": "id", "value": "waiting_drafts"}, "inputMode": "json",
@@ -116,7 +112,7 @@ MESSAGE = (
     # Said, not guessed: MiniMax took "ci-joint notre FEC" for a file that never came.
     "{{ !(" + CALL + ".files || []).length && /joint|attach|fichier|fec|pi[eè]ce/i.test(" + CALL + ".message || '') "
     "? '\\n\\nFichiers joints : aucun, rien n est arrive avec ce message.' : '' }}"
-    "{{ $('Questions en attente').item.json.pending.length ? '\\n\\nQuestions en attente : ' + $('Questions en attente').item.json.pending"
+    "{{ $('Questions en attente').item.json.content[0].text.pending.length ? '\\n\\nQuestions en attente : ' + $('Questions en attente').item.json.content[0].text.pending"
     ".map(p => 'facture ' + p.invoice_id + ' : ' + p.question).join(' | ') : '' }}"
     "{{ $json.content?.[0]?.text?.invoices?.length ? '\\n\\nFactures en attente de lecture par Experio : ' + "
     "$json.content[0].text.invoices.join(', ') : '' }}")
@@ -155,7 +151,7 @@ connect("Outils Experio", "Tarik", "ai_tool")
 
 # The agent's ways into "Tarik - Traitement", one per mode.
 INPUTS = [("mode", "string"), ("session_id", "string"), ("dossier_id", "number"),
-          ("invoice_id", "number"), ("answer", "string")]
+          ("invoice_id", "number"), ("answer", "string"), ("cabinet", "string")]
 
 
 def processing_tool(id_, name, position, description, values):
@@ -164,7 +160,7 @@ def processing_tool(id_, name, position, description, values):
         "workflowId": {"__rl": True, "mode": "id", "value": "TarikTraitement1", "cachedResultName": "Tarik - Traitement"},
         "workflowInputs": {
             "mappingMode": "defineBelow", "value": {"session_id": SESSION, "dossier_id": 0,
-                                                    "invoice_id": 0, "answer": "", **values},
+                                                    "invoice_id": 0, "answer": "", "cabinet": LEGACY_CABINET, **values},
             "matchingColumns": [],
             "schema": [{"id": key, "displayName": key, "required": False, "defaultMatch": False, "display": True,
                         "canBeUsedToMatch": True, "type": kind, "removed": False} for key, kind in INPUTS],
@@ -181,6 +177,7 @@ node("6f1d3a52-dc4e-5b7e-9a1c-7d2e4b9c0a11", "parametrer_dossier", "@n8n/n8n-nod
         "mappingMode": "defineBelow",
         "value": {
             "session_id": SESSION,
+            "cabinet": LEGACY_CABINET,
             "client_message": "={{ " + CALL + ".message }}",  # the client's words, not the agent's
             "dossier_id": "={{ $fromAI('dossier_id', 'L id du dossier existant (find_dossier), 0 pour un nouveau dossier', 'number') }}",
             "name": "={{ $fromAI('name', 'Le nom du nouveau dossier, vide pour un dossier existant', 'string') }}",
@@ -193,7 +190,7 @@ node("6f1d3a52-dc4e-5b7e-9a1c-7d2e4b9c0a11", "parametrer_dossier", "@n8n/n8n-nod
         "matchingColumns": [],
         "schema": [{"id": key, "displayName": key, "required": False, "defaultMatch": False, "display": True,
                     "canBeUsedToMatch": True, "type": kind, "removed": False}
-                   for key, kind in [("session_id", "string"), ("client_message", "string"), ("dossier_id", "number"), ("name", "string"), ("ice", "string"),
+                   for key, kind in [("session_id", "string"), ("cabinet", "string"), ("client_message", "string"), ("dossier_id", "number"), ("name", "string"), ("ice", "string"),
                                      ("if_number", "string"), ("folder_type", "string"), ("skip_ice_if_check", "boolean"), ("model_dossier_id", "number"),
                                      ("kind", "string")]],
         "attemptToConvertTypes": False, "convertFieldsToString": False},
