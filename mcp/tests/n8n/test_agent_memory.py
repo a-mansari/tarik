@@ -3,7 +3,7 @@ from n8n's code. Two throwaway agents, A and B, alike but for their name: A is t
 B, a new conversation with A, and B in A's own conversation are asked for it.
 
 Needs n8n's MCP server (Settings > n8n MCP: on, and an access token):
-  N8N_MCP_API_TOKEN   the token (.env)
+  N8N_MCP_API_TOKEN   the token (Vault secret/tarik/shared, or the environment)
   N8N_MCP_API_URL     n8n's MCP address from this container (docker-compose.yml)
   N8N_MCP_PROJECT_ID  the project the throwaway agents are made in, default the first agent's (deleted at the end)
   N8N_MCP_CREDENTIAL  the model credential's id, default MiniMaxAnthr0p1c
@@ -16,8 +16,10 @@ import uuid
 import httpx
 import pytest
 
+from tarik.core import vault
+
 URL = os.getenv("N8N_MCP_API_URL", "http://n8n:5678/mcp-server/http")
-TOKEN = os.getenv("N8N_MCP_API_TOKEN", "")
+TOKEN = os.getenv("N8N_MCP_API_TOKEN") or (vault.settings()[0].get("N8N_MCP_API_TOKEN", "") if vault.ENABLED else "")
 PROJECT = os.getenv("N8N_MCP_PROJECT_ID", "")
 CREDENTIAL = os.getenv("N8N_MCP_CREDENTIAL", "MiniMaxAnthr0p1c")
 

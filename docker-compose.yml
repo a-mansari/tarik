@@ -35,6 +35,10 @@ services:
     env_file: .env
     environment:
       N8N_MCP_API_URL: http://n8n:5678/mcp-server/http # n8n as reached on Docker's network, whatever .env says for the host
+      VAULT_ADDR: http://vault:8200
+    volumes:
+      - ./vault/.local/approle:/run/vault:ro # tarik-mcp's AppRole: it may only read secret/tarik/*
+    depends_on: [vault]
     dns: [1.1.1.1, 8.8.8.8]
 
   # Wakes "Tarik - Emails" as soon as an email arrives in this cabinet's mailbox (IMAP IDLE), instead of
@@ -45,6 +49,11 @@ services:
     env_file: .env
     dns: [1.1.1.1, 8.8.8.8]
     command: ["python", "watcher.py", "experio_cabinet_8"]
+    environment:
+      VAULT_ADDR: http://vault:8200
+    volumes:
+      - ./vault/.local/approle:/run/vault:ro
+    depends_on: [vault]
 
   # Tarik's data (database POSTGRES_DB: one schema per cabinet, mcp/tarik/core/cabinet.sql) and n8n's own
   # (database N8N_POSTGRES_DB). Not exposed to the host.
@@ -59,6 +68,23 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  # Tarik's secrets and per-cabinet settings (vault/): secret/tarik/shared and secret/tarik/cabinets/<cabinet>.
+  # Local only, unsealed at start by vault/start.sh; on the public server, a real Vault takes its place.
+  vault:
+    image: hashicorp/vault:1.18.3
+    restart: unless-stopped
+    entrypoint: ["sh", "/vault/config/start.sh"]
+    ports:
+      - "127.0.0.1:8200:8200" # for the setup and migration scripts on this machine, not the LAN
+    volumes:
+      - ./vault/config.hcl:/vault/config/config.hcl:ro
+      - ./vault/start.sh:/vault/config/start.sh:ro
+      - ./vault/setup.sh:/vault/config/setup.sh:ro
+      - ./vault/.local/unseal:/vault/unseal # unseal key and root token: this machine only, never in git
+      - ./vault/.local/approle:/vault/approle
+      - vault_data:/vault/file
+
 volumes:
   n8n_data:
   postgres_data:
+  vault_data:

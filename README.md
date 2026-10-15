@@ -14,7 +14,7 @@ resumes from there with the answer.
 
 | Part | What it does |
 |------|--------------|
-| n8n Agents section | Tarik: one native agent per cabinet (MiniMax-M3). It only finds the dossier, lists invoices and hands the work over to the workflows below. Its configuration is kept in `workflows/tarik-agent.json`: change both together. |
+| n8n Agents section | Tarik: one native agent per cabinet, "Tarik - <cabinet's name>" (MiniMax-M3). It only finds the dossier, lists invoices and hands the work over to the workflows below. All are made from `workflows/tarik-agent.json` by `workflows/build_tarik_agents.py`, which lists the cabinets: edit those, not the agents in n8n. |
 | `workflows/tarik-emails.json` | The cabinet's mailbox: each email thread is answered by the cabinet's agent (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own conversation). |
 | `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
 | `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent (`traiter_fichiers`, mode `files`; the workflow also has `answer` and `resume`). |
@@ -33,19 +33,19 @@ Rules the tools keep:
 ## Cabinets
 
 One Tarik serves several cabinets, and never mixes them. A cabinet is named by its exact
-Experio database (`experio_cabinet_8`), listed in `TARIK_CABINETS`. That name is also:
+Experio database (`experio_cabinet_8`): its Vault path, `secret/tarik/cabinets/<cabinet>`. That name is also:
 
 - **its address**: `tarik-mcp` answers at `http://tarik-mcp:8000/c/<cabinet>/mcp` only, and every
   call runs for that cabinet (`mcp/server.py`). There is no address without a cabinet, and the
   server is stateless, so no session carries one cabinet's call into another's.
-- **its settings**: its own Experio login (`<CABINET>__ODOO_UID`, `__ODOO_USER`, `__ODOO_PASSWORD`),
-  `__DRY_RUN`, its mailbox's credentials and addresses (`__IMAP_USER`, `__IMAP_PASSWORD`, `__SMTP_USER`,
-  `__SMTP_PASSWORD`, `__SMTP_FROM`, `__MAIL_MANAGER`, `__MAIL_ALLOWED_RECIPIENTS`), its agent (`__AGENT_ID`).
-  What every cabinet shares stays unprefixed: the mail server (`IMAP_HOST`, `IMAP_PORT`, `IMAP_FOLDER`,
-  `SMTP_HOST`, `SMTP_PORT`, `MAIL_CERT_SHA256`), n8n's MCP server (`N8N_MCP_API_URL`, `N8N_MCP_API_TOKEN`),
-  `ODOO_URL`, the model. Each setting is one or the other
-  (`CABINET_SETTINGS`, `SHARED_SETTINGS` in `tarik/core/cabinets.py`): one in the wrong place stops the
-  server. No setting is ever shown to the agent.
+- **its settings**, in that Vault path: its own Experio login (`ODOO_UID`, `ODOO_USER`, `ODOO_PASSWORD`),
+  `DRY_RUN`, its mailbox's credentials and addresses (`IMAP_USER`, `IMAP_PASSWORD`, `SMTP_USER`,
+  `SMTP_PASSWORD`, `SMTP_FROM`, `MAIL_MANAGER`, `MAIL_ALLOWED_RECIPIENTS`), its agent (`AGENT_ID`).
+  What every cabinet shares is in `secret/tarik/shared`: the mail server (`IMAP_HOST`, `IMAP_PORT`,
+  `IMAP_FOLDER`, `SMTP_HOST`, `SMTP_PORT`, `MAIL_CERT_SHA256`), n8n's MCP token (`N8N_MCP_API_TOKEN`),
+  the model (`MODEL_API_*`). Each setting is one or the other (`CABINET_SETTINGS`, `SHARED_SETTINGS` in
+  `tarik/core/cabinets.py`): one in the wrong place, or still in `.env`, stops the server. No setting
+  is ever shown to the agent.
 - **its data**: a Postgres schema of the same name. A tool's connection only sees that schema.
 
 Workflows and agents pass the cabinet as a fixed value, never chosen by a model: "Tarik - Traitement"
@@ -55,10 +55,10 @@ MCP address and its own fixed `cabinet` tool input. "Tarik - Emails" and `tarik-
 needs its own copy of both. An email thread's conversation id includes its cabinet, as n8n's
 conversation ids are shared by every agent.
 
-To add a cabinet: create its agent from `workflows/tarik-agent.json` (its MCP address and
-`cabinet` inputs set to the new cabinet), allow it in Settings > n8n MCP, add its name to
-`TARIK_CABINETS` and its prefixed settings (`__AGENT_ID` included) to `.env`, then
-`docker compose up -d --force-recreate tarik-mcp tarik-mail-watch`. Its schema is created at start;
+To add a cabinet: give Tarik a user in that cabinet's Experio, add the cabinet to `CABINETS` in
+`workflows/build_tarik_agents.py` and run it (`python3 workflows/build_tarik_agents.py`: it creates
+the cabinet's agent, updates the others, and prints each `AGENT_ID`), write its settings to Vault
+(`AGENT_ID` included, see Vault below), then `docker compose up -d --force-recreate tarik-mcp tarik-mail-watch`. Its schema is created at start;
 a cabinet missing a setting stops the server instead of starting half configured.
 
 Tool calls wait their turn: at most `TARIK_CALLS_PER_CABINET` at once for one cabinet (10), so one
@@ -69,16 +69,43 @@ with two throwaway cabinets: names, scopes, settings, threads, schemas, addresse
 calls, the call caps, and every tool's answers, with Experio unreachable, empty, refusing or
 logging in the wrong user, for any setting. `mcp/tests/n8n/test_agent_memory.py` checks, on the
 running n8n with the real model, that two agents never share memory nor conversations; it needs
-n8n's MCP server on (Settings > n8n MCP) and its token in `.env` (`N8N_MCP_API_TOKEN`), and skips without:
+n8n's MCP server on (Settings > n8n MCP) and its token in Vault (`N8N_MCP_API_TOKEN`), and skips without:
 
 ```bash
 docker compose exec -T tarik-mcp python -m pytest tests/n8n
 ```
 
+## Vault
+
+Tarik's secrets and per-cabinet settings are in Vault (`vault/`), not in `.env`. Locally, a Vault
+container (`vault` in `docker-compose.yml`, file storage in the `vault_data` volume) unseals itself
+at start with the key `vault/setup.sh` keeps in `vault/.local/` (git-ignored, this machine only).
+`tarik-mcp` logs in with its AppRole (`vault/.local/approle/`, mounted read-only), whose policy only
+reads `secret/tarik/*`; it reads Vault at start and every 5 minutes, so a changed secret applies
+without a restart, and carries on with the last values while Vault is out.
+
+Once, on a new machine:
+
+```bash
+docker compose up -d vault
+docker compose exec -T -e HOST_UID=$(id -u) vault sh /vault/config/setup.sh
+```
+
+Then write the settings (or move them from an older `.env`: `python3 vault/migrate_env.py`):
+
+```bash
+docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault vault kv put secret/tarik/shared IMAP_HOST=... N8N_MCP_API_TOKEN=...
+docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault vault kv put secret/tarik/cabinets/experio_cabinet_8 ODOO_UID=... AGENT_ID=...
+```
+
+`kv patch` changes one setting and keeps the others. Vault's own page is at http://127.0.0.1:8200
+(the root token logs in). On the public server, use a real Vault instead: TLS, its own unseal
+(operators' key shares or a KMS, never a key file next to it), and the same paths, policy and role.
+
 ## Setup
 
-1. Copy `.env.example` to `.env` and fill it in (Experio access, Postgres password,
-   MiniMax key and URL, n8n encryption key). n8n keeps its own data in Postgres too
+1. Copy `.env.example` to `.env` and fill it in (Postgres password, n8n encryption key, Experio's
+   URL), and set up Vault with Tarik's settings (see Vault). n8n keeps its own data in Postgres too
    (database `N8N_POSTGRES_DB`), created once by:
 
    ```bash
@@ -106,8 +133,8 @@ docker compose exec -T tarik-mcp python -m pytest tests/n8n
    ```
 
 4. Deploy the three workflows (see below).
-5. Turn on n8n's MCP server (Settings > n8n MCP), put its token in `.env` (`N8N_MCP_API_TOKEN`), and
-   create each cabinet's agent (see Cabinets). Its chat is in the Agents section.
+5. Turn on n8n's MCP server (Settings > n8n MCP), put its token in Vault (`N8N_MCP_API_TOKEN` in
+   `secret/tarik/shared`), and create each cabinet's agent (see Cabinets). Its chat is in the Agents section.
 
 ## Changing a workflow
 
@@ -175,11 +202,11 @@ Finishing the onboarding hands the entries to Experio's processing.
 
 ## Real posting
 
-Set `<CABINET>__DRY_RUN=0` in `.env` for that cabinet, then recreate the tools container (it only reads `.env` when
-recreated):
+Set that cabinet's `DRY_RUN` to `0` in Vault; it applies within 5 minutes, or at once after a restart:
 
 ```bash
-docker compose up -d --force-recreate tarik-mcp
+docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault vault kv patch secret/tarik/cabinets/experio_cabinet_8 DRY_RUN=0
+docker compose restart tarik-mcp
 ```
 
 A posted invoice can't simply be deleted in Experio: test on a test dossier.

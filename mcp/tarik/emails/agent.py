@@ -1,9 +1,10 @@
 """Tarik's answer to an email thread: the cabinet's own native n8n agent (its AGENT_ID), asked through
-n8n's MCP server (call_agent) in the thread's conversation. That conversation's id is the thread's
+n8n's MCP server (call_agent, at N8N_MCP_API_URL) in the thread's conversation. That conversation's id is the thread's
 session (newSession, n8n/patch.js), under which its files and sender are already saved: the agent's
 tools find them there. n8n's address and token stay on the server, as every setting."""
 
 import json
+import os
 
 import httpx
 from mcp.server.mcpserver.exceptions import ToolError
@@ -15,7 +16,7 @@ from tarik.dossiers.onboarding import remember_client_message
 
 def call_n8n(tool, **arguments):
     """One tool of n8n's MCP server; its structured result."""
-    answer = httpx.post(setting("N8N_MCP_API_URL"), timeout=600, json={
+    answer = httpx.post(os.environ["N8N_MCP_API_URL"], timeout=600, json={
         "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}},
         headers={"authorization": f"Bearer {setting('N8N_MCP_API_TOKEN')}", "accept": "application/json, text/event-stream"})
     answer.raise_for_status()

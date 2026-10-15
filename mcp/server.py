@@ -39,7 +39,8 @@ import tarik.invoices.tiers  # noqa: F401
 import tarik.invoices.tva  # noqa: F401
 import tarik.invoices.withholding  # noqa: F401
 from tarik.core.app import server
-from tarik.core.cabinets import CABINETS, create_schemas, misplaced_settings, using
+from tarik.core import vault
+from tarik.core.cabinets import CABINETS, create_schemas, misplaced_in_vault, misplaced_settings, using
 from tarik.core.experio import account
 
 ADDRESS = re.compile(r"/c/([^/]+)/mcp/?")
@@ -78,7 +79,8 @@ def check_cabinets():
     """At start: every cabinet fully configured and its schema ready, or nothing is served."""
     if not CABINETS:
         raise SystemExit("TARIK_CABINETS is empty: no cabinet to serve")
-    if misplaced := misplaced_settings():
+    misplaced = misplaced_in_vault(*vault.settings()) if vault.ENABLED else misplaced_settings()
+    if misplaced:
         raise SystemExit(f"settings not where they belong (see tarik/core/cabinets.py): {', '.join(misplaced)}")
     for name in sorted(CABINETS):
         with using(name):
