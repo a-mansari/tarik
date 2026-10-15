@@ -37,6 +37,11 @@ def label(invoice):
     return "payee" if invoice["payment_state"] == "paid" else "comptabilisee"
 
 
+def amount(value):
+    """An amount as Experio shows it: two decimals, thousands spaced (999.9960000000001 is 1 000.00)."""
+    return f"{float(value or 0):,.2f}".replace(",", " ")
+
+
 @server.tool()
 def list_invoices(dossier_id: int, status: str = "", limit: int = 20) -> dict:
     """List a dossier's invoices, most recent first. ``status`` filters them:
@@ -60,6 +65,6 @@ def list_invoices(dossier_id: int, status: str = "", limit: int = 20) -> dict:
         return ok(f"Aucune {what.replace('(s)', '')} dans le dossier {dossier}.")
     lines = [f"- facture {i['id']} : {i['invoice_number'] or 'sans numero'}, "
              f"{(i['partner_id'] or [0, 'tiers inconnu'])[1].split(' - ')[0]}, {i['invoice_date'] or 'sans date'}, "
-             f"{i['amount_total']} DH, {label(i)}" for i in found]
+             f"{amount(i['amount_total'])} DH, {label(i)}" for i in found]
     more = f" (les {len(found)} plus recentes)" if total > len(found) else ""
     return ok(f"{total} {what} dans le dossier {dossier}{more} :\n" + "\n".join(lines))
