@@ -1,751 +1,118 @@
 {
-  "id": "TarikAgent000001",
-  "name": "Tarik - Agent",
-  "settings": {
-    "executionOrder": "v1",
-    "saveExecutionProgress": true,
-    "callerPolicy": "workflowsFromSameOwner"
+  "name": "Tarik",
+  "description": "Assistant comptable du cabinet experio_cabinet_8 : dossiers, factures et emails.",
+  "model": "anthropic/MiniMax-M3",
+  "credential": "MiniMaxAnthr0p1c",
+  "instructions": "Tu es Tarik, assistant comptable d'un cabinet marocain. Réponds dans la langue du client, en phrases courtes. Vouvoie-le, sans civilité.\n\nCe que tu fais, et seulement cela : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, find_dossier pour trouver un dossier par son nom, list_collaborators pour les collaborateurs du cabinet, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie les listes telles quelles. Pour toute autre demande, dis que tu ne peux pas encore le faire.\n\nRègles :\n- N'invente aucun résultat.\n- N'écris rien avant d'appeler un outil : ta réponse est seulement ce que tu écris après.\n- Ne cite ni le nom de tes outils, ni l'id d'un dossier : un dossier se nomme par son nom.\n\nFactures et relevés reçus : trouve le dossier avec find_dossier, puis appelle traiter_fichiers une seule fois avec l'id du dossier. Recopie son résultat mot pour mot.\n\nNouveau dossier : il faut son nom, et si possible son ICE et son IF. Appelle directement parametrer_dossier avec dossier_id 0, sans récapitulatif ni demande de confirmation : il prend les fichiers FEC ou grand livre joints lui-même, et vérifie lui-même qu'aucun dossier n'a le même ICE, le même IF ou un nom très proche. S'il pose une question (dossier au nom très proche), transmets-la ; si le client répond oui, rappelle parametrer_dossier avec les mêmes informations. Experio vérifie l'ICE et l'IF auprès du registre officiel : s'il les refuse, transmets son refus et demande au client de vérifier les numéros, ou de créer le dossier sans vérification s'il l'écrit lui-même (« créez-le sans vérification ») : ce n'est qu'alors que tu mets skip_ice_if_check à true, jamais de toi-même. folder_type : company (société, par défaut) ou person (personne physique). model_dossier_id : 0, sauf si le client demande lui-même de reprendre la configuration d'un dossier existant (trouve-le avec find_dossier). kind : fec ou grand livre si le client l'a dit, sinon vide.\n\nFEC ou grand livre pour un dossier existant : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id, jamais avec dossier_id 0. Un FEC ou un grand livre ne va jamais à traiter_fichiers. Recopie le résultat mot pour mot.",
+  "memory": {
+    "enabled": true,
+    "storage": "n8n"
   },
-  "active": false,
-  "nodes": [
+  "mcpServers": [
     {
-      "id": "2b6f0c1e-7d3a-5a40-9e21-4c8b7f1d2e01",
-      "name": "Appel",
-      "type": "n8n-nodes-base.executeWorkflowTrigger",
-      "typeVersion": 1.1,
-      "position": [
-        0,
-        0
-      ],
-      "parameters": {
-        "inputSource": "workflowInputs",
-        "workflowInputs": {
-          "values": [
-            {
-              "name": "session_id",
-              "type": "string"
-            },
-            {
-              "name": "message",
-              "type": "string"
-            },
-            {
-              "name": "files",
-              "type": "array"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "id": "1a10c278-5986-5ed6-a2d4-7573e8d5078f",
-      "name": "Questions en attente",
-      "type": "@n8n/n8n-nodes-langchain.mcpClient",
-      "typeVersion": 1.1,
-      "position": [
-        580,
-        0
-      ],
-      "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
-        "serverTransport": "httpStreamable",
-        "tool": {
-          "__rl": true,
-          "mode": "id",
-          "value": "pending_questions"
-        },
-        "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').item.json.session_id }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      }
-    },
-    {
-      "id": "bea448c1-1139-55b3-b34b-6ac4a4252471",
-      "name": "Brouillons en attente",
-      "type": "@n8n/n8n-nodes-langchain.mcpClient",
-      "typeVersion": 1.1,
-      "position": [
-        800,
-        0
-      ],
-      "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
-        "serverTransport": "httpStreamable",
-        "tool": {
-          "__rl": true,
-          "mode": "id",
-          "value": "waiting_drafts"
-        },
-        "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').item.json.session_id }) }}",
-        "options": {
-          "timeout": 60000
-        }
-      },
-      "onError": "continueRegularOutput"
-    },
-    {
-      "id": "7e3c9a41-2d5b-5f86-b0a7-3c1e8d4f6a92",
-      "name": "Tarik",
-      "type": "@n8n/n8n-nodes-langchain.agent",
-      "typeVersion": 3.1,
-      "position": [
-        880,
-        0
-      ],
-      "parameters": {
-        "promptType": "define",
-        "text": "={{ $('Appel').item.json.message || '(pas de message)' }}{{ ($('Appel').item.json.files || []).length ? '\\n\\nFichiers joints : ' + $('Appel').item.json.files.join(', ') : '' }}{{ !($('Appel').item.json.files || []).length && /joint|attach|fichier|fec|pi[eè]ce/i.test($('Appel').item.json.message || '') ? '\\n\\nFichiers joints : aucun, rien n est arrive avec ce message.' : '' }}{{ $('Questions en attente').item.json.content[0].text.pending.length ? '\\n\\nQuestions en attente : ' + $('Questions en attente').item.json.content[0].text.pending.map(p => 'facture ' + p.invoice_id + ' : ' + p.question).join(' | ') : '' }}{{ $json.content?.[0]?.text?.invoices?.length ? '\\n\\nFactures en attente de lecture par Experio : ' + $json.content[0].text.invoices.join(', ') : '' }}",
-        "options": {
-          "systemMessage": "Tu es Tarik, assistant comptable d'un cabinet marocain. Réponds dans la langue du client, en phrases courtes. Vouvoie-le, sans civilité.\n\nCe que tu fais, et seulement cela :\n1. Factures et relevés reçus : trouve le dossier avec find_dossier, à partir du nom donné par le client. S'il n'a pas dit quel dossier, ou si plusieurs dossiers se ressemblent, demande-lui lequel. Puis appelle traiter_fichiers une seule fois, avec l'id du dossier : il prend les fichiers joints lui-même. Recopie son résultat mot pour mot, facture par facture, sans le reformuler (les numéros surtout).\n2. Questions en attente : elles te sont données avec le message du client. S'il y répond, appelle repondre avec le numéro de la facture et sa réponse, puis recopie le résultat mot pour mot. Sinon, rappelle-lui les questions.\n3. Factures en attente de lecture : elles te sont données avec le message du client. Appelle reprendre une seule fois, puis recopie son résultat mot pour mot.\n4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Appelle directement parametrer_dossier avec dossier_id 0, sans récapitulatif ni demande de confirmation : il prend les fichiers FEC ou grand livre joints lui-même, et vérifie lui-même qu'aucun dossier n'a le même ICE, le même IF ou un nom très proche. S'il pose une question (dossier au nom très proche), transmets-la ; si le client répond oui, rappelle parametrer_dossier avec les mêmes informations. Experio vérifie l'ICE et l'IF auprès du registre officiel : s'il les refuse, transmets son refus et demande au client de vérifier les numéros. Propose alors de vérifier les numéros, ou de créer le dossier sans vérification s'il l'écrit lui-même (« créez-le sans vérification ») : ce n'est qu'alors que tu mets skip_ice_if_check à true, jamais de toi-même. Recopie son résultat mot pour mot.\n5. FEC ou grand livre (fichier d'écritures CSV, TXT ou Excel) pour un dossier existant, y compris un dossier que tu viens de créer : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id, jamais avec dossier_id 0. Si le client dit avoir joint un fichier mais qu'aucun n'est arrivé, dis-le-lui. Un FEC ou un grand livre ne va jamais à traiter_fichiers.\n6. Si le client demande lui-même de reprendre la configuration d'un dossier existant pour son nouveau dossier, cherche ce dossier avec find_dossier, ajoute-le au récapitulatif, et passe son id en model_dossier_id.\n7. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_collaborators pour les collaborateurs du cabinet (rôle, manager ou non, nombre de dossiers), list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.\n\nRègles :\n- N'invente aucun résultat. Ne propose aucune action que tu ne peux pas faire. Ne dis jamais que tu transmets quelque chose au cabinet.\n- Ne cite ni le nom de tes outils, ni l'id d'un dossier, ni d'autres numéros que ceux des factures : un dossier se nomme par son nom.",
-          "passthroughBinaryImages": false
-        }
-      },
-      "retryOnFail": true,
-      "maxTries": 3,
-      "waitBetweenTries": 5000
-    },
-    {
-      "id": "8c3e0b7a-4f51-5d2e-b6a9-1e7c2d9f4a30",
-      "name": "Reponse au client",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1100,
-        0
-      ],
-      "parameters": {
-        "jsCode": "// The agent needs the dossiers' ids for its tools, and MiniMax sometimes writes them: never shown to the client.\nconst text = $input.first().json.output || '';\nlet output = text\n  .replace(/\\s*\\((?:dossier\\s+)?id\\s*:?\\s*\\d+\\)/gi, '')\n  .replace(/,?\\s*\\b(?:dossier\\s+)?id\\s*:?\\s*\\d+\\b/gi, '')\n  .trim();\n// MiniMax sometimes quotes a result it copies, the opening quote taking the first line's dash.\nconst quoted = output.match(/^[«\"“]\\s*([\\s\\S]*?)\\s*[»\"”]$/);\nif (quoted) output = quoted[1];\nconst lines = output.split('\\n');\nconst step = /^[a-zàâçéèêëîïôûù' ]+ : \\S/;  // a summary line: \"integration : Dossier ...\"\nif (lines.length > 1 && step.test(lines[0]) && lines.slice(1).some(line => line.startsWith('- '))) lines[0] = '- ' + lines[0];\nreturn [{ json: { output: lines.join('\\n') } }];"
-      }
-    },
-    {
-      "id": "c1a0b5e2-0001-4000-8000-000000000003",
-      "name": "MiniMax-M3",
-      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
-      "typeVersion": 1.3,
-      "position": [
-        800,
-        220
-      ],
-      "parameters": {
-        "model": {
-          "__rl": true,
-          "mode": "id",
-          "value": "MiniMax-M3"
-        },
-        "options": {}
-      },
-      "credentials": {
-        "anthropicApi": {
-          "id": "MiniMaxAnthr0p1c",
-          "name": "MiniMax (Anthropic-compatible)"
-        }
-      },
-      "notes": "MiniMax, not Claude: n8n's Anthropic node type is used because MiniMax speaks the Anthropic message format."
-    },
-    {
-      "id": "c1a0b5e2-0001-4000-8000-000000000004",
-      "name": "Memory",
-      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
-      "typeVersion": 1.4,
-      "position": [
-        960,
-        220
-      ],
-      "parameters": {
-        "tableName": "tarik_chat_histories",
-        "sessionIdType": "customKey",
-        "sessionKey": "={{ $('Appel').item.json.session_id }}"
-      },
-      "credentials": {
-        "postgres": {
-          "id": "TarikPostgres001",
-          "name": "Tarik Postgres"
-        }
-      }
-    },
-    {
-      "id": "c1a0b5e2-0001-4000-8000-000000000005",
-      "name": "Outils Experio",
-      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
-      "typeVersion": 1.4,
-      "position": [
-        1120,
-        220
-      ],
-      "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
-        "serverTransport": "httpStreamable",
-        "include": "selected",
-        "options": {},
-        "includeTools": [
+      "name": "Experio",
+      "description": "Outils de Tarik (tarik-mcp)",
+      "url": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
+      "transport": "streamableHttp",
+      "authentication": "none",
+      "toolFilter": {
+        "mode": "allow",
+        "tools": [
           "experio_connection",
           "list_dossiers",
           "find_dossier",
           "list_invoices",
           "list_collaborators"
         ]
-      }
-    },
-    {
-      "id": "6f1d3a52-dc4e-5b7e-9a1c-7d2e4b9c0a11",
-      "name": "parametrer_dossier",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        1260,
-        380
-      ],
-      "parameters": {
-        "description": "Cree un dossier (dossier_id 0) ou reprend un dossier existant, dans l'ordre : creation, import des FEC ou grands livres joints (Experio cree les comptes, journaux, tiers et exercices manquants), fin de l'integration, etat du dossier. Renvoie le resultat.",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "TarikDossier0001",
-          "cachedResultName": "Tarik - Dossier"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "session_id": "={{ $('Appel').item.json.session_id }}",
-            "cabinet": "experio_cabinet_8",
-            "client_message": "={{ $('Appel').item.json.message }}",
-            "dossier_id": "={{ $fromAI('dossier_id', 'L id du dossier existant (find_dossier), 0 pour un nouveau dossier', 'number') }}",
-            "name": "={{ $fromAI('name', 'Le nom du nouveau dossier, vide pour un dossier existant', 'string') }}",
-            "ice": "={{ $fromAI('ice', 'L ICE du nouveau dossier, vide si inconnu', 'string') }}",
-            "if_number": "={{ $fromAI('if_number', 'L IF du nouveau dossier, vide si inconnu', 'string') }}",
-            "folder_type": "={{ $fromAI('folder_type', 'company (societe, par defaut) ou person (personne physique)', 'string') }}",
-            "skip_ice_if_check": "={{ $fromAI('skip_ice_if_check', 'true seulement si le client a accepte de creer le dossier sans verification de l ICE et de l IF, sinon false', 'boolean') }}",
-            "model_dossier_id": "={{ $fromAI('model_dossier_id', '0 (voir la regle 6)', 'number') }}",
-            "kind": "={{ $fromAI('kind', 'fec ou grand livre si le client l a dit, sinon vide', 'string') }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "session_id",
-              "displayName": "session_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "cabinet",
-              "displayName": "cabinet",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "client_message",
-              "displayName": "client_message",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "dossier_id",
-              "displayName": "dossier_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number",
-              "removed": false
-            },
-            {
-              "id": "name",
-              "displayName": "name",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "ice",
-              "displayName": "ice",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "if_number",
-              "displayName": "if_number",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "folder_type",
-              "displayName": "folder_type",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "skip_ice_if_check",
-              "displayName": "skip_ice_if_check",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "boolean",
-              "removed": false
-            },
-            {
-              "id": "model_dossier_id",
-              "displayName": "model_dossier_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number",
-              "removed": false
-            },
-            {
-              "id": "kind",
-              "displayName": "kind",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        }
-      }
-    },
-    {
-      "id": "2dc18984-0bf1-5c55-99a0-3353d48845d2",
-      "name": "traiter_fichiers",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        700,
-        380
-      ],
-      "parameters": {
-        "description": "Traite les fichiers recus pour un dossier, toujours dans le meme ordre : identification (facture ou releve bancaire), import du releve ou decoupage des factures, brouillon, lecture par Experio, verification, correction, classement, tiers, doublon, compte, TVA, journal, retenue a la source, charges constatees d'avance, exercice, comptabilisation. Renvoie le resultat facture par facture et les questions a poser au client.",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "TarikTraitement1",
-          "cachedResultName": "Tarik - Traitement"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "session_id": "={{ $('Appel').item.json.session_id }}",
-            "dossier_id": "={{ $fromAI('dossier_id', 'L id du dossier, donne par find_dossier', 'number') }}",
-            "invoice_id": 0,
-            "answer": "",
-            "cabinet": "experio_cabinet_8",
-            "mode": "files"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "mode",
-              "displayName": "mode",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "session_id",
-              "displayName": "session_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "dossier_id",
-              "displayName": "dossier_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number",
-              "removed": false
-            },
-            {
-              "id": "invoice_id",
-              "displayName": "invoice_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number",
-              "removed": false
-            },
-            {
-              "id": "answer",
-              "displayName": "answer",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "cabinet",
-              "displayName": "cabinet",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        }
-      }
-    },
-    {
-      "id": "5c58fd2a-7a23-5608-b249-21bc975ace65",
-      "name": "repondre",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        860,
-        380
-      ],
-      "parameters": {
-        "description": "Applique la reponse du client a la question en attente d'une facture, puis reprend le traitement de cette facture la ou il s'etait arrete. Renvoie le resultat.",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "TarikTraitement1",
-          "cachedResultName": "Tarik - Traitement"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "session_id": "={{ $('Appel').item.json.session_id }}",
-            "dossier_id": 0,
-            "invoice_id": "={{ $fromAI('invoice_id', 'Le numero de la facture concernee par la question', 'number') }}",
-            "answer": "={{ $fromAI('answer', 'La reponse du client, avec ses mots', 'string') }}",
-            "cabinet": "experio_cabinet_8",
-            "mode": "answer"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "mode",
-              "displayName": "mode",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "session_id",
-              "displayName": "session_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "dossier_id",
-              "displayName": "dossier_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number",
-              "removed": false
-            },
-            {
-              "id": "invoice_id",
-              "displayName": "invoice_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number",
-              "removed": false
-            },
-            {
-              "id": "answer",
-              "displayName": "answer",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "cabinet",
-              "displayName": "cabinet",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        }
-      }
-    },
-    {
-      "id": "094759d5-3ec6-5be8-a71a-e6bb1377ccb6",
-      "name": "reprendre",
-      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
-      "typeVersion": 2.2,
-      "position": [
-        1060,
-        380
-      ],
-      "parameters": {
-        "description": "Reprend les factures en attente de lecture par Experio, a l'etape de lecture, puis la suite du traitement. Renvoie le resultat facture par facture.",
-        "workflowId": {
-          "__rl": true,
-          "mode": "id",
-          "value": "TarikTraitement1",
-          "cachedResultName": "Tarik - Traitement"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "session_id": "={{ $('Appel').item.json.session_id }}",
-            "dossier_id": 0,
-            "invoice_id": 0,
-            "answer": "",
-            "cabinet": "experio_cabinet_8",
-            "mode": "resume"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "mode",
-              "displayName": "mode",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "session_id",
-              "displayName": "session_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "dossier_id",
-              "displayName": "dossier_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number",
-              "removed": false
-            },
-            {
-              "id": "invoice_id",
-              "displayName": "invoice_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "number",
-              "removed": false
-            },
-            {
-              "id": "answer",
-              "displayName": "answer",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "cabinet",
-              "displayName": "cabinet",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        }
-      }
+      },
+      "connectionTimeoutMs": 60000
     }
   ],
-  "connections": {
-    "Appel": {
-      "main": [
-        [
-          {
-            "node": "Questions en attente",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+  "tools": [
+    {
+      "type": "workflow",
+      "workflowId": "TarikTraitement1",
+      "workflow": "Tarik - Traitement",
+      "name": "traiter_fichiers",
+      "description": "Traite les factures et releves joints a la conversation pour un dossier (id donne par find_dossier). Renvoie le resultat facture par facture.",
+      "inputs": {
+        "mode": {
+          "mode": "fixed",
+          "value": "files"
+        },
+        "invoice_id": {
+          "mode": "fixed",
+          "value": 0
+        },
+        "answer": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "dossier_id": {
+          "mode": "ai"
+        },
+        "session_id": {
+          "mode": "fixed",
+          "value": "{{threadId}}"
+        },
+        "attachments": {
+          "mode": "fixed",
+          "value": "{{attachments}}"
+        },
+        "cabinet": {
+          "mode": "fixed",
+          "value": "experio_cabinet_8"
+        }
+      }
     },
-    "Questions en attente": {
-      "main": [
-        [
-          {
-            "node": "Brouillons en attente",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Brouillons en attente": {
-      "main": [
-        [
-          {
-            "node": "Tarik",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Tarik": {
-      "main": [
-        [
-          {
-            "node": "Reponse au client",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "MiniMax-M3": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Tarik",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Memory": {
-      "ai_memory": [
-        [
-          {
-            "node": "Tarik",
-            "type": "ai_memory",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Outils Experio": {
-      "ai_tool": [
-        [
-          {
-            "node": "Tarik",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "parametrer_dossier": {
-      "ai_tool": [
-        [
-          {
-            "node": "Tarik",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "traiter_fichiers": {
-      "ai_tool": [
-        [
-          {
-            "node": "Tarik",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "repondre": {
-      "ai_tool": [
-        [
-          {
-            "node": "Tarik",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "reprendre": {
-      "ai_tool": [
-        [
-          {
-            "node": "Tarik",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
+    {
+      "type": "workflow",
+      "workflowId": "TarikDossier0001",
+      "workflow": "Tarik - Dossier",
+      "name": "parametrer_dossier",
+      "description": "Cree un dossier (dossier_id 0) ou reprend un dossier existant, dans l'ordre : creation, import des FEC ou grands livres joints (Experio cree les comptes, journaux, tiers et exercices manquants), fin de l'integration, etat du dossier. Renvoie le resultat.",
+      "inputs": {
+        "session_id": {
+          "mode": "fixed",
+          "value": "{{threadId}}"
+        },
+        "cabinet": {
+          "mode": "fixed",
+          "value": "experio_cabinet_8"
+        },
+        "attachments": {
+          "mode": "fixed",
+          "value": "{{attachments}}"
+        },
+        "client_message": {
+          "mode": "fixed",
+          "value": "{{clientMessage}}"
+        },
+        "dossier_id": {
+          "mode": "ai"
+        },
+        "name": {
+          "mode": "ai"
+        },
+        "ice": {
+          "mode": "ai"
+        },
+        "if_number": {
+          "mode": "ai"
+        },
+        "folder_type": {
+          "mode": "ai"
+        },
+        "skip_ice_if_check": {
+          "mode": "ai"
+        },
+        "model_dossier_id": {
+          "mode": "ai"
+        },
+        "kind": {
+          "mode": "ai"
+        }
+      }
     }
-  }
+  ]
 }

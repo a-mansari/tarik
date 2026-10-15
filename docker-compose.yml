@@ -33,10 +33,12 @@ services:
     build: ./mcp
     restart: unless-stopped
     env_file: .env
+    environment:
+      N8N_MCP_API_URL: http://n8n:5678/mcp-server/http # n8n as reached on Docker's network, whatever .env says for the host
     dns: [1.1.1.1, 8.8.8.8]
 
   # Wakes "Tarik - Emails" as soon as an email arrives in this cabinet's mailbox (IMAP IDLE), instead of
-  # at its next 2-minute check. "Tarik - Emails" serves this one cabinet (workflows/steps.py LEGACY_CABINET).
+  # at its next 2-minute check. "Tarik - Emails" serves this one cabinet (workflows/steps.py MAIL_CABINET).
   tarik-mail-watch:
     build: ./mcp
     restart: unless-stopped
@@ -44,8 +46,8 @@ services:
     dns: [1.1.1.1, 8.8.8.8]
     command: ["python", "watcher.py", "experio_cabinet_8"]
 
-  # Tarik's data (database POSTGRES_DB: one schema per cabinet, mcp/tarik/core/cabinet.sql, and the old chat's
-  # memory) and n8n's own (database N8N_POSTGRES_DB). Not exposed to the host.
+  # Tarik's data (database POSTGRES_DB: one schema per cabinet, mcp/tarik/core/cabinet.sql) and n8n's own
+  # (database N8N_POSTGRES_DB). Not exposed to the host.
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped

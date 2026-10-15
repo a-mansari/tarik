@@ -3,7 +3,7 @@
 Edit this script, not the JSON: python3 workflows/build_tarik_emails.py
 As soon as an email arrives (tarik-mail-watch calls its webhook), and every 2 minutes in
 case it missed one: read the new emails (the mailbox is not changed), then for each thread
-waiting for an answer, Tarik ("Tarik - Agent", as in the chat) answers its client's emails,
+waiting for an answer, the cabinet's own n8n agent answers its client's emails (ask_agent),
 and the reply goes out in the thread, to whitelisted addresses only. A thread whose run
 fails is picked up again 30 minutes later; after 3 failures it is set aside in error."""
 
@@ -11,10 +11,10 @@ import json
 import sys
 from pathlib import Path
 
-from steps import LEGACY_CABINET, Workflow
+from steps import MAIL_CABINET, Workflow
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-emails.json")
-flow = Workflow("tarik-emails", LEGACY_CABINET)
+flow = Workflow("tarik-emails", MAIL_CABINET)
 node, connect, mcp = flow.node, flow.connect, flow.mcp
 
 THREAD = "$('Un element par fil').item.json"
@@ -29,20 +29,11 @@ mcp("Nouveaux emails (fetch_emails)", "fetch_emails", "{}", [220, 300])
 node("Un element par fil", "n8n-nodes-base.code", 2, [440, 300], {"jsCode": (
     "// One item per thread waiting for an answer (fetch_emails locked them for this run).\n"
     "return $input.first().json.content[0].text.threads.map(thread => ({ json: thread }));")})
-node("Tarik", "n8n-nodes-base.executeWorkflow", 1.2, [660, 300], {
-    "workflowId": {"__rl": True, "mode": "id", "value": "TarikAgent000001", "cachedResultName": "Tarik - Agent"},
-    "mode": "each",
-    "workflowInputs": {"mappingMode": "defineBelow", "value": {
-        "session_id": "={{ $json.session_id }}", "message": "={{ $json.message }}", "files": "={{ $json.files }}"},
-        "matchingColumns": [],
-        "schema": [{"id": key, "displayName": key, "required": False, "defaultMatch": False, "display": True,
-                    "canBeUsedToMatch": True, "type": kind, "removed": False}
-                   for key, kind in (("session_id", "string"), ("message", "string"), ("files", "array"))],
-        "attemptToConvertTypes": False, "convertFieldsToString": False},
-    "options": {},
-}, onError="continueErrorOutput")  # a failed run leaves the thread locked: fetch_emails takes it again later
+# The cabinet's own agent answers, in the thread's conversation (ask_agent: n8n's call_agent).
+mcp("Tarik", "ask_agent", "{ session_id: $json.session_id, message: $json.message, files: $json.files }", [660, 300])
+# No reply (n8n or the model failing): the thread stays locked, and fetch_emails takes it again 30 minutes later.
 mcp("Reponse (send_email)", "send_email", (
-    f"{{ to: {THREAD}.to, subject: {THREAD}.subject, body: $('Tarik').item.json.output, "
+    f"{{ to: {THREAD}.to, subject: {THREAD}.subject, body: $('Tarik').item.json.content[0].text.output, "
     f"in_reply_to: {THREAD}.in_reply_to, references: {THREAD}.references }}"), [880, 300])
 mcp("Fil traite (finish_thread)", "finish_thread", (
     f"{{ thread_id: {THREAD}.thread_id, message_ids: {THREAD}.message_ids, sent: !$json.error, "

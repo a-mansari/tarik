@@ -3,8 +3,8 @@
 Tarik, Experio's accounting assistant, rebuilt on n8n from the LangGraph version in
 `tarik-master`, to compare speed, maintenance, scaling and adaptability.
 
-A client chats with Tarik and sends invoices or bank statements, or asks for a new dossier
-with its FEC. Tarik finds the dossier,
+A client writes to Tarik (each cabinet's own n8n agent, by chat or by email) and sends invoices
+or bank statements, or asks for a new dossier with its FEC. Tarik finds the dossier,
 then a fixed sequence puts each document into Experio: draft, check against the scan,
 correction, tiers, duplicate, account, TVA, journal, withholding, prepaid charges,
 fiscal year and posting. When a step needs the client, Tarik asks, and the sequence
@@ -14,12 +14,13 @@ resumes from there with the answer.
 
 | Part | What it does |
 |------|--------------|
-| `workflows/tarik.json` | The chat page and the agent (MiniMax-M3). The agent only finds the dossier, lists invoices and hands the work over. |
+| n8n Agents section | Tarik: one native agent per cabinet (MiniMax-M3). It only finds the dossier, lists invoices and hands the work over to the workflows below. Its configuration is kept in `workflows/tarik-agent.json`: change both together. |
+| `workflows/tarik-emails.json` | The cabinet's mailbox: each email thread is answered by the cabinet's agent (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own conversation). |
 | `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
-| `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent in three modes: `files`, `answer`, `resume`. |
+| `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent (`traiter_fichiers`, mode `files`; the workflow also has `answer` and `resume`). |
 | `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), in the `tarik` package (see below). They use Experio's own wizards and onchanges, never a parallel logic. |
-| `n8n/` | n8n 2.43.5 patched (`patch.js`): a native agent's workflow tool input fixed to `{{threadId}}` gets the conversation's id, and one fixed to `{{attachments}}` its attached files, from n8n, not from the model. "Tarik - Traitement" and "Tarik - Dossier" save those files (`save_files`, once each by `source_id`). The build fails if an n8n upgrade moves a patched line. |
-| `mcp/tarik/core/cabinet.sql` | One cabinet's tables (received files, check results, step results, pending questions, mail), created in that cabinet's own Postgres schema. The old chat's memory table is n8n's, in `public`. |
+| `n8n/` | n8n 2.43.5 patched (`patch.js`): a native agent's workflow tool input fixed to `{{threadId}}` gets the conversation's id, one fixed to `{{attachments}}` its attached files, and one fixed to `{{clientMessage}}` the client's latest message word for word ("Tarik - Dossier" needs the client's own words to skip the ICE/IF check), from n8n, not from the model. "Tarik - Traitement" and "Tarik - Dossier" save those files (`save_files`, once each by `source_id`). n8n's MCP `call_agent` also takes `newSession`, so an email thread's conversation has the thread's own id. The build fails if an n8n upgrade moves a patched line. |
+| `mcp/tarik/core/cabinet.sql` | One cabinet's tables (received files, check results, step results, pending questions, mail), created in that cabinet's own Postgres schema. |
 
 Rules the tools keep:
 
@@ -39,20 +40,24 @@ Experio database (`experio_cabinet_8`), listed in `TARIK_CABINETS`. That name is
   server is stateless, so no session carries one cabinet's call into another's.
 - **its settings**: its own Experio login (`<CABINET>__ODOO_UID`, `__ODOO_USER`, `__ODOO_PASSWORD`),
   `__DRY_RUN`, its mailbox's credentials and addresses (`__IMAP_USER`, `__IMAP_PASSWORD`, `__SMTP_USER`,
-  `__SMTP_PASSWORD`, `__SMTP_FROM`, `__MAIL_MANAGER`, `__MAIL_ALLOWED_RECIPIENTS`). What every cabinet
-  shares stays unprefixed: the mail server (`IMAP_HOST`, `IMAP_PORT`, `IMAP_FOLDER`, `SMTP_HOST`,
-  `SMTP_PORT`, `MAIL_CERT_SHA256`), `ODOO_URL`, the model. Each setting is one or the other
+  `__SMTP_PASSWORD`, `__SMTP_FROM`, `__MAIL_MANAGER`, `__MAIL_ALLOWED_RECIPIENTS`), its agent (`__AGENT_ID`).
+  What every cabinet shares stays unprefixed: the mail server (`IMAP_HOST`, `IMAP_PORT`, `IMAP_FOLDER`,
+  `SMTP_HOST`, `SMTP_PORT`, `MAIL_CERT_SHA256`), n8n's MCP server (`N8N_MCP_API_URL`, `N8N_MCP_API_TOKEN`),
+  `ODOO_URL`, the model. Each setting is one or the other
   (`CABINET_SETTINGS`, `SHARED_SETTINGS` in `tarik/core/cabinets.py`): one in the wrong place stops the
   server. No setting is ever shown to the agent.
 - **its data**: a Postgres schema of the same name. A tool's connection only sees that schema.
 
 Workflows and agents pass the cabinet as a fixed value, never chosen by a model: "Tarik - Traitement"
 and "Tarik - Dossier" take it as their `cabinet` input; each cabinet's native agent has its own
-MCP address and its own fixed `cabinet` tool input. The chat, "Tarik - Agent" and "Tarik - Emails"
-serve `experio_cabinet_8` only (`LEGACY_CABINET` in `workflows/steps.py`) until the native agents
-replace them.
+MCP address and its own fixed `cabinet` tool input. "Tarik - Emails" and `tarik-mail-watch` serve
+`experio_cabinet_8`'s mailbox (`MAIL_CABINET` in `workflows/steps.py`); a second cabinet's mailbox
+needs its own copy of both. An email thread's conversation id includes its cabinet, as n8n's
+conversation ids are shared by every agent.
 
-To add a cabinet: add its name to `TARIK_CABINETS` and its prefixed settings to `.env`, then
+To add a cabinet: create its agent from `workflows/tarik-agent.json` (its MCP address and
+`cabinet` inputs set to the new cabinet), allow it in Settings > n8n MCP, add its name to
+`TARIK_CABINETS` and its prefixed settings (`__AGENT_ID` included) to `.env`, then
 `docker compose up -d --force-recreate tarik-mcp tarik-mail-watch`. Its schema is created at start;
 a cabinet missing a setting stops the server instead of starting half configured.
 
@@ -64,10 +69,10 @@ with two throwaway cabinets: names, scopes, settings, threads, schemas, addresse
 calls, the call caps, and every tool's answers, with Experio unreachable, empty, refusing or
 logging in the wrong user, for any setting. `mcp/tests/n8n/test_agent_memory.py` checks, on the
 running n8n with the real model, that two agents never share memory nor conversations; it needs
-n8n's MCP server on (Settings > n8n MCP) and its token:
+n8n's MCP server on (Settings > n8n MCP) and its token in `.env` (`N8N_MCP_API_TOKEN`), and skips without:
 
 ```bash
-docker compose exec -T -e N8N_MCP_TOKEN=... -e N8N_MCP_PROJECT_ID=... tarik-mcp python -m pytest tests/n8n
+docker compose exec -T tarik-mcp python -m pytest tests/n8n
 ```
 
 ## Setup
@@ -86,14 +91,11 @@ docker compose exec -T -e N8N_MCP_TOKEN=... -e N8N_MCP_PROJECT_ID=... tarik-mcp 
    docker compose up -d --build
    ```
 
-3. Create the two n8n credentials the workflows use, with these exact ids. For example,
-   from a JSON file copied into the n8n container, then deleted:
+3. Create the n8n credential the agents use, with this exact id. For example, from a JSON file
+   copied into the n8n container, then deleted:
 
    ```json
    [
-     {"id": "TarikPostgres001", "name": "Tarik Postgres", "type": "postgres",
-      "data": {"host": "postgres", "port": 5432, "database": "<POSTGRES_DB>", "user": "<POSTGRES_USER>",
-               "password": "<POSTGRES_PASSWORD>", "ssl": "disable"}},
      {"id": "MiniMaxAnthr0p1c", "name": "MiniMax (Anthropic-compatible)", "type": "anthropicApi",
       "data": {"apiKey": "<MODEL_API_KEY>", "url": "<MODEL_API_URL>"}}
    ]
@@ -103,16 +105,13 @@ docker compose exec -T -e N8N_MCP_TOKEN=... -e N8N_MCP_PROJECT_ID=... tarik-mcp 
    docker compose exec n8n n8n import:credentials --input=/tmp/credentials.json
    ```
 
-4. Deploy both workflows (see below).
-5. Open the chat: http://localhost:5678/webhook/7304d10e-ea71-4883-be8d-dcd560c62f4e/chat
+4. Deploy the three workflows (see below).
+5. Turn on n8n's MCP server (Settings > n8n MCP), put its token in `.env` (`N8N_MCP_API_TOKEN`), and
+   create each cabinet's agent (see Cabinets). Its chat is in the Agents section.
 
 ## Changing a workflow
 
 The workflow JSON files are generated. Edit the builder, not the JSON:
-
-```bash
-python3 workflows/build_tarik.py
-```
 
 ```bash
 python3 workflows/build_tarik_traitement.py
@@ -133,7 +132,7 @@ docker compose exec n8n n8n publish:workflow --id=TarikTraitement1
 docker compose restart n8n
 ```
 
-Same for `tarik.json` (id `Sca0Bh73nUct7ixj`) and `tarik-dossier.json` (id `TarikDossier0001`). To check the published version is the
+Same for `tarik-dossier.json` (id `TarikDossier0001`) and `tarik-emails.json` (id `TarikEmails00001`). To check the published version is the
 new one, export the workflow (`n8n export:workflow --id=...`): `versionId` must equal
 `activeVersionId`.
 
@@ -147,7 +146,7 @@ The tools live in `mcp/tarik/`, one package per kind of work, and their tests in
 | `tarik/core/` | The MCP server and step results (`app`), the cabinets and the current one (`cabinets`), Experio calls and guards (`experio`), the vision model, documents, the connection check. |
 | `tarik/invoices/` | "Tarik - Traitement": one module per step, in sequence order, `pipeline` for its bookkeeping, `listing` for `list_invoices`. |
 | `tarik/dossiers/` | Finding dossiers (`search`), "Tarik - Dossier" (`onboarding`), collaborators and who may work on which dossier (`people`). |
-| `tarik/emails/` | "Tarik - Emails": reading the mailbox (`inbox`), sending replies (`sending`). |
+| `tarik/emails/` | "Tarik - Emails": reading the mailbox (`inbox`), the agent's reply (`agent`), sending replies (`sending`). |
 
 `mcp/server.py` and `mcp/watcher.py` are the two entry points (the MCP server, the IMAP
 IDLE watcher of one cabinet's mailbox: `python watcher.py <cabinet>`). Edit a module, then rebuild the containers and run the tests:
@@ -161,7 +160,7 @@ docker compose exec -T tarik-mcp python -m pytest
 ```
 
 A new tool is registered by importing its module in `mcp/server.py`. To give it to the
-agent, add it to the "Outils Experio" tools in `workflows/build_tarik.py`; to make it a
+agent, add it to the Experio MCP server's tool list in the agent's configuration; to make it a
 step of the sequence, add it to `CHAIN` in `workflows/build_tarik_traitement.py` and to
 `STEPS` in `mcp/tarik/invoices/pipeline.py`. Its tests go in the matching file under `mcp/tests/`.
 

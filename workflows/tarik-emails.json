@@ -85,64 +85,25 @@
     {
       "id": "28285773-1f60-5e25-87ad-6eefd09d3a22",
       "name": "Tarik",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
       "position": [
         660,
         300
       ],
       "parameters": {
-        "workflowId": {
+        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
           "__rl": true,
           "mode": "id",
-          "value": "TarikAgent000001",
-          "cachedResultName": "Tarik - Agent"
+          "value": "ask_agent"
         },
-        "mode": "each",
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "session_id": "={{ $json.session_id }}",
-            "message": "={{ $json.message }}",
-            "files": "={{ $json.files }}"
-          },
-          "matchingColumns": [],
-          "schema": [
-            {
-              "id": "session_id",
-              "displayName": "session_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "message",
-              "displayName": "message",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            },
-            {
-              "id": "files",
-              "displayName": "files",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "array",
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {}
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $json.session_id, message: $json.message, files: $json.files }) }}",
+        "options": {
+          "timeout": 300000
+        }
       },
       "onError": "continueErrorOutput"
     },
@@ -164,7 +125,7 @@
           "value": "send_email"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ to: $('Un element par fil').item.json.to, subject: $('Un element par fil').item.json.subject, body: $('Tarik').item.json.output, in_reply_to: $('Un element par fil').item.json.in_reply_to, references: $('Un element par fil').item.json.references }) }}",
+        "jsonInput": "={{ JSON.stringify({ to: $('Un element par fil').item.json.to, subject: $('Un element par fil').item.json.subject, body: $('Tarik').item.json.content[0].text.output, in_reply_to: $('Un element par fil').item.json.in_reply_to, references: $('Un element par fil').item.json.references }) }}",
         "options": {
           "timeout": 300000
         }

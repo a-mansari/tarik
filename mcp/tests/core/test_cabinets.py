@@ -222,12 +222,18 @@ def test_one_cabinets_session_is_invisible_to_another(schemas):
 
 
 def test_the_search_path_holds_only_the_cabinet(schemas):
-    with using(A), cabinet_db() as db:
-        assert db.execute("show search_path").fetchone() == (A,)
-        assert db.execute("select current_schemas(false)").fetchone() == ([A],)
-        # Nothing of B's, and nothing in public, is reachable by an unqualified name.
-        with pytest.raises(psycopg.errors.UndefinedTable):
-            db.execute("select * from tarik_chat_histories")
+    with psycopg.connect(**POSTGRES) as admin:
+        admin.execute("create table if not exists public.tarik_test_public_only (id int)")
+    try:
+        with using(A), cabinet_db() as db:
+            assert db.execute("show search_path").fetchone() == (A,)
+            assert db.execute("select current_schemas(false)").fetchone() == ([A],)
+            # Nothing of B's, and nothing in public, is reachable by an unqualified name.
+            with pytest.raises(psycopg.errors.UndefinedTable):
+                db.execute("select * from tarik_test_public_only")
+    finally:
+        with psycopg.connect(**POSTGRES) as admin:
+            admin.execute("drop table if exists public.tarik_test_public_only")
 
 
 def test_a_saved_file_is_saved_once(schemas):
@@ -236,6 +242,16 @@ def test_a_saved_file_is_saved_once(schemas):
         assert pipeline.save_files(payload("s", ("att-1", "a.pdf", b"A")))["files"] == []
     with using(B):  # the same attachment id in B is B's own
         assert len(pipeline.save_files(payload("s", ("att-1", "a.pdf", b"A")))["files"]) == 1
+
+
+def test_the_clients_earlier_words_count_and_stay_in_their_cabinet(schemas):
+    """Asked in one message, confirmed in a later one: the copy is the client's own request, in A only."""
+    from tarik.dossiers.onboarding import client_messages, copy_asked, remember_client_message
+    with using(A):
+        remember_client_message("s", "Ouvrez VEGA avec la meme configuration que LYJA.")
+        assert copy_asked(client_messages("s", "oui"), "LYJA (Test)")
+    with using(B):
+        assert not copy_asked(client_messages("s", "oui"), "LYJA (Test)")
 
 
 # --- HTTP --------------------------------------------------------------------------------------
@@ -408,9 +424,11 @@ LEAKS = {  # a marker in every setting: none may show in anything a tool returns
     "IMAP_USER": "leak-imap-user@leak.invalid", "IMAP_PASSWORD": "leak-imap-password",
     "SMTP_USER": "leak-smtp-user@leak.invalid", "SMTP_PASSWORD": "leak-smtp-password", "SMTP_FROM": "leak-from@leak.invalid",
     "MAIL_MANAGER": "leak-manager@leak.invalid", "MAIL_ALLOWED_RECIPIENTS": "leak-allowed@leak.invalid",
+    "AGENT_ID": "leak-agent-id",
 }
 SHARED_LEAKS = {"IMAP_HOST": "leak-imap-host.invalid", "SMTP_HOST": "leak-smtp-host.invalid", "IMAP_FOLDER": "LeakFolder",
-                "MODEL_API_URL": "http://leak-model.invalid", "MODEL_API_KEY": "leak-model-key", "MODEL_API_NAME": "leak-model"}
+                "MODEL_API_URL": "http://leak-model.invalid", "MODEL_API_KEY": "leak-model-key", "MODEL_API_NAME": "leak-model",
+                "N8N_MCP_API_URL": "http://leak-n8n.invalid/mcp-server/http", "N8N_MCP_API_TOKEN": "leak-n8n-token"}
 
 
 def example(schema):
@@ -457,6 +475,9 @@ def test_no_tool_ever_shows_a_setting(http, monkeypatch, experio_mode):
     for key, value in SHARED_LEAKS.items():
         monkeypatch.setenv(key, value)
     monkeypatch.setattr(time, "sleep", lambda seconds: None)  # the waiting steps, without the wait
+    with using(A), cabinet_db() as db:  # an email thread "x", so ask_agent goes as far as calling n8n
+        db.execute("insert into tarik_mail_threads (thread_id, session_id, client_address, subject) values ('t', 'x', 'c', 's') "
+                   "on conflict do nothing")
     markers = [*LEAKS.values(), *SHARED_LEAKS.values(), "leak-odoo-url", "leak-fault-text", "127.0.0.1", A, POSTGRES["password"]]
     with contextlib.ExitStack() as stack:
         url = "http://leak-odoo-url.invalid" if experio_mode == "unreachable" else stack.enter_context(fake_experio(experio_mode))

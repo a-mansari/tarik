@@ -90,6 +90,7 @@ def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: s
     A dossier of that name this conversation (``session_id``) already created is reused:
     MiniMax sometimes asks for it again to import its entries. Nothing is created when a
     dossier has the same ICE or IF; a very similar name is a question to the client first."""
+    remember_client_message(session_id, client_message)
     name = " ".join((name or "").split())
     if not name:
         raise ToolError("Nom du dossier manquant.")
@@ -141,12 +142,22 @@ def copy_asked(client_messages, model_name):
     return False
 
 
+def remember_client_message(session_id, client_message):
+    """Keep the client's message (n8n's word for word, never the agent's) for this conversation's later checks."""
+    if session_id and (client_message or "").strip():
+        with cabinet_db() as db:
+            last = db.execute("select message from tarik_client_messages where session_id = %s order by id desc limit 1",
+                              (session_id,)).fetchone()
+            if not last or last[0] != client_message:
+                db.execute("insert into tarik_client_messages (session_id, message) values (%s, %s)", (session_id, client_message))
+
+
 def client_messages(session_id, client_message):
-    """The client's messages in this conversation, the current one included (n8n saves it after the run)."""
+    """The client's messages in this conversation, the current one included."""
+    remember_client_message(session_id, client_message)
     with cabinet_db() as db:
-        said = [text for (text,) in db.execute("select message->>'content' from tarik_chat_histories "
-                                               "where session_id = %s and message->>'type' = 'human'", (session_id,))]
-    return said + [client_message]
+        return [text for (text,) in db.execute("select message from tarik_client_messages where session_id = %s order by id",
+                                               (session_id,))]
 
 
 @server.tool()

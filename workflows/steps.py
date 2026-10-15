@@ -4,8 +4,8 @@ import uuid
 
 # tarik-mcp serves each cabinet at its own address only (mcp/server.py).
 MCP_ADDRESS = "http://tarik-mcp:8000/c/{}/mcp"
-# The chat, "Tarik - Agent" and "Tarik - Emails" serve this cabinet only, until its native agent replaces them.
-LEGACY_CABINET = "experio_cabinet_8"
+# The cabinet whose mailbox "Tarik - Emails" reads (its replies come from that cabinet's own agent).
+MAIL_CABINET = "experio_cabinet_8"
 CALL = "$('Appel').first().json"
 RESULT = "$json.content[0].text"
 OK_ELSE = f"{RESULT}.status === 'ok' ? 0 : 1"
@@ -50,5 +50,5 @@ class Workflow:
 
     def save_attachments(self, position):
         """The native agent's chat files (base64 of { thread_id, files }), saved once each in the
-        cabinet's tarik_files. The chat and the emails save theirs before calling, and send none."""
+        cabinet's tarik_files. Emails save theirs as they arrive, and send none."""
         return self.mcp(SAVE_ATTACHMENTS, "save_files", "{ payload: " + CALL + ".attachments || '' }", position)

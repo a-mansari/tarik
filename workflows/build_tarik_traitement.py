@@ -29,7 +29,7 @@ mcp("Fichiers du message (files_to_process)", "files_to_process",
 node("Un element par fichier", "n8n-nodes-base.code", 2, [440, 200], {"jsCode": (
     "// One item per file to process (files_to_process picked the conversation's invoices and statements not processed yet).\n"
     "return $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));")})
-# Work on an existing dossier: the email's sender must have it assigned in Experio (the chat has no sender).
+# Work on an existing dossier: the email's sender must have it assigned in Experio (the agent's own chat has no sender).
 mcp("Expediteur (check_sender)", "check_sender", f"{{ session_id: {CALL}.session_id, dossier_id: {CALL}.dossier_id }}", [260, 120])
 route("Suite apres check_sender", OK_ELSE, 2, [300, 160])
 connect("Appel", SAVE_ATTACHMENTS)
