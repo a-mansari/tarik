@@ -97,15 +97,41 @@ def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: s
     return ok(f"Dossier {name} cree dans Experio.{unchecked}", dossier_id=dossier_id)
 
 
+COPY_WORDS = ("configuration", "config", "parametrage", "copie", "copier", "modele", "comme", "meme")
+GENERIC_WORDS = {"sarl", "sa", "sas", "ste", "societe", "test", "the", "et", "de", "du", "la", "le"}
+
+
+def copy_asked(client_messages, model_name):
+    """Did the client ask, in their own words, for this dossier's configuration? One of
+    their messages names it and asks to copy it: MiniMax offered the copy unprompted."""
+    names = {word for word in normalized(model_name).split() if len(word) >= 3 and word not in GENERIC_WORDS}
+    for message in client_messages:
+        words = normalized(message or "").split()
+        if names & set(words) and any(word.startswith(COPY_WORDS) for word in words):
+            return True
+    return False
+
+
+def client_messages(session_id, client_message):
+    """The client's messages in this conversation, the current one included (n8n saves it after the run)."""
+    with psycopg.connect(**POSTGRES) as db:
+        said = [text for (text,) in db.execute("select message->>'content' from tarik_chat_histories "
+                                               "where session_id = %s and message->>'type' = 'human'", (session_id,))]
+    return said + [client_message]
+
+
 @server.tool()
 @with_ids
-def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
+def copy_configuration(dossier_id: int, model_dossier_id: int, session_id: str = "", client_message: str = "") -> dict:
     """Copy a model dossier's accounts, taxes, journals, bank and TPE operations and
-    settings into a new dossier (Experio's "Appliquer la configuration"). Run it
-    before importing the entries: it overwrites the dossier's settings."""
+    settings into a new dossier (Experio's "Appliquer la configuration"), only when the
+    client asked for it in this conversation. Run it before importing the entries: it
+    overwrites the dossier's settings."""
     dossier, model = require_dossier(dossier_id), require_dossier(model_dossier_id)
     if dossier_id == model_dossier_id:
         raise ToolError("Le dossier modele doit etre un autre dossier.")
+    if not copy_asked(client_messages(session_id, client_message), model):  # the rest goes on, with the dossier as created
+        return ok(f"Configuration de {model} non copiee : le client ne l'a pas demandee.")
     if odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id)]):
         raise ToolError(f"Le dossier {dossier} a deja des ecritures importees : copier la configuration "
                         "effacerait les reglages qu'Experio en a tires.")

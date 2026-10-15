@@ -41,7 +41,8 @@ route("Suite apres create_dossier", OK_ELSE, 2, [660, 200])
 # A dossier reused from earlier in the conversation keeps its configuration.
 route("Modele ?", f"{CALL}.model_dossier_id > 0 && !{RESULT}.reused ? 0 : 1", 2, [880, 200])
 mcp("Configuration (copy_configuration)", "copy_configuration",
-    f"{{ dossier_id: $('{CREATE}').first().json.content[0].text.dossier_id, model_dossier_id: {CALL}.model_dossier_id }}",
+    (f"{{ dossier_id: $('{CREATE}').first().json.content[0].text.dossier_id, model_dossier_id: {CALL}.model_dossier_id, "
+     f"session_id: {CALL}.session_id, client_message: {CALL}.client_message || '' }}"),
     [1100, 120])
 route("Suite apres copy_configuration", OK_ELSE, 2, [1320, 120])
 node("Dossier cible", "n8n-nodes-base.code", 2, [1540, 300], {"jsCode": (
