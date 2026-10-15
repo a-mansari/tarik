@@ -79,3 +79,9 @@ create table if not exists tarik_mail_messages (
     handled boolean not null default false, -- answered by Tarik
     received_at timestamptz not null default now()
 );
+-- When the cabinet's manager was told of a refused sender: at most once a day per sender.
+create table if not exists tarik_mail_alerts (
+    id serial primary key,
+    sender text not null,
+    alerted_at timestamptz not null default now()
+);
