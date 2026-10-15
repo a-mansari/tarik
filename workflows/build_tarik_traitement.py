@@ -6,7 +6,7 @@ import json
 import sys
 from pathlib import Path
 
-from steps import CALL, OK_ELSE, RESULT, Workflow
+from steps import ATTACHMENTS, SAVE_ATTACHMENTS, CALL, OK_ELSE, RESULT, Workflow
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-traitement.json")
 flow = Workflow("tarik-traitement")
@@ -19,9 +19,11 @@ node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], {
     "inputSource": "workflowInputs",
     "workflowInputs": {"values": [{"name": "mode", "type": "string"}, {"name": "session_id", "type": "string"},
                                   {"name": "dossier_id", "type": "number"},
-                                  {"name": "invoice_id", "type": "number"}, {"name": "answer", "type": "string"}]},
+                                  {"name": "invoice_id", "type": "number"}, {"name": "answer", "type": "string"},
+                                  ATTACHMENTS]},
 })
-route("Fichiers ou reponse ?", "$json.mode === 'answer' ? 1 : ($json.mode === 'resume' ? 2 : 0)", 3, [220, 300])
+flow.save_attachments([110, 300])
+route("Fichiers ou reponse ?", f"{CALL}.mode === 'answer' ? 1 : ({CALL}.mode === 'resume' ? 2 : 0)", 3, [220, 300])
 mcp("Fichiers du message (files_to_process)", "files_to_process",
     f"{{ session_id: {CALL}.session_id }}", [330, 200])
 node("Un element par fichier", "n8n-nodes-base.code", 2, [440, 200], {"jsCode": (
@@ -30,7 +32,8 @@ node("Un element par fichier", "n8n-nodes-base.code", 2, [440, 200], {"jsCode": 
 # Work on an existing dossier: the email's sender must have it assigned in Experio (the chat has no sender).
 mcp("Expediteur (check_sender)", "check_sender", f"{{ session_id: {CALL}.session_id, dossier_id: {CALL}.dossier_id }}", [260, 120])
 route("Suite apres check_sender", OK_ELSE, 2, [300, 160])
-connect("Appel", "Fichiers ou reponse ?")
+connect("Appel", SAVE_ATTACHMENTS)
+connect(SAVE_ATTACHMENTS, "Fichiers ou reponse ?")
 connect("Fichiers ou reponse ?", "Expediteur (check_sender)", 0)
 connect("Expediteur (check_sender)", "Suite apres check_sender", 0)
 connect("Expediteur (check_sender)", RECORD, 1)

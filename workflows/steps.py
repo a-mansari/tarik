@@ -6,6 +6,9 @@ MCP_URL = "http://tarik-mcp:8000/mcp"
 CALL = "$('Appel').first().json"
 RESULT = "$json.content[0].text"
 OK_ELSE = f"{RESULT}.status === 'ok' ? 0 : 1"
+# The native n8n agent's chat files: an "Appel" input, filled by n8n (n8n/patch.js), never by the model.
+ATTACHMENTS = {"name": "attachments", "type": "string"}
+SAVE_ATTACHMENTS = "Pieces jointes de l'agent"
 
 
 class Workflow:
@@ -36,3 +39,20 @@ class Workflow:
     def route(self, name, expression, outputs, position):
         return self.node(name, "n8n-nodes-base.switch", 3.2, position,
                          {"mode": "expression", "numberOutputs": outputs, "output": "={{ " + expression + " }}"})
+
+    def save_attachments(self, position):
+        """The native agent's chat files (base64 of { thread_id, files }), saved once each in tarik_files
+        like the chat's. The chat and the emails save theirs before calling, and send none."""
+        return self.node(SAVE_ATTACHMENTS, "n8n-nodes-base.postgres", 2.6, position, {
+            "operation": "executeQuery",
+            "query": ("with payload as (select convert_from(decode($1, 'base64'), 'UTF8')::jsonb as body),\n"
+                      "saved as (\n"
+                      "  insert into tarik_files (session_id, file_name, mime_type, data, source_id)\n"
+                      "  select body->>'thread_id', file->>'file_name', file->>'mime_type', decode(file->>'data', 'base64'), file->>'id'\n"
+                      "  from payload, jsonb_array_elements(coalesce(body->'files', '[]'::jsonb)) as file\n"
+                      "  on conflict (session_id, source_id) do nothing\n"
+                      "  returning id\n"
+                      ")\n"
+                      "select count(*) as saved from saved"),
+            "options": {"queryReplacement": "={{ " + CALL + ".attachments || 'e30=' }}"},  # e30= is {}
+        }, credentials={"postgres": {"id": "TarikPostgres001", "name": "Tarik Postgres"}})

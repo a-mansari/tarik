@@ -40,8 +40,35 @@
             {
               "name": "answer",
               "type": "string"
+            },
+            {
+              "name": "attachments",
+              "type": "string"
             }
           ]
+        }
+      }
+    },
+    {
+      "id": "4e4e7ebe-e6d2-53b2-8cea-3c9a09565467",
+      "name": "Pieces jointes de l'agent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        110,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with payload as (select convert_from(decode($1, 'base64'), 'UTF8')::jsonb as body),\nsaved as (\n  insert into tarik_files (session_id, file_name, mime_type, data, source_id)\n  select body->>'thread_id', file->>'file_name', file->>'mime_type', decode(file->>'data', 'base64'), file->>'id'\n  from payload, jsonb_array_elements(coalesce(body->'files', '[]'::jsonb)) as file\n  on conflict (session_id, source_id) do nothing\n  returning id\n)\nselect count(*) as saved from saved",
+        "options": {
+          "queryReplacement": "={{ $('Appel').first().json.attachments || 'e30=' }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "TarikPostgres001",
+          "name": "Tarik Postgres"
         }
       }
     },
@@ -57,7 +84,7 @@
       "parameters": {
         "mode": "expression",
         "numberOutputs": 3,
-        "output": "={{ $json.mode === 'answer' ? 1 : ($json.mode === 'resume' ? 2 : 0) }}"
+        "output": "={{ $('Appel').first().json.mode === 'answer' ? 1 : ($('Appel').first().json.mode === 'resume' ? 2 : 0) }}"
       }
     },
     {
@@ -990,12 +1017,23 @@
       "main": [
         [
           {
-            "node": "Fichiers ou reponse ?",
+            "node": "Pieces jointes de l'agent",
             "type": "main",
             "index": 0
           },
           {
             "node": "Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pieces jointes de l'agent": {
+      "main": [
+        [
+          {
+            "node": "Fichiers ou reponse ?",
             "type": "main",
             "index": 0
           }
