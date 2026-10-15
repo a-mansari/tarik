@@ -15,6 +15,7 @@ from dossiers import MIN_SIMILARITY, similarity
 from experio import exact_cabinet, expected_uid, require_dossier, require_invoice
 from intake import require_kind, split_pdf
 from invoices import label, status_of
+from onboarding import entries_kind, file_text
 from server import server
 from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
 from accounts import resolve_account
@@ -224,4 +225,16 @@ assert status_of("annulee") is None and status_of("brouillon ou payee") is None
 assert label({"state": "post", "payment_state": "paid"}) == "payee" and label({"state": "export", "payment_state": "partial"}) == "comptabilisee"
 assert label({"state": "pending", "payment_state": "unpaid"}) == "en cours"
 print("invoice list ok")
+
+# FEC or grand livre, from the file alone.
+HEAD = "JournalCode;JournalLib;EcritureNum;EcritureDate;CompteNum;CompteLib;EcritureLib;Debit;Credit"
+fec = HEAD + "".join(f"\n{j};J;{i};2025010{i % 9 + 1};{a};X;L;10;0" for i, (j, a) in enumerate(
+    [("AC", "6111"), ("AC", "4411"), ("BQ", "5141"), ("BQ", "4411")] * 8))
+ledger = HEAD + "".join(f"\nAC;J;{i};20250101;{a};X;L;10;0" for i, a in enumerate(sorted(["6111", "4411", "5141", "3421"] * 8)))
+assert entries_kind(fec, ";") == "fec" and entries_kind(ledger, ";") == "grand livre"
+assert entries_kind(HEAD + "\nAC;J;1;20250101;6111;X;L;10;0", ";") == "fec"  # too short to tell: its headers
+assert entries_kind("Code journal;Date;Compte;Libelle;Debit;Credit\nAC;01/01/2025;6111;L;10;0", ";") == "grand livre"
+assert file_text("Débit".encode("utf-8")) == "Débit" and file_text("Débit".encode("cp1252")) == "Débit"
+assert file_text(b"\xef\xbb\xbfJournalCode") == "JournalCode"
+print("entries kind ok")
 print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account, tva, withholding, prepaid and exercice checks ok")

@@ -32,6 +32,16 @@ def exercice_choice(answer, opens):
     return ("old", chosen[0]) if len(chosen) == 1 else None
 
 
+def open_exercice(company_id, year):
+    """A new calendar exercice, opened: Experio's own path, created in draft, its rules
+    checked, then opened by action_open. Raises Experio's refusal."""
+    # The name is Experio's own formula (_compute_name), which doesn't run before the required check over RPC.
+    values = {"company_id": company_id, "date_start": f"{year}-01-01", "date_end": f"{year}-12-31", "name": f"Exercice {year}"}
+    exercice_id = odoo_json("exp.fiscal.entries", "create", values, context={"allowed_company_ids": [company_id]})
+    odoo_json("exp.fiscal.entries", "action_open", [exercice_id], context={"allowed_company_ids": [company_id]})
+    return exercice_id
+
+
 def asked(invoice, opens):
     """tarik-master's question, word for word."""
     names = [e["name"] for e in opens]
@@ -91,14 +101,10 @@ def settle_exercice(invoice_id: int, answer: str = "") -> dict:
                 raise ToolError(f"Facture {invoice_id} : Experio a refuse la facture anterieure.") from None
         return ok(f"{head}Facture {invoice_id} : facture anterieure dans l'exercice {exercice['name']}.{warning}")
     year = when[:4]
-    # The name is Experio's own formula (_compute_name), which doesn't run before the required check over RPC.
-    values = {"company_id": company_id, "date_start": f"{year}-01-01", "date_end": f"{year}-12-31", "name": f"Exercice {year}"}
     if DRY_RUN:
-        return ok(f"{head}Facture {invoice_id} : un exercice {year} ({values['date_start']} au {values['date_end']}) serait cree.")
+        return ok(f"{head}Facture {invoice_id} : un exercice {year} ({year}-01-01 au {year}-12-31) serait cree.")
     try:
-        # Experio's own path: created in draft, its rules checked, then opened by action_open.
-        exercice_id = odoo_json("exp.fiscal.entries", "create", values, context={"allowed_company_ids": [company_id]})
-        odoo_json("exp.fiscal.entries", "action_open", [exercice_id], context={"allowed_company_ids": [company_id]})
+        exercice_id = open_exercice(company_id, year)
         fill_invoice(invoice_id, {"exercice_id": exercice_id}, invoice_context(invoice))
     except Exception as error:
         message = str(error).strip().splitlines()[-1][:300]  # Experio's own message (JSON-RPC carries it clean)

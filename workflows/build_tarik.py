@@ -28,8 +28,8 @@ def connect(source, target, kind="main"):
 # The chat page, and what comes with each message: its files, pending questions, drafts Experio hasn't read.
 node("c1a0b5e2-0001-4000-8000-000000000001", "Message a Tarik", "@n8n/n8n-nodes-langchain.chatTrigger", 1.4, [0, 0], {
     "public": True, "mode": "hostedChat",
-    "initialMessages": "Bonjour, je suis Tarik. Envoyez-moi vos factures (PDF ou photos).",
-    "options": {"allowFileUploads": True, "allowedFilesMimeTypes": "application/pdf,image/*", "title": "Tarik",
+    "initialMessages": "Bonjour, je suis Tarik. Envoyez-moi vos factures (PDF ou photos), ou le FEC d'un dossier.",
+    "options": {"allowFileUploads": True, "allowedFilesMimeTypes": "application/pdf,image/*,text/csv,text/plain,.csv,.txt", "title": "Tarik",
                 "subtitle": "Assistant comptable", "inputPlaceholder": "Votre message..."},
 }, webhookId="7304d10e-ea71-4883-be8d-dcd560c62f4e")
 node("c1a0b5e2-0001-4000-8000-000000000006", "Fichiers recus", "n8n-nodes-base.code", 2, [220, 0], {"jsCode": (
@@ -75,10 +75,12 @@ for source, target in [("Message a Tarik", "Fichiers recus"), ("Fichiers recus",
 PROMPT = """Tu es Tarik, assistant comptable d'un cabinet marocain. Réponds dans la langue du client, en phrases courtes. Vouvoie-le, sans civilité.
 
 Ce que tu fais, et seulement cela :
-1. Fichiers reçus : trouve le dossier avec find_dossier, à partir du nom donné par le client. S'il n'a pas dit quel dossier, ou si plusieurs dossiers se ressemblent, demande-lui lequel. Puis appelle traiter_fichiers une seule fois, avec l'id du dossier et les numéros de tous les fichiers joints. Recopie son résultat mot pour mot, facture par facture, sans le reformuler (les numéros surtout).
+1. Factures et relevés reçus : trouve le dossier avec find_dossier, à partir du nom donné par le client. S'il n'a pas dit quel dossier, ou si plusieurs dossiers se ressemblent, demande-lui lequel. Puis appelle traiter_fichiers une seule fois, avec l'id du dossier et les numéros de tous les fichiers joints. Recopie son résultat mot pour mot, facture par facture, sans le reformuler (les numéros surtout).
 2. Questions en attente : elles te sont données avec le message du client. S'il y répond, appelle repondre avec le numéro de la facture et sa réponse, puis recopie le résultat mot pour mot. Sinon, rappelle-lui les questions.
 3. Factures en attente de lecture : elles te sont données avec le message du client. Appelle reprendre une seule fois, puis recopie son résultat mot pour mot.
-4. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.
+4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Vérifie avec find_dossier qu'il n'existe pas déjà. Demande de quel dossier existant copier la configuration (le dossier modèle, cherché avec find_dossier), ou aucun. Récapitule (nom, ICE, IF, modèle, fichiers) et attends que le client confirme : un dossier créé ne peut pas être supprimé. Puis appelle parametrer_dossier avec dossier_id 0, et les numéros des fichiers FEC ou grand livre joints. Recopie son résultat mot pour mot.
+5. FEC ou grand livre (fichier CSV ou TXT d'écritures) pour un dossier existant : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id et les numéros des fichiers. Un FEC ou un grand livre ne va jamais à traiter_fichiers.
+6. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.
 
 Règles :
 - N'invente aucun résultat. Ne propose aucune action que tu ne peux pas faire. Ne dis jamais que tu transmets quelque chose au cabinet.
@@ -128,6 +130,33 @@ def processing_tool(id_, name, position, description, values):
     })
     connect(name, "Tarik", "ai_tool")
 
+
+node("6f1d3a52-dc4e-5b7e-9a1c-7d2e4b9c0a11", "parametrer_dossier", "@n8n/n8n-nodes-langchain.toolWorkflow", 2.2, [1260, 380], {
+    "description": ("Cree un dossier (dossier_id 0) ou reprend un dossier existant, dans l'ordre : creation, copie de la "
+                    "configuration du dossier modele, import des FEC ou grands livres joints (Experio cree les comptes, "
+                    "journaux, tiers et exercices manquants), fin de l'integration, etat du dossier. Renvoie le resultat."),
+    "workflowId": {"__rl": True, "mode": "id", "value": "TarikDossier0001", "cachedResultName": "Tarik - Dossier"},
+    "workflowInputs": {
+        "mappingMode": "defineBelow",
+        "value": {
+            "session_id": SESSION,
+            "dossier_id": "={{ $fromAI('dossier_id', 'L id du dossier existant (find_dossier), 0 pour un nouveau dossier', 'number') }}",
+            "name": "={{ $fromAI('name', 'Le nom du nouveau dossier, vide pour un dossier existant', 'string') }}",
+            "ice": "={{ $fromAI('ice', 'L ICE du nouveau dossier, vide si inconnu', 'string') }}",
+            "if_number": "={{ $fromAI('if_number', 'L IF du nouveau dossier, vide si inconnu', 'string') }}",
+            "folder_type": "={{ $fromAI('folder_type', 'company (societe, par defaut) ou person (personne physique)', 'string') }}",
+            "model_dossier_id": "={{ $fromAI('model_dossier_id', 'L id du dossier modele (find_dossier), 0 si aucun', 'number') }}",
+            "file_ids": "={{ $fromAI('file_ids', 'Les numeros des fichiers FEC ou grand livre joints, ex. [12], [] si aucun', 'json') }}",
+            "kind": "={{ $fromAI('kind', 'fec ou grand livre si le client l a dit, sinon vide', 'string') }}"},
+        "matchingColumns": [],
+        "schema": [{"id": key, "displayName": key, "required": False, "defaultMatch": False, "display": True,
+                    "canBeUsedToMatch": True, "type": kind, "removed": False}
+                   for key, kind in [("session_id", "string"), ("dossier_id", "number"), ("name", "string"), ("ice", "string"),
+                                     ("if_number", "string"), ("folder_type", "string"), ("model_dossier_id", "number"),
+                                     ("file_ids", "any"), ("kind", "string")]],
+        "attemptToConvertTypes": False, "convertFieldsToString": False},
+})
+connect("parametrer_dossier", "Tarik", "ai_tool")
 
 processing_tool("2dc18984-0bf1-5c55-99a0-3353d48845d2", "traiter_fichiers", [700, 380], (
     "Traite les fichiers recus pour un dossier, toujours dans le meme ordre : identification (facture ou releve bancaire), "

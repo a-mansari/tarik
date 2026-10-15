@@ -7,7 +7,7 @@ create table if not exists tarik_files (
     data bytea not null,
     invoice_id integer, -- the draft invoice made from it: a second call must not make another
     parent_id integer references tarik_files (id), -- set on each invoice cut out of a multi-invoice PDF
-    kind text check (kind in ('invoice', 'statement')), -- set by identify_document, before anything is created
+    kind text check (kind in ('invoice', 'statement', 'entries')), -- identify_document, before anything is created; entries: import_entries
     statement_id integer, -- the bank statement imported from it: a second call must not import it again
     created_at timestamptz not null default now()
 );

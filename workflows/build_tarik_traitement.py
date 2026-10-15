@@ -1,56 +1,19 @@
 """Build workflows/tarik-traitement.json: the fixed processing sequence as n8n nodes.
 
-Edit this script, not the JSON: python3 workflows/build_tarik_traitement.py
-Node ids are derived from node names, so a rebuild only changes what changed."""
+Edit this script, not the JSON: python3 workflows/build_tarik_traitement.py"""
 
 import json
 import sys
-import uuid
 from pathlib import Path
 
+from steps import CALL, OK_ELSE, RESULT, Workflow
+
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-traitement.json")
-MCP_URL = "http://tarik-mcp:8000/mcp"
-nodes, connections = [], {}
-
-
-def nid(name):
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"tarik-traitement/{name}"))
-
-
-def node(name, type_, version, position, parameters, **extra):
-    nodes.append({"id": nid(name), "name": name, "type": type_, "typeVersion": version,
-                  "position": position, "parameters": parameters, **extra})
-    return name
-
-
-def connect(source, target, output=0):
-    outputs = connections.setdefault(source, {}).setdefault("main", [])
-    while len(outputs) <= output:
-        outputs.append([])
-    outputs[output].append({"node": target, "type": "main", "index": 0})
-
-
-CALL = "$('Appel').first().json"
-RESULT = "$json.content[0].text"
-
-
-def mcp(name, tool, arguments, position):
-    """One step: an MCP call. Output 0 = its answer, output 1 = a tool error."""
-    return node(name, "@n8n/n8n-nodes-langchain.mcpClient", 1.1, position, {
-        "endpointUrl": MCP_URL, "serverTransport": "httpStreamable",
-        "tool": {"__rl": True, "mode": "id", "value": tool},
-        "inputMode": "json", "jsonInput": "={{ JSON.stringify(" + arguments + ") }}",
-        "options": {"timeout": 300000},
-    }, onError="continueErrorOutput")
-
-
-def route(name, expression, outputs, position):
-    return node(name, "n8n-nodes-base.switch", 3.2, position,
-                {"mode": "expression", "numberOutputs": outputs, "output": "={{ " + expression + " }}"})
-
+flow = Workflow("tarik-traitement")
+node, connect, mcp, route = flow.node, flow.connect, flow.mcp, flow.route
+nodes, connections = flow.nodes, flow.connections
 
 RECORD = "Enregistrer"
-OK_ELSE = f"{RESULT}.status === 'ok' ? 0 : 1"
 
 node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], {
     "inputSource": "workflowInputs",
