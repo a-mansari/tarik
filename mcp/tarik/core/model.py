@@ -2,10 +2,10 @@
 
 import base64
 import json
-import os
 
 from mcp.server.mcpserver.exceptions import ToolError
 
+from tarik.core.cabinets import setting
 from tarik.core.experio import HTTP
 
 
@@ -15,7 +15,7 @@ def ask_model(system, pages, instruction, what):
     MiniMax is called in the Anthropic message format it imitates: hence the
     /v1/messages path and the anthropic-version header. The model is MiniMax's.
     ``what`` names the step in the log and in the agent's error."""
-    url, key, model = (os.getenv(name) for name in ("MODEL_API_URL", "MODEL_API_KEY", "MODEL_API_NAME"))
+    url, key, model = (setting(name, "") for name in ("MODEL_API_URL", "MODEL_API_KEY", "MODEL_API_NAME"))
     if not (url and key and model):
         raise ToolError(f"{what} : le modele n'est pas encore configure.")
     content = [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
