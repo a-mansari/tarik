@@ -220,7 +220,7 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
             return ok(f"Manager deja prevenu aujourd'hui pour {sender}.")
         send_email(manager, f"Tarik : email de {sender} non traite",
                    f"Bonjour,\n\n{sender} a ecrit a Tarik (objet : « {subject or 'sans objet'} »).\n"
-                   f"Son email n'a pas ete traite : {reason}.\nL'expediteur n'a recu aucune reponse.\n\n--\nTarik, assistant comptable")
+                   f"Son email n'a pas ete traite : {reason}.\n\nL'expediteur n'a recu aucune reponse.")
         db.execute("insert into tarik_mail_alerts (sender) values (%s)", (sender,))
     return ok(f"Manager prevenu : {sender}.")
 

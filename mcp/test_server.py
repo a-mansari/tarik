@@ -18,7 +18,7 @@ from dossiers import MIN_SIMILARITY, similarity
 from experio import exact_cabinet, expected_uid, require_dossier, require_invoice
 from intake import require_kind, split_pdf
 from invoices import label, status_of
-from mail import recipient_allowed, send_email
+from mail import recipient_allowed, render, send_email
 from inbox import attachments, automatic, client_text
 from onboarding import copy_asked, entries_kind, file_text, sheet_text, skip_agreed
 from server import server
@@ -250,6 +250,21 @@ except ToolError as error:
 finally:
     mail.ALLOWED_RECIPIENTS = kept
 print("email whitelist ok")
+
+# Outbound emails: no raw Markdown or HTML, one template, one signature.
+import mail
+mail.cabinet_name.cache_clear()
+mail.cabinet_name = lambda: "CABINET TEST"
+text, page = render("## Récapitulatif\n\nVoici le **dossier** ALPHA :\n- création : ok\n* import : `7197` lignes\n\n<b>Merci</b>, voir [Experio](https://experio.ma).\n---\nA < B et *important*")
+for raw in ("**", "##", "`", "<b>", "</b>", "](", "---"):
+    assert raw not in text, raw
+assert "Voici le dossier ALPHA :" in text and "- création : ok" in text and "- import : 7197 lignes" in text
+assert "Experio (https://experio.ma)" in text and "A < B et important" in text
+assert text.endswith("Cordialement,\n\nTarik\nAssistant comptable | CABINET TEST")
+assert "<strong>dossier</strong>" in page and "<li>création : ok</li>" in page and "<b>" not in page and "**" not in page
+assert '<a href="https://experio.ma">Experio</a>' in page and "A &lt; B" in page and "<em>important</em>" in page
+assert "fichier_2026_mars.pdf" in render("fichier_2026_mars.pdf")[0] and "4411 * 2" in render("4411 * 2")[0]
+print("email rendering ok")
 
 # Emails: the client's own words, their files, automatic replies.
 from email.message import EmailMessage
