@@ -29,7 +29,7 @@ def connect(source, target, kind="main"):
 node("c1a0b5e2-0001-4000-8000-000000000001", "Message a Tarik", "@n8n/n8n-nodes-langchain.chatTrigger", 1.4, [0, 0], {
     "public": True, "mode": "hostedChat",
     "initialMessages": "Bonjour, je suis Tarik. Envoyez-moi vos factures (PDF ou photos), ou le FEC d'un dossier.",
-    "options": {"allowFileUploads": True, "allowedFilesMimeTypes": "application/pdf,image/*,text/csv,text/plain,.csv,.txt", "title": "Tarik",
+    "options": {"allowFileUploads": True, "allowedFilesMimeTypes": "application/pdf,image/*,text/csv,text/plain,.csv,.txt,.xlsx", "title": "Tarik",
                 "subtitle": "Assistant comptable", "inputPlaceholder": "Votre message..."},
 }, webhookId="7304d10e-ea71-4883-be8d-dcd560c62f4e")
 node("c1a0b5e2-0001-4000-8000-000000000006", "Fichiers recus", "n8n-nodes-base.code", 2, [220, 0], {"jsCode": (
@@ -79,7 +79,7 @@ Ce que tu fais, et seulement cela :
 2. Questions en attente : elles te sont données avec le message du client. S'il y répond, appelle repondre avec le numéro de la facture et sa réponse, puis recopie le résultat mot pour mot. Sinon, rappelle-lui les questions.
 3. Factures en attente de lecture : elles te sont données avec le message du client. Appelle reprendre une seule fois, puis recopie son résultat mot pour mot.
 4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Vérifie avec find_dossier qu'il n'existe pas déjà. Demande de quel dossier existant copier la configuration (le dossier modèle, cherché avec find_dossier), ou aucun. Récapitule (nom, ICE, IF, modèle, fichiers) et attends que le client confirme : un dossier créé ne peut pas être supprimé. Puis appelle parametrer_dossier avec dossier_id 0, et les numéros des fichiers FEC ou grand livre joints. Recopie son résultat mot pour mot.
-5. FEC ou grand livre (fichier CSV ou TXT d'écritures) pour un dossier existant : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id et les numéros des fichiers. Un FEC ou un grand livre ne va jamais à traiter_fichiers.
+5. FEC ou grand livre (fichier d'écritures CSV, TXT ou Excel) pour un dossier existant : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id et les numéros des fichiers. Un FEC ou un grand livre ne va jamais à traiter_fichiers.
 6. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.
 
 Règles :

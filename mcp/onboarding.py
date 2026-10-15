@@ -14,11 +14,14 @@ the import detected, while before it the import only adds what the model lacks.
 """
 
 import calendar
+import re
+from collections import Counter
 import csv
 import io
 import time
-from datetime import date
+from datetime import date, datetime
 
+import openpyxl
 import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -33,6 +36,12 @@ FOLDER_TYPES = {"company": "societe", "person": "personne physique", "cpu": "CPU
 IMPORT_OPTIONS = {"has_headers": True, "separator": "", "quoting": '"', "encoding": "utf-8",
                   # The whole file in one go: Experio's import ignores ``skip``.
                   "limit": 1_000_000}
+# Headers Experio's import doesn't suggest a column for, which the user then maps by hand on its
+# screen. A Sage export's "Numero de piece" is the entry's reference (Experio's own table maps "piece"
+# to it): Experio groups the lines into entries by it, and without it merges unrelated ones.
+# shortcut: only the headers met so far; add a client's export's header when its import leaves a column unmapped.
+MANUAL_COLUMNS = {"numero de piece": "reference", "n de piece": "reference", "n piece": "reference",
+                  "num piece": "reference", "no piece": "reference", "numero piece": "reference"}
 FEC_HEADERS = {"journalcode", "ecrituredate", "comptenum", "debit", "credit"}
 
 
@@ -100,6 +109,20 @@ def file_text(data):
     return data.decode("latin-1")
 
 
+def sheet_text(data):
+    """An Excel file's first sheet as the CSV text the import screen reads (it uploads Excel
+    files itself, but JSON-RPC only carries text): dates as Experio reads them, the rest as is."""
+    sheet = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True).worksheets[0]
+    out = io.StringIO()
+    writer = csv.writer(out, delimiter=";")
+    for row in sheet.iter_rows(values_only=True):
+        cells = ["" if value is None else value.strftime("%Y%m%d") if isinstance(value, (date, datetime))
+                 else str(int(value)) if isinstance(value, float) and value.is_integer() else str(value) for value in row]
+        if any(cells):
+            writer.writerow(cells)
+    return out.getvalue()
+
+
 def entries_kind(text, separator):
     """FEC or grand livre, from the file alone (Experio has two buttons and no
     detector; tarik-master parametrage.entries_kind). A FEC follows the journals and
@@ -119,7 +142,7 @@ def entries_kind(text, separator):
 @server.tool()
 @with_ids
 def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
-    """Import a dossier's entries from a FEC or grand livre file (CSV or TXT), through
+    """Import a dossier's entries from a FEC or grand livre file (CSV, TXT or Excel), through
     Experio's Importation screen: it creates the missing accounts, journals, tiers and
     exercices. ``kind``: "fec", "grand livre", or empty to tell from the file.
     Experio tests the file first; nothing is imported when its test finds errors."""
@@ -129,10 +152,14 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     if not row:
         raise ToolError(f"Aucun fichier n° {file_id}.")
     name, mime, data = row
-    # shortcut: Excel files are refused, the import screen gets raw text; convert them when clients send FECs as .xlsx.
-    if not (name.lower().endswith((".csv", ".txt")) or (mime or "").startswith("text/")):
-        return stop(f"{name} : envoyez le FEC ou le grand livre en CSV ou TXT.", file_id=file_id)
-    text = file_text(bytes(data))
+    excel = name.lower().endswith((".xlsx", ".xlsm"))
+    if not (excel or name.lower().endswith((".csv", ".txt")) or (mime or "").startswith("text/")):
+        return stop(f"{name} : envoyez le FEC ou le grand livre en CSV, TXT ou Excel (.xlsx).", file_id=file_id)
+    try:
+        text = sheet_text(bytes(data)) if excel else file_text(bytes(data))
+    except Exception as error:
+        print(f"import_entries {file_id}: {error}", flush=True)
+        raise ToolError(f"{name} : fichier Excel illisible.") from None
     context = {"allowed_company_ids": [dossier_id]}
     try:
         import_id = odoo_json("base_import.import", "create", {"res_model": "experio.history", "file": text,
@@ -148,6 +175,10 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     kind = "grand livre" if "grand" in wanted or wanted == "gl" else "fec" if "fec" in wanted else entries_kind(text, options.get("separator"))
     headers = preview["headers"]
     fields = [(preview["matches"].get(str(i)) or [False])[0] for i in range(len(headers))]
+    for i, header in enumerate(headers):
+        guess = MANUAL_COLUMNS.get(normalized(header))
+        if not fields[i] and guess and guess not in fields:
+            fields[i] = guess
     # "Importer GL" is the same import with the lines sorted (by reference too when the file has one).
     options.update(order_lines=kind == "grand livre", order_lines_with_reference=kind == "grand livre" and "reference" in fields)
     label = "Grand livre" if kind == "grand livre" else "FEC"
@@ -250,8 +281,11 @@ def setup_status(dossier_id: int) -> dict:
     context = {"allowed_company_ids": [dossier_id]}
     try:
         company = odoo_call("res.company", "read", [dossier_id], fields=["show_onboarding", *POSTING_SETTINGS])[0]
-        states = {state: odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id), ("state", "=", state)],
-                                   context=context) for state in HISTORY_STATES}
+        # One query, so the counts add up while Experio processes the lines.
+        groups = odoo_call("experio.history", "read_group", [("company_id", "=", dossier_id)], ["state"], ["state"], context=context)
+        states = {group["state"]: group["state_count"] for group in groups}
+        reasons = odoo_call("experio.history", "read_group", [("company_id", "=", dossier_id), ("state", "=", "error")],
+                            ["error_type"], ["error_type"], context=context)
         exercices = odoo_call("exp.fiscal.entries", "search_read", [("company_id", "=", dossier_id)],
                               fields=["name", "state", "selected"], order="date_start", context=context)
         counts = {model: odoo_call(model, "search_count", [("company_id", "=", dossier_id)], context=context)
@@ -261,8 +295,13 @@ def setup_status(dossier_id: int) -> dict:
         raise ToolError(f"Dossier {dossier} : Experio n'a pas pu donner l'etat du parametrage.") from None
     parts = [f"{counts['exp.account']} comptes, {counts['exp.journal']} journaux, {counts['exp.tax']} taxes, "
              f"{counts['exp.partner']} tiers"]
-    entries = [f"{n} {HISTORY_STATES[state]}" for state, n in states.items() if n]
+    entries = [f"{states[state]} {label}" for state, label in HISTORY_STATES.items() if states.get(state)]
     parts.append("ecritures importees : " + (", ".join(entries) if entries else "aucune"))
+    if reasons:  # Experio's own diagnosis, to correct the source file ("3 comptes tiers ...", "4 comptes tiers ...": one reason)
+        merged = Counter()
+        for reason in reasons:
+            merged[re.sub(r"^\d+\s+", "", (reason["error_type"] or "sans motif").strip())] += reason["error_type_count"]
+        parts.append("erreurs signalees par Experio : " + " | ".join(f"{text} ({n} lignes)" for text, n in merged.most_common(3)))
     opened = [e["name"] + (" (en cours)" if e["selected"] else "") for e in exercices if e["state"] == "open"]
     parts.append("exercices ouverts : " + (", ".join(opened) if opened else "aucun"))
     missing = [label for key, label in POSTING_SETTINGS.items() if not company[key]]

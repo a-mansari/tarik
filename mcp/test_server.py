@@ -5,6 +5,9 @@ import asyncio
 from mcp.server.mcpserver.exceptions import ToolError
 
 import io
+from datetime import datetime
+
+import openpyxl
 
 import pypdfium2
 from PIL import Image
@@ -15,7 +18,7 @@ from dossiers import MIN_SIMILARITY, similarity
 from experio import exact_cabinet, expected_uid, require_dossier, require_invoice
 from intake import require_kind, split_pdf
 from invoices import label, status_of
-from onboarding import entries_kind, file_text
+from onboarding import entries_kind, file_text, sheet_text
 from server import server
 from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
 from accounts import resolve_account
@@ -236,5 +239,12 @@ assert entries_kind(HEAD + "\nAC;J;1;20250101;6111;X;L;10;0", ";") == "fec"  # t
 assert entries_kind("Code journal;Date;Compte;Libelle;Debit;Credit\nAC;01/01/2025;6111;L;10;0", ";") == "grand livre"
 assert file_text("Débit".encode("utf-8")) == "Débit" and file_text("Débit".encode("cp1252")) == "Débit"
 assert file_text(b"\xef\xbb\xbfJournalCode") == "JournalCode"
+book = openpyxl.Workbook()
+book.active.append(["Journal", "Date", "Compte", None, "Debit", "Credit"])
+book.active.append(["ACH", datetime(2025, 1, 2), "61250000", None, 17490.0, 12.5])
+book.active.append([None, None, None, None, None, None])
+saved = io.BytesIO()
+book.save(saved)
+assert sheet_text(saved.getvalue()).splitlines() == ["Journal;Date;Compte;;Debit;Credit", "ACH;20250102;61250000;;17490;12.5"]
 print("entries kind ok")
 print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account, tva, withholding, prepaid and exercice checks ok")

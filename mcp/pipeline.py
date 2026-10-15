@@ -25,6 +25,7 @@ STEPS = {
     "correct_invoice": "correction", "classify_invoice": "classement", "link_tiers": "tiers",
     "check_duplicate": "doublon", "assign_account": "compte", "settle_tva": "TVA", "check_journal": "journal", "settle_withholding": "retenue a la source", "settle_prepaid": "constatee d'avance", "settle_exercice": "exercice", "post_invoice": "comptabilisation",
 }
+SETUP_STEPS = {"create_dossier", "copy_configuration", "import_entries", "finish_setup", "setup_status"}
 # A pending question, the call that applies the client's answer, and the step that follows.
 ANSWERS = {
     "link_tiers": (set_tiers_by_name, "check_duplicate"),
@@ -90,6 +91,8 @@ def run_summary(run_id: str) -> dict:
     test = any(message.startswith(TEST_PREFIX) for *_, message in rows)
     blocks, seen = {}, set()
     for key, step, status, message in rows:
+        if step in SETUP_STEPS:
+            key = None  # a dossier's setup is one block, its imports in it in order
         if (key, step, message) in seen or (status == "ok" and step in QUIET):
             continue
         seen.add((key, step, message))
