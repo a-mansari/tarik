@@ -37,3 +37,46 @@ def test_a_file_is_identified_before_anything_is_made_from_it():
                                ("invoice", "statement", "split_invoices")):
         with pytest.raises(ToolError, match=hint):
             require_kind("f.pdf", kind, wanted)
+
+
+class OneFile:
+    """tarik_files holding one row, as the cabinet's database returns it."""
+
+    def __init__(self, row):
+        self.row = row
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, query, params):
+        self.rows = [self.row] if query.lstrip().startswith("select file_name") else []
+        return self
+
+    def fetchone(self):
+        return self.rows[0] if self.rows else None
+
+    def __iter__(self):
+        return iter(self.rows)
+
+
+def test_test_mode_creates_no_draft_and_imports_no_statement(monkeypatch):
+    from tarik.invoices import intake
+
+    def odoo_call(model, method, *args, **kw):
+        if method == "search_read":  # the dossier's bank journals
+            return [{"id": 5, "name": "BMCE", "bank_id": [1, "BMCE"]}]
+        raise AssertionError(f"test mode wrote to Experio: {model}.{method}")
+    monkeypatch.setattr(intake, "odoo_call", odoo_call)
+    monkeypatch.setattr(intake, "require_dossier", lambda dossier_id: "Gecafisc")
+    monkeypatch.setattr(intake, "dry_run", lambda: True)
+
+    monkeypatch.setattr(intake, "cabinet_db", lambda: OneFile(("f.pdf", "application/pdf", b"%PDF", None, "invoice")))
+    draft = intake.create_draft_invoice(1, 557)
+    assert draft["status"] == "stop" and draft["message"].startswith("MODE TEST") and "invoice_id" not in draft
+
+    monkeypatch.setattr(intake, "cabinet_db", lambda: OneFile(("r.pdf", "application/pdf", b"%PDF", "statement", None)))
+    statement = intake.import_bank_statement(2, 557)
+    assert statement["status"] == "ok" and statement["message"].startswith("MODE TEST") and "BMCE" in statement["message"]
