@@ -195,7 +195,7 @@ processing_tool("094759d5-3ec6-5be8-a71a-e6bb1377ccb6", "reprendre", [1060, 380]
     "Reprend les factures en attente de lecture par Experio, a l'etape de lecture, puis la suite du traitement. "
     "Renvoie le resultat facture par facture."), {"mode": "resume"})
 
-workflow = {"id": "Sca0Bh73nUct7ixj", "name": "Tarik", "active": False, "settings": {"executionOrder": "v1"},
+workflow = {"id": "Sca0Bh73nUct7ixj", "name": "Tarik", "active": False, "settings": {"executionOrder": "v1", "saveExecutionProgress": True},  # each node saved as it ends: runs show live
             "nodes": nodes, "connections": connections}
 OUT.write_text(json.dumps(workflow, indent=2, ensure_ascii=False) + "\n")
 print(len(nodes), "nodes")
