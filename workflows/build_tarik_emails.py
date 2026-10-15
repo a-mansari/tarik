@@ -1,7 +1,8 @@
 """Build workflows/tarik-emails.json: Tarik answering his mailbox.
 
 Edit this script, not the JSON: python3 workflows/build_tarik_emails.py
-Every 2 minutes: read the new emails (the mailbox is not changed), then for each thread
+As soon as an email arrives (tarik-mail-watch calls its webhook), and every 2 minutes in
+case it missed one: read the new emails (the mailbox is not changed), then for each thread
 waiting for an answer, Tarik ("Tarik - Agent", as in the chat) answers its client's emails,
 and the reply goes out in the thread, to whitelisted addresses only. A thread whose run
 fails is picked up again 30 minutes later; after 3 failures it is set aside in error."""
@@ -21,6 +22,10 @@ SIGNATURE = "\\n\\n--\\nTarik, assistant comptable"
 
 node("Toutes les 2 minutes", "n8n-nodes-base.scheduleTrigger", 1.2, [0, 300],
      {"rule": {"interval": [{"field": "minutes", "minutesInterval": 2}]}})
+# Called by tarik-mail-watch (mcp/watcher.py) the moment an email arrives; the schedule stays as the fallback.
+node("Nouvel email", "n8n-nodes-base.webhook", 2, [0, 120],
+     {"httpMethod": "POST", "path": "tarik-nouvel-email", "responseMode": "onReceived", "options": {}},
+     webhookId="5d0f6c2a-8e4b-4f17-9a3c-2b7e1d6f8a40")
 mcp("Nouveaux emails (fetch_emails)", "fetch_emails", "{}", [220, 300])
 node("Un element par fil", "n8n-nodes-base.code", 2, [440, 300], {"jsCode": (
     "// One item per thread waiting for an answer (fetch_emails locked them for this run).\n"
@@ -45,6 +50,7 @@ mcp("Fil traite (finish_thread)", "finish_thread", (
     "reason: $json.error ? String($json.error.message ?? $json.error).replace(/^Error executing tool \\w+: /, '') : '' }"),
     [1100, 300])
 connect("Toutes les 2 minutes", "Nouveaux emails (fetch_emails)")
+connect("Nouvel email", "Nouveaux emails (fetch_emails)")
 connect("Nouveaux emails (fetch_emails)", "Un element par fil", 0)
 connect("Un element par fil", "Tarik")
 connect("Tarik", "Reponse (send_email)", 0)

@@ -28,6 +28,23 @@
       }
     },
     {
+      "id": "808d2c0c-10f3-51b0-b594-29f7eb96a691",
+      "name": "Nouvel email",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        120
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tarik-nouvel-email",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "webhookId": "5d0f6c2a-8e4b-4f17-9a3c-2b7e1d6f8a40"
+    },
+    {
       "id": "d5265d5a-940d-5ae8-8ce7-f91b92bec63d",
       "name": "Nouveaux emails (fetch_emails)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -182,6 +199,17 @@
   ],
   "connections": {
     "Toutes les 2 minutes": {
+      "main": [
+        [
+          {
+            "node": "Nouveaux emails (fetch_emails)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nouvel email": {
       "main": [
         [
           {
