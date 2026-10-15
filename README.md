@@ -14,7 +14,7 @@ resumes from there with the answer.
 
 | Part | What it does |
 |------|--------------|
-| n8n Agents section | Tarik: one native agent per cabinet, "Tarik - <cabinet's name>" (MiniMax-M3). It only finds the dossier, lists invoices and hands the work over to the workflows below. All are made from `workflows/tarik-agent.json` by `workflows/build_tarik_agents.py`, which lists the cabinets: edit those, not the agents in n8n. |
+| n8n Agents section | Tarik: one native agent per cabinet, "Tarik - <cabinet's name>" (MiniMax-M3). It only finds the dossier, lists invoices and hands the work over to the workflows below. All are made from `workflows/tarik-agent.json` and the skills in `workflows/skills/` by `workflows/build_tarik_agents.py`, which lists the cabinets: edit those, not the agents in n8n. |
 | `workflows/tarik-emails.json` | Every cabinet's mailbox, woken per cabinet by `tarik-mail-watch`: each email thread is answered by that cabinet's agent (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own conversation). |
 | `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
 | `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent (`traiter_fichiers`, mode `files`; the workflow also has `answer` and `resume`). |
@@ -83,6 +83,20 @@ n8n's MCP server on (Settings > n8n MCP) and its token in Vault (`N8N_MCP_API_TO
 ```bash
 docker compose exec -T tarik-mcp python -m pytest tests/n8n
 ```
+
+## Skills
+
+n8n keeps an agent's skills (instructions it loads when a request matches) per agent. They are
+written once, one file per skill in `workflows/skills/` (front matter `name`, `description`, then
+the instructions), and `workflows/build_tarik_agents.py` gives every agent the same copy, found by
+name, updated in place, and removed from all agents when its file goes.
+
+There is none for now. A "Nouveau dossier" skill was tested (2026-10-15, 10 new-dossier requests
+each way, the tools' fields listed in their descriptions both times): with it, MiniMax loaded it
+10 times in 10 and made 4 fully right calls; without it, 2. Both are poor for the same reasons,
+which the skill does not change: calls without their fields (`{}`), and ICE or IF sent as numbers,
+which loses their leading zeros. `allowedTools` in a skill is
+not enforced by n8n 2.43: a skill never restricts tools; the workflows and MCP tools do.
 
 ## Vault
 

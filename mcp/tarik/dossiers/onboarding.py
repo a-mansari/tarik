@@ -79,8 +79,27 @@ def skip_agreed(client_message):
     return "verif" in text and any(word in text for word in ("sans", "ignor", "pas besoin", "pas de", "skip"))
 
 
+ICE_WRITTEN = re.compile(r"(?<!\d)\d{15}(?!\d)")  # an ICE: 15 digits
+IF_WRITTEN = re.compile(r"\bI\.?F\.?\s*(?:n\s*[°o]\s*)?[:=]?\s*(\d{4,12})(?!\d)", re.IGNORECASE)
+
+
+def as_written(value, written):
+    """An ICE or IF as the client wrote it (``written``: the numbers found in their message). The
+    model may send it as a number, which loses its leading zeros, or leave it out: the client's own
+    number is used whenever it is the same number, or when it is the only one they wrote."""
+    value = str(value if value is not None else "").strip()
+    if value.endswith(".0") and value[:-2].isdigit():
+        value = value[:-2]
+    if value.isdigit():
+        same = [number for number in written if number.lstrip("0") == value.lstrip("0")]
+        return same[0] if same else value
+    if not value and len(set(written)) == 1:
+        return written[0]
+    return value
+
+
 @server.tool()
-def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: str = "company",
+def create_dossier(name: str = "", ice: str | int = "", if_number: str | int = "", folder_type: str = "company",
                    skip_ice_if_check: bool = False, client_message: str = "", session_id: str = "") -> dict:
     """Create a new dossier in Experio, as the Folders screen does. ``ice`` and
     ``if_number`` are the client's ICE and IF, ``folder_type`` company (default),
@@ -92,8 +111,11 @@ def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: s
     dossier has the same ICE or IF; a very similar name is a question to the client first."""
     remember_client_message(session_id, client_message)
     name = " ".join((name or "").split())
-    if not name:
-        raise ToolError("Nom du dossier manquant.")
+    if not name:  # MiniMax sometimes calls with no fields at all: told how to call again, it does
+        raise ToolError("Nom du dossier manquant : rappelle parametrer_dossier avec dossier_id 0 et les informations "
+                        "du client remplies (name, ice, if_number, folder_type).")
+    ice = as_written(ice, ICE_WRITTEN.findall(client_message or ""))
+    if_number = as_written(if_number, IF_WRITTEN.findall(client_message or ""))
     if folder_type not in FOLDER_TYPES:
         raise ToolError(f"Type de dossier inconnu : {', '.join(FOLDER_TYPES)}.")
     values = {"name": name, "folder_type": folder_type, "enabled": True}  # enabled, as Experio's dossier import sets it

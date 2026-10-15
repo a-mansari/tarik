@@ -5,7 +5,11 @@ from datetime import datetime
 
 import openpyxl
 
-from tarik.dossiers.onboarding import copy_asked, entries_kind, file_text, sheet_text, skip_agreed
+import pytest
+from mcp.server.mcpserver.exceptions import ToolError
+
+from tarik.dossiers import onboarding
+from tarik.dossiers.onboarding import ICE_WRITTEN, IF_WRITTEN, as_written, copy_asked, entries_kind, file_text, sheet_text, skip_agreed
 
 HEAD = "JournalCode;JournalLib;EcritureNum;EcritureDate;CompteNum;CompteLib;EcritureLib;Debit;Credit"
 
@@ -45,3 +49,35 @@ def test_copying_a_configuration_only_when_the_client_asks():
     assert copy_asked(["bonjour", "copiez le paramétrage de Alpha Négoce"], "ALPHA NEGOCE SARL")
     assert not copy_asked(["Ouvrez-nous un dossier VEGA SARL, ICE 1111", "oui"], "LYJA (Test)")
     assert not copy_asked(["comme d'habitude"], "LYJA (Test)") and not copy_asked(["le dossier LYJA"], "LYJA (Test)")
+
+
+MESSAGE = "Créez le dossier FAIR KAPPA, ICE 008123456000100 et IF n° 0712345."
+
+
+def test_an_ice_or_if_sent_as_a_number_keeps_its_leading_zeros():
+    assert as_written(8123456000100, ICE_WRITTEN.findall(MESSAGE)) == "008123456000100"
+    assert as_written("8123456000100", ICE_WRITTEN.findall(MESSAGE)) == "008123456000100"
+    assert as_written(8123456000100.0, ICE_WRITTEN.findall(MESSAGE)) == "008123456000100"
+    assert as_written(712345, IF_WRITTEN.findall(MESSAGE)) == "0712345"
+
+
+def test_a_left_out_ice_or_if_is_the_one_the_client_wrote():
+    assert as_written("", ICE_WRITTEN.findall(MESSAGE)) == "008123456000100"
+    assert as_written(None, IF_WRITTEN.findall(MESSAGE)) == "0712345"
+
+
+def test_the_model_never_overrides_with_a_number_the_client_did_not_write():
+    assert as_written("001111222333444", ICE_WRITTEN.findall(MESSAGE)) == "001111222333444"  # kept, Experio checks it
+    assert as_written("", ICE_WRITTEN.findall("ICE 008123456000100 ou peut-être 008123456000999 ?")) == ""  # two: no guess
+    assert as_written("", ICE_WRITTEN.findall("Créez le dossier FAIR")) == ""
+
+
+def test_an_if_needs_its_label_to_be_read():
+    assert IF_WRITTEN.findall("IF 71234561, I.F: 0712, if n°99887766") == ["71234561", "0712", "99887766"]
+    assert IF_WRITTEN.findall("tel 0612345678, ICE 008123456000100") == []
+
+
+def test_a_call_without_a_name_says_how_to_call_again(monkeypatch):
+    monkeypatch.setattr(onboarding, "remember_client_message", lambda *args: None)
+    with pytest.raises(ToolError, match="rappelle parametrer_dossier avec dossier_id 0"):
+        onboarding.create_dossier(client_message=MESSAGE, session_id="s")

@@ -61,6 +61,8 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     step = next((tool for tool in STEPS if tool in origin), result.get("step") or origin)
     status, message = result.get("status", "error"), result.get("message") or result.get("error") or str(result)
     message = re.sub(r"^Error executing tool \w+: ", "", message)  # n8n's wrapper around a tool's refusal
+    if "validation error for" in message:  # the MCP library's own check: its text names tools and their arguments
+        message = "des informations manquent ou sont invalides pour cette etape."
     invoice_id, file_id, dossier_id = result.get("invoice_id"), result.get("file_id"), result.get("dossier_id")
     with cabinet_db() as db:
         db.execute("insert into tarik_results (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message) "

@@ -34,7 +34,7 @@
       "workflowId": "TarikTraitement1",
       "workflow": "Tarik - Traitement",
       "name": "traiter_fichiers",
-      "description": "Traite les factures et releves joints a la conversation pour un dossier (id donne par find_dossier). Renvoie le resultat facture par facture.",
+      "description": "Traite les factures et releves joints a la conversation pour un dossier (id donne par find_dossier). Renvoie le resultat facture par facture. Paramètre, à toujours remplir : dossier_id (nombre : l'id du dossier donné par find_dossier).",
       "inputs": {
         "mode": {
           "mode": "fixed",
@@ -70,7 +70,7 @@
       "workflowId": "TarikDossier0001",
       "workflow": "Tarik - Dossier",
       "name": "parametrer_dossier",
-      "description": "Cree un dossier (dossier_id 0) ou reprend un dossier existant, dans l'ordre : creation, import des FEC ou grands livres joints (Experio cree les comptes, journaux, tiers et exercices manquants), fin de l'integration, etat du dossier. Renvoie le resultat.",
+      "description": "Cree un dossier (dossier_id 0) ou reprend un dossier existant, dans l'ordre : creation, import des FEC ou grands livres joints (Experio cree les comptes, journaux, tiers et exercices manquants), fin de l'integration, etat du dossier. Renvoie le resultat. Paramètres, à toujours remplir : dossier_id (nombre : 0 pour un nouveau dossier, sinon l'id donné par find_dossier), name (nom du nouveau dossier, vide pour un dossier existant), ice (vide si inconnu), if_number (l'IF, vide si inconnu), folder_type (company ou person), skip_ice_if_check (false, sauf demande écrite du client), model_dossier_id (0 par défaut), kind (fec, grand livre ou vide).",
       "inputs": {
         "session_id": {
           "mode": "fixed",
