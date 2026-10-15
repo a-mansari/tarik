@@ -11,6 +11,9 @@ create table if not exists tarik_files (
     statement_id integer, -- the bank statement imported from it: a second call must not import it again
     created_at timestamptz not null default now()
 );
+-- The native n8n agent's attachment id: its files are saved once, however many times the sequence runs.
+alter table tarik_files add column if not exists source_id text;
+create unique index if not exists tarik_files_source on tarik_files (session_id, source_id);
 
 -- What check_invoice read on each scan, against what Experio captured. The correction step reads it back.
 create table if not exists tarik_checks (

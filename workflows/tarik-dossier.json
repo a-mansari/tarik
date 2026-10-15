@@ -60,8 +60,35 @@
             {
               "name": "kind",
               "type": "string"
+            },
+            {
+              "name": "attachments",
+              "type": "string"
             }
           ]
+        }
+      }
+    },
+    {
+      "id": "0b3f9bfd-0ce7-5cc2-82ad-c54532d37c78",
+      "name": "Pieces jointes de l'agent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        110,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with payload as (select convert_from(decode($1, 'base64'), 'UTF8')::jsonb as body),\nsaved as (\n  insert into tarik_files (session_id, file_name, mime_type, data, source_id)\n  select body->>'thread_id', file->>'file_name', file->>'mime_type', decode(file->>'data', 'base64'), file->>'id'\n  from payload, jsonb_array_elements(coalesce(body->'files', '[]'::jsonb)) as file\n  on conflict (session_id, source_id) do nothing\n  returning id\n)\nselect count(*) as saved from saved",
+        "options": {
+          "queryReplacement": "={{ $('Appel').first().json.attachments || 'e30=' }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "TarikPostgres001",
+          "name": "Tarik Postgres"
         }
       }
     },
@@ -410,12 +437,23 @@
       "main": [
         [
           {
-            "node": "Nouveau dossier ?",
+            "node": "Pieces jointes de l'agent",
             "type": "main",
             "index": 0
           },
           {
             "node": "Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pieces jointes de l'agent": {
+      "main": [
+        [
+          {
+            "node": "Nouveau dossier ?",
             "type": "main",
             "index": 0
           }

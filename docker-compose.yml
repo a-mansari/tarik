@@ -1,6 +1,6 @@
 services:
   n8n:
-    image: docker.n8n.io/n8nio/n8n:2.43.5
+    build: ./n8n # n8n 2.43.5 with Tarik's patches (n8n/patch.js)
     restart: unless-stopped
     ports:
       - "127.0.0.1:5678:5678" # local only, not exposed on the LAN

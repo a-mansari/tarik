@@ -18,6 +18,7 @@ resumes from there with the answer.
 | `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
 | `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent in three modes: `files`, `answer`, `resume`. |
 | `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), in the `tarik` package (see below). They use Experio's own wizards and onchanges, never a parallel logic. |
+| `n8n/` | n8n 2.43.5 patched (`patch.js`): a native agent's workflow tool input fixed to `{{threadId}}` gets the conversation's id, and one fixed to `{{attachments}}` its attached files, from n8n, not from the model. "Tarik - Traitement" saves those files in `tarik_files` (once each, by `source_id`). The build fails if an n8n upgrade moves a patched line. |
 | `postgres/init.sql` | Tarik's own tables: received files, check results, step results, pending questions. The chat memory table is created by n8n. |
 
 Rules the tools keep:
