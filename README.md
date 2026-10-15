@@ -10,6 +10,9 @@ correction, tiers, duplicate, account, TVA, journal, withholding, prepaid charge
 fiscal year and posting. When a step needs the client, Tarik asks, and the sequence
 resumes from there with the answer.
 
+Documentation: [architecture](docs/architecture.md), [tools and workflows](docs/tools-and-workflows.md),
+[using Tarik](docs/using-tarik.md) (what it can do, and how to write to it).
+
 ## How it is built
 
 | Part | What it does |
@@ -17,6 +20,7 @@ resumes from there with the answer.
 | n8n Agents section | Tarik: one native agent per cabinet, "Tarik - <cabinet's name>" (MiniMax-M3). It only finds the dossier, lists invoices and hands the work over to the workflows below. All are made from `workflows/tarik-agent.json` and the skills in `workflows/skills/` by `workflows/build_tarik_agents.py`, which lists the cabinets: edit those, not the agents in n8n. |
 | `workflows/tarik-emails.json` | Every cabinet's mailbox, woken per cabinet by `tarik-mail-watch`: each email thread is answered by that cabinet's agent (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own conversation). |
 | `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
+| `workflows/tarik-modification.json` | Changing an existing dossier's identity fields (name, type, ICE, IF, RC, patente, T.S.C, capital, CNSS, address), only to values the client wrote. |
 | `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent (`traiter_fichiers`, mode `files`; the workflow also has `answer` and `resume`). |
 | `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), in the `tarik` package (see below). They use Experio's own wizards and onchanges, never a parallel logic. |
 | `n8n/` | n8n 2.43.5 patched (`patch.js`): a native agent's workflow tool input fixed to `{{threadId}}` gets the conversation's id, one fixed to `{{attachments}}` its attached files, and one fixed to `{{clientMessage}}` the client's latest message word for word ("Tarik - Dossier" needs the client's own words to skip the ICE/IF check), from n8n, not from the model. "Tarik - Traitement" and "Tarik - Dossier" save those files (`save_files`, once each by `source_id`). n8n's MCP `call_agent` also takes `newSession`, so an email thread's conversation has the thread's own id. The build fails if an n8n upgrade moves a patched line. |
@@ -191,7 +195,7 @@ docker compose exec n8n n8n publish:workflow --id=TarikTraitement1
 docker compose restart n8n
 ```
 
-Same for `tarik-dossier.json` (id `TarikDossier0001`) and `tarik-emails.json` (id `TarikEmails00001`). To check the published version is the
+Same for `tarik-dossier.json` (id `TarikDossier0001`), `tarik-modification.json` (id `TarikModif000001`) and `tarik-emails.json` (id `TarikEmails00001`). To check the published version is the
 new one, export the workflow (`n8n export:workflow --id=...`): `versionId` must equal
 `activeVersionId`.
 
