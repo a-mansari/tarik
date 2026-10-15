@@ -14,7 +14,7 @@ import time
 
 import httpx
 
-from inbox import connect
+from tarik.emails.inbox import connect
 
 WEBHOOK = os.getenv("MAIL_WEBHOOK_URL", "http://n8n:5678/webhook/tarik-nouvel-email")
 RENEW_SECONDS = 25 * 60
