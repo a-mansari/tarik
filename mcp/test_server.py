@@ -18,7 +18,7 @@ from dossiers import MIN_SIMILARITY, similarity
 from experio import exact_cabinet, expected_uid, require_dossier, require_invoice
 from intake import require_kind, split_pdf
 from invoices import label, status_of
-from onboarding import entries_kind, file_text, sheet_text, skip_agreed
+from onboarding import copy_asked, entries_kind, file_text, sheet_text, skip_agreed
 from server import server
 from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
 from accounts import resolve_account
@@ -249,5 +249,9 @@ assert sheet_text(saved.getvalue()).splitlines() == ["Journal;Date;Compte;;Debit
 assert skip_agreed("Créez-le sans vérification") and skip_agreed("Ignorez la vérification de l'ICE") and skip_agreed("pas besoin de vérifier")
 assert not skip_agreed("Les numéros sont corrects, ils viennent de nous être attribués") and not skip_agreed("Je confirme, créez-le")
 assert not skip_agreed("") and not skip_agreed("sans modèle")
+assert copy_asked(["Ouvrez VEGA, avec la même configuration que le dossier LYJA."], "LYJA (Test)")
+assert copy_asked(["bonjour", "copiez le paramétrage de Alpha Négoce"], "ALPHA NEGOCE SARL")
+assert not copy_asked(["Ouvrez-nous un dossier VEGA SARL, ICE 1111", "oui"], "LYJA (Test)")
+assert not copy_asked(["comme d'habitude"], "LYJA (Test)") and not copy_asked(["le dossier LYJA"], "LYJA (Test)")
 print("entries kind ok")
 print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account, tva, withholding, prepaid and exercice checks ok")
