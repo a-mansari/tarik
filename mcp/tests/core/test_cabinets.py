@@ -428,7 +428,8 @@ LEAKS = {  # a marker in every setting: none may show in anything a tool returns
 }
 SHARED_LEAKS = {"IMAP_HOST": "leak-imap-host.invalid", "SMTP_HOST": "leak-smtp-host.invalid", "IMAP_FOLDER": "LeakFolder",
                 "MODEL_API_URL": "http://leak-model.invalid", "MODEL_API_KEY": "leak-model-key", "MODEL_API_NAME": "leak-model",
-                "N8N_MCP_API_URL": "http://leak-n8n.invalid/mcp-server/http", "N8N_MCP_API_TOKEN": "leak-n8n-token"}
+                "N8N_MCP_API_URL": "http://leak-n8n.invalid/mcp-server/http", "N8N_MCP_API_TOKEN": "leak-n8n-token",
+                "MAIL_WEBHOOK_SECRET": "leak-webhook-secret"}
 
 
 def example(schema):

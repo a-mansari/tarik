@@ -4,8 +4,6 @@ import uuid
 
 # tarik-mcp serves each cabinet at its own address only (mcp/server.py).
 MCP_ADDRESS = "http://tarik-mcp:8000/c/{}/mcp"
-# The cabinet whose mailbox "Tarik - Emails" reads (its replies come from that cabinet's own agent).
-MAIL_CABINET = "experio_cabinet_8"
 CALL = "$('Appel').first().json"
 RESULT = "$json.content[0].text"
 OK_ELSE = f"{RESULT}.status === 'ok' ? 0 : 1"
@@ -17,11 +15,11 @@ SAVE_ATTACHMENTS = "Pieces jointes de l'agent"
 
 
 class Workflow:
-    def __init__(self, prefix, cabinet=None):
-        """``cabinet``: the cabinet's name, or None for a shared workflow, whose MCP steps go to the
-        cabinet its "Appel" was given (no cabinet: the steps fail, never reach another cabinet)."""
+    def __init__(self, prefix, cabinet=CALL + ".cabinet"):
+        """``cabinet``: where the workflow's MCP steps read their cabinet, by default its "Appel" input,
+        fixed by its caller (no cabinet: the steps fail, never reach another cabinet)."""
         self.prefix, self.nodes, self.connections = prefix, [], {}
-        self.mcp_url = MCP_ADDRESS.format(cabinet) if cabinet else "=" + MCP_ADDRESS.format("{{ " + CALL + ".cabinet }}")
+        self.mcp_url = "=" + MCP_ADDRESS.format("{{ " + cabinet + " }}")
 
     def node(self, name, type_, version, position, parameters, **extra):
         """Node ids are derived from node names, so a rebuild only changes what changed."""

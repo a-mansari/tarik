@@ -1,26 +1,30 @@
-"""Wake "Tarik - Emails" the moment an email arrives in a cabinet's mailbox, instead of at its next 2-minute check.
-Run as: python watcher.py <cabinet> (one of TARIK_CABINETS); it watches that cabinet's mailbox only.
+"""Wake "Tarik - Emails" for each cabinet with a Tarik mailbox (its own IMAP_USER): the moment an
+email arrives, and every 2 minutes in case one was missed. Each wake-up names its cabinet, and the
+workflow works in that cabinet only. Run as: python watcher.py (a new mailbox needs a restart).
 
-One IMAP IDLE connection to Tarik's folder (read-only, pinned certificate, as fetch_emails
-connects): the server tells it when the folder gets a new email, and it calls the workflow's
-webhook. The connection is renewed every 25 minutes (servers drop an IDLE after ~30) and
-rebuilt after any error; the 2-minute schedule still catches whatever happens meanwhile.
+Per cabinet, one IMAP IDLE connection to its Tarik folder (read-only, pinned certificate, as
+fetch_emails connects): the server tells it when the folder gets a new email, and it calls the
+workflow's webhook. The connection is renewed every 25 minutes (servers drop an IDLE after ~30)
+and rebuilt after any error; the 2-minute tick still catches whatever happens meanwhile.
 Python 3.12's imaplib has no IDLE (3.14 does): the command is spoken here.
 """
 
+import logging
 import os
 import re
 import select
-import sys
+import threading
 import time
 
 import httpx
 
-from tarik.core.cabinets import using
+from tarik.core.cabinets import CABINETS, setting, using
 from tarik.emails.inbox import connect
 
 WEBHOOK = os.getenv("MAIL_WEBHOOK_URL", "http://n8n:5678/webhook/tarik-nouvel-email")
 RENEW_SECONDS = 25 * 60
+TICK_SECONDS = 2 * 60
+HEADER = "X-Tarik-Webhook"  # the webhook's secret (Vault MAIL_WEBHOOK_SECRET; n8n credential "Tarik mail webhook")
 
 
 def wait_for_mail(box, count, seconds):
@@ -48,33 +52,59 @@ def wait_for_mail(box, count, seconds):
     return grown
 
 
-def wake_tarik():
+def wake_tarik(cabinet, why):
     try:
-        HTTP.post(WEBHOOK, json={"cabinet": CABINET}, timeout=10)
-        print("new email: Tarik - Emails woken", flush=True)
-    except Exception as error:  # the 2-minute schedule takes it anyway
-        print(f"webhook failed: {error}", flush=True)
+        HTTP.post(WEBHOOK, json={"cabinet": cabinet}, timeout=10, headers={HEADER: setting("MAIL_WEBHOOK_SECRET")})
+        if why:
+            print(f"{cabinet}: {why}, Tarik - Emails woken", flush=True)
+    except Exception as error:  # the next tick tries again
+        print(f"{cabinet}: webhook failed: {type(error).__name__}", flush=True)
 
 
-def watch():
-    while True:
-        try:
-            box = connect()
-            count = int(box.untagged_responses.get("EXISTS", [b"0"])[-1])
-            print(f"watching ({count} emails)", flush=True)
-            while True:
-                grown = wait_for_mail(box, count, RENEW_SECONDS)
-                if grown > count:
-                    wake_tarik()
-                count = grown
-        except Exception as error:
-            print(f"watch interrupted: {error}; reconnecting in 30 s", flush=True)
-            time.sleep(30)
+def watch(cabinet):
+    """IDLE on the cabinet's mailbox: Tarik is woken the moment an email arrives."""
+    with using(cabinet):
+        while True:
+            try:
+                box = connect()
+                count = int(box.untagged_responses.get("EXISTS", [b"0"])[-1])
+                print(f"{cabinet}: watching ({count} emails)", flush=True)
+                while True:
+                    grown = wait_for_mail(box, count, RENEW_SECONDS)
+                    if grown > count:
+                        wake_tarik(cabinet, "new email")
+                    count = grown
+            except Exception as error:
+                print(f"{cabinet}: watch interrupted: {error}; reconnecting in 30 s", flush=True)
+                time.sleep(30)
+
+
+def tick(cabinet):
+    """Every 2 minutes, whatever IDLE saw: an email it missed (connection down, server quirk) waits no longer."""
+    with using(cabinet):
+        while True:
+            time.sleep(TICK_SECONDS)
+            wake_tarik(cabinet, "")
+
+
+def mailboxes():
+    """The cabinets that have a Tarik mailbox: their own IMAP_USER."""
+    found = []
+    for cabinet in sorted(CABINETS):
+        with using(cabinet):
+            if setting("IMAP_USER", ""):
+                found.append(cabinet)
+    return found
 
 
 HTTP = httpx.Client()
+logging.getLogger("httpx").setLevel(logging.WARNING)  # not one line per wake-up
 
 if __name__ == "__main__":
-    CABINET = sys.argv[1]
-    with using(CABINET):
-        watch()
+    watched = mailboxes()
+    print(f"mailboxes: {', '.join(watched) or 'none'}", flush=True)
+    threads = [threading.Thread(target=job, args=(cabinet,), daemon=True) for cabinet in watched for job in (watch, tick)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
