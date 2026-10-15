@@ -50,7 +50,14 @@ node("Dossier cible", "n8n-nodes-base.code", 2, [1540, 300], {"jsCode": (
     f"const call = {CALL};\n"
     f"return [{{ json: {{ dossier_id: call.dossier_id > 0 ? call.dossier_id : $('{CREATE}').first().json.content[0].text.dossier_id }} }}];")})
 connect("Nouveau dossier ?", CREATE, 0)
-connect("Nouveau dossier ?", "Dossier cible", 1)
+# An existing dossier: the email's sender must have it assigned in Experio (the chat has no sender).
+mcp("Expediteur (check_sender)", "check_sender", f"{{ session_id: {CALL}.session_id, dossier_id: {CALL}.dossier_id }}", [440, 420])
+route("Suite apres check_sender", OK_ELSE, 2, [660, 420])
+connect("Nouveau dossier ?", "Expediteur (check_sender)", 1)
+connect("Expediteur (check_sender)", "Suite apres check_sender", 0)
+connect("Expediteur (check_sender)", RECORD, 1)
+connect("Suite apres check_sender", "Dossier cible", 0)
+connect("Suite apres check_sender", RECORD, 1)
 connect(CREATE, "Suite apres create_dossier", 0)
 connect(CREATE, RECORD, 1)
 connect("Suite apres create_dossier", "Modele ?", 0)

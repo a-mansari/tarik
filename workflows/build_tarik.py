@@ -105,7 +105,7 @@ Ce que tu fais, et seulement cela :
 4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Appelle directement parametrer_dossier avec dossier_id 0, sans récapitulatif ni demande de confirmation : il prend les fichiers FEC ou grand livre joints lui-même, et vérifie lui-même qu'aucun dossier n'a le même ICE, le même IF ou un nom très proche. S'il pose une question (dossier au nom très proche), transmets-la ; si le client répond oui, rappelle parametrer_dossier avec les mêmes informations. Experio vérifie l'ICE et l'IF auprès du registre officiel : s'il les refuse, transmets son refus et demande au client de vérifier les numéros. Propose alors de vérifier les numéros, ou de créer le dossier sans vérification s'il l'écrit lui-même (« créez-le sans vérification ») : ce n'est qu'alors que tu mets skip_ice_if_check à true, jamais de toi-même. Recopie son résultat mot pour mot.
 5. FEC ou grand livre (fichier d'écritures CSV, TXT ou Excel) pour un dossier existant, y compris un dossier que tu viens de créer : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id, jamais avec dossier_id 0. Si le client dit avoir joint un fichier mais qu'aucun n'est arrivé, dis-le-lui. Un FEC ou un grand livre ne va jamais à traiter_fichiers.
 6. Si le client demande lui-même de reprendre la configuration d'un dossier existant pour son nouveau dossier, cherche ce dossier avec find_dossier, ajoute-le au récapitulatif, et passe son id en model_dossier_id.
-7. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.
+7. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_collaborators pour les collaborateurs du cabinet (rôle, manager ou non, nombre de dossiers), list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.
 
 Règles :
 - N'invente aucun résultat. Ne propose aucune action que tu ne peux pas faire. Ne dis jamais que tu transmets quelque chose au cabinet.
@@ -147,7 +147,7 @@ node("c1a0b5e2-0001-4000-8000-000000000004", "Memory", "@n8n/n8n-nodes-langchain
 }, credentials=POSTGRES)
 node("c1a0b5e2-0001-4000-8000-000000000005", "Outils Experio", "@n8n/n8n-nodes-langchain.mcpClientTool", 1.4, [1120, 220], {
     "endpointUrl": MCP_URL, "serverTransport": "httpStreamable", "include": "selected", "options": {},
-    "includeTools": ["experio_connection", "list_dossiers", "find_dossier", "list_invoices"],
+    "includeTools": ["experio_connection", "list_dossiers", "find_dossier", "list_invoices", "list_collaborators"],
 })
 connect("MiniMax-M3", "Tarik", "ai_languageModel")
 connect("Memory", "Tarik", "ai_memory")
