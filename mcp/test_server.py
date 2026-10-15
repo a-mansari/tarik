@@ -18,6 +18,7 @@ from dossiers import MIN_SIMILARITY, similarity
 from experio import exact_cabinet, expected_uid, require_dossier, require_invoice
 from intake import require_kind, split_pdf
 from invoices import label, status_of
+from mail import recipient_allowed, send_email
 from onboarding import copy_asked, entries_kind, file_text, sheet_text, skip_agreed
 from server import server
 from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
@@ -228,6 +229,22 @@ assert status_of("annulee") is None and status_of("brouillon ou payee") is None
 assert label({"state": "post", "payment_state": "paid"}) == "payee" and label({"state": "export", "payment_state": "partial"}) == "comptabilisee"
 assert label({"state": "pending", "payment_state": "unpaid"}) == "en cours"
 print("invoice list ok")
+
+# Email whitelist: exact addresses or @domain, nobody when empty.
+allowed = ["test@example.com", "@cabinet.example"]
+assert recipient_allowed("Test <TEST@example.com>", allowed) and recipient_allowed("x@cabinet.example", allowed)
+assert not recipient_allowed("client@other.example", allowed) and not recipient_allowed("x@evilcabinet.example", allowed)
+assert not recipient_allowed("test@example.com", []) and not recipient_allowed("", allowed)
+assert recipient_allowed("test.ali@experio.ma", ["test.*@experio.ma"]) and not recipient_allowed("ali@experio.ma", ["test.*@experio.ma"])
+assert recipient_allowed("a@sub.cabinet.example", ["*@*.cabinet.example"]) and not recipient_allowed("a@cabinet.example", ["*@*.cabinet.example"])
+assert recipient_allowed("anyone@anywhere.example", ["*"])
+assert not recipient_allowed("testXali@experio.ma", ["test.ali@experio.ma"])  # "." is literal, not a wildcard
+try:
+    send_email("client@other.example", "s", "b")  # the container's own whitelist is empty or doesn't list it
+    raise AssertionError("an email outside the whitelist was not refused")
+except ToolError as error:
+    assert "hors de la liste autorisee" in str(error)
+print("email whitelist ok")
 
 # FEC or grand livre, from the file alone.
 HEAD = "JournalCode;JournalLib;EcritureNum;EcritureDate;CompteNum;CompteLib;EcritureLib;Debit;Credit"
