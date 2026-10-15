@@ -112,7 +112,7 @@ def create_dossier(name: str = "", ice: str | int = "", if_number: str | int = "
     remember_client_message(session_id, client_message)
     name = " ".join((name or "").split())
     if not name:  # MiniMax sometimes calls with no fields at all: told how to call again, it does
-        raise ToolError("Nom du dossier manquant : rappelle parametrer_dossier avec dossier_id 0 et les informations "
+        raise ToolError("Nom du dossier manquant : rappelle Experio_parametrer_dossier avec dossier_id 0 et les informations "
                         "du client remplies (name, ice, if_number, folder_type).")
     ice = as_written(ice, ICE_WRITTEN.findall(client_message or ""))
     if_number = as_written(if_number, IF_WRITTEN.findall(client_message or ""))

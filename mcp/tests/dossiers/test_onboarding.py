@@ -79,5 +79,5 @@ def test_an_if_needs_its_label_to_be_read():
 
 def test_a_call_without_a_name_says_how_to_call_again(monkeypatch):
     monkeypatch.setattr(onboarding, "remember_client_message", lambda *args: None)
-    with pytest.raises(ToolError, match="rappelle parametrer_dossier avec dossier_id 0"):
+    with pytest.raises(ToolError, match="rappelle Experio_parametrer_dossier avec dossier_id 0"):
         onboarding.create_dossier(client_message=MESSAGE, session_id="s")

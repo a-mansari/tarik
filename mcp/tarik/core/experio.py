@@ -73,14 +73,14 @@ def require_dossier(dossier_id):
     without a real dossier id from find_dossier, it fails instead of guessing.
     ToolError, not ValueError: only a ToolError's message reaches the agent."""
     if not isinstance(dossier_id, int) or isinstance(dossier_id, bool) or dossier_id <= 0:
-        raise ToolError("dossier_id manquant ou invalide : trouvez d'abord le dossier avec find_dossier.")
+        raise ToolError("dossier_id manquant ou invalide : trouvez d'abord le dossier avec Experio_find_dossier.")
     try:
         found = odoo_call("res.company", "search_read", [("id", "=", dossier_id), *DOSSIER_DOMAIN], fields=["name"])
     except Exception as error:
         print(f"require_dossier {dossier_id}: {error}", flush=True)
         raise ToolError("Experio est injoignable : le dossier n'a pas pu etre verifie.") from None
     if not found:
-        raise ToolError(f"Aucun dossier n° {dossier_id} : trouvez-le avec find_dossier.")
+        raise ToolError(f"Aucun dossier n° {dossier_id} : trouvez-le avec Experio_find_dossier.")
     return found[0]["name"]
 
 def require_invoice(invoice_id, fields):

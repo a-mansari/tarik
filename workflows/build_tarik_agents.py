@@ -101,21 +101,27 @@ def skill_files():
 
 
 def unknown_names(skills, config):
-    """The tool and field names a skill mentions that the agent does not have. A skill names tools by
-    the agent's own tool names (never a workflow's id or name): one renamed in the template, but not in
-    the skill, would point the model at a tool that no longer exists. Names are snake_case words."""
+    """The tool and field names a skill mentions that the agent does not have. A skill names tools as
+    the model sees them (never a workflow's id or name): every tool starts with Experio_, the MCP
+    server's own as n8n prefixes them, the workflows' as the template names them. A bare or renamed
+    name would point the model at a tool that does not exist. Names are snake_case words."""
     known = {"load_skill"}
     for tool in config.get("tools", []):
         known |= {tool["name"], *tool.get("inputs", {})}
-    for server in config.get("mcpServers", []):
-        known |= set((server.get("toolFilter") or {}).get("tools", []))
-    return {skill["name"]: sorted(set(re.findall(r"\b[a-z]+(?:_[a-z]+)+\b", skill["instructions"] + " " + skill["description"])) - known)
+    for server in config.get("mcpServers", []):  # n8n shows an MCP server's tools as <server>_<tool>
+        known |= {f"{server['name']}_{tool}" for tool in (server.get("toolFilter") or {}).get("tools", [])}
+    names = r"\b[A-Za-z]+(?:_[a-z]+)+\b"  # snake_case, a tool's server prefix included (Experio_find_dossier)
+    return {skill["name"]: sorted(set(re.findall(names, skill["instructions"] + " " + skill["description"])) - known)
             for skill in skills}
 
 
 def check_skills():
-    """Refuse to build when a skill names a tool or field the agents do not have."""
-    wrong = {name: names for name, names in unknown_names(list(skill_files()), config_for("check", "check")).items() if names}
+    """Refuse to build when a skill, the instructions or a tool's description names a tool or field
+    the agents do not have."""
+    config = config_for("check", "check")
+    texts = [*skill_files(), {"name": "instructions", "description": " ".join(tool["description"] for tool in config["tools"]),
+                              "instructions": config["instructions"]}]
+    wrong = {name: names for name, names in unknown_names(texts, config).items() if names}
     if wrong:
         raise SystemExit(f"skills name tools or fields the agents do not have: {wrong}")
 
