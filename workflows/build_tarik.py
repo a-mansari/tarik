@@ -78,7 +78,7 @@ Ce que tu fais, et seulement cela :
 1. Factures et relevés reçus : trouve le dossier avec find_dossier, à partir du nom donné par le client. S'il n'a pas dit quel dossier, ou si plusieurs dossiers se ressemblent, demande-lui lequel. Puis appelle traiter_fichiers une seule fois, avec l'id du dossier : il prend les fichiers joints lui-même. Recopie son résultat mot pour mot, facture par facture, sans le reformuler (les numéros surtout).
 2. Questions en attente : elles te sont données avec le message du client. S'il y répond, appelle repondre avec le numéro de la facture et sa réponse, puis recopie le résultat mot pour mot. Sinon, rappelle-lui les questions.
 3. Factures en attente de lecture : elles te sont données avec le message du client. Appelle reprendre une seule fois, puis recopie son résultat mot pour mot.
-4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Vérifie avec find_dossier qu'il n'existe pas déjà. Demande de quel dossier existant copier la configuration (le dossier modèle, cherché avec find_dossier), ou aucun. Récapitule (nom, ICE, IF, modèle, fichiers) et attends que le client confirme : un dossier créé ne peut pas être supprimé. Puis appelle parametrer_dossier avec dossier_id 0 : il prend les fichiers FEC ou grand livre joints lui-même. Recopie son résultat mot pour mot.
+4. Nouveau dossier : il faut son nom, et si possible son ICE et son IF. Vérifie avec find_dossier qu'il n'existe pas déjà. Demande de quel dossier existant copier la configuration (le dossier modèle, cherché avec find_dossier), ou aucun. Récapitule (nom, ICE, IF, modèle, fichiers) et attends que le client confirme : un dossier créé ne peut pas être supprimé. Puis appelle parametrer_dossier avec dossier_id 0 : il prend les fichiers FEC ou grand livre joints lui-même. Experio vérifie l'ICE et l'IF auprès du registre officiel : s'il les refuse, transmets son refus et demande au client de vérifier les numéros. Propose alors de vérifier les numéros, ou de créer le dossier sans vérification s'il l'écrit lui-même (« créez-le sans vérification ») : ce n'est qu'alors que tu mets skip_ice_if_check à true, jamais de toi-même. Recopie son résultat mot pour mot.
 5. FEC ou grand livre (fichier d'écritures CSV, TXT ou Excel) pour un dossier existant : trouve le dossier avec find_dossier, puis appelle parametrer_dossier avec son id. Un FEC ou un grand livre ne va jamais à traiter_fichiers.
 6. Le reste : experio_connection pour savoir si Experio fonctionne, list_dossiers pour la liste des dossiers, list_invoices pour les factures d'un dossier (trouve d'abord le dossier avec find_dossier ; filtre possible : en cours, brouillon, comptabilisee, payee). Recopie la liste telle quelle. Pour toute autre demande, dis simplement que tu ne peux pas encore le faire.
 
@@ -148,18 +148,20 @@ node("6f1d3a52-dc4e-5b7e-9a1c-7d2e4b9c0a11", "parametrer_dossier", "@n8n/n8n-nod
         "mappingMode": "defineBelow",
         "value": {
             "session_id": SESSION,
+            "client_message": "={{ $('Message a Tarik').item.json.chatInput }}",  # the client's words, not the agent's
             "dossier_id": "={{ $fromAI('dossier_id', 'L id du dossier existant (find_dossier), 0 pour un nouveau dossier', 'number') }}",
             "name": "={{ $fromAI('name', 'Le nom du nouveau dossier, vide pour un dossier existant', 'string') }}",
             "ice": "={{ $fromAI('ice', 'L ICE du nouveau dossier, vide si inconnu', 'string') }}",
             "if_number": "={{ $fromAI('if_number', 'L IF du nouveau dossier, vide si inconnu', 'string') }}",
             "folder_type": "={{ $fromAI('folder_type', 'company (societe, par defaut) ou person (personne physique)', 'string') }}",
+            "skip_ice_if_check": "={{ $fromAI('skip_ice_if_check', 'true seulement si le client a accepte de creer le dossier sans verification de l ICE et de l IF, sinon false', 'boolean') }}",
             "model_dossier_id": "={{ $fromAI('model_dossier_id', 'L id du dossier modele (find_dossier), 0 si aucun', 'number') }}",
             "kind": "={{ $fromAI('kind', 'fec ou grand livre si le client l a dit, sinon vide', 'string') }}"},
         "matchingColumns": [],
         "schema": [{"id": key, "displayName": key, "required": False, "defaultMatch": False, "display": True,
                     "canBeUsedToMatch": True, "type": kind, "removed": False}
-                   for key, kind in [("session_id", "string"), ("dossier_id", "number"), ("name", "string"), ("ice", "string"),
-                                     ("if_number", "string"), ("folder_type", "string"), ("model_dossier_id", "number"),
+                   for key, kind in [("session_id", "string"), ("client_message", "string"), ("dossier_id", "number"), ("name", "string"), ("ice", "string"),
+                                     ("if_number", "string"), ("folder_type", "string"), ("skip_ice_if_check", "boolean"), ("model_dossier_id", "number"),
                                      ("kind", "string")]],
         "attemptToConvertTypes": False, "convertFieldsToString": False},
 })

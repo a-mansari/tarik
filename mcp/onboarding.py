@@ -50,17 +50,32 @@ def experio_refusal(error):
     return str(error).strip().splitlines()[-1][:300]
 
 
+def skip_agreed(client_message):
+    """Did the client ask, in their own words, for the dossier without the ICE/IF check?
+    Read from their message, not from the agent: MiniMax set the skip on its own."""
+    text = normalized(client_message or "")
+    return "verif" in text and any(word in text for word in ("sans", "ignor", "pas besoin", "pas de", "skip"))
+
+
 @server.tool()
-def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: str = "company") -> dict:
+def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: str = "company",
+                   skip_ice_if_check: bool = False, client_message: str = "") -> dict:
     """Create a new dossier in Experio, as the Folders screen does. ``ice`` and
     ``if_number`` are the client's ICE and IF, ``folder_type`` company (default),
-    person, cpu or st. Experio checks the name is free and the ICE/IF are valid."""
+    person, cpu or st. Experio checks the name is free and the ICE/IF against the
+    official registry; ``skip_ice_if_check`` ticks the dossier form's "Ignore ICE/IF
+    Verification", only when ``client_message``, the client's own message, asks for it."""
     name = " ".join((name or "").split())
     if not name:
         raise ToolError("Nom du dossier manquant.")
     if folder_type not in FOLDER_TYPES:
         raise ToolError(f"Type de dossier inconnu : {', '.join(FOLDER_TYPES)}.")
     values = {"name": name, "folder_type": folder_type, "enabled": True}  # enabled, as Experio's dossier import sets it
+    if skip_ice_if_check:
+        if not skip_agreed(client_message):
+            raise ToolError("Creation sans verification de l'ICE et de l'IF refusee : le client doit la demander lui-meme "
+                            "(par exemple « creez-le sans verification »).")
+        values["ignore_ice_if_verification"] = True
     values.update({key: value.strip() for key, value in (("ice", ice), ("vat", if_number)) if value and value.strip()})
     if DRY_RUN:
         return ok(f"{TEST}Le dossier {name} serait cree.")
@@ -69,7 +84,8 @@ def create_dossier(name: str, ice: str = "", if_number: str = "", folder_type: s
     except Exception as error:
         print(f"create_dossier {name}: {error}", flush=True)
         raise ToolError(f"Experio refuse de creer le dossier {name} : {experio_refusal(error)}") from None
-    return ok(f"Dossier {name} cree dans Experio.", dossier_id=dossier_id)
+    unchecked = " ICE et IF non verifies (verification ignoree, a la demande du client)." if skip_ice_if_check else ""
+    return ok(f"Dossier {name} cree dans Experio.{unchecked}", dossier_id=dossier_id)
 
 
 @server.tool()

@@ -45,6 +45,14 @@
               "type": "string"
             },
             {
+              "name": "skip_ice_if_check",
+              "type": "boolean"
+            },
+            {
+              "name": "client_message",
+              "type": "string"
+            },
+            {
               "name": "model_dossier_id",
               "type": "number"
             },
@@ -89,7 +97,7 @@
           "value": "create_dossier"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ name: $('Appel').first().json.name, ice: $('Appel').first().json.ice || '', if_number: $('Appel').first().json.if_number || '', folder_type: $('Appel').first().json.folder_type || 'company' }) }}",
+        "jsonInput": "={{ JSON.stringify({ name: $('Appel').first().json.name, ice: $('Appel').first().json.ice || '', if_number: $('Appel').first().json.if_number || '', folder_type: $('Appel').first().json.folder_type || 'company', skip_ice_if_check: $('Appel').first().json.skip_ice_if_check === true, client_message: $('Appel').first().json.client_message || '' }) }}",
         "options": {
           "timeout": 300000
         }

@@ -18,7 +18,7 @@ from dossiers import MIN_SIMILARITY, similarity
 from experio import exact_cabinet, expected_uid, require_dossier, require_invoice
 from intake import require_kind, split_pdf
 from invoices import label, status_of
-from onboarding import entries_kind, file_text, sheet_text
+from onboarding import entries_kind, file_text, sheet_text, skip_agreed
 from server import server
 from tiers import TIERS_MIN_SIMILARITY, pick_tiers, set_tiers
 from accounts import resolve_account
@@ -246,5 +246,8 @@ book.active.append([None, None, None, None, None, None])
 saved = io.BytesIO()
 book.save(saved)
 assert sheet_text(saved.getvalue()).splitlines() == ["Journal;Date;Compte;;Debit;Credit", "ACH;20250102;61250000;;17490;12.5"]
+assert skip_agreed("Créez-le sans vérification") and skip_agreed("Ignorez la vérification de l'ICE") and skip_agreed("pas besoin de vérifier")
+assert not skip_agreed("Les numéros sont corrects, ils viennent de nous être attribués") and not skip_agreed("Je confirme, créez-le")
+assert not skip_agreed("") and not skip_agreed("sans modèle")
 print("entries kind ok")
 print("similarity, dossier, cabinet, split, check, false-alarm, correction, kind, tiers, account, tva, withholding, prepaid and exercice checks ok")
