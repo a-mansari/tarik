@@ -10,7 +10,7 @@ from tarik.core.app import with_ids, ok, question, server, stop
 from tarik.invoices.classify import CLASSIFY_PROMPT, client_side
 from tarik.core.documents import pdf_pages, to_pdf
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import odoo_call, require_dossier
+from tarik.core.experio import dry_run, odoo_call, require_dossier
 from tarik.core.model import ask_model
 from tarik.dossiers.onboarding import client_messages
 
@@ -170,6 +170,9 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
             data = to_pdf(bytes(data))
         elif mime != "application/pdf":
             return stop(f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
+        if dry_run():  # stop: without a draft, the steps after this one have nothing to work on
+            return stop(f"MODE TEST : aucune modification enregistree dans Experio. {name} : la facture brouillon "
+                        f"serait creee dans le dossier {dossier}.")
         try:
             # Experio's own import wizard, as the upload screen uses it: its defaults, the
             # pending state and the Bluejay OCR job. A bare exp.invoice create skips all three.
@@ -224,6 +227,10 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
             journal_id = usable[0]["id"]
         elif journal_id not in {j["id"] for j in usable}:
             raise ToolError(f"journal_id {journal_id} n'est pas un journal de banque utilisable du dossier {dossier}.")
+        if dry_run():
+            journal = next(j for j in usable if j["id"] == journal_id)
+            return ok(f"MODE TEST : aucune modification enregistree dans Experio. {name} : le releve serait importe "
+                      f"dans le dossier {dossier}, journal {journal['name']}.")
         raw = to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
         context = {"allowed_company_ids": [dossier_id]}
         try:

@@ -13,57 +13,14 @@ import json
 import os
 import uuid
 
-import httpx
 import pytest
 
-from tarik.core import vault
-
-URL = os.getenv("N8N_MCP_API_URL", "http://n8n:5678/mcp-server/http")
-TOKEN = os.getenv("N8N_MCP_API_TOKEN") or (vault.settings()[0].get("N8N_MCP_API_TOKEN", "") if vault.ENABLED else "")
 PROJECT = os.getenv("N8N_MCP_PROJECT_ID", "")
 CREDENTIAL = os.getenv("N8N_MCP_CREDENTIAL", "MiniMaxAnthr0p1c")
-
-pytestmark = pytest.mark.skipif(not TOKEN, reason="N8N_MCP_API_TOKEN not set")
 
 INSTRUCTIONS = ("Tu es un agent de test. Quand on te donne un code secret, retiens-le et reponds OK. "
                 "Quand on te demande le code secret, donne-le exactement s'il t'a ete donne, sinon reponds AUCUN. "
                 "N'invente jamais de code.")
-
-
-class N8nMcp:
-    """n8n's MCP server, spoken over plain HTTP JSON-RPC."""
-
-    def __init__(self):
-        self.http = httpx.Client(timeout=300, headers={"authorization": f"Bearer {TOKEN}",
-                                                       "accept": "application/json, text/event-stream"})
-        answer = self.post({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
-            "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "tarik-tests", "version": "1"}}})
-        self.session = answer.headers.get("mcp-session-id")
-        self.post({"jsonrpc": "2.0", "method": "notifications/initialized"})
-
-    def post(self, message):
-        headers = {"mcp-session-id": self.session} if getattr(self, "session", None) else {}
-        answer = self.http.post(URL, json=message, headers=headers)
-        answer.raise_for_status()
-        return answer
-
-    def tool(self, tool, /, **arguments):
-        answer = self.post({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}})
-        text = answer.text
-        if "data:" in text:
-            text = next(line[5:] for line in text.splitlines() if line.startswith("data:"))
-        result = json.loads(text)["result"]
-        content = result.get("structuredContent") or json.loads(result["content"][0]["text"])
-        return content
-
-    def ask(self, agent_id, message, session_id=None):
-        request = {"type": "message", "message": message, **({"sessionId": session_id} if session_id else {})}
-        return self.tool("call_agent", agentId=agent_id, request=request)
-
-
-@pytest.fixture(scope="module")
-def n8n():
-    return N8nMcp()
 
 
 @pytest.fixture(scope="module")
