@@ -20,6 +20,7 @@ node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], {
     "workflowInputs": {"values": [{"name": "mode", "type": "string"}, {"name": "session_id", "type": "string"},
                                   {"name": "dossier_id", "type": "number"},
                                   {"name": "invoice_id", "type": "number"}, {"name": "answer", "type": "string"},
+                                  {"name": "invoice_type", "type": "string"}, {"name": "client_message", "type": "string"},
                                   ATTACHMENTS, CABINET]},
 })
 flow.save_attachments([110, 300])
@@ -48,7 +49,9 @@ mcp("Identification (identify_document)", "identify_document", "{ file_id: $json
 route("Suite apres identify_document", f"{RESULT}.status !== 'ok' ? 2 : ({RESULT}.kind === 'statement' ? 0 : 1)", 3, [880, 200])
 mcp("Releve bancaire (import_bank_statement)", "import_bank_statement",
     f"{{ file_id: {RESULT}.file_id, dossier_id: {CALL}.dossier_id }}", [1100, 40])
-mcp("Decoupage (split_invoices)", "split_invoices", f"{{ file_id: {RESULT}.file_id }}", [1100, 240])
+# The client says whether the invoices are purchases or sales; split_invoices asks them when they didn't.
+mcp("Decoupage (split_invoices)", "split_invoices", (f"{{ file_id: {RESULT}.file_id, invoice_type: {CALL}.invoice_type || '', "
+                                                    f"client_message: {CALL}.client_message || '' }}"), [1100, 240])
 route("Suite apres split_invoices", OK_ELSE, 2, [1320, 240])
 node("Une facture par fichier", "n8n-nodes-base.code", 2, [1540, 200], {"jsCode": (
     "// Each invoice found in the file becomes its own item.\n"
@@ -82,7 +85,8 @@ CHAIN = [("Brouillon (create_draft_invoice)", "create_draft_invoice"),
 x = 1760
 for index, (name, tool) in enumerate(CHAIN):
     if index:
-        mcp(name, tool, f"{{ invoice_id: {RESULT}.invoice_id }}", [x, 420])
+        extra = f", invoice_type: {CALL}.invoice_type || ''" if tool == "classify_invoice" else ""
+        mcp(name, tool, f"{{ invoice_id: {RESULT}.invoice_id{extra} }}", [x, 420])
     router = f"Suite apres {tool}"
     route(router, OK_ELSE, 2, [x + 110, 620])
     connect(name, router, 0)

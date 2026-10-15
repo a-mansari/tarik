@@ -1,5 +1,7 @@
 """Phase 5: purchase, sale, or not an invoice at all (tarik-master agents/classify.py)."""
 
+import re
+
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, server, stop, wait
@@ -7,6 +9,7 @@ from tarik.core.documents import scan_pages
 from tarik.core.cabinets import cabinet_db
 from tarik.core.experio import dry_run, fill_invoice, invoice_context, require_invoice
 from tarik.core.model import ask_model
+from tarik.dossiers.search import normalized
 
 
 # tarik-master/tarik/agents/classify.py, verbatim.
@@ -26,14 +29,26 @@ table of bank movements. Give a one-sentence reason in French.
 """
 
 CATEGORY_TO_TYPE = {"achat": "purchase", "vente": "sale"}
+# How a client says which side their invoices are on (matched on normalized words).
+SIDE_WORDS = {"achat": r"achats?|fournisseurs?|purchases?", "vente": r"ventes?|sales?|factures? (?:de )?clients?"}
+SIDES = {"achat": {"achat"}, "vente": {"vente"}, "mixte": {"achat", "vente"}}
+
+
+def client_side(invoice_type, words):
+    """``invoice_type`` (achat, vente, or mixte for both) when the client wrote it themselves, else None:
+    a model may not choose the side of the client's invoices."""
+    written = {side for side, pattern in SIDE_WORDS.items() if re.search(rf"\b(?:{pattern})\b", normalized(words or ""))}
+    return invoice_type if invoice_type in SIDES and SIDES[invoice_type] <= written else None
+
 
 @server.tool()
 @with_ids
-def classify_invoice(invoice_id: int) -> dict:
+def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     """Decide what a draft really is once Experio has read it: a purchase
     (achat), a sale (vente) or a bank statement (rb, not an invoice at all).
     Sets the invoice's type when Experio has it wrong; writes nothing for a
-    bank statement."""
+    bank statement. ``invoice_type``: achat or vente as the client said (checked
+    by split_invoices); a scan that says otherwise stops the invoice."""
     invoice = require_invoice(invoice_id, ["state", "type", "company_id", "exercice_id", "bluejay_state", "document_pdf", "file_type"])
     if invoice["bluejay_state"] in ("pending", "sent"):
         return wait(f"Facture {invoice_id} : Experio est encore en train de la lire, reessayez dans une minute.")
@@ -52,6 +67,9 @@ def classify_invoice(invoice_id: int) -> dict:
                    (invoice_id, category, reason))
     if category == "rb":
         return stop(f"Facture {invoice_id} : ce n'est pas une facture mais un releve bancaire ({reason}). Rien n'a ete modifie.", category=category)
+    if invoice_type in CATEGORY_TO_TYPE and category != invoice_type:
+        return stop(f"Facture {invoice_id} : vous l'avez donnee comme {invoice_type}, mais elle ressemble a une {category} "
+                    f"({reason}). Laissee en brouillon, rien n'a ete modifie : verifiez-la dans Experio.", category=category)
     wanted = CATEGORY_TO_TYPE[category]
     if invoice["type"] == wanted:
         return ok(f"Facture {invoice_id} : {category}, deja enregistree comme telle ({reason}).", category=category)
