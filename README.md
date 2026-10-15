@@ -17,7 +17,7 @@ resumes from there with the answer.
 | `workflows/tarik.json` | The chat page and the agent (MiniMax-M3). The agent only finds the dossier, lists invoices and hands the work over. |
 | `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
 | `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent in three modes: `files`, `answer`, `resume`. |
-| `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), one module per phase. They use Experio's own wizards and onchanges, never a parallel logic. |
+| `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), in the `tarik` package (see below). They use Experio's own wizards and onchanges, never a parallel logic. |
 | `postgres/init.sql` | Tarik's own tables: received files, check results, step results, pending questions. The chat memory table is created by n8n. |
 
 Rules the tools keep:
@@ -91,20 +91,31 @@ new one, export the workflow (`n8n export:workflow --id=...`): `versionId` must 
 
 ## Changing a tool
 
-Edit the module in `mcp/`, then rebuild the container and run the checks:
+The tools live in `mcp/tarik/`, one package per kind of work, and their tests in
+`mcp/tests/`, in the same tree:
+
+| Package | What it holds |
+|---------|---------------|
+| `tarik/core/` | The MCP server and step results (`app`), Experio calls and guards (`experio`), the vision model, documents, the connection check. |
+| `tarik/invoices/` | "Tarik - Traitement": one module per step, in sequence order, `pipeline` for its bookkeeping, `listing` for `list_invoices`. |
+| `tarik/dossiers/` | Finding dossiers (`search`), "Tarik - Dossier" (`onboarding`), collaborators and who may work on which dossier (`people`). |
+| `tarik/emails/` | "Tarik - Emails": reading the mailbox (`inbox`), sending replies (`sending`). |
+
+`mcp/server.py` and `mcp/watcher.py` are the two entry points (the MCP server, the IMAP
+IDLE watcher). Edit a module, then rebuild the containers and run the tests:
 
 ```bash
-docker compose up -d --build --force-recreate tarik-mcp
+docker compose up -d --build --force-recreate tarik-mcp tarik-mail-watch
 ```
 
 ```bash
-docker compose exec -T tarik-mcp python test_server.py
+docker compose exec -T tarik-mcp python -m pytest
 ```
 
 A new tool is registered by importing its module in `mcp/server.py`. To give it to the
 agent, add it to the "Outils Experio" tools in `workflows/build_tarik.py`; to make it a
 step of the sequence, add it to `CHAIN` in `workflows/build_tarik_traitement.py` and to
-`STEPS` in `mcp/pipeline.py`.
+`STEPS` in `mcp/tarik/invoices/pipeline.py`. Its tests go in the matching file under `mcp/tests/`.
 
 ## New dossiers
 

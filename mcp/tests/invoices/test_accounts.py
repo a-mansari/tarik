@@ -1,0 +1,15 @@
+"""The client's words -> one account (fictional chart, same shapes as a real one)."""
+
+from tarik.invoices.accounts import resolve_account
+
+CHART = [{"id": 1, "code": "61110000", "name": "Achats de marchandises"}, {"id": 2, "code": "61120000", "name": "Achats de marchandises"},
+         {"id": 3, "code": "61190000", "name": "Rabais, remises et ristournes obtenus sur achats de marchandises"},
+         {"id": 4, "code": "61251000", "name": "Achats de fournitures non stockables"}, {"id": 5, "code": "61455000", "name": "Frais de téléphone"}]
+
+
+def test_one_account_or_a_question():
+    assert resolve_account(CHART, "achats de marchandises")["id"] == 1  # same label twice: lowest code
+    assert resolve_account(CHART, "6111")["id"] == 1 and resolve_account(CHART, "61455000")["id"] == 5
+    assert resolve_account(CHART, "téléphone")["id"] == 5
+    assert resolve_account(CHART, "marchandises") is None  # three different labels: ask
+    assert resolve_account(CHART, "611") is None and resolve_account(CHART, "carburant") is None
