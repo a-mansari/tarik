@@ -144,7 +144,7 @@
         0
       ],
       "parameters": {
-        "jsCode": "// The agent needs the dossiers' ids for its tools, and MiniMax sometimes writes them: never shown to the client.\nconst text = $input.first().json.output || '';\nconst output = text\n  .replace(/\\s*\\((?:dossier\\s+)?id\\s*:?\\s*\\d+\\)/gi, '')\n  .replace(/,?\\s*\\b(?:dossier\\s+)?id\\s*:?\\s*\\d+\\b/gi, '');\nreturn [{ json: { output } }];"
+        "jsCode": "// The agent needs the dossiers' ids for its tools, and MiniMax sometimes writes them: never shown to the client.\nconst text = $input.first().json.output || '';\nlet output = text\n  .replace(/\\s*\\((?:dossier\\s+)?id\\s*:?\\s*\\d+\\)/gi, '')\n  .replace(/,?\\s*\\b(?:dossier\\s+)?id\\s*:?\\s*\\d+\\b/gi, '')\n  .trim();\n// MiniMax sometimes quotes a result it copies, the opening quote taking the first line's dash.\nconst quoted = output.match(/^[«\"“]\\s*([\\s\\S]*?)\\s*[»\"”]$/);\nif (quoted) output = quoted[1];\nconst lines = output.split('\\n');\nconst step = /^[a-zàâçéèêëîïôûù' ]+ : \\S/;  // a summary line: \"integration : Dossier ...\"\nif (lines.length > 1 && step.test(lines[0]) && lines.slice(1).some(line => line.startsWith('- '))) lines[0] = '- ' + lines[0];\nreturn [{ json: { output: lines.join('\\n') } }];"
       }
     },
     {
