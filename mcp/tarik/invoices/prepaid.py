@@ -6,28 +6,11 @@ ticking it in the form fills and validates the period, and posting generates the
 entries with the dossier's prepaid account and journal.
 """
 
-from mcp.server.mcpserver.exceptions import ToolError
-
 from tarik.core.app import ok, question, server, with_ids
-from tarik.dossiers.search import normalized
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import dry_run, fill_invoice, invoice_context, require_invoice
-from tarik.invoices.tva import experio_messages
-
-# tarik-master read the yes/no with a model call; these words, in code, are enough and never drift.
-YES = ("oui", "yes", "ok", "d'accord", "vas-y", "vas y", "repartis", "repartir", "c'est ca", "exact")
-NO = ("non", "no", "pas besoin", "ne pas", "ponctuel", "inutile")
-
-
-def yes_no(reply):
-    """True, False, or None when the reply says neither."""
-    text = normalized(reply or "")
-    if any(text.startswith(normalized(word)) for word in NO):
-        return False
-    if any(text.startswith(normalized(word)) for word in YES):
-        return True
-    return None
-
+from tarik.core.conversation import yes_no
+from tarik.core.experio import (experio_messages, fill_invoice, invoice_context, refused, require_draft, require_invoice,
+                                test_mode_note)
 
 def prepaid_period(start, end):
     """The billed period when it spans several months (tarik-master odoo.prepaid_period), else None."""
@@ -61,16 +44,11 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
         return question(asked if not answer else f"Reponse non comprise. {asked}")
     if not spread:
         return ok(f"Facture {invoice_id} : pas de repartition.")
-    if invoice["state"] != "draft":
-        raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut etre modifiee.")
+    require_draft(invoice_id, invoice)
     context = invoice_context(invoice)
-    try:
+    with refused(f"settle_prepaid {invoice_id}", f"Facture {invoice_id} : Experio a refuse la repartition."):
         # Ticked first, as on screen (its onchange fills defaults), then the period read on the scan.
         fill_invoice(invoice_id, {"has_prepaid_expenses": True, **values}, context)
         messages = experio_messages(invoice_id, context)
-    except Exception as error:
-        print(f"settle_prepaid {invoice_id}: {error}", flush=True)
-        raise ToolError(f"Facture {invoice_id} : Experio a refuse la repartition.") from None
-    head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
-    return ok(f"{head}Facture {invoice_id} : {kind} constates d'avance sur {values['prepaid_months']} mois a partir du "
+    return ok(f"{test_mode_note()}Facture {invoice_id} : {kind} constates d'avance sur {values['prepaid_months']} mois a partir du "
               f"{values['prepaid_start_date']} (ecritures generees a la comptabilisation)." + ("" if not messages else " " + " ".join(messages)))

@@ -9,6 +9,7 @@ cabinet's. Through n8n's MCP server (N8N_MCP_API_URL in .env, its token in Vault
 there are allowed in n8n MCP, which "Tarik - Emails" needs (ask_agent). Prints each agent's id,
 for <CABINET>__AGENT_ID in .env."""
 
+import functools
 import json
 import re
 import sys
@@ -31,8 +32,9 @@ CABINETS = {
 }
 
 
-def env():
-    """N8N_MCP_API_URL from .env, N8N_MCP_API_TOKEN from the local Vault (vault/migrate_env.py moved it there)."""
+@functools.cache  # read when first needed: the checks below import this file without .env or Vault
+def settings():
+    """N8N_MCP_API_URL from .env, N8N_MCP_API_TOKEN from the local Vault."""
     values = {}
     for line in (HERE.parent / ".env").read_text().splitlines():
         key, separator, value = line.partition("=")
@@ -47,14 +49,12 @@ def env():
     return values
 
 
-SETTINGS = env()
-
 
 def n8n(tool, **arguments):
     """One tool of n8n's MCP server; its structured result."""
-    request = urllib.request.Request(SETTINGS["N8N_MCP_API_URL"], method="POST", data=json.dumps({
+    request = urllib.request.Request(settings()["N8N_MCP_API_URL"], method="POST", data=json.dumps({
         "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}).encode(),
-        headers={"authorization": f"Bearer {SETTINGS['N8N_MCP_API_TOKEN']}", "content-type": "application/json",
+        headers={"authorization": f"Bearer {settings()['N8N_MCP_API_TOKEN']}", "content-type": "application/json",
                  "accept": "application/json, text/event-stream"})
     for attempt in range(8):
         try:

@@ -4,7 +4,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server
 from tarik.dossiers.search import normalized
-from tarik.core.experio import odoo_call, require_dossier
+from tarik.core.experio import odoo_call, refused, require_dossier
 
 # What the client asks for -> Experio's own domain. Exclusive: each invoice is in one of them.
 STATUSES = {
@@ -53,13 +53,10 @@ def list_invoices(dossier_id: int, status: str = "", limit: int = 20) -> dict:
         raise ToolError(f"Statut « {status} » inconnu : en cours, brouillon, comptabilisee ou payee.")
     domain = [("company_id", "=", dossier_id), ("state", "!=", "cancel"), *STATUSES.get(wanted, [])]
     limit = max(1, min(int(limit or 20), 100))
-    try:
+    with refused(f"list_invoices {dossier_id}", "Experio n'a pas pu donner la liste des factures."):
         total = odoo_call("exp.invoice", "search_count", domain)
         found = odoo_call("exp.invoice", "search_read", domain, order="id desc", limit=limit,
                           fields=["invoice_number", "invoice_date", "partner_id", "amount_total", "state", "payment_state"])
-    except Exception as error:
-        print(f"list_invoices {dossier_id}: {error}", flush=True)
-        raise ToolError("Experio n'a pas pu donner la liste des factures.") from None
     what = f"facture(s) {wanted}" if wanted else "facture(s)"
     if not found:
         return ok(f"Aucune {what.replace('(s)', '')} dans le dossier {dossier}.")

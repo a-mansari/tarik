@@ -16,33 +16,19 @@ import anyio
 import anyio.to_thread
 import uvicorn
 
-import tarik.core.connection  # noqa: F401
-import tarik.dossiers.onboarding  # noqa: F401
-import tarik.dossiers.people  # noqa: F401
-import tarik.dossiers.search  # noqa: F401
-import tarik.emails.agent  # noqa: F401
-import tarik.emails.inbox  # noqa: F401
-import tarik.emails.sending  # noqa: F401
-import tarik.invoices.accounts  # noqa: F401
-import tarik.invoices.check  # noqa: F401
-import tarik.invoices.classify  # noqa: F401
-import tarik.invoices.correct  # noqa: F401
-import tarik.invoices.duplicates  # noqa: F401
-import tarik.invoices.exercice  # noqa: F401
-import tarik.invoices.intake  # noqa: F401
-import tarik.invoices.journal  # noqa: F401
-import tarik.invoices.listing  # noqa: F401
-import tarik.invoices.pipeline  # noqa: F401
-import tarik.invoices.posting  # noqa: F401
-import tarik.invoices.prepaid  # noqa: F401
-import tarik.invoices.tiers  # noqa: F401
-import tarik.invoices.tva  # noqa: F401
-import tarik.invoices.withholding  # noqa: F401
+from tarik.core import connection
+from tarik.dossiers import identity, people, search, setup
+from tarik.emails import agent, inbox, sending
+from tarik.invoices import (accounts, check, classify, correct, duplicates, exercice, intake, journal, listing, pipeline,
+                            posting, prepaid, tiers, tva, withholding)
 from tarik.core.app import server
 from tarik.core import vault
-from tarik.core.cabinets import CABINETS, create_schemas, misplaced_in_vault, misplaced_settings, using
+from tarik.core.cabinets import CABINETS, create_schemas, misplaced_in_vault, using
 from tarik.core.experio import account
 
+# Imported for their tools: each module registers its own on tarik.core.app.server.
+TOOL_MODULES = (connection, identity, people, search, setup, agent, inbox, sending, accounts, check, classify, correct,
+                duplicates, exercice, intake, journal, listing, pipeline, posting, prepaid, tiers, tva, withholding)
 ADDRESS = re.compile(r"/c/([^/]+)/mcp/?")
 PER_CABINET = int(os.getenv("TARIK_CALLS_PER_CABINET", "10"))
 TOTAL = int(os.getenv("TARIK_CALLS_TOTAL", "40"))
@@ -77,9 +63,11 @@ def app():
 
 def check_cabinets():
     """At start: every cabinet fully configured and its schema ready, or nothing is served."""
+    if not vault.ENABLED:
+        raise SystemExit("VAULT_ADDR is not set: Tarik's settings are read from Vault only")
     if not CABINETS:
-        raise SystemExit("TARIK_CABINETS is empty: no cabinet to serve")
-    misplaced = misplaced_in_vault(*vault.settings()) if vault.ENABLED else misplaced_settings()
+        raise SystemExit("no cabinet in Vault (secret/tarik/cabinets/<cabinet>): no cabinet to serve")
+    misplaced = misplaced_in_vault(*vault.settings())
     if misplaced:
         raise SystemExit(f"settings not where they belong (see tarik/core/cabinets.py): {', '.join(misplaced)}")
     for name in sorted(CABINETS):

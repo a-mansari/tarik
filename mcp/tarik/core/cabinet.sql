@@ -92,8 +92,8 @@ create table if not exists tarik_mail_alerts (
     alerted_at timestamptz not null default now()
 );
 
--- The client's own messages, word for word, as n8n handed them to Tarik's tools (create_dossier,
--- copy_configuration, ask_agent): what the client asked earlier in a conversation, never the agent's words.
+-- The client's own messages, word for word, as n8n handed them to Tarik's tools (tarik.core.conversation):
+-- what the client wrote earlier in a conversation, never the agent's words.
 create table if not exists tarik_client_messages (
     id serial primary key,
     session_id text not null,

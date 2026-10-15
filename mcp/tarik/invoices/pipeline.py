@@ -11,7 +11,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from tarik.invoices.accounts import set_account
 from tarik.core.app import ok, server, stop, wait, with_ids
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import odoo_call, require_invoice
+from tarik.core.experio import TEST_MODE, odoo_call, require_invoice
 from tarik.invoices.tiers import set_tiers_by_name
 from tarik.invoices.tva import settle_tva
 from tarik.invoices.exercice import settle_exercice
@@ -81,7 +81,6 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     return ok("enregistre", step=step, status_recorded=status)
 
 
-TEST_PREFIX = "MODE TEST : aucune modification enregistree dans Experio. "
 QUIET = {"wait_until_read", "check_sender"}  # outcomes the client doesn't need when they went fine
 
 
@@ -96,7 +95,7 @@ def run_summary(run_id: str) -> dict:
     # n8n records a step after running the next ones, so rows come in reverse: sort by the sequence instead.
     order = list(STEPS)
     rows = sorted(rows, key=lambda row: order.index(row[1]) if row[1] in order else len(order))
-    test = any(message.startswith(TEST_PREFIX) for *_, message in rows)
+    test = any(message.startswith(TEST_MODE) for *_, message in rows)
     blocks, seen = {}, set()
     for key, step, status, message in rows:
         if step in SETUP_STEPS:
@@ -104,14 +103,14 @@ def run_summary(run_id: str) -> dict:
         if (key, step, message) in seen or (status == "ok" and step in QUIET):
             continue
         seen.add((key, step, message))
-        text = message.removeprefix(TEST_PREFIX)
+        text = message.removeprefix(TEST_MODE)
         if status == "question":
             text = f"QUESTION : {text}"
         elif status not in ("ok", "stop", "wait"):
             text = f"Probleme a l'etape {STEPS.get(step, step)} : {text}"
         blocks.setdefault(key, []).append(f"- {STEPS.get(step, step)} : {text}")
     summary = "\n\n".join("\n".join(lines) for lines in blocks.values())
-    return ok((TEST_PREFIX + "\n\n" if test else "") + summary)
+    return ok((TEST_MODE + "\n\n" if test else "") + summary)
 
 
 @server.tool()
@@ -149,14 +148,6 @@ def save_files(payload: str = "") -> dict:
             if row:
                 saved.append({"id": row[0], "file_name": file["file_name"]})
     return ok(f"{len(saved)} fichier(s) enregistre(s).", files=saved)
-
-
-@server.tool()
-def pending_questions(session_id: str) -> dict:
-    """The questions this conversation's invoices are waiting on, oldest first."""
-    with cabinet_db() as db:
-        rows = db.execute("select invoice_id, question from tarik_pending where session_id = %s order by created_at", (session_id,)).fetchall()
-    return ok(f"{len(rows)} question(s) en attente.", pending=[{"invoice_id": i, "question": q} for i, q in rows])
 
 
 @server.tool()

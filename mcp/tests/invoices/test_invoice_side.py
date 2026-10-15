@@ -5,6 +5,7 @@ import pytest
 from tarik.invoices.classify import client_side
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("side, words", [
     ("achat", "Voici mes factures d'achat pour GECAFISC"),
     ("achat", "les factures fournisseurs de mars"),
@@ -17,6 +18,7 @@ def test_the_side_the_client_wrote_is_kept(side, words):
     assert client_side(side, words) == side
 
 
+@pytest.mark.security
 @pytest.mark.parametrize("side, words", [
     ("achat", "Voici mes factures pour GECAFISC"),  # not said: the client is asked
     ("vente", "Voici les factures d'achat"),  # not what they said

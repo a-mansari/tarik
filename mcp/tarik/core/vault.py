@@ -5,7 +5,7 @@ tarik-mcp logs in with its AppRole (role_id and secret_id files in /run/vault, v
 policy only reads secret/tarik/*. Everything is read at start, then again every 5 minutes, so a
 changed secret applies without a restart (a new cabinet still needs one: its schema is made at
 start). When Vault can't be reached, the last values stay in use. Without VAULT_ADDR, nothing is
-read here and the settings come from the environment (tests, or a machine without Vault)."""
+read here and the settings come from the environment: the tests only (server.py refuses to start)."""
 
 import os
 import threading

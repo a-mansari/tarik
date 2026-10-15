@@ -473,6 +473,42 @@
         ]
       ]
     },
+    "Creation (create_dossier)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres create_dossier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configuration (copy_configuration)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres copy_configuration",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Nouveau dossier ?": {
       "main": [
         [
@@ -527,24 +563,6 @@
         ]
       ]
     },
-    "Creation (create_dossier)": {
-      "main": [
-        [
-          {
-            "node": "Suite apres create_dossier",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Enregistrer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Suite apres create_dossier": {
       "main": [
         [
@@ -580,24 +598,6 @@
         [
           {
             "node": "Dossier cible",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Configuration (copy_configuration)": {
-      "main": [
-        [
-          {
-            "node": "Suite apres copy_configuration",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }

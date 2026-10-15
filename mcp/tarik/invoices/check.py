@@ -114,11 +114,11 @@ OCR_SHAPE = """Answer with only one JSON object, of this shape:
  "bad_fields": [{"field": str, "stored": str, "extracted": str, "problem": str}]}
 invoice_date_language is required: always pick one."""
 
-CHECKED_FIELDS = [
-    "invoice_number", "invoice_date", "amount_untaxed", "amount_tva", "amount_stamp", "amount_disbursement",
-    "amount_guarantee_holdback", "amount_prorata", "amount_insurance", "amount_ts", "amount_tsp",
-    "advance_amount", "amount_total", "tier", "ice",
-]
+# The invoice header fields Experio captured (correct_invoice may write them back), then the tiers' name and ICE.
+CAPTURED = ["invoice_number", "invoice_date", "amount_untaxed", "amount_tva", "amount_stamp", "amount_disbursement",
+            "amount_guarantee_holdback", "amount_prorata", "amount_insurance", "amount_ts", "amount_tsp",
+            "advance_amount", "amount_total"]
+CHECKED_FIELDS = [*CAPTURED, "tier", "ice"]
 
 def resolve_date(raw, language):
     """A date copied as printed, plus the invoice's language, as YYYY-MM-DD. Day/month
@@ -170,7 +170,7 @@ def drop_false_alarms(bad, stored, extracted):
     def amount(name):
         return extracted.get(name) or 0
 
-    parts = sum(amount(name) for name in ("amount_untaxed", "amount_tva", "amount_stamp", "amount_disbursement", "amount_ts", "amount_tsp"))
+    parts = sum(amount(name) for name in AMOUNT_FIELDS - {"amount_total"})
     self_consistent = extracted.get("amount_total") is None or abs(parts - amount("amount_total")) <= 1
     kept = []
     for b in bad:
@@ -192,13 +192,13 @@ def check_invoice(invoice_id: int) -> dict:
     """Check a draft invoice once Experio has read it: compares what Experio
     captured with what the scan shows, and lists every difference. Changes
     nothing. invoice_id is the draft invoice number given at its creation."""
-    invoice = require_invoice(invoice_id, ["bluejay_state", "document_pdf", "file_type", *CHECKED_FIELDS[:-2], "partner_id"])
+    invoice = require_invoice(invoice_id, ["bluejay_state", "document_pdf", "file_type", *CAPTURED, "partner_id"])
     if invoice["bluejay_state"] in ("pending", "sent"):
         return wait(f"Facture {invoice_id} : Experio est encore en train de la lire, reessayez dans une minute.")
     if invoice["bluejay_state"] != "done":
         return ok(f"Facture {invoice_id} : Experio n'a pas lu cette facture automatiquement, rien a comparer.")
     partner = invoice["partner_id"]
-    stored = {name: invoice.get(name) for name in CHECKED_FIELDS[:-2]}
+    stored = {name: invoice.get(name) for name in CAPTURED}
     stored["tier"] = partner[1] if partner else None
     stored["ice"] = (odoo_call("exp.partner", "read", [partner[0]], fields=["ice"])[0]["ice"] or None) if partner else None
     if not invoice["document_pdf"] or invoice["file_type"] not in (False, None, "pdf"):

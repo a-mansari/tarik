@@ -1,6 +1,5 @@
 """Build workflows/tarik-emails.json: Tarik answering his mailbox.
 
-Edit this script, not the JSON: python3 workflows/build_tarik_emails.py
 One workflow for every cabinet: tarik-mail-watch (mcp/watcher.py) calls its webhook for a cabinet
 as soon as an email arrives in that cabinet's mailbox, and every 2 minutes in case it missed one.
 The run works in that cabinet only, every step at its address: read the new emails (the mailbox
@@ -8,16 +7,13 @@ is not changed), then for each thread waiting for an answer, the cabinet's own n
 its client's emails (ask_agent), and the reply goes out in the thread, to whitelisted addresses only. A thread whose run
 fails is picked up again 30 minutes later; after 3 failures it is set aside in error."""
 
-import json
 import sys
 from pathlib import Path
 
 from steps import Workflow
 
-OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-emails.json")
 # The cabinet tarik-mail-watch named: every MCP step goes to its address (an unknown one: 404, nothing done).
-CABINET = "$('Nouvel email').first().json.body.cabinet"
-flow = Workflow("tarik-emails", CABINET)
+flow = Workflow("tarik-emails", "$('Nouvel email').first().json.body.cabinet")
 node, connect, mcp = flow.node, flow.connect, flow.mcp
 
 THREAD = "$('Un element par fil').item.json"
@@ -67,8 +63,5 @@ connect("Une alerte par refus", "Manager prevenu de l'expediteur (notify_manager
 connect("Reponse (send_email)", "Fil traite (finish_thread)", 0)
 connect("Reponse (send_email)", "Fil traite (finish_thread)", 1)  # not sent (whitelist, SMTP): set aside, with why
 
-workflow = {"id": "TarikEmails00001", "name": "Tarik - Emails", "active": False,
-            "settings": {"executionOrder": "v1", "saveExecutionProgress": True},
-            "nodes": flow.nodes, "connections": flow.connections}
-OUT.write_text(json.dumps(workflow, indent=2, ensure_ascii=False) + "\n")
-print(len(flow.nodes), "nodes")
+flow.save(Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-emails.json"),
+          "TarikEmails00001", "Tarik - Emails", {"executionOrder": "v1", "saveExecutionProgress": True})

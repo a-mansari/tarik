@@ -3,12 +3,10 @@
 import pytest
 
 from tarik.invoices.check import drop_false_alarms, resolve_date, resolve_report
+from tests.fakes import flag
 
 
-def flag(field, stored_value, read_value):
-    return {"field": field, "stored": str(stored_value), "extracted": str(read_value), "problem": "x"}
-
-
+@pytest.mark.functionality
 def test_dates_follow_the_invoice_language():  # decided in code (tarik-master ocr.py)
     assert resolve_date("07/08/2025", "fr") == "2025-08-07"
     assert resolve_date("07/08/2025", "en") == "2025-07-08"
@@ -17,6 +15,7 @@ def test_dates_follow_the_invoice_language():  # decided in code (tarik-master o
     assert resolve_date("31/02/2025", "fr") is None and resolve_date("", "fr") is None and resolve_date(None, "fr") is None
 
 
+@pytest.mark.functionality
 def test_the_report_keeps_real_differences_only():
     stored = {"invoice_date": "2025-08-07", "amount_total": 100.0}
     report = resolve_report({"readable": True, "extracted": {"invoice_date_raw": "08/07/2025", "invoice_date_language": "fr"},
@@ -32,6 +31,7 @@ def test_the_report_keeps_real_differences_only():
         resolve_report({"readable": True, "extracted": {}}, stored)
 
 
+@pytest.mark.functionality
 def test_false_alarms_are_dropped():  # measured on real invoices: a real Bluejay error, then model noise
     real = drop_false_alarms([flag("amount_untaxed", 5000, 4545.45), flag("amount_tva", 0, 454.55)],
                              {"amount_untaxed": 5000.0, "amount_tva": 0.0},

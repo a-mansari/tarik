@@ -214,22 +214,6 @@
     }
   ],
   "connections": {
-    "Appel": {
-      "main": [
-        [
-          {
-            "node": "Expediteur (check_sender)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Resume",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Expediteur (check_sender)": {
       "main": [
         [
@@ -242,6 +226,22 @@
         [
           {
             "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Appel": {
+      "main": [
+        [
+          {
+            "node": "Expediteur (check_sender)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Resume",
             "type": "main",
             "index": 0
           }

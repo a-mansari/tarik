@@ -1027,6 +1027,24 @@
     }
   ],
   "connections": {
+    "Expediteur (check_sender)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres check_sender",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Appel": {
       "main": [
         [
@@ -1080,24 +1098,6 @@
         [
           {
             "node": "Brouillons en attente (waiting_drafts)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Expediteur (check_sender)": {
-      "main": [
-        [
-          {
-            "node": "Suite apres check_sender",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }

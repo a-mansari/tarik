@@ -10,10 +10,9 @@ Tarik, so it creates nothing in Experio.
 """
 
 import hashlib
-import imaplib
 import re
 from email import message_from_bytes, policy
-from email.utils import getaddresses, parseaddr
+from email.utils import parseaddr
 
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -21,7 +20,7 @@ from tarik.core.app import ok, server
 from tarik.dossiers.people import collaborator
 from tarik.core.cabinets import cabinet_db, current, setting
 from tarik.core.experio import odoo_call
-from tarik.emails.sending import check_pin, recipient_allowed, send_email, tls_context
+from tarik.emails.sending import imap_login, recipient_allowed, send_email
 
 LEASE_MINUTES = 30  # a run longer than this is taken as dead: the thread is picked up again
 MAX_ATTEMPTS = 3
@@ -42,9 +41,7 @@ def own_addresses():
 
 def connect():
     """The folder, opened read-only, on the pinned (or verified) certificate."""
-    box = imaplib.IMAP4_SSL(setting("IMAP_HOST"), int(setting("IMAP_PORT", "993")), ssl_context=tls_context(), timeout=60)
-    check_pin(box.sock)
-    box.login(setting("IMAP_USER"), setting("IMAP_PASSWORD"))
+    box = imap_login()
     box.select(f'"{folder()}"', readonly=True)
     return box
 
@@ -105,9 +102,14 @@ def store(db, uid, message):
     row = db.execute("select thread_id from tarik_mail_messages where message_id = any(%s) limit 1", (linked,)).fetchone()
     subject = str(message.get("Subject", "") or "").strip()
     thread_id = row[0] if row else message_id
-    unauthorized = (None if automatic(message) else "expediteur hors de la liste autorisee" if not recipient_allowed(sender)
-                    else None if collaborator(sender) else "expediteur hors des collaborateurs du cabinet dans Experio")
-    reason = "reponse automatique ou liste de diffusion" if automatic(message) else unauthorized
+    if automatic(message):
+        reason, unauthorized = "reponse automatique ou liste de diffusion", None
+    elif not recipient_allowed(sender):
+        reason = unauthorized = "expediteur hors de la liste autorisee"
+    elif not collaborator(sender):
+        reason = unauthorized = "expediteur hors des collaborateurs du cabinet dans Experio"
+    else:
+        reason = unauthorized = None
     if row:  # the client wrote again: back to Tarik, even after an error (the attempts start over)
         db.execute("update tarik_mail_threads set state = 'new', attempts = 0, reason = null, updated_at = now() "
                    "where thread_id = %s and state <> 'ignored'", (thread_id,))

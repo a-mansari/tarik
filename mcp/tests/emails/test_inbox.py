@@ -7,6 +7,7 @@ import pytest
 from tarik.emails.inbox import attachments, automatic, client_text
 
 
+@pytest.mark.functionality
 def test_the_client_text_and_files():
     mail = EmailMessage()
     mail["From"], mail["Subject"] = "Client <client@example.com>", "Factures"
@@ -19,6 +20,7 @@ def test_the_client_text_and_files():
     assert not automatic(mail)
 
 
+@pytest.mark.functionality
 def test_an_html_email_loses_its_tags_and_history():
     mail = EmailMessage()
     mail["From"] = "client@example.com"
@@ -26,6 +28,7 @@ def test_an_html_email_loses_its_tags_and_history():
     assert client_text(mail) == "Oui, je confirme."
 
 
+@pytest.mark.functionality
 @pytest.mark.parametrize("header, value", [("Auto-Submitted", "auto-replied"), ("Precedence", "bulk"), ("From", "no-reply@example.com")])
 def test_automatic_emails_are_never_answered(header, value):
     away = EmailMessage()

@@ -14,10 +14,12 @@ def three(monkeypatch):
     monkeypatch.setenv("TARIK_TEST_C__IMAP_USER", "tarik@c.ma")
 
 
+@pytest.mark.functionality
 def test_only_cabinets_with_their_own_mailbox_are_watched(three):
     assert watcher.mailboxes() == ["tarik_test_a", "tarik_test_c"]
 
 
+@pytest.mark.security
 def test_a_wake_up_names_its_cabinet_and_carries_the_secret(three, monkeypatch):
     sent = []
     monkeypatch.setenv("MAIL_WEBHOOK_SECRET", "s3cret")
@@ -27,6 +29,7 @@ def test_a_wake_up_names_its_cabinet_and_carries_the_secret(three, monkeypatch):
     assert sent == [({"cabinet": "tarik_test_c"}, {"X-Tarik-Webhook": "s3cret"})]
 
 
+@pytest.mark.security
 def test_each_watch_runs_in_its_own_cabinet(three, monkeypatch):
     """The IDLE loop logs into the cabinet it watches: its own IMAP_USER, never another's."""
     logins = []

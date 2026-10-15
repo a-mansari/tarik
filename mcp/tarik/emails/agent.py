@@ -11,7 +11,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server
 from tarik.core.cabinets import cabinet_db, setting
-from tarik.dossiers.onboarding import remember_client_message
+from tarik.core.conversation import remember_client_message
 
 
 def call_n8n(tool, **arguments):

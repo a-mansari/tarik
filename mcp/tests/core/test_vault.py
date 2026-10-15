@@ -74,6 +74,7 @@ def fake(monkeypatch, tmp_path):
     server.shutdown()
 
 
+@pytest.mark.security
 def test_each_cabinet_reads_its_own_path_and_the_shared_one(fake):
     with cabinets.using("experio_cabinet_8"):
         assert (cabinets.setting("ODOO_UID"), cabinets.setting("IMAP_PASSWORD"), cabinets.setting("IMAP_HOST")) == ("430", "p8", "mail.example.ma")
@@ -81,16 +82,19 @@ def test_each_cabinet_reads_its_own_path_and_the_shared_one(fake):
         assert (cabinets.setting("ODOO_UID"), cabinets.setting("IMAP_PASSWORD"), cabinets.setting("IMAP_HOST")) == ("12", "p60", "mail.example.ma")
 
 
+@pytest.mark.security
 def test_the_environment_is_not_read_with_vault(fake, monkeypatch):
     monkeypatch.setenv("EXPERIO_CABINET_8__SMTP_USER", "from-env")
     with cabinets.using("experio_cabinet_8"), pytest.raises(KeyError):
         cabinets.setting("SMTP_USER")
 
 
+@pytest.mark.technical
 def test_the_cabinets_are_the_vaults_paths(fake):
     assert cabinets.cabinet_names(",".join(vault.settings()[1])) == {"experio_cabinet_8", "experio_cabinet_60"}
 
 
+@pytest.mark.technical
 def test_a_changed_secret_applies_at_the_next_read(fake, monkeypatch):
     with cabinets.using("experio_cabinet_8"):
         assert cabinets.setting("IMAP_PASSWORD") == "p8"
@@ -100,6 +104,7 @@ def test_a_changed_secret_applies_at_the_next_read(fake, monkeypatch):
         assert cabinets.setting("IMAP_PASSWORD") == "rotated"
 
 
+@pytest.mark.technical
 def test_one_login_per_token_then_a_new_one_when_it_expires(fake):
     vault.settings()
     vault._state["next_read"] = 0.0
@@ -110,6 +115,7 @@ def test_one_login_per_token_then_a_new_one_when_it_expires(fake):
     assert len(fake.logins) == 2
 
 
+@pytest.mark.technical
 def test_an_outage_keeps_the_last_values(fake):
     vault.settings()
     fake.down[0] = True
@@ -118,18 +124,21 @@ def test_an_outage_keeps_the_last_values(fake):
         assert cabinets.setting("IMAP_PASSWORD") == "p8"
 
 
+@pytest.mark.technical
 def test_no_vault_at_start_stops_the_server(fake):
     fake.down[0] = True
     with pytest.raises(Exception):
         vault.settings(wait=0)
 
 
+@pytest.mark.security
 def test_a_wrong_approle_is_refused(fake, tmp_path):
     (tmp_path / "secret_id").write_text("guessed")
     with pytest.raises(Exception):
         vault.settings()
 
 
+@pytest.mark.security
 def test_settings_in_the_wrong_place_stop_the_server():
     good = ({"IMAP_HOST": "h"}, {"experio_cabinet_8": {"ODOO_UID": "1"}}, {"ODOO_URL": "u", "POSTGRES_DB": "x"})
     assert cabinets.misplaced_in_vault(*good) == []
