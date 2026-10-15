@@ -27,6 +27,14 @@ services:
     env_file: .env
     dns: [1.1.1.1, 8.8.8.8]
 
+  # Wakes "Tarik - Emails" as soon as an email arrives (IMAP IDLE), instead of at its next 2-minute check.
+  tarik-mail-watch:
+    build: ./mcp
+    restart: unless-stopped
+    env_file: .env
+    dns: [1.1.1.1, 8.8.8.8]
+    command: ["python", "watcher.py"]
+
   # Tarik's chat memory (Postgres Chat Memory node). Not exposed to the host.
   postgres:
     image: postgres:17-alpine
