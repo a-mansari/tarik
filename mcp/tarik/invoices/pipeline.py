@@ -1,15 +1,17 @@
 """The fixed processing sequence, run by the n8n workflow "Tarik - Traitement": waiting for
 Experio's reading, recording each step's outcome, pending questions and the client's answers."""
 
+import base64
+import json
 import re
 import time
 
-import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.invoices.accounts import set_account
 from tarik.core.app import ok, server, stop, wait, with_ids
-from tarik.core.experio import POSTGRES, odoo_call, require_invoice
+from tarik.core.cabinets import cabinet_db
+from tarik.core.experio import odoo_call, require_invoice
 from tarik.invoices.tiers import set_tiers_by_name
 from tarik.invoices.tva import settle_tva
 from tarik.invoices.exercice import settle_exercice
@@ -60,7 +62,7 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     status, message = result.get("status", "error"), result.get("message") or result.get("error") or str(result)
     message = re.sub(r"^Error executing tool \w+: ", "", message)  # n8n's wrapper around a tool's refusal
     invoice_id, file_id, dossier_id = result.get("invoice_id"), result.get("file_id"), result.get("dossier_id")
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         db.execute("insert into tarik_results (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message) "
                    "values (%s, %s, %s, %s, %s, %s, %s, %s)", (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message))
         if invoice_id and status == "question":
@@ -83,7 +85,7 @@ QUIET = {"wait_until_read", "check_sender"}  # outcomes the client doesn't need 
 @server.tool()
 def run_summary(run_id: str) -> dict:
     """What happened in one processing run, invoice by invoice and step by step, for the client."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         rows = db.execute("select coalesce(invoice_id, -file_id), step, status, message from tarik_results "
                           "where run_id = %s order by id", (run_id,)).fetchall()
     if not rows:
@@ -114,7 +116,7 @@ def run_summary(run_id: str) -> dict:
 def answer_pending(invoice_id: int, answer: str) -> dict:
     """Apply the client's answer to the invoice's pending question. ``next_step``
     says where the sequence resumes (none when the question is still open)."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         row = db.execute("select step, question from tarik_pending where invoice_id = %s", (invoice_id,)).fetchone()
     if not row:
         return stop(f"Facture {invoice_id} : aucune question en attente.")
@@ -129,11 +131,37 @@ def answer_pending(invoice_id: int, answer: str) -> dict:
 
 
 @server.tool()
+def save_files(payload: str = "") -> dict:
+    """Save a conversation's files, sent by n8n as base64 of { session_id (or thread_id), files:
+    [{ id?, file_name, mime_type, data }] }: the chat's uploads, or the native agent's attachments
+    (n8n/patch.js), whose id saves each one once however many times the sequence runs."""
+    body = json.loads(base64.b64decode(payload or "e30=")) or {}
+    session_id = body.get("session_id") or body.get("thread_id") or ""
+    saved = []
+    with cabinet_db() as db:
+        for file in body.get("files") or []:
+            row = db.execute("insert into tarik_files (session_id, file_name, mime_type, data, source_id) values (%s, %s, %s, %s, %s) "
+                             "on conflict (session_id, source_id) do nothing returning id",
+                             (session_id, file["file_name"], file["mime_type"], base64.b64decode(file["data"]), file.get("id"))).fetchone()
+            if row:
+                saved.append({"id": row[0], "file_name": file["file_name"]})
+    return ok(f"{len(saved)} fichier(s) enregistre(s).", files=saved)
+
+
+@server.tool()
+def pending_questions(session_id: str) -> dict:
+    """The questions this conversation's invoices are waiting on, oldest first."""
+    with cabinet_db() as db:
+        rows = db.execute("select invoice_id, question from tarik_pending where session_id = %s order by created_at", (session_id,)).fetchall()
+    return ok(f"{len(rows)} question(s) en attente.", pending=[{"invoice_id": i, "question": q} for i, q in rows])
+
+
+@server.tool()
 def files_to_process(session_id: str, entries: bool = False) -> dict:
     """The conversation's files not processed yet: its invoices and statements, or with
     ``entries`` its FEC and grand livre files. Picked here, not by the agent: it never
     sees the files' numbers, so it can't show them to the client."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         rows = db.execute("select id, file_name from tarik_files where session_id = %s and parent_id is null and kind is null "
                           "and invoice_id is null and statement_id is null order by id", (session_id,)).fetchall()
     own = [i for i, name in rows if name.lower().endswith(ENTRY_FILES) == entries]
@@ -144,7 +172,7 @@ def files_to_process(session_id: str, entries: bool = False) -> dict:
 def waiting_drafts(session_id: str) -> dict:
     """This conversation's drafts still waiting on Experio's reading, to resume from
     there: the last time, wait_until_read gave up and no later step ran."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         waiting = [i for (i,) in db.execute(
             "select distinct invoice_id from tarik_results r where session_id = %s and step = 'wait_until_read' "
             "and status = 'wait' and not exists (select 1 from tarik_results later where later.invoice_id = r.invoice_id "

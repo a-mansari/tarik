@@ -1,4 +1,4 @@
-"""Experio: settings, the cabinet lock, calls, and the guards every tool goes through."""
+"""Experio: the current cabinet's login and calls, the cabinet lock, and the guards every tool goes through."""
 
 import os
 import re
@@ -7,8 +7,10 @@ import xmlrpc.client
 import httpx
 from mcp.server.mcpserver.exceptions import ToolError
 
+from tarik.core.cabinets import current, setting
 
-ODOO_URL = os.environ["ODOO_URL"].rstrip("/")
+
+ODOO_URL = os.environ["ODOO_URL"].rstrip("/")  # the Experio server, the same for every cabinet
 
 def exact_cabinet(name):
     """The cabinet's database name, taken exactly as configured. No default, no
@@ -25,41 +27,39 @@ def expected_uid(value):
         raise SystemExit(f"ODOO_UID must be Tarik's user id in this cabinet, got {value!r}")
     return int(value)
 
-ODOO_DB = exact_cabinet(os.getenv("ODOO_DB"))
+def account():
+    """The current cabinet's Experio database, Tarik's user id there, login and key."""
+    return (exact_cabinet(current()), expected_uid(setting("ODOO_UID")), setting("ODOO_USER"),
+            setting("ODOO_API_KEY", "") or setting("ODOO_PASSWORD"))
 
-ODOO_UID = expected_uid(os.getenv("ODOO_UID"))
-
-ODOO_USER = os.environ["ODOO_USER"]
-
-ODOO_KEY = os.getenv("ODOO_API_KEY") or os.environ["ODOO_PASSWORD"]
-
-DRY_RUN = os.getenv("DRY_RUN", "1") == "1"  # 1: tools that write to Experio only say what they would write
+def dry_run():
+    """1 (the default): tools that write to Experio only say what they would write. Per cabinet."""
+    return setting("DRY_RUN", "1") == "1"
 
 # IPv4 only: the container has no IPv6 route, and httpx does not fall back when a host's IPv6 address comes first.
 HTTP = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"))
 
-POSTGRES = {"host": "postgres", "dbname": os.environ["POSTGRES_DB"], "user": os.environ["POSTGRES_USER"],
-            "password": os.environ["POSTGRES_PASSWORD"]}
-
 def login():
-    """Tarik's uid in the cabinet, checked against ODOO_UID."""
-    uid = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common").authenticate(ODOO_DB, ODOO_USER, ODOO_KEY, {})
+    """Tarik's uid in the current cabinet, checked against its ODOO_UID."""
+    database, expected, user, key = account()
+    uid = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common").authenticate(database, user, key, {})
     if not uid:
-        raise PermissionError(f"login refused for {ODOO_USER} on {ODOO_DB}")
-    if uid != ODOO_UID:
-        raise PermissionError(f"{ODOO_USER} on {ODOO_DB} is uid {uid}, expected {ODOO_UID}: wrong cabinet or user")
+        raise PermissionError(f"login refused for {user} on {database}")
+    if uid != expected:
+        raise PermissionError(f"{user} on {database} is uid {uid}, expected {expected}: wrong cabinet or user")
     return uid
 
 def odoo_call(model, method, *args, **kw):
-    """One authenticated call to Experio's Odoo."""
+    """One authenticated call to the current cabinet's Experio."""
+    database, _, _, key = account()
     models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object", allow_none=True)
-    return models.execute_kw(ODOO_DB, login(), ODOO_KEY, model, method, list(args), kw)
+    return models.execute_kw(database, login(), key, model, method, list(args), kw)
 
 def odoo_json(model, method, *args, **kw):
     """The same call over JSON-RPC, for answers holding None (onchange), which XML-RPC can't carry."""
     answer = HTTP.post(f"{ODOO_URL}/jsonrpc", timeout=600, json={"jsonrpc": "2.0", "method": "call", "params": {
         "service": "object", "method": "execute_kw",
-        "args": [ODOO_DB, login(), ODOO_KEY, model, method, list(args), kw]}}).json()
+        "args": [account()[0], login(), account()[3], model, method, list(args), kw]}}).json()
     if "error" in answer:
         raise RuntimeError(answer["error"].get("data", {}).get("message") or answer["error"].get("message"))
     return answer.get("result")
@@ -110,21 +110,22 @@ def invoice_context(invoice):
 
 FORM_SKIP = {"one2many", "many2many", "binary", "html", "properties", "json"}
 
-_form = {}
+_forms = {}  # per cabinet: each database has its own fields
 
 def fill_invoice(invoice_id, changes, context):
     """Type ``changes`` into the invoice form one field at a time, as a user does:
     after each one Experio's onchange fills what it fills on screen (exchange
     rate, withholding...). Then save, unless DRY_RUN. Returns every field that
     ends up changed, Experio's included (tarik-master odoo.fill)."""
+    _form = _forms.setdefault(current(), {})
     if not _form:
         meta = odoo_call("exp.invoice", "fields_get", [], attributes=["type", "store", "readonly"])
         _form["types"] = {name: m["type"] for name, m in meta.items() if m.get("store") and m["type"] not in FORM_SKIP
                           and not name.startswith("__") and name not in ("id", "create_uid", "write_uid", "create_date", "write_date")}
         _form["editable"] = {name for name, m in meta.items() if not m.get("readonly")}
     types = _form["types"]
-    current = odoo_call("exp.invoice", "read", [invoice_id], fields=list(types), context=context)[0]
-    values = {k: (v[0] if types.get(k) == "many2one" and v else v) for k, v in current.items() if k in types}
+    record = odoo_call("exp.invoice", "read", [invoice_id], fields=list(types), context=context)[0]
+    values = {k: (v[0] if types.get(k) == "many2one" and v else v) for k, v in record.items() if k in types}
     start = dict(values)
     spec = {name: {} for name in types}
     for name, value in changes.items():
@@ -134,6 +135,6 @@ def fill_invoice(invoice_id, changes, context):
             if key in types:
                 values[key] = new.get("id") if isinstance(new, dict) else new
     changed = {k: v for k, v in values.items() if v != start.get(k) and (k in _form["editable"] or k in changes)}
-    if changed and not DRY_RUN:
+    if changed and not dry_run():
         odoo_call("exp.invoice", "write", [invoice_id], changed, context=context)
     return changed

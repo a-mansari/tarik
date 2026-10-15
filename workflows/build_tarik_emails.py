@@ -11,10 +11,10 @@ import json
 import sys
 from pathlib import Path
 
-from steps import Workflow
+from steps import LEGACY_CABINET, Workflow
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-emails.json")
-flow = Workflow("tarik-emails")
+flow = Workflow("tarik-emails", LEGACY_CABINET)
 node, connect, mcp = flow.node, flow.connect, flow.mcp
 
 THREAD = "$('Un element par fil').item.json"

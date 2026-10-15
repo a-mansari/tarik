@@ -17,25 +17,35 @@ services:
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_PERSONALIZATION_ENABLED: "false"
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      # n8n's own data (workflows, credentials, agents, conversations, executions) in Postgres, not
+      # SQLite: one writer at a time doesn't hold with an agent per cabinet. Uploaded files stay in the volume.
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: ${N8N_POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on: [postgres]
     volumes:
       - n8n_data:/home/node/.n8n
 
-  # Tarik's Odoo tools over MCP. Reached by n8n at http://tarik-mcp:8000/mcp, not exposed to the host.
+  # Tarik's Experio tools over MCP, one address per cabinet: http://tarik-mcp:8000/c/<cabinet>/mcp. Not exposed to the host.
   tarik-mcp:
     build: ./mcp
     restart: unless-stopped
     env_file: .env
     dns: [1.1.1.1, 8.8.8.8]
 
-  # Wakes "Tarik - Emails" as soon as an email arrives (IMAP IDLE), instead of at its next 2-minute check.
+  # Wakes "Tarik - Emails" as soon as an email arrives in this cabinet's mailbox (IMAP IDLE), instead of
+  # at its next 2-minute check. "Tarik - Emails" serves this one cabinet (workflows/steps.py LEGACY_CABINET).
   tarik-mail-watch:
     build: ./mcp
     restart: unless-stopped
     env_file: .env
     dns: [1.1.1.1, 8.8.8.8]
-    command: ["python", "watcher.py"]
+    command: ["python", "watcher.py", "experio_cabinet_8"]
 
-  # Tarik's chat memory (Postgres Chat Memory node). Not exposed to the host.
+  # Tarik's data (database POSTGRES_DB: one schema per cabinet, mcp/tarik/core/cabinet.sql, and the old chat's
+  # memory) and n8n's own (database N8N_POSTGRES_DB). Not exposed to the host.
   postgres:
     image: postgres:17-alpine
     restart: unless-stopped
@@ -43,9 +53,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      N8N_POSTGRES_DB: ${N8N_POSTGRES_DB} # for the setup's createdb (README)
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./postgres:/docker-entrypoint-initdb.d:ro # runs on a fresh volume only
 
 volumes:
   n8n_data:

@@ -12,7 +12,7 @@
     {
       "name": "Experio",
       "description": "Outils de Tarik (tarik-mcp)",
-      "url": "http://tarik-mcp:8000/mcp",
+      "url": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
       "transport": "streamableHttp",
       "authentication": "none",
       "toolFilter": {
@@ -58,6 +58,10 @@
         "attachments": {
           "mode": "fixed",
           "value": "{{attachments}}"
+        },
+        "cabinet": {
+          "mode": "fixed",
+          "value": "experio_cabinet_8"
         }
       }
     }

@@ -1,4 +1,5 @@
-"""Wake "Tarik - Emails" the moment an email arrives, instead of at its next 2-minute check.
+"""Wake "Tarik - Emails" the moment an email arrives in a cabinet's mailbox, instead of at its next 2-minute check.
+Run as: python watcher.py <cabinet> (one of TARIK_CABINETS); it watches that cabinet's mailbox only.
 
 One IMAP IDLE connection to Tarik's folder (read-only, pinned certificate, as fetch_emails
 connects): the server tells it when the folder gets a new email, and it calls the workflow's
@@ -10,10 +11,12 @@ Python 3.12's imaplib has no IDLE (3.14 does): the command is spoken here.
 import os
 import re
 import select
+import sys
 import time
 
 import httpx
 
+from tarik.core.cabinets import using
 from tarik.emails.inbox import connect
 
 WEBHOOK = os.getenv("MAIL_WEBHOOK_URL", "http://n8n:5678/webhook/tarik-nouvel-email")
@@ -47,7 +50,7 @@ def wait_for_mail(box, count, seconds):
 
 def wake_tarik():
     try:
-        HTTP.post(WEBHOOK, json={}, timeout=10)
+        HTTP.post(WEBHOOK, json={"cabinet": CABINET}, timeout=10)
         print("new email: Tarik - Emails woken", flush=True)
     except Exception as error:  # the 2-minute schedule takes it anyway
         print(f"webhook failed: {error}", flush=True)
@@ -72,4 +75,6 @@ def watch():
 HTTP = httpx.Client()
 
 if __name__ == "__main__":
-    watch()
+    CABINET = sys.argv[1]
+    with using(CABINET):
+        watch()

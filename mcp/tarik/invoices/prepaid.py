@@ -6,12 +6,12 @@ ticking it in the form fills and validates the period, and posting generates the
 entries with the dossier's prepaid account and journal.
 """
 
-import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, question, server, with_ids
 from tarik.dossiers.search import normalized
-from tarik.core.experio import DRY_RUN, POSTGRES, fill_invoice, invoice_context, require_invoice
+from tarik.core.cabinets import cabinet_db
+from tarik.core.experio import dry_run, fill_invoice, invoice_context, require_invoice
 from tarik.invoices.tva import experio_messages
 
 # tarik-master read the yes/no with a model call; these words, in code, are enough and never drift.
@@ -47,7 +47,7 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
     invoice = require_invoice(invoice_id, ["state", "type", "company_id", "exercice_id", "invoice_number", "has_prepaid_expenses"])
     if invoice["has_prepaid_expenses"]:
         return ok(f"Facture {invoice_id} : deja repartie en constatee d'avance.")
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         row = db.execute("select extracted->>'period_start', extracted->>'period_end' from tarik_checks where invoice_id = %s",
                          (invoice_id,)).fetchone()
     values = prepaid_period(*row) if row else None
@@ -71,6 +71,6 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
     except Exception as error:
         print(f"settle_prepaid {invoice_id}: {error}", flush=True)
         raise ToolError(f"Facture {invoice_id} : Experio a refuse la repartition.") from None
-    head = "MODE TEST : aucune modification enregistree dans Experio. " if DRY_RUN else ""
+    head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
     return ok(f"{head}Facture {invoice_id} : {kind} constates d'avance sur {values['prepaid_months']} mois a partir du "
               f"{values['prepaid_start_date']} (ecritures generees a la comptabilisation)." + ("" if not messages else " " + " ".join(messages)))

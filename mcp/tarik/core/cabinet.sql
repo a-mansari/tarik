@@ -1,4 +1,7 @@
--- Files clients send Tarik in the chat. n8n stores them; the MCP tools read them by id.
+-- One cabinet's tables, created in its own schema (tarik.core.cabinets.create_schemas, at each
+-- start of tarik-mcp): idempotent, so a new cabinet or a new table only needs a restart.
+
+-- Files clients send Tarik (chat, agent, email); the MCP tools read them by id.
 create table if not exists tarik_files (
     id serial primary key,
     session_id text not null,

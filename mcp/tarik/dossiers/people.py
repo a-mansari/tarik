@@ -8,11 +8,11 @@ their company_ids, which Experio keeps in step with each dossier's Employees and
 the same dossiers they see in Experio.
 """
 
-import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server, stop
-from tarik.core.experio import POSTGRES, odoo_call, require_dossier
+from tarik.core.cabinets import cabinet_db
+from tarik.core.experio import odoo_call, require_dossier
 
 LEVELS = {"none": "aucune", "user": "utilisateur", "approver": "approbateur", "admin": "administrateur"}
 
@@ -55,7 +55,7 @@ def collaborator(address):
 
 def sender_of(session_id):
     """Who wrote, for an email conversation; None in the chat, where Experio can't tell who writes."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         row = db.execute("select client_address from tarik_mail_threads where session_id = %s", (session_id,)).fetchone()
     return row[0] if row else None
 

@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from steps import ATTACHMENTS, CALL, OK_ELSE, RESULT, SAVE_ATTACHMENTS, Workflow
+from steps import ATTACHMENTS, CABINET, CALL, OK_ELSE, RESULT, SAVE_ATTACHMENTS, Workflow
 
 OUT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-dossier.json")
 flow = Workflow("tarik-dossier")
@@ -28,12 +28,13 @@ node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], {
                                   {"name": "if_number", "type": "string"}, {"name": "folder_type", "type": "string"},
                                   {"name": "skip_ice_if_check", "type": "boolean"}, {"name": "client_message", "type": "string"},
                                   {"name": "model_dossier_id", "type": "number"},
-                                  {"name": "kind", "type": "string"}, ATTACHMENTS]},
+                                  {"name": "kind", "type": "string"}, ATTACHMENTS, CABINET]},
 })
 flow.save_attachments([110, 300])
 route("Nouveau dossier ?", f"{CALL}.dossier_id > 0 ? 1 : 0", 2, [220, 300])
 connect("Appel", SAVE_ATTACHMENTS)
-connect(SAVE_ATTACHMENTS, "Nouveau dossier ?")
+connect(SAVE_ATTACHMENTS, "Nouveau dossier ?", 0)
+connect(SAVE_ATTACHMENTS, RECORD, 1)
 
 # A new dossier: created, then its configuration copied from the model, before any import.
 mcp(CREATE, "create_dossier", (f"{{ name: {CALL}.name, ice: {CALL}.ice || '', if_number: {CALL}.if_number || '', "

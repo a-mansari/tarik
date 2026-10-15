@@ -14,7 +14,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, question, server, with_ids
 from tarik.dossiers.search import normalized
-from tarik.core.experio import DRY_RUN, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
 
 NEW = ("nouveau", "nouvel", "nouvelle", "creer", "cree", "creez", "new")
 
@@ -76,7 +76,7 @@ def settle_exercice(invoice_id: int, answer: str = "") -> dict:
         except Exception as error:
             print(f"settle_exercice {invoice_id}: {error}", flush=True)
             raise ToolError(f"Facture {invoice_id} : Experio n'a pas pu la rattacher a l'exercice.") from None
-        head = "MODE TEST : aucune modification enregistree dans Experio. " if DRY_RUN else ""
+        head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
         return ok(f"{head}Facture {invoice_id} : rattachee a l'exercice {covering[0]['name']}.")
     if invoice["is_old_invoice"]:
         return ok(f"Facture {invoice_id} : deja comptabilisee comme facture anterieure.")
@@ -85,13 +85,13 @@ def settle_exercice(invoice_id: int, answer: str = "") -> dict:
     choice = exercice_choice(answer, opens)
     if not choice:
         return question(f"Reponse non comprise. Facture {invoice_id} : {asked(invoice, opens)}")
-    head = "MODE TEST : aucune modification enregistree dans Experio. " if DRY_RUN else ""
+    head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
     if choice[0] == "old":
         exercice = choice[1]
         account = odoo_call("res.company", "read", [company_id], fields=["old_invoice_account_id"])[0]["old_invoice_account_id"]
         warning = ("" if account else " Aucun compte de factures anterieures dans le dossier (Configuration > Achat > "
                    "General Achat) : le compte actuel est garde.")
-        if not DRY_RUN:
+        if not dry_run():
             try:
                 # Experio keeps the real date, books it at the exercice's start, switches to the late-invoice account.
                 odoo_json("exp.invoice", "action_activate_old_invoice", [invoice_id],
@@ -101,7 +101,7 @@ def settle_exercice(invoice_id: int, answer: str = "") -> dict:
                 raise ToolError(f"Facture {invoice_id} : Experio a refuse la facture anterieure.") from None
         return ok(f"{head}Facture {invoice_id} : facture anterieure dans l'exercice {exercice['name']}.{warning}")
     year = when[:4]
-    if DRY_RUN:
+    if dry_run():
         return ok(f"{head}Facture {invoice_id} : un exercice {year} ({year}-01-01 au {year}-12-31) serait cree.")
     try:
         exercice_id = open_exercice(company_id, year)

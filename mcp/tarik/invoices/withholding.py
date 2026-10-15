@@ -13,7 +13,7 @@ import re
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, question, server, with_ids
-from tarik.core.experio import DRY_RUN, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, require_invoice
 from tarik.invoices.tva import experio_messages
 
 # tarik-master/tarik/orchestrator.py, verbatim.
@@ -105,11 +105,11 @@ def settle_withholding(invoice_id: int, answer: str = "") -> dict:
     context = invoice_context(invoice)
     try:
         fill_invoice(invoice_id, values, context)  # Experio's onchange sets the RAS lines and accounts, as on screen
-        if not DRY_RUN:
+        if not dry_run():
             odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)
         messages = experio_messages(invoice_id, context)
     except Exception as error:
         print(f"settle_withholding {invoice_id}: {error}", flush=True)
         raise ToolError(f"Facture {invoice_id} : Experio a refuse la retenue a la source.") from None
-    head = "MODE TEST : aucune modification enregistree dans Experio. " if DRY_RUN else ""
+    head = "MODE TEST : aucune modification enregistree dans Experio. " if dry_run() else ""
     return ok(f"{head}Facture {invoice_id} : {described(values)}." + ("" if not messages else " " + " ".join(messages)))

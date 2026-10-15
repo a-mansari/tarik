@@ -11,36 +11,41 @@ Tarik, so it creates nothing in Experio.
 
 import hashlib
 import imaplib
-import os
 import re
 from email import message_from_bytes, policy
 from email.utils import getaddresses, parseaddr
 
-import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server
 from tarik.dossiers.people import collaborator
-from tarik.core.experio import POSTGRES, odoo_call
+from tarik.core.cabinets import cabinet_db, setting
+from tarik.core.experio import odoo_call
 from tarik.emails.sending import check_pin, recipient_allowed, send_email, tls_context
 
-FOLDER = os.getenv("IMAP_FOLDER") or "INBOX"
 LEASE_MINUTES = 30  # a run longer than this is taken as dead: the thread is picked up again
 MAX_ATTEMPTS = 3
 FILE_TYPES = (".pdf", ".jpg", ".jpeg", ".png", ".csv", ".txt", ".xlsx", ".xlsm")
 # Where the client's own text stops and the quoted history begins.
 QUOTE_START = re.compile(r"^\s*(le .{0,120} a [ée]crit\s*:|on .{0,120} wrote\s*:|-{2,}\s*(message d'origine|original message)"
                          r"|de\s*:\s|from\s*:\s|envoy[ée]\s*:\s)", re.IGNORECASE)
-OWN_ADDRESSES = {address.lower() for address in (parseaddr(os.getenv("SMTP_FROM", ""))[1], os.getenv("SMTP_USER", ""),
-                                                  os.getenv("IMAP_USER", "")) if address}
+def folder():
+    """The current cabinet's mailbox folder (IMAP_FOLDER)."""
+    return setting("IMAP_FOLDER", "INBOX")
+
+
+def own_addresses():
+    """The current cabinet's own addresses: an email from one of them is Tarik's own."""
+    return {address.lower() for address in (parseaddr(setting("SMTP_FROM", ""))[1], setting("SMTP_USER", ""),
+                                            setting("IMAP_USER", "")) if address}
 
 
 def connect():
     """The folder, opened read-only, on the pinned (or verified) certificate."""
-    box = imaplib.IMAP4_SSL(os.environ["IMAP_HOST"], int(os.getenv("IMAP_PORT") or 993), ssl_context=tls_context(), timeout=60)
+    box = imaplib.IMAP4_SSL(setting("IMAP_HOST"), int(setting("IMAP_PORT", "993")), ssl_context=tls_context(), timeout=60)
     check_pin(box.sock)
-    box.login(os.environ["IMAP_USER"], os.environ["IMAP_PASSWORD"])
-    box.select(f'"{FOLDER}"', readonly=True)
+    box.login(setting("IMAP_USER"), setting("IMAP_PASSWORD"))
+    box.select(f'"{folder()}"', readonly=True)
     return box
 
 
@@ -88,11 +93,11 @@ def session_of(thread_id):
 def store(db, uid, message):
     """Record one email in its thread (found by In-Reply-To and References), with its files.
     Returns what the cabinet's manager must hear of when its sender may not use Tarik, else None."""
-    message_id = (message.get("Message-ID") or f"<uid-{uid}@{FOLDER}>").strip()
+    message_id = (message.get("Message-ID") or f"<uid-{uid}@{folder()}>").strip()
     if db.execute("select 1 from tarik_mail_messages where message_id = %s", (message_id,)).fetchone():
         return
     sender = (parseaddr(message.get("Reply-To", ""))[1] or parseaddr(message.get("From", ""))[1]).lower()
-    if sender in OWN_ADDRESSES:
+    if sender in own_addresses():
         return  # Tarik's own reply, when the folder holds the sent copies
     linked = re.findall(r"<[^>]+>", f"{message.get('In-Reply-To', '')} {message.get('References', '')}")
     row = db.execute("select thread_id from tarik_mail_messages where message_id = any(%s) limit 1", (linked,)).fetchone()
@@ -152,11 +157,11 @@ def fetch_emails() -> dict:
     try:
         uidvalidity = int(box.response("UIDVALIDITY")[1][0])
         newest = int(box.response("UIDNEXT")[1][0]) - 1
-        with psycopg.connect(**POSTGRES) as db:
-            state = db.execute("select uidvalidity, last_uid from tarik_mail_state where folder = %s", (FOLDER,)).fetchone()
+        with cabinet_db() as db:
+            state = db.execute("select uidvalidity, last_uid from tarik_mail_state where folder = %s", (folder(),)).fetchone()
             if not state or state[0] != uidvalidity:  # first run, or the folder was rebuilt: start from now
                 db.execute("insert into tarik_mail_state (folder, uidvalidity, last_uid) values (%s, %s, %s) on conflict (folder) "
-                           "do update set uidvalidity = excluded.uidvalidity, last_uid = excluded.last_uid", (FOLDER, uidvalidity, newest))
+                           "do update set uidvalidity = excluded.uidvalidity, last_uid = excluded.last_uid", (folder(), uidvalidity, newest))
                 return ok("Boite aux lettres prise en compte a partir de maintenant.", threads=claim(db), alerts=[])
             uids = [int(uid) for uid in box.uid("search", None, f"UID {state[1] + 1}:*")[1][0].split()]
             alerts = []
@@ -166,7 +171,7 @@ def fetch_emails() -> dict:
                 alert = store(db, uid, message_from_bytes(raw, policy=policy.default)) if raw else None
                 if alert:
                     alerts.append(alert)
-                db.execute("update tarik_mail_state set last_uid = %s where folder = %s", (uid, FOLDER))
+                db.execute("update tarik_mail_state set last_uid = %s where folder = %s", (uid, folder()))
                 db.commit()  # each email recorded for good before the next
             threads = claim(db)
     finally:
@@ -179,7 +184,7 @@ def thread_refusal(thread_id: str) -> dict:
     """After Tarik's run on a thread: was the work refused because the sender lacks the
     dossier (check_sender)? Then nothing goes back to the sender: the thread is set aside,
     its emails counted as handled, and ``refused`` says the manager is to be told."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         thread = db.execute("select session_id, client_address, subject, claimed_at from tarik_mail_threads where thread_id = %s",
                             (thread_id,)).fetchone()
         if not thread:
@@ -203,7 +208,7 @@ def cabinet_manager():
         found = odoo_call("res.users", "read", [responsable[0]], fields=["login"])
         if found and collaborator(found[0]["login"]):
             return found[0]["login"]
-    fallback = os.getenv("MAIL_MANAGER", "").strip()
+    fallback = setting("MAIL_MANAGER", "").strip()
     return fallback if fallback and collaborator(fallback) else None
 
 
@@ -215,7 +220,7 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
     if not manager:
         raise ToolError("Manager non prevenu : aucun Responsable sur la societe du cabinet dans Experio, et MAIL_MANAGER "
                         "n'est pas l'email d'un collaborateur du cabinet.")
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         if db.execute("select 1 from tarik_mail_alerts where sender = %s and alerted_at > now() - interval '1 day'",
                       (sender,)).fetchone():
             return ok(f"Manager deja prevenu aujourd'hui pour {sender}.")
@@ -231,7 +236,7 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
     """After Tarik's reply: its emails are answered, and the thread waits for the client
     when Tarik asked a question. When the reply could not be sent, the thread is set
     aside in error, with ``reason``."""
-    with psycopg.connect(**POSTGRES) as db:
+    with cabinet_db() as db:
         session = db.execute("select session_id from tarik_mail_threads where thread_id = %s", (thread_id,)).fetchone()
         if not session:
             return ok("Fil inconnu.")

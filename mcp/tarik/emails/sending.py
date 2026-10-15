@@ -13,7 +13,6 @@ import functools
 import hashlib
 import html
 import imaplib
-import os
 import re
 import smtplib
 import ssl
@@ -24,32 +23,39 @@ from email.utils import getaddresses, make_msgid
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server
+from tarik.core.cabinets import current, setting
 
-CERT_SHA256 = os.getenv("MAIL_CERT_SHA256", "").replace(":", "").strip().lower()
+
+def cert_pin():
+    """The current cabinet's mail certificate pin (MAIL_CERT_SHA256), "" for the usual check."""
+    return setting("MAIL_CERT_SHA256", "").replace(":", "").strip().lower()
 
 
 def tls_context():
     """Certificates verified as usual, or, with a pin, checked by check_pin once connected."""
     context = ssl.create_default_context()
-    if CERT_SHA256:
+    if cert_pin():
         context.check_hostname, context.verify_mode = False, ssl.CERT_NONE  # check_pin decides instead
     return context
 
 
 def check_pin(sock):
     """With a pin, close the connection before anything is sent unless the server showed that certificate."""
-    if CERT_SHA256 and hashlib.sha256(sock.getpeercert(binary_form=True)).hexdigest() != CERT_SHA256:
+    pin = cert_pin()
+    if pin and hashlib.sha256(sock.getpeercert(binary_form=True)).hexdigest() != pin:
         sock.close()
         raise ssl.SSLError("mail server certificate does not match MAIL_CERT_SHA256")
 
 
-ALLOWED_RECIPIENTS = [entry.strip().lower() for entry in os.getenv("MAIL_ALLOWED_RECIPIENTS", "").split(",") if entry.strip()]
+def allowed_recipients():
+    """The current cabinet's whitelist (MAIL_ALLOWED_RECIPIENTS). Empty: nobody."""
+    return [entry.strip().lower() for entry in setting("MAIL_ALLOWED_RECIPIENTS", "").split(",") if entry.strip()]
 
 
 def recipient_allowed(address, allowed=None):
     """Is this address on the whitelist? Compared on the bare address, without the display name."""
     address = (getaddresses([address or ""])[0][1] or "").strip().lower()
-    allowed = ALLOWED_RECIPIENTS if allowed is None else allowed
+    allowed = allowed_recipients() if allowed is None else allowed
     # "*" is the only wildcard: the rest of the entry matches literally.
     patterns = ["*" + entry if entry.startswith("@") else entry for entry in allowed]
     return bool(address) and any(re.fullmatch(re.escape(pattern).replace(r"\*", ".*"), address) for pattern in patterns)
@@ -63,9 +69,13 @@ LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")
 BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
 
 
-@functools.lru_cache(maxsize=1)
 def cabinet_name():
-    """The cabinet's name in Experio, for the signature ("" when Experio can't be reached)."""
+    """The current cabinet's name in Experio, for the signature ("" when Experio can't be reached)."""
+    return _cabinet_name(current())
+
+
+@functools.cache  # keyed by cabinet: one cabinet's name never signs another's email
+def _cabinet_name(cabinet):
     try:
         from tarik.core.experio import odoo_call
         return odoo_call("res.company", "read", [1], fields=["name"])[0]["name"]
@@ -135,9 +145,9 @@ def save_sent(message):
     """A copy of what Tarik sent, in the mailbox's Sent folder, read: SMTP keeps none, and the
     cabinet must see Tarik's replies there. The email is already sent: a failure here is only logged."""
     try:
-        box = imaplib.IMAP4_SSL(os.environ["IMAP_HOST"], int(os.getenv("IMAP_PORT") or 993), ssl_context=tls_context(), timeout=60)
+        box = imaplib.IMAP4_SSL(setting("IMAP_HOST"), int(setting("IMAP_PORT", "993")), ssl_context=tls_context(), timeout=60)
         check_pin(box.sock)
-        box.login(os.environ["IMAP_USER"], os.environ["IMAP_PASSWORD"])
+        box.login(setting("IMAP_USER"), setting("IMAP_PASSWORD"))
         box.append(f'"{sent_folder(box)}"', "(\\Seen)", imaplib.Time2Internaldate(time.time()), message.as_bytes())
         box.logout()
     except Exception as error:
@@ -156,11 +166,11 @@ def send_email(to: str, subject: str, body: str, in_reply_to: str = "", referenc
     if refused:
         print(f"send_email refused: {refused} not whitelisted", flush=True)
         raise ToolError(f"Email non envoye : destinataire hors de la liste autorisee ({', '.join(refused)}).")
-    host, user = os.getenv("SMTP_HOST", ""), os.getenv("SMTP_USER", "")
+    host, user = setting("SMTP_HOST", ""), setting("SMTP_USER", "")
     if not host or not user:
         raise ToolError("Email non envoye : SMTP non configure.")
     message = EmailMessage()
-    message["From"] = os.getenv("SMTP_FROM") or user
+    message["From"] = setting("SMTP_FROM", user)
     message["To"] = ", ".join(recipients)
     message["Subject"] = subject
     message["Message-ID"] = make_msgid(domain=user.split("@")[-1])
@@ -170,13 +180,13 @@ def send_email(to: str, subject: str, body: str, in_reply_to: str = "", referenc
     text, page = render(body)
     message.set_content(text)
     message.add_alternative(page, subtype="html")
-    port, context = int(os.getenv("SMTP_PORT") or 465), tls_context()
+    port, context = int(setting("SMTP_PORT", "465")), tls_context()
     try:
         with (smtplib.SMTP_SSL(host, port, context=context, timeout=60) if port == 465 else smtplib.SMTP(host, port, timeout=60)) as smtp:
             if port != 465:
                 smtp.starttls(context=context)
             check_pin(smtp.sock)
-            smtp.login(user, os.getenv("SMTP_PASSWORD", ""))
+            smtp.login(user, setting("SMTP_PASSWORD"))
             smtp.send_message(message)
     except Exception as error:
         print(f"send_email: {error}", flush=True)

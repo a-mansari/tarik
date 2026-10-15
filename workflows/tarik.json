@@ -40,29 +40,30 @@
         0
       ],
       "parameters": {
-        "jsCode": "// The uploaded files as one base64 payload: a single query parameter, free of the commas the Postgres node splits on.\nconst message = $input.first().json;\nconst files = [];\nfor (const file of message.files || []) {\n  const buffer = await this.helpers.getBinaryDataBuffer(0, file.binaryKey);\n  files.push({ file_name: file.fileName, mime_type: file.mimeType, data: buffer.toString('base64') });\n}\nconst payload = Buffer.from(JSON.stringify({ session_id: message.sessionId, files })).toString('base64');\nreturn [{ json: { payload } }];"
+        "jsCode": "// The uploaded files as one base64 payload, saved by save_files in this cabinet's tarik_files.\nconst message = $input.first().json;\nconst files = [];\nfor (const file of message.files || []) {\n  const buffer = await this.helpers.getBinaryDataBuffer(0, file.binaryKey);\n  files.push({ file_name: file.fileName, mime_type: file.mimeType, data: buffer.toString('base64') });\n}\nconst payload = Buffer.from(JSON.stringify({ session_id: message.sessionId, files })).toString('base64');\nreturn [{ json: { payload } }];"
       }
     },
     {
       "id": "c1a0b5e2-0001-4000-8000-000000000007",
       "name": "Enregistrer fichiers",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
       "position": [
         440,
         0
       ],
       "parameters": {
-        "operation": "executeQuery",
-        "query": "with payload as (select convert_from(decode($1, 'base64'), 'UTF8')::jsonb as body),\nsaved as (\n  insert into tarik_files (session_id, file_name, mime_type, data)\n  select body->>'session_id', file->>'file_name', file->>'mime_type', decode(file->>'data', 'base64')\n  from payload, jsonb_array_elements(body->'files') as file\n  returning id, file_name\n)\nselect coalesce(json_agg(json_build_object('id', id, 'file_name', file_name) order by id), '[]'::json) as files from saved",
+        "endpointUrl": "http://tarik-mcp:8000/c/experio_cabinet_8/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "save_files"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ payload: $json.payload }) }}",
         "options": {
-          "queryReplacement": "={{ $json.payload }}"
-        }
-      },
-      "credentials": {
-        "postgres": {
-          "id": "TarikPostgres001",
-          "name": "Tarik Postgres"
+          "timeout": 300000
         }
       }
     },
@@ -87,7 +88,7 @@
           "value": {
             "session_id": "={{ $('Message a Tarik').item.json.sessionId }}",
             "message": "={{ $('Message a Tarik').item.json.chatInput || '' }}",
-            "files": "={{ $json.files.map(f => f.file_name) }}"
+            "files": "={{ $json.content[0].text.files.map(f => f.file_name) }}"
           },
           "matchingColumns": [],
           "schema": [

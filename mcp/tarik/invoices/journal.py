@@ -11,7 +11,7 @@ when the dossier has none -- creating journals is the cabinet's setup, not Tarik
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server, with_ids
-from tarik.core.experio import DRY_RUN, invoice_context, odoo_call, odoo_json, require_invoice
+from tarik.core.experio import dry_run, invoice_context, odoo_call, odoo_json, require_invoice
 
 SETTING = {  # (type, local?) -> the dossier setting Experio takes the journal from
     ("purchase", True): ("local_purchase_journal_id", "journal d'achats local"),
@@ -37,7 +37,7 @@ def check_journal(invoice_id: int) -> dict:
                   "(Configuration > Parametres) avant de comptabiliser.")
     if invoice["journal_id"] and invoice["journal_id"][0] == expected[0]:
         return ok(f"Facture {invoice_id} : journal {expected[1]}.")
-    if DRY_RUN:
+    if dry_run():
         return ok(f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id} : "
                   f"elle passerait au journal {expected[1]}.")
     if invoice["state"] != "draft":

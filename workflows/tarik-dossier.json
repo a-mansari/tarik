@@ -64,6 +64,10 @@
             {
               "name": "attachments",
               "type": "string"
+            },
+            {
+              "name": "cabinet",
+              "type": "string"
             }
           ]
         }
@@ -72,25 +76,27 @@
     {
       "id": "0b3f9bfd-0ce7-5cc2-82ad-c54532d37c78",
       "name": "Pieces jointes de l'agent",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
       "position": [
         110,
         300
       ],
       "parameters": {
-        "operation": "executeQuery",
-        "query": "with payload as (select convert_from(decode($1, 'base64'), 'UTF8')::jsonb as body),\nsaved as (\n  insert into tarik_files (session_id, file_name, mime_type, data, source_id)\n  select body->>'thread_id', file->>'file_name', file->>'mime_type', decode(file->>'data', 'base64'), file->>'id'\n  from payload, jsonb_array_elements(coalesce(body->'files', '[]'::jsonb)) as file\n  on conflict (session_id, source_id) do nothing\n  returning id\n)\nselect count(*) as saved from saved",
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "save_files"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ payload: $('Appel').first().json.attachments || '' }) }}",
         "options": {
-          "queryReplacement": "={{ $('Appel').first().json.attachments || 'e30=' }}"
+          "timeout": 300000
         }
       },
-      "credentials": {
-        "postgres": {
-          "id": "TarikPostgres001",
-          "name": "Tarik Postgres"
-        }
-      }
+      "onError": "continueErrorOutput"
     },
     {
       "id": "eb584d04-b828-50c8-a5b3-52b085292317",
@@ -117,7 +123,7 @@
         200
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -172,7 +178,7 @@
         120
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -225,7 +231,7 @@
         420
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -265,7 +271,7 @@
         200
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -303,7 +309,7 @@
         200
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -341,7 +347,7 @@
         460
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -366,7 +372,7 @@
         560
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -391,7 +397,7 @@
         400
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -416,7 +422,7 @@
         800
       ],
       "parameters": {
-        "endpointUrl": "http://tarik-mcp:8000/mcp",
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
         "serverTransport": "httpStreamable",
         "tool": {
           "__rl": true,
@@ -454,6 +460,13 @@
         [
           {
             "node": "Nouveau dossier ?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }
