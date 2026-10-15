@@ -1,5 +1,6 @@
 """Tarik's mailbox over IMAP, read without changing it (folder opened read-only, bodies
-fetched with BODY.PEEK): no flag is set, nothing is moved. What Tarik did with each email
+fetched with BODY.PEEK): no flag is set, nothing is moved. The one thing Tarik adds is a
+copy of each email it sends, in the Sent folder (tarik.emails.sending.save_sent). What Tarik did with each email
 is tracked in Postgres instead, thread by thread, so an email someone already read in the
 mailbox is still answered, and a thread waiting for the client comes back when they reply.
 
