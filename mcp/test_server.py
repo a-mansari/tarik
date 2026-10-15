@@ -240,11 +240,15 @@ assert recipient_allowed("test.ali@experio.ma", ["test.*@experio.ma"]) and not r
 assert recipient_allowed("a@sub.cabinet.example", ["*@*.cabinet.example"]) and not recipient_allowed("a@cabinet.example", ["*@*.cabinet.example"])
 assert recipient_allowed("anyone@anywhere.example", ["*"])
 assert not recipient_allowed("testXali@experio.ma", ["test.ali@experio.ma"])  # "." is literal, not a wildcard
+import mail
+kept, mail.ALLOWED_RECIPIENTS = mail.ALLOWED_RECIPIENTS, ["test@example.com"]  # whatever the container's own list
 try:
-    send_email("client@other.example", "s", "b")  # the container's own whitelist is empty or doesn't list it
+    send_email("client@other.example", "s", "b")
     raise AssertionError("an email outside the whitelist was not refused")
 except ToolError as error:
     assert "hors de la liste autorisee" in str(error)
+finally:
+    mail.ALLOWED_RECIPIENTS = kept
 print("email whitelist ok")
 
 # Emails: the client's own words, their files, automatic replies.
