@@ -14,7 +14,7 @@ Each "Tarik - <cabinet>" agent has these tools, named exactly as below:
 | `Experio_find_dossier` | Finds a dossier from a name, even misspelled or partial; closest first, with a likeness score. | MCP, read |
 | `Experio_list_invoices` | A dossier's invoices, most recent first; filter: en cours, brouillon, comptabilisee, payee. | MCP, read |
 | `Experio_list_collaborators` | The cabinet's collaborators: role, manager or not, number of dossiers. | MCP, read |
-| `Experio_traiter_fichiers` | Processes the invoices and bank statements attached to the conversation, for one dossier. | Workflow "Tarik - Traitement" |
+| `Experio_traiter_fichiers` | Processes the invoices and bank statements attached to the conversation, for one dossier, as purchases, sales or both, as the client said. | Workflow "Tarik - Traitement" |
 | `Experio_parametrer_dossier` | Creates a dossier, or imports a FEC or grand livre into one. | Workflow "Tarik - Dossier" |
 | `Experio_modifier_dossier` | Changes an existing dossier's identity fields. | Workflow "Tarik - Modification" |
 | `load_skill` | Loads one of the skills below (n8n's own). | n8n |
@@ -66,10 +66,10 @@ above; the workflows call the rest.
 | `save_files` / `files_to_process` | Saves a conversation's files / lists those not processed yet. |
 | `identify_document` | Invoice or bank statement? |
 | `import_bank_statement` | Imports a statement into the dossier's bank journal. |
-| `split_invoices` | Splits a PDF holding several invoices (vision model). |
+| `split_invoices` | Asks purchase or sale when the client didn't write it, then splits a PDF holding several invoices (vision model). |
 | `create_draft_invoice` / `wait_until_read` | Creates the draft / waits for Experio's reading (up to 3 minutes). |
 | `check_invoice` / `correct_invoice` | Compares what Experio read with the scan / corrects the differences. |
-| `classify_invoice` | Purchase, sale, or bank statement. |
+| `classify_invoice` | Purchase, sale, or bank statement; stops an invoice whose scan contradicts the side the client gave. |
 | `link_tiers` / `find_tiers` / `set_tiers` | The invoice's supplier or customer. |
 | `check_duplicate` | Refuses an invoice already recorded. |
 | `assign_account` / `search_accounts` / `set_account` | The invoice's account. |

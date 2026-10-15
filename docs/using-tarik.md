@@ -22,7 +22,9 @@ Send FEC and grand livre files, and large scans, **by email**: the chat drops th
 - A dossier's invoices, optionally only those being read, drafts, posted or paid.
 - The cabinet's collaborators: role, manager or not, number of dossiers.
 
-**Process invoices and bank statements.** For each file: it recognises an invoice or a statement,
+**Process invoices and bank statements.** An invoice is a purchase (received from a supplier) or a
+sale (issued by the dossier to its own customer): say which, or Tarik asks before anything is made. For
+each file: it recognises an invoice or a statement,
 splits a PDF holding several invoices, creates each draft, checks what Experio read against the scan
 and corrects it, then settles the tiers, account, TVA, journal, withholding tax, prepaid charges and
 fiscal year, and posts it. When a step needs you (which account? which fiscal year?), it asks.
@@ -53,7 +55,12 @@ Tarik works best when one message says **what to do, for which dossier, with whi
 not: "les factures du café" matches five dossiers, so Tarik asks which one.
 
 > ✅ Voici les factures d'achat de DJ BUILDING.
-> ❌ Voici mes factures du mois. *(Tarik asks: pour quel dossier ?)*
+> ✅ Voici les factures clients de Gecafisc. *(sales)*
+> ❌ Voici mes factures du mois. *(Tarik asks: pour quel dossier, achats ou ventes ?)*
+
+**Say whether invoices are purchases or sales**: "achat" or "fournisseurs" for purchases, "vente" or
+"factures clients" for sales, both words for a mix. Tarik never guesses it; when an invoice looks like
+the other side, it is left as a draft for you to check.
 
 **Say what you want with a plain verb**: traiter, saisir, enregistrer, comptabiliser (documents);
 créer, ouvrir (a dossier); modifier, changer, corriger (a dossier's field).

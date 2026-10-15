@@ -42,6 +42,14 @@
               "type": "string"
             },
             {
+              "name": "invoice_type",
+              "type": "string"
+            },
+            {
+              "name": "client_message",
+              "type": "string"
+            },
+            {
               "name": "attachments",
               "type": "string"
             },
@@ -254,7 +262,7 @@
           "value": "split_invoices"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ file_id: $json.content[0].text.file_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ file_id: $json.content[0].text.file_id, invoice_type: $('Appel').first().json.invoice_type || '', client_message: $('Appel').first().json.client_message || '' }) }}",
         "options": {
           "timeout": 300000
         }
@@ -467,7 +475,7 @@
           "value": "classify_invoice"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id, invoice_type: $('Appel').first().json.invoice_type || '' }) }}",
         "options": {
           "timeout": 300000
         }

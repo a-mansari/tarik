@@ -7,11 +7,12 @@ import pypdfium2
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, question, server, stop
-from tarik.invoices.classify import CLASSIFY_PROMPT
+from tarik.invoices.classify import CLASSIFY_PROMPT, client_side
 from tarik.core.documents import pdf_pages, to_pdf
 from tarik.core.cabinets import cabinet_db
 from tarik.core.experio import odoo_call, require_dossier
 from tarik.core.model import ask_model
+from tarik.dossiers.onboarding import client_messages
 
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
@@ -98,10 +99,12 @@ def pages_of(first, last):
 
 @server.tool()
 @with_ids
-def split_invoices(file_id: int) -> dict:
+def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "") -> dict:
     """Call it first for every file the client sends: a PDF may hold several
     invoices. Returns the file number of each invoice found (the same file
-    when it holds only one); create one draft per number returned."""
+    when it holds only one); create one draft per number returned.
+    ``invoice_type``: achat, vente or mixte, only as the client wrote it in this
+    conversation; otherwise the client is asked first and nothing is made."""
     with cabinet_db() as db:
         row = db.execute("select session_id, file_name, mime_type, data, invoice_id, kind from tarik_files where id = %s for update",
                          (file_id,)).fetchone()
@@ -109,6 +112,8 @@ def split_invoices(file_id: int) -> dict:
             raise ToolError(f"Aucun fichier n° {file_id}.")
         session_id, name, mime, data, invoice_id, kind = row
         require_kind(name, kind, "invoice")
+        if not client_side(invoice_type, " ".join(client_messages(session_id, client_message))):
+            return question(f"{name} : s'agit-il de factures d'achat ou de vente ? Rien n'a ete cree.")
         parts = db.execute("select id, file_name from tarik_files where parent_id = %s order by id", (file_id,)).fetchall()
         if parts:
             return ok(f"{name} : deja decoupe en {len(parts)} factures : " + ", ".join(f"fichier n° {i} ({n})" for i, n in parts) + ".",
