@@ -104,7 +104,7 @@ mcp("Resume", "run_summary", "{ run_id: String($execution.id) }", [220, 800])
 connect("Appel", "Resume")
 
 workflow = {"id": "TarikDossier0001", "name": "Tarik - Dossier", "active": False,
-            "settings": {"executionOrder": "v1", "callerPolicy": "workflowsFromSameOwner"},
+            "settings": {"executionOrder": "v1", "callerPolicy": "workflowsFromSameOwner", "saveExecutionProgress": True},
             "nodes": flow.nodes, "connections": flow.connections}
 OUT.write_text(json.dumps(workflow, indent=2, ensure_ascii=False) + "\n")
 print(len(flow.nodes), "nodes")

@@ -3,7 +3,8 @@
   "name": "Tarik",
   "active": false,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "saveExecutionProgress": true
   },
   "nodes": [
     {
