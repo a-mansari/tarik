@@ -32,11 +32,18 @@ services:
       - n8n_data:/home/node/.n8n
 
   # Tarik's Experio tools over MCP, one address per cabinet: http://tarik-mcp:8000/c/<cabinet>/mcp. Not exposed to the host.
-  tarik-mcp:
+  tarik-mcp: &tarik
     build: ./mcp
     restart: unless-stopped
-    env_file: .env
+    # Only what Tarik's code reads, never the whole .env: its N8N_ENCRYPTION_KEY would open n8n's credentials
+    # to a container that reads strangers' PDFs and emails.
     environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      ODOO_URL: ${ODOO_URL}
+      TARIK_CALLS_PER_CABINET: ${TARIK_CALLS_PER_CABINET:-10}
+      TARIK_CALLS_TOTAL: ${TARIK_CALLS_TOTAL:-40}
       N8N_MCP_API_URL: http://n8n:5678/mcp-server/http # n8n as reached on Docker's network, whatever .env says for the host
       VAULT_ADDR: http://vault:8200
     volumes:
@@ -47,16 +54,8 @@ services:
   # Wakes "Tarik - Emails" for each cabinet with a Tarik mailbox: as soon as an email arrives (IMAP IDLE),
   # and every 15 minutes in case one was missed. Each wake-up names its cabinet (mcp/watcher.py).
   tarik-mail-watch:
-    build: ./mcp
-    restart: unless-stopped
-    env_file: .env
-    dns: [1.1.1.1, 8.8.8.8]
+    <<: *tarik
     command: ["python", "watcher.py"]
-    environment:
-      VAULT_ADDR: http://vault:8200
-    volumes:
-      - ./vault/.local/approle:/run/vault:ro
-    depends_on: [vault]
 
   # Tarik's data (database POSTGRES_DB: one schema per cabinet, mcp/tarik/core/cabinet.sql) and n8n's own
   # (database N8N_POSTGRES_DB). Not exposed to the host.
