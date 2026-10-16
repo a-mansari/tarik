@@ -15,7 +15,7 @@
       "typeVersion": 1.1,
       "position": [
         0,
-        300
+        800
       ],
       "parameters": {
         "inputSource": "workflowInputs",
@@ -83,8 +83,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        60,
-        300
+        224,
+        704
       ],
       "parameters": {
         "jsCode": "// When the run started, for its time budget.\nreturn [{ json: { started: Date.now() } }];"
@@ -96,8 +96,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        110,
-        300
+        448,
+        704
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -121,8 +121,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        220,
-        300
+        672,
+        1248
       ],
       "parameters": {
         "mode": "expression",
@@ -136,8 +136,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        440,
-        200
+        896,
+        544
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -161,8 +161,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        660,
-        200
+        1120,
+        480
       ],
       "parameters": {
         "mode": "expression",
@@ -176,8 +176,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        880,
-        200
+        1344,
+        400
       ],
       "parameters": {
         "mode": "expression",
@@ -191,8 +191,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        1100,
-        120
+        1568,
+        608
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -216,8 +216,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        1320,
-        120
+        1792,
+        544
       ],
       "parameters": {
         "mode": "expression",
@@ -231,8 +231,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1540,
-        300
+        2016,
+        336
       ],
       "parameters": {
         "jsCode": "// The dossier the rest works on: the one given, or the one just created.\nconst call = $('Appel').first().json;\nreturn [{ json: { dossier_id: call.dossier_id > 0 ? call.dossier_id : $('Creation (create_dossier)').first().json.content[0].text.dossier_id } }];"
@@ -244,8 +244,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        440,
-        420
+        1568,
+        1248
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -269,8 +269,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        660,
-        420
+        1808,
+        1024
       ],
       "parameters": {
         "mode": "expression",
@@ -284,8 +284,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        1760,
-        200
+        2464,
+        208
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -309,8 +309,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1980,
-        200
+        2688,
+        128
       ],
       "parameters": {
         "jsCode": "// One item per file to import (files_to_process picked the conversation's FEC and grand livre files not imported yet).\nreturn $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));"
@@ -322,8 +322,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        2200,
-        200
+        2912,
+        128
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -347,8 +347,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1760,
-        460
+        2240,
+        496
       ],
       "parameters": {
         "jsCode": "// Finishing hands the entries to Experio: not with a refused file, which the client sends again.\nconst imports = $('Ecritures (import_entries)').isExecuted ? [...$('Ecritures (import_entries)').all(0), ...$('Ecritures (import_entries)').all(1)] : [];  // answers and errors\nconst refused = imports.some(item => item.json.error || item.json.content?.[0]?.text?.status !== 'ok');\nreturn refused ? [] : [{ json: {} }];"
@@ -360,8 +360,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        1980,
-        460
+        2464,
+        496
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -385,8 +385,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        2090,
-        560
+        2688,
+        416
       ],
       "parameters": {
         "mode": "expression",
@@ -400,8 +400,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        2200,
-        560
+        2912,
+        416
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -425,8 +425,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        440,
-        640
+        2016,
+        1600
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -450,8 +450,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        660,
-        640
+        2224,
+        1744
       ],
       "parameters": {
         "jsCode": "// One item per dossier left waiting.\nreturn $input.first().json.content[0].text.dossiers.map(dossier_id => ({ json: { dossier_id } }));"
@@ -463,8 +463,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        880,
-        640
+        2464,
+        1696
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -488,8 +488,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        990,
-        740
+        2688,
+        1760
       ],
       "parameters": {
         "mode": "expression",
@@ -503,8 +503,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        1100,
-        740
+        2912,
+        1760
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -528,8 +528,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        2500,
-        400
+        3136,
+        864
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -553,8 +553,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        220,
-        800
+        224,
+        896
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",

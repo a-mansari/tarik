@@ -146,6 +146,11 @@ class Workflow:
     def save(self, workflow_id, name, settings=None):
         """Write the workflow to the path given on the command line, else to <prefix>.json next to this file."""
         path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name(f"{self.prefix}.json")
+        # The layout arranged in n8n's editor (save_layout.py), over the positions written here.
+        layout_file = Path(__file__).with_name("layout.json")
+        layout = json.loads(layout_file.read_text()).get(workflow_id, {}) if layout_file.exists() else {}
+        for node in self.nodes:
+            node["position"] = layout.get(node["name"], node["position"])
         settings = settings or {
             "executionOrder": "v1",
             "callerPolicy": "workflowsFromSameOwner",
