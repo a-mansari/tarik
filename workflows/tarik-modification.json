@@ -86,6 +86,10 @@
               "type": "boolean"
             },
             {
+              "name": "client_confirmed",
+              "type": "boolean"
+            },
+            {
               "name": "client_message",
               "type": "string"
             },
@@ -155,7 +159,7 @@
           "value": "update_dossier"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Appel').first().json.dossier_id, name: $('Appel').first().json.name ?? '', folder_type: $('Appel').first().json.folder_type ?? '', ice: $('Appel').first().json.ice ?? '', if_number: $('Appel').first().json.if_number ?? '', rc: $('Appel').first().json.rc ?? '', patente: $('Appel').first().json.patente ?? '', tsc: $('Appel').first().json.tsc ?? '', capital: $('Appel').first().json.capital ?? '', cnss: $('Appel').first().json.cnss ?? '', street: $('Appel').first().json.street ?? '', street2: $('Appel').first().json.street2 ?? '', city: $('Appel').first().json.city ?? '', zip: $('Appel').first().json.zip ?? '', skip_ice_if_check: $('Appel').first().json.skip_ice_if_check === true, client_message: $('Appel').first().json.client_message || '', session_id: $('Appel').first().json.session_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Appel').first().json.dossier_id, name: $('Appel').first().json.name ?? '', folder_type: $('Appel').first().json.folder_type ?? '', ice: $('Appel').first().json.ice ?? '', if_number: $('Appel').first().json.if_number ?? '', rc: $('Appel').first().json.rc ?? '', patente: $('Appel').first().json.patente ?? '', tsc: $('Appel').first().json.tsc ?? '', capital: $('Appel').first().json.capital ?? '', cnss: $('Appel').first().json.cnss ?? '', street: $('Appel').first().json.street ?? '', street2: $('Appel').first().json.street2 ?? '', city: $('Appel').first().json.city ?? '', zip: $('Appel').first().json.zip ?? '', skip_ice_if_check: $('Appel').first().json.skip_ice_if_check === true, client_confirmed: $('Appel').first().json.client_confirmed === true, client_message: $('Appel').first().json.client_message || '', session_id: $('Appel').first().json.session_id }) }}",
         "options": {
           "timeout": 300000
         }

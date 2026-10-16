@@ -10,7 +10,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from tarik.core.app import ok, question, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import DOSSIER_DOMAIN, SIMILAR_NAME, TEST_MODE
-from tarik.core.conversation import client_messages, own_words, yes_no
+from tarik.core.conversation import client_messages, own_words
 from tarik.core.experio import dry_run, odoo_call, odoo_json, refused, require_dossier
 from tarik.core.numbers import as_number, written_numbers
 from tarik.core.text import normalized, said, similarity
@@ -130,18 +130,16 @@ def client_wrote(key, value, words):
     return said(normalized(value), normalized(words))
 
 
-def confirmed(session_id, client_message, *parts):
-    """The client's "oui" answers Tarik's last question in this conversation, and that question holds every one of
-    ``parts`` (its kind and the dossier's name): a yes to another question, or about another dossier, confirms
-    nothing. No guess from their wording, and the model can't decide it."""
+def confirmed(session_id, client_confirmed, *parts):
+    """The agent read a clear yes (``client_confirmed``) to Tarik's last question in this conversation, and that
+    question holds every one of ``parts`` (its kind and the dossier's name): a yes to another question, or about
+    another dossier, confirms nothing, and nothing is confirmed before Tarik asked."""
     with cabinet_db() as db:
         last = db.execute(
             "select message from tarik_results where session_id = %s and status = 'question' order by id desc limit 1",
             (session_id,),
         ).fetchone()
-    return (
-        bool(last) and all(normalized(part) in normalized(last[0]) for part in parts) and yes_no(client_message) is True
-    )
+    return client_confirmed is True and bool(last) and all(normalized(part) in normalized(last[0]) for part in parts)
 
 
 # --- Other dossiers ---
@@ -209,7 +207,7 @@ def created_here(session_id, name):
     return None
 
 
-def duplicate(session_id, client_message, name, ice, if_number):
+def duplicate(session_id, client_confirmed, name, ice, if_number):
     """A stop when another dossier has this ICE or IF, a question while one has a very similar name the client
     did not confirm; None when the dossier may be created."""
     same, similar = lookalikes(name, ice, if_number)
@@ -220,8 +218,8 @@ def duplicate(session_id, client_message, name, ice, if_number):
         )
     # The skip question comes only once this dossier's similar name was confirmed: a yes to it confirms both.
     if similar and not (
-        confirmed(session_id, client_message, "nom tres proche", name)
-        or confirmed(session_id, client_message, "sans cette verification", name)
+        confirmed(session_id, client_confirmed, "nom tres proche", name)
+        or confirmed(session_id, client_confirmed, "sans cette verification", name)
     ):
         return question(SIMILAR_QUESTION.format(names=", ".join(d["name"] for d in similar), name=name))
     return None
@@ -234,6 +232,7 @@ def create_dossier(
     if_number: str | int = "",
     folder_type: str = "company",
     skip_ice_if_check: bool = False,
+    client_confirmed: bool = False,
     client_message: str = "",
     session_id: str = "",
 ) -> dict:
@@ -241,11 +240,13 @@ def create_dossier(
     ``if_number`` are the client's ICE and IF, ``folder_type`` company (default),
     person, cpu or st. Experio checks the name is free and the ICE/IF against the
     official registry; ``skip_ice_if_check`` ticks the dossier form's "Ignore ICE/IF
-    Verification", once the client confirmed it (a question first). The ICE and IF are kept only
+    Verification", once the client confirmed it (a question first: ``client_confirmed``, the agent's
+    reading of a clear yes to it, answers that question only). The ICE and IF are kept only
     when the client wrote them (``client_message`` and their earlier messages).
     A dossier of that name this conversation (``session_id``) already created is reused:
     MiniMax sometimes asks for it again to import its entries. Nothing is created when a
-    dossier has the same ICE or IF; a very similar name is a question to the client first."""
+    dossier has the same ICE or IF; a very similar name is a question to the client first, which
+    ``client_confirmed`` answers too."""
     client_message = own_words(client_message)
     name = " ".join((name or "").split())
     if not name:  # MiniMax sometimes calls with no fields at all: told how to call again, it does
@@ -263,12 +264,12 @@ def create_dossier(
             dossier_id=reused["id"],
             reused=True,
         )
-    refusal = duplicate(session_id, client_message, name, ice, if_number)
+    refusal = duplicate(session_id, client_confirmed, name, ice, if_number)
     if refusal:
         return refusal
     values = {"name": name, "folder_type": folder_type, "enabled": True}  # enabled, as Experio's dossier import sets it
     if skip_ice_if_check:
-        if not confirmed(session_id, client_message, "sans cette verification", name):
+        if not confirmed(session_id, client_confirmed, "sans cette verification", name):
             return question(SKIP_QUESTION.format(what=f"la creation du dossier {name}"))
         values["ignore_ice_if_verification"] = True
     values.update({key: value.strip() for key, value in (("ice", ice), ("vat", if_number)) if value and value.strip()})
@@ -338,13 +339,15 @@ def update_dossier(
     city: str = "",
     zip: str | int = "",
     skip_ice_if_check: bool = False,
+    client_confirmed: bool = False,
     client_message: str = "",
     session_id: str = "",
 ) -> dict:
     """Change fields of an existing dossier, as its Experio form does: only those given (empty: unchanged),
     and only to values the client wrote themselves (``client_message`` and their earlier messages in
     ``session_id``). An ICE or IF another dossier has, or a name another dossier has, is refused; Experio
-    checks the ICE and IF against the registry, skipped only once the client confirmed it (a question first)."""
+    checks the ICE and IF against the registry, skipped only once the client confirmed it (a question first:
+    ``client_confirmed``, the agent's reading of a clear yes to it, answers that question only)."""
     client_message = own_words(client_message)
     dossier = require_dossier(dossier_id)
     asked = given(
@@ -385,7 +388,7 @@ def update_dossier(
     if refusal:
         return refusal
     if skip_ice_if_check:
-        if not confirmed(session_id, client_message, "sans cette verification", dossier):
+        if not confirmed(session_id, client_confirmed, "sans cette verification", dossier):
             return question(SKIP_QUESTION.format(what=f"la modification du dossier {dossier}"))
         changes["ignore_ice_if_verification"] = True
     shown = " ; ".join(

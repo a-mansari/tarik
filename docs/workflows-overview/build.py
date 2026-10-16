@@ -475,7 +475,7 @@ PAGES["traitement"] = page(
             [
                 (
                     "Reponse du client (answer_pending)",
-                    "Applies the client's answer, in their own words, to the question this conversation waits on: a supplier, an account, VAT, withholding, prepaid, fiscal year, or a statement's bank account. Checks the sender first.",
+                    "Applies the client's answer, in their own words, with what the agent read in it (oui or non, the supplier chosen among those proposed), to the question this conversation waits on: a supplier, an account, VAT, withholding, prepaid, fiscal year, or a statement's bank account. An unclear oui or non is asked again. Checks the sender first.",
                 ),
                 (
                     "Reprendre ou ?",

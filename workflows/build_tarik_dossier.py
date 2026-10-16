@@ -33,7 +33,8 @@ created = flow.checked(
     (
         f"{{ name: {CALL}.name, ice: {CALL}.ice || '', if_number: {CALL}.if_number || '', "
         f"folder_type: {CALL}.folder_type || 'company', skip_ice_if_check: {CALL}.skip_ice_if_check === true, "
-        f"client_message: {CALL}.client_message || '', session_id: {CALL}.session_id }}"
+        f"client_confirmed: {CALL}.client_confirmed === true, client_message: {CALL}.client_message || '', "
+        f"session_id: {CALL}.session_id }}"
     ),
     [440, 200],
     [660, 200],

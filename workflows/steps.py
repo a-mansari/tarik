@@ -26,6 +26,7 @@ TRAITEMENT_INPUTS: Final = MappingProxyType(
         "session_id": "string",
         "dossier_id": "number",
         "answer": "string",
+        "decision": "string",  # what the agent read in the client's answer (answer_pending)
         "invoice_type": "string",
         "client_message": "string",
         **ATTACHMENTS,
@@ -42,6 +43,7 @@ DOSSIER_INPUTS: Final = MappingProxyType(
         "if_number": "string",
         "folder_type": "string",
         "skip_ice_if_check": "boolean",
+        "client_confirmed": "boolean",  # the agent read a clear yes to the dossier's last question
         "client_message": "string",
         "model_dossier_id": "number",
         "kind": "string",

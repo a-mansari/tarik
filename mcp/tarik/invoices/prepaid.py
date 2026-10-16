@@ -35,7 +35,8 @@ def prepaid_period(start, end):
 @with_ids
 def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
     """When a draft invoice bills a period over several months, ask whether to spread it
-    (charges or produits constates d'avance); call again with the client's oui/non."""
+    (charges or produits constates d'avance); call again with ``answer`` "oui" or "non", as the agent read the
+    client's reply."""
     invoice = require_invoice(
         invoice_id, ["state", "type", "company_id", "exercice_id", "invoice_number", "has_prepaid_expenses"]
     )

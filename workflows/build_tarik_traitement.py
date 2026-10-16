@@ -181,7 +181,12 @@ RESUMED = [
     "post_invoice",
 ]
 ANSWER = "Reponse du client (answer_pending)"
-mcp(ANSWER, "answer_pending", f"{{ session_id: {CALL}.session_id, answer: {CALL}.answer }}", [440, 760])
+mcp(
+    ANSWER,
+    "answer_pending",
+    f"{{ session_id: {CALL}.session_id, answer: {CALL}.answer, decision: String({CALL}.decision ?? '') }}",
+    [440, 760],
+)
 outputs = ", ".join(f"{tool}: {output}" for output, tool in enumerate([*RESUMED, "waiting_drafts"], 1))
 route(
     "Reprendre ou ?",

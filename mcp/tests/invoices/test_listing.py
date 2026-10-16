@@ -1,20 +1,36 @@
-"""Invoice list filters, as the client words them."""
+"""Invoice list filters, as the agent chooses them from the client's words."""
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.invoices.listing import label, status_of
+from tarik.invoices import listing
+from tarik.invoices.listing import label
 
 
 @pytest.mark.functionality
-def test_filters():
-    assert status_of("") == "" and status_of("toutes") == ""
-    assert status_of("en cours") == "en cours" and status_of("Brouillons") == "brouillon"
-    assert status_of("Comptabilisées") == "comptabilisee" and status_of("payées") == "payee"
-    assert status_of("annulee") is None and status_of("brouillon ou payee") is None
+@pytest.mark.parametrize("status", ["", "en cours", "brouillon", "comptabilisee", "payee"])
+def test_a_status_the_agent_chooses_filters_the_list(monkeypatch, status):
+    asked = []
+    monkeypatch.setattr(listing, "require_dossier", lambda dossier_id: "ALPHA")
+    monkeypatch.setattr(listing, "odoo_call", lambda model, method, domain, **kw: asked.append(domain) or 0)
+    listing.list_invoices(5, status)
+    assert asked[0] == [("company_id", "=", 5), ("state", "!=", "cancel"), *listing.STATUSES.get(status, [])]
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("status", ["impayees", "toutes", "brouillon ou payee", "annulee"])
+def test_any_other_status_is_refused_never_guessed(monkeypatch, status):
+    monkeypatch.setattr(listing, "require_dossier", lambda dossier_id: "ALPHA")
+    with pytest.raises(ToolError, match="inconnu"):
+        listing.list_invoices(5, status)
+
+
+ATLAS = {"id": 12, "invoice_number": "F-1", "invoice_date": "2026-03-15", "amount_total": 10, "state": "draft"}
 
 
 @pytest.mark.functionality
 def test_each_invoice_has_one_status():
+    assert listing.line({**ATLAS, "partner_id": [3, "ATLAS - ROULEMENT - 12345678"]}).count("ATLAS - ROULEMENT,") == 1
     assert label({"state": "post", "payment_state": "paid"}) == "payee"
     assert label({"state": "export", "payment_state": "partial"}) == "comptabilisee"
     assert label({"state": "pending", "payment_state": "unpaid"}) == "en cours"

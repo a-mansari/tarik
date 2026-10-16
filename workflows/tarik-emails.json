@@ -211,6 +211,7 @@
             "session_id": "={{ $('Un element par fil').item.json.session_id }}",
             "dossier_id": 0,
             "answer": "",
+            "decision": "",
             "invoice_type": "",
             "client_message": "",
             "attachments": "",
@@ -248,6 +249,15 @@
             {
               "id": "answer",
               "displayName": "answer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -327,6 +337,7 @@
             "if_number": "",
             "folder_type": "",
             "skip_ice_if_check": false,
+            "client_confirmed": false,
             "client_message": "",
             "model_dossier_id": 0,
             "kind": "",
@@ -401,6 +412,15 @@
             {
               "id": "skip_ice_if_check",
               "displayName": "skip_ice_if_check",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            },
+            {
+              "id": "client_confirmed",
+              "displayName": "client_confirmed",
               "required": false,
               "defaultMatch": false,
               "display": true,

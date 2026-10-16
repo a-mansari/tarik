@@ -12,7 +12,7 @@ def chosen(*changed):
 @pytest.mark.technical
 def test_a_change_runs_the_tests_that_import_it():
     tests = chosen("tarik/invoices/tva.py")
-    assert {"invoices/test_tva.py", "isolation/test_no_setting_shown.py", "style/test_consistency.py"} <= tests
+    assert {"invoices/test_answers.py", "isolation/test_no_setting_shown.py", "style/test_consistency.py"} <= tests
     assert not {"core/test_vault.py", "dossiers/test_search.py", "isolation/test_cabinet_scope.py"} & tests
 
 
