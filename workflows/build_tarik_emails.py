@@ -44,10 +44,13 @@ flow.code(
 )
 # The cabinet's own agent answers, in the thread's conversation (ask_agent: n8n's call_agent).
 # Longer than ask_agent's own 600 s wait: n8n never gives up on an answer still coming.
+# A new thread: the client hears at once that it was received, before the agent works (it may take minutes).
+ACK = "Accuse de reception (acknowledge_thread)"
+mcp(ACK, "acknowledge_thread", f"{{ thread_id: {THREAD}.thread_id }}", [660, 200])
 mcp(
     "Tarik",
     "ask_agent",
-    "{ session_id: $json.session_id, message: $json.message, files: $json.files }",
+    f"{{ session_id: {THREAD}.session_id, message: {THREAD}.message, files: {THREAD}.files }}",
     [660, 300],
     timeout=660,
 )
@@ -166,7 +169,9 @@ mcp(
 connect("Nouvel email", "Fils en attente (claim_threads)")
 connect("Fils en attente (claim_threads)", "Un element par fil", 0)
 connect("Un element par fil", "Suite ?")
-connect("Suite ?", "Tarik", 0)
+connect("Suite ?", ACK, 0)
+for output in (0, 1):  # not sent (whitelist, SMTP): the agent answers all the same
+    connect(ACK, "Tarik", output)
 connect("Suite ?", "Suite du traitement", 1)
 connect("Suite du traitement", "Suite de l'integration", 0)
 connect("Suite de l'integration", "Suite envoyee (send_email)", 0)

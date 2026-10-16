@@ -84,6 +84,8 @@ create table if not exists tarik_mail_threads (
 -- follow_up: Tarik answered, and the conversation's drafts Experio was still reading are taken up again,
 -- their outcome sent in the thread, until follow_up_until.
 alter table tarik_mail_threads add column if not exists follow_up_until timestamptz;
+-- When Tarik told the client their new thread was received (acknowledge_thread): once per thread.
+alter table tarik_mail_threads add column if not exists acknowledged_at timestamptz;
 alter table tarik_mail_threads drop constraint if exists tarik_mail_threads_state_check;
 alter table tarik_mail_threads add constraint tarik_mail_threads_state_check
     check (state in ('new', 'in_progress', 'waiting', 'follow_up', 'done', 'ignored', 'error'));

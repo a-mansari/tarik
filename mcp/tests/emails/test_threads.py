@@ -232,3 +232,21 @@ def test_a_dossier_left_waiting_is_followed_up_at_the_next_tick(experio, monkeyp
     dossiers.clear()  # finished by the follow-up
     inbox.finish_thread("<m1@x>", item["message_ids"], True)
     assert state_of("<m1@x>") == "done"
+
+
+@pytest.mark.communication
+def test_a_new_thread_is_acknowledged_once_and_a_reply_in_it_is_not(mailbox, monkeypatch):
+    sent = []
+    monkeypatch.setattr(inbox, "send_email", lambda to, subject, body, *thread: sent.append((to, subject, thread)))
+    stored(mail(CHEF, "<m1@x>"))
+    with cabinet_db() as db:
+        inbox.claim(db)
+    assert inbox.acknowledge_thread("<m1@x>")["sent"]
+    assert sent == [(CHEF, "Re: Factures", ("<m1@x>", ""))]
+    assert not inbox.acknowledge_thread("<m1@x>")["sent"]  # a run taken again: never twice
+    inbox.finish_thread("<m1@x>", ["<m1@x>"], True)
+    stored(mail(CHEF, "<m2@x>", "Et celle-ci.", replying_to="<m1@x>"))
+    with cabinet_db() as db:
+        db.execute("update tarik_mail_threads set acknowledged_at = null")  # a thread from before acknowledgements
+        inbox.claim(db)
+    assert not inbox.acknowledge_thread("<m1@x>")["sent"] and len(sent) == 1  # Tarik already answered in it

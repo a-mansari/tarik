@@ -29,6 +29,10 @@ from tarik.invoices.pipeline import waiting_drafts
 LEASE_MINUTES = 30  # a run longer than this is taken as dead: the thread is picked up again
 MAX_ATTEMPTS = 3
 FOLLOW_UP_MINUTES = 30  # how long after Tarik's reply the drafts Experio was reading are still followed up
+# The acknowledgement of a new thread, sent before the agent works on it (vouvoiement, no civility, as Tarik writes).
+ACKNOWLEDGEMENT = (
+    "Votre message est bien reçu. Tarik le traite et vous répond dans ce fil, en général d'ici quelques minutes."
+)
 FILE_TYPES = (".pdf", ".jpg", ".jpeg", ".png", ".csv", ".txt", ".xlsx", ".xlsm")
 # A thread Tarik must answer: new, or taken by a run that died (its lease is over). Its one parameter: LEASE_MINUTES.
 WAITING = "state = 'new' or (state = 'in_progress' and claimed_at < now() - make_interval(mins => %s))"
@@ -375,6 +379,28 @@ def set_aside(db, thread_id, state, reason):
         "where thread_id = %s",
         (state, reason[:300], thread_id),
     )
+
+
+@server.tool()
+def acknowledge_thread(thread_id: str) -> dict:
+    """Tell the client their new thread was received, in that thread, before Tarik works on it: once per
+    thread, and only for one Tarik never answered (a reply in an existing thread or a follow-up gets none)."""
+    with cabinet_db() as db:
+        row = db.execute(
+            "select session_id, client_address, subject, acknowledged_at is null and not exists "
+            "(select 1 from tarik_mail_messages m where m.thread_id = t.thread_id and m.handled) "
+            "from tarik_mail_threads t where thread_id = %s",
+            (thread_id,),
+        ).fetchone()
+        if not row or not row[3]:
+            return ok("Pas d'accuse de reception : fil deja suivi.", sent=False)
+        item = thread_item(db, thread_id, *row[:3])
+    if item["follow_up"]:
+        return ok("Pas d'accuse de reception : suivi.", sent=False)
+    send_email(item["to"], item["subject"], ACKNOWLEDGEMENT, item["in_reply_to"], item["references"])
+    with cabinet_db() as db:
+        db.execute("update tarik_mail_threads set acknowledged_at = now() where thread_id = %s", (thread_id,))
+    return ok("Accuse de reception envoye.", sent=True)
 
 
 @server.tool()
