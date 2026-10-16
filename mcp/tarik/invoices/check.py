@@ -3,6 +3,7 @@
 import json
 import re
 from datetime import date
+from typing import Final
 
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -117,7 +118,7 @@ invoice_date_language is required: always pick one. Every num is a JSON number, 
 thousands separator (1005.5, never "1 005,50" nor "1,005")."""
 
 # The invoice header fields Experio captured (correct_invoice may write them back), then the tiers' name and ICE.
-CAPTURED = [
+CAPTURED: Final = (
     "invoice_number",
     "invoice_date",
     "amount_untaxed",
@@ -131,7 +132,7 @@ CAPTURED = [
     "amount_tsp",
     "advance_amount",
     "amount_total",
-]
+)
 CHECKED_FIELDS = [*CAPTURED, "tier", "ice"]
 NUMBERS = set(CAPTURED) - {"invoice_number", "invoice_date"}  # compared as numbers, never as text
 LINE_NUMBERS = ("rate", "amount_ht", "amount_tva")

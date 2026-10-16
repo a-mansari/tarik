@@ -3,6 +3,7 @@ creating a dossier, and changing those fields of an existing one. Only values th
 themselves are used; an ICE, IF or name another dossier has is refused."""
 
 import re
+from typing import Final
 
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -28,7 +29,7 @@ SIMILAR_QUESTION = (
 )
 
 # 15 digits, not inside a longer number: an ICE.
-ICE_WRITTEN = re.compile(r"(?<!\d)\d{15}(?!\d)")
+ICE_WRITTEN: Final = re.compile(r"(?<!\d)\d{15}(?!\d)")
 
 # What a client may change in a dossier: the fields of Experio's dossier form, before its tabs (the
 # currency and the logo aside). Tool argument -> Experio field, and how Tarik names it to the client.
@@ -62,7 +63,7 @@ def labelled(label):
 
 # The identifiers a client writes after their label: their number counts for that field only ("IF 12345678" is no RC).
 # An ICE is told apart by its 15 digits alone.
-IF_WRITTEN = labelled(r"I\.?F\.?")
+IF_WRITTEN: Final = labelled(r"I\.?F\.?")
 LABELLED = {"ice": ICE_WRITTEN, "if_number": IF_WRITTEN, "rc": labelled(r"R\.?C\.?")}
 # "societe" alone is not a type: "l'adresse de ma societe" changes no dossier into a company.
 TYPE_WORDS = {
