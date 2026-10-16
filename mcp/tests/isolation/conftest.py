@@ -1,14 +1,13 @@
-"""Two throwaway cabinets (tarik_test_a, tarik_test_b) on the real Postgres, and tarik-mcp served on
+"""Two throwaway cabinets (shared.A, shared.B) in the test database (tests/testdb.py), and tarik-mcp served on
 a local port (shared.py): the fixtures the cabinet isolation tests share. server.py is imported only by
 the fixtures that serve it, so a test that doesn't is not run for every tool's change (tests/run.py)."""
 
-import psycopg
 import pytest
 
 from tarik.core import cabinets
-from tarik.core.cabinets import POSTGRES
 
 from shared import A, B, serving
+from tests import testdb
 
 
 @pytest.fixture
@@ -29,9 +28,7 @@ def two_cabinets(monkeypatch):
 def schemas(two_cabinets):
     cabinets.create_schemas()
     yield
-    with psycopg.connect(**POSTGRES) as admin:
-        for name in (A, B):
-            admin.execute(f"drop schema if exists {name} cascade")
+    testdb.drop(A, B)
 
 
 @pytest.fixture

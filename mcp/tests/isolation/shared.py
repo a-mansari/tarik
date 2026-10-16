@@ -13,8 +13,9 @@ import uvicorn
 
 from tarik.core.app import server
 from tarik.core.cabinets import current
+from tests import testdb
 
-A, B = "tarik_test_a", "tarik_test_b"
+A, B = testdb.schema("a"), testdb.schema("b")  # in the test database, named for this run
 
 
 def payload(session_id, *files):

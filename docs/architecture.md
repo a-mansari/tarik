@@ -41,7 +41,7 @@ piece, and [using-tarik.md](using-tarik.md) explains what Tarik can do and how t
 |---|---|
 | `n8n` | The agents, their chats and memory, the workflows. Patched (`n8n/patch.js`), its data in Postgres. |
 | `tarik-mcp` | Every Experio step, as Python tools served over MCP (`mcp/tarik/`). The only piece that talks to Experio. |
-| `tarik-mail-watch` | Watches each cabinet's mailbox and wakes "Tarik - Emails" for that cabinet. |
+| `tarik-mail-watch` | Reads each cabinet's mailbox as emails arrive, stores them, and wakes "Tarik - Emails" for that cabinet when a thread waits. |
 | `postgres` | Tarik's data (`tarik`, one schema per cabinet) and n8n's (`n8n`). |
 | `vault` | Secrets and per-cabinet settings. Locally unsealed at start; on the public server, a real Vault. |
 
@@ -52,9 +52,11 @@ skill that matches (a new dossier, documents, a modification), and calls tools b
 Read-only questions (Experio's status, dossiers, invoices, collaborators) go straight to the MCP tools.
 Actions go to a workflow: n8n runs it with the model's fields plus values the model never sets.
 
-**Email.** `tarik-mail-watch` wakes "Tarik - Emails" with the cabinet's name. The workflow reads the new
-emails (`fetch_emails`: the mailbox is never changed, attachments are saved in the cabinet's schema),
-asks the cabinet's agent for the reply (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own
+**Email.** `tarik-mail-watch` reads each cabinet's mailbox when an email arrives (and every 2 minutes):
+it stores the new emails in their threads (the mailbox is never changed, attachments are saved in the
+cabinet's schema), tells the manager of refused senders, and wakes "Tarik - Emails" with the cabinet's
+name when a thread waits. The workflow claims the waiting threads (`claim_threads`), asks the cabinet's
+agent for the reply (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own
 conversation), and sends it (`send_email`, whitelisted addresses only).
 
 **A workflow run.** Each step is one MCP call to `/c/<cabinet>/mcp`; each outcome is recorded

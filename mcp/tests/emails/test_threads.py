@@ -116,10 +116,11 @@ def test_an_unreadable_email_is_skipped_and_the_next_ones_are_read(mailbox, monk
     monkeypatch.setattr(inbox, "connect", Box)
     with cabinet_db() as db:
         db.execute("insert into tarik_mail_state (folder, uidvalidity, last_uid) values ('INBOX', 7, 0)")
-    answer = inbox.fetch_emails()
-    assert [thread["thread_id"] for thread in answer["threads"]] == ["<m2@x>"]
+    assert inbox.read_mailbox() == [] and inbox.threads_waiting()
+    assert [thread["thread_id"] for thread in inbox.claim_threads()["threads"]] == ["<m2@x>"]
     with cabinet_db() as db:
         assert db.execute("select last_uid from tarik_mail_state").fetchone() == (2,)
+    assert not inbox.threads_waiting()  # claimed: nothing more for the workflow
 
 
 @pytest.mark.technical
@@ -128,11 +129,12 @@ def test_two_readings_at_once_never_store_an_email_twice(mailbox, monkeypatch, d
     with cabinet_db() as db:
         db.execute("insert into tarik_mail_state (folder, uidvalidity, last_uid) values ('INBOX', 7, 0)")
     with cabinet_db() as running:  # another run holds the reading
-        running.execute("select pg_advisory_lock(hashtext(%s))", (f"fetch_emails {db_cabinet}",))
-        assert inbox.fetch_emails()["message"] == "Lecture deja en cours."
+        running.execute("select pg_advisory_lock(hashtext(%s))", (f"read_mailbox {db_cabinet}",))
+        assert inbox.read_mailbox() == [] and not inbox.threads_waiting()
         with cabinet_db() as db:
             assert db.execute("select last_uid from tarik_mail_state").fetchone() == (0,)
-    assert [thread["thread_id"] for thread in inbox.fetch_emails()["threads"]] == ["<m2@x>"]  # its turn once released
+    inbox.read_mailbox()  # its turn once released
+    assert [thread["thread_id"] for thread in inbox.claim_threads()["threads"]] == ["<m2@x>"]
 
 
 @pytest.mark.security

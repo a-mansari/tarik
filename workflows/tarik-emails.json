@@ -32,8 +32,8 @@
       }
     },
     {
-      "id": "d5265d5a-940d-5ae8-8ce7-f91b92bec63d",
-      "name": "Nouveaux emails (fetch_emails)",
+      "id": "20cd7179-435c-5e79-881e-4330bfc8c0d8",
+      "name": "Fils en attente (claim_threads)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
@@ -46,7 +46,7 @@
         "tool": {
           "__rl": true,
           "mode": "id",
-          "value": "fetch_emails"
+          "value": "claim_threads"
         },
         "inputMode": "json",
         "jsonInput": "={{ JSON.stringify({}) }}",
@@ -66,7 +66,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "// One item per thread waiting for an answer (fetch_emails locked them for this run).\n// None when tarik-mcp answered without them (restarting): the next wake-up takes them.\nreturn ($input.first().json.content?.[0]?.text?.threads ?? []).map(thread => ({ json: thread }));"
+        "jsCode": "// One item per thread waiting for an answer (claim_threads locked them for this run).\n// None when tarik-mcp answered without them (restarting): the next wake-up takes them.\nreturn ($input.first().json.content?.[0]?.text?.threads ?? []).map(thread => ({ json: thread }));"
       }
     },
     {
@@ -211,44 +211,6 @@
         }
       },
       "onError": "continueErrorOutput"
-    },
-    {
-      "id": "cd0994b5-4614-538b-ae38-7b699f91cc21",
-      "name": "Une alerte par refus",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        440,
-        520
-      ],
-      "parameters": {
-        "jsCode": "// One item per email whose sender fetch_emails refused.\nreturn ($input.first().json.content?.[0]?.text?.alerts ?? []).map(alert => ({ json: alert }));"
-      }
-    },
-    {
-      "id": "ad698c05-bad7-5a8f-b795-17bc79b156a0",
-      "name": "Manager prevenu de l'expediteur (notify_manager)",
-      "type": "@n8n/n8n-nodes-langchain.mcpClient",
-      "typeVersion": 1.1,
-      "position": [
-        660,
-        520
-      ],
-      "parameters": {
-        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Nouvel email').first().json.body.cabinet }}/mcp",
-        "serverTransport": "httpStreamable",
-        "tool": {
-          "__rl": true,
-          "mode": "id",
-          "value": "notify_manager"
-        },
-        "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ sender: $json.sender, subject: $json.subject, reason: $json.reason }) }}",
-        "options": {
-          "timeout": 300000
-        }
-      },
-      "onError": "continueErrorOutput"
     }
   ],
   "connections": {
@@ -256,23 +218,18 @@
       "main": [
         [
           {
-            "node": "Nouveaux emails (fetch_emails)",
+            "node": "Fils en attente (claim_threads)",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Nouveaux emails (fetch_emails)": {
+    "Fils en attente (claim_threads)": {
       "main": [
         [
           {
             "node": "Un element par fil",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Une alerte par refus",
             "type": "main",
             "index": 0
           }
@@ -338,17 +295,6 @@
         [
           {
             "node": "Manager prevenu (notify_manager)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Une alerte par refus": {
-      "main": [
-        [
-          {
-            "node": "Manager prevenu de l'expediteur (notify_manager)",
             "type": "main",
             "index": 0
           }

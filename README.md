@@ -57,8 +57,9 @@ and "Tarik - Dossier" take it as their `cabinet` input; each cabinet's native ag
 MCP address and its own fixed `cabinet` tool input.
 
 Each cabinet has its own Tarik mailbox (its `IMAP_USER`, `IMAP_PASSWORD`, `SMTP_*` in Vault).
-`tarik-mail-watch` watches every cabinet that has one, and wakes "Tarik - Emails" for that cabinet
-the moment an email arrives (IMAP IDLE) and every 2 minutes in case one was missed; the webhook only
+`tarik-mail-watch` watches every cabinet that has one: the moment an email arrives (IMAP IDLE), and every
+2 minutes in case one was missed, it stores the new emails in their threads, tells the manager of refused
+senders, and wakes "Tarik - Emails" for that cabinet when a thread waits for an answer; the webhook only
 answers its `X-Tarik-Webhook` header, the secret both share (`MAIL_WEBHOOK_SECRET` in Vault, the n8n
 credential "Tarik mail webhook"; change both together). The workflow is
 one for all cabinets: each run works in the cabinet the watcher named, every step at its address,
