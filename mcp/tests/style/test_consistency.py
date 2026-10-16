@@ -74,6 +74,28 @@ def test_skills_and_instructions_name_only_the_agents_tools():
         sys.path.remove(str(WORKFLOWS))
 
 
+@pytest.mark.functionality
+@needs_workflows
+def test_an_agent_already_published_is_published_again_when_its_draft_changed(monkeypatch):
+    sys.path.insert(0, str(WORKFLOWS))
+    try:
+        import build_tarik_agents
+    finally:
+        sys.path.remove(str(WORKFLOWS))
+    published = []
+    monkeypatch.setattr(build_tarik_agents, "n8n", lambda tool, agentId: published.append(agentId))
+
+    def agent(draft, active):
+        return {"agent": {"versionId": draft, "activeVersionId": active}}
+
+    publish = build_tarik_agents.publish_if_published
+    assert publish("changed", agent("v1", "v1"), changed=True)  # this run changed it
+    assert publish("behind", agent("v2", "v1"), changed=False)  # its draft had changed since
+    assert not publish("same", agent("v1", "v1"), changed=False)
+    assert not publish("draft", agent("v1", None), changed=True)  # never published: stays a draft
+    assert published == ["changed", "behind"]
+
+
 @pytest.mark.style
 @needs_workflows
 def test_every_tool_a_workflow_or_an_agent_calls_exists():
