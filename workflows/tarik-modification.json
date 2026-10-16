@@ -188,8 +188,8 @@
       "onError": "continueErrorOutput"
     },
     {
-      "id": "a7dc9486-5b89-5c1f-a62f-c137ae98dab6",
-      "name": "Resume",
+      "id": "37909e45-b43e-571b-bb34-2df58f5a2812",
+      "name": "Résumé",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
@@ -241,7 +241,7 @@
             "index": 0
           },
           {
-            "node": "Resume",
+            "node": "Résumé",
             "type": "main",
             "index": 0
           }
