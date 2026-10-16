@@ -38,6 +38,10 @@
               "type": "string"
             },
             {
+              "name": "decision",
+              "type": "string"
+            },
+            {
               "name": "invoice_type",
               "type": "string"
             },
@@ -1106,7 +1110,7 @@
           "value": "answer_pending"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, answer: $('Appel').first().json.answer }) }}",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, answer: $('Appel').first().json.answer, decision: String($('Appel').first().json.decision ?? '') }) }}",
         "options": {
           "timeout": 300000
         }

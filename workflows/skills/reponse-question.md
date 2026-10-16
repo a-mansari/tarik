@@ -10,7 +10,11 @@ DÉCIDE TOUT DE SUITE :
 - Le client répond à une question sur la création ou la modification d'un dossier (« Faut-il quand même créer… », « Confirmez-vous … sans cette vérification ») → ce n'est pas pour Experio_repondre : reprends la compétence « Nouveau dossier » ou « Modification de dossier » et rappelle son outil comme elle le dit.
 
 ÉTAPES :
-1. Experio_repondre, une seule fois, sans paramètre : la réponse est le message du client tel qu'il l'a écrit.
+1. Experio_repondre, une seule fois. Le message du client part tel qu'il l'a écrit ; toi, tu remplis seulement decision, d'après la dernière question posée et ce que le client y répond :
+   - La question finit par « oui / non » → decision = « oui » ou « non », exactement, si le client répond clairement l'un ou l'autre. Lis bien la question : « la TVA est-elle non récupérable ? » → « non récupérable » se dit « oui », « elle est récupérable » se dit « non ».
+   - La question propose des tiers (« Tiers proches : NOM (id 123…) ») → decision = l'id du tiers que le client choisit, le nombre après « id ». Il donne à la place le nom ou l'ICE d'un autre tiers → decision = ce nom ou cet ICE, recopié tel qu'il l'a écrit.
+   - Toute autre question (un compte, une retenue, un exercice, un compte bancaire) → decision vide : son message suffit.
+   - La réponse est floue, contradictoire (« oui… enfin non »), conditionnelle, ou ne répond pas à la question → decision vide. Experio_repondre repose alors la question.
 2. Recopie sa réponse mot pour mot, facture par facture. Garde les numéros exacts.
 
 QUAND Experio_repondre RÉPOND :
@@ -19,6 +23,8 @@ QUAND Experio_repondre RÉPOND :
 - Sinon → recopie sa réponse mot pour mot.
 
 NE JAMAIS :
+- deviner decision, ou la déduire d'autre chose que la réponse du client à cette question ;
+- mettre dans decision un id qui n'est pas dans la question ;
 - reformuler la réponse du client ou la compléter ;
 - répondre toi-même à la question à la place du client ;
 - appeler Experio_traiter_fichiers pour donner une réponse.

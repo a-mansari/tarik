@@ -4,6 +4,7 @@ import pytest
 
 from tarik.core.app import ok, stop
 from tarik.core.cabinets import cabinet_db
+from tarik.core.conversation import yes_no
 from tarik.invoices import exercice, pipeline
 
 
@@ -52,9 +53,23 @@ def test_with_several_questions_the_answer_names_its_invoice(answers):
     assert (
         pipeline.answer_pending("s", "oui")["status"] == "question" and answers == []
     )  # which one: asked, nothing applied
-    assert pipeline.answer_pending("s", "oui pour Nova Telecom")["invoice_id"] == 12 and answers == [
-        (12, "oui pour Nova Telecom")
-    ]
+    assert pipeline.answer_pending("s", "oui pour Nova Telecom", "oui")["invoice_id"] == 12 and answers == [(12, "oui")]
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("decision", ["", "Ok non merci", "peut-etre"])
+def test_a_oui_non_question_the_agents_decision_does_not_settle_is_asked_again(answers, decision):
+    waits(12, "settle_tva", "Facture de NOVA TELECOM : la TVA est-elle non recuperable ? oui / non")
+    result = pipeline.answer_pending("s", "Ok non merci", decision)
+    assert result["status"] == "question" and result["message"].startswith("Reponse non comprise. Facture de NOVA")
+    assert answers == []  # nothing applied: the client is asked again
+
+
+@pytest.mark.security
+def test_only_a_plain_oui_or_non_decides():
+    assert yes_no("oui") is True and yes_no(" Oui ") is True and yes_no("non") is False
+    for unclear in ("Ok non merci", "Nous sommes d'accord", "non recuperable", "oui... enfin non", "", None):
+        assert yes_no(unclear) is None, unclear  # the agent reads the reply and says "oui" or "non", or it is asked
 
 
 @pytest.mark.security

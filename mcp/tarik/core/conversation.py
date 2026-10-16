@@ -1,14 +1,11 @@
 """The client's own words in a conversation: kept for the checks that only accept what the client
-wrote themselves (a model may not decide a value, a skip or a copy), and their yes or no."""
+wrote themselves (a model may not decide a value or a copy), and the agent's reading of their oui / non."""
 
 from tarik.core.cabinets import cabinet_db
 from tarik.core.text import normalized
 
 # What ask_agent adds to an email's text for the agent: never the client's own words.
 FILES_NOTE, NO_TEXT = "\n\nFichiers joints : ", "(pas de message)"
-# tarik-master read the yes/no with a model call; these words, in code, are enough and never drift.
-YES = ("oui", "yes", "ok", "d'accord", "vas-y", "vas y", "repartis", "repartir", "c'est ca", "exact")
-NO = ("non", "no", "pas besoin", "ne pas", "ponctuel", "inutile")
 
 
 def own_words(message):
@@ -41,11 +38,7 @@ def client_messages(session_id, client_message):
         return [text for (text,) in rows]
 
 
-def yes_no(reply):
-    """True for a yes, False for a no, None when ``reply`` says neither."""
-    text = normalized(reply or "")
-    if text.startswith(tuple(map(normalized, NO))):
-        return False
-    if text.startswith(tuple(map(normalized, YES))):
-        return True
-    return None
+def yes_no(decision):
+    """The agent's ``decision`` on a oui / non question, read from the client's answer: True for exactly "oui",
+    False for exactly "non", None for anything else (the client was unclear: the question is asked again)."""
+    return {"oui": True, "non": False}.get(normalized(decision or ""))

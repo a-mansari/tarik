@@ -28,6 +28,7 @@ flow.trigger(
     dossier_id="number",
     **dict.fromkeys(FIELDS, "string"),
     skip_ice_if_check="boolean",
+    client_confirmed="boolean",
     client_message="string",
     **CABINET_INPUT,
 )
@@ -38,7 +39,8 @@ flow.mcp(
     "update_dossier",
     (
         f"{{ dossier_id: {CALL}.dossier_id, {arguments}, skip_ice_if_check: {CALL}.skip_ice_if_check === true, "
-        f"client_message: {CALL}.client_message || '', session_id: {CALL}.session_id }}"
+        f"client_confirmed: {CALL}.client_confirmed === true, client_message: {CALL}.client_message || '', "
+        f"session_id: {CALL}.session_id }}"
     ),
     [660, 300],
 )

@@ -11,6 +11,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, question, server, with_ids
 from tarik.core.config import TEST_MODE
+from tarik.core.conversation import yes_no
 from tarik.core.experio import (
     account_code,
     dry_run,
@@ -30,20 +31,10 @@ from tarik.invoices.classify import side_of
 NON_RECOVERABLE_ACCOUNTS = ("6142", "6143", "61251", "2340")  # travel, receptions, fuel, passenger cars
 
 
-def vat_answer(reply):
-    """oui = non recuperable, non = recuperable, else None (tarik-master orchestrator.vat_answer)."""
-    text = (reply or "").lower().strip()
-    if text.startswith(("oui", "yes", "non recup")):
-        return True
-    if text.startswith(("non", "no", "recup")):
-        return False
-    return None
-
-
 def _non_recoverable(invoice, answer):
     """For a purchase with TVA not yet non-recoverable: the question to ask the client (a question result), or the
     changes their ``answer`` makes ({} when none). Returns (question or None, changes)."""
-    told = vat_answer(answer) if answer else None
+    told = yes_no(answer) if answer else None
     if answer and told is None:
         return (
             question(f"Facture {invoice['id']} : reponse non comprise, la TVA est-elle non recuperable ? oui / non"),
@@ -84,7 +75,7 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
     """Settle a draft invoice's TVA once its account is set: recoverable or not,
     the cabinet's prorata, and the tax Experio puts on each line. When the answer
     is a question (non-recoverable TVA?), ask the client and call again with
-    their oui/non as ``answer``."""
+    ``answer`` "oui" (non-recoverable) or "non", as the agent read their reply."""
     invoice = require_invoice(
         invoice_id,
         [

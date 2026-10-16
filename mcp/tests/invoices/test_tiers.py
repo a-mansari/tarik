@@ -1,10 +1,9 @@
-"""The invoice's tiers: names compared, the client's free-text answer (fictional tiers)."""
+"""The invoice's tiers: names compared, the client's choice among those proposed (fictional tiers)."""
 
 import pytest
 
 from tarik.core.config import TIERS_MIN_SIMILARITY
 from tarik.core.text import similarity
-from tarik.invoices.tiers import pick_tiers
 
 TIERS = [
     {"id": 7, "name": "ATLAS DE ROULEMENT - 12345678"},
@@ -27,15 +26,43 @@ def test_names_compared():
     )
 
 
+QUESTION = (
+    "Facture 4 : fournisseur « ATLAS » introuvable par ICE/IF. "
+    "Tiers proches : ATLAS DE ROULEMENT (id 7) 90 %; ATLAS TRANSPORT (id 8) 88 %."
+)
+
+
+@pytest.fixture
+def chosen(monkeypatch):
+    """choose_tiers on invoice 4 of dossier 778 (TIERS): the tiers it links, else its question."""
+    from tarik.invoices import tiers
+
+    invoice = {"id": 4, "company_id": [778, "D"], "type": "purchase", "partner_id": False}
+    monkeypatch.setattr(tiers, "draft_invoice", lambda invoice_id: invoice)
+    monkeypatch.setattr(tiers, "require_invoice", lambda invoice_id, fields: invoice)
+    monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"ice": "", **p} for p in TIERS])
+    monkeypatch.setattr(tiers, "side_of", lambda invoice: "purchase")
+    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: {"status": "ok", "linked": partner_id})
+
+    def choose(decision, answer):
+        result = tiers.choose_tiers(4, decision, answer, QUESTION)
+        return result.get("linked") or result["message"]
+
+    return choose
+
+
+@pytest.mark.security
+def test_the_agent_chooses_among_the_tiers_proposed_only(chosen):
+    assert chosen("7", "le premier") == 7 and chosen(" 8 ", "ATLAS TRANSPORT") == 8
+    assert "ne designe pas un seul tiers" in chosen("9", "oui")  # an id the question did not propose
+    assert "ne designe pas un seul tiers" in chosen("", "BETA SARL, TVA 20 %")  # a number in the answer is no id
+
+
 @pytest.mark.functionality
-def test_the_client_answer_picks_one_tiers_or_none():
-    assert pick_tiers(TIERS, "Oui, c'est bien ATLAS DE ROULEMENT (id 7).")["id"] == 7
-    assert pick_tiers(TIERS, "c'est ATLAS DE ROULEMENT")["id"] == 7
-    assert pick_tiers(TIERS, "oui", proposed_ids=[9])["id"] == 9
-    assert pick_tiers(TIERS, "oui", proposed_ids=[7, 9]) is None  # two proposals: a yes doesn't choose
-    assert pick_tiers(TIERS, "atlas") is None  # two tiers start with it
-    assert pick_tiers(TIERS, "nova telecom sa") is None  # the same name twice: ask
-    assert pick_tiers(TIERS, "celui avec l'ICE 001234567000089")["id"] == 10
+def test_another_tiers_the_client_names_is_searched_or_linked_by_its_ice(chosen):
+    assert chosen("001234567000089", "non, celui avec l'ICE 001234567000089") == 10  # an ICE names one tiers
+    proposed = chosen("Nova Telecom", "non, c'est plutôt Nova Telecom")
+    assert "« Nova Telecom »" in proposed and "(id 9" in proposed and "(id 10" in proposed  # proposed, not picked
 
 
 @pytest.mark.security

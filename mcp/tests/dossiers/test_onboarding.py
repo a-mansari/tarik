@@ -63,18 +63,17 @@ def asked(step, message):
 @pytest.mark.security
 def test_skipping_the_ice_check_needs_a_yes_to_its_own_question_about_that_dossier(db_cabinet):
     skip = ("sans cette verification", "ALPHA")
-    assert not confirmed("s", "Créez-le sans vérification", *skip)  # asking is not confirming: Tarik asks first
+    assert not confirmed("s", True, *skip)  # nothing confirmed before Tarik asked
     asked(
         "create_dossier",
         "Experio verifie l'ICE et l'IF aupres du registre officiel. Confirmez-vous la creation du dossier "
         "ALPHA sans cette verification ? oui / non",
     )
-    assert confirmed("s", "Oui, je confirme", *skip) and not confirmed("s", "non", *skip)
-    assert not confirmed(
-        "s", "Oui, créez aussi BETA sans vérification", "sans cette verification", "BETA"
-    )  # another dossier
+    assert confirmed("s", True, *skip) and not confirmed("s", False, *skip)
+    assert not confirmed("s", "oui", *skip)  # the agent's reading is a boolean, never text to interpret
+    assert not confirmed("s", True, "sans cette verification", "BETA")  # another dossier
     asked("assign_account", "Facture 12 : quel compte utiliser ?")
-    assert not confirmed("s", "oui", *skip)  # this yes answers the later question, whatever its step
+    assert not confirmed("s", True, *skip)  # this yes answers the later question, whatever its step
 
 
 @pytest.mark.security

@@ -36,8 +36,10 @@ configuration of a dossier you name, and import its FEC or grand livre.
 **Answer its questions.** When processing stops at a question (which account, recoverable TVA,
 withholding, fiscal year, which tiers, which bank account for a statement), just answer in the same
 conversation, in your own words ("le compte 6145", "oui", "à la charge de la société"): Tarik applies
-it and carries on from there. With several questions waiting, name the invoice (its number or its
-supplier) or the statement. Asking Tarik to carry on also resumes invoices Experio was still reading.
+it and carries on from there. A oui / non question needs a clear oui or non: anything less clear is
+asked again. For a tiers, Tarik proposes the closest ones (five at most): choose one, or give another
+name or its ICE and it looks again. With several questions waiting, name the invoice (its number or
+its supplier) or the statement. Asking Tarik to carry on also resumes invoices Experio was still reading.
 
 **Import a FEC or grand livre** into an existing dossier.
 

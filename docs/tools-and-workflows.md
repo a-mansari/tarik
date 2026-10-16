@@ -77,7 +77,7 @@ above; the workflows call the rest.
 | `settle_tva` / `check_journal` / `settle_withholding` / `settle_prepaid` / `settle_exercice` | TVA, journal, withholding tax, prepaid charges, fiscal year: each settled, or a question to the client. |
 | `post_invoice` | Posts the invoice when nothing blocks it. |
 | `list_invoices` | A dossier's invoices, amounts as Experio shows them. |
-| `answer_pending` / `waiting_drafts` | The client's answer to what the conversation waits on (an invoice's question, a statement's bank account; the invoice or statement it names when several wait), after the email sender check / drafts waiting for Experio. |
+| `answer_pending` / `waiting_drafts` | The client's answer to what the conversation waits on (an invoice's question, a statement's bank account; the invoice or statement it names when several wait), with the agent's `decision` (oui or non, the tiers chosen), after the email sender check / drafts waiting for Experio. |
 | `record_step` / `run_summary` | A run's step outcomes / its summary for the client. |
 
 ### Emails (`tarik/emails`)

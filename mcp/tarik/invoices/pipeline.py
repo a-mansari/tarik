@@ -9,7 +9,7 @@ import time
 from tarik.core.app import ok, question, server, wait, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
-from tarik.core.conversation import own_words
+from tarik.core.conversation import own_words, yes_no
 from tarik.core.experio import odoo_call, require_invoice
 from tarik.core.text import normalized, said, without_if
 from tarik.dossiers.people import check_sender
@@ -17,7 +17,7 @@ from tarik.invoices.accounts import set_account
 from tarik.invoices.exercice import settle_exercice
 from tarik.invoices.intake import import_bank_statement, journal_meant
 from tarik.invoices.prepaid import settle_prepaid
-from tarik.invoices.tiers import set_tiers_by_name
+from tarik.invoices.tiers import choose_tiers
 from tarik.invoices.tva import settle_tva
 from tarik.invoices.withholding import settle_withholding
 
@@ -60,13 +60,15 @@ SETUP_STEPS = {
 }
 # A pending question, the call that applies the client's answer, and the step that follows.
 ANSWERS = {
-    "link_tiers": (set_tiers_by_name, "check_duplicate"),
+    "link_tiers": (choose_tiers, "check_duplicate"),
     "assign_account": (set_account, "settle_tva"),
     "settle_tva": (settle_tva, "check_journal"),
     "settle_withholding": (settle_withholding, "settle_prepaid"),
     "settle_prepaid": (settle_prepaid, "settle_exercice"),
     "settle_exercice": (settle_exercice, "post_invoice"),
 }
+# The oui / non questions: they take the agent's decision, read from the client's answer, never a guess from it here.
+DECIDED = {"settle_tva", "settle_prepaid"}
 QUIET = {"wait_until_read", "check_sender"}  # outcomes the client doesn't need when they went fine
 
 
@@ -234,26 +236,34 @@ def meant(waiting, answer):
     return named[0] if len(named) == 1 else None
 
 
-def apply_answer(item, answer):
-    """Apply the client's ``answer`` to waiting ``item`` (from waiting_on): the result of the call that takes it,
-    with the step it answers and, when it went fine, the ``next_step`` the sequence resumes at."""
+def apply_answer(item, answer, decision):
+    """Apply the client's ``answer`` (their own words) and the agent's ``decision`` (what it read in them) to waiting
+    ``item`` (from waiting_on): the result of the call that takes it, with the step it answers and, when it went
+    fine, the ``next_step`` the sequence resumes at. A oui / non question the decision doesn't settle is asked
+    again."""
     if item["step"] == "import_bank_statement":
         imported = import_bank_statement(item["file_id"], item["dossier_id"], journal_meant(item["dossier_id"], answer))
         return {**imported, "step": "import_bank_statement"}
     apply, following = ANSWERS[item["step"]]
-    asked = (item["question"],) if item["step"] == "link_tiers" else ()  # the tiers it proposed, by id
-    result = apply(item["invoice_id"], answer, *asked)
+    if item["step"] == "link_tiers":
+        result = apply(item["invoice_id"], decision, answer, item["question"])  # the question holds the tiers proposed
+    elif item["step"] in DECIDED and yes_no(decision) is None:
+        result = question(f"Reponse non comprise. {item['question']}")
+    else:
+        result = apply(item["invoice_id"], decision if item["step"] in DECIDED else answer)
     if result["status"] == "ok":
         result["next_step"] = following
     return {**result, "invoice_id": item["invoice_id"], "step": item["step"]}
 
 
 @server.tool()
-def answer_pending(session_id: str, answer: str) -> dict:
+def answer_pending(session_id: str, answer: str, decision: str = "") -> dict:
     """Apply the client's answer (their own words) to what this conversation waits on: an invoice's question
-    (tiers, account, TVA, withholding, prepaid, exercice) or a statement's bank account. ``next_step`` says
-    where the sequence resumes; with nothing waiting, the drafts Experio hadn't read yet are resumed. The
-    email's sender must have the dossier, as for any work on it."""
+    (tiers, account, TVA, withholding, prepaid, exercice) or a statement's bank account. ``decision`` is what
+    the agent read in that answer: "oui" or "non" for a oui / non question, the id of the tiers chosen among
+    those proposed, else empty. ``next_step`` says where the sequence resumes; with nothing waiting, the
+    drafts Experio hadn't read yet are resumed. The email's sender must have the dossier, as for any work on
+    it."""
     answer = own_words(answer)
     waiting = waiting_on(session_id)
     if not waiting:
@@ -272,7 +282,7 @@ def answer_pending(session_id: str, answer: str) -> dict:
     sender = check_sender(session_id, dossier_id=item.get("dossier_id", 0), invoice_id=item.get("invoice_id", 0))
     if sender["status"] != "ok":  # recorded as check_sender's: the email workflow tells the manager, never the sender
         return {**sender, "step": "check_sender"}
-    return apply_answer(item, answer)
+    return apply_answer(item, answer, decision)
 
 
 @server.tool()

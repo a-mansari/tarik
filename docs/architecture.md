@@ -82,10 +82,18 @@ right every time is decided by n8n or by code:
 
 - **The conversation, its attachments and the client's own words**: n8n fills tool inputs fixed to
   `{{threadId}}`, `{{attachments}}` and `{{clientMessage}}` (patches in `n8n/patch.js`).
-- **The client's consent**: skipping Experio's ICE/IF check needs the client's "oui" to Tarik's own
-  question about it; every modified value, and a new dossier's ICE and IF, must appear in the client's
-  own messages (whole words, amounts as numbers), checked in Python. Copying a model dossier's
-  configuration is the agent's decision, guided by its skill: the only one left to it.
+- **That a question was asked before it is answered**: skipping Experio's ICE/IF check, or creating a
+  dossier whose name is very close to another's, needs Tarik's own question about that dossier first;
+  every modified value, and a new dossier's ICE and IF, must appear in the client's own messages (whole
+  words, amounts as numbers), checked in Python.
+- **Which answers count**: a oui / non question takes exactly "oui" or "non", anything else asks it again;
+  a tiers question takes only a tiers it proposed (or an ICE that names one of the dossier's tiers); an
+  invoice filter is one of the four statuses.
+
+What the agent does decide, from the client's reply and guided by its skills: whether it said oui or
+non (`decision`), which proposed tiers it chose, a clear yes to Tarik's confirmation question
+(`client_confirmed`), the invoices' filter, and copying a model dossier's configuration. An unclear reply
+leaves the decision empty, and the question is asked again.
 - **ICE and IF exactly as written**: a number that lost its leading zeros is restored from the
   client's message.
 - **Who wrote an email**: its From address alone; Reply-To is only where the reply goes, and only when
