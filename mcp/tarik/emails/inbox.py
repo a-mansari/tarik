@@ -31,7 +31,7 @@ MAX_ATTEMPTS = 3
 FOLLOW_UP_MINUTES = 30  # how long after Tarik's reply the drafts Experio was reading are still followed up
 # The acknowledgement of a new thread, sent before the agent works on it (vouvoiement, no civility, as Tarik writes).
 ACKNOWLEDGEMENT = (
-    "Votre message est bien reçu. Tarik le traite et vous répond dans ce fil, en général d'ici quelques minutes."
+    "Votre message est bien reçu. Je le traite et vous réponds dans ce fil, en général d'ici quelques minutes."
 )
 FILE_TYPES = (".pdf", ".jpg", ".jpeg", ".png", ".csv", ".txt", ".xlsx", ".xlsm")
 # A thread Tarik must answer: new, or taken by a run that died (its lease is over). Its one parameter: LEASE_MINUTES.
@@ -467,8 +467,8 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
         send_email(
             manager,
             f"Tarik : email de {sender} non traite",
-            f"Bonjour,\n\n{sender} a ecrit a Tarik (objet : « {subject or 'sans objet'} »).\n"
-            f"Son email n'a pas ete traite : {reason}.\n\nL'expediteur n'a recu aucune reponse.",
+            f"Bonjour,\n\n{sender} m'a ecrit (objet : « {subject or 'sans objet'} »).\n"
+            f"Je n'ai pas traite son email : {reason}.\n\nJe ne lui ai envoye aucune reponse.",
         )
         db.execute("insert into tarik_mail_alerts (sender) values (%s)", (sender,))
     return ok(f"Manager prevenu : {sender}.")
