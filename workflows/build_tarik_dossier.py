@@ -7,7 +7,7 @@ onboarding comes after the imports and the summary after everything. The onboard
 Experio: when the run's time (n8n stops an agent's tool after 300 s) is too short, the dossier waits
 in tarik_setups. Mode resume ("Tarik - Emails" following up, no agent, no time limit) finishes those."""
 
-from steps import ATTACHMENTS, CABINET_INPUT, CALL, EACH_FILE, FILES, RESULT, SAVE_ATTACHMENTS, SENDER, Workflow
+from steps import CALL, DOSSIER_INPUTS, EACH_FILE, FILES, RESULT, SAVE_ATTACHMENTS, SENDER, Workflow
 
 CREATE = "Creation (create_dossier)"
 COPY = "Configuration (copy_configuration)"
@@ -19,21 +19,7 @@ CREATED = f"$('{CREATE}').first().json.content[0].text.dossier_id"
 flow = Workflow("tarik-dossier")
 connect, mcp, route = flow.connect, flow.mcp, flow.route
 
-flow.trigger(
-    mode="string",
-    session_id="string",
-    dossier_id="number",
-    name="string",
-    ice="string",
-    if_number="string",
-    folder_type="string",
-    skip_ice_if_check="boolean",
-    client_message="string",
-    model_dossier_id="number",
-    kind="string",
-    **ATTACHMENTS,
-    **CABINET_INPUT,
-)
+flow.trigger(**DOSSIER_INPUTS)
 # The onboarding ends by BUDGET_MS from the start, leaving the run time to record and sum up.
 BUDGET_MS = 260_000
 START = "Debut"

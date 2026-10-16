@@ -8,7 +8,7 @@ in the thread, to whitelisted addresses only. A thread whose run stops midway is
 later; after 3 such runs it is set aside in error. A follow-up (a thread whose drafts Experio was still
 reading, once read) skips the agent: "Tarik - Traitement" takes those drafts up again, its summary is sent."""
 
-from steps import Workflow
+from steps import DOSSIER_INPUTS, TRAITEMENT_INPUTS, Workflow
 
 # The cabinet tarik-mail-watch named: every MCP step goes to its address (an unknown one: 404, nothing done).
 flow = Workflow("tarik-emails", "$('Nouvel email').first().json.body.cabinet")
@@ -84,9 +84,9 @@ SESSION = f"={{{{ {THREAD}.session_id }}}}"
 
 
 def resume(name, workflow_id, inputs, position):
-    """An Execute Workflow node running ``workflow_id`` in mode resume for the thread's conversation, with
-    ``inputs`` ({name: (type, value)}: every input its trigger declares). Output 1: it failed."""
-    inputs = {"mode": ("string", "resume"), "session_id": ("string", SESSION), **inputs, "cabinet": ("string", CABINET)}
+    """An Execute Workflow node running ``workflow_id`` in mode resume for the thread's conversation, every input
+    of its trigger (``inputs``, {name: type}) filled: the others empty. Output 1: it failed."""
+    fixed = {"mode": "resume", "session_id": SESSION, "cabinet": CABINET}
     schema = [
         {
             "id": key,
@@ -97,7 +97,7 @@ def resume(name, workflow_id, inputs, position):
             "canBeUsedToMatch": True,
             "type": type_,
         }
-        for key, (type_, _) in inputs.items()
+        for key, type_ in inputs.items()
     ]
     parameters = {
         "source": "database",
@@ -105,7 +105,7 @@ def resume(name, workflow_id, inputs, position):
         "mode": "each",
         "workflowInputs": {
             "mappingMode": "defineBelow",
-            "value": {key: value for key, (_, value) in inputs.items()},
+            "value": {key: fixed.get(key, EMPTY[type_]) for key, type_ in inputs.items()},
             "matchingColumns": [],
             "schema": schema,
             "attemptToConvertTypes": False,
@@ -116,41 +116,8 @@ def resume(name, workflow_id, inputs, position):
 
 
 EMPTY = {"string": "", "number": 0, "boolean": False}
-resume(
-    "Suite du traitement",
-    "TarikTraitement1",
-    {
-        key: (type_, EMPTY[type_])
-        for key, type_ in [
-            ("dossier_id", "number"),
-            ("answer", "string"),
-            ("invoice_type", "string"),
-            ("client_message", "string"),
-            ("attachments", "string"),
-        ]
-    },
-    [660, 520],
-)
-resume(
-    "Suite de l'integration",
-    "TarikDossier0001",
-    {
-        key: (type_, EMPTY[type_])
-        for key, type_ in [
-            ("dossier_id", "number"),
-            ("name", "string"),
-            ("ice", "string"),
-            ("if_number", "string"),
-            ("folder_type", "string"),
-            ("skip_ice_if_check", "boolean"),
-            ("client_message", "string"),
-            ("model_dossier_id", "number"),
-            ("kind", "string"),
-            ("attachments", "string"),
-        ]
-    },
-    [770, 520],
-)
+resume("Suite du traitement", "TarikTraitement1", TRAITEMENT_INPUTS, [660, 520])
+resume("Suite de l'integration", "TarikDossier0001", DOSSIER_INPUTS, [770, 520])
 # Each run's summary, but a run with nothing to do ("Rien n'a ete traite.").
 SUMMARIES = (
     "[$('Suite du traitement').item.json, $json].map(run => run.content[0].text.message)"
