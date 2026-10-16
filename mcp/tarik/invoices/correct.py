@@ -3,7 +3,6 @@
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server, with_ids
-from tarik.core.cabinets import cabinet_db
 from tarik.core.config import TEST_MODE
 from tarik.core.experio import (
     dry_run,
@@ -15,7 +14,7 @@ from tarik.core.experio import (
     require_draft,
     require_invoice,
 )
-from tarik.invoices.check import CAPTURED
+from tarik.invoices.check import CAPTURED, stored_check
 
 # The header fields only (tarik-master odoo.WRITABLE): tiers, account, journal... are later steps.
 WRITABLE = set(CAPTURED)
@@ -91,17 +90,6 @@ def _payment_method(name, invoice, changes):
             changes["payment_method_id"] = found[0]["id"]
 
 
-def _stored_check(invoice_id):
-    """The invoice's check from tarik_checks: (readable, extracted, bad_fields). ToolError when not checked yet."""
-    with cabinet_db() as db:
-        row = db.execute(
-            "select readable, extracted, bad_fields from tarik_checks where invoice_id = %s", (invoice_id,)
-        ).fetchone()
-    if not row:
-        raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice.")
-    return row
-
-
 @server.tool()
 @with_ids
 def correct_invoice(invoice_id: int) -> dict:
@@ -122,7 +110,10 @@ def correct_invoice(invoice_id: int) -> dict:
         ],
     )
     require_draft(invoice_id, invoice, "etre corrigee")
-    readable, extracted, bad_fields = _stored_check(invoice_id)
+    check = stored_check(invoice_id)
+    if not check:
+        raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice.")
+    readable, extracted, bad_fields = check
     if not readable:
         return ok(f"Facture {invoice_id} : scan illisible, rien a corriger.")
     changes = planned_changes(extracted, bad_fields, invoice)

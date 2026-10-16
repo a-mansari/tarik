@@ -10,7 +10,6 @@ what Experio can't: classify what was billed among the dossier's real accounts.
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import log, ok, question, server, with_ids
-from tarik.core.cabinets import cabinet_db
 from tarik.core.config import TEST_MODE
 from tarik.core.experio import (
     dry_run,
@@ -26,6 +25,7 @@ from tarik.core.experio import (
     test_mode_note,
 )
 from tarik.core.model import ask_model
+from tarik.invoices.check import stored_check
 from tarik.invoices.classify import side_of
 
 # tarik-master/tarik/agents/account.py, its CGNC guidance and rules verbatim; the steps about
@@ -148,19 +148,6 @@ def _memorized(invoice, context):
     return fill_invoice(invoice["id"], {"partner_id": invoice["partner_id"][0]}, context, save=False).get("account_id")
 
 
-def _designation(invoice_id):
-    """What the invoice bills, as check_invoice read it (str or None). ToolError when not checked yet."""
-    with cabinet_db() as db:
-        row = db.execute(
-            "select extracted->>'designation' from tarik_checks where invoice_id = %s", (invoice_id,)
-        ).fetchone()
-    if not row:
-        raise ToolError(
-            f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice (il faut ce qui est facture)."
-        )
-    return row[0]
-
-
 def _model_choice(invoice, kind, designation):
     """(account {id, code, name}, reason) the model picks for ``designation`` among the dossier's class 6 or 7
     accounts, else (None, None)."""
@@ -199,7 +186,12 @@ def assign_account(invoice_id: int) -> dict:
         memorized = _memorized(invoice, invoice_context(invoice))
         if memorized:
             return apply_account(invoice, memorized, "compte memorise pour ce tiers")
-    designation = _designation(invoice_id)
+    check = stored_check(invoice_id)
+    if not check:
+        raise ToolError(
+            f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice (il faut ce qui est facture)."
+        )
+    designation = check[1].get("designation")
     if not designation:
         return question(account_question(invoice, None))
     account, reason = _model_choice(invoice, kind, designation)
