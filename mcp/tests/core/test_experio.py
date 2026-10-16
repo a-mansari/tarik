@@ -2,6 +2,7 @@
 
 import http.client
 
+import httpx
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -78,3 +79,55 @@ def test_a_read_cut_off_is_asked_again_once_a_write_never(monkeypatch):
     with pytest.raises(http.client.IncompleteRead):
         experio.odoo_call("res.company", "write", [7], {"name": "X"})
     assert calls == ["write"]  # a cut answer doesn't say whether it was written
+
+
+@pytest.mark.technical
+def test_the_login_cut_off_is_asked_again(monkeypatch):
+    tries = []
+
+    class Common:
+        def authenticate(self, database, user, key, options):
+            tries.append(user)
+            if len(tries) == 1:
+                raise ConnectionResetError("reset by peer")
+            return 430
+
+    monkeypatch.setattr(experio, "account", lambda: ("db-login-test", 430, "tarik", "key"))
+    monkeypatch.setattr(experio, "rpc", lambda path: Common())
+    monkeypatch.setattr(experio.time, "sleep", lambda seconds: None)
+    assert experio.login() == 430 and len(tries) == 2
+
+
+@pytest.mark.technical
+def test_json_reads_are_asked_again_once_writes_and_timeouts_never(monkeypatch):
+    answers, posted = [], []
+
+    class Response:
+        def __init__(self, status):
+            self.status_code = status
+
+        def json(self):
+            return {"result": "ok"}
+
+    def post(url, timeout, json):
+        posted.append(json["params"]["args"][4])
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return Response(answer)
+
+    monkeypatch.setattr(experio, "account", lambda: ("db", 430, "tarik", "key"))
+    monkeypatch.setattr(experio, "login", lambda: 430)
+    monkeypatch.setattr(experio.HTTP, "post", post)
+    monkeypatch.setattr(experio.time, "sleep", lambda seconds: None)
+    answers[:] = [502, 200]
+    assert experio.odoo_json("exp.invoice", "onchange", [7]) == "ok" and posted == ["onchange", "onchange"]
+    for failure in (httpx.RemoteProtocolError("cut"), 503):
+        answers[:], posted[:] = [failure, 200], []
+        with pytest.raises((httpx.RemoteProtocolError, experio.GatewayError)):
+            experio.odoo_json("exp.invoice", "action_post", [7])
+        assert posted == ["action_post"]  # posted or not: never asked again
+    answers[:], posted[:] = [httpx.ReadTimeout("slow"), 200], []
+    with pytest.raises(httpx.ReadTimeout):
+        experio.odoo_json("exp.invoice", "onchange", [7])
+    assert posted == ["onchange"]
