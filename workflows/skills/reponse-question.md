@@ -3,9 +3,10 @@ name: Réponse à une question
 description: Le client répond à une question que Tarik a posée pendant le traitement de ses factures ou relevés (le tiers, le compte, la TVA, une retenue à la source, une charge constatée d'avance, l'exercice, le compte bancaire d'un relevé), ou demande de reprendre ce traitement. À charger dès que le message du client est une telle réponse.
 ---
 DÉCIDE TOUT DE SUITE :
-- Le message du client répond à une question posée plus haut dans la conversation sur une facture ou un relevé (« le compte 6125 », « oui », « non recuperable », « à la charge de la société », « l'exercice 2025 », « le compte BMCE ») → appelle Experio_repondre.
+- Le message du client répond à une question posée plus haut dans la conversation sur une facture ou un relevé (jamais sur un dossier) (« le compte 6125 », « oui », « non recuperable », « à la charge de la société », « l'exercice 2025 », « le compte BMCE ») → appelle Experio_repondre.
 - Le client demande de reprendre ou de finir le traitement de ses factures → appelle Experio_repondre.
 - Le message est une nouvelle demande (de nouvelles factures, un autre dossier) → ce n'est pas une réponse : suis la compétence de cette demande.
+- Le client répond à une question sur la création ou la modification d'un dossier (« Faut-il quand même créer… », « Confirmez-vous … sans cette vérification ») → ce n'est pas pour Experio_repondre : reprends la compétence « Nouveau dossier » ou « Modification de dossier » et rappelle son outil comme elle le dit.
 
 ÉTAPES :
 1. Experio_repondre, une seule fois, sans paramètre : la réponse est le message du client tel qu'il l'a écrit.

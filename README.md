@@ -96,13 +96,14 @@ written once, one file per skill in `workflows/skills/` (front matter `name`, `d
 the instructions), and `workflows/build_tarik_agents.py` gives every agent the same copy, found by
 name, updated in place, and removed from all agents when its file goes.
 
-Two skills, each a whole process in plain decisions ("If ... → do ..."), its steps and a short
-"never" list: "Nouveau dossier" (a new dossier, or a FEC or grand livre for one) and "Traitement des
-documents" (invoices and bank statements). The base instructions keep the rules that always hold,
+Four skills, each a whole process in plain decisions ("If ... → do ..."), its steps and a short
+"never" list: "Nouveau dossier" (a new dossier, or a FEC or grand livre for one), "Modification de
+dossier", "Traitement des documents" (invoices and bank statements) and "Réponse à une question" (the
+client's answer to a question Tarik asked while processing them). The base instructions keep the rules that always hold,
 and send each case to its skill: "charge la compétence ... et suis-la, dans ce même tour".
 
-A skill names tools by the agent's own tool names (`parametrer_dossier`, `traiter_fichiers`,
-`find_dossier`), never by a workflow's id or name: the agent's configuration maps each tool to its
+A skill names tools by the agent's own tool names (`Experio_parametrer_dossier`, `Experio_traiter_fichiers`,
+`Experio_find_dossier`), never by a workflow's id or name: the agent's configuration maps each tool to its
 workflow, with the values the model never sets (cabinet, conversation, client's message). The build
 refuses a skill naming a tool or field the agents do not have.
 
@@ -235,10 +236,11 @@ step of the sequence, add it to `CHAIN` in `workflows/build_tarik_traitement.py`
 
 ## New dossiers
 
-Tarik asks for the name, ICE and IF, and the model dossier whose configuration is copied, then
-waits for the client's confirmation: Experio can't delete a dossier, only archive it. The model's
-configuration is copied before the entries are imported, because the copy rewrites every setting
-and would erase what the import detected. The import (FEC or grand livre, CSV or TXT) goes through
+The name is enough: Tarik creates the dossier at once, with the ICE and IF only when the client wrote
+them, and asks first only when a dossier has a very similar name, or before skipping Experio's ICE/IF
+check (Experio can't delete a dossier, only archive it). A model dossier's configuration, when the client
+names one, is copied before the entries are imported, because the copy rewrites every setting and would
+erase what the import detected. The import (FEC or grand livre, CSV, TXT or Excel) goes through
 Experio's Importation screen, which creates the missing accounts, journals, tiers and fiscal years.
 Finishing the onboarding hands the entries to Experio's processing.
 

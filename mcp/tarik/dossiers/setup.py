@@ -134,8 +134,13 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     if not (excel or name.lower().endswith((".csv", ".txt")) or (mime or "").startswith("text/")):
         taken(file_id)
         return stop(f"{name} : envoyez le FEC ou le grand livre en CSV, TXT ou Excel (.xlsx).", file_id=file_id)
-    with refused(f"import_entries {file_id}", f"{name} : fichier Excel illisible."):
+    # Every refusal below is a stop with the file taken: a corrected file comes as a new one, this one is not tried again.
+    try:
         text = sheet_text(bytes(data)) if excel else file_text(bytes(data))
+    except Exception as error:
+        print(f"import_entries {file_id}: {error}", flush=True)
+        taken(file_id)
+        return stop(f"{name} : fichier Excel illisible.", file_id=file_id)
     context = {"allowed_company_ids": [dossier_id]}
     try:
         import_id = odoo_json("base_import.import", "create", {"res_model": "experio.history", "file": text,
@@ -143,9 +148,11 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         preview = odoo_json("base_import.import", "parse_preview", [import_id], IMPORT_OPTIONS, context=context)
     except Exception as error:
         print(f"import_entries {file_id}: {error}", flush=True)
-        raise ToolError(f"{name} : Experio n'a pas pu lire le fichier ({experio_refusal(error)}).") from None
+        taken(file_id)
+        return stop(f"{name} : Experio n'a pas pu lire le fichier ({experio_refusal(error)}).", file_id=file_id)
     if preview.get("error"):
-        raise ToolError(f"{name} : Experio n'a pas pu lire le fichier ({preview['error']}).")
+        taken(file_id)
+        return stop(f"{name} : Experio n'a pas pu lire le fichier ({preview['error']}).", file_id=file_id)
     options = {**IMPORT_OPTIONS, **preview.get("options", {})}
     wanted = normalized(kind or "")
     kind = "grand livre" if "grand" in wanted or wanted == "gl" else "fec" if "fec" in wanted else entries_kind(text, options.get("separator"))
@@ -176,7 +183,8 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         result = odoo_json("base_import.import", "execute_import", [import_id], fields, headers, options, False, context=context)
     except Exception as error:
         print(f"import_entries {file_id}: {error}", flush=True)
-        raise ToolError(f"{label} {name} : Experio a refuse l'import ({experio_refusal(error)}).") from None
+        taken(file_id)
+        return stop(f"{label} {name} : Experio a refuse l'import ({experio_refusal(error)}).", file_id=file_id)
     errors = [m.get("message", "") for m in result.get("messages") or [] if m.get("type") == "error"]
     if errors:
         taken(file_id)

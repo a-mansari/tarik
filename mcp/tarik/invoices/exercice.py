@@ -23,13 +23,22 @@ def exercice_choice(answer, opens):
     """What the client chose: ("old", exercice) to book it late in an open exercice, ("new", None)
     for a new exercice, or None when unclear (tarik-master asked a model; a year or a name is enough)."""
     text = normalized(answer)
-    if any(word in text.split() for word in NEW):
-        return ("new", None)
     named = [e for e in opens if normalized(e["name"]) in text]
     years = set(re.findall(r"\b(?:19|20)\d\d\b", text))
     by_year = [e for e in opens if {e["date_start"][:4], e["date_end"][:4]} & years]
     chosen = named or by_year
+    if any(word in text.split() for word in NEW):  # "pas de nouvel exercice, mettez-la dans 2024": both said, ask again
+        return None if chosen else ("new", None)
     return ("old", chosen[0]) if len(chosen) == 1 else None
+
+
+DATE_GIVEN = re.compile(r"(?<!\d)(?:\d{1,2}\D\d{1,2}\D\d{4}|\d{4}\D\d{1,2}\D\d{1,2})(?!\d)")
+
+
+def given_date(answer):
+    """The invoice date the client gave: exactly one date, with its 4-digit year, else None (asked again)."""
+    found = DATE_GIVEN.findall(answer or "")
+    return resolve_date(found[0], "fr") if len(found) == 1 else None
 
 
 def open_exercice(company_id, year):
@@ -59,7 +68,7 @@ def settle_exercice(invoice_id: int, answer: str = "") -> dict:
     invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "invoice_date", "is_old_invoice"])
     require_draft(invoice_id, invoice, "changer d'exercice")
     if not invoice["invoice_date"]:  # the answer to "Quelle est sa date ?" is its date, written as the client wrote it
-        given = resolve_date(answer, "fr")
+        given = given_date(answer)
         if not given:
             return question(f"Facture {invoice_id} : pas de date, impossible de choisir l'exercice. Quelle est sa date (jj/mm/aaaa) ?")
         with refused(f"settle_exercice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu enregistrer sa date."):

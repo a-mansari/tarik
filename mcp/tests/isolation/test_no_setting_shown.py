@@ -10,7 +10,7 @@ import xmlrpc.client
 from xmlrpc.server import SimpleXMLRPCRequestHandler, SimpleXMLRPCServer
 
 from server import server  # its import registers every tool
-from tarik.core import connection, experio
+from tarik.core import experio
 from tarik.core.cabinets import POSTGRES, cabinet_db, using
 
 from shared import A, call
@@ -80,8 +80,7 @@ def test_no_tool_ever_shows_a_setting(http, monkeypatch, experio_mode):
     markers = [*LEAKS.values(), *SHARED_LEAKS.values(), "leak-odoo-url", "leak-fault-text", "127.0.0.1", A, POSTGRES["password"]]
     with contextlib.ExitStack() as stack:
         url = "http://leak-odoo-url.invalid" if experio_mode == "unreachable" else stack.enter_context(fake_experio(experio_mode))
-        for module in (experio, connection):
-            monkeypatch.setattr(module, "ODOO_URL", url)
+        monkeypatch.setattr(experio, "ODOO_URL", url)
         expected = {"unreachable": "injoignable", "empty": "Connecte", "fault": "refusee", "wrong_uid": "refusee"}[experio_mode]
         assert expected in call(http, f"/c/{A}/mcp", "experio_connection", {})  # each mode really reached its path
         check_every_tool(http, markers)

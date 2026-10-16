@@ -48,6 +48,20 @@ def refused(log, message):
         print(f"{log}: {error}", flush=True)
         raise ToolError(message) from None
 
+RPC_TIMEOUT = 300  # seconds: a hung Experio must not hold a call slot, or the mailbox lock, for good
+
+
+def rpc(path):
+    """Experio's XML-RPC endpoint ``path``, every call given up after RPC_TIMEOUT seconds."""
+    base = xmlrpc.client.SafeTransport if ODOO_URL.startswith("https") else xmlrpc.client.Transport
+
+    class Timed(base):
+        def make_connection(self, host):
+            connection = super().make_connection(host)
+            connection.timeout = RPC_TIMEOUT
+            return connection
+    return xmlrpc.client.ServerProxy(f"{ODOO_URL}{path}", transport=Timed(), allow_none=True)
+
 # IPv4 only: the container has no IPv6 route, and httpx does not fall back when a host's IPv6 address comes first.
 HTTP = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"))
 
@@ -58,7 +72,7 @@ def login():
     database, expected, user, key = account()
     if _logins.get((ODOO_URL, database, user, key)) == expected:
         return expected
-    uid = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common").authenticate(database, user, key, {})
+    uid = rpc("/xmlrpc/2/common").authenticate(database, user, key, {})
     if not uid:
         raise PermissionError(f"login refused for {user} on {database}")
     if uid != expected:
@@ -69,8 +83,7 @@ def login():
 def odoo_call(model, method, *args, **kw):
     """One authenticated call to the current cabinet's Experio."""
     database, _, _, key = account()
-    models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object", allow_none=True)
-    return models.execute_kw(database, login(), key, model, method, list(args), kw)
+    return rpc("/xmlrpc/2/object").execute_kw(database, login(), key, model, method, list(args), kw)
 
 def odoo_json(model, method, *args, **kw):
     """The same call over JSON-RPC, for answers holding None (onchange), which XML-RPC can't carry."""

@@ -35,12 +35,15 @@ def test_local_withholding(model):
     reading.update(retenue=True, is_ir=10, tva=75)
     assert local_withholding_answer("10 et 75") == {"retenue": True, "local_withholding_percentage": "10", "tax_withholding_percentage": "75"}
     assert described(local_withholding_answer("10 et 75")) == "retenue a la source IS/IR 10 % et TVA 75 %"
+    reading.update(retenue=True, is_ir="10%", tva="75 %")
+    assert local_withholding_answer("10 % et 75 %")["local_withholding_percentage"] == "10"
+    assert local_withholding_answer("10 % et 75 %")["tax_withholding_percentage"] == "75"
     reading.update(retenue=False)
     assert local_withholding_answer("sans, facture du 15/03")["retenue"] is False
 
 
 @pytest.mark.security
-@pytest.mark.parametrize("reading", [{"retenue": True, "is_ir": 15.5, "tva": 0}, {"retenue": True, "is_ir": 12, "tva": 0},
+@pytest.mark.parametrize("reading", [{"retenue": True, "is_ir": 15.5, "tva": 0}, {"retenue": True, "is_ir": 12, "tva": 0}, {"retenue": True, "is_ir": "dix", "tva": 75},
                                      {"retenue": True, "is_ir": 10, "tva": 50}, {"retenue": True, "is_ir": None, "tva": 0},
                                      {"retenue": None, "is_ir": 10, "tva": 0}, {"retenue": "oui", "is_ir": 10}])
 def test_a_rate_experio_does_not_take_is_never_written(model, reading):

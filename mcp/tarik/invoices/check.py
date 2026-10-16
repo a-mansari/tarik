@@ -8,7 +8,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, server, stop, wait
 from tarik.core.documents import scan_pages
-from tarik.dossiers.search import MIN_SIMILARITY, normalized, similarity
+from tarik.dossiers.search import MIN_SIMILARITY, normalized, similarity, without_if
 from tarik.core.cabinets import cabinet_db
 from tarik.core.experio import odoo_call, require_invoice
 from tarik.core.model import ask_model
@@ -191,7 +191,7 @@ def drop_false_alarms(bad, stored, extracted):
                 continue
         elif value not in (None, False, "") and read is not None and plain(value) == plain(read):
             continue
-        if field == "tier" and value and read and similarity(re.sub(r"\s+-\s+\d+\s*$", "", value), read) >= MIN_SIMILARITY:
+        if field == "tier" and value and read and similarity(without_if(value), read) >= MIN_SIMILARITY:
             continue
         if field in AMOUNT_FIELDS and not self_consistent:
             print(f"check: amounts read do not add up ({parts} vs {amount('amount_total')}), {field} flag dropped", flush=True)

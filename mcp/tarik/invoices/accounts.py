@@ -128,7 +128,7 @@ def assign_account(invoice_id: int) -> dict:
         + "\n".join(f"{a['code']} {a['name']}" for a in accounts)
         + '\n\nAnswer with only a JSON object: {"code": "<a code from the list above>" or null, "reason": "one short French sentence"}'),
         "Choix du compte")
-    code, reason = answer.get("code"), str(answer.get("reason") or "")
+    code, reason = (str(answer["code"]) if answer.get("code") is not None else None), str(answer.get("reason") or "")
     if code not in by_code:
         if code:
             print(f"assign_account {invoice_id}: model chose {code!r}, not in the chart", flush=True)
@@ -139,9 +139,14 @@ def assign_account(invoice_id: int) -> dict:
 def resolve_account(accounts, answer):
     """The account the client means, from their own words: a code (or its start), or a label.
     One match, or several sharing one label (take the lowest code, account.py's rule) -> that
-    account; otherwise None. ``accounts``: [{id, code, name}] sorted by code."""
+    account; otherwise None. A short code is the account it names, padded with zeros (CGNC):
+    "6145" is 61450000, not 61451000. ``accounts``: [{id, code, name}] sorted by code."""
     words = answer.strip()
-    by_code = [a for a in accounts if a["code"].startswith(words.replace(" ", ""))] if words.replace(" ", "").isdigit() else []
+    code = words.replace(" ", "")
+    by_code = [a for a in accounts if a["code"].startswith(code)] if code.isdigit() else []
+    padded = [a for a in by_code if a["code"].rstrip("0") == code.rstrip("0")]
+    if len(padded) == 1:
+        return padded[0]
     found = by_code or [a for a in accounts if words.lower() in a["name"].lower()]
     if len(found) == 1:
         return found[0]
@@ -166,7 +171,8 @@ def account_meant(accounts, answer):
                      + "\n".join(f"{a['code']} {a['name']}" for a in accounts)
                      + '\n\nAnswer with only a JSON object: {"code": "<a code from the list above>" or null}',
                      "Lecture de la reponse").get("code")
-    return next((account for account in accounts if account["code"] == code), None)
+    # Its code, or the start the client wrote ("6145"), as a number or text: only one of the chart's accounts.
+    return resolve_account(accounts, str(code)) if code is not None and str(code).strip().isdigit() else None
 
 
 @with_ids

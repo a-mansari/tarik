@@ -93,11 +93,15 @@ def main(args):
         print(f"{len(files)} file(s) changed since {since}: {len(tests)} test file(s) cover them")
         if not tests:
             return 0
-    command = ["docker", "compose", "run", "--rm", "--no-deps", "-e", "PYTHONDONTWRITEBYTECODE=1",
+    # --build: the image the tests run in is the Dockerfile's as it is now (its dependencies), the code mounted over it.
+    command = ["docker", "compose", "run", "--rm", "--build", "--no-deps", "-e", "PYTHONDONTWRITEBYTECODE=1",
                "-v", f"{MCP}:/app", "-v", f"{REPO / 'workflows'}:/workflows:ro", "tarik-mcp",
                "python", "-m", "pytest", "-p", "no:cacheprovider", *(str(test.relative_to(MCP)) for test in tests), *args]
     code = subprocess.run(command, cwd=REPO).returncode
-    return 0 if code == 5 else code  # 5: the files chosen hold no test of the category asked (live tests, by default)
+    # 5, no test collected: fine when only the change chose the files (their category was left out, live tests by
+    # default); a failure when the tests were named (-k, a path), so a typo never passes.
+    named = "-k" in args or any(arg.endswith(".py") or "tests/" in arg for arg in args)
+    return 0 if code == 5 and not named else code
 
 
 if __name__ == "__main__":

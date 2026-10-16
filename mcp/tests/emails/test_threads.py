@@ -133,3 +133,20 @@ def test_two_readings_at_once_never_store_an_email_twice(mailbox, monkeypatch, d
         with cabinet_db() as db:
             assert db.execute("select last_uid from tarik_mail_state").fetchone() == (0,)
     assert [thread["thread_id"] for thread in inbox.fetch_emails()["threads"]] == ["<m2@x>"]  # its turn once released
+
+
+@pytest.mark.security
+def test_a_nul_in_an_email_never_stops_the_mailbox(mailbox):
+    stored(mail(CHEF, "<m1@x>", "Voici\x00 la facture."))
+    with cabinet_db() as db:
+        assert db.execute("select body from tarik_mail_messages").fetchone() == ("Voici la facture.",)
+
+
+@pytest.mark.functionality
+def test_a_refused_sender_given_access_is_answered_in_their_thread(mailbox, monkeypatch):
+    monkeypatch.setattr(inbox, "collaborator", lambda address: None)
+    stored(mail(CHEF, "<m1@x>"))
+    assert state_of("<m1@x>") == "ignored"
+    monkeypatch.setattr(inbox, "collaborator", lambda address: {"name": address})  # the manager gave access
+    stored(mail(CHEF, "<m2@x>", "Je relance.", replying_to="<m1@x>"))
+    assert state_of("<m1@x>") == "new"

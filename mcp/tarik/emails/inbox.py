@@ -14,6 +14,7 @@ import re
 from email import message_from_bytes, policy
 from email.utils import parseaddr
 
+import psycopg
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server
@@ -108,6 +109,9 @@ def store(db, uid, message):
         subject = str(message.get("Subject", "") or "").strip()
         linked = re.findall(r"<[^>]+>", f"{message.get('In-Reply-To', '')} {message.get('References', '')}")
         text, files, auto = client_text(message), attachments(message), automatic(message)
+        # Postgres text never holds a NUL: one in an email would stop every reading at it.
+        sender, reply_to, subject, text = (value.replace("\x00", "") for value in (sender, reply_to, subject, text))
+        files = [(name.replace("\x00", ""), mime, data) for name, mime, data in files]
     except Exception as error:
         raise UnreadableEmail(f"{message_id}: {type(error).__name__}: {error}") from None
     if sender in own_addresses():
@@ -127,9 +131,9 @@ def store(db, uid, message):
         db.execute("insert into tarik_mail_threads (thread_id, session_id, client_address, subject, state, reason) "
                    "values (%s, %s, %s, %s, %s, %s)", (thread_id, session_of(thread_id), sender, subject[:300],
                                                        "ignored" if reason else "new", reason))
-    elif not reason:  # the client wrote again: back to Tarik, even after an error; a run on it now takes it after
+    elif not reason:  # the client wrote again, allowed now: back to Tarik, even after an error or a refusal (a run on it takes it after)
         db.execute("update tarik_mail_threads set state = 'new', attempts = 0, reason = null, updated_at = now() "
-                   "where thread_id = %s and state not in ('ignored', 'in_progress')", (thread_id,))
+                   "where thread_id = %s and state <> 'in_progress'", (thread_id,))
     session = db.execute("select session_id from tarik_mail_threads where thread_id = %s", (thread_id,)).fetchone()[0]
     db.execute("insert into tarik_mail_messages (message_id, thread_id, uid, from_address, reply_to, subject, body, references_ids, "
                "handled) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
@@ -193,7 +197,7 @@ def fetch_emails() -> dict:
                 try:
                     with db.transaction():  # a failed email leaves nothing half-written
                         alert = store(db, uid, message_from_bytes(raw, policy=policy.default)) if raw else None
-                except UnreadableEmail as error:
+                except (UnreadableEmail, psycopg.DataError) as error:  # this email can't be stored: never tried again
                     print(f"fetch_emails: unreadable email skipped: {error}", flush=True)
                     alert = None
                 except Exception as error:  # Experio or the database out: this email and the next wait for the next run

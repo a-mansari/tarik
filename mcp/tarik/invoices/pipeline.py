@@ -12,7 +12,7 @@ from tarik.core.cabinets import cabinet_db
 from tarik.core.conversation import own_words, said
 from tarik.core.experio import TEST_MODE, odoo_call, require_invoice
 from tarik.dossiers.people import check_sender
-from tarik.dossiers.search import normalized
+from tarik.dossiers.search import normalized, without_if
 from tarik.invoices.intake import import_bank_statement, journal_meant
 from tarik.invoices.tiers import set_tiers_by_name
 from tarik.invoices.tva import settle_tva
@@ -118,26 +118,35 @@ def run_summary(run_id: str) -> dict:
 
 
 def waiting_on(session_id):
-    """What this conversation waits on the client for, oldest first: each invoice's question, and each bank
-    statement waiting for its bank account (its question is the last one import_bank_statement asked)."""
+    """What this conversation waits on the client for, oldest first: each draft invoice's question, and each bank
+    statement whose last import asked for its bank account. A question on an invoice deleted or posted since is
+    dropped: nothing can answer it any more."""
     with cabinet_db() as db:
         invoices = db.execute("select invoice_id, step, question from tarik_pending where session_id = %s order by created_at",
                               (session_id,)).fetchall()
         statements = db.execute(
-            "select distinct on (r.file_id) r.file_id, r.dossier_id, r.message, f.file_name from tarik_results r "
-            "join tarik_files f on f.id = r.file_id where r.session_id = %s and r.step = 'import_bank_statement' "
-            "and r.status = 'question' and f.statement_id is null order by r.file_id, r.id desc", (session_id,)).fetchall()
-    named = {}
-    if invoices:  # how the client may name each invoice: its number in Tarik, its own number, its tiers
-        for invoice in odoo_call("exp.invoice", "read", [i for i, _, _ in invoices], fields=["invoice_number", "partner_id"]):
-            named[invoice["id"]] = [invoice["invoice_number"], invoice["partner_id"] and re.sub(r"\s+-\s+\d+\s*$", "", invoice["partner_id"][1])]
-    return ([{"invoice_id": i, "step": step, "question": text, "names": [str(i), *named.get(i, [])]} for i, step, text in invoices]
+            "select file_id, dossier_id, message, file_name from (select distinct on (r.file_id) r.file_id, r.dossier_id, "
+            "r.status, r.message, f.file_name from tarik_results r join tarik_files f on f.id = r.file_id where r.session_id = %s "
+            "and r.step = 'import_bank_statement' and f.statement_id is null order by r.file_id, r.id desc) latest "
+            "where status = 'question'", (session_id,)).fetchall()
+        drafts = set(odoo_call("exp.invoice", "search", [("id", "in", [i for i, _, _ in invoices]), ("state", "=", "draft")])) \
+            if invoices else set()
+        gone = [i for i, _, _ in invoices if i not in drafts]
+        if gone:
+            db.execute("delete from tarik_pending where invoice_id = any(%s)", (gone,))
+    invoices = [row for row in invoices if row[0] in drafts]
+    named = {}  # how the client may name each invoice: "facture 264449", its own number, its tiers
+    for invoice in odoo_call("exp.invoice", "read", [i for i, _, _ in invoices], fields=["invoice_number", "partner_id"]) if invoices else []:
+        named[invoice["id"]] = [invoice["invoice_number"], invoice["partner_id"] and without_if(invoice["partner_id"][1])]
+    return ([{"invoice_id": i, "step": step, "question": text, "names": [f"facture {i}", f"n {i}", *named.get(i, [])]}
+             for i, step, text in invoices]
             + [{"file_id": f, "dossier_id": d, "step": "import_bank_statement", "question": text, "names": [name.rsplit(".", 1)[0]]}
                for f, d, text, name in statements])
 
 
 def meant(waiting, answer):
-    """The question the client answers: the only one, or the one their answer names (whole words)."""
+    """The question the client answers: the only one, or the one their answer names (whole words). A bare number
+    names no invoice: "oui, TVA 20 %" is not about invoice 20."""
     if len(waiting) == 1:
         return waiting[0]
     words = normalized(answer)
@@ -154,16 +163,17 @@ def answer_pending(session_id: str, answer: str) -> dict:
     answer = own_words(answer)
     waiting = waiting_on(session_id)
     if not waiting:
-        return ok("Aucune question en attente : les factures qu'Experio lisait encore sont reprises.", next_step="waiting_drafts")
+        return ok("Aucune question en attente : les factures a reprendre le sont.", next_step="waiting_drafts", step="answer_pending")
     item = meant(waiting, answer)
     if not item:
         return question("Plusieurs questions attendent votre reponse ; precisez la facture ou le releve :\n"
-                        + "\n".join(f"- {entry['question']}" for entry in waiting))
+                        + "\n".join(f"- {entry['question']}" for entry in waiting), step="answer_pending")
     sender = check_sender(session_id, dossier_id=item.get("dossier_id", 0), invoice_id=item.get("invoice_id", 0))
-    if sender["status"] != "ok":
-        return sender
+    if sender["status"] != "ok":  # recorded as check_sender's: the email workflow tells the manager, never the sender
+        return {**sender, "step": "check_sender"}
     if item["step"] == "import_bank_statement":
-        return import_bank_statement(item["file_id"], item["dossier_id"], journal_meant(item["dossier_id"], answer))
+        imported = import_bank_statement(item["file_id"], item["dossier_id"], journal_meant(item["dossier_id"], answer))
+        return {**imported, "step": "import_bank_statement"}
     apply, following = ANSWERS[item["step"]]
     result = apply(item["invoice_id"], answer, item["question"]) if item["step"] == "link_tiers" else apply(item["invoice_id"], answer)
     if result["status"] == "ok":
@@ -207,14 +217,18 @@ def files_to_process(session_id: str, entries: bool = False) -> dict:
 
 @server.tool()
 def waiting_drafts(session_id: str) -> dict:
-    """This conversation's drafts still waiting on Experio's reading, to resume from
-    there: the last time, wait_until_read gave up and no later step ran."""
+    """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
+    waiting on Experio (still reading) or failed (an Experio or model timeout). Every later step runs again; a
+    question or a stop is not resumed here. A draft deleted or posted in Experio since is left alone."""
+    order = list(STEPS)
     with cabinet_db() as db:
-        waiting = [i for (i,) in db.execute(
-            "select distinct invoice_id from tarik_results r where session_id = %s and step = 'wait_until_read' "
-            "and status = 'wait' and not exists (select 1 from tarik_results later where later.invoice_id = r.invoice_id "
-            "and (later.step not in ('create_draft_invoice', 'wait_until_read') "
-            "or (later.step = 'wait_until_read' and later.status <> 'wait'))) order by invoice_id", (session_id,))]
-    if waiting:  # a draft deleted in Experio since then is not resumed
+        rows = db.execute("select invoice_id, step, status from tarik_results where session_id = %s and invoice_id is not null "
+                          "order by id", (session_id,)).fetchall()
+    furthest = {}  # by the sequence's order, not the rows': n8n records a step after the ones it led to
+    for invoice_id, step, status in rows:
+        if step in order and (invoice_id not in furthest or order.index(step) >= order.index(furthest[invoice_id][0])):
+            furthest[invoice_id] = (step, status)
+    waiting = [invoice_id for invoice_id, (_, status) in furthest.items() if status in ("wait", "error")]
+    if waiting:
         waiting = sorted(odoo_call("exp.invoice", "search", [("id", "in", waiting), ("state", "in", ["pending", "draft"])]))
-    return ok(f"{len(waiting)} facture(s) en attente de lecture.", invoices=waiting)
+    return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)

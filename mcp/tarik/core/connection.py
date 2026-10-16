@@ -1,9 +1,8 @@
 """Phase 0: can Tarik reach Experio?"""
 
-import xmlrpc.client
-
 from tarik.core.app import server
-from tarik.core.experio import ODOO_URL, account, odoo_call
+from tarik.core import experio
+from tarik.core.experio import account, odoo_call
 
 
 @server.tool()
@@ -12,9 +11,9 @@ def experio_connection() -> str:
     asked whether Experio works, or before anything else when in doubt."""
     # Connection details, and the fact that Experio runs on Odoo, stay in this log: the agent never sees them.
     try:
-        version = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common").version()["server_version"]
+        version = experio.rpc("/xmlrpc/2/common").version()["server_version"]
     except Exception as error:
-        print(f"experio_connection: {ODOO_URL} unreachable: {error}", flush=True)
+        print(f"experio_connection: {experio.ODOO_URL} unreachable: {error}", flush=True)
         return "Experio est injoignable pour le moment."
     try:
         # A real read, not only the login: a password can log in yet be refused every call.

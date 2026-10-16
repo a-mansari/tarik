@@ -10,7 +10,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.dossiers import identity
 from tarik.core.cabinets import cabinet_db
-from tarik.dossiers.identity import ICE_WRITTEN, IF_WRITTEN, as_written, client_wrote, skip_confirmed
+from tarik.dossiers.identity import ICE_WRITTEN, IF_WRITTEN, as_written, client_wrote, confirmed
 from tarik.dossiers.setup import entries_kind, file_text, sheet_text
 
 HEAD = "JournalCode;JournalLib;EcritureNum;EcritureDate;CompteNum;CompteLib;EcritureLib;Debit;Credit"
@@ -50,14 +50,15 @@ def asked(step, message):
 
 
 @pytest.mark.security
-def test_skipping_the_ice_check_needs_a_yes_to_its_own_question(db_cabinet):
-    assert not skip_confirmed("s", "create_dossier", "Créez-le sans vérification")  # asking is not confirming: Tarik asks first
+def test_skipping_the_ice_check_needs_a_yes_to_its_own_question_about_that_dossier(db_cabinet):
+    skip = ("sans cette verification", "ALPHA")
+    assert not confirmed("s", "Créez-le sans vérification", *skip)  # asking is not confirming: Tarik asks first
     asked("create_dossier", "Experio verifie l'ICE et l'IF aupres du registre officiel. Confirmez-vous la creation du dossier "
                             "ALPHA sans cette verification ? oui / non")
-    assert skip_confirmed("s", "create_dossier", "Oui, je confirme") and not skip_confirmed("s", "create_dossier", "non")
-    assert not skip_confirmed("s", "update_dossier", "oui")  # another step's question
-    asked("create_dossier", "Un dossier au nom tres proche existe deja (ALPHA SARL). Faut-il quand meme creer ALPHA ? oui / non")
-    assert not skip_confirmed("s", "create_dossier", "oui")  # this yes answers the later question
+    assert confirmed("s", "Oui, je confirme", *skip) and not confirmed("s", "non", *skip)
+    assert not confirmed("s", "Oui, créez aussi BETA sans vérification", "sans cette verification", "BETA")  # another dossier
+    asked("assign_account", "Facture 12 : quel compte utiliser ?")
+    assert not confirmed("s", "oui", *skip)  # this yes answers the later question, whatever its step
 
 
 @pytest.mark.security
@@ -99,8 +100,7 @@ def test_an_if_needs_its_label_to_be_read():
 
 
 @pytest.mark.communication
-def test_a_call_without_a_name_says_how_to_call_again(monkeypatch):
-    monkeypatch.setattr(identity, "remember_client_message", lambda *args: None)
+def test_a_call_without_a_name_says_how_to_call_again():
     with pytest.raises(ToolError, match="rappelle Experio_parametrer_dossier avec dossier_id 0"):
         identity.create_dossier(client_message=MESSAGE, session_id="s")
 
@@ -111,3 +111,21 @@ def test_a_new_dossier_takes_only_the_ice_and_if_the_client_wrote(db_cabinet, mo
     monkeypatch.setattr(identity, "lookalikes", lambda name, ice, if_number: ([], []))
     answer = identity.create_dossier(name="FAIR KAPPA", ice="001111222333444", if_number="0712345", client_message=MESSAGE, session_id="s")
     assert answer["status"] == "ok" and answer["message"].endswith("Non repris, le client ne l'a pas ecrit : ICE.")
+
+
+@pytest.mark.security
+def test_an_identifier_counts_only_after_its_own_label():
+    assert client_wrote("rc", "98765", "IF 12345678, RC 98765") and not client_wrote("rc", "12345678", "IF 12345678, RC 98765")
+    assert client_wrote("if_number", "71234561", "I.F : 71 234 561") and not client_wrote("if_number", "98765", "RC 98765")
+    assert not client_wrote("folder_type", "company", "Changez l'adresse de ma société.")
+    assert client_wrote("folder_type", "company", "C'est une personne morale.")
+
+
+@pytest.mark.functionality
+def test_the_zeros_of_an_ice_given_earlier_come_back_on_the_yes(db_cabinet, monkeypatch):
+    monkeypatch.setattr(identity, "dry_run", lambda: True)
+    checked = []
+    monkeypatch.setattr(identity, "lookalikes", lambda name, ice, if_number: checked.append(ice) or ([], []))
+    identity.create_dossier(name="FAIR KAPPA", client_message=MESSAGE, session_id="s")  # remembered
+    answer = identity.create_dossier(name="FAIR KAPPA", ice=8123456000100, client_message="oui", session_id="s")
+    assert checked[-1] == "008123456000100" and "Non repris" not in answer["message"]

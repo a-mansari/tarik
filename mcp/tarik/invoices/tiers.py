@@ -12,7 +12,7 @@ import re
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, question, server
-from tarik.dossiers.search import normalized, similarity
+from tarik.dossiers.search import normalized, similarity, without_if
 from tarik.core.experio import (dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, refused, require_draft,
                                 require_invoice, test_mode_note)
 from tarik.invoices.classify import side_of
@@ -129,7 +129,7 @@ def pick_tiers(partners, answer, proposed_ids=()):
     if len(set(named)) == 1:
         return by_id[named[0]]
     said = normalized(answer)
-    contained = [p for p in partners if normalized(re.sub(r"\s+-\s+\d+\s*$", "", p["name"])) in said]
+    contained = [p for p in partners if normalized(without_if(p["name"])) in said]
     if len(contained) == 1:
         return contained[0]
     if len(proposed_ids) == 1 and proposed_ids[0] in by_id and said.startswith(tuple(normalized(a) for a in AFFIRMATIVE)):
