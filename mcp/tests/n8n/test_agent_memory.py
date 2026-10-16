@@ -6,7 +6,7 @@ Needs n8n's MCP server (Settings > n8n MCP: on, and an access token):
   N8N_MCP_API_TOKEN   the token (Vault secret/tarik/shared, or the environment)
   N8N_MCP_API_URL     n8n's MCP address from this container (docker-compose.yml)
   N8N_MCP_PROJECT_ID  the project the throwaway agents are made in, default the first agent's (deleted at the end)
-  N8N_MCP_CREDENTIAL  the model credential's id, default MiniMaxAnthr0p1c
+  N8N_MCP_CREDENTIAL  the model credential's id, default MiniMaxNative001
 Skipped without a token. Run: docker compose exec -T tarik-mcp python -m pytest tests/n8n"""
 
 import json
@@ -16,7 +16,7 @@ import uuid
 import pytest
 
 PROJECT = os.getenv("N8N_MCP_PROJECT_ID", "")
-CREDENTIAL = os.getenv("N8N_MCP_CREDENTIAL", "MiniMaxAnthr0p1c")
+CREDENTIAL = os.getenv("N8N_MCP_CREDENTIAL", "MiniMaxNative001")
 
 INSTRUCTIONS = (
     "Tu es un agent de test. Quand on te donne un code secret, retiens-le et reponds OK. "
@@ -35,7 +35,7 @@ def agents(n8n):
             projectId=project,
             name=f"Test memoire {name} {uuid.uuid4().hex[:6]}",
             config={
-                "model": "anthropic/MiniMax-M3",
+                "model": "minimax/MiniMax-M3",
                 "credential": CREDENTIAL,
                 "instructions": INSTRUCTIONS,
                 "memory": {"enabled": True, "storage": "n8n"},

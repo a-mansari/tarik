@@ -162,8 +162,8 @@ docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault
 
    ```json
    [
-     {"id": "MiniMaxAnthr0p1c", "name": "MiniMax (Anthropic-compatible)", "type": "anthropicApi",
-      "data": {"apiKey": "<MODEL_API_KEY>", "url": "<MODEL_API_URL>"}}
+     {"id": "MiniMaxNative001", "name": "MiniMax", "type": "minimaxApi",
+      "data": {"apiKey": "<MODEL_API_KEY>", "region": "international"}}
    ]
    ```
 
