@@ -69,10 +69,12 @@ cabinet, as n8n's conversation ids are shared by every agent. Every cabinet's
 those addresses only, and only answers senders among them.
 
 n8n stops an agent's workflow tool after 120 s, so a processing run stops itself after 80 s: the invoices
-still going wait at the step they reached. When Tarik's reply leaves drafts waiting (on Experio's reading or
-on that budget), the thread is followed up for 30 minutes: once Experio has read them, the watcher's tick
-wakes "Tarik - Emails", which takes them up again without the agent ("Tarik - Traitement" in mode `resume`,
-no time limit) and sends the outcome in the thread.
+still going wait at the step they reached. A new dossier's onboarding waits until its imported lines are a
+minute old (Experio's rule): when the run's 100 s would not cover that, the dossier is left waiting
+(`tarik_setups`). When Tarik's reply leaves drafts or a dossier waiting, the thread is followed up for 30
+minutes: once Experio has read the drafts (a dossier: at the next tick), the watcher's tick wakes
+"Tarik - Emails", which takes them up again without the agent ("Tarik - Traitement", then "Tarik - Dossier",
+each in mode `resume`, no time limit) and sends the outcome in the thread.
 
 To add a cabinet: give Tarik a user in that cabinet's Experio, add the cabinet to `CABINETS` in
 `workflows/build_tarik_agents.py` and run it (`python3 workflows/build_tarik_agents.py`: it creates

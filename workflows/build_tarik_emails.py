@@ -73,55 +73,92 @@ mcp(
     maxTries=3,
     waitBetweenTries=5000,
 )  # the reply is out: its thread must be closed, or it's sent twice
-# A follow-up has no email to answer: no agent, no 120 s limit on the processing.
+# A follow-up has no email to answer: no agent, no 120 s limit. "Tarik - Traitement" takes up the drafts left
+# waiting, then "Tarik - Dossier" finishes the dossiers left waiting (each in mode resume); one email tells both.
 flow.route("Suite ?", "$json.follow_up ? 1 : 0", 2, [550, 300])
-INPUTS = {
-    "mode": ("string", "resume"),
-    "session_id": ("string", "={{ $json.session_id }}"),
-    "dossier_id": ("number", 0),
-    "answer": ("string", ""),
-    "invoice_type": ("string", ""),
-    "client_message": ("string", ""),
-    "attachments": ("string", ""),
-    "cabinet": ("string", "={{ $('Nouvel email').first().json.body.cabinet }}"),
-}
-node(
-    "Suite du traitement",
-    "n8n-nodes-base.executeWorkflow",
-    1.2,
-    [660, 520],
-    {
+CABINET = "={{ $('Nouvel email').first().json.body.cabinet }}"
+SESSION = f"={{{{ {THREAD}.session_id }}}}"
+
+
+def resume(name, workflow_id, inputs, position):
+    """An Execute Workflow node running ``workflow_id`` in mode resume for the thread's conversation, with
+    ``inputs`` ({name: (type, value)}: every input its trigger declares). Output 1: it failed."""
+    inputs = {"mode": ("string", "resume"), "session_id": ("string", SESSION), **inputs, "cabinet": ("string", CABINET)}
+    schema = [
+        {
+            "id": key,
+            "displayName": key,
+            "required": False,
+            "defaultMatch": False,
+            "display": True,
+            "canBeUsedToMatch": True,
+            "type": type_,
+        }
+        for key, (type_, _) in inputs.items()
+    ]
+    parameters = {
         "source": "database",
-        "workflowId": {"__rl": True, "value": "TarikTraitement1", "mode": "id"},
+        "workflowId": {"__rl": True, "value": workflow_id, "mode": "id"},
         "mode": "each",
         "workflowInputs": {
             "mappingMode": "defineBelow",
-            "value": {name: value for name, (_, value) in INPUTS.items()},
+            "value": {key: value for key, (_, value) in inputs.items()},
             "matchingColumns": [],
-            "schema": [
-                {
-                    "id": name,
-                    "displayName": name,
-                    "required": False,
-                    "defaultMatch": False,
-                    "display": True,
-                    "canBeUsedToMatch": True,
-                    "type": type_,
-                }
-                for name, (type_, _) in INPUTS.items()
-            ],
+            "schema": schema,
             "attemptToConvertTypes": False,
         },
         "options": {"waitForSubWorkflow": True},
+    }
+    return node(name, "n8n-nodes-base.executeWorkflow", 1.2, position, parameters, onError="continueErrorOutput")
+
+
+EMPTY = {"string": "", "number": 0, "boolean": False}
+resume(
+    "Suite du traitement",
+    "TarikTraitement1",
+    {
+        key: (type_, EMPTY[type_])
+        for key, type_ in [
+            ("dossier_id", "number"),
+            ("answer", "string"),
+            ("invoice_type", "string"),
+            ("client_message", "string"),
+            ("attachments", "string"),
+        ]
     },
-    onError="continueErrorOutput",
+    [660, 520],
+)
+resume(
+    "Suite de l'integration",
+    "TarikDossier0001",
+    {
+        key: (type_, EMPTY[type_])
+        for key, type_ in [
+            ("dossier_id", "number"),
+            ("name", "string"),
+            ("ice", "string"),
+            ("if_number", "string"),
+            ("folder_type", "string"),
+            ("skip_ice_if_check", "boolean"),
+            ("client_message", "string"),
+            ("model_dossier_id", "number"),
+            ("kind", "string"),
+            ("attachments", "string"),
+        ]
+    },
+    [770, 520],
+)
+# Each run's summary, but a run with nothing to do ("Rien n'a ete traite.").
+SUMMARIES = (
+    "[$('Suite du traitement').item.json, $json].map(run => run.content[0].text.message)"
+    ".filter(text => text !== \"Rien n'a ete traite.\").join('\\n\\n')"
 )
 mcp(
     "Suite envoyee (send_email)",
     "send_email",
     (
         f"{{ to: {THREAD}.to, subject: {THREAD}.subject, "
-        "body: 'Suite du traitement de vos documents :\\n\\n' + $json.content[0].text.message, "
+        f"body: 'Suite du traitement de vos documents :\\n\\n' + {SUMMARIES}, "
         f"in_reply_to: {THREAD}.in_reply_to, references: {THREAD}.references }}"
     ),
     [880, 520],
@@ -131,8 +168,10 @@ connect("Fils en attente (claim_threads)", "Un element par fil", 0)
 connect("Un element par fil", "Suite ?")
 connect("Suite ?", "Tarik", 0)
 connect("Suite ?", "Suite du traitement", 1)
-connect("Suite du traitement", "Suite envoyee (send_email)", 0)
-connect("Suite du traitement", "Fil traite (finish_thread)", 1)  # failed: set aside, with why
+connect("Suite du traitement", "Suite de l'integration", 0)
+connect("Suite de l'integration", "Suite envoyee (send_email)", 0)
+for failed in ("Suite du traitement", "Suite de l'integration"):
+    connect(failed, "Fil traite (finish_thread)", 1)  # failed: set aside, with why
 connect("Suite envoyee (send_email)", "Fil traite (finish_thread)", 0)
 connect("Suite envoyee (send_email)", "Fil traite (finish_thread)", 1)
 # Refused for the sender's rights on the dossier: the sender gets nothing, the manager is told.

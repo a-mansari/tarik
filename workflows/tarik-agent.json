@@ -116,6 +116,10 @@
       "name": "Experio_parametrer_dossier",
       "description": "Cree un dossier (dossier_id 0) ou reprend un dossier existant, dans l'ordre : creation, import des FEC ou grands livres joints (Experio cree les comptes, journaux, tiers et exercices manquants), fin de l'integration, etat du dossier. Renvoie le resultat. Paramètres, à toujours remplir : dossier_id (nombre : 0 pour un nouveau dossier, sinon l'id donné par Experio_find_dossier), name (nom du nouveau dossier, vide pour un dossier existant), ice (vide si inconnu), if_number (l'IF, vide si inconnu), folder_type (company ou person), skip_ice_if_check (false, sauf demande écrite du client), model_dossier_id (l'id, trouvé avec Experio_find_dossier, du dossier dont le client a lui-même demandé de copier la configuration ; 0 sinon), kind (fec, grand livre ou vide).",
       "inputs": {
+        "mode": {
+          "mode": "fixed",
+          "value": "setup"
+        },
         "session_id": {
           "mode": "fixed",
           "value": "{{threadId}}"

@@ -22,6 +22,10 @@
         "workflowInputs": {
           "values": [
             {
+              "name": "mode",
+              "type": "string"
+            },
+            {
               "name": "session_id",
               "type": "string"
             },
@@ -74,6 +78,19 @@
       }
     },
     {
+      "id": "1291b1b2-7928-5ed7-bb7c-003cfc6dcc3f",
+      "name": "Debut",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// When the run started, for its time budget.\nreturn [{ json: { started: Date.now() } }];"
+      }
+    },
+    {
       "id": "0b3f9bfd-0ce7-5cc2-82ad-c54532d37c78",
       "name": "Pieces jointes de l'agent",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -109,8 +126,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $('Appel').first().json.dossier_id > 0 ? 1 : 0 }}"
+        "numberOutputs": 3,
+        "output": "={{ $('Appel').first().json.mode === 'resume' ? 2 : $('Appel').first().json.dossier_id > 0 ? 1 : 0 }}"
       }
     },
     {
@@ -355,12 +372,27 @@
           "value": "finish_setup"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id, seconds_left: Math.max(1, Math.round((100000 - (Date.now() - $('Debut').first().json.started)) / 1000)) }) }}",
         "options": {
           "timeout": 300000
         }
       },
       "onError": "continueErrorOutput"
+    },
+    {
+      "id": "94dd6f8d-50ec-53c2-adb5-0aa73646cbc1",
+      "name": "Integration terminee ?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2090,
+        560
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
     },
     {
       "id": "dfa2e31e-7fb6-543a-b271-2d6cba122838",
@@ -381,6 +413,109 @@
         },
         "inputMode": "json",
         "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "11e5f78b-e857-596f-9b84-a2539ce8d19e",
+      "name": "Integrations en attente (waiting_setups)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        640
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "waiting_setups"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "6de3be64-f4a8-59fe-aa4a-e85cda5a20de",
+      "name": "Un element par dossier",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        640
+      ],
+      "parameters": {
+        "jsCode": "// One item per dossier left waiting.\nreturn $input.first().json.content[0].text.dossiers.map(dossier_id => ({ json: { dossier_id } }));"
+      }
+    },
+    {
+      "id": "a07ba44f-0b96-5459-90fb-7ff5ce069b46",
+      "name": "Integration reprise (finish_setup)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        640
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "finish_setup"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $json.dossier_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "691dd210-f197-5296-b70e-52fb64528841",
+      "name": "Reprise terminee ?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        990,
+        740
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
+      "id": "2211b150-8234-5b87-8a8d-52ea35c3d055",
+      "name": "Etat du dossier repris (setup_status)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        740
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "setup_status"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $json.content[0].text.dossier_id }) }}",
         "options": {
           "timeout": 300000
         }
@@ -443,12 +578,23 @@
       "main": [
         [
           {
-            "node": "Pieces jointes de l'agent",
+            "node": "Debut",
             "type": "main",
             "index": 0
           },
           {
             "node": "Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debut": {
+      "main": [
+        [
+          {
+            "node": "Pieces jointes de l'agent",
             "type": "main",
             "index": 0
           }
@@ -521,6 +667,13 @@
         [
           {
             "node": "Expediteur (check_sender)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Integrations en attente (waiting_setups)",
             "type": "main",
             "index": 0
           }
@@ -705,7 +858,7 @@
       "main": [
         [
           {
-            "node": "Etat du dossier (setup_status)",
+            "node": "Integration terminee ?",
             "type": "main",
             "index": 0
           },
@@ -724,7 +877,99 @@
         ]
       ]
     },
+    "Integration terminee ?": {
+      "main": [
+        [
+          {
+            "node": "Etat du dossier (setup_status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Etat du dossier (setup_status)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Integrations en attente (waiting_setups)": {
+      "main": [
+        [
+          {
+            "node": "Un element par dossier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Un element par dossier": {
+      "main": [
+        [
+          {
+            "node": "Integration reprise (finish_setup)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Integration reprise (finish_setup)": {
+      "main": [
+        [
+          {
+            "node": "Reprise terminee ?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reprise terminee ?": {
+      "main": [
+        [
+          {
+            "node": "Etat du dossier repris (setup_status)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Etat du dossier repris (setup_status)": {
       "main": [
         [
           {

@@ -7,7 +7,8 @@ journals, bank and TPE operations and settings. The Importation screen (base_imp
 experio.history) creates whatever the entries need and the dossier lacks -- accounts, journals,
 tiers, exercices -- and auto-detects the settings left empty. While the onboarding is open its lines
 wait, and the stepper's "Enregistrer et terminer" sends those imported more than a minute ago to
-Experio's processing (res.company's write): finish_setup waits for them. Once it is finished, imported
+Experio's processing (res.company's write): finish_setup waits for them, or leaves the dossier in
+tarik_setups for a later run when the time left is too short. Once it is finished, imported
 lines go to the processing at once (experio.history's create): a FEC can come any time after.
 
 Order: the copy comes before the import. The wizard writes every setting of the model and
@@ -27,7 +28,7 @@ from datetime import date, datetime
 import openpyxl
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import log, ok, server, stop, with_ids
+from tarik.core.app import log, ok, server, stop, wait, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, TEST_MODE
 from tarik.core.experio import dry_run, experio_refusal, in_dossier, odoo_call, odoo_json, refused, require_dossier
@@ -152,6 +153,30 @@ def taken(file_id):
         db.execute("update tarik_files set kind = 'entries' where id = %s", (file_id,))
 
 
+def setup_waits(dossier_id, file_id=None):
+    """The dossier waits for its onboarding, in the conversation of ``file_id`` (an import of it went through);
+    without ``file_id``, no longer (finished, or an import refused: the client sends a corrected file)."""
+    with cabinet_db() as db:
+        if file_id:
+            db.execute(
+                "insert into tarik_setups (dossier_id, session_id) select %s, session_id from tarik_files "
+                "where id = %s on conflict (dossier_id) do update set session_id = excluded.session_id",
+                (dossier_id, file_id),
+            )
+        else:
+            db.execute("delete from tarik_setups where dossier_id = %s", (dossier_id,))
+
+
+@server.tool()
+def waiting_setups(session_id: str) -> dict:
+    """This conversation's dossiers whose entries were imported and whose onboarding still waits."""
+    with cabinet_db() as db:
+        rows = db.execute(
+            "select dossier_id from tarik_setups where session_id = %s order by created_at", (session_id,)
+        ).fetchall()
+    return ok(f"{len(rows)} dossier(s) a terminer.", dossiers=[dossier_id for (dossier_id,) in rows])
+
+
 class Refused(Exception):
     """An entries file not imported: its text is the stop message, and the file is taken."""
 
@@ -257,8 +282,10 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
             raise Refused(f"{label} {name} refuse par Experio : " + " | ".join(errors[:3]))
     except Refused as refusal:
         taken(file_id)
+        setup_waits(dossier_id)
         return stop(str(refusal), file_id=file_id)
     taken(file_id)
+    setup_waits(dossier_id, file_id)
     return ok(
         f"{label} {name} importe dans le dossier {dossier} : {len(result.get('ids') or [])} lignes. "
         "Experio a cree les comptes, journaux, tiers et exercices manquants.",
@@ -283,6 +310,9 @@ STEPPER_PREFIXES = {
 }
 
 
+STEPPER_SECONDS = 15  # what finish_setup needs after Experio's wait: the stepper's calls, then the dossier's state
+
+
 def exercice_note(dossier_id, dossier):
     """Opens the current year's exercice when the dossier has no open one (not in test mode): what was done (str),
     or None when it had one."""
@@ -298,8 +328,9 @@ def exercice_note(dossier_id, dossier):
     return f"exercice {year} ouvert"
 
 
-def wait_for_newest_lines(dossier_id, context):
-    """Sleeps until the newest waiting line is over a minute old: Experio hands over only those."""
+def lines_ready_in(dossier_id, context):
+    """Seconds until the newest waiting line is over a minute old (0 when none waits): Experio hands over only
+    those."""
     newest = odoo_call(
         "experio.history",
         "search_read",
@@ -311,7 +342,8 @@ def wait_for_newest_lines(dossier_id, context):
     )
     if newest and newest[0]["send_date"]:
         sent = calendar.timegm(time.strptime(newest[0]["send_date"], "%Y-%m-%d %H:%M:%S"))  # Experio stores UTC
-        time.sleep(max(0.0, sent + 65 - time.time()))
+        return max(0.0, sent + 65 - time.time())
+    return 0.0
 
 
 def complete_stepper(company, context):
@@ -332,24 +364,34 @@ def complete_stepper(company, context):
 
 @server.tool()
 @with_ids
-def finish_setup(dossier_id: int) -> dict:
+def finish_setup(dossier_id: int, seconds_left: int = 0) -> dict:
     """Finish a new dossier's onboarding as its stepper does (Suivant to the last
     step, then Enregistrer et terminer): Experio then processes the imported entries.
-    Opens the current exercice when the dossier has none."""
+    Opens the current exercice when the dossier has none. ``seconds_left``: the run's
+    time left (0: no limit); when Experio's wait for the imported lines would outlast it,
+    the dossier is left waiting (tarik_setups) for a later run."""
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
     fields = ["show_onboarding", *STEPPER_JOURNALS, *STEPPER_PREFIXES]
     company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
     if not company["show_onboarding"]:
+        setup_waits(dossier_id)
         return ok(f"Dossier {dossier} : integration deja terminee, Experio traite les ecritures des leur import.")
     notes = [note for note in (exercice_note(dossier_id, dossier),) if note]
     if dry_run():
         return ok(f"{TEST_MODE}Dossier {dossier} : integration terminee ({', '.join(notes + ['stepper termine'])}).")
-    wait_for_newest_lines(dossier_id, context)
+    pause = lines_ready_in(dossier_id, context)
+    if seconds_left and pause > seconds_left - STEPPER_SECONDS:
+        return wait(
+            f"Dossier {dossier} : Experio enregistre encore les ecritures importees ; son integration et l'etat "
+            "du dossier suivront dans quelques minutes."
+        )
+    time.sleep(pause)
     with refused(
         f"finish_setup {dossier_id}", f"Dossier {dossier} : Experio refuse de terminer l'integration ({{reason}})."
     ):
         complete_stepper(company, context)
+    setup_waits(dossier_id)
     waiting = odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id)], context=context)
     notes.append(
         f"{waiting} ligne(s) d'ecritures transmises au traitement d'Experio" if waiting else "aucune ecriture importee"
