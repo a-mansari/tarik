@@ -40,13 +40,12 @@ def test_dry_run_is_per_cabinet_and_on_by_default(two_cabinets, monkeypatch):
 
 @pytest.mark.security
 def test_the_email_signature_is_the_cabinets_own(two_cabinets, monkeypatch):
-    sending._cabinet_name.cache_clear()
+    monkeypatch.setattr(sending, "_names", {})
     monkeypatch.setattr(sending, "odoo_call", lambda *args, **kw: [{"name": f"Cabinet {current()}"}])
     with using(A):
         assert sending.cabinet_name() == f"Cabinet {A}"
     with using(B):
-        assert sending.cabinet_name() == f"Cabinet {B}"  # not A's, though A's is cached
-    sending._cabinet_name.cache_clear()
+        assert sending.cabinet_name() == f"Cabinet {B}"  # not A's, though A's is kept
 
 
 @pytest.mark.security
