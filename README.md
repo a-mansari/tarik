@@ -48,7 +48,7 @@ Experio database (`experio_cabinet_8`): its Vault path, `secret/tarik/cabinets/<
   What every cabinet shares is in `secret/tarik/shared`: the mail server (`IMAP_HOST`, `IMAP_PORT`,
   `IMAP_FOLDER`, `SMTP_HOST`, `SMTP_PORT`, `MAIL_CERT_SHA256`), n8n's MCP token (`N8N_MCP_API_TOKEN`),
   the model (`MODEL_API_*`). Each setting is one or the other (`CABINET_SETTINGS`, `SHARED_SETTINGS` in
-  `tarik/core/cabinets.py`): one in the wrong place, or still in `.env`, stops the server. No setting
+  `tarik/core/cabinets.py`): one in the wrong place, or also in the container's environment, stops the server. No setting
   is ever shown to the agent.
 - **its data**: a Postgres schema of the same name. A tool's connection only sees that schema.
 
