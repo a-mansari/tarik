@@ -1,8 +1,11 @@
 """The guards every tool goes through: a real dossier or invoice id, Tarik's own user."""
 
+import http.client
+
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
+from tarik.core import experio
 from tarik.core.experio import expected_uid, require_dossier, require_invoice
 
 
@@ -53,3 +56,25 @@ def test_seeing_what_experio_would_fill_saves_nothing(db_cabinet, monkeypatch):
     monkeypatch.setattr(experio, "_forms", {})  # this fake form only, never cached for other tests
     changed = experio.fill_invoice(1, {"partner_id": 7}, {}, save=False)
     assert changed["account_id"] == 61450000 and written == []  # the scan's payment method is not reset in Experio
+
+
+@pytest.mark.technical
+def test_a_read_cut_off_is_asked_again_once_a_write_never(monkeypatch):
+    calls = []
+
+    class Experio:
+        def execute_kw(self, database, uid, key, model, method, args, kw):
+            calls.append(method)
+            if len(calls) == 1 or method == "write":
+                raise http.client.IncompleteRead(b"<?xml", 9000)
+            return [{"id": 7}]
+
+    monkeypatch.setattr(experio, "account", lambda: ("db", 430, "tarik", "key"))
+    monkeypatch.setattr(experio, "login", lambda: 430)
+    monkeypatch.setattr(experio, "rpc", lambda path: Experio())
+    monkeypatch.setattr(experio.time, "sleep", lambda seconds: None)
+    assert experio.odoo_call("res.company", "search_read", []) == [{"id": 7}] and calls == ["search_read"] * 2
+    calls.clear()
+    with pytest.raises(http.client.IncompleteRead):
+        experio.odoo_call("res.company", "write", [7], {"name": "X"})
+    assert calls == ["write"]  # a cut answer doesn't say whether it was written
