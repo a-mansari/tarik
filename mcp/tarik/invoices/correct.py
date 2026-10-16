@@ -1,4 +1,4 @@
-"""Phase 4: write what the scan shows over what Experio captured differently."""
+"""Write what the scan shows over what Experio captured differently."""
 
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -30,8 +30,8 @@ PAYMENT_METHODS = {
 
 def planned_changes(extracted, bad_fields, invoice):
     """What the check says to write ({field: value}): the differing header fields, the credit note and
-    the multi-TVA split (tarik-master orchestrator.correct + odoo.apply_variants). ``extracted`` and
-    ``bad_fields`` come from the check, ``invoice`` holds refund and amount_tax_non_recoverable."""
+    the multi-TVA split. ``extracted`` and ``bad_fields`` come from the check, ``invoice`` holds refund and
+    amount_tax_non_recoverable."""
     changes = {
         b["field"]: extracted[b["field"]]
         for b in bad_fields

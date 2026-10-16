@@ -6,7 +6,8 @@ thread waits for an answer. The run works in that cabinet only, every step at it
 waiting thread, the cabinet's own n8n agent answers its client's emails (ask_agent), and the reply goes out
 in the thread, to whitelisted addresses only. A thread whose run stops midway is taken again 30 minutes
 later; after 3 such runs it is set aside in error. A follow-up (a thread whose drafts Experio was still
-reading, once read) skips the agent: "Tarik - Traitement" takes those drafts up again, its summary is sent."""
+reading, once read, or whose dossiers were left waiting) skips the agent: "Tarik - Traitement", then
+"Tarik - Dossier", take them up again, and their summaries are sent."""
 
 from steps import DOSSIER_INPUTS, TRAITEMENT_INPUTS, Workflow
 
@@ -42,11 +43,11 @@ flow.code(
         "return ($input.first().json.content?.[0]?.text?.threads ?? []).map(thread => ({ json: thread }));"
     ),
 )
-# The cabinet's own agent answers, in the thread's conversation (ask_agent: n8n's call_agent).
-# Longer than ask_agent's own 600 s wait: n8n never gives up on an answer still coming.
 # A new thread: the client hears at once that it was received, before the agent works (it may take minutes).
 ACK = "Accuse de reception (acknowledge_thread)"
 mcp(ACK, "acknowledge_thread", f"{{ thread_id: {THREAD}.thread_id }}", [660, 200])
+# The cabinet's own agent answers, in the thread's conversation (ask_agent: n8n's call_agent).
+# Longer than ask_agent's own 600 s wait: n8n never gives up on an answer still coming.
 mcp(
     "Tarik",
     "ask_agent",

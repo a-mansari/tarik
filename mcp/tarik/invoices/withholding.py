@@ -1,10 +1,9 @@
-"""Phase 11: withholding tax (retenue a la source, RAS).
+"""Withholding tax (retenue a la source, RAS).
 
-Experio already remembers each tiers' RAS: it saves the rule and rates on the tiers when an
-invoice is posted (memorize_partner_values) and applies them when the tiers is picked in the
-form. tarik-master also wrote them onto the tiers itself when the client answered; that is
-Experio's job at posting. Left here: a foreign supplier's last posted rule (Experio only
-remembers it when there was a retenue), and the questions tarik-master asks -- a foreign
+Experio remembers each tiers' RAS: it saves the rule and rates on the tiers when an invoice
+is posted (memorize_partner_values) and applies them when the tiers is picked in the form,
+so nothing is written onto the tiers here. Left here: a foreign supplier's last posted rule
+(Experio only remembers it when there was a retenue), and the questions -- a foreign
 supplier with no known rule, local fees (6136) with none.
 """
 
@@ -106,7 +105,7 @@ def local_withholding_answer(reply):
     }
 
 
-LOCAL_RAS_ACCOUNTS = ("6136",)  # honoraires, commissions: the local purchases where a RAS is usual (tarik-master)
+LOCAL_RAS_ACCOUNTS = ("6136",)  # honoraires, commissions: the local purchases where a RAS is usual
 FIELDS = {
     "foreign": ("retenue", "foreign_withholding", "local_service"),
     "local": ("retenue", "local_withholding_percentage", "tax_withholding_percentage"),

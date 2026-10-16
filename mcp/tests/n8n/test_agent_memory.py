@@ -7,7 +7,7 @@ Needs n8n's MCP server (Settings > n8n MCP: on, and an access token):
   N8N_MCP_API_URL     n8n's MCP address from this container (docker-compose.yml)
   N8N_MCP_PROJECT_ID  the project the throwaway agents are made in, default the first agent's (deleted at the end)
   N8N_MCP_CREDENTIAL  the model credential's id, default MiniMaxNative001
-Skipped without a token. Run: docker compose exec -T tarik-mcp python -m pytest tests/n8n"""
+Skipped without a token. Run: docker compose exec -T tarik-mcp python -m pytest -m live tests/n8n"""
 
 import json
 import os

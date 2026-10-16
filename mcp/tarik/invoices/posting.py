@@ -1,6 +1,6 @@
-"""Phase 14: comptabiliser -- only when Experio's own check is clear.
+"""Comptabiliser -- only when Experio's own check is clear.
 
-A straight port of tarik-master's post node, all on Experio's own methods: its refresh,
+All on Experio's own methods: its refresh,
 collect_validation_messages (what the Comptabiliser button checks), action_post, then the
 state read back, since action_post returns nothing to trust. Posting also saves the
 invoice's account, RAS and TVA flags on its tiers for next time (Experio's memorization).
@@ -22,7 +22,7 @@ from tarik.core.experio import (
     require_invoice,
 )
 
-RETRIES, PAUSE = 3, 1.0  # as tarik-master: the check can lag right after a refresh
+RETRIES, PAUSE = 3, 1.0  # the check can lag right after a refresh
 
 
 def _blocking(invoice_id, context):

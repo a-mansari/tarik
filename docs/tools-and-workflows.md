@@ -15,7 +15,7 @@ Each "Tarik - <cabinet>" agent has these tools, named exactly as below:
 | `Experio_list_invoices` | A dossier's invoices, most recent first; filter: en cours, brouillon, comptabilisee, payee. | MCP, read |
 | `Experio_list_collaborators` | The cabinet's collaborators: role, manager or not, number of dossiers. | MCP, read |
 | `Experio_traiter_fichiers` | Processes the invoices and bank statements attached to the conversation, for one dossier, as purchases, sales or both, as the client said. | Workflow "Tarik - Traitement" |
-| `Experio_repondre` | Hands the client's answer (their own words, filled by n8n) to what the conversation waits on, and resumes the processing. No parameter. | Workflow "Tarik - Traitement" (answer mode) |
+| `Experio_repondre` | Hands the client's answer (their own words, filled by n8n) to what the conversation waits on, and resumes the processing. Its one parameter, `decision`: what the agent read in the answer (oui or non, the tiers chosen). | Workflow "Tarik - Traitement" (answer mode) |
 | `Experio_parametrer_dossier` | Creates a dossier, or imports a FEC or grand livre into one. | Workflow "Tarik - Dossier" |
 | `Experio_modifier_dossier` | Changes an existing dossier's identity fields. | Workflow "Tarik - Modification" |
 | `load_skill` | Loads one of the skills below (n8n's own). | n8n |
@@ -36,10 +36,10 @@ an MCP call at the cabinet's address, its outcome recorded; the run's summary is
 
 | Workflow | Started by | What it does |
 |---|---|---|
-| **Tarik - Traitement** (`TarikTraitement1`) | `Experio_traiter_fichiers`, `Experio_repondre` | Saves the agent's attachments, checks the email sender, then for each file: identifies it, imports a bank statement, or splits a PDF into invoices and runs each through the sequence: draft, Experio's reading, check against the scan, correction, classification, tiers, duplicate, account, TVA, journal, withholding, prepaid charges, fiscal year, posting. A step that needs the client stops with a question. Answer mode: `answer_pending` applies the client's answer, then the sequence resumes at the next step; with nothing waiting, drafts Experio hadn't read yet are resumed. |
-| **Tarik - Dossier** (`TarikDossier0001`) | `Experio_parametrer_dossier` | A new dossier: creates it, copies a model dossier's configuration when the agent gives one. An existing one: checks the email sender. Then imports each FEC or grand livre, finishes the onboarding, and reports the dossier's state. |
+| **Tarik - Traitement** (`TarikTraitement1`) | `Experio_traiter_fichiers`, `Experio_repondre`, "Tarik - Emails" (follow-up) | Saves the agent's attachments, checks the email sender, then for each file: identifies it, imports a bank statement, or splits a PDF into invoices and runs each through the sequence: draft, Experio's reading, check against the scan, correction, classification, tiers, duplicate, account, TVA, journal, withholding, prepaid charges, fiscal year, posting. A step that needs the client stops with a question. Answer mode: `answer_pending` applies the client's answer, then the sequence resumes at the next step; with nothing waiting, drafts Experio hadn't read yet are resumed. Resume mode (a follow-up): those drafts only. |
+| **Tarik - Dossier** (`TarikDossier0001`) | `Experio_parametrer_dossier`, "Tarik - Emails" (follow-up) | A new dossier: creates it, copies a model dossier's configuration when the agent gives one. An existing one: checks the email sender. Then imports each FEC or grand livre, finishes the onboarding, and reports the dossier's state. Resume mode (a follow-up): finishes the dossiers left waiting. |
 | **Tarik - Modification** (`TarikModif000001`) | `Experio_modifier_dossier` | Checks the email sender, then changes only the given fields, only to values the client wrote. |
-| **Tarik - Emails** (`TarikEmails00001`) | `tarik-mail-watch` (webhook, secret header) | Claims the threads waiting for an answer, gets each one's reply from the cabinet's agent, sends it. The watcher reads and stores the emails, and tells the manager about refused senders. |
+| **Tarik - Emails** (`TarikEmails00001`) | `tarik-mail-watch` (webhook, secret header) | Claims the threads waiting for an answer, acknowledges a new one, gets each one's reply from the cabinet's agent, sends it; a sender refused on the dossier gets nothing, the manager is told. A follow-up runs Traitement and Dossier in resume mode, without the agent, and sends their summaries. The watcher reads and stores the emails, and tells the manager about refused senders. |
 
 ## The Python tools (`tarik-mcp`)
 
@@ -53,12 +53,12 @@ above; the workflows call the rest.
 | `experio_connection` | Checks Experio can be reached and Tarik can log in. |
 | `list_dossiers` / `find_dossier` | The cabinet's dossiers / the closest ones to a name. |
 | `list_collaborators` | The cabinet's collaborators and their dossiers. |
-| `check_sender` | An email's sender must be a collaborator with that dossier; the chat has no sender to check. |
+| `check_sender` | An email's sender must be a collaborator, or one of Experio's own staff, with that dossier; the chat has no sender to check. |
 | `create_dossier` | Creates a dossier; refuses an existing ICE or IF, asks about a very similar name; ICE/IF as the client wrote them. |
 | `update_dossier` | Changes a dossier's identity fields; only values the client wrote; refuses another dossier's ICE, IF or name. |
 | `copy_configuration` | Copies a model dossier's configuration (the agent asks for it when the client named that dossier). |
 | `import_entries` | Imports a FEC or grand livre through Experio's Importation screen. |
-| `finish_setup` / `setup_status` | Finishes a new dossier's onboarding / where its setup stands. |
+| `finish_setup` / `setup_status` / `waiting_setups` | Finishes a new dossier's onboarding / where its setup stands / the conversation's dossiers left waiting. |
 
 ### Invoices and statements (`tarik/invoices`)
 
@@ -85,6 +85,7 @@ above; the workflows call the rest.
 | Tool | What it does |
 |---|---|
 | `claim_threads` | The threads waiting for an answer, each locked for the run (`tarik-mail-watch` stored their emails). |
+| `acknowledge_thread` | Tells the client their new thread was received, once, before the agent works on it. |
 | `ask_agent` | Gets a thread's reply from the cabinet's agent, in the thread's own conversation. |
 | `send_email` | Sends Tarik's reply (whitelisted addresses only), with a copy in the Sent folder. |
 | `finish_thread` / `thread_refusal` / `notify_manager` | Closes a thread / detects a refused sender / tells the cabinet's manager. |
@@ -93,6 +94,8 @@ above; the workflows call the rest.
 
 | Script | Use |
 |---|---|
-| `workflows/build_tarik_traitement.py`, `build_tarik_dossier.py`, `build_tarik_modification.py`, `build_tarik_emails.py` | Rebuild a workflow's JSON; then import and publish it (README). |
+| `workflows/build_tarik_traitement.py`, `build_tarik_dossier.py`, `build_tarik_modification.py`, `build_tarik_emails.py`, `build_tarik_merge_test.py` | Rebuild a workflow's JSON; then import and publish it (README). |
 | `workflows/build_tarik_agents.py` | Create or update every cabinet's agent from the template and the skills; checks the tool names first. |
+| `workflows/save_layout.py` | Saves the node positions arranged in n8n's editor to `workflows/layout.json`, which the builders apply. |
+| `docs/workflows-overview/build.py` | Rebuilds the workflows overview pages (and their PDFs) from the workflows' JSON. |
 | `vault/setup.sh` | Sets up the local Vault. |

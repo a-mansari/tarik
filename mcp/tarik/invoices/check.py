@@ -1,4 +1,4 @@
-"""Phase 3: does what Experio (Bluejay) read match the scan? (tarik-master agents/ocr.py)"""
+"""Does what Experio (Bluejay) read match the scan?"""
 
 import json
 import re
@@ -16,7 +16,6 @@ from tarik.core.model import ask_model
 from tarik.core.numbers import as_number
 from tarik.core.text import normalized, similarity, without_if
 
-# tarik-master/tarik/agents/ocr.py, verbatim.
 OCR_PROMPT = """You verify invoices captured in a Moroccan (CGNC) accounting app.
 
 You are given the scan of a supplier invoice, and the values a clerk captured
@@ -143,7 +142,7 @@ AMOUNT_FIELDS = TTC_PARTS | {"amount_total"}
 
 def resolve_date(raw, language):
     """A date copied as printed, plus the invoice's language, as YYYY-MM-DD (None when it is no date). Day/month
-    order is decided here from the language, never by the model (ocr.py's rule)."""
+    order is decided here from the language, never by the model."""
     match = re.search(r"(\d{1,4})\D(\d{1,4})\D(\d{1,4})", raw or "")  # three numbers, one separator between each
     if not match:
         return None
@@ -175,7 +174,7 @@ def _check_shape(report):
 
 def _as_numbers(extracted):
     """Turn the amounts the model read (in ``extracted``, changed in place) into numbers, its TVA lines' too.
-    ValueError when tva_lines is not a list."""
+    ValueError when an amount is not one number (as_number) or tva_lines is not a list."""
     for field in NUMBERS & set(extracted):
         extracted[field] = as_number(extracted[field])
     if not isinstance(extracted.get("tva_lines") or [], list):
@@ -204,7 +203,8 @@ def _date_difference(stored, extracted, resolved):
 
 def resolve_report(report, stored):
     """The model's report (dict), with the date resolved in code and compared here: the model only ever sees the
-    raw date, never the resolved one. ``stored``: what Experio captured. ValueError when out of shape."""
+    raw date, never the resolved one. ``stored``: what Experio captured. ValueError when out of shape or an
+    amount is not one number."""
     _check_shape(report)
     extracted = report["extracted"]
     _as_numbers(extracted)

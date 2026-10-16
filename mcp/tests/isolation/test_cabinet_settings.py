@@ -10,7 +10,7 @@ from tarik.emails import sending
 
 @pytest.mark.security
 def test_settings_are_the_cabinets_own(two_cabinets, monkeypatch):
-    monkeypatch.setenv("ODOO_UID", "999")  # the old, unprefixed setting: never read
+    monkeypatch.setenv("ODOO_UID", "999")  # an unprefixed cabinet setting: never read
     with using(A):
         assert experio.account() == (A, 11, f"tarik@{A}", f"secret-{A}")
         assert sending.allowed_recipients() == [f"client@{A}.ma"]

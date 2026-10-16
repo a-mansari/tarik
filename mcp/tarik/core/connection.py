@@ -1,4 +1,4 @@
-"""Phase 0: can Tarik reach Experio?"""
+"""Can Tarik reach Experio?"""
 
 from tarik.core import experio
 from tarik.core.app import log, server

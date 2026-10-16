@@ -31,7 +31,7 @@ piece, and [using-tarik.md](using-tarik.md) explains what Tarik can do and how t
 └───────┬───────────────┬────────────────┘   │ db n8n: workflows, agents, conversations,   │
         ▼               ▼                    │   executions                                │
   Experio (Odoo)   MiniMax vision            └─────────────────────────────────────────────┘
-  one database      (split_invoices)         ┌──── Vault (local; a real one in production) ┐
+  one database      (scans, answers)         ┌──── Vault (local; a real one in production) ┐
   per cabinet                                │ secret/tarik/shared                          │
                                              │ secret/tarik/cabinets/<cabinet>              │
                                              └──────────────────────────────────────────────┘
@@ -89,22 +89,23 @@ right every time is decided by n8n or by code:
 - **Which answers count**: a oui / non question takes exactly "oui" or "non", anything else asks it again;
   a tiers question takes only a tiers it proposed (or an ICE that names one of the dossier's tiers); an
   invoice filter is one of the four statuses.
-
-What the agent does decide, from the client's reply and guided by its skills: whether it said oui or
-non (`decision`), which proposed tiers it chose, a clear yes to Tarik's confirmation question
-(`client_confirmed`), the invoices' filter, and copying a model dossier's configuration. An unclear reply
-leaves the decision empty, and the question is asked again.
 - **ICE and IF exactly as written**: a number that lost its leading zeros is restored from the
   client's message.
 - **Who wrote an email**: its From address alone; Reply-To is only where the reply goes, and only when
   it is on the whitelist. A colleague's reply in someone else's thread is their own thread, with their
   own rights.
-- **Who may work on a dossier by email**: the sender must be an Experio collaborator with that dossier.
+- **Who may work on a dossier by email**: the sender must be a collaborator of the cabinet, or one of Experio's
+  own staff, with that dossier assigned.
 - **Who may receive an email**: the cabinet's whitelist (`MAIL_ALLOWED_RECIPIENTS`).
 - **Amounts**: compared as numbers (100.5 and 1005 differ), the model's own figures read as numbers or
   asked again, never guessed.
 - **What never reaches the agent**: settings, secrets, the database name and Experio's own error text
   (a test calls every tool with marker values to check it).
+
+What the agent does decide, from the client's reply and guided by its skills: whether it said oui or
+non (`decision`), which proposed tiers it chose, a clear yes to Tarik's confirmation question
+(`client_confirmed`), the invoices' filter, and copying a model dossier's configuration. An unclear reply
+leaves the decision empty, and the question is asked again.
 
 ## The agents and their skills
 
@@ -121,6 +122,6 @@ description naming a tool the agents do not have.
 | `mcp/` | The Python tools (`tarik/core`, `invoices`, `dossiers`, `emails`), `server.py`, `watcher.py`, tests. |
 | `workflows/` | Workflow builders (`build_tarik_*.py`) and their JSON, the agent template, its skills, the agents' build script. |
 | `n8n/` | The patched n8n image. |
-| `vault/` | Vault's config, setup and migration scripts (`vault/.local/`: keys, never in git). |
+| `vault/` | Vault's config, start and setup scripts (`vault/.local/`: keys, never in git). |
 | `.env` | What the services need to start; everything else is in Vault. |
 | `README.md` | Setup, deployment and maintenance. |

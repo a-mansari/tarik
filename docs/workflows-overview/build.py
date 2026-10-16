@@ -1,7 +1,7 @@
 """Build the Tarik workflows overview for the project team: index.html (from overview.html, written by hand) and
 one page per workflow (emails, traitement, dossier, modification .html), each with its map drawn from
 workflows/tarik-*.json (n8n's node positions, workflows/layout.json) and every node explained below. Then, with
-Google Chrome installed, a PDF of each page and tarik-workflows.pdf, all of them in one.
+Google Chrome or Chromium installed, a PDF of each page, and with pdfunite tarik-workflows.pdf, all of them in one.
 
 Run on the host after a workflow changes: python3 docs/workflows-overview/build.py
 It fails when a node has no explanation here: add one to its page below."""

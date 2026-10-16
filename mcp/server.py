@@ -1,8 +1,8 @@
 """Tarik's Experio tools, served over MCP for the n8n workflows and agents. Importing each module
 registers its tools on tarik.core.app.server.
 
-Each cabinet has its own address, /c/<cabinet>/mcp (<cabinet>: one of TARIK_CABINETS), and every
-call runs for the cabinet of its address only. There is no address without a cabinet. Stateless
+Each cabinet has its own address, /c/<cabinet>/mcp (<cabinet>: one of Vault's secret/tarik/cabinets/<cabinet>),
+and every call runs for the cabinet of its address only. There is no address without a cabinet. Stateless
 HTTP: no session outlives its request, so none can carry one cabinet's call into another's.
 
 Calls wait their turn: at most TARIK_CALLS_PER_CABINET at once for one cabinet (default 10), so a

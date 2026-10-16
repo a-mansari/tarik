@@ -39,6 +39,6 @@ TIERS_MIN_SIMILARITY: Final = 0.8
 SIMILAR_NAME: Final = 0.9  # a new dossier's name this close to another one's is asked about first
 
 # Documents.
-MAX_PAGES: Final = 3  # as tarik-master: the first pages carry every field checked
+MAX_PAGES: Final = 3  # the first pages carry every field checked
 SCALE: Final = 150 / 72  # pages rendered at 150 dpi for the model
 ENTRY_FILES: Final = (".csv", ".txt", ".xlsx", ".xlsm")  # FEC and grand livre files, as import_entries reads them

@@ -1,9 +1,8 @@
-"""Phase 6: the invoice's tiers (supplier for a purchase, customer for a sale).
+"""The invoice's tiers (supplier for a purchase, customer for a sale).
 
-tarik-master runs a 5-tool agent for this. Experio already does most of it: when
-Bluejay reads a draft, orion.wizard.get_partner_data finds the tiers by ICE then IF,
+Experio does most of it: when Bluejay reads a draft, orion.wizard.get_partner_data finds the tiers by ICE then IF,
 creates it from the national registry when the dossier lacks it, and links it. And
-its own wizard assigns the Compte Tiers. So this phase only links the right detected
+its own wizard assigns the Compte Tiers. So this step only links the right detected
 party and has Experio assign its Compte Tiers.
 """
 
@@ -132,7 +131,7 @@ def link_tiers(invoice_id: int) -> dict:
     """Give a draft invoice its tiers -- the supplier of a purchase, the customer
     of a sale -- as Experio detected it from the scan, and make sure that tiers has
     its Compte Tiers (needed to post). Call it after classify_invoice. When no tiers
-    was detected, the question suggests close names; the client's answer goes to set_tiers_by_name."""
+    was detected, the question suggests close names; the client's answer goes to choose_tiers (answer_pending)."""
     invoice = draft_invoice(invoice_id)
     kind = side_of(invoice)
     role = SIDE[kind]["role"]

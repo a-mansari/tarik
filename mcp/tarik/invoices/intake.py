@@ -1,4 +1,4 @@
-"""Phase 2: what the client sent becomes an invoice draft or a bank statement in Experio."""
+"""What the client sent becomes an invoice draft or a bank statement in Experio."""
 
 import base64
 import io
@@ -69,7 +69,6 @@ def identify_document(file_id: int) -> dict:
     return ok(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
 
 
-# tarik-master/tarik/agents/pages.py, verbatim.
 PAGES_PROMPT = """You are given the pages of one scanned PDF, in order, from a Moroccan
 accounting cabinet. It may hold several invoices. Say on which pages a NEW
 invoice begins.
@@ -137,8 +136,8 @@ def save_parts(db, session_id, name, file_id, documents):
 @server.tool()
 @with_ids
 def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "") -> dict:
-    """Call it first for every file the client sends: a PDF may hold several
-    invoices. Returns the file number of each invoice found (the same file
+    """Call it for every file identify_document found to be an invoice: a PDF
+    may hold several invoices. Returns the file number of each invoice found (the same file
     when it holds only one); create one draft per number returned.
     ``invoice_type``: achat, vente or mixte, only as the client wrote it in this
     conversation; otherwise the client is asked first and nothing is made."""

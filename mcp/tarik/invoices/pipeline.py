@@ -261,9 +261,9 @@ def answer_pending(session_id: str, answer: str, decision: str = "") -> dict:
     """Apply the client's answer (their own words) to what this conversation waits on: an invoice's question
     (tiers, account, TVA, withholding, prepaid, exercice) or a statement's bank account. ``decision`` is what
     the agent read in that answer: "oui" or "non" for a oui / non question, the id of the tiers chosen among
-    those proposed, else empty. ``next_step`` says where the sequence resumes; with nothing waiting, the
-    drafts Experio hadn't read yet are resumed. The email's sender must have the dossier, as for any work on
-    it."""
+    those proposed (or the other name or ICE given) for a tiers question, else empty. ``next_step`` says where
+    the sequence resumes; with nothing waiting, the drafts Experio hadn't read yet are resumed. The email's
+    sender must have the dossier, as for any work on it."""
     answer = own_words(answer)
     waiting = waiting_on(session_id)
     if not waiting:

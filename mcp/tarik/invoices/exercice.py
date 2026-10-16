@@ -1,10 +1,9 @@
-"""Phase 13: the fiscal year (exercice) the invoice is booked in.
+"""The fiscal year (exercice) the invoice is booked in.
 
 Experio links the invoice to the exercice covering its date itself (exercice_id is computed
 from invoice_date), books a late invoice with its own action_activate_old_invoice, and opens
 an exercice through action_open after checking its rules (follows the previous one, at most
-12 months, no overlap). tarik-master created exercices straight in the "open" state, past
-those checks. Left here: relinking when the exercice came after the invoice, and the
+12 months, no overlap). Left here: relinking when the exercice came after the invoice, and the
 question when no open exercice covers the date -- late invoice in an open one, or a new one.
 """
 
@@ -32,7 +31,7 @@ NEW = ("nouveau", "nouvel", "nouvelle", "creer", "cree", "creez", "new")  # a ne
 
 def exercice_choice(answer, opens):
     """What the client chose: ("old", exercice) to book it late in an open exercice, ("new", None)
-    for a new exercice, or None when unclear (tarik-master asked a model; a year or a name is enough)."""
+    for a new exercice, or None when unclear (a year or a name is enough)."""
     text = normalized(answer)
     named = [e for e in opens if normalized(e["name"]) in text]
     years = set(re.findall(r"\b(?:19|20)\d\d\b", text))  # a year 1900-2099 as a whole word
@@ -70,7 +69,7 @@ def open_exercice(company_id, year):
 
 
 def asked(invoice, opens):
-    """tarik-master's question, word for word: book ``invoice`` late in one of ``opens``, or a new exercice."""
+    """The question: book ``invoice`` late in one of ``opens``, or a new exercice."""
     names = [e["name"] for e in opens]
     return (
         f"Elle est datee du {invoice['invoice_date']}, en dehors des exercices ouverts ({', '.join(names)}). "

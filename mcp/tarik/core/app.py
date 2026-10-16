@@ -1,4 +1,4 @@
-"""The MCP server every phase module registers its tools on, what its step tools return, and the log."""
+"""The MCP server every tool module registers its tools on, what its step tools return, and the log."""
 
 import functools
 import inspect

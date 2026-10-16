@@ -8,7 +8,7 @@ from tests.fakes import flag
 
 
 @pytest.mark.functionality
-def test_dates_follow_the_invoice_language():  # decided in code (tarik-master ocr.py)
+def test_dates_follow_the_invoice_language():  # decided in code, not by the model
     assert resolve_date("07/08/2025", "fr") == "2025-08-07"
     assert resolve_date("07/08/2025", "en") == "2025-07-08"
     assert resolve_date("LE : 03.09.26", "fr") == "2026-09-03"
@@ -43,7 +43,7 @@ def test_the_report_keeps_real_differences_only():
         {"readable": True, "extracted": {"invoice_date_raw": "07/08/2025", "invoice_date_language": "fr"}}, stored
     )
     assert same["bad_fields"] == []
-    with pytest.raises(ValueError):  # no language: refused, as ocr.py's schema does
+    with pytest.raises(ValueError):  # no language: refused, the check's prompt requires one
         resolve_report({"readable": True, "extracted": {}}, stored)
 
 

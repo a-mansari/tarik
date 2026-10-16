@@ -1,4 +1,4 @@
-"""Phase 1: finding the client's dossier."""
+"""Finding the client's dossier."""
 
 from tarik.core import text
 from tarik.core.app import log, server

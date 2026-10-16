@@ -1,7 +1,7 @@
-"""Phase 12: charges (or produits) constatees d'avance -- a billed period over several months.
+"""Charges (or produits) constatees d'avance -- a billed period over several months.
 
 Bluejay doesn't detect the period; check_invoice reads it on the scan. When it spans several
-months, tarik-master asks the client whether to spread the charge. Experio does the rest:
+months, the client is asked whether to spread the charge. Experio does the rest:
 ticking it in the form fills and validates the period, and posting generates the spreading
 entries with the dossier's prepaid account and journal.
 """
@@ -22,7 +22,7 @@ from tarik.invoices.check import stored_check
 
 def prepaid_period(start, end):
     """The billed period from ``start`` to ``end`` (YYYY-MM-DD) as Experio's prepaid fields, when it spans several
-    months (tarik-master odoo.prepaid_period), else None."""
+    months, else None."""
     if not (start and end and len(start) == len(end) == 10 and start < end):
         return None
     months = (int(end[:4]) - int(start[:4])) * 12 + int(end[5:7]) - int(start[5:7]) + 1

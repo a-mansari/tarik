@@ -10,7 +10,8 @@ create table if not exists tarik_files (
     data bytea not null,
     invoice_id integer, -- the draft invoice made from it: a second call must not make another
     parent_id integer references tarik_files (id), -- set on each invoice cut out of a multi-invoice PDF
-    kind text check (kind in ('invoice', 'statement', 'entries')), -- identify_document, before anything is created; entries: import_entries took it (imported or refused)
+    -- identify_document, before anything is created; entries: import_entries took it (imported or refused)
+    kind text check (kind in ('invoice', 'statement', 'entries')),
     statement_id integer, -- the bank statement imported from it: a second call must not import it again
     created_at timestamptz not null default now()
 );
@@ -35,7 +36,7 @@ create table if not exists tarik_classifications (
     classified_at timestamptz not null default now()
 );
 
--- Each step outcome of each processing run (n8n "Tarik - Traitement"), and the questions waiting for the client.
+-- Each step outcome of each processing run (n8n "Tarik - Traitement").
 create table if not exists tarik_results (
     id serial primary key,
     run_id text not null,
@@ -55,6 +56,7 @@ create table if not exists tarik_setups (
     session_id text not null,
     created_at timestamptz not null default now()
 );
+-- The questions waiting for the client, one per invoice.
 create table if not exists tarik_pending (
     invoice_id integer primary key,
     session_id text not null,
@@ -98,7 +100,7 @@ create table if not exists tarik_mail_messages (
     subject text not null,
     body text not null, -- the client's own text, quoted history removed
     references_ids text not null default '', -- its References, for the reply's
-    handled boolean not null default false, -- answered by Tarik
+    handled boolean not null default false, -- answered by Tarik, or refused (never to be answered)
     received_at timestamptz not null default now()
 );
 -- Where the sender asked for replies (Reply-To): used only when it is on the whitelist, never as who wrote.

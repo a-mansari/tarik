@@ -1,7 +1,6 @@
 # sarnec-n8n
 
-Tarik, Experio's accounting assistant, rebuilt on n8n from the LangGraph version in
-`tarik-master`, to compare speed, maintenance, scaling and adaptability.
+Tarik, Experio's accounting assistant, built on n8n.
 
 A client writes to Tarik (each cabinet's own n8n agent, by chat or by email) and sends invoices
 or bank statements, or asks for a new dossier with its FEC. Tarik finds the dossier,
@@ -21,17 +20,17 @@ Documentation: [architecture](docs/architecture.md), [tools and workflows](docs/
 | `workflows/tarik-emails.json` | Every cabinet's mailbox, woken per cabinet by `tarik-mail-watch`: each email thread is answered by that cabinet's agent (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own conversation). |
 | `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
 | `workflows/tarik-modification.json` | Changing an existing dossier's identity fields (name, type, ICE, IF, RC, patente, T.S.C, capital, CNSS, address), only to values the client wrote. |
-| `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent (`traiter_fichiers`, mode `files`; the workflow also has `answer` and `resume`). |
+| `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent (`traiter_fichiers`, mode `files`; `repondre`, mode `answer`) and by "Tarik - Emails" (mode `resume`). |
 | `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), in the `tarik` package (see below). They use Experio's own wizards and onchanges, never a parallel logic. |
 | `n8n/` | n8n 2.43.5 patched (`patch.js`): an agent's workflow tool may run `TARIK_AGENT_TOOL_TIMEOUT_MS` (5 minutes, not n8n's fixed 2); a native agent's workflow tool input fixed to `{{threadId}}` gets the conversation's id, one fixed to `{{attachments}}` its attached files, and one fixed to `{{clientMessage}}` the client's latest message word for word (the dossier tools take only values from the client's own words), from n8n, not from the model. "Tarik - Traitement" and "Tarik - Dossier" save those files (`save_files`, once each by `source_id`). n8n's MCP `call_agent` also takes `newSession`, so an email thread's conversation has the thread's own id. The build fails if an n8n upgrade moves a patched line. |
-| `mcp/tarik/core/cabinet.sql` | One cabinet's tables (received files, check results, step results, pending questions, mail), created in that cabinet's own Postgres schema. |
+| `mcp/tarik/core/cabinet.sql` | One cabinet's tables (received files, check results, step results, pending questions, dossiers left waiting, mail, the client's messages), created in that cabinet's own Postgres schema. |
 
 Rules the tools keep:
 
 - Odoo, its URL, database and user are never shown to the agent or the client: it is "Experio".
 - Every dossier tool needs a real dossier id and fails without one. Each cabinet is locked
-  by its exact database name and Tarik's user id there (`<CABINET>__ODOO_UID`).
-- `<CABINET>__DRY_RUN=1` (default): drafts and bank statements are created, but nothing else is written and nothing is posted.
+  by its exact database name and Tarik's user id there (its `ODOO_UID`).
+- A cabinet's `DRY_RUN=1` (default): drafts and bank statements are created, but nothing else is written and nothing is posted.
   Replies then start with "MODE TEST".
 
 ## Cabinets
@@ -52,8 +51,8 @@ Experio database (`experio_cabinet_8`): its Vault path, `secret/tarik/cabinets/<
   is ever shown to the agent.
 - **its data**: a Postgres schema of the same name. A tool's connection only sees that schema.
 
-Workflows and agents pass the cabinet as a fixed value, never chosen by a model: "Tarik - Traitement"
-and "Tarik - Dossier" take it as their `cabinet` input; each cabinet's native agent has its own
+Workflows and agents pass the cabinet as a fixed value, never chosen by a model: "Tarik - Traitement",
+"Tarik - Dossier" and "Tarik - Modification" take it as their `cabinet` input; each cabinet's native agent has its own
 MCP address and its own fixed `cabinet` tool input.
 
 Each cabinet has its own Tarik mailbox (its `IMAP_USER`, `IMAP_PASSWORD`, `SMTP_*` in Vault).
@@ -182,7 +181,7 @@ docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault
    docker compose exec n8n n8n import:credentials --input=/tmp/credentials.json
    ```
 
-4. Deploy the three workflows (see below).
+4. Deploy the workflows (see below).
 5. Turn on n8n's MCP server (Settings > n8n MCP), put its token in Vault (`N8N_MCP_API_TOKEN` in
    `secret/tarik/shared`), and create each cabinet's agent (see Cabinets). Its chat is in the Agents section.
 
@@ -220,13 +219,13 @@ The tools live in `mcp/tarik/`, one package per kind of work, and their tests in
 
 | Package | What it holds |
 |---------|---------------|
-| `tarik/core/` | The values shared by every module: services, timeouts, Experio's codes, thresholds (`config`), the MCP server, step results and the log (`app`), comparing names and words (`text`), the cabinets and the current one (`cabinets`), Experio calls, guards and test mode (`experio`), the client's own words in a conversation (`conversation`), the vision model, documents, the connection check. |
+| `tarik/core/` | The values shared by every module: services, timeouts, Experio's codes, thresholds (`config`), the MCP server, step results and the log (`app`), comparing names and words (`text`), the cabinets and the current one (`cabinets`), Experio calls, guards and test mode (`experio`), the client's own words in a conversation (`conversation`), numbers as clients write them (`numbers`), the settings in Vault (`vault`), the vision model, documents, the connection check. |
 | `tarik/invoices/` | "Tarik - Traitement": one module per step, in sequence order, `pipeline` for its bookkeeping, `listing` for `list_invoices`. |
 | `tarik/dossiers/` | Finding dossiers (`search`), creating and modifying one (`identity`), its setup: configuration, entries, onboarding (`setup`), collaborators and who may work on which dossier (`people`). |
 | `tarik/emails/` | "Tarik - Emails": reading the mailbox (`inbox`), the agent's reply (`agent`), sending replies (`sending`). |
 
 `mcp/server.py` and `mcp/watcher.py` are the two entry points (the MCP server, the IMAP
-IDLE watcher of one cabinet's mailbox: `python watcher.py <cabinet>`). Edit a module, run the tests that
+IDLE watcher of every cabinet's mailbox: `python watcher.py`). Edit a module, run the tests that
 cover what you changed (in a throwaway container on your working copy), then rebuild the containers:
 
 ```bash

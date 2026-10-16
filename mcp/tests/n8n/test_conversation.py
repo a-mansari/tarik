@@ -3,7 +3,7 @@ agent with the real model. No file is sent, so the processing finds nothing to d
 
 Needs n8n's MCP token (tests/n8n/conftest.py) and the agent of TARIK_TEST_CABINET (default
 experio_cabinet_8), its AGENT_ID in Vault. Slow (about a minute a conversation) and costs model calls.
-Run: docker compose exec -T tarik-mcp python -m pytest tests/n8n/test_conversation.py"""
+Run: docker compose exec -T tarik-mcp python -m pytest -m live tests/n8n/test_conversation.py"""
 
 import json
 import os

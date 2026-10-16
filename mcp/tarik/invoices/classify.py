@@ -1,4 +1,4 @@
-"""Phase 5: purchase, sale, or not an invoice at all (tarik-master agents/classify.py)."""
+"""Purchase, sale, or not an invoice at all."""
 
 import re
 
@@ -20,7 +20,6 @@ from tarik.core.experio import (
 from tarik.core.model import ask_model
 from tarik.core.text import normalized
 
-# tarik-master/tarik/agents/classify.py, verbatim.
 CLASSIFY_PROMPT = """You look at a scanned document from a Moroccan accounting cabinet
 and decide what it is, before anything else is done with it.
 
