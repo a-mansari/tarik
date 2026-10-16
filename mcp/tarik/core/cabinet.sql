@@ -75,7 +75,7 @@ create table if not exists tarik_mail_threads (
     session_id text not null unique, -- the conversation's session: memory, files and questions
     client_address text not null,
     subject text not null,
-    state text not null default 'new' check (state in ('new', 'in_progress', 'waiting', 'follow_up', 'done', 'ignored', 'error')),
+    state text not null default 'new', -- one of tarik_mail_threads_state_check's, below
     reason text, -- why it is ignored or in error
     attempts integer not null default 0, -- runs that did not finish: after 3 the thread is set aside in error
     claimed_at timestamptz, -- a run working on it: another one leaves it alone for 30 minutes
@@ -86,6 +86,7 @@ create table if not exists tarik_mail_threads (
 alter table tarik_mail_threads add column if not exists follow_up_until timestamptz;
 -- When Tarik told the client their new thread was received (acknowledge_thread): once per thread.
 alter table tarik_mail_threads add column if not exists acknowledged_at timestamptz;
+-- The states a thread may be in: dropped and added again at each start, so a new state applies to old schemas too.
 alter table tarik_mail_threads drop constraint if exists tarik_mail_threads_state_check;
 alter table tarik_mail_threads add constraint tarik_mail_threads_state_check
     check (state in ('new', 'in_progress', 'waiting', 'follow_up', 'done', 'ignored', 'error'));
