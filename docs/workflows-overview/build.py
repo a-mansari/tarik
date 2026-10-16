@@ -230,6 +230,19 @@ def load(name):
     return json.loads((REPO / "workflows" / f"tarik-{name}.json").read_text())
 
 
+def ending(recorded, summary):
+    """A run's last rows: Enregistrer (``recorded``), then, once every step has ended, Résumé (``summary``)."""
+    return [
+        ("Enregistrer", recorded),
+        (
+            "Fin des etapes",
+            "Waits for every step to end (its second input, from Jamais execute, never comes), then lets Résumé run.",
+        ),
+        ("Jamais execute", "Never runs: it only keeps Fin des etapes waiting until the end."),
+        ("Résumé", f"After Fin des etapes: {summary}"),
+    ]
+
+
 PATTERN_ROWS = [
     (
         "Suite apres <step>",
@@ -488,18 +501,9 @@ PAGES["traitement"] = page(
             "Recording and answering",
             "",
             [
-                (
-                    "Enregistrer",
+                *ending(
                     "Records every step's outcome for every invoice. A question becomes the invoice's pending question, which the client's answer settles.",
-                ),
-                (
-                    "Fin des etapes",
-                    "Waits for every step to end (its second input, from Jamais execute, never comes), then lets Résumé run.",
-                ),
-                ("Jamais execute", "Never runs: it only keeps Fin des etapes waiting until the end."),
-                (
-                    "Résumé",
-                    "After Fin des etapes: the run's summary, invoice by invoice and step by step. It is the workflow's answer, which the agent copies.",
+                    "the run's summary, invoice by invoice and step by step. It is the workflow's answer, which the agent copies.",
                 ),
             ],
         ),
@@ -617,13 +621,7 @@ PAGES["dossier"] = page(
             "Recording and answering",
             "",
             [
-                ("Enregistrer", "Records every step's outcome."),
-                (
-                    "Fin des etapes",
-                    "Waits for every step to end (its second input, from Jamais execute, never comes), then lets Résumé run.",
-                ),
-                ("Jamais execute", "Never runs: it only keeps Fin des etapes waiting until the end."),
-                ("Résumé", "After Fin des etapes: the run's summary, which the agent copies."),
+                *ending("Records every step's outcome.", "the run's summary, which the agent copies."),
             ],
         ),
     ],
@@ -657,13 +655,7 @@ PAGES["modification"] = page(
                     "Modification (update_dossier)",
                     "Changes only the fields given, as the client file's Experio form does, and only to values the client wrote in this conversation. An ICE, IF or name another file already has is refused. A new ICE or IF is checked against the official register; skipping that check needs the client's confirmation first.",
                 ),
-                ("Enregistrer", "Records the outcome."),
-                (
-                    "Fin des etapes",
-                    "Waits for every step to end (its second input, from Jamais execute, never comes), then lets Résumé run.",
-                ),
-                ("Jamais execute", "Never runs: it only keeps Fin des etapes waiting until the end."),
-                ("Résumé", "After Fin des etapes: the summary, which the agent copies."),
+                *ending("Records the outcome.", "the summary, which the agent copies."),
             ],
         ),
     ],
