@@ -82,11 +82,6 @@ def joined(text, separators=" .  "):
     return re.sub(rf"(?<=\d)[{separators}](?=\d)", "", text or "")  # one separator between two digits
 
 
-def digits(text):
-    """The numbers in a text, their spaces, dots and commas between digits removed (100 000 -> 100000)."""
-    return re.findall(r"\d+", joined(text, " .,  "))  # each run of digits
-
-
 def as_written(value, written, current=None):
     """An ICE or IF as the client wrote it (``written``: the numbers found in their messages). The
     model may send it as a number, which loses its leading zeros, or leave it out: the client's own
@@ -123,7 +118,8 @@ def client_wrote(key, value, words):
         return any(abs(amount - written) < 0.005 for written in written_numbers(words))
     if key in IDENTIFIERS:
         number = re.sub(r"\.0+$", "", str(value)).replace(" ", "")  # a trailing ".0" a float left
-        found = LABELLED[key].findall(joined(words)) if key in LABELLED else digits(words)
+        # Else every number in the text, the spaces, dots and commas between its digits removed (100 000 -> 100000).
+        found = LABELLED[key].findall(joined(words)) if key in LABELLED else re.findall(r"\d+", joined(words, " .,  "))
         return number.isdigit() and number in found
     if key == "folder_type":
         return any(said(word, normalized(words)) for word in TYPE_WORDS.get(value, ()))

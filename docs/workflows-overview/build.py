@@ -184,13 +184,10 @@ def svg_map(workflow):
     )
 
 
-def steps(rows, chain=False):
-    items = "".join(f'<div class="step"><code>{html.escape(name)}</code><p>{text}</p></div>' for name, text in rows)
-    return f'<div class="steps{" chain" if chain else ""}">{items}</div>'
-
-
 def phase(title, intro, rows, chain=False):
-    return f'<section class="phase"><h2>{title}</h2>{f"<p>{intro}</p>" if intro else ""}{steps(rows, chain)}</section>'
+    items = "".join(f'<div class="step"><code>{html.escape(name)}</code><p>{text}</p></div>' for name, text in rows)
+    steps = f'<div class="steps{" chain" if chain else ""}">{items}</div>'
+    return f'<section class="phase"><h2>{title}</h2>{f"<p>{intro}</p>" if intro else ""}{steps}</section>'
 
 
 def page(slug, title, lede, facts, sections, workflow):

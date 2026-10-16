@@ -47,14 +47,6 @@ def _non_recoverable(invoice, answer):
     return None, ({"amount_tax_non_recoverable": True, "multi_tva": False} if told else {})
 
 
-def _prorata(invoice, changes, notes):
-    """Add the cabinet's TVA prorata to ``changes`` and ``notes`` when its dossier uses one."""
-    company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["use_prorata", "prorata_rate"])[0]
-    if company["use_prorata"]:
-        changes["tax_prorata"] = True  # Experio's onchange applies the cabinet's rate
-        notes.append(f"prorata de TVA {company['prorata_rate']} %")
-
-
 def _tax_lines(invoice_id, context):
     """The invoice's TVA lines once Experio rebuilt them, as "<HT> HT a <rate> % (<tax>)" for each untaxed line."""
     line_ids = odoo_call("exp.invoice", "read", [invoice_id], fields=["tva_line_ids"], context=context)[0][
@@ -108,7 +100,11 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
     non_recoverable = invoice["amount_tax_non_recoverable"] or changes.get("amount_tax_non_recoverable")
     with refused(f"settle_tva {invoice_id}", f"Facture {invoice_id} : Experio a refuse la mise a jour de la TVA."):
         if purchase and not non_recoverable and invoice["amount_tva"] and not invoice["tax_prorata"]:
-            _prorata(invoice, changes, notes)
+            fields = ["use_prorata", "prorata_rate"]
+            company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=fields)[0]
+            if company["use_prorata"]:  # the dossier uses a TVA prorata
+                changes["tax_prorata"] = True  # Experio's onchange applies the cabinet's rate
+                notes.append(f"prorata de TVA {company['prorata_rate']} %")
         if changes:
             fill_invoice(invoice_id, changes, context)
             if changes.get("amount_tax_non_recoverable"):

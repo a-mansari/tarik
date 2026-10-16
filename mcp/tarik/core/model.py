@@ -11,21 +11,15 @@ from tarik.core.config import MODEL_TIMEOUT
 from tarik.core.experio import HTTP
 
 
-def image(page):
-    """One page (PNG bytes) as a message's image block."""
-    return {
-        "type": "image",
-        "source": {"type": "base64", "media_type": "image/png", "data": base64.b64encode(page).decode()},
-    }
-
-
 def ask_model(system, pages, instruction, what):
     """MiniMax-M3's JSON answer (dict) to ``instruction`` about ``pages`` (PNG bytes, in order, maybe none).
     ``what`` names the step in the log and in the agent's ToolError when it fails."""
     url, key, model = (setting(name, "") for name in ("MODEL_API_URL", "MODEL_API_KEY", "MODEL_API_NAME"))
     if not (url and key and model):
         raise ToolError(f"{what} : le modele n'est pas encore configure.")
-    content = [*map(image, pages), {"type": "text", "text": instruction}]
+    png = [{"type": "base64", "media_type": "image/png", "data": base64.b64encode(page).decode()} for page in pages]
+    images = [{"type": "image", "source": source} for source in png]
+    content = [*images, {"type": "text", "text": instruction}]
     try:
         answer = HTTP.post(
             f"{url.rstrip('/')}/v1/messages",  # the Anthropic path and header MiniMax imitates

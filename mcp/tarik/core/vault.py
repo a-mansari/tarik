@@ -34,17 +34,13 @@ def _request(method, path, token="", **kwargs):
     return answer.json()
 
 
-def _login():
-    """Log in with the AppRole's ids; the token is kept, renewed once 80% of its lease has passed."""
-    ids = {name: Path(APPROLE, name).read_text().strip() for name in ("role_id", "secret_id")}
-    auth = _request("POST", "/v1/auth/approle/login", json=ids)["auth"]
-    _state.update(token=auth["client_token"], token_until=time.monotonic() + 0.8 * auth["lease_duration"])
-
-
 def _read(method, path):
     """Vault's answer to ``method`` on ``path`` (as _request), logged in first when the token is missing or old."""
-    if not _state["token"] or time.monotonic() > _state["token_until"]:
-        _login()
+    if not _state["token"] or time.monotonic() > _state["token_until"]:  # logged in with the AppRole's ids
+        ids = {name: Path(APPROLE, name).read_text().strip() for name in ("role_id", "secret_id")}
+        auth = _request("POST", "/v1/auth/approle/login", json=ids)["auth"]
+        # The token is kept, renewed once 80% of its lease has passed.
+        _state.update(token=auth["client_token"], token_until=time.monotonic() + 0.8 * auth["lease_duration"])
     return _request(method, path, _state["token"])
 
 

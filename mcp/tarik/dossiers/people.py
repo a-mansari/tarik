@@ -21,14 +21,6 @@ LEVELS = {"none": "aucune", "user": "utilisateur", "approver": "approbateur", "a
 USER_FIELDS = ["name", "login", "employee_state", "exp_profile_id", "is_super_manager", "company_ids"]
 
 
-def management_levels(profile_ids):
-    """{profile id: management level ("none", "user"...)} of the profiles ``profile_ids`` (set of int)."""
-    if not profile_ids:
-        return {}
-    profiles = odoo_call("exp.user.profile", "read", sorted(profile_ids), fields=["management_group"])
-    return {profile["id"]: profile["management_group"] or "none" for profile in profiles}
-
-
 def collaborator_line(user, levels, manager):
     """One line on ``user`` (res.users, USER_FIELDS): role, manager or not (``manager``), dossiers, account state.
     ``levels`` is management_levels() of the users' profiles."""
@@ -50,7 +42,9 @@ def list_collaborators() -> str:
         users = odoo_call(
             "res.users", "search_read", [("employee_type", "=", "employee")], order="name", fields=USER_FIELDS
         )
-        levels = management_levels({user["exp_profile_id"][0] for user in users if user["exp_profile_id"]})
+        profile_ids = sorted({user["exp_profile_id"][0] for user in users if user["exp_profile_id"]})
+        profiles = profile_ids and odoo_call("exp.user.profile", "read", profile_ids, fields=["management_group"])
+        levels = {profile["id"]: profile["management_group"] or "none" for profile in profiles}  # "none", "user"...
         managers = {user["id"]: odoo_call("res.users", "user_is_manager", [user["id"]]) for user in users}
     lines = [collaborator_line(user, levels, managers[user["id"]]) for user in users]
     return f"{len(users)} collaborateur(s) :\n" + "\n".join(lines)
