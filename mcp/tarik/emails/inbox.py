@@ -332,8 +332,8 @@ def store_new(box, db, last):
     uids = [int(uid) for uid in box.uid("search", None, f"UID {last + 1}:*")[1][0].split()]
     alerts = []
     for uid in sorted(u for u in uids if u > last):  # "n:*" also returns the last email when there's nothing new
-        raw = fetched(box, uid)
         try:
+            raw = fetched(box, uid)
             with db.transaction():  # a failed email leaves nothing half-written
                 alert = store(db, uid, message_from_bytes(raw, policy=policy.default)) if raw else None
         except (UnreadableEmail, psycopg.DataError) as error:  # this email can't be stored: never tried again

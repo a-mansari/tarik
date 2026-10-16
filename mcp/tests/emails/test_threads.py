@@ -253,3 +253,24 @@ def test_a_new_thread_is_acknowledged_once_and_a_reply_in_it_is_not(mailbox, mon
         db.execute("update tarik_mail_threads set acknowledged_at = null")  # a thread from before acknowledgements
         inbox.claim(db)
     assert not inbox.acknowledge_thread("<m1@x>")["sent"] and len(sent) == 1  # Tarik already answered in it
+
+
+class CutBox(Box):
+    """The mailbox over IMAP, its connection lost while email 2 is fetched."""
+
+    def uid(self, command, *args):
+        if command == "fetch" and args[0] == "2":
+            raise ConnectionResetError("connection lost")
+        return super().uid(command, *args)
+
+
+@pytest.mark.functionality
+def test_a_refused_sender_is_still_told_when_the_connection_drops_after(mailbox, monkeypatch):
+    alert = {"sender": "x@gmail.com", "subject": "s", "reason": "r"}
+    monkeypatch.setattr(inbox, "connect", CutBox)
+    monkeypatch.setattr(inbox, "store", lambda db, uid, message: alert)
+    with cabinet_db() as db:
+        db.execute("insert into tarik_mail_state (folder, uidvalidity, last_uid) values ('INBOX', 7, 0)")
+    assert inbox.read_mailbox() == [alert]  # email 1's, read before the cut
+    with cabinet_db() as db:
+        assert db.execute("select last_uid from tarik_mail_state").fetchone() == (1,)  # email 2 waits for next time
