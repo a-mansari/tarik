@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Tarik - Emails</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one ledger sheet — header, a flow strip, a 2×2 grid of workflow cards, then a two-column footer of rules and limits. */
+:root {
+  --paper: #f5f7f6;
+  --sheet: #ffffff;
+  --ink: #17262a;
+  --muted: #56676b;
+  --rule: #d5dedc;
+  --accent: #1d6274;
+  --accent-soft: #e3eff2;
+  --warn: #8a5a12;
+  --warn-soft: #fbf1df;
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1719; --sheet: #162124; --ink: #e3ecec; --muted: #9db0b3; --rule: #2b3b3f;
+    --accent: #7cc3d6; --accent-soft: #1b3239; --warn: #e8b968; --warn-soft: #2e2617; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1719; --sheet: #162124; --ink: #e3ecec; --muted: #9db0b3; --rule: #2b3b3f;
+  --accent: #7cc3d6; --accent-soft: #1b3239; --warn: #e8b968; --warn-soft: #2e2617; color-scheme: dark;
+}
+body { background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+.page { max-width: 1080px; margin: 0 auto; padding: 32px 20px 40px; display: grid; gap: 28px; }
+header { display: grid; gap: 8px; border-bottom: 2px solid var(--ink); padding-bottom: 18px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 4.2vw, 40px); line-height: 1.1; margin: 0; text-wrap: balance; }
+.lede { margin: 0; color: var(--ink); font-size: 16px; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 20px; margin: 0; text-wrap: balance; }
+h3 { font-size: 13px; font-family: var(--mono); font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0; }
+
+/* Flow strip */
+.flow { overflow-x: auto; }
+.flow-inner { display: grid; grid-template-columns: auto 24px auto 24px auto 24px 1fr; align-items: center; gap: 8px; min-width: 760px; }
+.node { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font-size: 14px; }
+.node b { display: block; font-weight: 600; }
+.node span { color: var(--muted); font-size: 13px; }
+.node.agent { border-color: var(--accent); background: var(--accent-soft); }
+.arrow { color: var(--muted); text-align: center; font-family: var(--mono); }
+.targets { display: grid; gap: 6px; }
+.targets .node { padding: 7px 12px; }
+.flow-note { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+
+/* Workflow cards */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 18px 20px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.card header { border: 0; padding: 0; gap: 2px; }
+.card .what { margin: 0; }
+ol { margin: 0; padding-left: 20px; display: grid; gap: 3px; }
+ol li::marker { font-family: var(--mono); color: var(--accent); }
+.note { font-size: 14px; border-left: 3px solid var(--accent); padding: 6px 10px; background: var(--accent-soft); border-radius: 0 4px 4px 0; margin: 0; }
+.more { justify-self: start; font-weight: 600; color: var(--accent); text-decoration: none; border-bottom: 1px solid currentColor; }
+.more:hover, .more:focus-visible { border-bottom-width: 2px; }
+.term { font-family: var(--mono); font-size: 13px; background: var(--accent-soft); padding: 0 4px; border-radius: 3px; }
+
+/* Footer */
+.foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.foot section { display: grid; gap: 10px; align-content: start; min-width: 0; }
+ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.limits { background: var(--warn-soft); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; }
+.limits h2 { color: var(--warn); }
+.stamp { font-family: var(--mono); font-size: 12px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 12px; }
+
+@media (max-width: 760px) {
+  .grid, .foot { grid-template-columns: 1fr; }
+  .page { padding-top: 22px; }
+}
+
+.crumb { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+.crumb a { color: var(--accent); text-decoration: none; }
+.crumb a:hover, .crumb a:focus-visible { text-decoration: underline; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.fact { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.fact b { display: block; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+.map { overflow-x: auto; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; }
+.map svg { display: block; width: 100%; height: auto; }
+.map .edge { fill: none; stroke: var(--rule); stroke-width: 2; }
+.map .box { stroke-width: 2; }
+.map .label { fill: var(--ink); font-family: var(--body); font-size: 20px; }
+.k-trigger { fill: var(--accent-soft); stroke: var(--accent); }
+.k-step { fill: var(--sheet); stroke: var(--accent); }
+.k-decision { fill: var(--warn-soft); stroke: var(--warn); }
+.k-helper { fill: var(--paper); stroke: var(--muted); }
+.k-sub { fill: var(--accent-soft); stroke: var(--ink); }
+.k-record { fill: var(--ink); stroke: var(--ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 14px; border-radius: 4px; border: 2px solid; display: inline-block; }
+.legend .k-trigger { background: var(--accent-soft); border-color: var(--accent); }
+.legend .k-step { background: var(--sheet); border-color: var(--accent); }
+.legend .k-decision { background: var(--warn-soft); border-color: var(--warn); }
+.legend .k-helper { background: var(--paper); border-color: var(--muted); }
+.legend .k-sub { background: var(--accent-soft); border-color: var(--ink); }
+.legend .k-record { background: var(--ink); border-color: var(--ink); }
+.phase { display: grid; gap: 10px; }
+.phase > p { margin: 0; color: var(--muted); }
+.steps { display: grid; gap: 0; border-top: 1px solid var(--rule); }
+.step { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 4px 20px; padding: 10px 0; border-bottom: 1px solid var(--rule); break-inside: avoid; }
+.step code { font-family: var(--mono); font-size: 13px; color: var(--ink); background: var(--accent-soft); padding: 2px 6px; border-radius: 4px; justify-self: start; overflow-wrap: anywhere; }
+.step p { margin: 0; }
+.chain { counter-reset: s; }
+.chain .step code::before { counter-increment: s; content: counter(s) ". "; color: var(--accent); }
+@media screen and (max-width: 760px) {
+  .facts { grid-template-columns: 1fr; }
+  .step { grid-template-columns: 1fr; }
+}
+@page { size: A4 landscape; margin: 12mm; }
+.print-only { display: none; }
+@media print {
+  body { font-size: 12px; background: #fff; }
+  .page { max-width: none; padding: 0; gap: 18px; }
+  .print-only { display: block; }
+  .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .step { grid-template-columns: minmax(0, 300px) minmax(0, 1fr); }
+  .mapwrap { break-before: page; break-inside: avoid; }
+  .map { overflow: visible; }
+  .map svg { min-width: 0 !important; }
+  .phase { break-inside: auto; }
+  .card, .fact, .limits { break-inside: avoid; }
+  a.more { display: none; }
+}
+</style>
+<div class="page">
+  <header>
+    <div class="crumb"><a href="index.html">← Tarik workflows overview</a></div>
+    <h1>Tarik - Emails</h1>
+    <p class="lede">Answers each firm's Tarik mailbox. Woken by the mail watcher whenever an email thread waits for an answer, it hands each thread to the firm's AI agent and sends the reply in the same thread. When work was left waiting, it sends a follow-up email later, without the agent.</p>
+  </header>
+  <div class="facts"><div class="fact"><b>Started by</b>The mail watcher, through a protected webhook, naming the firm.</div><div class="fact"><b>Works on</b>Every email thread of that firm waiting for an answer, one at a time.</div><div class="fact"><b>Ends with</b>A reply or a follow-up in the thread, and the thread's new state.</div></div>
+  <section class="phase mapwrap"><h2>The workflow in n8n</h2>
+    <p>Each box is a node, named exactly as in n8n's editor and placed where it sits there. Lines show where each node leads.</p>
+    <div class="map"><svg viewBox="0 0 2372 1214" style="min-width:1305px" role="img" aria-label="Map of Tarik - Emails as laid out in n8n"><path class="edge" d="M140,532 C212,532 212,532 284,532"/><path class="edge" d="M364,532 C436,532 436,532 508,532"/><path class="edge" d="M588,532 C660,532 660,532 732,532"/><path class="edge" d="M812,532 C884,532 884,356 956,356"/><path class="edge" d="M812,532 C884,532 884,1044 956,1044"/><path class="edge" d="M1036,1044 C1116,1044 1116,852 1196,852"/><path class="edge" d="M1036,1044 C1604,1044 1604,676 2172,676"/><path class="edge" d="M1276,852 C1380,852 1380,676 1484,676"/><path class="edge" d="M1276,852 C1724,852 1724,676 2172,676"/><path class="edge" d="M1564,676 C1868,676 1868,676 2172,676"/><path class="edge" d="M1564,676 C1868,676 1868,676 2172,676"/><path class="edge" d="M1036,356 C1100,356 1100,228 1164,228"/><path class="edge" d="M1036,356 C1604,356 1604,676 2172,676"/><path class="edge" d="M1244,228 C1316,228 1316,116 1388,116"/><path class="edge" d="M1244,228 C1708,228 1708,676 2172,676"/><path class="edge" d="M1468,116 C1548,116 1548,100 1628,100"/><path class="edge" d="M1468,116 C1540,116 1540,276 1612,276"/><path class="edge" d="M1708,100 C1940,100 1940,676 2172,676"/><path class="edge" d="M1708,100 C1940,100 1940,676 2172,676"/><g><title>Nouvel email</title><rect class="box k-trigger" x="60" y="492" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="100" y="598"><tspan x="100" dy="0">Nouvel email</tspan></text></g><g><title>Fils en attente (claim_threads)</title><rect class="box k-step" x="284" y="492" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="324" y="598"><tspan x="324" dy="0">Fils en attente</tspan><tspan x="324" dy="23">(claim_threads)</tspan></text></g><g><title>Un element par fil</title><rect class="box k-helper" x="508" y="492" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="548" y="598"><tspan x="548" dy="0">Un element par fil</tspan></text></g><g><title>Tarik</title><rect class="box k-step" x="956" y="316" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="996" y="422"><tspan x="996" dy="0">Tarik</tspan></text></g><g><title>Reponse (send_email)</title><rect class="box k-step" x="1628" y="60" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="1668" y="166"><tspan x="1668" dy="0">Reponse (send_email)</tspan></text></g><g><title>Fil traite (finish_thread)</title><rect class="box k-step" x="2172" y="636" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="2212" y="742"><tspan x="2212" dy="0">Fil traite</tspan><tspan x="2212" dy="23">(finish_thread)</tspan></text></g><g><title>Suite ?</title><rect class="box k-decision" x="732" y="492" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="772" y="598"><tspan x="772" dy="0">Suite ?</tspan></text></g><g><title>Suite du traitement</title><rect class="box k-sub" x="956" y="1004" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="996" y="1110"><tspan x="996" dy="0">Suite du traitement</tspan></text></g><g><title>Suite de l&#x27;integration</title><rect class="box k-sub" x="1196" y="812" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="1236" y="918"><tspan x="1236" dy="0">Suite de</tspan><tspan x="1236" dy="23">l&#x27;integration</tspan></text></g><g><title>Suite envoyee (send_email)</title><rect class="box k-step" x="1484" y="636" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="1524" y="742"><tspan x="1524" dy="0">Suite envoyee</tspan><tspan x="1524" dy="23">(send_email)</tspan></text></g><g><title>Refus de droits ? (thread_refusal)</title><rect class="box k-step" x="1164" y="188" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="1204" y="294"><tspan x="1204" dy="0">Refus de droits ?</tspan><tspan x="1204" dy="23">(thread_refusal)</tspan></text></g><g><title>Refuse ?</title><rect class="box k-decision" x="1388" y="76" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="1428" y="182"><tspan x="1428" dy="0">Refuse ?</tspan></text></g><g><title>Manager prevenu (notify_manager)</title><rect class="box k-step" x="1612" y="236" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="1652" y="342"><tspan x="1652" dy="0">Manager prevenu</tspan><tspan x="1652" dy="23">(notify_manager)</tspan></text></g></svg></div><div class="legend"><span><i class="k-trigger"></i>Start</span><span><i class="k-step"></i>Tarik tool (one Experio action)</span><span><i class="k-decision"></i>Decision</span><span><i class="k-helper"></i>Sorting (no Experio action)</span><span><i class="k-sub"></i>Runs another workflow</span></div>
+  </section>
+  <section class="phase"><h2>Picking up the threads</h2><div class="steps"><div class="step"><code>Nouvel email</code><p>The webhook the mail watcher calls when a thread waits: a new email arrived, or a follow-up is ready. It only answers calls carrying the shared secret, and it names the firm.</p></div><div class="step"><code>Fils en attente (claim_threads)</code><p>Takes the firm's threads waiting for an answer and locks them for this run, so two runs never answer the same thread.</p></div><div class="step"><code>Un element par fil</code><p>Splits them up: each thread goes through the rest on its own.</p></div><div class="step"><code>Suite ?</code><p>A thread with new emails from the client goes to the agent. A follow-up (nothing new from the client, work left waiting) skips the agent.</p></div></div></section><section class="phase"><h2>Answering with the agent</h2><div class="steps"><div class="step"><code>Tarik</code><p>Asks the firm's AI agent to answer the thread's new emails, in the thread's own conversation, with its attachments. The agent calls Tarik - Traitement, Tarik - Dossier or Tarik - Modification. Waits up to 11 minutes for the answer.</p></div><div class="step"><code>Refus de droits ? (thread_refusal)</code><p>Checks whether the work was refused because the sender is not allowed on that client file.</p></div><div class="step"><code>Refuse ?</code><p>Allowed: the answer is sent. Refused: the sender gets nothing and the firm's manager is told.</p></div><div class="step"><code>Reponse (send_email)</code><p>Sends the agent's answer as a reply in the thread, only to approved addresses.</p></div><div class="step"><code>Manager prevenu (notify_manager)</code><p>Emails the firm's manager that this sender wrote and was refused, at most once a day per sender.</p></div></div></section><section class="phase"><h2>Following up</h2><p>Only for a thread whose work was left waiting: invoices Experio was still reading, or a new client file still onboarding. No agent, and no time limit.</p><div class="steps"><div class="step"><code>Suite du traitement</code><p>Runs Tarik - Traitement in resume mode: the conversation's invoices left waiting are taken up again.</p></div><div class="step"><code>Suite de l&#x27;integration</code><p>Runs Tarik - Dossier in resume mode: the conversation's client files left waiting are finished, and their state is read.</p></div><div class="step"><code>Suite envoyee (send_email)</code><p>Sends both outcomes in one email in the same thread, starting “Suite du traitement de vos documents :”. A part with nothing to do is left out.</p></div></div></section><section class="phase"><h2>Closing the thread</h2><div class="steps"><div class="step"><code>Fil traite (finish_thread)</code><p>Marks the emails answered and sets the thread: done, waiting for the client's answer to a question, or followed up while work waits (30 minutes at most). When something failed (the reply could not be sent, the agent did not answer), the thread is set aside with the reason. Retried 3 times, so a reply is never sent twice.</p></div></div></section>
+  <div class="stamp">State as of 16 October 2026 · node names as in n8n's editor</div>
+</div>
+</body>
+</html>
