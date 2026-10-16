@@ -6,7 +6,8 @@ Each cabinet's agent is "Tarik - <cabinet's name>", alike but for its cabinet: i
 (/c/<cabinet>/mcp) and the fixed `cabinet` input of its workflow tools. An agent is found by that
 address in its configuration, not by its name, so a name changed in n8n never makes it another
 cabinet's. Through n8n's MCP server (N8N_MCP_API_URL in .env, its token in Vault): agents made
-there are allowed in n8n MCP, which "Tarik - Emails" needs (ask_agent). Prints each agent's id,
+there are allowed in n8n MCP, which "Tarik - Emails" needs (ask_agent). An agent already published is
+published again when its draft changed; one never published stays a draft. Prints each agent's id,
 for <CABINET>__AGENT_ID in .env."""
 
 import functools
@@ -188,8 +189,20 @@ def create(project, config):
     return created.get("agentId") or created.get("id") or created["agent"]["id"]
 
 
+def publish_if_published(agent_id, current, changed):
+    """Publish the agent's draft when it has a published version that no longer matches it: this run ``changed``
+    the draft, or it had changed since (``current``: get_agent's answer before this run). An agent never
+    published stays a draft. Returns whether it was published."""
+    agent = current["agent"]
+    if not agent.get("activeVersionId") or not (changed or agent["versionId"] != agent["activeVersionId"]):
+        return False
+    n8n("publish_agent", agentId=agent_id)
+    return True
+
+
 def main():
-    """Check the skills, then update each cabinet's agent (or create it) and its skills; print each agent's id."""
+    """Check the skills, then update each cabinet's agent (or create it) and its skills, publishing those already
+    published; print each agent's id."""
     check_skills()
     existing = agents_by_cabinet()
     if any(len(agents) > 1 for agents in existing.values()):
@@ -207,6 +220,8 @@ def main():
         skills, final = sync_skills(agent_id, current, base)
         skills = ", ".join(skills)
         action = "created" if cabinet not in existing else "updated" if final != current["configHash"] else "unchanged"
+        if cabinet in existing and publish_if_published(agent_id, current, action == "updated"):
+            action += " and published"
         label = config.get("name", "Tarik - " + name)  # a created agent's name was taken out of its config
         print(f"{cabinet.upper()}__AGENT_ID={agent_id}  # {label}, {action}, skills: {skills}")
 
