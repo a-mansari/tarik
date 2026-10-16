@@ -6,12 +6,14 @@ import json
 import re
 import time
 
-from mcp.server.mcpserver.exceptions import ToolError
-
 from tarik.invoices.accounts import set_account
-from tarik.core.app import ok, server, stop, wait, with_ids
+from tarik.core.app import ok, question, server, wait, with_ids
 from tarik.core.cabinets import cabinet_db
+from tarik.core.conversation import own_words, said
 from tarik.core.experio import TEST_MODE, odoo_call, require_invoice
+from tarik.dossiers.people import check_sender
+from tarik.dossiers.search import normalized
+from tarik.invoices.intake import import_bank_statement, journal_meant
 from tarik.invoices.tiers import set_tiers_by_name
 from tarik.invoices.tva import settle_tva
 from tarik.invoices.exercice import settle_exercice
@@ -20,7 +22,7 @@ from tarik.invoices.withholding import settle_withholding
 
 # The sequence, in order: step tool -> what the client reads it as.
 STEPS = {
-    "check_sender": "expediteur",
+    "answer_pending": "reponse", "check_sender": "expediteur",
     "create_dossier": "creation du dossier", "update_dossier": "modification du dossier",
     "copy_configuration": "configuration", "import_entries": "ecritures",
     "finish_setup": "integration", "setup_status": "etat du dossier",
@@ -104,6 +106,8 @@ def run_summary(run_id: str) -> dict:
             continue
         seen.add((key, step, message))
         text = message.removeprefix(TEST_MODE)
+        if key and key > 0 and str(key) not in text:  # an error Experio gave without it: which invoice
+            text = f"facture {key} : {text}"
         if status == "question":
             text = f"QUESTION : {text}"
         elif status not in ("ok", "stop", "wait"):
@@ -113,23 +117,58 @@ def run_summary(run_id: str) -> dict:
     return ok((TEST_MODE + "\n\n" if test else "") + summary)
 
 
-@server.tool()
-@with_ids
-def answer_pending(invoice_id: int, answer: str) -> dict:
-    """Apply the client's answer to the invoice's pending question. ``next_step``
-    says where the sequence resumes (none when the question is still open)."""
+def waiting_on(session_id):
+    """What this conversation waits on the client for, oldest first: each invoice's question, and each bank
+    statement waiting for its bank account (its question is the last one import_bank_statement asked)."""
     with cabinet_db() as db:
-        row = db.execute("select step, question from tarik_pending where invoice_id = %s", (invoice_id,)).fetchone()
-    if not row:
-        return stop(f"Facture {invoice_id} : aucune question en attente.")
-    apply, following = ANSWERS.get(row[0], (None, None))
-    if not apply:
-        raise ToolError(f"Facture {invoice_id} : la question en attente ({row[0]}) ne se regle pas par une reponse.")
-    result = apply(invoice_id, answer, row[1]) if row[0] == "link_tiers" else apply(invoice_id, answer)
+        invoices = db.execute("select invoice_id, step, question from tarik_pending where session_id = %s order by created_at",
+                              (session_id,)).fetchall()
+        statements = db.execute(
+            "select distinct on (r.file_id) r.file_id, r.dossier_id, r.message, f.file_name from tarik_results r "
+            "join tarik_files f on f.id = r.file_id where r.session_id = %s and r.step = 'import_bank_statement' "
+            "and r.status = 'question' and f.statement_id is null order by r.file_id, r.id desc", (session_id,)).fetchall()
+    named = {}
+    if invoices:  # how the client may name each invoice: its number in Tarik, its own number, its tiers
+        for invoice in odoo_call("exp.invoice", "read", [i for i, _, _ in invoices], fields=["invoice_number", "partner_id"]):
+            named[invoice["id"]] = [invoice["invoice_number"], invoice["partner_id"] and re.sub(r"\s+-\s+\d+\s*$", "", invoice["partner_id"][1])]
+    return ([{"invoice_id": i, "step": step, "question": text, "names": [str(i), *named.get(i, [])]} for i, step, text in invoices]
+            + [{"file_id": f, "dossier_id": d, "step": "import_bank_statement", "question": text, "names": [name.rsplit(".", 1)[0]]}
+               for f, d, text, name in statements])
+
+
+def meant(waiting, answer):
+    """The question the client answers: the only one, or the one their answer names (whole words)."""
+    if len(waiting) == 1:
+        return waiting[0]
+    words = normalized(answer)
+    named = [item for item in waiting if any(said(normalized(name), words) for name in item["names"] if name)]
+    return named[0] if len(named) == 1 else None
+
+
+@server.tool()
+def answer_pending(session_id: str, answer: str) -> dict:
+    """Apply the client's answer (their own words) to what this conversation waits on: an invoice's question
+    (tiers, account, TVA, withholding, prepaid, exercice) or a statement's bank account. ``next_step`` says
+    where the sequence resumes; with nothing waiting, the drafts Experio hadn't read yet are resumed. The
+    email's sender must have the dossier, as for any work on it."""
+    answer = own_words(answer)
+    waiting = waiting_on(session_id)
+    if not waiting:
+        return ok("Aucune question en attente : les factures qu'Experio lisait encore sont reprises.", next_step="waiting_drafts")
+    item = meant(waiting, answer)
+    if not item:
+        return question("Plusieurs questions attendent votre reponse ; precisez la facture ou le releve :\n"
+                        + "\n".join(f"- {entry['question']}" for entry in waiting))
+    sender = check_sender(session_id, dossier_id=item.get("dossier_id", 0), invoice_id=item.get("invoice_id", 0))
+    if sender["status"] != "ok":
+        return sender
+    if item["step"] == "import_bank_statement":
+        return import_bank_statement(item["file_id"], item["dossier_id"], journal_meant(item["dossier_id"], answer))
+    apply, following = ANSWERS[item["step"]]
+    result = apply(item["invoice_id"], answer, item["question"]) if item["step"] == "link_tiers" else apply(item["invoice_id"], answer)
     if result["status"] == "ok":
-        result["next_step"] = following or "done"
-    result["step"] = row[0]
-    return result
+        result["next_step"] = following
+    return {**result, "invoice_id": item["invoice_id"], "step": item["step"]}
 
 
 @server.tool()

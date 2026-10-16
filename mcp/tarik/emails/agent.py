@@ -11,7 +11,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server
 from tarik.core.cabinets import cabinet_db, setting
-from tarik.core.conversation import remember_client_message
+from tarik.core.conversation import FILES_NOTE, NO_TEXT, remember_client_message
 
 
 def call_n8n(tool, **arguments):
@@ -35,7 +35,7 @@ def ask_agent(session_id: str, message: str, files: list[str] | None = None) -> 
         if not db.execute("select 1 from tarik_mail_threads where session_id = %s", (session_id,)).fetchone():
             raise ToolError("Conversation email inconnue.")
     remember_client_message(session_id, message)
-    text = (message or "(pas de message)") + (f"\n\nFichiers joints : {', '.join(files)}" if files else "")
+    text = (message or NO_TEXT) + (f"{FILES_NOTE}{', '.join(files)}" if files else "")
     try:
         answer = call_n8n("call_agent", agentId=setting("AGENT_ID"), request={
             "type": "message", "message": text, "sessionId": session_id, "newSession": True})

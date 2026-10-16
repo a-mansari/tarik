@@ -27,7 +27,8 @@ node("Nouvel email", "n8n-nodes-base.webhook", 2, [0, 300],
 mcp("Nouveaux emails (fetch_emails)", "fetch_emails", "{}", [220, 300])
 node("Un element par fil", "n8n-nodes-base.code", 2, [440, 300], {"jsCode": (
     "// One item per thread waiting for an answer (fetch_emails locked them for this run).\n"
-    "return $input.first().json.content[0].text.threads.map(thread => ({ json: thread }));")})
+    "// None when tarik-mcp answered without them (restarting): the next wake-up takes them.\n"
+    "return ($input.first().json.content?.[0]?.text?.threads ?? []).map(thread => ({ json: thread }));")})
 # The cabinet's own agent answers, in the thread's conversation (ask_agent: n8n's call_agent).
 # Longer than ask_agent's own 600 s wait: n8n never gives up on an answer still coming.
 mcp("Tarik", "ask_agent", "{ session_id: $json.session_id, message: $json.message, files: $json.files }", [660, 300], timeout=660)
@@ -55,7 +56,7 @@ connect("Refuse ?", "Manager prevenu (notify_manager)", 1)
 # Senders who may not use Tarik (not collaborators, or off the whitelist): the manager is told, the sender gets nothing.
 node("Une alerte par refus", "n8n-nodes-base.code", 2, [440, 520], {"jsCode": (
     "// One item per email whose sender fetch_emails refused.\n"
-    "return $input.first().json.content[0].text.alerts.map(alert => ({ json: alert }));")})
+    "return ($input.first().json.content?.[0]?.text?.alerts ?? []).map(alert => ({ json: alert }));")})
 mcp("Manager prevenu de l'expediteur (notify_manager)", "notify_manager",
     "{ sender: $json.sender, subject: $json.subject, reason: $json.reason }", [660, 520])
 connect("Nouveaux emails (fetch_emails)", "Une alerte par refus", 0)

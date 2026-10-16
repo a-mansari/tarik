@@ -33,6 +33,12 @@ fiscal year, and posts it. When a step needs you (which account? which fiscal ye
 another dossier already has, and asks first when a dossier has a very similar name. It can copy the
 configuration of a dossier you name, and import its FEC or grand livre.
 
+**Answer its questions.** When processing stops at a question (which account, recoverable TVA,
+withholding, fiscal year, which tiers, which bank account for a statement), just answer in the same
+conversation, in your own words ("le compte 6145", "oui", "à la charge de la société"): Tarik applies
+it and carries on from there. With several questions waiting, name the invoice (its number or its
+supplier) or the statement. Asking Tarik to carry on also resumes invoices Experio was still reading.
+
 **Import a FEC or grand livre** into an existing dossier.
 
 **Modify a dossier**: its name, type (société or personne physique), ICE, IF, RC, patente, T.S.C,
@@ -40,8 +46,6 @@ capital, CNSS number or address. Only the fields you ask for change, only to the
 
 ## Not yet
 
-- Answering a question Tarik asked about an invoice (account, TVA, withholding, fiscal year) does not
-  resume its processing yet: the processing stops at the question.
 - Changing anything else in a dossier: its configuration, accounts, journals, collaborators, currency.
 - Deleting a dossier or an invoice: Experio can only archive a dossier, and a posted invoice can't
   simply be deleted.

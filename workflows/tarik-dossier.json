@@ -405,7 +405,7 @@
           "value": "record_step"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ run_id: String($execution.id), session_id: $('Appel').first().json.session_id, origin: $prevNode.name, result: $json.error ? { status: 'error', message: String($json.error.message ?? $json.error) } : $json.content[0].text }) }}",
+        "jsonInput": "={{ JSON.stringify({ run_id: String($execution.id), session_id: $('Appel').first().json.session_id, origin: $prevNode.name, result: $json.error ? { status: 'error', message: String($json.error.message ?? $json.error), invoice_id: $json.content?.[0]?.text?.invoice_id, file_id: $json.content?.[0]?.text?.file_id ?? $json.file_id } : $json.content[0].text }) }}",
         "options": {
           "timeout": 300000
         }

@@ -8,10 +8,11 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import with_ids, ok, question, server, stop
 from tarik.core.cabinets import cabinet_db
-from tarik.core.conversation import client_messages
+from tarik.core.conversation import client_messages, said
 from tarik.core.documents import pdf_pages, to_pdf
 from tarik.core.experio import TEST_MODE, dry_run, odoo_call, refused, require_dossier
 from tarik.core.model import ask_model
+from tarik.dossiers.search import normalized
 from tarik.invoices.classify import classify_pages, client_side
 
 
@@ -180,6 +181,24 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
         db.execute("update tarik_files set invoice_id = %s where id = %s", (invoice_id, file_id))
     return ok(f"{name} : facture brouillon n° {invoice_id} creee dans le dossier {dossier}.", invoice_id=invoice_id)
 
+def bank_journals(dossier_id):
+    """The dossier's bank journals, and those Experio can import into (a journal without its bank is refused)."""
+    with refused(f"bank_journals {dossier_id}", "Experio est injoignable : les journaux de banque n'ont pas pu etre lus."):
+        journals = odoo_call("exp.journal", "search_read", [("company_id", "=", dossier_id), ("type", "=", "bank")],
+                             fields=["id", "name", "bank_id"], order="name")
+    return journals, [journal for journal in journals if journal["bank_id"]]
+
+
+def journal_meant(dossier_id, answer):
+    """The bank journal the client's answer names (its name, its bank or its journal_id), or 0 when it names
+    none or several: the statement then asks again."""
+    words = normalized(answer)
+    named = [journal for journal in bank_journals(dossier_id)[1]
+             if said(normalized(journal["name"]), words) or said(normalized(journal["bank_id"][1]), words)
+             or str(journal["id"]) in words.split()]
+    return named[0]["id"] if len(named) == 1 else 0
+
+
 @server.tool()
 @with_ids
 def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) -> dict:
@@ -198,10 +217,7 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
         require_kind(name, kind, "statement")
         if existing:
             return ok(f"{name} : releve deja importe (n° {existing}).", statement_id=existing)
-        with refused(f"import_bank_statement {file_id}", "Experio est injoignable : les journaux de banque n'ont pas pu etre lus."):
-            journals = odoo_call("exp.journal", "search_read", [("company_id", "=", dossier_id), ("type", "=", "bank")],
-                                 fields=["id", "name", "bank_id"], order="name")
-        usable = [j for j in journals if j["bank_id"]]  # Experio refuses a journal without its bank
+        journals, usable = bank_journals(dossier_id)
         if not usable:
             unset = f" ({', '.join(j['name'] for j in journals)} sans banque renseignee)" if journals else ""
             return stop(f"Le dossier {dossier} n'a aucun journal de banque utilisable{unset} : a configurer par le cabinet.")
