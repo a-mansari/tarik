@@ -17,7 +17,6 @@ the import detected, while before it the import only adds what the model lacks.
 """
 
 import calendar
-import contextlib
 import csv
 import io
 import itertools
@@ -29,10 +28,10 @@ from datetime import date, datetime
 import openpyxl
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import log, ok, server, stop, wait, with_ids
+from tarik.core.app import ok, server, stop, wait, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, TEST_MODE
-from tarik.core.experio import dry_run, experio_refusal, in_dossier, odoo_call, odoo_json, refused, require_dossier
+from tarik.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused, require_dossier
 from tarik.core.text import normalized
 from tarik.invoices.exercice import open_exercice
 
@@ -182,29 +181,18 @@ class Refused(Exception):
     """An entries file not imported: its text is the stop message, and the file is taken."""
 
 
-@contextlib.contextmanager
-def refusing(log_text, message):
-    """Whatever fails inside is logged with ``log_text`` and becomes Refused(``message``), "{reason}" in it
-    replaced by Experio's reason."""
-    try:
-        yield
-    except Exception as error:
-        log(f"{log_text}: {error}")
-        raise Refused(message.replace("{reason}", experio_refusal(error))) from None
-
-
 def entries_text(file_id, name, mime, data):
     """The file's text (CSV, TXT or an Excel sheet as CSV); Refused for another kind of file."""
     excel = name.lower().endswith((".xlsx", ".xlsm"))
     if not (name.lower().endswith(ENTRY_FILES) or (mime or "").startswith("text/")):
         raise Refused(f"{name} : envoyez le FEC ou le grand livre en CSV, TXT ou Excel (.xlsx).")
-    with refusing(f"import_entries {file_id}", f"{name} : fichier Excel illisible."):
+    with refused(f"import_entries {file_id}", f"{name} : fichier Excel illisible.", Refused):
         return sheet_text(bytes(data)) if excel else file_text(bytes(data))
 
 
 def previewed(file_id, name, text, context):
     """The file uploaded to Experio's import screen: (import id, its preview: headers, matches, options)."""
-    with refusing(f"import_entries {file_id}", f"{name} : Experio n'a pas pu lire le fichier ({{reason}})."):
+    with refused(f"import_entries {file_id}", f"{name} : Experio n'a pas pu lire le fichier ({{reason}}).", Refused):
         upload = {"res_model": "experio.history", "file": text, "file_name": name, "file_type": "text/csv"}
         import_id = odoo_json("base_import.import", "create", upload, context=context)
         preview = odoo_json("base_import.import", "parse_preview", [import_id], IMPORT_OPTIONS, context=context)
@@ -263,7 +251,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         options.update(order_lines=gl, order_lines_with_reference=gl and "reference" in fields)
         label = "Grand livre" if gl else "FEC"
         arguments = ([import_id], fields, headers, options)
-        with refusing(f"import_entries {file_id} test", f"{label} {name} refuse par Experio : {{reason}}"):
+        with refused(f"import_entries {file_id} test", f"{label} {name} refuse par Experio : {{reason}}", Refused):
             test = odoo_json("base_import.import", "execute_import", *arguments, True, context=context)
         errors = errors_of(test)
         if errors:
@@ -276,7 +264,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
                 f"{TEST_MODE}{label} {name} : test Experio reussi ({lines} lignes), rien n'est importe.",
                 file_id=file_id,
             )
-        with refusing(f"import_entries {file_id}", f"{label} {name} : Experio a refuse l'import ({{reason}})."):
+        with refused(f"import_entries {file_id}", f"{label} {name} : Experio a refuse l'import ({{reason}}).", Refused):
             result = odoo_json("base_import.import", "execute_import", *arguments, False, context=context)
         errors = errors_of(result)
         if errors:

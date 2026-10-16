@@ -81,16 +81,16 @@ def test_mode_note():
 
 
 @contextlib.contextmanager
-def refused(log_text, message):
-    """Whatever fails inside is logged with ``log_text`` and becomes a ToolError of ``message`` (a ToolError's own
-    message is the only text that reaches the agent). "{reason}" in ``message`` is replaced by Experio's reason."""
+def refused(log_text, message, error=ToolError):
+    """Whatever fails inside is logged with ``log_text`` and becomes ``error`` (a ToolError by default: its own
+    message is the only text that reaches the agent) of ``message``, "{reason}" in it replaced by Experio's reason."""
     try:
         yield
     except ToolError:
         raise
-    except Exception as error:
-        log(f"{log_text}: {error}")
-        raise ToolError(message.replace("{reason}", experio_refusal(error))) from None
+    except Exception as failure:
+        log(f"{log_text}: {failure}")
+        raise error(message.replace("{reason}", experio_refusal(failure))) from None
 
 
 # --- Calls ---
