@@ -1,1 +1,2 @@
-"""The invoice sequence of "Tarik - Traitement", one module per step, and its bookkeeping (pipeline)."""
+"""The invoice sequence of "Tarik - Traitement", one module per step, its bookkeeping (pipeline) and the
+invoice list (listing)."""

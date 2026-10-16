@@ -77,7 +77,7 @@ services:
     restart: unless-stopped
     entrypoint: ["sh", "/vault/config/start.sh"]
     ports:
-      - "127.0.0.1:8200:8200" # for the setup and migration scripts on this machine, not the LAN
+      - "127.0.0.1:8200:8200" # for the setup scripts on this machine, not the LAN
     volumes:
       - ./vault/config.hcl:/vault/config/config.hcl:ro
       - ./vault/start.sh:/vault/config/start.sh:ro

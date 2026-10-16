@@ -235,7 +235,7 @@ def has_scan(invoice):
 
 def invoice_context(invoice):
     """The context that makes Experio validate ``invoice`` (with company_id and exercice_id) against its own
-    dossier and exercice, not the dossier's latest one (tarik-master odoo._exercice_context)."""
+    dossier and exercice, not the dossier's latest one."""
     context = in_dossier(invoice["company_id"][0])
     if invoice["exercice_id"]:
         context["cron_fiscal_entry_id"] = invoice["exercice_id"][0]
@@ -298,7 +298,7 @@ def fill_invoice(invoice_id, changes, context, save=True):
     """Type ``changes`` ({field: value}) into the invoice form one field at a time, as a user does: after each
     one Experio's onchange fills what it fills on screen (exchange rate, withholding...). Then save, unless
     DRY_RUN or ``save`` is False (only to see what Experio would fill). Returns {field: value} of every field
-    that ends up changed, Experio's included (tarik-master odoo.fill)."""
+    that ends up changed, Experio's included."""
     form = _form()
     types = form["types"]
     record = odoo_call("exp.invoice", "read", [invoice_id], fields=list(types), context=context)[0]

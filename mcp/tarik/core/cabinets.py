@@ -10,7 +10,7 @@ cabinets being those paths). The tests set them in the environment instead: TARI
 cabinets, a cabinet's own settings are prefixed with its name (EXPERIO_CABINET_8__ODOO_UID).
 
 Settings stay on the server: no tool returns one, and only a ToolError's own message reaches
-the agent (tests/core/test_cabinets.py checks every tool).
+the agent (tests/isolation/test_no_setting_shown.py checks every tool).
 
 Each call names its cabinet (the URL /c/<cabinet>/mcp, see server.py), and everything
 cabinet-specific goes through current(): with no cabinet set it fails. There is no
@@ -34,8 +34,8 @@ NAME = re.compile(r"[a-z][a-z0-9_]{0,62}")
 
 
 def cabinet_names(value):
-    """TARIK_CABINETS (comma-separated) as a frozenset of names, checked: each exactly a lowercase identifier,
-    no repeats; SystemExit otherwise."""
+    """The cabinets' names, comma-separated (Vault's cabinet paths, or TARIK_CABINETS in the tests), as a frozenset,
+    checked: each exactly a lowercase identifier, no repeats; SystemExit otherwise."""
     names = [name.strip() for name in (value or "").split(",") if name.strip()]
     for name in names:
         if not NAME.fullmatch(name) or name == "public" or name.startswith("pg_"):
@@ -59,7 +59,7 @@ def current():
 
 @contextlib.contextmanager
 def using(name):
-    """Run the block for cabinet ``name``, one of TARIK_CABINETS."""
+    """Run the block for cabinet ``name``, one of CABINETS."""
     if name not in CABINETS:
         raise PermissionError(f"unknown cabinet {name!r}")
     token = _current.set(name)
@@ -69,7 +69,7 @@ def using(name):
         _current.reset(token)
 
 
-# Each cabinet's own: Vault secret/tarik/cabinets/<cabinet>, or env <CABINET>__<KEY>.
+# Each cabinet's own: Vault secret/tarik/cabinets/<cabinet> (the tests: env <CABINET>__<KEY>).
 CABINET_SETTINGS = frozenset(
     [
         "ODOO_UID",
@@ -87,7 +87,7 @@ CABINET_SETTINGS = frozenset(
         "AGENT_ID",
     ]
 )
-# The same for every cabinet: Vault secret/tarik/shared, or env <KEY>.
+# The same for every cabinet: Vault secret/tarik/shared (the tests: env <KEY>).
 SHARED_SETTINGS = frozenset(
     [
         "IMAP_HOST",
@@ -117,8 +117,8 @@ def source():
 
 
 def setting(key, default=None):
-    """Setting ``key`` for the current cabinet: its own value (env <CABINET>__<KEY>) for a cabinet
-    setting, never another cabinet's nor an unprefixed one; the common value (env <KEY>) for a
+    """Setting ``key`` for the current cabinet: its own value (<CABINET>__<KEY> in source()) for a
+    cabinet setting, never another cabinet's nor an unprefixed one; the common value (<KEY>) for a
     shared one. A missing setting without default is an error."""
     if key in CABINET_SETTINGS:
         value = source().get(f"{current().upper()}__{key}")

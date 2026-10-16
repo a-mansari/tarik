@@ -1,10 +1,10 @@
-"""Phase 8: the invoice's account (Compte), class 6 for a purchase, class 7 for a sale.
+"""The invoice's account (Compte), class 6 for a purchase, class 7 for a sale.
 
-tarik-master runs an agent: memorized account, else classify what was billed, else ask.
-Experio already holds the memorized chain (last account used for the tiers, then the
-tiers sheet, then the dossier default) and applies it when the tiers is picked in the
-form, and its own refresh rebuilds the lines from the header. So the model only does
-what Experio can't: classify what was billed among the dossier's real accounts.
+Memorized account, else classify what was billed, else ask. Experio already holds the
+memorized chain (last account used for the tiers, then the tiers sheet, then the dossier
+default) and applies it when the tiers is picked in the form, and its own refresh rebuilds
+the lines from the header. So the model only does what Experio can't: classify what was
+billed among the dossier's real accounts.
 """
 
 from mcp.server.mcpserver.exceptions import ToolError
@@ -28,8 +28,6 @@ from tarik.core.model import ask_model
 from tarik.invoices.check import stored_check
 from tarik.invoices.classify import side_of
 
-# tarik-master/tarik/agents/account.py, its CGNC guidance and rules verbatim; the steps about
-# its own tools (memorized_account, search_accounts) are what Experio and the list below replace.
 ACCOUNT_PROMPT = """You choose the accounting account (Compte) of an invoice in a
 Moroccan cabinet, following the CGNC plan.
 
@@ -82,8 +80,7 @@ INVOICE_FIELDS = [
 
 
 def account_question(invoice, designation):
-    """What the client reads when no account fits ``designation`` (str or None: illegible)
-    (tarik-master orchestrator.account_question)."""
+    """What the client reads when no account fits ``designation`` (str or None: illegible)."""
     total = f"{invoice['amount_total']} DH TTC" if invoice["amount_total"] else None
     about = ", ".join(str(x) for x in ((invoice["partner_id"] or [0, None])[1], total) if x)
     facture = f"Facture {invoice['invoice_number'] or invoice['id']}" + (f" ({about})" if about else "")
@@ -115,7 +112,7 @@ def draft_invoice(invoice_id):
 
 def apply_account(invoice, account_id, why):
     """Put the account ``account_id`` on the invoice through Experio's form, then let Experio's own refresh
-    carry it onto the HT lines (tarik-master wrote the lines itself). The ok result says ``why``."""
+    carry it onto the HT lines. The ok result says ``why``."""
     invoice_id, context = invoice["id"], invoice_context(invoice)
     with refused(f"apply_account {invoice_id} -> {account_id}", f"Facture {invoice_id} : Experio a refuse le compte."):
         fill_invoice(invoice_id, {"account_id": account_id}, context)
@@ -202,7 +199,7 @@ def assign_account(invoice_id: int) -> dict:
 
 def resolve_account(accounts, answer):
     """The account the client means, from their own words: a code (or its start), or a label.
-    One match, or several sharing one label (take the lowest code, account.py's rule) -> that
+    One match, or several sharing one label (take the lowest code, ACCOUNT_PROMPT's rule) -> that
     account; otherwise None. A short code is the account it names, padded with zeros (CGNC):
     "6145" is 61450000, not 61451000. ``accounts``: [{id, code, name}] sorted by code."""
     words = answer.strip()

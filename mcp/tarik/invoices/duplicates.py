@@ -1,10 +1,10 @@
-"""Phase 7: stop an invoice already recorded in the dossier, before any account or TVA work.
+"""Stop an invoice already recorded in the dossier, before any account or TVA work.
 
 Experio's own check (get_duplicated_invoice_ids): same number, tiers and date or year as
 a posted invoice, by the cabinet's rules for purchases and sales -- plus, to catch an
-invoice sent twice before either is posted, the same rule across same-number drafts. tarik-master also set a
-"TIERS - NUMERO" label here; Experio names the writing lines from each cabinet's own label
-format instead, and the label field overrides it, so that part is not ported.
+invoice sent twice before either is posted, the same rule across same-number drafts. No
+"TIERS - NUMERO" label is set: Experio names the writing lines from each cabinet's own label
+format, and the label field would override it.
 """
 
 from tarik.core.app import ok, server, stop, with_ids

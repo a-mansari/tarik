@@ -8,7 +8,7 @@ address in its configuration, not by its name, so a name changed in n8n never ma
 cabinet's. Through n8n's MCP server (N8N_MCP_API_URL in .env, its token in Vault): agents made
 there are allowed in n8n MCP, which "Tarik - Emails" needs (ask_agent). An agent already published is
 published again when its draft changed; one never published stays a draft. Prints each agent's id,
-for <CABINET>__AGENT_ID in .env."""
+for AGENT_ID in its cabinet's Vault path (secret/tarik/cabinets/<cabinet>)."""
 
 import functools
 import json
@@ -33,7 +33,7 @@ CABINETS = {
 }
 
 
-@functools.cache  # read when first needed: the checks below import this file without .env or Vault
+@functools.cache  # read when first needed: check_skills (tests/style) runs without .env or Vault
 def settings():
     """N8N_MCP_API_URL from .env, N8N_MCP_API_TOKEN from the local Vault."""
     values = {}
@@ -159,7 +159,7 @@ def mutate(agent_id, base, operation):
 
 def sync_skills(agent_id, current, base):
     """Each skill of workflows/skills/ in the agent, as written there: updated in place (found by name),
-    or created and attached, when it differs. A skill no longer in workflows/skills/ is deleted.
+    or created and attached, when it differs. A skill of the agent's not in workflows/skills/ is deleted.
     ``current``: get_agent's answer, ``base`` the hash since. Returns the skills' names and the new hash."""
     by_name = {skill["name"]: (skill_id, skill) for skill_id, skill in current["skills"].items()}
     wanted = list(skill_files())
@@ -190,7 +190,7 @@ def create(project, config):
 
 
 def publish_if_published(agent_id, current, changed):
-    """Publish the agent's draft when it has a published version that no longer matches it: this run ``changed``
+    """Publish the agent's draft when it has a published version that differs from it: this run ``changed``
     the draft, or it had changed since (``current``: get_agent's answer before this run). An agent never
     published stays a draft. Returns whether it was published."""
     agent = current["agent"]
@@ -223,7 +223,7 @@ def main():
         if cabinet in existing and publish_if_published(agent_id, current, action == "updated"):
             action += " and published"
         label = config.get("name", "Tarik - " + name)  # a created agent's name was taken out of its config
-        print(f"{cabinet.upper()}__AGENT_ID={agent_id}  # {label}, {action}, skills: {skills}")
+        print(f"{cabinet}: AGENT_ID={agent_id}  # {label}, {action}, skills: {skills}")  # for its Vault path
 
 
 if __name__ == "__main__":

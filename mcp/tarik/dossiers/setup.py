@@ -129,7 +129,7 @@ def sheet_text(data):
 
 def entries_kind(text, separator):
     """ "fec" or "grand livre", from the file alone (Experio has two buttons and no
-    detector; tarik-master parametrage.entries_kind). A FEC follows the journals and
+    detector). A FEC follows the journals and
     the dates, so its accounts go back and forth; a grand livre lists them in order."""
     rows = list(csv.reader(io.StringIO(text), delimiter=separator or ";"))
     if not rows:

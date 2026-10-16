@@ -1,7 +1,6 @@
-"""Phase 9: TVA -- recoverable or not, the cabinet's prorata, and the tax on each line.
+"""TVA -- recoverable or not, the cabinet's prorata, and the tax on each line.
 
-tarik-master asks about non-recoverable TVA (vat_gate) and runs a 7-tool agent that creates
-the missing tax and puts it on the lines. Experio already does most of it: picking the tiers
+Experio does most of it: picking the tiers
 in the form applies its memorized non-recoverable and prorata flags, and its refresh picks
 the tax for each rate from the dossier's tax settings (or says which setting is missing).
 Left here: the question on the usual non-recoverable accounts, and the cabinet's prorata.
@@ -27,7 +26,7 @@ from tarik.core.experio import (
 )
 from tarik.invoices.classify import side_of
 
-# tarik-master: "A confirmer par le comptable (CGI art. 106) avant usage en production."
+# CGI art. 106: a confirmer par le comptable avant usage en production.
 NON_RECOVERABLE_ACCOUNTS = ("6142", "6143", "61251", "2340")  # travel, receptions, fuel, passenger cars
 
 

@@ -2,7 +2,7 @@
 "Résumé" relies on it in Traitement, Dossier and Modification. Runs "Tarik - Test Merge" (TarikMergeTest01,
 workflows/tarik-merge-test.json) in the real n8n; re-run after each n8n upgrade.
 
-Needs n8n's MCP token (tests/n8n/conftest.py). Run: docker compose exec -T tarik-mcp python -m pytest
+Needs n8n's MCP token (tests/n8n/conftest.py). Run: docker compose exec -T tarik-mcp python -m pytest -m live
 tests/n8n/test_at_the_end.py"""
 
 import time

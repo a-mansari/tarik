@@ -31,5 +31,5 @@ def test_the_closest_dossier_is_found():
 @pytest.mark.functionality
 def test_unrelated_names_stay_below_the_threshold():
     assert max(similarity("xyz", name) for name in DOSSIERS) < MIN_SIMILARITY
-    assert similarity("zzqx boulangerie inexistante", "FinStrat Consulting") < MIN_SIMILARITY  # was a 51 % false match
+    assert similarity("zzqx boulangerie inexistante", "FinStrat Consulting") < MIN_SIMILARITY
     assert similarity("", "Atlas") == 0.0

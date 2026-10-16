@@ -54,7 +54,7 @@ PAGE = (
 
 
 def cert_pin():
-    """The current cabinet's mail certificate pin (MAIL_CERT_SHA256), "" for the usual check."""
+    """The mail server's certificate pin (MAIL_CERT_SHA256, shared), "" for the usual check."""
     return setting("MAIL_CERT_SHA256", "").replace(":", "").strip().lower()
 
 

@@ -1,4 +1,4 @@
-"""Prepaid: the period rule (tarik-master)."""
+"""Prepaid: the period rule."""
 
 import pytest
 

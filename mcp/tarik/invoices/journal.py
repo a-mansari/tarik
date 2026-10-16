@@ -1,7 +1,6 @@
-"""Phase 10: the invoice's journal.
+"""The invoice's journal.
 
-tarik-master moves foreign invoices to the foreign journal and runs a 4-tool agent to find
-or create one of the right type. Experio already picks it when it refreshes an invoice
+Experio picks it when it refreshes an invoice
 (get_invoice_journal_id): the dossier's local or foreign purchase or sale journal, FNP/FAE
 journals, the folder's for customs, or the one chosen by hand in multi-journal dossiers.
 So this step only makes sure the invoice sits there, and says which setting is missing

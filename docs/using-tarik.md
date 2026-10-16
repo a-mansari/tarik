@@ -9,7 +9,7 @@ language you write in, in short sentences.
 |---|---|---|
 | Where | The cabinet's agent, "Tarik - <cabinet>", in n8n's Agents section | The cabinet's own Tarik mailbox |
 | Files accepted | Images and PDFs only, about 1 MB each | PDF, images, CSV, TXT, XLSX: any size the mail server accepts |
-| Who may use it | People with access to the agent in n8n | Only the cabinet's whitelisted addresses (`@experio.ma`, `@sarnec.com`, …), as the email's From says; for an existing dossier, a collaborator who has that dossier in Experio. A colleague replying in your thread gets their own answer. |
+| Who may use it | People with access to the agent in n8n | Only the cabinet's whitelisted addresses (`@experio.ma`, `@sarnec.com`, …), as the email's From says; for an existing dossier, a collaborator (or one of Experio's own staff) who has that dossier in Experio. A colleague replying in your thread gets their own answer. |
 | When it answers | Right away | Within seconds of the email arriving (15 minutes at most) |
 
 Send FEC and grand livre files, and large scans, **by email**: the chat drops them without a word.

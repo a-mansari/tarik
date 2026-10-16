@@ -1,4 +1,4 @@
-"""Exercice choice, read in code (tarik-master asked a model)."""
+"""Exercice choice, read in code, never by a model."""
 
 import pytest
 
