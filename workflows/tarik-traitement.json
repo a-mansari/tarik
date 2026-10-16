@@ -1177,6 +1177,28 @@
         }
       },
       "onError": "continueErrorOutput"
+    },
+    {
+      "id": "4d67402a-f09f-506b-bf68-094cbbf3081a",
+      "name": "Fin des etapes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        220,
+        1250
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "e1195b62-712a-53d1-9d7a-89726579619b",
+      "name": "Jamais execute",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        0,
+        1350
+      ],
+      "parameters": {}
     }
   ],
   "connections": {
@@ -1207,7 +1229,7 @@
             "index": 0
           },
           {
-            "node": "Résumé",
+            "node": "Fin des etapes",
             "type": "main",
             "index": 0
           }
@@ -2392,6 +2414,28 @@
           },
           {
             "node": "Brouillons en attente (waiting_drafts)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jamais execute": {
+      "main": [
+        [
+          {
+            "node": "Fin des etapes",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fin des etapes": {
+      "main": [
+        [
+          {
+            "node": "Résumé",
             "type": "main",
             "index": 0
           }

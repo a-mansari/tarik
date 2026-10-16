@@ -491,8 +491,13 @@ PAGES["traitement"] = page(
                     "Records every step's outcome for every invoice. A question becomes the invoice's pending question, which the client's answer settles.",
                 ),
                 (
+                    "Fin des etapes",
+                    "Waits for every step to end (its second input, from Jamais execute, never comes), then lets Résumé run.",
+                ),
+                ("Jamais execute", "Never runs: it only keeps Fin des etapes waiting until the end."),
+                (
                     "Résumé",
-                    "Runs last: the run's summary, invoice by invoice and step by step. It is the workflow's answer, which the agent copies.",
+                    "After Fin des etapes: the run's summary, invoice by invoice and step by step. It is the workflow's answer, which the agent copies.",
                 ),
             ],
         ),
@@ -611,7 +616,12 @@ PAGES["dossier"] = page(
             "",
             [
                 ("Enregistrer", "Records every step's outcome."),
-                ("Résumé", "Runs last: the run's summary, which the agent copies."),
+                (
+                    "Fin des etapes",
+                    "Waits for every step to end (its second input, from Jamais execute, never comes), then lets Résumé run.",
+                ),
+                ("Jamais execute", "Never runs: it only keeps Fin des etapes waiting until the end."),
+                ("Résumé", "After Fin des etapes: the run's summary, which the agent copies."),
             ],
         ),
     ],
@@ -646,7 +656,12 @@ PAGES["modification"] = page(
                     "Changes only the fields given, as the client file's Experio form does, and only to values the client wrote in this conversation. An ICE, IF or name another file already has is refused. A new ICE or IF is checked against the official register; skipping that check needs the client's confirmation first.",
                 ),
                 ("Enregistrer", "Records the outcome."),
-                ("Résumé", "Runs last: the summary, which the agent copies."),
+                (
+                    "Fin des etapes",
+                    "Waits for every step to end (its second input, from Jamais execute, never comes), then lets Résumé run.",
+                ),
+                ("Jamais execute", "Never runs: it only keeps Fin des etapes waiting until the end."),
+                ("Résumé", "After Fin des etapes: the summary, which the agent copies."),
             ],
         ),
     ],

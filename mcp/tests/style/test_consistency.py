@@ -21,6 +21,7 @@ BUILDERS = {
     "build_tarik_dossier.py": "tarik-dossier.json",
     "build_tarik_modification.py": "tarik-modification.json",
     "build_tarik_emails.py": "tarik-emails.json",
+    "build_tarik_merge_test.py": "tarik-merge-test.json",
 }
 
 needs_workflows = pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="workflows/ not mounted")

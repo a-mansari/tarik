@@ -211,6 +211,28 @@
         }
       },
       "onError": "continueErrorOutput"
+    },
+    {
+      "id": "c2208f2f-9806-5d23-81ce-b12e0127a089",
+      "name": "Fin des etapes",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        220,
+        600
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "fc4a1cce-ada2-5f0f-b0ba-d68a4ec0b62e",
+      "name": "Jamais execute",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        0,
+        700
+      ],
+      "parameters": {}
     }
   ],
   "connections": {
@@ -241,7 +263,7 @@
             "index": 0
           },
           {
-            "node": "Résumé",
+            "node": "Fin des etapes",
             "type": "main",
             "index": 0
           }
@@ -278,6 +300,28 @@
         [
           {
             "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jamais execute": {
+      "main": [
+        [
+          {
+            "node": "Fin des etapes",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Fin des etapes": {
+      "main": [
+        [
+          {
+            "node": "Résumé",
             "type": "main",
             "index": 0
           }
