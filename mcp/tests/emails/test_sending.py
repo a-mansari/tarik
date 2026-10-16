@@ -124,3 +124,20 @@ def test_an_imap_connection_is_always_closed(monkeypatch, failing, work_fails):
         if work_fails:
             raise RuntimeError("the work on the mailbox failed")
     assert opened[0].closed
+
+
+@pytest.mark.technical
+def test_a_cabinet_name_experio_could_not_give_is_asked_again(monkeypatch):
+    answers = [ConnectionError("Experio down"), [{"name": "CABINET TEST"}]]
+
+    def odoo_call(*args, **kwargs):
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(sending, "_names", {})
+    monkeypatch.setattr(sending, "odoo_call", odoo_call)
+    monkeypatch.setattr(sending, "current", lambda: "tarik_test_a")
+    assert sending.cabinet_name() == ""
+    assert sending.cabinet_name() == sending.cabinet_name() == "CABINET TEST"  # then kept: Experio asked once more

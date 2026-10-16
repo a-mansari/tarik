@@ -10,7 +10,6 @@ the connection stays safe from interception. Empty: the usual verification.
 """
 
 import contextlib
-import functools
 import hashlib
 import html
 import imaplib
@@ -108,19 +107,19 @@ def recipient_allowed(address, allowed=None):
     return bool(address) and any(re.fullmatch(re.escape(pattern).replace(r"\*", ".*"), address) for pattern in patterns)
 
 
+_names = {}  # cabinet -> its name in Experio: read once it could be
+
+
 def cabinet_name():
-    """The current cabinet's name in Experio, for the signature ("" when Experio can't be reached)."""
-    return _cabinet_name(current())
-
-
-@functools.cache  # keyed by cabinet: one cabinet's name never signs another's email
-def _cabinet_name(cabinet):
-    """Cabinet ``cabinet``'s company name in Experio, "" when it can't be read (logged)."""
-    try:
-        return odoo_call("res.company", "read", [1], fields=["name"])[0]["name"]
-    except Exception as error:
-        log(f"cabinet_name: {error}")
-        return ""
+    """The current cabinet's name in Experio, for the signature ("" while Experio can't be reached: read again
+    next time)."""
+    if current() not in _names:
+        try:
+            _names[current()] = odoo_call("res.company", "read", [1], fields=["name"])[0]["name"]
+        except Exception as error:
+            log(f"cabinet_name: {error}")
+            return ""
+    return _names[current()]
 
 
 def blocks(body):
