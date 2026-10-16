@@ -29,8 +29,6 @@ SIMILAR_QUESTION = (
 
 # 15 digits, not inside a longer number: an ICE.
 ICE_WRITTEN = re.compile(r"(?<!\d)\d{15}(?!\d)")
-# "IF", "I.F." then maybe "n°"/"no", ":" or "=", then 4 to 12 digits (captured), not inside a longer number.
-IF_WRITTEN = re.compile(r"\bI\.?F\.?\s*(?:n\s*[°o]\s*)?[:=]?\s*(\d{4,12})(?!\d)", re.IGNORECASE)
 
 # What a client may change in a dossier: the fields of Experio's dossier form, before its tabs (the
 # currency and the logo aside). Tool argument -> Experio field, and how Tarik names it to the client.
@@ -64,7 +62,8 @@ def labelled(label):
 
 # The identifiers a client writes after their label: their number counts for that field only ("IF 12345678" is no RC).
 # An ICE is told apart by its 15 digits alone.
-LABELLED = {"ice": ICE_WRITTEN, "if_number": labelled(r"I\.?F\.?"), "rc": labelled(r"R\.?C\.?")}
+IF_WRITTEN = labelled(r"I\.?F\.?")
+LABELLED = {"ice": ICE_WRITTEN, "if_number": IF_WRITTEN, "rc": labelled(r"R\.?C\.?")}
 # "societe" alone is not a type: "l'adresse de ma societe" changes no dossier into a company.
 TYPE_WORDS = {
     "person": ("personne physique", "physique"),
