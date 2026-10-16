@@ -291,6 +291,14 @@ def _read_scan(invoice_id, pages, stored):
     return report
 
 
+def stored_check(invoice_id):
+    """The invoice's check as _save_check stored it: (readable, extracted, bad_fields), None when not checked yet."""
+    with cabinet_db() as db:
+        return db.execute(
+            "select readable, extracted, bad_fields from tarik_checks where invoice_id = %s", (invoice_id,)
+        ).fetchone()
+
+
 def _save_check(invoice_id, report):
     """Store ``report`` as the invoice's check in tarik_checks, replacing any earlier one."""
     with cabinet_db() as db:

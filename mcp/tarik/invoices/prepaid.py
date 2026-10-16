@@ -7,7 +7,6 @@ entries with the dossier's prepaid account and journal.
 """
 
 from tarik.core.app import ok, question, server, with_ids
-from tarik.core.cabinets import cabinet_db
 from tarik.core.conversation import yes_no
 from tarik.core.experio import (
     experio_notes,
@@ -18,6 +17,7 @@ from tarik.core.experio import (
     require_invoice,
     test_mode_note,
 )
+from tarik.invoices.check import stored_check
 
 
 def prepaid_period(start, end):
@@ -31,16 +31,6 @@ def prepaid_period(start, end):
     return {"prepaid_start_date": start, "prepaid_end_date": end, "prepaid_months": months}
 
 
-def _billed_period(invoice_id):
-    """The period check_invoice read on the scan, as prepaid_period gives it, else None."""
-    with cabinet_db() as db:
-        row = db.execute(
-            "select extracted->>'period_start', extracted->>'period_end' from tarik_checks where invoice_id = %s",
-            (invoice_id,),
-        ).fetchone()
-    return prepaid_period(*row) if row else None
-
-
 @server.tool()
 @with_ids
 def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
@@ -51,7 +41,8 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
     )
     if invoice["has_prepaid_expenses"]:
         return ok(f"Facture {invoice_id} : deja repartie en constatee d'avance.")
-    values = _billed_period(invoice_id)
+    check = stored_check(invoice_id)
+    values = check and prepaid_period(check[1].get("period_start"), check[1].get("period_end"))
     if not values:
         return ok(f"Facture {invoice_id} : pas de periode sur plusieurs mois, rien a repartir.")
     kind = "produits" if invoice["type"] == "sale" else "charges"
