@@ -47,9 +47,12 @@ def wait_for_mail(box, count, seconds):
         elif found:  # an email deleted elsewhere: the count to beat goes down with it
             count, grown = count - 1, grown - 1
     box.send(b"DONE\r\n")
-    while not box.readline().startswith(tag.encode()):  # the rest of the IDLE's answers, up to its end
-        pass
-    return grown
+    while True:  # the rest of the IDLE's answers, up to its end
+        line = box.readline()
+        if not line:
+            raise ConnectionError("connection closed")
+        if line.startswith(tag.encode()):
+            return grown
 
 
 def wake_tarik(cabinet, why):

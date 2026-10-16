@@ -51,14 +51,19 @@ def refused(log, message):
 # IPv4 only: the container has no IPv6 route, and httpx does not fall back when a host's IPv6 address comes first.
 HTTP = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"))
 
+_logins = {}  # (server, database, user, key) -> uid: one login per cabinet and key, not one per call (a new key logs in again)
+
 def login():
     """Tarik's uid in the current cabinet, checked against its ODOO_UID."""
     database, expected, user, key = account()
+    if _logins.get((ODOO_URL, database, user, key)) == expected:
+        return expected
     uid = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common").authenticate(database, user, key, {})
     if not uid:
         raise PermissionError(f"login refused for {user} on {database}")
     if uid != expected:
         raise PermissionError(f"{user} on {database} is uid {uid}, expected {expected}: wrong cabinet or user")
+    _logins[(ODOO_URL, database, user, key)] = uid
     return uid
 
 def odoo_call(model, method, *args, **kw):

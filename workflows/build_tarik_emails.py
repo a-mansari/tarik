@@ -29,15 +29,15 @@ node("Un element par fil", "n8n-nodes-base.code", 2, [440, 300], {"jsCode": (
     "// One item per thread waiting for an answer (fetch_emails locked them for this run).\n"
     "return $input.first().json.content[0].text.threads.map(thread => ({ json: thread }));")})
 # The cabinet's own agent answers, in the thread's conversation (ask_agent: n8n's call_agent).
-mcp("Tarik", "ask_agent", "{ session_id: $json.session_id, message: $json.message, files: $json.files }", [660, 300])
-# No reply (n8n or the model failing): the thread stays locked, and fetch_emails takes it again 30 minutes later.
+# Longer than ask_agent's own 600 s wait: n8n never gives up on an answer still coming.
+mcp("Tarik", "ask_agent", "{ session_id: $json.session_id, message: $json.message, files: $json.files }", [660, 300], timeout=660)
 mcp("Reponse (send_email)", "send_email", (
     f"{{ to: {THREAD}.to, subject: {THREAD}.subject, body: $('Tarik').item.json.content[0].text.output, "
     f"in_reply_to: {THREAD}.in_reply_to, references: {THREAD}.references }}"), [880, 300])
 mcp("Fil traite (finish_thread)", "finish_thread", (
     f"{{ thread_id: {THREAD}.thread_id, message_ids: {THREAD}.message_ids, sent: !$json.error, "
     "reason: $json.error ? String($json.error.message ?? $json.error).replace(/^Error executing tool \\w+: /, '') : '' }"),
-    [1100, 300])
+    [1100, 300], retryOnFail=True, maxTries=3, waitBetweenTries=5000)  # the reply is out: its thread must be closed, or it's sent twice
 connect("Nouvel email", "Nouveaux emails (fetch_emails)")
 connect("Nouveaux emails (fetch_emails)", "Un element par fil", 0)
 connect("Un element par fil", "Tarik")
@@ -62,6 +62,7 @@ connect("Nouveaux emails (fetch_emails)", "Une alerte par refus", 0)
 connect("Une alerte par refus", "Manager prevenu de l'expediteur (notify_manager)")
 connect("Reponse (send_email)", "Fil traite (finish_thread)", 0)
 connect("Reponse (send_email)", "Fil traite (finish_thread)", 1)  # not sent (whitelist, SMTP): set aside, with why
+connect("Tarik", "Fil traite (finish_thread)", 1)  # no reply (n8n or the model failing): set aside, with why, never asked twice
 
 flow.save(Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name("tarik-emails.json"),
           "TarikEmails00001", "Tarik - Emails", {"executionOrder": "v1", "saveExecutionProgress": True})

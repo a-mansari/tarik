@@ -156,10 +156,12 @@ def files_to_process(session_id: str, entries: bool = False) -> dict:
     ``entries`` its FEC and grand livre files. Picked here, not by the agent: it never
     sees the files' numbers, so it can't show them to the client."""
     with cabinet_db() as db:
-        # An invoice file left unsplit (its side wasn't given yet) is picked again.
-        rows = db.execute("select id, file_name from tarik_files f where session_id = %s and parent_id is null "
-                          "and (kind is null or (kind = 'invoice' and not exists (select 1 from tarik_files part where part.parent_id = f.id))) "
-                          "and invoice_id is null and statement_id is null order by id", (session_id,)).fetchall()
+        # Whatever has no draft or statement yet, until it has: a file left uncut (its side wasn't given), one invoice
+        # cut out of a PDF whose draft failed, a statement waiting for its bank account. A cut PDF is its parts.
+        rows = db.execute("select id, file_name from tarik_files f where session_id = %s and invoice_id is null "
+                          "and statement_id is null and kind is distinct from 'entries' "
+                          "and not exists (select 1 from tarik_files part where part.parent_id = f.id) order by id",
+                          (session_id,)).fetchall()
     own = [i for i, name in rows if name.lower().endswith(ENTRY_FILES) == entries]
     return ok(f"{len(own)} fichier(s) a traiter.", files=own)
 

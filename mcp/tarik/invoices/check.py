@@ -12,6 +12,7 @@ from tarik.dossiers.search import MIN_SIMILARITY, normalized, similarity
 from tarik.core.cabinets import cabinet_db
 from tarik.core.experio import odoo_call, require_invoice
 from tarik.core.model import ask_model
+from tarik.core.numbers import as_number
 
 
 # tarik-master/tarik/agents/ocr.py, verbatim.
@@ -119,6 +120,9 @@ CAPTURED = ["invoice_number", "invoice_date", "amount_untaxed", "amount_tva", "a
             "amount_guarantee_holdback", "amount_prorata", "amount_insurance", "amount_ts", "amount_tsp",
             "advance_amount", "amount_total"]
 CHECKED_FIELDS = [*CAPTURED, "tier", "ice"]
+NUMBERS = set(CAPTURED) - {"invoice_number", "invoice_date"}  # compared as numbers, never as text
+LINE_NUMBERS = ("rate", "amount_ht", "amount_tva")
+
 
 def resolve_date(raw, language):
     """A date copied as printed, plus the invoice's language, as YYYY-MM-DD. Day/month
@@ -147,6 +151,12 @@ def resolve_report(report, stored):
             or not isinstance(report.get("bad_fields", []), list):
         raise ValueError(f"report does not match the expected shape: {str(report)[:200]}")
     extracted = report["extracted"]
+    for field in NUMBERS & set(extracted):
+        extracted[field] = as_number(extracted[field])
+    if not isinstance(extracted.get("tva_lines") or [], list):
+        raise ValueError(f"tva_lines is not a list: {extracted['tva_lines']!r}")
+    extracted["tva_lines"] = [{**line, **{key: as_number(line.get(key)) for key in LINE_NUMBERS}}
+                              for line in extracted.get("tva_lines") or [] if isinstance(line, dict)]
     resolved = resolve_date(extracted.get("invoice_date_raw"), extracted["invoice_date_language"])
     extracted["invoice_date"] = resolved
     bad = [{key: str(b.get(key)).replace("Odoo", "Experio") for key in ("field", "stored", "extracted", "problem")}
@@ -163,8 +173,8 @@ AMOUNT_FIELDS = {"amount_untaxed", "amount_tva", "amount_stamp", "amount_disburs
 
 def drop_false_alarms(bad, stored, extracted):
     """The model's differences, minus the ones measured as false on real invoices:
-    equal values, the same supplier written "NAME - IF", and amounts the model
-    itself read inconsistently (its HT + TVA + taxes not adding up to its TTC)."""
+    equal values (amounts within a centime: 100.5 and 1005 differ), the same supplier written
+    "NAME - IF", and amounts the model itself read inconsistently (HT + TVA + taxes not its TTC)."""
     def plain(value):
         return re.sub(r"[^0-9a-z]", "", normalized(str(value or "")))
     def amount(name):
@@ -176,7 +186,10 @@ def drop_false_alarms(bad, stored, extracted):
     for b in bad:
         field, value = b["field"], stored.get(b["field"])
         read = extracted.get(field)
-        if value not in (None, False, "") and read is not None and plain(value) == plain(read):
+        if field in NUMBERS:
+            if value is not None and read is not None and abs(float(value) - read) < 0.01:
+                continue
+        elif value not in (None, False, "") and read is not None and plain(value) == plain(read):
             continue
         if field == "tier" and value and read and similarity(re.sub(r"\s+-\s+\d+\s*$", "", value), read) >= MIN_SIMILARITY:
             continue
@@ -205,7 +218,8 @@ def check_invoice(invoice_id: int) -> dict:
         return ok(f"Facture {invoice_id} : pas de scan PDF a verifier.")
     pages = scan_pages(invoice["document_pdf"])
     # The model is told "Experio", never "Odoo": its explanations reach the client.
-    # Asked twice when it says "unreadable": MiniMax-M3 sometimes does on a page it reads fine the next time.
+    # Asked twice when it says "unreadable" or answers out of shape: MiniMax-M3 sometimes does on a page it
+    # reads fine the next time.
     for attempt in range(2):
         answer = ask_model(f"{OCR_PROMPT.replace('Odoo', 'Experio')}\nToday's date is {date.today()}.", pages,
                            "Values captured in Experio:\n" + json.dumps(stored, default=str, ensure_ascii=False, indent=2)
@@ -213,8 +227,10 @@ def check_invoice(invoice_id: int) -> dict:
         try:
             report = resolve_report(answer, stored)
         except ValueError as error:
-            print(f"check_invoice {invoice_id}: {error}", flush=True)
-            raise ToolError("Verification de la facture : echec, reessayez plus tard.") from None
+            print(f"check_invoice {invoice_id}: {error} (attempt {attempt + 1})", flush=True)
+            if attempt:
+                raise ToolError("Verification de la facture : echec, reessayez plus tard.") from None
+            continue
         if report["readable"]:
             break
         print(f"check_invoice {invoice_id}: model said unreadable (attempt {attempt + 1})", flush=True)

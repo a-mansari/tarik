@@ -40,8 +40,7 @@ created = flow.checked(CREATE, "create_dossier", (
 # A dossier reused from earlier in the conversation keeps its configuration.
 route("Modele ?", f"{CALL}.model_dossier_id > 0 && !{RESULT}.reused ? 0 : 1", 2, [880, 200])
 copied = flow.checked(COPY, "copy_configuration", (
-    f"{{ dossier_id: {CREATED}, model_dossier_id: {CALL}.model_dossier_id, "
-    f"session_id: {CALL}.session_id, client_message: {CALL}.client_message || '' }}"), [1100, 120], [1320, 120])
+    f"{{ dossier_id: {CREATED}, model_dossier_id: {CALL}.model_dossier_id }}"), [1100, 120], [1320, 120])
 node(TARGET_NODE, "n8n-nodes-base.code", 2, [1540, 300], {"jsCode": (
     "// The dossier the rest works on: the one given, or the one just created.\n"
     f"const call = {CALL};\n"

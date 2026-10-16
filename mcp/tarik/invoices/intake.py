@@ -100,11 +100,11 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
     ``invoice_type``: achat, vente or mixte, only as the client wrote it in this
     conversation; otherwise the client is asked first and nothing is made."""
     with cabinet_db() as db:
-        row = db.execute("select session_id, file_name, mime_type, data, invoice_id, kind from tarik_files where id = %s for update",
-                         (file_id,)).fetchone()
+        row = db.execute("select session_id, file_name, mime_type, data, invoice_id, kind, parent_id from tarik_files "
+                         "where id = %s for update", (file_id,)).fetchone()
         if not row:
             raise ToolError(f"Aucun fichier n° {file_id}.")
-        session_id, name, mime, data, invoice_id, kind = row
+        session_id, name, mime, data, invoice_id, kind, parent_id = row
         require_kind(name, kind, "invoice")
         if not client_side(invoice_type, " ".join(client_messages(session_id, client_message))):
             return question(f"{name} : s'agit-il de factures d'achat ou de vente ? Rien n'a ete cree.")
@@ -112,7 +112,7 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
         if parts:
             return ok(f"{name} : deja decoupe en {len(parts)} factures : " + ", ".join(f"fichier n° {i} ({n})" for i, n in parts) + ".",
                       files=[i for i, _ in parts])
-        if invoice_id or mime != "application/pdf":
+        if invoice_id or parent_id or mime != "application/pdf":  # parent_id: already one invoice cut out of a PDF
             return ok(f"{name} : 1 facture, fichier n° {file_id}.", files=[file_id])
         try:
             pdf = pypdfium2.PdfDocument(bytes(data))
@@ -155,8 +155,8 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
             raise ToolError(f"Aucun fichier n° {file_id}.")
         name, mime, data, existing, kind = row
         require_kind(name, kind, "invoice")
-        if existing:
-            return ok(f"{name} : facture brouillon deja creee (n° {existing}).", invoice_id=existing)
+        if existing:  # another run made it and works on it: this one leaves it alone
+            return stop(f"{name} : facture brouillon n° {existing} deja creee, deja en cours de traitement.", invoice_id=existing)
         parts = [part for (part,) in db.execute("select id from tarik_files where parent_id = %s order by id", (file_id,))]
         if parts:
             raise ToolError(f"{name} a ete decoupe : creez les brouillons des fichiers n° {', '.join(map(str, parts))}.")

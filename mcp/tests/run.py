@@ -4,7 +4,8 @@
   python3 mcp/tests/run.py                tests covering the files changed since the last commit, new files included
   python3 mcp/tests/run.py --since main   ... changed since main
   python3 mcp/tests/run.py --all          every test
-  python3 mcp/tests/run.py -m security    one category: security, functionality, communication, technical, style, live
+  python3 mcp/tests/run.py -m security    every test of one category: security, functionality, communication,
+                                          technical, style, live (with --since: only those covering the change)
   Any other argument goes to pytest (-x, -k name, a test file...).
 
 A test covers a file when it imports it, directly or through what it imports, or through a conftest.py
@@ -82,8 +83,9 @@ def main(args):
         at = args.index("--since")
         since = args[at + 1]
         del args[at:at + 2]
-    if "--all" in args:
-        args.remove("--all")
+    if "--all" in args or ("-m" in args and since == "HEAD"):  # a category: all of its tests
+        if "--all" in args:
+            args.remove("--all")
         tests = [TESTS]
     else:
         files = changed(since)
@@ -94,7 +96,8 @@ def main(args):
     command = ["docker", "compose", "run", "--rm", "--no-deps", "-e", "PYTHONDONTWRITEBYTECODE=1",
                "-v", f"{MCP}:/app", "-v", f"{REPO / 'workflows'}:/workflows:ro", "tarik-mcp",
                "python", "-m", "pytest", "-p", "no:cacheprovider", *(str(test.relative_to(MCP)) for test in tests), *args]
-    return subprocess.run(command, cwd=REPO).returncode
+    code = subprocess.run(command, cwd=REPO).returncode
+    return 0 if code == 5 else code  # 5: the files chosen hold no test of the category asked (live tests, by default)
 
 
 if __name__ == "__main__":

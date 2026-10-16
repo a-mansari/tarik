@@ -8,6 +8,8 @@ their company_ids, which Experio keeps in step with each dossier's Employees and
 the same dossiers they see in Experio.
 """
 
+import re
+
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server, stop
@@ -46,9 +48,11 @@ def list_collaborators() -> str:
 
 def collaborator(address):
     """The active Experio collaborator with this email (their login), or None: client contacts
-    and unknown addresses don't give Tarik work."""
+    and unknown addresses don't give Tarik work. Compared whole, case aside: Experio's =ilike would read
+    % and _ in an address as wildcards (jean%@cabinet.ma matching jean.dupont@cabinet.ma)."""
+    exact = re.sub(r"([\\%_])", r"\\\1", address)
     found = odoo_call("res.users", "search_read", [("employee_type", "=", "employee"),
-                                                   "|", ("login", "=ilike", address), ("email", "=ilike", address)],
+                                                   "|", ("login", "=ilike", exact), ("email", "=ilike", exact)],
                       fields=["name", "company_ids"], limit=2)
     return found[0] if len(found) == 1 else None  # two users with one address: not a reliable sender
 

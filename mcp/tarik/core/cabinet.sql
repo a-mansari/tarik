@@ -10,7 +10,7 @@ create table if not exists tarik_files (
     data bytea not null,
     invoice_id integer, -- the draft invoice made from it: a second call must not make another
     parent_id integer references tarik_files (id), -- set on each invoice cut out of a multi-invoice PDF
-    kind text check (kind in ('invoice', 'statement', 'entries')), -- identify_document, before anything is created; entries: import_entries
+    kind text check (kind in ('invoice', 'statement', 'entries')), -- identify_document, before anything is created; entries: import_entries took it (imported or refused)
     statement_id integer, -- the bank statement imported from it: a second call must not import it again
     created_at timestamptz not null default now()
 );
@@ -85,6 +85,8 @@ create table if not exists tarik_mail_messages (
     handled boolean not null default false, -- answered by Tarik
     received_at timestamptz not null default now()
 );
+-- Where the sender asked for replies (Reply-To): used only when it is on the whitelist, never as who wrote.
+alter table tarik_mail_messages add column if not exists reply_to text;
 -- When the cabinet's manager was told of a refused sender: at most once a day per sender.
 create table if not exists tarik_mail_alerts (
     id serial primary key,

@@ -10,6 +10,7 @@ from tarik.core.app import ok, question, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.conversation import client_messages, remember_client_message, yes_no
 from tarik.core.experio import DOSSIER_DOMAIN, TEST_MODE, dry_run, experio_refusal, odoo_call, odoo_json, require_dossier
+from tarik.core.numbers import as_number, written_numbers
 from tarik.dossiers.search import dossiers, normalized, similarity
 
 FOLDER_TYPES = {"company": "societe", "person": "personne physique", "cpu": "CPU", "st": "ST"}
@@ -36,11 +37,17 @@ def similar_confirmed(session_id, name, client_message):
     return yes_no(client_message) is True and any(normalized(name) in normalized(message) for message in asked)
 
 
-def skip_agreed(client_message):
-    """Did the client ask, in their own words, for the dossier without the ICE/IF check?
-    Read from their message, not from the agent: MiniMax set the skip on its own."""
-    text = normalized(client_message or "")
-    return "verif" in text and any(word in text for word in ("sans", "ignor", "pas besoin", "pas de", "skip"))
+SKIP_QUESTION = ("Experio verifie l'ICE et l'IF aupres du registre officiel. Confirmez-vous {what} sans cette "
+                 "verification ? oui / non")
+
+
+def skip_confirmed(session_id, step, client_message):
+    """Skipping Experio's ICE/IF check needs the client's yes to Tarik's own question about it, the last one
+    this step asked in the conversation: no guess from their wording, and the model can't decide it."""
+    with cabinet_db() as db:
+        last = db.execute("select message from tarik_results where session_id = %s and step = %s and status = 'question' "
+                          "order by id desc limit 1", (session_id, step)).fetchone()
+    return bool(last) and "sans cette verification" in last[0] and yes_no(client_message) is True
 
 
 ICE_WRITTEN = re.compile(r"(?<!\d)\d{15}(?!\d)")  # an ICE: 15 digits
@@ -62,13 +69,6 @@ def as_written(value, written):
     return value
 
 
-def require_skip_agreed(words, what):
-    """Experio's ICE/IF registry check is skipped only when the client asked for it in ``words``."""
-    if not skip_agreed(words):
-        raise ToolError(f"{what} sans verification de l'ICE et de l'IF refusee : le client doit la demander lui-meme "
-                        "(par exemple « sans verification »).")
-
-
 def require_folder_type(folder_type):
     if folder_type not in FOLDER_TYPES:
         raise ToolError(f"Type de dossier inconnu : {', '.join(FOLDER_TYPES)}.")
@@ -81,7 +81,8 @@ def create_dossier(name: str = "", ice: str | int = "", if_number: str | int = "
     ``if_number`` are the client's ICE and IF, ``folder_type`` company (default),
     person, cpu or st. Experio checks the name is free and the ICE/IF against the
     official registry; ``skip_ice_if_check`` ticks the dossier form's "Ignore ICE/IF
-    Verification", only when ``client_message``, the client's own message, asks for it.
+    Verification", once the client confirmed it (a question first). The ICE and IF are kept only
+    when the client wrote them (``client_message`` and their earlier messages).
     A dossier of that name this conversation (``session_id``) already created is reused:
     MiniMax sometimes asks for it again to import its entries. Nothing is created when a
     dossier has the same ICE or IF; a very similar name is a question to the client first."""
@@ -92,6 +93,11 @@ def create_dossier(name: str = "", ice: str | int = "", if_number: str | int = "
                         "du client remplies (name, ice, if_number, folder_type).")
     ice = as_written(ice, ICE_WRITTEN.findall(client_message or ""))
     if_number = as_written(if_number, IF_WRITTEN.findall(client_message or ""))
+    words = "\n".join(client_messages(session_id, client_message))
+    left_out = [label for key, label, value in (("ice", "ICE", ice), ("if_number", "IF", if_number))
+                if value and not client_wrote(key, value, words)]
+    ice, if_number = ("" if "ICE" in left_out else ice), ("" if "IF" in left_out else if_number)
+    not_taken = f" Non repris, le client ne l'a pas ecrit : {', '.join(left_out)}." if left_out else ""
     require_folder_type(folder_type)
     values = {"name": name, "folder_type": folder_type, "enabled": True}  # enabled, as Experio's dossier import sets it
     with cabinet_db() as db:
@@ -108,18 +114,19 @@ def create_dossier(name: str = "", ice: str | int = "", if_number: str | int = "
         return question(f"Un dossier au nom tres proche existe deja ({', '.join(d['name'] for d in similar)}). "
                         f"Faut-il quand meme creer un nouveau dossier {name} ? oui / non")
     if skip_ice_if_check:
-        require_skip_agreed("\n".join(client_messages(session_id, client_message)), "Creation")
+        if not skip_confirmed(session_id, "create_dossier", client_message):
+            return question(SKIP_QUESTION.format(what=f"la creation du dossier {name}"))
         values["ignore_ice_if_verification"] = True
     values.update({key: value.strip() for key, value in (("ice", ice), ("vat", if_number)) if value and value.strip()})
     if dry_run():
-        return ok(f"{TEST_MODE}Le dossier {name} serait cree.")
+        return ok(f"{TEST_MODE}Le dossier {name} serait cree.{not_taken}")
     try:
         dossier_id = odoo_json("res.company", "create", values)
     except Exception as error:  # not refused(): Experio's own reason is told to the client
         print(f"create_dossier {name}: {error}", flush=True)
         raise ToolError(f"Experio refuse de creer le dossier {name} : {experio_refusal(error)}") from None
     unchecked = " ICE et IF non verifies (verification ignoree, a la demande du client)." if skip_ice_if_check else ""
-    return ok(f"Dossier {name} cree dans Experio.{unchecked}", dossier_id=dossier_id)
+    return ok(f"Dossier {name} cree dans Experio.{unchecked}{not_taken}", dossier_id=dossier_id)
 
 
 # What a client may change in a dossier: the fields of Experio's dossier form, before its tabs (the
@@ -128,7 +135,7 @@ EDITABLE = {"name": ("name", "nom"), "folder_type": ("folder_type", "type"), "ic
             "rc": ("rc", "RC"), "patente": ("pat", "patente"), "tsc": ("tsc", "T.S.C"), "capital": ("capital", "capital"),
             "cnss": ("cnss_number", "CNSS"), "street": ("street", "adresse"), "street2": ("street2", "complement d'adresse"),
             "city": ("city", "ville"), "zip": ("zip", "code postal")}
-NUMBERS = {"ice", "if_number", "rc", "patente", "tsc", "capital", "cnss", "zip"}  # checked digit for digit
+IDENTIFIERS = {"ice", "if_number", "rc", "patente", "tsc", "cnss", "zip"}  # checked digit for digit
 TYPE_WORDS = {"person": ("personne physique", "physique"), "company": ("societe", "personne morale", "morale"),
               "cpu": ("cpu",), "st": ("sole trader", "commercant", "entreprise individuelle")}
 
@@ -138,14 +145,27 @@ def digits(text):
     return re.findall(r"\d+", re.sub(r"(?<=\d)[ .,\u202f\u00a0](?=\d)", "", text or ""))
 
 
+def said(phrase, words):
+    """``phrase`` is in ``words`` as whole words: "alpha" is not in "alphanumerique"."""
+    return bool(phrase) and re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", words) is not None
+
+
 def client_wrote(key, value, words):
-    """Did the client write this new value themselves? A model may not choose nor "correct" one."""
-    if key in NUMBERS:
+    """Did the client write this new value themselves? A model may not choose nor "correct" one.
+    An identifier is one of the numbers they wrote, digit for digit; the capital, one of their amounts,
+    its decimals kept (100 000,50); a text, whole words of theirs."""
+    if key == "capital":
+        try:
+            amount = as_number(str(value))
+        except ValueError:
+            return False
+        return any(abs(amount - written) < 0.005 for written in written_numbers(words))
+    if key in IDENTIFIERS:
         number = re.sub(r"\.0+$", "", str(value)).replace(" ", "")
         return number.isdigit() and number in digits(words)
     if key == "folder_type":
-        return any(word in normalized(words) for word in TYPE_WORDS.get(value, ()))
-    return bool(normalized(value)) and normalized(value) in normalized(words)
+        return any(said(word, normalized(words)) for word in TYPE_WORDS.get(value, ()))
+    return said(normalized(value), normalized(words))
 
 
 @server.tool()
@@ -157,7 +177,7 @@ def update_dossier(dossier_id: int, name: str = "", folder_type: str = "", ice: 
     """Change fields of an existing dossier, as its Experio form does: only those given (empty: unchanged),
     and only to values the client wrote themselves (``client_message`` and their earlier messages in
     ``session_id``). An ICE or IF another dossier has, or a name another dossier has, is refused; Experio
-    checks the ICE and IF against the registry, skipped only when the client asks for it in their words."""
+    checks the ICE and IF against the registry, skipped only once the client confirmed it (a question first)."""
     dossier = require_dossier(dossier_id)
     asked = {key: str(value).strip() for key, value in (
         ("name", name), ("folder_type", folder_type), ("ice", ice), ("if_number", if_number), ("rc", rc), ("patente", patente),
@@ -180,7 +200,7 @@ def update_dossier(dossier_id: int, name: str = "", folder_type: str = "", ice: 
     changes = {}
     for key, value in asked.items():
         field = EDITABLE[key][0]
-        new = float(value) if key == "capital" else (" ".join(value.split()) if key == "name" else value)
+        new = as_number(value) if key == "capital" else (" ".join(value.split()) if key == "name" else value)
         if (current.get(field) or "") != new and not (key == "capital" and float(current.get(field) or 0) == new):
             changes[field] = new
     if not changes:
@@ -194,7 +214,8 @@ def update_dossier(dossier_id: int, name: str = "", folder_type: str = "", ice: 
     if "name" in changes and any(normalized(d["name"]) == normalized(changes["name"]) and d["id"] != dossier_id for d in dossiers()):
         return stop(f"Dossier {dossier} non modifie : un autre dossier s'appelle deja {changes['name']}.")
     if skip_ice_if_check:
-        require_skip_agreed(words, "Modification")
+        if not skip_confirmed(session_id, "update_dossier", client_message):
+            return question(SKIP_QUESTION.format(what=f"la modification du dossier {dossier}"))
         changes["ignore_ice_if_verification"] = True
     shown = " ; ".join(f"{EDITABLE[key][1]} : {current.get(EDITABLE[key][0]) or 'vide'} -> {changes[EDITABLE[key][0]]}"
                        for key in asked if EDITABLE[key][0] in changes)

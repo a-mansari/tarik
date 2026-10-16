@@ -38,14 +38,15 @@ class Workflow:
             outputs.append([])
         outputs[output].append({"node": target, "type": "main", "index": 0})
 
-    def mcp(self, name, tool, arguments, position):
-        """One step: an MCP call. Output 0 = its answer, output 1 = a tool error."""
+    def mcp(self, name, tool, arguments, position, timeout=300, **extra):
+        """One step: an MCP call, given up after ``timeout`` seconds. Output 0 = its answer, output 1 = a tool
+        error. ``extra``: n8n's node settings (retryOnFail...)."""
         return self.node(name, "@n8n/n8n-nodes-langchain.mcpClient", 1.1, position, {
             "endpointUrl": self.mcp_url, "serverTransport": "httpStreamable",
             "tool": {"__rl": True, "mode": "id", "value": tool},
             "inputMode": "json", "jsonInput": "={{ JSON.stringify(" + arguments + ") }}",
-            "options": {"timeout": 300000},
-        }, onError="continueErrorOutput")
+            "options": {"timeout": timeout * 1000},
+        }, onError="continueErrorOutput", **extra)
 
     def route(self, name, expression, outputs, position):
         return self.node(name, "n8n-nodes-base.switch", 3.2, position,

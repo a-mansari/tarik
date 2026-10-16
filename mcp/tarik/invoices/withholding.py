@@ -8,40 +8,10 @@ remembers it when there was a retenue), and the questions tarik-master asks -- a
 supplier with no known rule, local fees (6136) with none.
 """
 
-import re
-
 from tarik.core.app import ok, question, server, with_ids
 from tarik.core.experio import (dry_run, experio_messages, fill_invoice, invoice_context, odoo_call, odoo_json, refused,
                                 require_draft, require_invoice, test_mode_note)
-
-# tarik-master/tarik/orchestrator.py, verbatim.
-WITHHOLDING_CHOICES = {"1": "none", "2": "supplier", "3": "society"}
-
-
-def withholding_answer(reply):
-    """1/2/3 or the words; "etranger" / "hors Maroc" = service rendered abroad."""
-    text = (reply or "").lower().replace("é", "e")
-    rule = next((rule for key, rule in WITHHOLDING_CHOICES.items() if key in text), None)
-    rule = rule or ("none" if "sans" in text else "society" if "societe" in text
-                    else "supplier" if "fournisseur" in text else None)
-    if not rule:
-        return None
-    abroad = "etranger" in text or "hors maroc" in text
-    return {"retenue": rule != "none", "foreign_withholding": rule, "local_service": not abroad}
-
-
-def local_withholding_answer(reply):
-    """"sans", or the rates: 5/10/15/20/30 is the RAS IS/IR, 75/100 the RAS TVA."""
-    text = (reply or "").lower()
-    rates = re.findall(r"\d+", text)
-    is_ir = next((r for r in rates if r in ("5", "10", "15", "20", "30")), None)
-    tva = next((r for r in rates if r in ("75", "100")), "0")
-    if is_ir or tva != "0":
-        return {"retenue": True, "local_withholding_percentage": is_ir or False, "tax_withholding_percentage": tva}
-    if "sans" in text or text.strip() in ("non", "0", "1"):
-        return {"retenue": False, "local_withholding_percentage": False, "tax_withholding_percentage": "0"}
-    return None
-
+from tarik.core.model import ask_model
 
 QUESTIONS = {
     "foreign": ("quelle retenue a la source etrangere ?\n"
@@ -49,6 +19,57 @@ QUESTIONS = {
                 "(ajoutez « hors Maroc » si le service est rendu a l'etranger)"),
     "local": "y a-t-il une retenue a la source ? Repondez « sans », ou le taux (ex. « 10 » ou « 10 et 75 »).",
 }
+
+
+# The client's answer is read by the model, then checked here against the only values Experio takes:
+# free text ("a la charge de la societe, contrat 2025", "sans, facture du 15/03") defeats any pattern.
+ANSWER_PROMPT = """You read a client's answer to a question about the withholding tax (retenue a la source) of
+one Moroccan invoice. Report only what the answer itself says. Numbers that are dates, contract or invoice
+numbers are not rates. When the answer does not clearly answer the question, say so with null."""
+FOREIGN_SHAPE = ('Answer with only a JSON object: {"rule": "none"|"supplier"|"society"|null, "abroad": true|false}. '
+                 'rule: none = sans retenue (1), supplier = a la charge du fournisseur (2), society = a la charge de la '
+                 'societe (3), null when the answer does not say. abroad: the service was rendered outside Morocco '
+                 '("hors Maroc", "a l\'etranger").')
+LOCAL_SHAPE = ('Answer with only a JSON object: {"retenue": true|false|null, "is_ir": 5|10|15|20|30|null, "tva": 0|75|100}. '
+               'retenue: false for no withholding ("sans", "non"), true when the answer gives a rate, null when it does '
+               'not say. is_ir: the IS/IR withholding rate it gives, else null. tva: the TVA withholding rate it gives, else 0.')
+IS_IR_RATES, TVA_RATES = {5, 10, 15, 20, 30}, {0, 75, 100}
+
+
+def read_answer(kind, reply):
+    """The model's reading of the client's answer to QUESTIONS[kind]."""
+    return ask_model(ANSWER_PROMPT, [], f"Question: {QUESTIONS[kind]}\nClient's answer: {reply}\n\n"
+                     + (FOREIGN_SHAPE if kind == "foreign" else LOCAL_SHAPE), "Lecture de la reponse")
+
+
+def rate(value):
+    """A whole rate the model gave (20, "20", 20.0), or None."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return int(value) if value == int(value) else None
+    return int(value) if str(value).strip().isdigit() else None
+
+
+def withholding_answer(reply):
+    """The foreign rule the client chose, or None when their answer doesn't say."""
+    answer = read_answer("foreign", reply)
+    rule = answer.get("rule")
+    if rule not in ("none", "supplier", "society"):
+        return None
+    return {"retenue": rule != "none", "foreign_withholding": rule, "local_service": answer.get("abroad") is not True}
+
+
+def local_withholding_answer(reply):
+    """No withholding, or its IS/IR and TVA rates; None when the answer doesn't say."""
+    answer = read_answer("local", reply)
+    if answer.get("retenue") is False:
+        return {"retenue": False, "local_withholding_percentage": False, "tax_withholding_percentage": "0"}
+    is_ir, tva = rate(answer.get("is_ir")), rate(answer.get("tva", 0)) or 0
+    if answer.get("retenue") is not True or (is_ir is not None and is_ir not in IS_IR_RATES) or tva not in TVA_RATES \
+            or (is_ir is None and not tva):
+        return None
+    return {"retenue": True, "local_withholding_percentage": str(is_ir) if is_ir else False, "tax_withholding_percentage": str(tva)}
 
 
 LOCAL_RAS_ACCOUNTS = ("6136",)  # honoraires, commissions: the local purchases where a RAS is usual (tarik-master)

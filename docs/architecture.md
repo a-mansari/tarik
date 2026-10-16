@@ -79,12 +79,19 @@ right every time is decided by n8n or by code:
 
 - **The conversation, its attachments and the client's own words**: n8n fills tool inputs fixed to
   `{{threadId}}`, `{{attachments}}` and `{{clientMessage}}` (patches in `n8n/patch.js`).
-- **The client's consent**: skipping Experio's ICE/IF check, copying a model dossier's configuration
-  and every modified value must appear in the client's own messages, checked in Python.
+- **The client's consent**: skipping Experio's ICE/IF check needs the client's "oui" to Tarik's own
+  question about it; every modified value, and a new dossier's ICE and IF, must appear in the client's
+  own messages (whole words, amounts as numbers), checked in Python. Copying a model dossier's
+  configuration is the agent's decision, guided by its skill: the only one left to it.
 - **ICE and IF exactly as written**: a number that lost its leading zeros is restored from the
   client's message.
+- **Who wrote an email**: its From address alone; Reply-To is only where the reply goes, and only when
+  it is on the whitelist. A colleague's reply in someone else's thread is their own thread, with their
+  own rights.
 - **Who may work on a dossier by email**: the sender must be an Experio collaborator with that dossier.
 - **Who may receive an email**: the cabinet's whitelist (`MAIL_ALLOWED_RECIPIENTS`).
+- **Amounts**: compared as numbers (100.5 and 1005 differ), the model's own figures read as numbers or
+  asked again, never guessed.
 - **What never reaches the agent**: settings, secrets, the database name and Experio's own error text
   (a test calls every tool with marker values to check it).
 

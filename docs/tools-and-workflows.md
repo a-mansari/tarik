@@ -35,7 +35,7 @@ an MCP call at the cabinet's address, its outcome recorded; the run's summary is
 | Workflow | Started by | What it does |
 |---|---|---|
 | **Tarik - Traitement** (`TarikTraitement1`) | `Experio_traiter_fichiers` | Saves the agent's attachments, checks the email sender, then for each file: identifies it, imports a bank statement, or splits a PDF into invoices and runs each through the sequence: draft, Experio's reading, check against the scan, correction, classification, tiers, duplicate, account, TVA, journal, withholding, prepaid charges, fiscal year, posting. A step that needs the client stops with a question. Modes `answer` and `resume` exist but no agent tool uses them yet. |
-| **Tarik - Dossier** (`TarikDossier0001`) | `Experio_parametrer_dossier` | A new dossier: creates it, copies a model dossier's configuration if the client asked. An existing one: checks the email sender. Then imports each FEC or grand livre, finishes the onboarding, and reports the dossier's state. |
+| **Tarik - Dossier** (`TarikDossier0001`) | `Experio_parametrer_dossier` | A new dossier: creates it, copies a model dossier's configuration when the agent gives one. An existing one: checks the email sender. Then imports each FEC or grand livre, finishes the onboarding, and reports the dossier's state. |
 | **Tarik - Modification** (`TarikModif000001`) | `Experio_modifier_dossier` | Checks the email sender, then changes only the given fields, only to values the client wrote. |
 | **Tarik - Emails** (`TarikEmails00001`) | `tarik-mail-watch` (webhook, secret header) | Reads the cabinet's new emails, gets each thread's reply from the cabinet's agent, sends it, and tells the manager about refused senders. |
 
@@ -54,7 +54,7 @@ above; the workflows call the rest.
 | `check_sender` | An email's sender must be a collaborator with that dossier; the chat has no sender to check. |
 | `create_dossier` | Creates a dossier; refuses an existing ICE or IF, asks about a very similar name; ICE/IF as the client wrote them. |
 | `update_dossier` | Changes a dossier's identity fields; only values the client wrote; refuses another dossier's ICE, IF or name. |
-| `copy_configuration` | Copies a model dossier's configuration, only when the client asked for it. |
+| `copy_configuration` | Copies a model dossier's configuration (the agent asks for it when the client named that dossier). |
 | `import_entries` | Imports a FEC or grand livre through Experio's Importation screen. |
 | `finish_setup` / `setup_status` | Finishes a new dossier's onboarding / where its setup stands. |
 
