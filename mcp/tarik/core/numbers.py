@@ -7,15 +7,6 @@ its scan, and a value the agent gives from the client's words counts when it is 
 import re
 
 
-class Ambiguous(ValueError):
-    """A number with several readings: ``readings`` holds them, the writer must say which."""
-
-    def __init__(self, value, readings):
-        """``value`` as written, ``readings`` (list of float) what it may mean."""
-        super().__init__(f"{value!r} reads as {' or '.join(f'{r:g}' for r in readings)}")
-        self.readings = readings
-
-
 def readings(value):
     """Every value ``value`` may mean, smallest first; [] when it is no number. 454.55 and 20 are
     themselves; "1 005,50", "1.005,50" and "1,005.50" are 1005.5; "1,005" and "1.005" are 1.005 or 1005."""
@@ -41,15 +32,15 @@ def readings(value):
 
 
 def as_number(value):
-    """The one value a number means: None stays None (not read). No number: ValueError; several
-    readings: Ambiguous. Never a guess."""
+    """The one value a number means: None stays None (not read). No number, or several readings: ValueError,
+    saying which readings. Never a guess."""
     if value is None:
         return None
     found = readings(value)
     if not found:
         raise ValueError(f"not a number: {value!r}")
     if len(found) > 1:
-        raise Ambiguous(value, found)
+        raise ValueError(f"{value!r} reads as {' or '.join(f'{reading:g}' for reading in found)}")
     return found[0]
 
 
