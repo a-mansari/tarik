@@ -94,14 +94,14 @@ def config_for(cabinet, name):
 
 
 def agents_by_cabinet():
-    """The existing agents, by the cabinet of their MCP address."""
+    """The existing agents, by the cabinet of their MCP address: (id, get_agent's answer, project)."""
     found = {}
     for agent in n8n("search_agents")["data"]:
         config = n8n("get_agent", agentId=agent["id"])
         for server in (config.get("config") or config.get("agent", {}).get("config") or {}).get("mcpServers", []):
             for cabinet in CABINETS:
                 if server.get("url", "").endswith(f"/c/{cabinet}/mcp"):
-                    found.setdefault(cabinet, []).append((agent["id"], config.get("configHash"), agent["projectId"]))
+                    found.setdefault(cabinet, []).append((agent["id"], config, agent["projectId"]))
     return found
 
 
@@ -150,35 +150,36 @@ def check_skills():
         raise SystemExit(f"skills name tools or fields the agents do not have: {wrong}")
 
 
-def mutate(agent_id, operation):
-    """One change to an agent, on its latest configuration (n8n refuses a change made on an older one)."""
-    return n8n(
-        "mutate_agent",
-        agentId=agent_id,
-        baseConfigHash=n8n("get_agent", agentId=agent_id)["configHash"],
-        operation=operation,
-    )
+def mutate(agent_id, base, operation):
+    """One change to an agent whose configuration has hash ``base`` (n8n refuses a change made on an
+    older one); the configuration's new hash. n8n's MCP server limits calls per minute: no call for nothing."""
+    return n8n("mutate_agent", agentId=agent_id, baseConfigHash=base, operation=operation)["configHash"]
 
 
-def sync_skills(agent_id):
+def sync_skills(agent_id, current, base):
     """Each skill of workflows/skills/ in the agent, as written there: updated in place (found by name),
-    or created and attached. A skill no longer in workflows/skills/ is deleted."""
-    current = n8n("get_agent", agentId=agent_id)
-    by_name = {skill["name"]: skill_id for skill_id, skill in current["skills"].items()}
+    or created and attached, when it differs. A skill no longer in workflows/skills/ is deleted.
+    ``current``: get_agent's answer, ``base`` the hash since. Returns the skills' names and the new hash."""
+    by_name = {skill["name"]: (skill_id, skill) for skill_id, skill in current["skills"].items()}
     wanted = list(skill_files())
     for skill in wanted:
-        skill_id = by_name.get(skill["name"])
-        mutate(agent_id, {"type": "skill.upsert", "skill": skill, **({"skillId": skill_id} if skill_id else {})})
-    for name, skill_id in by_name.items():
+        skill_id, now = by_name.get(skill["name"], (None, None))
+        if now != skill:
+            operation = {"type": "skill.upsert", "skill": skill, **({"skillId": skill_id} if skill_id else {})}
+            base = mutate(agent_id, base, operation)
+    for name, (skill_id, _) in by_name.items():
         if name not in {skill["name"] for skill in wanted}:
-            mutate(agent_id, {"type": "skill.delete", "skillId": skill_id})
-    return [skill["name"] for skill in wanted]
+            base = mutate(agent_id, base, {"type": "skill.delete", "skillId": skill_id})
+    return [skill["name"] for skill in wanted], base
 
 
-def update(agent_id, config):
-    """Replace agent ``agent_id``'s configuration with ``config``, keeping the skills attached to it."""
-    config["skills"] = n8n("get_agent", agentId=agent_id)["config"].get("skills") or []
-    mutate(agent_id, {"type": "config.replace", "config": config})
+def update(agent_id, config, current):
+    """Replace agent ``agent_id``'s configuration (get_agent's answer ``current``) with ``config``, keeping
+    the skills attached to it, when a value differs (n8n's editor re-saves it changed); the new hash."""
+    config["skills"] = current["config"].get("skills") or []
+    if all(current["config"].get(key) == value for key, value in config.items()):
+        return current["configHash"]
+    return mutate(agent_id, current["configHash"], {"type": "config.replace", "config": config})
 
 
 def create(project, config):
@@ -197,11 +198,15 @@ def main():
     for cabinet, name in CABINETS.items():
         config = config_for(cabinet, name)
         if cabinet in existing:
-            agent_id, action = existing[cabinet][0][0], "updated"
-            update(agent_id, config)
+            agent_id, current, _ = existing[cabinet][0]
+            base = update(agent_id, config, current)
         else:
-            agent_id, action = create(project, config), "created"
-        skills = ", ".join(sync_skills(agent_id))
+            agent_id = create(project, config)
+            current = n8n("get_agent", agentId=agent_id)
+            base = current["configHash"]
+        skills, final = sync_skills(agent_id, current, base)
+        skills = ", ".join(skills)
+        action = "created" if cabinet not in existing else "updated" if final != current["configHash"] else "unchanged"
         label = config.get("name", "Tarik - " + name)  # a created agent's name was taken out of its config
         print(f"{cabinet.upper()}__AGENT_ID={agent_id}  # {label}, {action}, skills: {skills}")
 
