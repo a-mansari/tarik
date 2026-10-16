@@ -237,7 +237,12 @@ python3 mcp/tests/run.py
 docker compose up -d --build --force-recreate tarik-mcp tarik-mail-watch
 ```
 
-The code has one format: black, lines of 120 at most (`pyproject.toml`; `tests/style` checks it).
+The Python code has one style: ruff's formatter and linter for Python 3.14, lines of 120 at most
+(`pyproject.toml`; `tests/style` checks it). To apply it:
+
+```bash
+docker compose run --rm --no-deps --user "$(id -u):$(id -g)" -v "$PWD:/repo" -w /repo tarik-mcp sh -c "ruff check --no-cache --fix . && ruff format --no-cache ."
+```
 
 `run.py` picks the tests that import the changed files; `--all` runs every test, `-m <category>` one
 category. Each test has one: `security`, `functionality`, `communication`, `technical`, `style` (lint,

@@ -2,11 +2,10 @@
 
 import pytest
 
+from shared import A, B
 from tarik.core import experio
 from tarik.core.cabinets import current, setting, using
 from tarik.emails import sending
-
-from shared import A, B
 
 
 @pytest.mark.security

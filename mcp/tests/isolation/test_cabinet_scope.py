@@ -6,10 +6,9 @@ import time
 
 import pytest
 
+from shared import A, B
 from tarik.core import cabinets, experio
 from tarik.core.cabinets import cabinet_db, cabinet_names, current, setting, using
-
-from shared import A, B
 
 
 @pytest.mark.security
@@ -54,9 +53,8 @@ def test_nothing_runs_without_a_cabinet():
 @pytest.mark.security
 def test_an_unknown_cabinet_is_refused(two_cabinets):
     for name in ("experio_cabinet_999", "", None, A.upper(), A + " "):
-        with pytest.raises(PermissionError):
-            with using(name):
-                pass
+        with pytest.raises(PermissionError), using(name):
+            pass
 
 
 @pytest.mark.technical
@@ -71,9 +69,8 @@ def test_scopes_nest_and_restore(two_cabinets):
 
 @pytest.mark.technical
 def test_a_scope_is_restored_after_an_error(two_cabinets):
-    with pytest.raises(ValueError):
-        with using(A):
-            raise ValueError
+    with pytest.raises(ValueError), using(A):
+        raise ValueError
     with pytest.raises(RuntimeError):
         current()
 

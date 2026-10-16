@@ -10,6 +10,7 @@ read here and the settings come from the environment: the tests only (server.py 
 import os
 import threading
 import time
+from pathlib import Path
 
 import httpx
 
@@ -35,7 +36,7 @@ def _request(method, path, token="", **kwargs):
 
 def _login():
     """Log in with the AppRole's ids; the token is kept, renewed once 80% of its lease has passed."""
-    ids = {name: open(os.path.join(APPROLE, name)).read().strip() for name in ("role_id", "secret_id")}
+    ids = {name: Path(APPROLE, name).read_text().strip() for name in ("role_id", "secret_id")}
     auth = _request("POST", "/v1/auth/approle/login", json=ids)["auth"]
     _state.update(token=auth["client_token"], token_until=time.monotonic() + 0.8 * auth["lease_duration"])
 

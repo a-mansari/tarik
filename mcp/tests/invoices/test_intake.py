@@ -29,11 +29,11 @@ def test_a_pdf_is_cut_where_its_invoices_start():
     parts = split_pdf(four, [1, 3])
     assert [(first, last) for first, last, _ in parts] == [(1, 2), (3, 4)]
     assert [len(pypdfium2.PdfDocument(raw)) for _, _, raw in parts] == [2, 2]
-    assert [(f, l) for f, l, _ in split_pdf(four, [3, 0, 9, 3])] == [
+    assert [(first, last) for first, last, _ in split_pdf(four, [3, 0, 9, 3])] == [
         (1, 2),
         (3, 4),
     ]  # page 1 added, out of range dropped
-    assert [(f, l) for f, l, _ in split_pdf(four, [])] == [(1, 4)]
+    assert [(first, last) for first, last, _ in split_pdf(four, [])] == [(1, 4)]
     assert len(split_pdf(four, [1, 2, 3, 4])) == 4
 
 

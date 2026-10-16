@@ -3,10 +3,9 @@
 import psycopg
 import pytest
 
+from shared import A, B, payload
 from tarik.core.cabinets import POSTGRES, cabinet_db, using
 from tarik.invoices import pipeline
-
-from shared import A, B, payload
 
 
 @pytest.mark.security

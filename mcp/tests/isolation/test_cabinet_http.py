@@ -9,9 +9,8 @@ import httpx
 import pytest
 
 import server as mcp_server
-from tarik.core.app import server
-
 from shared import A, B, call, payload, serving
+from tarik.core.app import server
 
 
 @pytest.mark.security

@@ -31,6 +31,8 @@ def other(path):
         return [MCP / "tarik/core/cabinets.py"]  # the tables cabinets.py creates
     if path.is_relative_to(REPO / "workflows"):
         return [STYLE, TESTS / "n8n/test_conversation.py"]
+    if path == REPO / "pyproject.toml":
+        return [STYLE]  # the code's style
     if path == REPO / "n8n/patch.js":
         return list((TESTS / "n8n").glob("test_*.py"))
     return []
@@ -114,7 +116,8 @@ def pytest_command(tests, args):
     """The docker compose command running pytest on ``tests`` with ``args``, in a throwaway tarik-mcp container."""
     # --build: the image the tests run in is the Dockerfile's as it is now (its dependencies), the code mounted over it.
     container = ["docker", "compose", "run", "--rm", "--build", "--no-deps", "-e", "PYTHONDONTWRITEBYTECODE=1"]
-    mounts = ["-v", f"{MCP}:/app", "-v", f"{REPO / 'workflows'}:/workflows:ro", "tarik-mcp"]
+    mounts = ["-v", f"{MCP}:/app", "-v", f"{REPO / 'workflows'}:/workflows:ro", "-v", f"{REPO / 'docs'}:/docs:ro"]
+    mounts += ["-v", f"{REPO / 'pyproject.toml'}:/pyproject.toml:ro", "tarik-mcp"]
     pytest = ["python", "-m", "pytest", "-p", "no:cacheprovider"]
     return [*container, *mounts, *pytest, *(str(test.relative_to(MCP)) for test in tests), *args]
 

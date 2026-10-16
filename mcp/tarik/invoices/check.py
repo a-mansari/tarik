@@ -15,7 +15,6 @@ from tarik.core.model import ask_model
 from tarik.core.numbers import as_number
 from tarik.core.text import normalized, similarity, without_if
 
-
 # tarik-master/tarik/agents/ocr.py, verbatim.
 OCR_PROMPT = """You verify invoices captured in a Moroccan (CGNC) accounting app.
 
@@ -118,10 +117,21 @@ invoice_date_language is required: always pick one. Every num is a JSON number, 
 thousands separator (1005.5, never "1 005,50" nor "1,005")."""
 
 # The invoice header fields Experio captured (correct_invoice may write them back), then the tiers' name and ICE.
-CAPTURED = (
-    "invoice_number invoice_date amount_untaxed amount_tva amount_stamp amount_disbursement amount_guarantee_holdback "
-    "amount_prorata amount_insurance amount_ts amount_tsp advance_amount amount_total"
-).split()
+CAPTURED = [
+    "invoice_number",
+    "invoice_date",
+    "amount_untaxed",
+    "amount_tva",
+    "amount_stamp",
+    "amount_disbursement",
+    "amount_guarantee_holdback",
+    "amount_prorata",
+    "amount_insurance",
+    "amount_ts",
+    "amount_tsp",
+    "advance_amount",
+    "amount_total",
+]
 CHECKED_FIELDS = [*CAPTURED, "tier", "ice"]
 NUMBERS = set(CAPTURED) - {"invoice_number", "invoice_date"}  # compared as numbers, never as text
 LINE_NUMBERS = ("rate", "amount_ht", "amount_tva")

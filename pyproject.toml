@@ -1,4 +1,14 @@
-# The one code style, for mcp/ and workflows/: black, lines of 120 at most (tests/style checks both).
-[tool.black]
+# The one code style, for mcp/ and workflows/: ruff's formatter and linter, lines of 120 at most
+# (tests/style checks both; tests/run.py mounts this file in the container).
+[tool.ruff]
 line-length = 120
-target-version = ["py312"]
+target-version = "py314"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, import order, Python 3.14 idioms, likely bugs, simpler comprehensions and conditions.
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM"]
+
+[tool.ruff.lint.isort]
+# Our own modules, wherever ruff runs from (the host, or tests/run.py's container).
+known-first-party = ["tarik", "server", "watcher", "steps", "tests", "shared", "conftest"]
+

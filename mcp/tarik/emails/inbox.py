@@ -20,9 +20,9 @@ from mcp.server.mcpserver.exceptions import ToolError
 from tarik.core.app import log, ok, server
 from tarik.core.cabinets import cabinet_db, current, setting
 from tarik.core.config import READING
-from tarik.dossiers.setup import waiting_setups
 from tarik.core.experio import odoo_call
 from tarik.dossiers.people import collaborator
+from tarik.dossiers.setup import waiting_setups
 from tarik.emails.sending import imap_login, recipient_allowed, send_email
 from tarik.invoices.pipeline import waiting_drafts
 

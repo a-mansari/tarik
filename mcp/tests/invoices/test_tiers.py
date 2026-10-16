@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.core.text import similarity
 from tarik.core.config import TIERS_MIN_SIMILARITY
+from tarik.core.text import similarity
 from tarik.invoices.tiers import pick_tiers
 
 TIERS = [

@@ -11,7 +11,7 @@ import re
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import with_ids, ok, question, server
+from tarik.core.app import ok, question, server, with_ids
 from tarik.core.config import TIERS_MIN_SIMILARITY
 from tarik.core.experio import (
     dry_run,
