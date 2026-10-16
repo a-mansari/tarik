@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Tarik - Modification</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one ledger sheet — header, a flow strip, a 2×2 grid of workflow cards, then a two-column footer of rules and limits. */
+:root {
+  --paper: #f5f7f6;
+  --sheet: #ffffff;
+  --ink: #17262a;
+  --muted: #56676b;
+  --rule: #d5dedc;
+  --accent: #1d6274;
+  --accent-soft: #e3eff2;
+  --warn: #8a5a12;
+  --warn-soft: #fbf1df;
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1719; --sheet: #162124; --ink: #e3ecec; --muted: #9db0b3; --rule: #2b3b3f;
+    --accent: #7cc3d6; --accent-soft: #1b3239; --warn: #e8b968; --warn-soft: #2e2617; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1719; --sheet: #162124; --ink: #e3ecec; --muted: #9db0b3; --rule: #2b3b3f;
+  --accent: #7cc3d6; --accent-soft: #1b3239; --warn: #e8b968; --warn-soft: #2e2617; color-scheme: dark;
+}
+body { background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+.page { max-width: 1080px; margin: 0 auto; padding: 32px 20px 40px; display: grid; gap: 28px; }
+header { display: grid; gap: 8px; border-bottom: 2px solid var(--ink); padding-bottom: 18px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 4.2vw, 40px); line-height: 1.1; margin: 0; text-wrap: balance; }
+.lede { margin: 0; color: var(--ink); font-size: 16px; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 20px; margin: 0; text-wrap: balance; }
+h3 { font-size: 13px; font-family: var(--mono); font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0; }
+
+/* Flow strip */
+.flow { overflow-x: auto; }
+.flow-inner { display: grid; grid-template-columns: auto 24px auto 24px auto 24px 1fr; align-items: center; gap: 8px; min-width: 760px; }
+.node { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font-size: 14px; }
+.node b { display: block; font-weight: 600; }
+.node span { color: var(--muted); font-size: 13px; }
+.node.agent { border-color: var(--accent); background: var(--accent-soft); }
+.arrow { color: var(--muted); text-align: center; font-family: var(--mono); }
+.targets { display: grid; gap: 6px; }
+.targets .node { padding: 7px 12px; }
+.flow-note { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+
+/* Workflow cards */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 18px 20px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.card header { border: 0; padding: 0; gap: 2px; }
+.card .what { margin: 0; }
+ol { margin: 0; padding-left: 20px; display: grid; gap: 3px; }
+ol li::marker { font-family: var(--mono); color: var(--accent); }
+.note { font-size: 14px; border-left: 3px solid var(--accent); padding: 6px 10px; background: var(--accent-soft); border-radius: 0 4px 4px 0; margin: 0; }
+.more { justify-self: start; font-weight: 600; color: var(--accent); text-decoration: none; border-bottom: 1px solid currentColor; }
+.more:hover, .more:focus-visible { border-bottom-width: 2px; }
+.term { font-family: var(--mono); font-size: 13px; background: var(--accent-soft); padding: 0 4px; border-radius: 3px; }
+
+/* Footer */
+.foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.foot section { display: grid; gap: 10px; align-content: start; min-width: 0; }
+ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.limits { background: var(--warn-soft); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; }
+.limits h2 { color: var(--warn); }
+.stamp { font-family: var(--mono); font-size: 12px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 12px; }
+
+@media (max-width: 760px) {
+  .grid, .foot { grid-template-columns: 1fr; }
+  .page { padding-top: 22px; }
+}
+
+.crumb { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+.crumb a { color: var(--accent); text-decoration: none; }
+.crumb a:hover, .crumb a:focus-visible { text-decoration: underline; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.fact { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.fact b { display: block; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+.map { overflow-x: auto; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; }
+.map svg { display: block; width: 100%; height: auto; }
+.map .edge { fill: none; stroke: var(--rule); stroke-width: 2; }
+.map .box { stroke-width: 2; }
+.map .label { fill: var(--ink); font-family: var(--body); font-size: 20px; }
+.k-trigger { fill: var(--accent-soft); stroke: var(--accent); }
+.k-step { fill: var(--sheet); stroke: var(--accent); }
+.k-decision { fill: var(--warn-soft); stroke: var(--warn); }
+.k-helper { fill: var(--paper); stroke: var(--muted); }
+.k-sub { fill: var(--accent-soft); stroke: var(--ink); }
+.k-record { fill: var(--ink); stroke: var(--ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 14px; border-radius: 4px; border: 2px solid; display: inline-block; }
+.legend .k-trigger { background: var(--accent-soft); border-color: var(--accent); }
+.legend .k-step { background: var(--sheet); border-color: var(--accent); }
+.legend .k-decision { background: var(--warn-soft); border-color: var(--warn); }
+.legend .k-helper { background: var(--paper); border-color: var(--muted); }
+.legend .k-sub { background: var(--accent-soft); border-color: var(--ink); }
+.legend .k-record { background: var(--ink); border-color: var(--ink); }
+.phase { display: grid; gap: 10px; }
+.phase > p { margin: 0; color: var(--muted); }
+.steps { display: grid; gap: 0; border-top: 1px solid var(--rule); }
+.step { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 4px 20px; padding: 10px 0; border-bottom: 1px solid var(--rule); break-inside: avoid; }
+.step code { font-family: var(--mono); font-size: 13px; color: var(--ink); background: var(--accent-soft); padding: 2px 6px; border-radius: 4px; justify-self: start; overflow-wrap: anywhere; }
+.step p { margin: 0; }
+.chain { counter-reset: s; }
+.chain .step code::before { counter-increment: s; content: counter(s) ". "; color: var(--accent); }
+@media screen and (max-width: 760px) {
+  .facts { grid-template-columns: 1fr; }
+  .step { grid-template-columns: 1fr; }
+}
+@page { size: A4 landscape; margin: 12mm; }
+.print-only { display: none; }
+@media print {
+  body { font-size: 12px; background: #fff; }
+  .page { max-width: none; padding: 0; gap: 18px; }
+  .print-only { display: block; }
+  .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .step { grid-template-columns: minmax(0, 300px) minmax(0, 1fr); }
+  .mapwrap { break-before: page; break-inside: avoid; }
+  .map { overflow: visible; }
+  .map svg { min-width: 0 !important; }
+  .phase { break-inside: auto; }
+  .card, .fact, .limits { break-inside: avoid; }
+  a.more { display: none; }
+}
+</style>
+<div class="page">
+  <header>
+    <div class="crumb"><a href="index.html">← Tarik workflows overview</a></div>
+    <h1>Tarik - Modification</h1>
+    <p class="lede">Changes an existing client file's details in Experio: name, type, ICE, IF, RC, patente, T.S.C, capital, CNSS, address. Only the fields the client asked for, only to values the client wrote.</p>
+  </header>
+  <div class="facts"><div class="fact"><b>Started by</b>The AI agent (Experio_modifier_dossier).</div><div class="fact"><b>Duration</b>A few seconds: nothing waits on Experio.</div><div class="fact"><b>Ends with</b>What was changed, or why not.</div></div>
+  <section class="phase mapwrap"><h2>The workflow in n8n</h2>
+    <p>Each box is a node, named exactly as in n8n's editor and placed where it sits there. Lines show where each node leads.</p>
+    <div class="map"><svg viewBox="0 0 1252 654" style="min-width:689px" role="img" aria-label="Map of Tarik - Modification as laid out in n8n"><path class="edge" d="M364,292 C444,292 444,180 524,180"/><path class="edge" d="M140,388 C212,388 212,292 284,292"/><path class="edge" d="M140,388 C212,388 212,484 284,484"/><path class="edge" d="M604,180 C652,180 652,100 700,100"/><g><title>Appel</title><rect class="box k-trigger" x="60" y="348" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="100" y="454"><tspan x="100" dy="0">Appel</tspan></text></g><g><title>Expediteur (check_sender)</title><rect class="box k-step" x="284" y="252" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="324" y="358"><tspan x="324" dy="0">Expediteur</tspan><tspan x="324" dy="23">(check_sender)</tspan></text></g><g><title>Suite apres check_sender</title><rect class="box k-decision" x="524" y="140" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="564" y="246"><tspan x="564" dy="0">Suite apres</tspan><tspan x="564" dy="23">check_sender</tspan></text></g><g><title>Modification (update_dossier)</title><rect class="box k-step" x="700" y="60" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="740" y="166"><tspan x="740" dy="0">Modification</tspan><tspan x="740" dy="23">(update_dossier)</tspan></text></g><g><title>Enregistrer</title><rect class="box k-record" x="1052" y="428" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="1092" y="534"><tspan x="1092" dy="0">Enregistrer</tspan></text></g><g><title>Resume</title><rect class="box k-step" x="284" y="444" width="80" height="80" rx="14"/><text class="label" text-anchor="middle" x="324" y="550"><tspan x="324" dy="0">Resume</tspan></text></g></svg></div><div class="legend"><span><i class="k-trigger"></i>Start</span><span><i class="k-step"></i>Tarik tool (one Experio action)</span><span><i class="k-decision"></i>Decision</span><span><i class="k-record"></i>Record</span></div><p class="legend">Every step also records its outcome in Enregistrer; those lines are left out.</p>
+  </section>
+  <section class="phase"><h2>The steps</h2><div class="steps"><div class="step"><code>Appel</code><p>The call: the conversation, the client file, the fields to change with their new values, the client's message, the firm.</p></div><div class="step"><code>Expediteur (check_sender)</code><p>The email's sender must be one of the firm's staff with this client file assigned.</p></div><div class="step"><code>Suite apres check_sender</code><p>Allowed: on to the change. Otherwise recorded, and nothing changes.</p></div><div class="step"><code>Modification (update_dossier)</code><p>Changes only the fields given, as the client file's Experio form does, and only to values the client wrote in this conversation. An ICE, IF or name another file already has is refused. A new ICE or IF is checked against the official register; skipping that check needs the client's confirmation first.</p></div><div class="step"><code>Enregistrer</code><p>Records the outcome.</p></div><div class="step"><code>Resume</code><p>Runs last: the summary, which the agent copies.</p></div></div></section>
+  <div class="stamp">State as of 16 October 2026 · node names as in n8n's editor</div>
+</div>
+</body>
+</html>
