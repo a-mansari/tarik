@@ -5,8 +5,10 @@ Experio has no creation wizard: a dossier is a res.company created from the Fold
 "Appliquer la configuration" (company.config.wizard) copies a model dossier's accounts, taxes,
 journals, bank and TPE operations and settings. The Importation screen (base_import into
 experio.history) creates whatever the entries need and the dossier lacks -- accounts, journals,
-tiers, exercices -- and auto-detects the settings left empty. Its lines wait until the onboarding
-stepper's "Enregistrer et terminer", which hands them to Experio's processing.
+tiers, exercices -- and auto-detects the settings left empty. While the onboarding is open its lines
+wait, and the stepper's "Enregistrer et terminer" sends those imported more than a minute ago to
+Experio's processing (res.company's write): finish_setup waits for them. Once it is finished, imported
+lines go to the processing at once (experio.history's create): a FEC can come any time after.
 
 Order: the copy comes before the import. The wizard writes every setting of the model and
 empties those whose account it can't find in the dossier; after an import it would erase what
@@ -210,7 +212,7 @@ def finish_setup(dossier_id: int) -> dict:
     context = {"allowed_company_ids": [dossier_id]}
     company = odoo_call("res.company", "read", [dossier_id], fields=["show_onboarding", *STEPPER_JOURNALS, *STEPPER_PREFIXES])[0]
     if not company["show_onboarding"]:
-        return ok(f"Dossier {dossier} : integration deja terminee.")
+        return ok(f"Dossier {dossier} : integration deja terminee, Experio traite les ecritures des leur import.")
     notes = []
     if not odoo_call("exp.fiscal.entries", "search_count", [("company_id", "=", dossier_id), ("state", "=", "open")]):
         year = date.today().year

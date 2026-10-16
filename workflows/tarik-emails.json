@@ -316,6 +316,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Fil traite (finish_thread)",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },

@@ -129,3 +129,10 @@ def test_the_zeros_of_an_ice_given_earlier_come_back_on_the_yes(db_cabinet, monk
     identity.create_dossier(name="FAIR KAPPA", client_message=MESSAGE, session_id="s")  # remembered
     answer = identity.create_dossier(name="FAIR KAPPA", ice=8123456000100, client_message="oui", session_id="s")
     assert checked[-1] == "008123456000100" and "Non repris" not in answer["message"]
+
+
+@pytest.mark.security
+def test_the_agent_says_which_reading_of_the_clients_number_it_meant():
+    assert client_wrote("capital", 1005, "capital 1,005 DH") and client_wrote("capital", 1.005, "capital 1,005 DH")
+    assert not client_wrote("capital", "1,005", "capital 1,005 DH")  # still two readings: the agent must choose
+    assert not client_wrote("capital", "10050", "capital 1,005 DH")

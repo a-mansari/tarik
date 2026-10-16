@@ -2,6 +2,7 @@
 
 import pytest
 
+from tarik.core.numbers import Ambiguous, readings
 from tarik.invoices.check import as_number, drop_false_alarms, resolve_date, resolve_report
 from tests.fakes import flag
 
@@ -70,3 +71,14 @@ def test_the_models_numbers_are_read_as_numbers_or_refused():
     assert report["extracted"]["amount_tva"] == 454.55 and report["extracted"]["tva_lines"][0]["rate"] == 20.0
     with pytest.raises(ValueError):  # asked again, never guessed
         resolve_report({"readable": True, "extracted": {"invoice_date_language": "fr", "amount_total": "illisible"}}, {})
+
+
+@pytest.mark.functionality
+def test_a_number_with_two_readings_is_never_guessed():
+    assert readings("1,005") == readings("1.005") == [1.005, 1005.0]  # French decimals or American thousands
+    assert readings("1,005.50") == readings("1.005,50") == readings("1 005,50") == [1005.5]
+    with pytest.raises(Ambiguous) as unclear:
+        as_number("1,005")
+    assert unclear.value.readings == [1.005, 1005.0]
+    with pytest.raises(ValueError):  # the scan's model is asked again, told which value
+        resolve_report({"readable": True, "extracted": {"invoice_date_language": "fr", "amount_total": "1,005"}}, {})

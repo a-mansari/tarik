@@ -167,7 +167,7 @@ def client_wrote(key, value, words):
     its decimals kept (100 000,50); a text, whole words of theirs."""
     if key == "capital":
         try:
-            amount = as_number(str(value))
+            amount = as_number(value)
         except ValueError:
             return False
         return any(abs(amount - written) < 0.005 for written in written_numbers(words))
@@ -192,7 +192,8 @@ def update_dossier(dossier_id: int, name: str = "", folder_type: str = "", ice: 
     checks the ICE and IF against the registry, skipped only once the client confirmed it (a question first)."""
     client_message = own_words(client_message)
     dossier = require_dossier(dossier_id)
-    asked = {key: str(value).strip() for key, value in (
+    # The capital stays a number when the agent gave one: as text, 1.005 would read 1.005 or 1005 again.
+    asked = {key: value if key == "capital" and isinstance(value, (int, float)) else str(value).strip() for key, value in (
         ("name", name), ("folder_type", folder_type), ("ice", ice), ("if_number", if_number), ("rc", rc), ("patente", patente),
         ("tsc", tsc), ("capital", capital), ("cnss", cnss), ("street", street), ("street2", street2), ("city", city), ("zip", zip))
         if value is not None and str(value).strip()}
