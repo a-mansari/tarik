@@ -9,6 +9,7 @@ authority signed (mailcow's own, self-signed): only that exact certificate is ac
 the connection stays safe from interception. Empty: the usual verification.
 """
 
+import contextlib
 import functools
 import hashlib
 import html
@@ -74,13 +75,22 @@ def check_pin(sock):
         raise ssl.SSLError("mail server certificate does not match MAIL_CERT_SHA256")
 
 
-def imap_login():
-    """The current cabinet's mailbox over IMAP, logged in on the pinned (or verified) certificate."""
+@contextlib.contextmanager
+def imap_session():
+    """The current cabinet's mailbox over IMAP, logged in on the pinned (or verified) certificate, and closed on the
+    way out whatever happened: a LOGOUT the server can no longer answer still closes the socket."""
     port = int(setting("IMAP_PORT", "993"))
     box = imaplib.IMAP4_SSL(setting("IMAP_HOST"), port, ssl_context=tls_context(), timeout=MAIL_TIMEOUT)
-    check_pin(box.sock)
-    box.login(setting("IMAP_USER"), setting("IMAP_PASSWORD"))
-    return box
+    try:
+        check_pin(box.sock)
+        box.login(setting("IMAP_USER"), setting("IMAP_PASSWORD"))
+        yield box
+    finally:
+        try:
+            box.logout()
+        except Exception:  # LOGOUT failed before imaplib closed the socket: close it here
+            with contextlib.suppress(OSError):
+                box.shutdown()
 
 
 def allowed_recipients():
@@ -182,9 +192,8 @@ def save_sent(message):
     """A copy of what Tarik sent, in the mailbox's Sent folder, read: SMTP keeps none, and the
     cabinet must see Tarik's replies there. The email is already sent: a failure here is only logged."""
     try:
-        box = imap_login()
-        box.append(f'"{sent_folder(box)}"', "(\\Seen)", imaplib.Time2Internaldate(time.time()), message.as_bytes())
-        box.logout()
+        with imap_session() as box:
+            box.append(f'"{sent_folder(box)}"', "(\\Seen)", imaplib.Time2Internaldate(time.time()), message.as_bytes())
     except Exception as error:
         log(f"save_sent: {error}")
 

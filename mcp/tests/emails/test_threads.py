@@ -112,8 +112,11 @@ class Box:
             return "OK", [b"1 2"]
         return "OK", [(b"1 (BODY[]", BROKEN if args[0] == "1" else mail(CHEF, "<m2@x>").as_bytes())]
 
-    def logout(self):
-        pass
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
 
 
 @pytest.mark.technical

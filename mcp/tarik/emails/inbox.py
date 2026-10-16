@@ -9,6 +9,7 @@ Only the cabinet's collaborators and Experio's own staff are answered, and only 
 Tarik, so it creates nothing in Experio.
 """
 
+import contextlib
 import hashlib
 import re
 from email import message_from_bytes, policy
@@ -23,7 +24,7 @@ from tarik.core.config import READING
 from tarik.core.experio import odoo_call
 from tarik.dossiers.people import collaborator
 from tarik.dossiers.setup import waiting_setups
-from tarik.emails.sending import imap_login, recipient_allowed, send_email
+from tarik.emails.sending import imap_session, recipient_allowed, send_email
 from tarik.invoices.pipeline import waiting_drafts
 
 LEASE_MINUTES = 30  # a run longer than this is taken as dead: the thread is picked up again
@@ -63,11 +64,12 @@ def own_addresses():
     return {address.lower() for address in addresses if address}
 
 
+@contextlib.contextmanager
 def connect():
-    """The folder, opened read-only, on the pinned (or verified) certificate."""
-    box = imap_login()
-    box.select(f'"{folder()}"', readonly=True)
-    return box
+    """The folder, opened read-only, on the pinned (or verified) certificate; closed on the way out."""
+    with imap_session() as box:
+        box.select(f'"{folder()}"', readonly=True)
+        yield box
 
 
 def client_text(message):
@@ -352,17 +354,13 @@ def read_mailbox():
     what the cabinet's manager must hear of: the refused senders. Run by tarik-mail-watch, never by n8n:
     however many emails wait, no workflow waits on it. The first reading only notes where the mailbox
     stands: earlier emails are left alone."""
-    box = connect()
-    try:
+    with connect() as box, cabinet_db() as db:
         uidvalidity = int(box.response("UIDVALIDITY")[1][0])
         newest = int(box.response("UIDNEXT")[1][0]) - 1
-        with cabinet_db() as db:
-            if not locked(db):
-                return []
-            last = last_read(db, uidvalidity, newest)
-            return [] if last is None else store_new(box, db, last)
-    finally:
-        box.logout()
+        if not locked(db):
+            return []
+        last = last_read(db, uidvalidity, newest)
+        return [] if last is None else store_new(box, db, last)
 
 
 def threads_waiting():

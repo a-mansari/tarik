@@ -1,5 +1,6 @@
 """Outbound emails: the whitelist, and the template (no raw Markdown or HTML, one signature)."""
 
+from contextlib import nullcontext
 from email.utils import parsedate_to_datetime
 
 import pytest
@@ -87,3 +88,39 @@ def test_the_sent_folder_is_the_one_the_server_flags():
         == "Envoyes"
     )
     assert sending.sent_folder(FakeBox([b'(\\HasNoChildren) "/" "INBOX"'])) == "Sent"  # none flagged: the usual name
+
+
+class Imap:
+    """An IMAP connection whose login (or LOGOUT) fails as asked; ``closed`` once its socket is."""
+
+    def __init__(self, *args, fail_login=False, fail_logout=False, **kwargs):
+        self.sock, self.closed, self.fail_login, self.fail_logout = None, False, fail_login, fail_logout
+
+    def login(self, user, password):
+        if self.fail_login:
+            raise OSError("wrong password")
+
+    def logout(self):
+        if self.fail_logout:
+            raise OSError("connection reset")  # imaplib raises before it closes the socket
+        self.closed = True
+
+    def shutdown(self):
+        self.closed = True
+
+
+@pytest.mark.technical
+@pytest.mark.parametrize(
+    "failing", [{}, {"fail_login": True}, {"fail_logout": True}, {"fail_login": True, "fail_logout": True}]
+)
+@pytest.mark.parametrize("work_fails", [False, True])
+def test_an_imap_connection_is_always_closed(monkeypatch, failing, work_fails):
+    opened = []
+    monkeypatch.setattr(sending.imaplib, "IMAP4_SSL", lambda *a, **k: opened.append(Imap(**failing)) or opened[-1])
+    monkeypatch.setattr(sending, "setting", lambda key, default="": "993" if key == "IMAP_PORT" else "x")
+    monkeypatch.setattr(sending, "check_pin", lambda sock: None)
+    raised = pytest.raises((OSError, RuntimeError)) if failing.get("fail_login") or work_fails else nullcontext()
+    with raised, sending.imap_session():
+        if work_fails:
+            raise RuntimeError("the work on the mailbox failed")
+    assert opened[0].closed
