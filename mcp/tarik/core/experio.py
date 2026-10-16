@@ -1,7 +1,9 @@
 """Experio: the current cabinet's login and calls, test mode, and the guards every tool goes through."""
 
 import contextlib
+import http.client
 import re
+import time
 import xmlrpc.client
 
 import httpx
@@ -13,6 +15,10 @@ from tarik.core.config import DOSSIER_DOMAIN, JSON_TIMEOUT, ODOO_URL, READING, R
 
 # IPv4 only: the container has no IPv6 route, and httpx does not fall back when a host's IPv6 address comes first.
 HTTP = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"))
+# Calls that only read: asked again once when Experio's answer is cut off or the connection drops. A write is never
+# asked again: a cut answer doesn't say whether it was done.
+READS = {"search", "search_read", "read", "search_count", "fields_get", "name_search", "read_group"}
+CUT_OFF = (http.client.IncompleteRead, ConnectionError, xmlrpc.client.ProtocolError)  # ProtocolError: a 502 or 503
 
 _logins = {}  # (server, database, user, key) -> uid: one login per cabinet and key (a new key logs in again)
 _forms = {}  # cabinet -> the invoice form's fields: each database has its own
@@ -89,9 +95,17 @@ def login():
 
 
 def odoo_call(model, method, *args, **kw):
-    """One authenticated XML-RPC call to the current cabinet's Experio; its answer."""
+    """One authenticated XML-RPC call to the current cabinet's Experio; its answer. A read (READS) cut off is asked
+    again once."""
     database, _, _, key = account()
-    return rpc("/xmlrpc/2/object").execute_kw(database, login(), key, model, method, list(args), kw)
+    try:
+        return rpc("/xmlrpc/2/object").execute_kw(database, login(), key, model, method, list(args), kw)
+    except CUT_OFF as error:
+        if method not in READS:
+            raise
+        log(f"odoo_call {model}.{method} cut off ({type(error).__name__}): asked again")
+        time.sleep(1)
+        return rpc("/xmlrpc/2/object").execute_kw(database, login(), key, model, method, list(args), kw)
 
 
 def odoo_json(model, method, *args, **kw):
