@@ -130,7 +130,7 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
         elif invoice_id:
             # Only an outcome at or after the pending step settles it: n8n records the earlier steps after the question.
             pending = db.execute("select step from tarik_pending where invoice_id = %s", (invoice_id,)).fetchone()
-            if pending and (pending[0] not in ORDER or step not in ORDER or position(step) >= position(pending[0])):
+            if pending and (pending[0] not in ORDER or position(step) >= position(pending[0])):
                 db.execute("delete from tarik_pending where invoice_id = %s", (invoice_id,))
     return ok("enregistre", step=step, status_recorded=status)
 

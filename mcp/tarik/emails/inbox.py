@@ -393,8 +393,6 @@ def acknowledge_thread(thread_id: str) -> dict:
         if not row or not row[3]:
             return ok("Pas d'accuse de reception : fil deja suivi.", sent=False)
         item = thread_item(db, thread_id, *row[:3])
-    if item["follow_up"]:
-        return ok("Pas d'accuse de reception : suivi.", sent=False)
     send_email(item["to"], item["subject"], ACKNOWLEDGEMENT, item["in_reply_to"], item["references"])
     with cabinet_db() as db:
         db.execute("update tarik_mail_threads set acknowledged_at = now() where thread_id = %s", (thread_id,))
