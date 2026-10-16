@@ -21,6 +21,6 @@ def experio_connection() -> str:
     except Exception as error:
         database, _, user, _ = account()
         log(f"experio_connection: {user} on {database} refused: {error}")
-        return "Experio repond, mais la connexion de Tarik est refusee."
+        return "Experio repond, mais ma connexion y est refusee."
     log(f"experio_connection: ok, Odoo {version}")
     return "Connecte au systeme Experio."
