@@ -123,6 +123,7 @@ def test_the_model_never_overrides_with_a_number_the_client_did_not_write():
 def test_an_if_needs_its_label_to_be_read():
     assert IF_WRITTEN.findall("IF 71234561, I.F: 0712, if n°99887766") == ["71234561", "0712", "99887766"]
     assert IF_WRITTEN.findall("tel 0612345678, ICE 008123456000100") == []
+    assert IF_WRITTEN.findall("mon IF est 0712345") == ["0712345"]  # as client_wrote reads it
 
 
 @pytest.mark.communication
