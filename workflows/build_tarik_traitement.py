@@ -1,9 +1,9 @@
 """Build workflows/tarik-traitement.json: the fixed processing sequence as n8n nodes.
 
 Modes: files (the conversation's new files, from identification to posting; with none, the drafts left
-waiting or cut short are resumed), answer (the client's answer
-to what the conversation waits on, then the sequence resumes there; with nothing waiting, the drafts
-Experio hadn't read yet are resumed)."""
+waiting or cut short are resumed), resume (those drafts only: "Tarik - Emails" following up, no agent),
+answer (the client's answer to what the conversation waits on, then the sequence resumes there; with nothing
+waiting, the drafts Experio hadn't read yet are resumed)."""
 
 from steps import (
     ATTACHMENTS,
@@ -31,8 +31,16 @@ flow.trigger(
     **ATTACHMENTS,
     **CABINET_INPUT,
 )
+# n8n stops an agent's tool after 120 s: past BUDGET_MS, the invoices still going wait for the next run instead,
+# leaving the step in flight time to end. A follow-up (mode resume) is no agent's tool: it has no budget.
+BUDGET_MS = 80_000
+START = "Debut"
+flow.code(
+    START, [60, 300], "// When the run started, for its time budget.\nreturn [{ json: { started: Date.now() } }];"
+)
+LATE = f"({CALL}.mode !== 'resume' && Date.now() - $('{START}').first().json.started > {BUDGET_MS})"
 flow.save_attachments([110, 300])
-route("Fichiers ou reponse ?", f"{CALL}.mode === 'answer' ? 1 : 0", 2, [220, 300])
+route("Fichiers ou reponse ?", f"{{ answer: 1, resume: 2 }}[{CALL}.mode] ?? 0", 3, [220, 300])
 flow.files_to_process(
     f"{{ session_id: {CALL}.session_id }}",
     "One item per file to process (files_to_process picked the conversation's invoices and statements "
@@ -42,7 +50,8 @@ flow.files_to_process(
 )
 # Work on an existing dossier: the email's sender must have it.
 sender = flow.check_sender([260, 120], [300, 160])
-connect("Appel", SAVE_ATTACHMENTS)
+connect("Appel", START)
+connect(START, SAVE_ATTACHMENTS)
 connect(SAVE_ATTACHMENTS, "Fichiers ou reponse ?", 0)
 flow.to_record(SAVE_ATTACHMENTS, 1)
 connect("Fichiers ou reponse ?", SENDER, 0)
@@ -131,11 +140,27 @@ for index, (name, tool) in enumerate(CHAIN):
     if index:
         mcp(name, tool, f"{{ invoice_id: {RESULT}.invoice_id{EXTRA.get(tool, '')} }}", [x, 420])
     router = f"Suite apres {tool}"
-    route(router, OK_ELSE, 2, [x + 110, 620])
+    last = index + 1 == len(CHAIN)
+    route(
+        router, OK_ELSE if last else f"{RESULT}.status !== 'ok' ? 1 : {LATE} ? 2 : 0", 2 if last else 3, [x + 110, 620]
+    )
     connect(name, router, 0)
     flow.to_record(name, 1)  # tool error
-    if index + 1 < len(CHAIN):
+    if not last:
         connect(router, CHAIN[index + 1][0], 0)
+        # Out of time: recorded as waiting at this step (its name in the node's), so waiting_drafts resumes it.
+        late = flow.code(
+            f"Hors delai ({tool})",
+            [x + 110, 800],
+            (
+                "// The run's time is up: the invoice waits for the next run.\n"
+                "return $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; "
+                "return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: "
+                "`Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
+            ),
+        )
+        connect(router, late, 2)
+        flow.to_record(late, 0)
     flow.to_record(router, 0, 1)  # every outcome is recorded, so the summary tells all of it
     x += 240
 
@@ -157,6 +182,8 @@ flow.code(
     ),
 )
 connect("Nouveaux fichiers ?", "Brouillons en attente (waiting_drafts)", 1)
+# A follow-up: the sender was checked when these drafts were made.
+connect("Fichiers ou reponse ?", "Brouillons en attente (waiting_drafts)", 2)
 connect("Brouillons en attente (waiting_drafts)", "Une facture par brouillon", 0)
 flow.to_record("Brouillons en attente (waiting_drafts)", 1)
 connect("Une facture par brouillon", "Lecture Experio (wait_until_read)", 0)

@@ -19,12 +19,15 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import log, ok, server
 from tarik.core.cabinets import cabinet_db, current, setting
+from tarik.core.config import READING
 from tarik.core.experio import odoo_call
 from tarik.dossiers.people import collaborator
 from tarik.emails.sending import imap_login, recipient_allowed, send_email
+from tarik.invoices.pipeline import waiting_drafts
 
 LEASE_MINUTES = 30  # a run longer than this is taken as dead: the thread is picked up again
 MAX_ATTEMPTS = 3
+FOLLOW_UP_MINUTES = 30  # how long after Tarik's reply the drafts Experio was reading are still followed up
 FILE_TYPES = (".pdf", ".jpg", ".jpeg", ".png", ".csv", ".txt", ".xlsx", ".xlsm")
 # A thread Tarik must answer: new, or taken by a run that died (its lease is over). Its one parameter: LEASE_MINUTES.
 WAITING = "state = 'new' or (state = 'in_progress' and claimed_at < now() - make_interval(mins => %s))"
@@ -159,7 +162,8 @@ def thread_of(db, linked, sender, subject, reason, message_id):
         return message_id
     if not reason:  # allowed now: back to Tarik, even after an error or a refusal (a run on it takes it after)
         db.execute(
-            "update tarik_mail_threads set state = 'new', attempts = 0, reason = null, updated_at = now() "
+            "update tarik_mail_threads set state = 'new', attempts = 0, reason = null, follow_up_until = null, "
+            "updated_at = now() "
             "where thread_id = %s and state <> 'in_progress'",
             (row[0],),
         )
@@ -197,26 +201,33 @@ def store(db, uid, message):
 
 def thread_item(db, thread_id, session_id, address, subject):
     """A claimed thread as the workflow works on it (dict): where the reply goes, its subject, the client's
-    unanswered emails as one message, the files waiting, and what the reply answers."""
+    unanswered emails as one message, the files waiting, and what the reply answers (the thread's last email).
+    With no unanswered email, it is a follow-up: Tarik takes up the drafts Experio was reading."""
     messages = db.execute(
-        "select message_id, body, references_ids, reply_to from tarik_mail_messages "
-        "where thread_id = %s and not handled order by received_at, uid",
+        "select message_id, body from tarik_mail_messages where thread_id = %s and not handled "
+        "order by received_at, uid",
         (thread_id,),
     ).fetchall()
+    last = db.execute(
+        "select message_id, references_ids, reply_to from tarik_mail_messages where thread_id = %s "
+        "order by received_at desc, uid desc limit 1",
+        (thread_id,),
+    ).fetchone()
     files = db.execute(
         "select file_name from tarik_files where session_id = %s and parent_id is null and kind is null "
         "and invoice_id is null and statement_id is null order by id",
         (session_id,),
     )
-    last_id, _, last_references, reply_to = messages[-1] if messages else ("", "", "", None)
+    last_id, last_references, reply_to = last or ("", "", None)
     return {
         "thread_id": thread_id,
         "session_id": session_id,
         "to": reply_to if reply_to and recipient_allowed(reply_to) else address,
         "subject": subject if subject.lower().startswith(("re:", "re :")) else f"Re: {subject}",
-        "message": "\n\n".join(body for _, body, _, _ in messages if body) or "(pas de texte)",
+        "message": "\n\n".join(body for _, body in messages if body) or "(pas de texte)",
         "files": [name for (name,) in files],
-        "message_ids": [message_id for message_id, *_ in messages],
+        "message_ids": [message_id for message_id, _ in messages],
+        "follow_up": not messages,
         "in_reply_to": last_id,
         "references": last_references,
     }
@@ -230,12 +241,47 @@ def claim(db):
         "where state = 'in_progress' and attempts >= %s and claimed_at < now() - make_interval(mins => %s)",
         (MAX_ATTEMPTS, LEASE_MINUTES),
     )
+    ready = follow_ups_ready(db)
     rows = db.execute(
         "update tarik_mail_threads set state = 'in_progress', claimed_at = now(), attempts = attempts + 1, "
-        f"updated_at = now() where {WAITING} returning thread_id, session_id, client_address, subject",
-        (LEASE_MINUTES,),
+        f"updated_at = now() where {WAITING} or (state = 'follow_up' and thread_id = any(%s)) "
+        "returning thread_id, session_id, client_address, subject",
+        (LEASE_MINUTES, ready),
     ).fetchall()
     return [thread_item(db, *row) for row in rows]
+
+
+def drafts_to_resume(session_id):
+    """The conversation's drafts to take up again (invoice ids); none when Experio can't be asked (logged)."""
+    try:
+        return waiting_drafts(session_id)["invoices"]
+    except Exception as error:
+        log(f"drafts_to_resume {session_id}: {type(error).__name__}: {error}")
+        return []
+
+
+def follow_ups_ready(db):
+    """The follow-up threads to take now (thread ids): Experio has read every draft their conversation waits
+    on, or their time is up. One whose drafts were all settled meanwhile (posted or deleted in Experio) is done."""
+    ready = []
+    threads = "select thread_id, session_id, follow_up_until < now() from tarik_mail_threads where state = 'follow_up'"
+    for thread_id, session_id, over in db.execute(threads).fetchall():
+        drafts = drafts_to_resume(session_id)
+        if not drafts:
+            db.execute(
+                "update tarik_mail_threads set state = 'done', follow_up_until = null, updated_at = now() "
+                "where thread_id = %s and state = 'follow_up'",
+                (thread_id,),
+            )
+            continue
+        try:
+            read = odoo_call("exp.invoice", "read", drafts, fields=["bluejay_state"])
+        except Exception as error:  # Experio out: asked again at the next tick
+            log(f"follow_ups_ready {thread_id}: {type(error).__name__}: {error}")
+            continue
+        if over or all(draft["bluejay_state"] not in READING for draft in read):
+            ready.append(thread_id)
+    return ready
 
 
 def locked(db):
@@ -308,10 +354,8 @@ def read_mailbox():
 def threads_waiting():
     """Is a thread waiting for Tarik's answer, so that "Tarik - Emails" has work?"""
     with cabinet_db() as db:
-        return (
-            db.execute(f"select 1 from tarik_mail_threads where {WAITING} limit 1", (LEASE_MINUTES,)).fetchone()
-            is not None
-        )
+        waiting = db.execute(f"select 1 from tarik_mail_threads where {WAITING} limit 1", (LEASE_MINUTES,)).fetchone()
+        return waiting is not None or bool(follow_ups_ready(db))
 
 
 def set_aside(db, thread_id, state, reason):
@@ -397,7 +441,8 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
 @server.tool()
 def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "") -> dict:
     """After Tarik's reply: its emails are answered, and the thread waits for the client
-    when Tarik asked a question. When the reply could not be sent, the thread is set
+    when Tarik asked a question, or is followed up while drafts Experio was reading wait
+    (FOLLOW_UP_MINUTES at most). When the reply could not be sent, the thread is set
     aside in error, with ``reason``."""
     with cabinet_db() as db:
         session = db.execute("select session_id from tarik_mail_threads where thread_id = %s", (thread_id,)).fetchone()
@@ -412,10 +457,24 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
         ).fetchone()
         waiting = db.execute("select 1 from tarik_pending where session_id = %s limit 1", session).fetchone()
         state = "new" if newer else "waiting" if waiting else "done"  # new: an email came in during this run
+        if state == "done" and drafts_to_resume(session[0]):
+            until = db.execute(
+                "select coalesce(follow_up_until, now() + make_interval(mins => %s)) > now() "
+                "from tarik_mail_threads where thread_id = %s",
+                (FOLLOW_UP_MINUTES, thread_id),
+            ).fetchone()[0]
+            state = "follow_up" if until else "done"
         db.execute(
             "update tarik_mail_threads set state = %s, claimed_at = null, attempts = 0, reason = null, "
+            "follow_up_until = case when %s = 'follow_up' "
+            "then coalesce(follow_up_until, now() + make_interval(mins => %s)) end, "
             "updated_at = now() where thread_id = %s",
-            (state, thread_id),
+            (state, state, FOLLOW_UP_MINUTES, thread_id),
         )
-    done = {"new": "Fil traite, un nouvel email attend.", "waiting": "Fil en attente du client.", "done": "Fil traite."}
+    done = {
+        "new": "Fil traite, un nouvel email attend.",
+        "waiting": "Fil en attente du client.",
+        "follow_up": "Fil traite, la suite suivra.",
+        "done": "Fil traite.",
+    }
     return ok(done[state])

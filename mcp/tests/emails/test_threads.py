@@ -159,3 +159,61 @@ def test_a_refused_sender_given_access_is_answered_in_their_thread(mailbox, monk
     monkeypatch.setattr(inbox, "collaborator", lambda address: {"name": address})  # the manager gave access
     stored(mail(CHEF, "<m2@x>", "Je relance.", replying_to="<m1@x>"))
     assert state_of("<m1@x>") == "new"
+
+
+@pytest.fixture
+def experio(mailbox, monkeypatch):
+    """Experio's drafts the conversations wait on ({invoice id: bluejay_state}), all of them in every conversation."""
+    drafts = {}
+    monkeypatch.setattr(inbox, "waiting_drafts", lambda session_id: {"invoices": sorted(drafts)})
+    monkeypatch.setattr(
+        inbox, "odoo_call", lambda model, method, ids, fields: [{"id": i, "bluejay_state": drafts[i]} for i in ids]
+    )
+    return drafts
+
+
+def answered(thread_id):
+    """The thread claimed and Tarik's reply sent; the claimed item."""
+    with cabinet_db() as db:
+        [item] = [thread for thread in inbox.claim(db) if thread["thread_id"] == thread_id]
+    inbox.finish_thread(thread_id, item["message_ids"], True)
+    return item
+
+
+@pytest.mark.functionality
+def test_drafts_experio_was_reading_are_followed_up_once_read(experio):
+    stored(mail(CHEF, "<m1@x>"))
+    experio[7] = "pending"
+    assert not answered("<m1@x>")["follow_up"]
+    assert state_of("<m1@x>") == "follow_up"
+    with cabinet_db() as db:
+        assert inbox.claim(db) == []  # Experio still reads it
+    assert not inbox.threads_waiting()
+    experio[7] = "done"
+    assert inbox.threads_waiting()
+    item = answered("<m1@x>")
+    assert item["follow_up"] and item["message_ids"] == [] and item["in_reply_to"] == "<m1@x>"
+
+
+@pytest.mark.functionality
+def test_a_follow_up_ends_when_its_time_is_up_its_drafts_are_settled_or_the_client_writes(experio):
+    stored(mail(CHEF, "<m1@x>"), mail(CHEF, "<m2@x>"), mail(CHEF, "<m3@x>"))
+    experio[7] = "pending"
+    with cabinet_db() as db:
+        claimed = inbox.claim(db)
+    for item in claimed:
+        inbox.finish_thread(item["thread_id"], item["message_ids"], True)
+    assert {state_of(item["thread_id"]) for item in claimed} == {"follow_up"}
+    with cabinet_db() as db:
+        db.execute(
+            "update tarik_mail_threads set follow_up_until = now() - interval '1 minute' where thread_id = '<m1@x>'"
+        )
+        assert [thread["thread_id"] for thread in inbox.claim(db)] == ["<m1@x>"]  # its time is up: sent as it is
+    inbox.finish_thread("<m1@x>", [], True)
+    assert state_of("<m1@x>") == "done"  # never followed up again
+    stored(mail(CHEF, "<m4@x>", "Une autre.", replying_to="<m2@x>"))
+    assert state_of("<m2@x>") == "new"
+    experio.clear()  # posted or deleted in Experio meanwhile
+    with cabinet_db() as db:
+        assert [thread["thread_id"] for thread in inbox.claim(db)] == ["<m2@x>"]
+    assert state_of("<m3@x>") == "done"

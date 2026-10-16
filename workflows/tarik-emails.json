@@ -148,6 +148,158 @@
       "waitBetweenTries": 5000
     },
     {
+      "id": "ad491412-86d1-5e9f-b483-ee2000c7e742",
+      "name": "Suite ?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        550,
+        300
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.follow_up ? 1 : 0 }}"
+      }
+    },
+    {
+      "id": "9ea40a9f-536a-5d19-a385-29faf368660e",
+      "name": "Suite du traitement",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        660,
+        520
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "TarikTraitement1",
+          "mode": "id"
+        },
+        "mode": "each",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "mode": "resume",
+            "session_id": "={{ $json.session_id }}",
+            "dossier_id": 0,
+            "answer": "",
+            "invoice_type": "",
+            "client_message": "",
+            "attachments": "",
+            "cabinet": "={{ $('Nouvel email').first().json.body.cabinet }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "mode",
+              "displayName": "mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "session_id",
+              "displayName": "session_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "dossier_id",
+              "displayName": "dossier_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "answer",
+              "displayName": "answer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "invoice_type",
+              "displayName": "invoice_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "client_message",
+              "displayName": "client_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "attachments",
+              "displayName": "attachments",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "cabinet",
+              "displayName": "cabinet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "c0d97f32-a2a5-5082-876b-3160de76faeb",
+      "name": "Suite envoyee (send_email)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        520
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Nouvel email').first().json.body.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "send_email"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ to: $('Un element par fil').item.json.to, subject: $('Un element par fil').item.json.subject, body: 'Suite du traitement de vos documents :\\n\\n' + $json.content[0].text.message, in_reply_to: $('Un element par fil').item.json.in_reply_to, references: $('Un element par fil').item.json.references }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
       "id": "d8451cd4-0197-5917-8fe1-34125097fd8d",
       "name": "Refus de droits ? (thread_refusal)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -240,7 +392,61 @@
       "main": [
         [
           {
+            "node": "Suite ?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite ?": {
+      "main": [
+        [
+          {
             "node": "Tarik",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Suite du traitement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite du traitement": {
+      "main": [
+        [
+          {
+            "node": "Suite envoyee (send_email)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fil traite (finish_thread)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite envoyee (send_email)": {
+      "main": [
+        [
+          {
+            "node": "Fil traite (finish_thread)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fil traite (finish_thread)",
             "type": "main",
             "index": 0
           }
