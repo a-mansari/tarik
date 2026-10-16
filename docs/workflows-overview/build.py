@@ -370,7 +370,7 @@ PAGES["traitement"] = page(
             [
                 (
                     "Expediteur (check_sender)",
-                    "The email's sender must be one of the firm's staff with this client file assigned. Otherwise the run stops there.",
+                    "The email's sender must be one of the firm's staff, or of Experio's own team, with this client file assigned. Otherwise the run stops there.",
                 ),
                 ("Fichiers du message (files_to_process)", "The conversation's files not processed yet."),
                 (
@@ -552,7 +552,7 @@ PAGES["dossier"] = page(
             [
                 (
                     "Expediteur (check_sender)",
-                    "The email's sender must be one of the firm's staff with this client file assigned.",
+                    "The email's sender must be one of the firm's staff, or of Experio's own team, with this client file assigned.",
                 ),
                 ("Suite apres check_sender", "Allowed: on to the import. Otherwise the run stops."),
             ],
@@ -638,7 +638,7 @@ PAGES["modification"] = page(
                 ),
                 (
                     "Expediteur (check_sender)",
-                    "The email's sender must be one of the firm's staff with this client file assigned.",
+                    "The email's sender must be one of the firm's staff, or of Experio's own team, with this client file assigned.",
                 ),
                 ("Suite apres check_sender", "Allowed: on to the change. Otherwise recorded, and nothing changes."),
                 (
