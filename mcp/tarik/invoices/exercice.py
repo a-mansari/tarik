@@ -12,6 +12,7 @@ import re
 
 from tarik.core.app import ok, question, server, with_ids
 from tarik.dossiers.search import normalized
+from tarik.invoices.check import resolve_date
 from tarik.core.experio import (dry_run, experio_refusal, fill_invoice, invoice_context, odoo_call, odoo_json, refused,
                                 require_draft, require_invoice, test_mode_note)
 
@@ -57,8 +58,13 @@ def settle_exercice(invoice_id: int, answer: str = "") -> dict:
     call again with the client's reply as ``answer``."""
     invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "invoice_date", "is_old_invoice"])
     require_draft(invoice_id, invoice, "changer d'exercice")
-    if not invoice["invoice_date"]:
-        return question(f"Facture {invoice_id} : pas de date, impossible de choisir l'exercice. Quelle est sa date ?")
+    if not invoice["invoice_date"]:  # the answer to "Quelle est sa date ?" is its date, written as the client wrote it
+        given = resolve_date(answer, "fr")
+        if not given:
+            return question(f"Facture {invoice_id} : pas de date, impossible de choisir l'exercice. Quelle est sa date (jj/mm/aaaa) ?")
+        with refused(f"settle_exercice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu enregistrer sa date."):
+            fill_invoice(invoice_id, {"invoice_date": given}, invoice_context(invoice))
+        invoice["invoice_date"], answer = given, ""
     company_id = invoice["company_id"][0]
     opens = odoo_call("exp.fiscal.entries", "search_read", [("company_id", "=", company_id), ("state", "=", "open")],
                       fields=["id", "name", "date_start", "date_end"], order="date_start")

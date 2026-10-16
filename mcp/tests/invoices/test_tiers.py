@@ -25,3 +25,17 @@ def test_the_client_answer_picks_one_tiers_or_none():
     assert pick_tiers(TIERS, "atlas") is None  # two tiers start with it
     assert pick_tiers(TIERS, "nova telecom sa") is None  # the same name twice: ask
     assert pick_tiers(TIERS, "celui avec l'ICE 001234567000089")["id"] == 10
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("autofill, said", [(True, "serait cree par Experio"), (False, "le cabinet les attribue lui-meme")])
+def test_test_mode_creates_no_wizard_in_experio(monkeypatch, autofill, said):
+    from tarik.invoices import tiers
+
+    def odoo_call(model, method, *args, **kw):
+        assert method == "read", f"test mode wrote to Experio: {model}.{method}"
+        return [{"name": "ATLAS", "third_party_supplier_account": False}] if model == "exp.partner" else \
+            [{"third_party_supplier_autofill": autofill}]
+    monkeypatch.setattr(tiers, "odoo_call", odoo_call)
+    monkeypatch.setattr(tiers, "dry_run", lambda: True)
+    assert said in tiers.ensure_tiers_account(1, 7, "purchase", {"allowed_company_ids": [778]})

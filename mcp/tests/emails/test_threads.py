@@ -92,23 +92,27 @@ def test_an_email_during_a_run_waits_for_that_run_then_is_answered(mailbox):
         assert [thread["message_ids"] for thread in inbox.claim(db)] == [["<m2@x>"]]
 
 
+BROKEN = b"From: chef@cabinet.ma\r\nMessage-ID: <m1@x>\r\nContent-Type: text/plain; charset=x-unknown\r\n\r\nbonjour\r\n"
+
+
+class Box:
+    """The mailbox over IMAP: email 1 unreadable, email 2 from the chef."""
+    def response(self, name):
+        return name, [b"7" if name == "UIDVALIDITY" else b"3"]
+
+    def uid(self, command, *args):
+        if command == "search":
+            return "OK", [b"1 2"]
+        return "OK", [(b"1 (BODY[]", BROKEN if args[0] == "1" else mail(CHEF, "<m2@x>").as_bytes())]
+
+    def logout(self):
+        pass
+
+
 @pytest.mark.technical
 def test_an_unreadable_email_is_skipped_and_the_next_ones_are_read(mailbox, monkeypatch):
-    broken = b"From: chef@cabinet.ma\r\nMessage-ID: <m1@x>\r\nContent-Type: text/plain; charset=x-unknown\r\n\r\nbonjour\r\n"
     with cabinet_db() as db, pytest.raises(inbox.UnreadableEmail):
-        inbox.store(db, 1, message_from_bytes(broken, policy=policy.default))
-
-    class Box:
-        def response(self, name):
-            return name, [b"7" if name == "UIDVALIDITY" else b"3"]
-
-        def uid(self, command, *args):
-            if command == "search":
-                return "OK", [b"1 2"]
-            return "OK", [(b"1 (BODY[]", broken if args[0] == "1" else mail(CHEF, "<m2@x>").as_bytes())]
-
-        def logout(self):
-            pass
+        inbox.store(db, 1, message_from_bytes(BROKEN, policy=policy.default))
     monkeypatch.setattr(inbox, "connect", Box)
     with cabinet_db() as db:
         db.execute("insert into tarik_mail_state (folder, uidvalidity, last_uid) values ('INBOX', 7, 0)")
@@ -116,3 +120,16 @@ def test_an_unreadable_email_is_skipped_and_the_next_ones_are_read(mailbox, monk
     assert [thread["thread_id"] for thread in answer["threads"]] == ["<m2@x>"]
     with cabinet_db() as db:
         assert db.execute("select last_uid from tarik_mail_state").fetchone() == (2,)
+
+
+@pytest.mark.technical
+def test_two_readings_at_once_never_store_an_email_twice(mailbox, monkeypatch, db_cabinet):
+    monkeypatch.setattr(inbox, "connect", Box)
+    with cabinet_db() as db:
+        db.execute("insert into tarik_mail_state (folder, uidvalidity, last_uid) values ('INBOX', 7, 0)")
+    with cabinet_db() as running:  # another run holds the reading
+        running.execute("select pg_advisory_lock(hashtext(%s))", (f"fetch_emails {db_cabinet}",))
+        assert inbox.fetch_emails()["message"] == "Lecture deja en cours."
+        with cabinet_db() as db:
+            assert db.execute("select last_uid from tarik_mail_state").fetchone() == (0,)
+    assert [thread["thread_id"] for thread in inbox.fetch_emails()["threads"]] == ["<m2@x>"]  # its turn once released

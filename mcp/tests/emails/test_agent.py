@@ -49,3 +49,10 @@ def test_no_reply_is_an_error_without_n8n_details(cabinet, monkeypatch, answer):
     with pytest.raises(ToolError) as error:
         agent.ask_agent("mail-1", "x")
     assert str(error.value) == "Tarik n'a pas pu repondre pour le moment."
+
+
+@pytest.mark.security
+def test_the_files_names_are_never_the_clients_words():
+    from tarik.core.conversation import own_words
+    assert own_words("Voici la facture\n\nFichiers joints : ICE 001122334455667.pdf") == "Voici la facture"
+    assert own_words("(pas de message)\n\nFichiers joints : f.pdf") == "" and own_words(None) == ""

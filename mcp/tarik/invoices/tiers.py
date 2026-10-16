@@ -20,13 +20,15 @@ from tarik.invoices.classify import side_of
 # Per invoice side: the party Experio detected, the name printed on the scan, the tiers' Compte Tiers field.
 SIDE = {
     "purchase": {"detected": "detected_supplier_id", "printed": "supplier_name", "account": "third_party_supplier_account",
-                 "role": "fournisseur"},
+                 "autofill": "third_party_supplier_autofill", "role": "fournisseur"},
     "sale": {"detected": "detected_customer_id", "printed": "customer_name", "account": "third_party_customer_account",
-             "role": "client"},
+             "autofill": "third_party_customer_autofill", "role": "client"},
 }
 # Stricter than dossiers (0.7): tiers names share generic words ("distribution", "SARL"). On 449 real tiers,
 # right matches scored 0.89+ and wrong ones up to 0.71 (e.g. two "... DISTRIBUTION" companies).
 TIERS_MIN_SIMILARITY = 0.8
+NO_AUTOFILL = ("pas de Compte Tiers {role} : dans ce dossier le cabinet les attribue lui-meme "
+               "(numerotation automatique desactivee), la facture ne pourra pas etre comptabilisee avant")
 INVOICE_FIELDS = ["state", "type", "company_id", "exercice_id", "partner_id", "detected_supplier_id",
                   "detected_customer_id", "supplier_name", "customer_name", "bluejay_state"]
 
@@ -40,14 +42,15 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
     partner = odoo_call("exp.partner", "read", [partner_id], fields=["name", field], context=context)[0]
     if partner[field]:
         return f"Compte Tiers {role} {partner[field]}"
+    if dry_run():  # the wizard proposes its code only once created: test mode reads the dossier's switch instead
+        company = odoo_call("res.company", "read", context["allowed_company_ids"], fields=[SIDE[kind]["autofill"]])[0]
+        return (f"Compte Tiers {role} serait cree par Experio (numerotation automatique)" if company[SIDE[kind]["autofill"]]
+                else NO_AUTOFILL.format(role=role))
     wizard_id = odoo_call("exp.invoice.partner.account.wizard", "create", {"invoice_id": invoice_id}, context=context)
     code = odoo_call("exp.invoice.partner.account.wizard", "read", [wizard_id], fields=["third_party_account"],
                      context=context)[0]["third_party_account"]
     if not code:
-        return (f"pas de Compte Tiers {role} : dans ce dossier le cabinet les attribue lui-meme "
-                "(numerotation automatique desactivee), la facture ne pourra pas etre comptabilisee avant")
-    if dry_run():
-        return f"Compte Tiers {role} {code} serait cree"
+        return NO_AUTOFILL.format(role=role)
     odoo_json("exp.invoice.partner.account.wizard", "action_confirm", [wizard_id], context=context)
     return f"Compte Tiers {role} {code} cree"
 

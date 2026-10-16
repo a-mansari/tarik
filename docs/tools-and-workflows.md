@@ -15,17 +15,19 @@ Each "Tarik - <cabinet>" agent has these tools, named exactly as below:
 | `Experio_list_invoices` | A dossier's invoices, most recent first; filter: en cours, brouillon, comptabilisee, payee. | MCP, read |
 | `Experio_list_collaborators` | The cabinet's collaborators: role, manager or not, number of dossiers. | MCP, read |
 | `Experio_traiter_fichiers` | Processes the invoices and bank statements attached to the conversation, for one dossier, as purchases, sales or both, as the client said. | Workflow "Tarik - Traitement" |
+| `Experio_repondre` | Hands the client's answer (their own words, filled by n8n) to what the conversation waits on, and resumes the processing. No parameter. | Workflow "Tarik - Traitement" (answer mode) |
 | `Experio_parametrer_dossier` | Creates a dossier, or imports a FEC or grand livre into one. | Workflow "Tarik - Dossier" |
 | `Experio_modifier_dossier` | Changes an existing dossier's identity fields. | Workflow "Tarik - Modification" |
 | `load_skill` | Loads one of the skills below (n8n's own). | n8n |
 
-And three skills (`workflows/skills/`), loaded when a request matches:
+And four skills (`workflows/skills/`), loaded when a request matches:
 
 | Skill | When |
 |---|---|
 | Traitement des documents | Invoices or statements sent, or to process, enter ("saisir"), record or post. |
 | Nouveau dossier | A new dossier, or a FEC or grand livre for one. |
 | Modification de dossier | A change to a dossier's name, type, ICE, IF, RC, patente, T.S.C, capital, CNSS or address. |
+| Réponse à une question | The client answers a question Tarik asked while processing documents, or asks to resume that processing. |
 
 ## Workflows
 
@@ -34,7 +36,7 @@ an MCP call at the cabinet's address, its outcome recorded; the run's summary is
 
 | Workflow | Started by | What it does |
 |---|---|---|
-| **Tarik - Traitement** (`TarikTraitement1`) | `Experio_traiter_fichiers` | Saves the agent's attachments, checks the email sender, then for each file: identifies it, imports a bank statement, or splits a PDF into invoices and runs each through the sequence: draft, Experio's reading, check against the scan, correction, classification, tiers, duplicate, account, TVA, journal, withholding, prepaid charges, fiscal year, posting. A step that needs the client stops with a question. Modes `answer` and `resume` exist but no agent tool uses them yet. |
+| **Tarik - Traitement** (`TarikTraitement1`) | `Experio_traiter_fichiers`, `Experio_repondre` | Saves the agent's attachments, checks the email sender, then for each file: identifies it, imports a bank statement, or splits a PDF into invoices and runs each through the sequence: draft, Experio's reading, check against the scan, correction, classification, tiers, duplicate, account, TVA, journal, withholding, prepaid charges, fiscal year, posting. A step that needs the client stops with a question. Answer mode: `answer_pending` applies the client's answer, then the sequence resumes at the next step; with nothing waiting, drafts Experio hadn't read yet are resumed. |
 | **Tarik - Dossier** (`TarikDossier0001`) | `Experio_parametrer_dossier` | A new dossier: creates it, copies a model dossier's configuration when the agent gives one. An existing one: checks the email sender. Then imports each FEC or grand livre, finishes the onboarding, and reports the dossier's state. |
 | **Tarik - Modification** (`TarikModif000001`) | `Experio_modifier_dossier` | Checks the email sender, then changes only the given fields, only to values the client wrote. |
 | **Tarik - Emails** (`TarikEmails00001`) | `tarik-mail-watch` (webhook, secret header) | Reads the cabinet's new emails, gets each thread's reply from the cabinet's agent, sends it, and tells the manager about refused senders. |
@@ -75,7 +77,7 @@ above; the workflows call the rest.
 | `settle_tva` / `check_journal` / `settle_withholding` / `settle_prepaid` / `settle_exercice` | TVA, journal, withholding tax, prepaid charges, fiscal year: each settled, or a question to the client. |
 | `post_invoice` | Posts the invoice when nothing blocks it. |
 | `list_invoices` | A dossier's invoices, amounts as Experio shows them. |
-| `answer_pending` / `waiting_drafts` | The client's answer to a pending question (the tiers, account, TVA... it names) / drafts waiting for Experio. |
+| `answer_pending` / `waiting_drafts` | The client's answer to what the conversation waits on (an invoice's question, a statement's bank account; the invoice or statement it names when several wait), after the email sender check / drafts waiting for Experio. |
 | `record_step` / `run_summary` | A run's step outcomes / its summary for the client. |
 
 ### Emails (`tarik/emails`)

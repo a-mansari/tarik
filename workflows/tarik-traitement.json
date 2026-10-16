@@ -34,10 +34,6 @@
               "type": "number"
             },
             {
-              "name": "invoice_id",
-              "type": "number"
-            },
-            {
               "name": "answer",
               "type": "string"
             },
@@ -97,8 +93,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 3,
-        "output": "={{ $('Appel').first().json.mode === 'answer' ? 1 : ($('Appel').first().json.mode === 'resume' ? 2 : 0) }}"
+        "numberOutputs": 2,
+        "output": "={{ $('Appel').first().json.mode === 'answer' ? 1 : 0 }}"
       }
     },
     {
@@ -913,7 +909,7 @@
           "value": "answer_pending"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ invoice_id: $('Appel').first().json.invoice_id, answer: $('Appel').first().json.answer }) }}",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, answer: $('Appel').first().json.answer }) }}",
         "options": {
           "timeout": 300000
         }
@@ -931,48 +927,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 8,
-        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2, check_journal: 3, settle_withholding: 4, settle_prepaid: 5, settle_exercice: 6, post_invoice: 7 }[$json.content[0].text.next_step] ?? 0) }}"
-      }
-    },
-    {
-      "id": "aa48382b-bc49-5085-9bd5-c1622580adf4",
-      "name": "Expediteur de la reponse (check_sender)",
-      "type": "@n8n/n8n-nodes-langchain.mcpClient",
-      "typeVersion": 1.1,
-      "position": [
-        330,
-        760
-      ],
-      "parameters": {
-        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
-        "serverTransport": "httpStreamable",
-        "tool": {
-          "__rl": true,
-          "mode": "id",
-          "value": "check_sender"
-        },
-        "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, invoice_id: $('Appel').first().json.invoice_id }) }}",
-        "options": {
-          "timeout": 300000
-        }
-      },
-      "onError": "continueErrorOutput"
-    },
-    {
-      "id": "1194e847-54e2-5410-957a-07b2289f5887",
-      "name": "Suite apres check_sender de la reponse",
-      "type": "n8n-nodes-base.switch",
-      "typeVersion": 3.2,
-      "position": [
-        380,
-        800
-      ],
-      "parameters": {
-        "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 9,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 0 : ({ check_duplicate: 1, settle_tva: 2, check_journal: 3, settle_withholding: 4, settle_prepaid: 5, settle_exercice: 6, post_invoice: 7, waiting_drafts: 8 }[$json.content[0].text.next_step] ?? 0) }}"
       }
     },
     {
@@ -993,7 +949,7 @@
           "value": "record_step"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ run_id: String($execution.id), session_id: $('Appel').first().json.session_id, origin: $prevNode.name, result: $json.error ? { status: 'error', message: String($json.error.message ?? $json.error) } : $json.content[0].text }) }}",
+        "jsonInput": "={{ JSON.stringify({ run_id: String($execution.id), session_id: $('Appel').first().json.session_id, origin: $prevNode.name, result: $json.error ? { status: 'error', message: String($json.error.message ?? $json.error), invoice_id: $json.content?.[0]?.text?.invoice_id, file_id: $json.content?.[0]?.text?.file_id ?? $json.file_id } : $json.content[0].text }) }}",
         "options": {
           "timeout": 300000
         }
@@ -1090,14 +1046,7 @@
         ],
         [
           {
-            "node": "Expediteur de la reponse (check_sender)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Brouillons en attente (waiting_drafts)",
+            "node": "Reponse du client (answer_pending)",
             "type": "main",
             "index": 0
           }
@@ -1857,42 +1806,6 @@
         ]
       ]
     },
-    "Expediteur de la reponse (check_sender)": {
-      "main": [
-        [
-          {
-            "node": "Suite apres check_sender de la reponse",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Enregistrer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Suite apres check_sender de la reponse": {
-      "main": [
-        [
-          {
-            "node": "Reponse du client (answer_pending)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Enregistrer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Reponse du client (answer_pending)": {
       "main": [
         [
@@ -1922,12 +1835,22 @@
         ],
         [
           {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Doublon (check_duplicate)",
             "type": "main",
             "index": 0
           }
         ],
         [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          },
           {
             "node": "TVA (settle_tva)",
             "type": "main",
@@ -1936,12 +1859,22 @@
         ],
         [
           {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Journal (check_journal)",
             "type": "main",
             "index": 0
           }
         ],
         [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          },
           {
             "node": "Retenue a la source (settle_withholding)",
             "type": "main",
@@ -1950,12 +1883,22 @@
         ],
         [
           {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Constatee d'avance (settle_prepaid)",
             "type": "main",
             "index": 0
           }
         ],
         [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          },
           {
             "node": "Exercice (settle_exercice)",
             "type": "main",
@@ -1964,7 +1907,24 @@
         ],
         [
           {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Comptabilisation (post_invoice)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Brouillons en attente (waiting_drafts)",
             "type": "main",
             "index": 0
           }

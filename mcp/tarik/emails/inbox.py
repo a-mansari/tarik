@@ -176,6 +176,10 @@ def fetch_emails() -> dict:
         uidvalidity = int(box.response("UIDVALIDITY")[1][0])
         newest = int(box.response("UIDNEXT")[1][0]) - 1
         with cabinet_db() as db:
+            # One reading at a time per cabinet (the watcher's wake-up and its tick overlap): held until this
+            # connection closes, across the commits below. The other run only hands out the waiting threads.
+            if not db.execute("select pg_try_advisory_lock(hashtext(%s))", (f"fetch_emails {current()}",)).fetchone()[0]:
+                return ok("Lecture deja en cours.", threads=claim(db), alerts=[])
             state = db.execute("select uidvalidity, last_uid from tarik_mail_state where folder = %s", (folder(),)).fetchone()
             if not state or state[0] != uidvalidity:  # first run, or the folder was rebuilt: start from now
                 db.execute("insert into tarik_mail_state (folder, uidvalidity, last_uid) values (%s, %s, %s) on conflict (folder) "

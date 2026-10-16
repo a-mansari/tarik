@@ -8,7 +8,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, question, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
-from tarik.core.conversation import client_messages, remember_client_message, yes_no
+from tarik.core.conversation import client_messages, own_words, remember_client_message, said, yes_no
 from tarik.core.experio import DOSSIER_DOMAIN, TEST_MODE, dry_run, experio_refusal, odoo_call, odoo_json, require_dossier
 from tarik.core.numbers import as_number, written_numbers
 from tarik.dossiers.search import dossiers, normalized, similarity
@@ -86,6 +86,7 @@ def create_dossier(name: str = "", ice: str | int = "", if_number: str | int = "
     A dossier of that name this conversation (``session_id``) already created is reused:
     MiniMax sometimes asks for it again to import its entries. Nothing is created when a
     dossier has the same ICE or IF; a very similar name is a question to the client first."""
+    client_message = own_words(client_message)
     remember_client_message(session_id, client_message)
     name = " ".join((name or "").split())
     if not name:  # MiniMax sometimes calls with no fields at all: told how to call again, it does
@@ -145,11 +146,6 @@ def digits(text):
     return re.findall(r"\d+", re.sub(r"(?<=\d)[ .,\u202f\u00a0](?=\d)", "", text or ""))
 
 
-def said(phrase, words):
-    """``phrase`` is in ``words`` as whole words: "alpha" is not in "alphanumerique"."""
-    return bool(phrase) and re.search(rf"(?<![a-z0-9]){re.escape(phrase)}(?![a-z0-9])", words) is not None
-
-
 def client_wrote(key, value, words):
     """Did the client write this new value themselves? A model may not choose nor "correct" one.
     An identifier is one of the numbers they wrote, digit for digit; the capital, one of their amounts,
@@ -178,6 +174,7 @@ def update_dossier(dossier_id: int, name: str = "", folder_type: str = "", ice: 
     and only to values the client wrote themselves (``client_message`` and their earlier messages in
     ``session_id``). An ICE or IF another dossier has, or a name another dossier has, is refused; Experio
     checks the ICE and IF against the registry, skipped only once the client confirmed it (a question first)."""
+    client_message = own_words(client_message)
     dossier = require_dossier(dossier_id)
     asked = {key: str(value).strip() for key, value in (
         ("name", name), ("folder_type", folder_type), ("ice", ice), ("if_number", if_number), ("rc", rc), ("patente", patente),

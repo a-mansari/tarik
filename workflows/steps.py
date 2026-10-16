@@ -80,9 +80,12 @@ class Workflow:
     def record_and_summary(self, record_position, summary_position):
         """The "Enregistrer" step, then, last (lowest branch: n8n runs it after everything), the run's
         summary, which is the workflow's answer."""
+        # A failed step's error item carries the item it was given (n8n merges it in): its invoice or file.
+        given = "$json.content?.[0]?.text"
         self.mcp(RECORD, "record_step", (
             f"{{ run_id: String($execution.id), session_id: {CALL}.session_id, origin: $prevNode.name, "
-            f"result: $json.error ? {{ status: 'error', message: String($json.error.message ?? $json.error) }} : {RESULT} }}"),
+            f"result: $json.error ? {{ status: 'error', message: String($json.error.message ?? $json.error), "
+            f"invoice_id: {given}?.invoice_id, file_id: {given}?.file_id ?? $json.file_id }} : {RESULT} }}"),
             record_position)
         self.mcp("Resume", "run_summary", "{ run_id: String($execution.id) }", summary_position)
         self.connect("Appel", "Resume")

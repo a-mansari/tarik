@@ -136,17 +136,6 @@ def assign_account(invoice_id: int) -> dict:
     return apply_account(invoice, by_code[code]["id"], reason)
 
 
-def search_accounts(invoice_id, query):
-    """The invoice's dossier accounts matching a code prefix or label word ("6125", "carburant"), to show the client."""
-    invoice = require_invoice(invoice_id, ["company_id"])
-    found = odoo_call("exp.account", "search_read", [("company_id", "=", invoice["company_id"][0]), "|",
-                      ("code", "=like", f"{query.strip()}%"), ("name", "ilike", query.strip())],
-                      fields=["id", "code", "name"], order="code", limit=15)
-    if not found:
-        return f"Aucun compte du dossier ne correspond a « {query} »."
-    return "Comptes : " + "; ".join(f"{a['code']} {a['name']}" for a in found)
-
-
 def resolve_account(accounts, answer):
     """The account the client means, from their own words: a code (or its start), or a label.
     One match, or several sharing one label (take the lowest code, account.py's rule) -> that
@@ -163,16 +152,35 @@ def resolve_account(accounts, answer):
     return None
 
 
+ANSWER_PROMPT = """You read a client's answer to the question "which account (Compte) should this invoice use?",
+for a Moroccan cabinet's dossier, and say which account of the dossier's chart below they mean: by its code (a
+code's start, such as 6145, means the account whose code starts with it) or by its label. Report only an account
+the answer itself names; when it names none, or could mean several with different labels, answer null. Never
+choose one yourself from what the invoice bills."""
+
+
+def account_meant(accounts, answer):
+    """The account the client's free-text answer names ("Pour MEDI TELECOM, utilisez le compte 6145"), read by
+    the model and checked against the chart; None when it names none clearly."""
+    code = ask_model(ANSWER_PROMPT, [], f"Client's answer: {answer}\n\nThe dossier's accounts:\n"
+                     + "\n".join(f"{a['code']} {a['name']}" for a in accounts)
+                     + '\n\nAnswer with only a JSON object: {"code": "<a code from the list above>" or null}',
+                     "Lecture de la reponse").get("code")
+    return next((account for account in accounts if account["code"] == code), None)
+
+
 @with_ids
 def set_account(invoice_id, answer):
-    """Put the account the client asked for on a draft invoice (their answer to assign_account's question):
-    a code ("6111", "61110000") or a label ("achats de marchandises"). When ambiguous, the accounts to choose from."""
+    """Put the account the client asked for on a draft invoice (their answer to assign_account's question): a code
+    ("6111", "61110000") or a label ("achats de marchandises") on its own, else read from their sentence. When it
+    names none clearly, the question again."""
     if not (answer or "").strip():
         raise ToolError("answer manquant : le code ou l'intitule donne par le client.")
     invoice = draft_invoice(invoice_id)
     accounts = odoo_call("exp.account", "search_read", [("company_id", "=", invoice["company_id"][0])],
                          fields=["id", "code", "name"], order="code")
-    account = resolve_account(accounts, answer)
+    account = resolve_account(accounts, answer) or account_meant(accounts, answer)
     if account:
         return apply_account(invoice, account["id"], f"demande du client : {answer.strip()}")
-    return question(f"Facture {invoice_id} : « {answer.strip()} » est ambigu. " + search_accounts(invoice_id, answer))
+    return question(f"Facture {invoice_id} : « {answer.strip()} » ne designe pas un seul compte du dossier. "
+                    "Quel compte utiliser (code ou intitule) ?")

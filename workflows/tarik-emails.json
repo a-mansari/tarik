@@ -66,7 +66,7 @@
         300
       ],
       "parameters": {
-        "jsCode": "// One item per thread waiting for an answer (fetch_emails locked them for this run).\nreturn $input.first().json.content[0].text.threads.map(thread => ({ json: thread }));"
+        "jsCode": "// One item per thread waiting for an answer (fetch_emails locked them for this run).\n// None when tarik-mcp answered without them (restarting): the next wake-up takes them.\nreturn ($input.first().json.content?.[0]?.text?.threads ?? []).map(thread => ({ json: thread }));"
       }
     },
     {
@@ -222,7 +222,7 @@
         520
       ],
       "parameters": {
-        "jsCode": "// One item per email whose sender fetch_emails refused.\nreturn $input.first().json.content[0].text.alerts.map(alert => ({ json: alert }));"
+        "jsCode": "// One item per email whose sender fetch_emails refused.\nreturn ($input.first().json.content?.[0]?.text?.alerts ?? []).map(alert => ({ json: alert }));"
       }
     },
     {
