@@ -68,12 +68,18 @@ create table if not exists tarik_mail_threads (
     session_id text not null unique, -- the conversation's session: memory, files and questions
     client_address text not null,
     subject text not null,
-    state text not null default 'new' check (state in ('new', 'in_progress', 'waiting', 'done', 'ignored', 'error')),
+    state text not null default 'new' check (state in ('new', 'in_progress', 'waiting', 'follow_up', 'done', 'ignored', 'error')),
     reason text, -- why it is ignored or in error
     attempts integer not null default 0, -- runs that did not finish: after 3 the thread is set aside in error
     claimed_at timestamptz, -- a run working on it: another one leaves it alone for 30 minutes
     updated_at timestamptz not null default now()
 );
+-- follow_up: Tarik answered, and the conversation's drafts Experio was still reading are taken up again,
+-- their outcome sent in the thread, until follow_up_until.
+alter table tarik_mail_threads add column if not exists follow_up_until timestamptz;
+alter table tarik_mail_threads drop constraint if exists tarik_mail_threads_state_check;
+alter table tarik_mail_threads add constraint tarik_mail_threads_state_check
+    check (state in ('new', 'in_progress', 'waiting', 'follow_up', 'done', 'ignored', 'error'));
 create table if not exists tarik_mail_messages (
     message_id text primary key,
     thread_id text not null references tarik_mail_threads (thread_id),

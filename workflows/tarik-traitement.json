@@ -58,6 +58,19 @@
       }
     },
     {
+      "id": "ec813d2b-2ceb-567c-9afa-4cdad14a75d7",
+      "name": "Debut",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        60,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// When the run started, for its time budget.\nreturn [{ json: { started: Date.now() } }];"
+      }
+    },
+    {
       "id": "4e4e7ebe-e6d2-53b2-8cea-3c9a09565467",
       "name": "Pieces jointes de l'agent",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -93,8 +106,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $('Appel').first().json.mode === 'answer' ? 1 : 0 }}"
+        "numberOutputs": 3,
+        "output": "={{ { answer: 1, resume: 2 }[$('Appel').first().json.mode] ?? 0 }}"
       }
     },
     {
@@ -344,8 +357,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "87dbbf02-5d17-58e9-b9d8-1d161f0e2cec",
+      "name": "Hors delai (create_draft_invoice)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1870,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -384,8 +410,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "0a63fdbc-7993-50ae-bb9a-aae7cc3d1d91",
+      "name": "Hors delai (wait_until_read)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2110,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -424,8 +463,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "ab5f0336-c454-5f5a-99f3-bd46181a7341",
+      "name": "Hors delai (check_invoice)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2350,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -464,8 +516,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "b5f7848f-e1f7-5b09-a2e7-fbec4c42771a",
+      "name": "Hors delai (correct_invoice)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2590,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -504,8 +569,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "501dee4d-aff1-5bbe-b527-3e0cfb8e5321",
+      "name": "Hors delai (classify_invoice)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2830,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -544,8 +622,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "4367000c-18aa-505e-897c-761e8c33460c",
+      "name": "Hors delai (link_tiers)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3070,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -584,8 +675,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "09c62a78-1e60-5c14-a203-aebd5a8717ad",
+      "name": "Hors delai (check_duplicate)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3310,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -624,8 +728,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "37c57a3e-f57a-581a-8b29-c8ef8879023e",
+      "name": "Hors delai (assign_account)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3550,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -664,8 +781,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "1b198d7b-8348-5323-a009-0e886e92d90e",
+      "name": "Hors delai (settle_tva)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3790,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -704,8 +834,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "3415ef56-0295-5d02-93fc-c81b3ada2a76",
+      "name": "Hors delai (check_journal)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4030,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -744,8 +887,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "263005aa-0f6f-5c3e-a34e-37a1f19cd6a7",
+      "name": "Hors delai (settle_withholding)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4270,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -784,8 +940,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "a460b197-88ad-5ae6-97d6-be9468b03e0e",
+      "name": "Hors delai (settle_prepaid)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4510,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -824,8 +993,21 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+        "numberOutputs": 3,
+        "output": "={{ $json.content[0].text.status !== 'ok' ? 1 : ($('Appel').first().json.mode !== 'resume' && Date.now() - $('Debut').first().json.started > 80000) ? 2 : 0 }}"
+      }
+    },
+    {
+      "id": "b0928d10-3009-58b3-a0fc-2d9b8c0ad844",
+      "name": "Hors delai (settle_exercice)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4750,
+        800
+      ],
+      "parameters": {
+        "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
       }
     },
     {
@@ -1020,12 +1202,23 @@
       "main": [
         [
           {
-            "node": "Pieces jointes de l'agent",
+            "node": "Debut",
             "type": "main",
             "index": 0
           },
           {
             "node": "Resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debut": {
+      "main": [
+        [
+          {
+            "node": "Pieces jointes de l'agent",
             "type": "main",
             "index": 0
           }
@@ -1062,6 +1255,13 @@
         [
           {
             "node": "Reponse du client (answer_pending)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Brouillons en attente (waiting_drafts)",
             "type": "main",
             "index": 0
           }
@@ -1261,6 +1461,24 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Hors delai (create_draft_invoice)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (create_draft_invoice)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -1296,6 +1514,24 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hors delai (wait_until_read)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (wait_until_read)": {
+      "main": [
         [
           {
             "node": "Enregistrer",
@@ -1343,6 +1579,24 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Hors delai (check_invoice)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (check_invoice)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -1378,6 +1632,24 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hors delai (correct_invoice)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (correct_invoice)": {
+      "main": [
         [
           {
             "node": "Enregistrer",
@@ -1425,6 +1697,24 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Hors delai (classify_invoice)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (classify_invoice)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -1460,6 +1750,24 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hors delai (link_tiers)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (link_tiers)": {
+      "main": [
         [
           {
             "node": "Enregistrer",
@@ -1507,6 +1815,24 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Hors delai (check_duplicate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (check_duplicate)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -1542,6 +1868,24 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hors delai (assign_account)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (assign_account)": {
+      "main": [
         [
           {
             "node": "Enregistrer",
@@ -1589,6 +1933,24 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Hors delai (settle_tva)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (settle_tva)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -1624,6 +1986,24 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hors delai (check_journal)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (check_journal)": {
+      "main": [
         [
           {
             "node": "Enregistrer",
@@ -1671,6 +2051,24 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Hors delai (settle_withholding)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (settle_withholding)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -1712,6 +2110,24 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Hors delai (settle_prepaid)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (settle_prepaid)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -1747,6 +2163,24 @@
             "index": 0
           }
         ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Hors delai (settle_exercice)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hors delai (settle_exercice)": {
+      "main": [
         [
           {
             "node": "Enregistrer",

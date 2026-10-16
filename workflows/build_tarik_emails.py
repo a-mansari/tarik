@@ -5,7 +5,8 @@ its new emails in their threads and tells the manager of refused senders, then c
 thread waits for an answer. The run works in that cabinet only, every step at its address: for each
 waiting thread, the cabinet's own n8n agent answers its client's emails (ask_agent), and the reply goes out
 in the thread, to whitelisted addresses only. A thread whose run stops midway is taken again 30 minutes
-later; after 3 such runs it is set aside in error."""
+later; after 3 such runs it is set aside in error. A follow-up (a thread whose drafts Experio was still
+reading, once read) skips the agent: "Tarik - Traitement" takes those drafts up again, its summary is sent."""
 
 from steps import Workflow
 
@@ -72,9 +73,68 @@ mcp(
     maxTries=3,
     waitBetweenTries=5000,
 )  # the reply is out: its thread must be closed, or it's sent twice
+# A follow-up has no email to answer: no agent, no 120 s limit on the processing.
+flow.route("Suite ?", "$json.follow_up ? 1 : 0", 2, [550, 300])
+INPUTS = {
+    "mode": ("string", "resume"),
+    "session_id": ("string", "={{ $json.session_id }}"),
+    "dossier_id": ("number", 0),
+    "answer": ("string", ""),
+    "invoice_type": ("string", ""),
+    "client_message": ("string", ""),
+    "attachments": ("string", ""),
+    "cabinet": ("string", "={{ $('Nouvel email').first().json.body.cabinet }}"),
+}
+node(
+    "Suite du traitement",
+    "n8n-nodes-base.executeWorkflow",
+    1.2,
+    [660, 520],
+    {
+        "source": "database",
+        "workflowId": {"__rl": True, "value": "TarikTraitement1", "mode": "id"},
+        "mode": "each",
+        "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {name: value for name, (_, value) in INPUTS.items()},
+            "matchingColumns": [],
+            "schema": [
+                {
+                    "id": name,
+                    "displayName": name,
+                    "required": False,
+                    "defaultMatch": False,
+                    "display": True,
+                    "canBeUsedToMatch": True,
+                    "type": type_,
+                }
+                for name, (type_, _) in INPUTS.items()
+            ],
+            "attemptToConvertTypes": False,
+        },
+        "options": {"waitForSubWorkflow": True},
+    },
+    onError="continueErrorOutput",
+)
+mcp(
+    "Suite envoyee (send_email)",
+    "send_email",
+    (
+        f"{{ to: {THREAD}.to, subject: {THREAD}.subject, "
+        "body: 'Suite du traitement de vos documents :\\n\\n' + $json.content[0].text.message, "
+        f"in_reply_to: {THREAD}.in_reply_to, references: {THREAD}.references }}"
+    ),
+    [880, 520],
+)
 connect("Nouvel email", "Fils en attente (claim_threads)")
 connect("Fils en attente (claim_threads)", "Un element par fil", 0)
-connect("Un element par fil", "Tarik")
+connect("Un element par fil", "Suite ?")
+connect("Suite ?", "Tarik", 0)
+connect("Suite ?", "Suite du traitement", 1)
+connect("Suite du traitement", "Suite envoyee (send_email)", 0)
+connect("Suite du traitement", "Fil traite (finish_thread)", 1)  # failed: set aside, with why
+connect("Suite envoyee (send_email)", "Fil traite (finish_thread)", 0)
+connect("Suite envoyee (send_email)", "Fil traite (finish_thread)", 1)
 # Refused for the sender's rights on the dossier: the sender gets nothing, the manager is told.
 mcp("Refus de droits ? (thread_refusal)", "thread_refusal", f"{{ thread_id: {THREAD}.thread_id }}", [770, 300])
 flow.route("Refuse ?", "$json.content[0].text.refused ? 1 : 0", 2, [820, 360])
