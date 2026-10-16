@@ -7,13 +7,10 @@ Per cabinet, one IMAP IDLE connection to its Tarik folder (read-only, pinned cer
 read_mailbox connects): the server tells it when the folder gets a new email, and it reads it. The
 connection is renewed every 25 minutes (servers drop an IDLE after ~30) and rebuilt after any error;
 the 15-minute tick still catches whatever happens meanwhile.
-Python 3.12's imaplib has no IDLE (3.14 does): the command is spoken here.
 """
 
 import logging
 import os
-import re
-import select
 import threading
 import time
 
@@ -27,39 +24,23 @@ WEBHOOK = os.getenv("MAIL_WEBHOOK_URL", "http://n8n:5678/webhook/tarik-nouvel-em
 RENEW_SECONDS = 25 * 60
 TICK_SECONDS = 15 * 60
 HEADER = "X-Tarik-Webhook"  # the webhook's secret (Vault MAIL_WEBHOOK_SECRET; n8n credential "Tarik mail webhook")
-# The server's count of emails in the folder: "* <n> EXISTS" (one more arrived) or "* <n> EXPUNGE" (one deleted).
-COUNT = re.compile(rb"\* (\d+) (EXISTS|EXPUNGE)")
 
 HTTP = httpx.Client()
 logging.getLogger("httpx").setLevel(logging.WARNING)  # not one line per wake-up
 
 
 def wait_for_mail(box, count, seconds):
-    """IDLE until the folder holds more than ``count`` emails, or ``seconds`` pass. Returns the new count."""
-    tag = box._new_tag().decode()
-    box.send(f"{tag} IDLE\r\n".encode())
-    if not box.readline().startswith(b"+"):
-        raise ConnectionError("IDLE refused")
-    deadline, grown = time.monotonic() + seconds, count
-    while time.monotonic() < deadline and grown <= count:
-        # Data TLS already decrypted is invisible to select: read it first.
-        if not box.sock.pending() and not select.select([box.sock], [], [], min(30, deadline - time.monotonic()))[0]:
-            continue
-        line = box.readline()
-        if not line:
-            raise ConnectionError("connection closed")
-        found = COUNT.match(line)
-        if found and found.group(2) == b"EXISTS":
-            grown = int(found.group(1))
-        elif found:  # an email deleted elsewhere: the count to beat goes down with it
-            count, grown = count - 1, grown - 1
-    box.send(b"DONE\r\n")
-    while True:  # the rest of the IDLE's answers, up to its end
-        line = box.readline()
-        if not line:
-            raise ConnectionError("connection closed")
-        if line.startswith(tag.encode()):
-            return grown
+    """IDLE on the folder holding ``count`` emails until one more arrives, or ``seconds`` pass: (arrived, the
+    folder's count)."""
+    with box.idle(duration=seconds) as idler:
+        for kind, data in idler:
+            if kind == "EXPUNGE":  # one deleted elsewhere: the count to beat goes down with it
+                count -= 1
+            elif kind == "EXISTS":
+                if int(data[0]) > count:
+                    return True, int(data[0])
+                count = int(data[0])
+    return False, count
 
 
 def wake_tarik(cabinet, why):
@@ -103,10 +84,9 @@ def watch(cabinet):
                 count = int(box.untagged_responses.get("EXISTS", [b"0"])[-1])
                 log(f"{cabinet}: watching ({count} emails)")
                 while True:
-                    grown = wait_for_mail(box, count, RENEW_SECONDS)
-                    if grown > count:
+                    arrived, count = wait_for_mail(box, count, RENEW_SECONDS)
+                    if arrived:
                         serve(cabinet, "new email")
-                    count = grown
             except Exception as error:
                 log(f"{cabinet}: watch interrupted: {error}; reconnecting in 30 s")
                 time.sleep(30)
