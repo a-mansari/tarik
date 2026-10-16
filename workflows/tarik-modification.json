@@ -254,22 +254,6 @@
         ]
       ]
     },
-    "Appel": {
-      "main": [
-        [
-          {
-            "node": "Expediteur (check_sender)",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Fin des etapes",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Suite apres check_sender": {
       "main": [
         [
@@ -282,6 +266,22 @@
         [
           {
             "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Appel": {
+      "main": [
+        [
+          {
+            "node": "Expediteur (check_sender)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fin des etapes",
             "type": "main",
             "index": 0
           }

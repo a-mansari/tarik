@@ -44,6 +44,7 @@ DOSSIER_INPUTS = {
     **CABINET_INPUT,
 }
 SAVE_ATTACHMENTS = "Pieces jointes de l'agent"
+START = "Debut"
 RECORD = "Enregistrer"  # records each step's outcome; the run's summary is made from them
 SENDER = "Expediteur (check_sender)"
 FILES = "Fichiers du message (files_to_process)"
@@ -117,10 +118,17 @@ class Workflow:
         """A code node running ``js``; returns its name."""
         return self.node(name, "n8n-nodes-base.code", 2, position, {"jsCode": js})
 
-    def save_attachments(self, position):
-        """The native agent's chat files (base64 of { thread_id, files }), saved once each in the
-        cabinet's tarik_files. Emails save theirs as they arrive, and send none."""
-        return self.mcp(SAVE_ATTACHMENTS, "save_files", "{ payload: " + CALL + ".attachments || '' }", position)
+    def start(self, router):
+        """The run's start, then ``router``: "Debut" notes when it started (for its time budget), then the native
+        agent's chat files (base64 of { thread_id, files }) are saved once each in the cabinet's tarik_files
+        (emails save theirs as they arrive, and send none). A failed save is recorded."""
+        started = "// When the run started, for its time budget.\nreturn [{ json: { started: Date.now() } }];"
+        self.code(START, [60, 300], started)
+        self.mcp(SAVE_ATTACHMENTS, "save_files", "{ payload: " + CALL + ".attachments || '' }", [110, 300])
+        self.connect("Appel", START)
+        self.connect(START, SAVE_ATTACHMENTS)
+        self.connect(SAVE_ATTACHMENTS, router, 0)
+        self.to_record(SAVE_ATTACHMENTS, 1)
 
     def trigger(self, **inputs):
         """ "Appel": the workflow called as a tool, with these inputs (name="type", in order; fixed by the caller,
@@ -146,9 +154,11 @@ class Workflow:
 
     def check_sender(self, position, router_position):
         """The email's sender must have the called dossier assigned in Experio (the agent's own chat has no
-        sender): a checked step. Returns its router's name."""
+        sender): a checked step, a refusal recorded. Returns its router's name."""
         arguments = f"{{ session_id: {CALL}.session_id, dossier_id: {CALL}.dossier_id }}"
-        return self.checked(SENDER, "check_sender", arguments, position, router_position)
+        router = self.checked(SENDER, "check_sender", arguments, position, router_position)
+        self.to_record(router, 1)
+        return router
 
     def files_to_process(self, arguments, comment, position, split_position):
         """The conversation's files to work on (files_to_process with ``arguments``), then one item per file,
