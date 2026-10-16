@@ -79,13 +79,6 @@ def asked(invoice, opens):
     )
 
 
-def set_date(invoice_id, invoice, given):
-    """Save the date ``given`` (YYYY-MM-DD) by the client on the invoice, and on ``invoice`` (dict)."""
-    with refused(f"settle_exercice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu enregistrer sa date."):
-        fill_invoice(invoice_id, {"invoice_date": given}, invoice_context(invoice))
-    invoice["invoice_date"] = given
-
-
 def relink(invoice_id, invoice, exercice):
     """Link the invoice to ``exercice`` (the open one covering its date), when it isn't yet: ok."""
     linked = invoice["exercice_id"]
@@ -157,7 +150,10 @@ def settle_exercice(invoice_id: int, answer: str = "") -> dict:
                 f"Facture {invoice_id} : pas de date, impossible de choisir l'exercice. "
                 "Quelle est sa date (jj/mm/aaaa) ?"
             )
-        set_date(invoice_id, invoice, given)
+        unsaved = f"Facture {invoice_id} : Experio n'a pas pu enregistrer sa date."
+        with refused(f"settle_exercice {invoice_id}", unsaved):
+            fill_invoice(invoice_id, {"invoice_date": given}, invoice_context(invoice))
+        invoice["invoice_date"] = given
         answer = ""
     company_id = invoice["company_id"][0]
     opens = odoo_call(

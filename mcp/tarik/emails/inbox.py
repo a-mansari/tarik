@@ -58,12 +58,6 @@ def folder():
     return setting("IMAP_FOLDER", "INBOX")
 
 
-def own_addresses():
-    """The current cabinet's own addresses (lowercased): an email from one of them is Tarik's own."""
-    addresses = (parseaddr(setting("SMTP_FROM", ""))[1], setting("SMTP_USER", ""), setting("IMAP_USER", ""))
-    return {address.lower() for address in addresses if address}
-
-
 @contextlib.contextmanager
 def connect():
     """The folder, opened read-only, on the pinned (or verified) certificate; closed on the way out."""
@@ -112,12 +106,6 @@ def automatic(message):
     )
 
 
-def session_of(thread_id):
-    """The thread's conversation id, the cabinet's own: n8n's conversation ids are shared by every agent,
-    and one email may reach two cabinets' mailboxes."""
-    return "mail-" + hashlib.sha256(f"{current()}\n{thread_id}".encode()).hexdigest()[:20]
-
-
 class UnreadableEmail(Exception):
     """An email Python can't read (an unknown charset, a broken header): skipped, never tried again."""
 
@@ -161,10 +149,13 @@ def thread_of(db, linked, sender, subject, reason, message_id):
         (linked, sender),
     ).fetchone()
     if not row:
+        # The thread's conversation, the cabinet's own: n8n's conversation ids are shared by every agent, and one
+        # email may reach two cabinets' mailboxes.
+        session_id = "mail-" + hashlib.sha256(f"{current()}\n{message_id}".encode()).hexdigest()[:20]
         db.execute(
             "insert into tarik_mail_threads (thread_id, session_id, client_address, subject, state, reason) "
             "values (%s, %s, %s, %s, %s, %s)",
-            (message_id, session_of(message_id), sender, subject[:300], "ignored" if reason else "new", reason),
+            (message_id, session_id, sender, subject[:300], "ignored" if reason else "new", reason),
         )
         return message_id
     if not reason:  # allowed now: back to Tarik, even after an error or a refusal (a run on it takes it after)
@@ -187,7 +178,8 @@ def store(db, uid, message):
     if db.execute("select 1 from tarik_mail_messages where message_id = %s", (message_id,)).fetchone():
         return
     sender, reply_to, subject, linked, text, files, auto = read_email(message_id, message)
-    if sender in own_addresses():
+    own = (parseaddr(setting("SMTP_FROM", ""))[1], setting("SMTP_USER", ""), setting("IMAP_USER", ""))
+    if sender in {address.lower() for address in own if address}:
         return  # Tarik's own reply, when the folder holds the sent copies
     reason, unauthorized = refusal(sender, auto)
     thread_id = thread_of(db, linked, sender, subject, reason, message_id)
@@ -267,11 +259,6 @@ def drafts_to_resume(session_id):
         return []
 
 
-def to_follow_up(session_id):
-    """Is something of the conversation left for a follow-up: drafts to take up again, or dossiers to finish?"""
-    return bool(waiting_setups(session_id)["dossiers"] or drafts_to_resume(session_id))
-
-
 def follow_ups_ready(db):
     """The follow-up threads to take now (thread ids): a dossier to finish, Experio has read every draft their
     conversation waits on, or their time is up. One with nothing left (drafts posted or deleted in Experio
@@ -300,12 +287,6 @@ def follow_ups_ready(db):
     return ready
 
 
-def locked(db):
-    """Take this cabinet's mailbox reading lock, held until ``db`` closes; False when another reading has it
-    (the watcher's wake-up and its tick may overlap)."""
-    return db.execute("select pg_try_advisory_lock(hashtext(%s))", (f"read_mailbox {current()}",)).fetchone()[0]
-
-
 def last_read(db, uidvalidity, newest):
     """The uid of the last email read in the folder, or None on a first reading (or a folder rebuilt, its
     ``uidvalidity`` changed): then the folder's ``newest`` uid is noted, and earlier emails are left alone."""
@@ -320,12 +301,6 @@ def last_read(db, uidvalidity, newest):
     return None
 
 
-def fetched(box, uid):
-    """Email ``uid``'s raw bytes (None when the server sends none), read without marking it read."""
-    data = box.uid("fetch", str(uid), "(BODY.PEEK[])")[1]
-    return next((part[1] for part in data if isinstance(part, tuple)), None)
-
-
 def store_new(box, db, last):
     """Store each email after uid ``last``, each committed before the next; returns the manager's alerts. An
     unreadable email is skipped for good; any other failure stops here, for the next reading to go on."""
@@ -333,7 +308,8 @@ def store_new(box, db, last):
     alerts = []
     for uid in sorted(u for u in uids if u > last):  # "n:*" also returns the last email when there's nothing new
         try:
-            raw = fetched(box, uid)
+            data = box.uid("fetch", str(uid), "(BODY.PEEK[])")[1]  # read without marking it read
+            raw = next((part[1] for part in data if isinstance(part, tuple)), None)
             with db.transaction():  # a failed email leaves nothing half-written
                 alert = store(db, uid, message_from_bytes(raw, policy=policy.default)) if raw else None
         except (UnreadableEmail, psycopg.DataError) as error:  # this email can't be stored: never tried again
@@ -357,7 +333,8 @@ def read_mailbox():
     with connect() as box, cabinet_db() as db:
         uidvalidity = int(box.response("UIDVALIDITY")[1][0])
         newest = int(box.response("UIDNEXT")[1][0]) - 1
-        if not locked(db):
+        # This cabinet's reading lock, held until db closes: the watcher's wake-up and its tick may overlap.
+        if not db.execute("select pg_try_advisory_lock(hashtext(%s))", (f"read_mailbox {current()}",)).fetchone()[0]:
             return []
         last = last_read(db, uidvalidity, newest)
         return [] if last is None else store_new(box, db, last)
@@ -489,7 +466,8 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
         ).fetchone()
         waiting = db.execute("select 1 from tarik_pending where session_id = %s limit 1", session).fetchone()
         state = "new" if newer else "waiting" if waiting else "done"  # new: an email came in during this run
-        if state == "done" and to_follow_up(session[0]):
+        # Something left for a follow-up: drafts to take up again, or dossiers to finish.
+        if state == "done" and (waiting_setups(session[0])["dossiers"] or drafts_to_resume(session[0])):
             until = db.execute(
                 "select coalesce(follow_up_until, now() + make_interval(mins => %s)) > now() "
                 "from tarik_mail_threads where thread_id = %s",
