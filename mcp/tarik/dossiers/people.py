@@ -1,7 +1,8 @@
 """The cabinet's people, as Experio knows them, and who may have work done on which dossier.
 
 Experio has no collaborator model: they are res.users with employee_type "employee" (the
-cabinet) or "client" (a dossier's contacts). A user's role is their profile (exp_profile_id:
+cabinet), "internal" (Experio's own staff, given every dossier of every cabinet) or "client" (a
+dossier's contacts). A user's role is their profile (exp_profile_id:
 "Collaborateur", "Chef de mission", "Manager"...), whose management level is none, user,
 approver or admin; Experio's own user_is_manager() says who manages. A user's dossiers are
 their company_ids, which Experio keeps in step with each dossier's Employees and Contacts:
@@ -14,6 +15,8 @@ from tarik.core.app import ok, server, stop
 from tarik.core.cabinets import cabinet_db
 from tarik.core.experio import odoo_call, refused, require_dossier
 
+# Who may give Tarik work: the cabinet's collaborators and Experio's own staff (not client contacts).
+STAFF = ["employee", "internal"]
 LEVELS = {"none": "aucune", "user": "utilisateur", "approver": "approbateur", "admin": "administrateur"}
 USER_FIELDS = ["name", "login", "employee_state", "exp_profile_id", "is_super_manager", "company_ids"]
 
@@ -54,14 +57,14 @@ def list_collaborators() -> str:
 
 
 def collaborator(address):
-    """The active Experio collaborator with this email (their login), or None: client contacts
-    and unknown addresses don't give Tarik work. Compared whole, case aside: Experio's =ilike would read
+    """The active Experio collaborator or staff member (STAFF) with this email (their login), or None: client
+    contacts and unknown addresses don't give Tarik work. Compared whole, case aside: Experio's =ilike would read
     % and _ in an address as wildcards (jean%@cabinet.ma matching jean.dupont@cabinet.ma)."""
     exact = re.sub(r"([\\%_])", r"\\\1", address)  # a backslash, % or _: escaped with a backslash
     found = odoo_call(
         "res.users",
         "search_read",
-        [("employee_type", "=", "employee"), "|", ("login", "=ilike", exact), ("email", "=ilike", exact)],
+        [("employee_type", "in", STAFF), "|", ("login", "=ilike", exact), ("email", "=ilike", exact)],
         fields=["name", "company_ids"],
         limit=2,
     )
@@ -80,7 +83,7 @@ def sender_of(session_id):
 @server.tool()
 def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> dict:
     """Before work on an existing dossier (``dossier_id``, or the dossier of ``invoice_id``):
-    the email's sender must be an Experio collaborator with that dossier assigned to them.
+    the email's sender must be a collaborator or Experio staff member with that dossier assigned to them.
     The chat has no sender to check."""
     if invoice_id and not dossier_id:
         found = odoo_call("exp.invoice", "read", [invoice_id], fields=["company_id"])
@@ -92,7 +95,8 @@ def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> d
     user = collaborator(address)
     if not user:
         return stop(
-            f"{address} n'est pas un collaborateur du cabinet dans Experio : aucun travail sur le dossier {dossier}."
+            f"{address} n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun travail sur le dossier "
+            f"{dossier}."
         )
     if dossier_id not in user["company_ids"]:
         return stop(f"Le dossier {dossier} n'est pas attribue a {user['name']} dans Experio : rien n'y est fait.")

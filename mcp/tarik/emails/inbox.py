@@ -4,7 +4,7 @@ copy of each email it sends, in the Sent folder (tarik.emails.sending.save_sent)
 is tracked in Postgres instead, thread by thread, so an email someone already read in the
 mailbox is still answered, and a thread waiting for the client comes back when they reply.
 
-Only the cabinet's collaborators in Experio are answered, and only if the whitelist
+Only the cabinet's collaborators and Experio's own staff are answered, and only if the whitelist
 (MAIL_ALLOWED_RECIPIENTS) lets Tarik write to them: any other email is set aside unread by
 Tarik, so it creates nothing in Experio.
 """
@@ -145,7 +145,7 @@ def refusal(sender, auto):
     if not recipient_allowed(sender):
         return "expediteur hors de la liste autorisee", "expediteur hors de la liste autorisee"
     if not collaborator(sender):
-        reason = "expediteur hors des collaborateurs du cabinet dans Experio"
+        reason = "expediteur ni collaborateur du cabinet ni de l'equipe Experio"
         return reason, reason
     return None, None
 
