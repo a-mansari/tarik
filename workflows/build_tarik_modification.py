@@ -44,7 +44,6 @@ flow.mcp(
 )
 flow.connect("Appel", SENDER)
 flow.connect(sender, UPDATE, 0)
-flow.to_record(sender, 1)
 flow.to_record(UPDATE, 0, 1)
 flow.record_and_summary([900, 300], [220, 600])
 flow.save("TarikModif000001", "Tarik - Modification")

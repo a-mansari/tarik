@@ -1202,24 +1202,6 @@
     }
   ],
   "connections": {
-    "Expediteur (check_sender)": {
-      "main": [
-        [
-          {
-            "node": "Suite apres check_sender",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Enregistrer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Appel": {
       "main": [
         [
@@ -1265,6 +1247,42 @@
         ]
       ]
     },
+    "Expediteur (check_sender)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres check_sender",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres check_sender": {
+      "main": [
+        [
+          {
+            "node": "Fichiers du message (files_to_process)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Fichiers ou reponse ?": {
       "main": [
         [
@@ -1284,24 +1302,6 @@
         [
           {
             "node": "Brouillons en attente (waiting_drafts)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Suite apres check_sender": {
-      "main": [
-        [
-          {
-            "node": "Fichiers du message (files_to_process)",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }

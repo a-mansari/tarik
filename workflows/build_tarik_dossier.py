@@ -7,7 +7,7 @@ onboarding comes after the imports and the summary after everything. The onboard
 Experio: when the run's time (n8n stops an agent's tool after 300 s) is too short, the dossier waits
 in tarik_setups. Mode resume ("Tarik - Emails" following up, no agent, no time limit) finishes those."""
 
-from steps import CALL, DOSSIER_INPUTS, EACH_FILE, FILES, RESULT, SAVE_ATTACHMENTS, SENDER, Workflow
+from steps import CALL, DOSSIER_INPUTS, EACH_FILE, FILES, RESULT, SENDER, START, Workflow
 
 CREATE = "Creation (create_dossier)"
 COPY = "Configuration (copy_configuration)"
@@ -22,17 +22,9 @@ connect, mcp, route = flow.connect, flow.mcp, flow.route
 flow.trigger(**DOSSIER_INPUTS)
 # The onboarding ends by BUDGET_MS from the start, leaving the run time to record and sum up.
 BUDGET_MS = 260_000
-START = "Debut"
-flow.code(
-    START, [60, 300], "// When the run started, for its time budget.\nreturn [{ json: { started: Date.now() } }];"
-)
 SECONDS_LEFT = f"Math.max(1, Math.round(({BUDGET_MS} - (Date.now() - $('{START}').first().json.started)) / 1000))"
-flow.save_attachments([110, 300])
+flow.start("Nouveau dossier ?")
 route("Nouveau dossier ?", f"{CALL}.mode === 'resume' ? 2 : {CALL}.dossier_id > 0 ? 1 : 0", 3, [220, 300])
-connect("Appel", START)
-connect(START, SAVE_ATTACHMENTS)
-connect(SAVE_ATTACHMENTS, "Nouveau dossier ?", 0)
-flow.to_record(SAVE_ATTACHMENTS, 1)
 
 # A new dossier: created, then its configuration copied from the model, before any import.
 created = flow.checked(
@@ -69,7 +61,6 @@ connect("Nouveau dossier ?", CREATE, 0)
 sender = flow.check_sender([440, 420], [660, 420])
 connect("Nouveau dossier ?", SENDER, 1)
 connect(sender, TARGET_NODE, 0)
-flow.to_record(sender, 1)
 connect(created, "Modele ?", 0)
 flow.to_record(created, 0, 1)
 connect("Modele ?", COPY, 0)

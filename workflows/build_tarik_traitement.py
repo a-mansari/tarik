@@ -11,8 +11,8 @@ from steps import (
     FILES,
     OK_ELSE,
     RESULT,
-    SAVE_ATTACHMENTS,
     SENDER,
+    START,
     TRAITEMENT_INPUTS,
     Workflow,
 )
@@ -24,12 +24,8 @@ flow.trigger(**TRAITEMENT_INPUTS)
 # n8n stops an agent's tool after 300 s: past BUDGET_MS, the invoices still going wait for the next run instead,
 # leaving the step in flight time to end. A follow-up (mode resume) is no agent's tool: it has no budget.
 BUDGET_MS = 240_000
-START = "Debut"
-flow.code(
-    START, [60, 300], "// When the run started, for its time budget.\nreturn [{ json: { started: Date.now() } }];"
-)
 LATE = f"({CALL}.mode !== 'resume' && Date.now() - $('{START}').first().json.started > {BUDGET_MS})"
-flow.save_attachments([110, 300])
+flow.start("Fichiers ou reponse ?")
 route("Fichiers ou reponse ?", f"{{ answer: 1, resume: 2 }}[{CALL}.mode] ?? 0", 3, [220, 300])
 flow.files_to_process(
     f"{{ session_id: {CALL}.session_id }}",
@@ -40,13 +36,8 @@ flow.files_to_process(
 )
 # Work on an existing dossier: the email's sender must have it.
 sender = flow.check_sender([260, 120], [300, 160])
-connect("Appel", START)
-connect(START, SAVE_ATTACHMENTS)
-connect(SAVE_ATTACHMENTS, "Fichiers ou reponse ?", 0)
-flow.to_record(SAVE_ATTACHMENTS, 1)
 connect("Fichiers ou reponse ?", SENDER, 0)
 connect(sender, FILES, 0)
-flow.to_record(sender, 1)
 # No new file ("relancez le traitement"): the conversation's drafts left waiting or cut short are resumed.
 route("Nouveaux fichiers ?", f"{RESULT}.files.length ? 0 : 1", 2, [440, 120])
 connect(FILES, "Nouveaux fichiers ?", 0)
