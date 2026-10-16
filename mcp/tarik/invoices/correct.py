@@ -19,13 +19,17 @@ def planned_changes(extracted, bad_fields, invoice):
     the multi-TVA split (tarik-master orchestrator.correct + odoo.apply_variants)."""
     changes = {b["field"]: extracted[b["field"]] for b in bad_fields
                if b["field"] in WRITABLE and extracted.get(b["field"]) is not None}
-    if extracted.get("is_credit_note") and not invoice.get("refund"):
+    if extracted.get("is_credit_note") is True and not invoice.get("refund"):  # the model's "false" is not true
         changes["refund"] = True
+    lines = [line for line in extracted.get("tva_lines") or [] if line.get("amount_ht") and line.get("rate") is not None]
     rates = {}  # rate -> its TVA: an invoice may list several lines at one rate
-    for line in extracted.get("tva_lines") or []:
-        if line.get("amount_ht") and line.get("rate") is not None:
-            rates[int(line["rate"])] = round(rates.get(int(line["rate"]), 0) + (line.get("amount_tva") or 0), 2)
-    if len(rates) > 1 and not invoice.get("amount_tax_non_recoverable") and set(rates) - {0} <= MULTI_TVA_RATES:
+    for line in lines:
+        rates[int(line["rate"])] = round(rates.get(int(line["rate"]), 0) + (line.get("amount_tva") or 0), 2)
+    # Split only from lines read in full that add up to the TVA read on the scan: a line not read, or read twice, never
+    # becomes a written amount.
+    trusted = (all(line.get("amount_tva") is not None for line in lines) and extracted.get("amount_tva") is not None
+               and abs(sum(rates.values()) - extracted["amount_tva"]) <= 1)
+    if len(rates) > 1 and trusted and not invoice.get("amount_tax_non_recoverable") and set(rates) - {0} <= MULTI_TVA_RATES:
         changes["multi_tva"] = True
         changes.update({f"amount_tva_{rate}": amount for rate, amount in rates.items() if rate})
         changes["amount_tva"] = round(sum(rates.values()), 2)

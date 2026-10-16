@@ -11,8 +11,13 @@ from tarik.invoices import exercice, pipeline
 def answers(db_cabinet, monkeypatch):
     """Experio's invoices 11 (ATLAS) and 12 (NOVA); every answer applied is recorded, the sender is allowed."""
     applied = []
-    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, ids, **kw: [
-        {"id": i, "invoice_number": f"FA-{i}", "partner_id": [i, {11: "ATLAS TRANSPORT - 1234", 12: "NOVA TELECOM"}[i]]} for i in ids])
+    partners = {11: "ATLAS TRANSPORT - 1234", 12: "NOVA TELECOM", 20: "ALPHA", 35: "BETA"}
+
+    def odoo_call(model, method, query, **kw):
+        if method == "search":  # the drafts among the ids asked: 99 was deleted in Experio
+            return [i for i in query[0][2] if i in partners]
+        return [{"id": i, "invoice_number": f"FA-{i}", "partner_id": [i, partners[i]]} for i in query]
+    monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
     monkeypatch.setattr(pipeline, "check_sender", lambda session_id, dossier_id=0, invoice_id=0: ok("ok"))
     record = lambda invoice_id, answer, *asked: applied.append((invoice_id, answer)) or ok("applique")
     monkeypatch.setitem(pipeline.ANSWERS, "assign_account", (record, "settle_tva"))
@@ -48,10 +53,28 @@ def test_another_conversations_question_is_never_answered(answers):
 
 
 @pytest.mark.security
-def test_a_sender_without_the_dossier_changes_nothing(answers, monkeypatch):
+def test_a_sender_without_the_dossier_changes_nothing_and_is_recorded_as_refused(answers, monkeypatch):
     monkeypatch.setattr(pipeline, "check_sender", lambda session_id, dossier_id=0, invoice_id=0: stop("pas ce dossier"))
     waits(11, "assign_account", "Facture FA-11 : quel compte utiliser ?")
-    assert pipeline.answer_pending("s", "6125")["message"] == "pas ce dossier" and answers == []
+    refused = pipeline.answer_pending("s", "6125")
+    assert refused["message"] == "pas ce dossier" and refused["step"] == "check_sender" and answers == []  # the manager is told
+
+
+@pytest.mark.security
+def test_a_bare_number_names_no_invoice(answers):
+    waits(20, "settle_tva", "Facture FA-20 : la TVA est-elle non recuperable ? oui / non")
+    waits(35, "settle_tva", "Facture FA-35 : la TVA est-elle non recuperable ? oui / non")
+    assert pipeline.answer_pending("s", "oui, TVA 20 %")["status"] == "question" and answers == []
+    assert pipeline.answer_pending("s", "oui pour la facture 35")["invoice_id"] == 35
+
+
+@pytest.mark.functionality
+def test_a_question_on_an_invoice_deleted_since_is_dropped(answers):
+    waits(99, "assign_account", "Facture 99 : quel compte utiliser ?")
+    waits(11, "assign_account", "Facture FA-11 : quel compte utiliser ?")
+    assert pipeline.answer_pending("s", "6125")["invoice_id"] == 11  # the only one left
+    with cabinet_db() as db:
+        assert db.execute("select invoice_id from tarik_pending").fetchall() == [(11,)]
 
 
 @pytest.mark.functionality
@@ -65,6 +88,9 @@ def test_a_statement_gets_the_bank_account_the_client_names(answers, monkeypatch
     monkeypatch.setattr(pipeline, "journal_meant", lambda dossier_id, answer: 4 if "bmce" in answer.lower() else 0)
     monkeypatch.setattr(pipeline, "import_bank_statement", lambda file_id, dossier_id, journal_id: ok(f"{file_id} {dossier_id} {journal_id}"))
     assert pipeline.answer_pending("s", "Le compte BMCE")["message"] == f"{file_id} 557 4"
+    pipeline.record_step("r2", "s", "Reprendre ou ?", {"status": "ok", "message": "MODE TEST : importe", "file_id": file_id,
+                                                        "step": "import_bank_statement"})  # test mode: no statement saved
+    assert pipeline.waiting_on("s") == []  # answered: it waits no more
 
 
 @pytest.mark.functionality
@@ -79,3 +105,13 @@ def test_the_date_the_client_gives_is_the_invoices(monkeypatch):
     assert exercice.settle_exercice(7, "")["status"] == "question"
     assert exercice.settle_exercice(7, "du 15/03/2026")["message"].endswith("rattachee a l'exercice Exercice 2026.")
     assert written == [{"invoice_date": "2026-03-15"}, {"exercice_id": 5}]
+
+
+@pytest.mark.functionality
+def test_a_draft_that_failed_or_waited_is_taken_up_again(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain, **kw: domain[0][2])  # all still drafts
+    for run, invoice_id, step, status in [("r", 1, "check_invoice", "error"), ("r", 1, "wait_until_read", "ok"),
+                                          ("r", 2, "wait_until_read", "wait"), ("r", 3, "settle_tva", "question"),
+                                          ("r", 4, "check_invoice", "error"), ("r2", 4, "post_invoice", "ok")]:
+        pipeline.record_step(run, "s", f"x ({step})", {"status": status, "message": "m", "invoice_id": invoice_id})
+    assert pipeline.waiting_drafts("s")["invoices"] == [1, 2]  # 3 waits on the client, 4 went through since

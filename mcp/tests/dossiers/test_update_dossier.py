@@ -74,11 +74,11 @@ def test_the_type_needs_the_clients_words(experio):
 
 @pytest.mark.security
 def test_skipping_the_registry_check_is_the_clients_confirmed_request_only(experio, monkeypatch):
-    monkeypatch.setattr(onboarding, "skip_confirmed", lambda session_id, step, message: False)
+    monkeypatch.setattr(onboarding, "confirmed", lambda session_id, message, *parts: False)
     result = onboarding.update_dossier(557, ice="008123456000011", skip_ice_if_check=True,
                                        client_message="ICE 008123456000011, sans verification svp")
     assert result["status"] == "question" and "sans cette verification" in result["message"] and experio["write"] == []
-    monkeypatch.setattr(onboarding, "skip_confirmed", lambda session_id, step, message: step == "update_dossier")
+    monkeypatch.setattr(onboarding, "confirmed", lambda session_id, message, *parts: "Gecafisc" in parts)
     onboarding.update_dossier(557, ice="008123456000011", skip_ice_if_check=True, client_message="ICE 008123456000011")
     assert experio["write"] == [{"ice": "008123456000011", "ignore_ice_if_verification": True}]
 

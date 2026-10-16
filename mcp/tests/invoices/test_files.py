@@ -49,3 +49,12 @@ def test_a_draft_another_run_made_is_left_to_it(db_cabinet, monkeypatch):
     monkeypatch.setattr(intake, "odoo_call", lambda *a, **k: pytest.fail("a second draft"))
     answer = intake.create_draft_invoice(add("f.pdf", "invoice", invoice_id=42), 557)
     assert answer["status"] == "stop" and answer["invoice_id"] == 42
+
+
+@pytest.mark.functionality
+def test_an_entries_file_experio_cannot_read_is_not_taken_again(db_cabinet, monkeypatch):
+    monkeypatch.setattr(setup, "require_dossier", lambda dossier_id: "Gecafisc")
+    monkeypatch.setattr(setup, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Experio refuse")))
+    broken = add("fec.csv", data=b"JournalCode;Debit\nAC;10")
+    assert setup.import_entries(557, broken)["status"] == "stop"
+    assert files_to_process("s", entries=True)["files"] == []

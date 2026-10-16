@@ -8,7 +8,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, question, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
-from tarik.core.conversation import client_messages, own_words, remember_client_message, said, yes_no
+from tarik.core.conversation import client_messages, own_words, said, yes_no
 from tarik.core.experio import DOSSIER_DOMAIN, TEST_MODE, dry_run, experio_refusal, odoo_call, odoo_json, require_dossier
 from tarik.core.numbers import as_number, written_numbers
 from tarik.dossiers.search import dossiers, normalized, similarity
@@ -29,43 +29,40 @@ def lookalikes(name, ice, if_number):
     return same, [dossier for dossier in dossiers() if similarity(name, dossier["name"]) >= SIMILAR_NAME]
 
 
-def similar_confirmed(session_id, name, client_message):
-    """The client said yes to the question about a dossier with a very similar name, asked in this conversation."""
-    with cabinet_db() as db:
-        asked = [message for (message,) in db.execute("select message from tarik_results where session_id = %s and "
-                                                       "step = 'create_dossier' and status = 'question'", (session_id,))]
-    return yes_no(client_message) is True and any(normalized(name) in normalized(message) for message in asked)
-
-
 SKIP_QUESTION = ("Experio verifie l'ICE et l'IF aupres du registre officiel. Confirmez-vous {what} sans cette "
                  "verification ? oui / non")
+SIMILAR_QUESTION = ("Un dossier au nom tres proche existe deja ({names}). Faut-il quand meme creer un nouveau dossier {name} ? "
+                    "oui / non")
 
 
-def skip_confirmed(session_id, step, client_message):
-    """Skipping Experio's ICE/IF check needs the client's yes to Tarik's own question about it, the last one
-    this step asked in the conversation: no guess from their wording, and the model can't decide it."""
+def confirmed(session_id, client_message, *parts):
+    """The client's "oui" answers Tarik's last question in this conversation, and that question holds every one of
+    ``parts`` (its kind and the dossier's name): a yes to another question, or about another dossier, confirms
+    nothing. No guess from their wording, and the model can't decide it."""
     with cabinet_db() as db:
-        last = db.execute("select message from tarik_results where session_id = %s and step = %s and status = 'question' "
-                          "order by id desc limit 1", (session_id, step)).fetchone()
-    return bool(last) and "sans cette verification" in last[0] and yes_no(client_message) is True
+        last = db.execute("select message from tarik_results where session_id = %s and status = 'question' order by id desc limit 1",
+                          (session_id,)).fetchone()
+    return bool(last) and all(normalized(part) in normalized(last[0]) for part in parts) and yes_no(client_message) is True
 
 
 ICE_WRITTEN = re.compile(r"(?<!\d)\d{15}(?!\d)")  # an ICE: 15 digits
 IF_WRITTEN = re.compile(r"\bI\.?F\.?\s*(?:n\s*[°o]\s*)?[:=]?\s*(\d{4,12})(?!\d)", re.IGNORECASE)
 
 
-def as_written(value, written):
-    """An ICE or IF as the client wrote it (``written``: the numbers found in their message). The
+def as_written(value, written, current=None):
+    """An ICE or IF as the client wrote it (``written``: the numbers found in their messages). The
     model may send it as a number, which loses its leading zeros, or leave it out: the client's own
-    number is used whenever it is the same number, or when it is the only one they wrote."""
+    number is used whenever it is the same number, or when it is the only one in ``current`` (their
+    latest message, by default ``written``)."""
+    current = written if current is None else current
     value = str(value if value is not None else "").strip()
     if value.endswith(".0") and value[:-2].isdigit():
         value = value[:-2]
     if value.isdigit():
         same = [number for number in written if number.lstrip("0") == value.lstrip("0")]
         return same[0] if same else value
-    if not value and len(set(written)) == 1:
-        return written[0]
+    if not value and len(set(current)) == 1:
+        return current[0]
     return value
 
 
@@ -87,14 +84,13 @@ def create_dossier(name: str = "", ice: str | int = "", if_number: str | int = "
     MiniMax sometimes asks for it again to import its entries. Nothing is created when a
     dossier has the same ICE or IF; a very similar name is a question to the client first."""
     client_message = own_words(client_message)
-    remember_client_message(session_id, client_message)
     name = " ".join((name or "").split())
     if not name:  # MiniMax sometimes calls with no fields at all: told how to call again, it does
         raise ToolError("Nom du dossier manquant : rappelle Experio_parametrer_dossier avec dossier_id 0 et les informations "
                         "du client remplies (name, ice, if_number, folder_type).")
-    ice = as_written(ice, ICE_WRITTEN.findall(client_message or ""))
-    if_number = as_written(if_number, IF_WRITTEN.findall(client_message or ""))
     words = "\n".join(client_messages(session_id, client_message))
+    ice = as_written(ice, ICE_WRITTEN.findall(joined(words)), ICE_WRITTEN.findall(joined(client_message)))
+    if_number = as_written(if_number, IF_WRITTEN.findall(joined(words)), IF_WRITTEN.findall(joined(client_message)))
     left_out = [label for key, label, value in (("ice", "ICE", ice), ("if_number", "IF", if_number))
                 if value and not client_wrote(key, value, words)]
     ice, if_number = ("" if "ICE" in left_out else ice), ("" if "IF" in left_out else if_number)
@@ -111,11 +107,12 @@ def create_dossier(name: str = "", ice: str | int = "", if_number: str | int = "
     same, similar = lookalikes(name, ice, if_number)
     if same:
         return stop(f"Dossier {name} non cree : un dossier existe deja avec cet ICE ou cet IF ({', '.join(d['name'] for d in same)}).")
-    if similar and not similar_confirmed(session_id, name, client_message):
-        return question(f"Un dossier au nom tres proche existe deja ({', '.join(d['name'] for d in similar)}). "
-                        f"Faut-il quand meme creer un nouveau dossier {name} ? oui / non")
+    # The skip question comes only once this dossier's similar name was confirmed: a yes to it confirms both.
+    if similar and not (confirmed(session_id, client_message, "nom tres proche", name)
+                        or confirmed(session_id, client_message, "sans cette verification", name)):
+        return question(SIMILAR_QUESTION.format(names=", ".join(d["name"] for d in similar), name=name))
     if skip_ice_if_check:
-        if not skip_confirmed(session_id, "create_dossier", client_message):
+        if not confirmed(session_id, client_message, "sans cette verification", name):
             return question(SKIP_QUESTION.format(what=f"la creation du dossier {name}"))
         values["ignore_ice_if_verification"] = True
     values.update({key: value.strip() for key, value in (("ice", ice), ("vat", if_number)) if value and value.strip()})
@@ -137,8 +134,26 @@ EDITABLE = {"name": ("name", "nom"), "folder_type": ("folder_type", "type"), "ic
             "cnss": ("cnss_number", "CNSS"), "street": ("street", "adresse"), "street2": ("street2", "complement d'adresse"),
             "city": ("city", "ville"), "zip": ("zip", "code postal")}
 IDENTIFIERS = {"ice", "if_number", "rc", "patente", "tsc", "cnss", "zip"}  # checked digit for digit
-TYPE_WORDS = {"person": ("personne physique", "physique"), "company": ("societe", "personne morale", "morale"),
+# Between a label and its number, only punctuation and a few linking words ("le RC est 331245", "RC : 331245",
+# "IF n° 0712"): never another label, so "RC, IF 12345678" gives the RC nothing.
+LINK = r"(?:[\s:=.,°-]|\b(?:en|est|devient|par|du|de|le|la|numero|num|n|no)\b)*"
+
+
+def labelled(label):
+    return re.compile(rf"\b{label}\b{LINK}(\d+)(?!\d)", re.IGNORECASE)
+
+
+# The identifiers a client writes after their label: their number counts for that field only ("IF 12345678" is no RC).
+# An ICE is told apart by its 15 digits alone.
+LABELLED = {"ice": ICE_WRITTEN, "if_number": labelled(r"I\.?F\.?"), "rc": labelled(r"R\.?C\.?")}
+# "societe" alone is not a type: "l'adresse de ma societe" changes no dossier into a company.
+TYPE_WORDS = {"person": ("personne physique", "physique"), "company": ("personne morale", "morale"),
               "cpu": ("cpu",), "st": ("sole trader", "commercant", "entreprise individuelle")}
+
+
+def joined(text):
+    """The text with the spaces and dots inside a number removed: "IF 71 234 561" -> "IF 71234561"."""
+    return re.sub(r"(?<=\d)[ .\u202f\u00a0](?=\d)", "", text or "")
 
 
 def digits(text):
@@ -158,7 +173,8 @@ def client_wrote(key, value, words):
         return any(abs(amount - written) < 0.005 for written in written_numbers(words))
     if key in IDENTIFIERS:
         number = re.sub(r"\.0+$", "", str(value)).replace(" ", "")
-        return number.isdigit() and number in digits(words)
+        found = LABELLED[key].findall(joined(words)) if key in LABELLED else digits(words)
+        return number.isdigit() and number in found
     if key == "folder_type":
         return any(said(word, normalized(words)) for word in TYPE_WORDS.get(value, ()))
     return said(normalized(value), normalized(words))
@@ -186,11 +202,12 @@ def update_dossier(dossier_id: int, name: str = "", folder_type: str = "", ice: 
     words = "\n".join(client_messages(session_id, client_message))
     for key, found in (("ice", ICE_WRITTEN), ("if_number", IF_WRITTEN)):
         if key in asked:
-            asked[key] = as_written(asked[key], found.findall(words))
+            asked[key] = as_written(asked[key], found.findall(joined(words)))
     if asked.get("folder_type"):
         require_folder_type(asked["folder_type"])
-    not_written = [EDITABLE[key][1] for key, value in asked.items() if not client_wrote(key, value, words)]
-    asked = {key: value for key, value in asked.items() if client_wrote(key, value, words)}
+    written = {key: client_wrote(key, value, words) for key, value in asked.items()}
+    not_written = [EDITABLE[key][1] for key in asked if not written[key]]
+    asked = {key: value for key, value in asked.items() if written[key]}
     unchanged = f" Non modifie, le client ne l'a pas ecrit : {', '.join(not_written)}." if not_written else ""
     fields = [EDITABLE[key][0] for key in asked]
     current = odoo_call("res.company", "read", [dossier_id], fields=fields)[0] if fields else {}
@@ -211,7 +228,7 @@ def update_dossier(dossier_id: int, name: str = "", folder_type: str = "", ice: 
     if "name" in changes and any(normalized(d["name"]) == normalized(changes["name"]) and d["id"] != dossier_id for d in dossiers()):
         return stop(f"Dossier {dossier} non modifie : un autre dossier s'appelle deja {changes['name']}.")
     if skip_ice_if_check:
-        if not skip_confirmed(session_id, "update_dossier", client_message):
+        if not confirmed(session_id, client_message, "sans cette verification", dossier):
             return question(SKIP_QUESTION.format(what=f"la modification du dossier {dossier}"))
         changes["ignore_ice_if_verification"] = True
     shown = " ; ".join(f"{EDITABLE[key][1]} : {current.get(EDITABLE[key][0]) or 'vide'} -> {changes[EDITABLE[key][0]]}"

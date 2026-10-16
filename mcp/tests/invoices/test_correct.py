@@ -17,12 +17,14 @@ def test_only_what_the_scan_shows_is_written():
 @pytest.mark.functionality
 def test_credit_notes():
     assert planned_changes({"is_credit_note": True}, [], {})["refund"] is True
+    assert "refund" not in planned_changes({"is_credit_note": "false"}, [], {})  # the model's text is not true
     assert "refund" not in planned_changes({"is_credit_note": True}, [], {"refund": True})
 
 
 @pytest.mark.functionality
 def test_several_tva_rates():
-    multi = planned_changes({"tva_lines": [{"rate": 20, "amount_ht": 100, "amount_tva": 20}, {"rate": 10, "amount_ht": 50, "amount_tva": 5}]}, [], {})
+    multi = planned_changes({"amount_tva": 25, "tva_lines": [{"rate": 20, "amount_ht": 100, "amount_tva": 20},
+                                                           {"rate": 10, "amount_ht": 50, "amount_tva": 5}]}, [], {})
     assert multi == {"multi_tva": True, "amount_tva_20": 20, "amount_tva_10": 5, "amount_tva": 25}
     assert "multi_tva" not in planned_changes({"tva_lines": [{"rate": 20, "amount_ht": 100, "amount_tva": 20},
                                                              {"rate": 19, "amount_ht": 50, "amount_tva": 9.5}]}, [], {})  # no amount_tva_19 field
@@ -34,6 +36,16 @@ def test_several_tva_rates():
 def test_lines_at_one_rate_add_up():
     lines = [{"rate": 20, "amount_ht": 1000, "amount_tva": 200}, {"rate": 20, "amount_ht": 500, "amount_tva": 100},
              {"rate": 10, "amount_ht": 100, "amount_tva": 10}]
-    assert planned_changes({"tva_lines": lines}, [], {}) == {"multi_tva": True, "amount_tva_20": 300, "amount_tva_10": 10, "amount_tva": 310}
+    assert planned_changes({"amount_tva": 310, "tva_lines": lines}, [], {}) == \
+        {"multi_tva": True, "amount_tva_20": 300, "amount_tva_10": 10, "amount_tva": 310}
     one_rate = [{"rate": 20, "amount_ht": 1000, "amount_tva": 200}, {"rate": 20, "amount_ht": 500, "amount_tva": 100}]
     assert "multi_tva" not in planned_changes({"tva_lines": one_rate}, [], {})  # one rate: no split
+
+
+@pytest.mark.functionality
+def test_lines_not_read_in_full_or_not_adding_up_are_never_split():
+    unread = [{"rate": 20, "amount_ht": 1000, "amount_tva": None}, {"rate": 10, "amount_ht": 500, "amount_tva": 50}]
+    assert "multi_tva" not in planned_changes({"amount_tva": 250, "tva_lines": unread}, [], {})
+    twice = [{"rate": 20, "amount_ht": 1000, "amount_tva": 200}] * 2 + [{"rate": 10, "amount_ht": 500, "amount_tva": 50}]
+    assert "multi_tva" not in planned_changes({"amount_tva": 250, "tva_lines": twice}, [], {})  # 450 is not the 250 read
+    assert "multi_tva" not in planned_changes({"tva_lines": twice[1:]}, [], {})  # no total read: nothing to check it by

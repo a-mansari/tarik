@@ -12,6 +12,7 @@ from tarik.core.app import ok, question, server, with_ids
 from tarik.core.experio import (dry_run, experio_messages, fill_invoice, invoice_context, odoo_call, odoo_json, refused,
                                 require_draft, require_invoice, test_mode_note)
 from tarik.core.model import ask_model
+from tarik.core.numbers import as_number
 
 QUESTIONS = {
     "foreign": ("quelle retenue a la source etrangere ?\n"
@@ -43,12 +44,12 @@ def read_answer(kind, reply):
 
 
 def rate(value):
-    """A whole rate the model gave (20, "20", 20.0), or None."""
-    if value is None or isinstance(value, bool):
-        return None
-    if isinstance(value, (int, float)):
-        return int(value) if value == int(value) else None
-    return int(value) if str(value).strip().isdigit() else None
+    """A whole rate the model gave (20, "20", "20 %", 20.0), or None when it gave none. A rate given but not
+    whole or not a number is ValueError: the client is asked again, never half of their answer applied."""
+    number = as_number(value)
+    if number is not None and number != int(number):
+        raise ValueError(f"not a whole rate: {value!r}")
+    return None if number is None else int(number)
 
 
 def withholding_answer(reply):
@@ -65,7 +66,10 @@ def local_withholding_answer(reply):
     answer = read_answer("local", reply)
     if answer.get("retenue") is False:
         return {"retenue": False, "local_withholding_percentage": False, "tax_withholding_percentage": "0"}
-    is_ir, tva = rate(answer.get("is_ir")), rate(answer.get("tva", 0)) or 0
+    try:
+        is_ir, tva = rate(answer.get("is_ir")), rate(answer.get("tva", 0)) or 0
+    except ValueError:
+        return None
     if answer.get("retenue") is not True or (is_ir is not None and is_ir not in IS_IR_RATES) or tva not in TVA_RATES \
             or (is_ir is None and not tva):
         return None

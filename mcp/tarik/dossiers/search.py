@@ -20,6 +20,10 @@ def normalized(name):
     ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
     return " ".join(re.sub(r"[^a-z0-9]+", " ", ascii_name).split())
 
+def without_if(name):
+    """A tiers' name without the " - <IF>" Experio appends to it: "ATLAS - 1234" -> "ATLAS"."""
+    return re.sub(r"\s+-\s+\d+\s*$", "", name or "")
+
 def similarity(query, name):
     """0..1. Spelling, word order and a name given in part all still score high."""
     query, name = normalized(query), normalized(name)
