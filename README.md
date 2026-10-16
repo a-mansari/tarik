@@ -68,6 +68,12 @@ cabinet, as n8n's conversation ids are shared by every agent. Every cabinet's
 `MAIL_ALLOWED_RECIPIENTS` is `@experio.ma,@sarnec.com,achraf.mansari.1@gmail.com`: Tarik writes to
 those addresses only, and only answers senders among them.
 
+n8n stops an agent's workflow tool after 120 s, so a processing run stops itself after 80 s: the invoices
+still going wait at the step they reached. When Tarik's reply leaves drafts waiting (on Experio's reading or
+on that budget), the thread is followed up for 30 minutes: once Experio has read them, the watcher's tick
+wakes "Tarik - Emails", which takes them up again without the agent ("Tarik - Traitement" in mode `resume`,
+no time limit) and sends the outcome in the thread.
+
 To add a cabinet: give Tarik a user in that cabinet's Experio, add the cabinet to `CABINETS` in
 `workflows/build_tarik_agents.py` and run it (`python3 workflows/build_tarik_agents.py`: it creates
 the cabinet's agent, updates the others, and prints each `AGENT_ID`), write its settings to Vault
