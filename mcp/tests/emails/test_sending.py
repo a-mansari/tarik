@@ -1,5 +1,7 @@
 """Outbound emails: the whitelist, and the template (no raw Markdown or HTML, one signature)."""
 
+from email.utils import parsedate_to_datetime
+
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -53,6 +55,15 @@ def test_the_template(monkeypatch):
         and "**" not in page
     )
     assert '<a href="https://experio.ma">Experio</a>' in page and "A &lt; B" in page and "<em>important</em>" in page
+
+
+@pytest.mark.communication
+def test_an_email_is_dated_and_threaded(monkeypatch):
+    monkeypatch.setattr(sending, "cabinet_name", lambda: "CABINET TEST")
+    monkeypatch.setattr(sending, "setting", lambda name, default="": default)
+    message = sending.compose("tarik@cabinet.ma", ["chef@cabinet.ma"], "Re: Factures", "Bonjour", "<m1@x>", "")
+    assert parsedate_to_datetime(message["Date"]).tzinfo is not None  # mail apps sort the thread by it
+    assert message["In-Reply-To"] == "<m1@x>" and message["References"] == "<m1@x>"
 
 
 @pytest.mark.communication
