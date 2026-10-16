@@ -11,7 +11,10 @@ from tarik.emails.inbox import attachments, automatic, client_text
 def test_the_client_text_and_files():
     mail = EmailMessage()
     mail["From"], mail["Subject"] = "Client <client@example.com>", "Factures"
-    mail.set_content("Bonjour,\nci-joint nos factures.\n\nLe lun. 13 oct. 2026, Tarik <tarik@example.com> a écrit :\n> Envoyez-moi vos factures\n")
+    mail.set_content(
+        "Bonjour,\nci-joint nos factures.\n\n"
+        "Le lun. 13 oct. 2026, Tarik <tarik@example.com> a écrit :\n> Envoyez-moi vos factures\n"
+    )
     mail.add_attachment(b"%PDF-1.4", maintype="application", subtype="pdf", filename="facture.pdf")
     mail.add_attachment(b"PNG", maintype="image", subtype="png", filename="logo.png", disposition="inline")
     mail.add_attachment(b"zip", maintype="application", subtype="zip", filename="archive.zip")
@@ -29,7 +32,9 @@ def test_an_html_email_loses_its_tags_and_history():
 
 
 @pytest.mark.functionality
-@pytest.mark.parametrize("header, value", [("Auto-Submitted", "auto-replied"), ("Precedence", "bulk"), ("From", "no-reply@example.com")])
+@pytest.mark.parametrize(
+    "header, value", [("Auto-Submitted", "auto-replied"), ("Precedence", "bulk"), ("From", "no-reply@example.com")]
+)
 def test_automatic_emails_are_never_answered(header, value):
     away = EmailMessage()
     away["From"] = "client@example.com"

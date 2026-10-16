@@ -9,9 +9,11 @@ import pytest
 
 from tarik.core import cabinets, vault
 
-SECRETS = {"shared": {"IMAP_HOST": "mail.example.ma", "N8N_MCP_API_TOKEN": "t"},
-           "cabinets/experio_cabinet_8": {"ODOO_UID": "430", "IMAP_PASSWORD": "p8"},
-           "cabinets/experio_cabinet_60": {"ODOO_UID": "12", "IMAP_PASSWORD": "p60"}}
+SECRETS = {
+    "shared": {"IMAP_HOST": "mail.example.ma", "N8N_MCP_API_TOKEN": "t"},
+    "cabinets/experio_cabinet_8": {"ODOO_UID": "430", "IMAP_PASSWORD": "p8"},
+    "cabinets/experio_cabinet_60": {"ODOO_UID": "12", "IMAP_PASSWORD": "p60"},
+}
 
 
 class FakeVault(BaseHTTPRequestHandler):
@@ -77,9 +79,17 @@ def fake(monkeypatch, tmp_path):
 @pytest.mark.security
 def test_each_cabinet_reads_its_own_path_and_the_shared_one(fake):
     with cabinets.using("experio_cabinet_8"):
-        assert (cabinets.setting("ODOO_UID"), cabinets.setting("IMAP_PASSWORD"), cabinets.setting("IMAP_HOST")) == ("430", "p8", "mail.example.ma")
+        assert (cabinets.setting("ODOO_UID"), cabinets.setting("IMAP_PASSWORD"), cabinets.setting("IMAP_HOST")) == (
+            "430",
+            "p8",
+            "mail.example.ma",
+        )
     with cabinets.using("experio_cabinet_60"):
-        assert (cabinets.setting("ODOO_UID"), cabinets.setting("IMAP_PASSWORD"), cabinets.setting("IMAP_HOST")) == ("12", "p60", "mail.example.ma")
+        assert (cabinets.setting("ODOO_UID"), cabinets.setting("IMAP_PASSWORD"), cabinets.setting("IMAP_HOST")) == (
+            "12",
+            "p60",
+            "mail.example.ma",
+        )
 
 
 @pytest.mark.security
@@ -142,8 +152,18 @@ def test_a_wrong_approle_is_refused(fake, tmp_path):
 def test_settings_in_the_wrong_place_stop_the_server():
     good = ({"IMAP_HOST": "h"}, {"experio_cabinet_8": {"ODOO_UID": "1"}}, {"ODOO_URL": "u", "POSTGRES_DB": "x"})
     assert cabinets.misplaced_in_vault(*good) == []
-    bad = ({"IMAP_HOST": "h", "ODOO_PASSWORD": "shared?"}, {"experio_cabinet_8": {"ODOO_UID": "1", "IMAP_HOST": "own?", "TYPO": "x"}},
-           {"ODOO_URL": "u", "IMAP_PASSWORD": "left", "EXPERIO_CABINET_8__ODOO_UID": "left", "TARIK_CABINETS": "x"})
-    assert cabinets.misplaced_in_vault(*bad) == sorted([
-        "tarik/shared:ODOO_PASSWORD", "tarik/cabinets/experio_cabinet_8:IMAP_HOST", "tarik/cabinets/experio_cabinet_8:TYPO",
-        "IMAP_PASSWORD", "EXPERIO_CABINET_8__ODOO_UID", "TARIK_CABINETS"])
+    bad = (
+        {"IMAP_HOST": "h", "ODOO_PASSWORD": "shared?"},
+        {"experio_cabinet_8": {"ODOO_UID": "1", "IMAP_HOST": "own?", "TYPO": "x"}},
+        {"ODOO_URL": "u", "IMAP_PASSWORD": "left", "EXPERIO_CABINET_8__ODOO_UID": "left", "TARIK_CABINETS": "x"},
+    )
+    assert cabinets.misplaced_in_vault(*bad) == sorted(
+        [
+            "tarik/shared:ODOO_PASSWORD",
+            "tarik/cabinets/experio_cabinet_8:IMAP_HOST",
+            "tarik/cabinets/experio_cabinet_8:TYPO",
+            "IMAP_PASSWORD",
+            "EXPERIO_CABINET_8__ODOO_UID",
+            "TARIK_CABINETS",
+        ]
+    )

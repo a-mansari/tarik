@@ -19,9 +19,22 @@ A, B = testdb.schema("a"), testdb.schema("b")  # in the test database, named for
 
 
 def payload(session_id, *files):
-    return base64.b64encode(json.dumps({"session_id": session_id, "files": [
-        {"id": source, "file_name": name, "mime_type": "application/pdf", "data": base64.b64encode(data).decode()}
-        for source, name, data in files]}).encode()).decode()
+    return base64.b64encode(
+        json.dumps(
+            {
+                "session_id": session_id,
+                "files": [
+                    {
+                        "id": source,
+                        "file_name": name,
+                        "mime_type": "application/pdf",
+                        "data": base64.b64encode(data).decode(),
+                    }
+                    for source, name, data in files
+                ],
+            }
+        ).encode()
+    ).decode()
 
 
 def which_cabinet(delay: float = 0.0) -> str:
@@ -52,9 +65,16 @@ def serving(app):
 
 def call(base, path, tool, arguments, client=None, headers=None):
     """One tools/call over the streamable HTTP transport; the tool's result, or the HTTP status."""
-    answer = (client or httpx).post(f"{base}{path}", timeout=60, headers={
-        "accept": "application/json, text/event-stream", "content-type": "application/json", **(headers or {})},
-        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}})
+    answer = (client or httpx).post(
+        f"{base}{path}",
+        timeout=60,
+        headers={
+            "accept": "application/json, text/event-stream",
+            "content-type": "application/json",
+            **(headers or {}),
+        },
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}},
+    )
     if answer.status_code != 200:
         return answer.status_code
     data = next(line[5:] for line in answer.text.splitlines() if line.startswith("data:"))

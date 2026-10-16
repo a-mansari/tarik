@@ -16,6 +16,7 @@ the import detected, while before it the import only adds what the model lacks.
 """
 
 import calendar
+import contextlib
 import csv
 import io
 import re
@@ -26,23 +27,30 @@ from datetime import date, datetime
 import openpyxl
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, server, stop, with_ids
+from tarik.core.app import log, ok, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import TEST_MODE, dry_run, experio_refusal, odoo_call, odoo_json, refused, require_dossier
-from tarik.dossiers.search import normalized
+from tarik.core.config import ENTRY_FILES, TEST_MODE
+from tarik.core.experio import dry_run, experio_refusal, in_dossier, odoo_call, odoo_json, refused, require_dossier
+from tarik.core.text import normalized
 from tarik.invoices.exercice import open_exercice
 
 # The import screen's options; the separator is left empty for Experio to detect it.
-IMPORT_OPTIONS = {"has_headers": True, "separator": "", "quoting": '"', "encoding": "utf-8",
-                  # The whole file in one go: Experio's import ignores ``skip``.
-                  "limit": 1_000_000}
+IMPORT_OPTIONS = {
+    "has_headers": True,
+    "separator": "",
+    "quoting": '"',
+    "encoding": "utf-8",
+    "limit": 1_000_000,  # the whole file in one go: Experio's import ignores ``skip``
+}
 # Headers Experio's import doesn't suggest a column for, which the user then maps by hand on its
 # screen. A Sage export's "Numero de piece" is the entry's reference (Experio's own table maps "piece"
 # to it): Experio groups the lines into entries by it, and without it merges unrelated ones.
 # shortcut: only the headers met so far; add a client's export's header when its import leaves a column unmapped.
-MANUAL_COLUMNS = {"numero de piece": "reference", "n de piece": "reference", "n piece": "reference",
-                  "num piece": "reference", "no piece": "reference", "numero piece": "reference"}
+MANUAL_COLUMNS = dict.fromkeys(
+    ("numero de piece", "n de piece", "n piece", "num piece", "no piece", "numero piece"), "reference"
+)
 FEC_HEADERS = {"journalcode", "ecrituredate", "comptenum", "debit", "credit"}
+ACCOUNT_HEADERS = ("comptenum", "compte", "numerocompte", "numcompte")
 
 
 @server.tool()
@@ -56,25 +64,36 @@ def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
     if dossier_id == model_dossier_id:
         raise ToolError("Le dossier modele doit etre un autre dossier.")
     if odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id)]):
-        raise ToolError(f"Le dossier {dossier} a deja des ecritures importees : copier la configuration "
-                        "effacerait les reglages qu'Experio en a tires.")
+        raise ToolError(
+            f"Le dossier {dossier} a deja des ecritures importees : copier la configuration "
+            "effacerait les reglages qu'Experio en a tires."
+        )
     if dry_run():
         return ok(f"{TEST_MODE}La configuration du dossier {model} serait copiee dans {dossier}.")
-    try:
-        wizard_id = odoo_json("company.config.wizard", "create", {
-            "source_company_id": model_dossier_id, "target_company_ids": [(6, 0, [dossier_id])], "state": "select_companies",
-            **{f"apply_{part}": True for part in ("accounts", "taxes", "journals", "bank_operations",
-                                                  "monetary_operations", "configuration")}})
+    parts = ("accounts", "taxes", "journals", "bank_operations", "monetary_operations", "configuration")
+    wizard = {
+        "source_company_id": model_dossier_id,
+        "target_company_ids": [(6, 0, [dossier_id])],
+        "state": "select_companies",
+        **{f"apply_{part}": True for part in parts},
+    }
+    with refused(
+        f"copy_configuration {model_dossier_id} -> {dossier_id}",
+        "Experio n'a pas pu copier la configuration : {reason}",
+    ):
+        wizard_id = odoo_json("company.config.wizard", "create", wizard)
         odoo_json("company.config.wizard", "action_apply", [wizard_id])
-    except Exception as error:
-        print(f"copy_configuration {model_dossier_id} -> {dossier_id}: {error}", flush=True)
-        raise ToolError(f"Experio n'a pas pu copier la configuration : {experio_refusal(error)}") from None
-    return ok(f"Configuration du dossier {model} copiee dans {dossier} : plan comptable, taxes, journaux, "
-              "operations bancaires et TPE, parametres.")
+    return ok(
+        f"Configuration du dossier {model} copiee dans {dossier} : plan comptable, taxes, journaux, "
+        "operations bancaires et TPE, parametres."
+    )
+
+
+# --- Importing the entries ---
 
 
 def file_text(data):
-    """The file as text: the import screen reads raw text, and JSON only carries text."""
+    """The file (bytes) as text: the import screen reads raw text, and JSON only carries text."""
     for encoding in ("utf-8-sig", "cp1252"):
         try:
             return data.decode(encoding)
@@ -83,30 +102,44 @@ def file_text(data):
     return data.decode("latin-1")
 
 
+def cell_text(value):
+    """One Excel cell as the import screen reads it: dates as YYYYMMDD, whole floats without ".0"."""
+    if value is None:
+        return ""
+    if isinstance(value, (date, datetime)):
+        return value.strftime("%Y%m%d")
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
 def sheet_text(data):
-    """An Excel file's first sheet as the CSV text the import screen reads (it uploads Excel
-    files itself, but JSON-RPC only carries text): dates as Experio reads them, the rest as is."""
+    """An Excel file's (bytes) first sheet as the CSV text the import screen reads (it uploads Excel
+    files itself, but JSON-RPC only carries text)."""
     sheet = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True).worksheets[0]
     out = io.StringIO()
     writer = csv.writer(out, delimiter=";")
     for row in sheet.iter_rows(values_only=True):
-        cells = ["" if value is None else value.strftime("%Y%m%d") if isinstance(value, (date, datetime))
-                 else str(int(value)) if isinstance(value, float) and value.is_integer() else str(value) for value in row]
+        cells = [cell_text(value) for value in row]
         if any(cells):
             writer.writerow(cells)
     return out.getvalue()
 
 
 def entries_kind(text, separator):
-    """FEC or grand livre, from the file alone (Experio has two buttons and no
+    """ "fec" or "grand livre", from the file alone (Experio has two buttons and no
     detector; tarik-master parametrage.entries_kind). A FEC follows the journals and
     the dates, so its accounts go back and forth; a grand livre lists them in order."""
     rows = list(csv.reader(io.StringIO(text), delimiter=separator or ";"))
     if not rows:
         return "fec"
     headers = [normalized(h).replace(" ", "") for h in rows[0]]
-    column = next((i for i, h in enumerate(headers) if h in ("comptenum", "compte", "numerocompte", "numcompte")), None)
-    accounts = [r[column].strip() for r in rows[1:] if column is not None and column < len(r) and r[column].strip()[:1].isdigit()]
+    column = next((i for i, h in enumerate(headers) if h in ACCOUNT_HEADERS), None)
+    accounts = [
+        r[column].strip()
+        for r in rows[1:]
+        if column is not None and column < len(r) and r[column].strip()[:1].isdigit()
+    ]
     if len(accounts) >= 20:
         backwards = sum(1 for x, y in zip(accounts, accounts[1:]) if y < x)
         return "grand livre" if backwards / len(accounts) < 0.02 else "fec"
@@ -117,6 +150,65 @@ def taken(file_id):
     """The file is done with, imported or refused: a corrected file comes as a new one."""
     with cabinet_db() as db:
         db.execute("update tarik_files set kind = 'entries' where id = %s", (file_id,))
+
+
+class Refused(Exception):
+    """An entries file not imported: its text is the stop message, and the file is taken."""
+
+
+@contextlib.contextmanager
+def refusing(log_text, message):
+    """Whatever fails inside is logged with ``log_text`` and becomes Refused(``message``), "{reason}" in it
+    replaced by Experio's reason."""
+    try:
+        yield
+    except Exception as error:
+        log(f"{log_text}: {error}")
+        raise Refused(message.replace("{reason}", experio_refusal(error))) from None
+
+
+def entries_text(file_id, name, mime, data):
+    """The file's text (CSV, TXT or an Excel sheet as CSV); Refused for another kind of file."""
+    excel = name.lower().endswith((".xlsx", ".xlsm"))
+    if not (name.lower().endswith(ENTRY_FILES) or (mime or "").startswith("text/")):
+        raise Refused(f"{name} : envoyez le FEC ou le grand livre en CSV, TXT ou Excel (.xlsx).")
+    with refusing(f"import_entries {file_id}", f"{name} : fichier Excel illisible."):
+        return sheet_text(bytes(data)) if excel else file_text(bytes(data))
+
+
+def previewed(file_id, name, text, context):
+    """The file uploaded to Experio's import screen: (import id, its preview: headers, matches, options)."""
+    with refusing(f"import_entries {file_id}", f"{name} : Experio n'a pas pu lire le fichier ({{reason}})."):
+        upload = {"res_model": "experio.history", "file": text, "file_name": name, "file_type": "text/csv"}
+        import_id = odoo_json("base_import.import", "create", upload, context=context)
+        preview = odoo_json("base_import.import", "parse_preview", [import_id], IMPORT_OPTIONS, context=context)
+    if preview.get("error"):
+        raise Refused(f"{name} : Experio n'a pas pu lire le fichier ({preview['error']}).")
+    return import_id, preview
+
+
+def columns(preview):
+    """The Experio field of each column of ``preview``, as the import screen suggests them, with MANUAL_COLUMNS
+    filling the gaps a user maps by hand (False: column not imported)."""
+    fields = [(preview["matches"].get(str(i)) or [False])[0] for i in range(len(preview["headers"]))]
+    for i, header in enumerate(preview["headers"]):
+        guess = MANUAL_COLUMNS.get(normalized(header))
+        if not fields[i] and guess and guess not in fields:
+            fields[i] = guess
+    return fields
+
+
+def chosen_kind(kind, text, separator):
+    """ "fec" or "grand livre": as the agent said (``kind``), else told from the file."""
+    wanted = normalized(kind or "")
+    if "grand" in wanted or wanted == "gl":
+        return "grand livre"
+    return "fec" if "fec" in wanted else entries_kind(text, separator)
+
+
+def errors_of(answer):
+    """The error messages (list of str) in an execute_import ``answer``."""
+    return [m.get("message", "") for m in answer.get("messages") or [] if m.get("type") == "error"]
 
 
 @server.tool()
@@ -131,75 +223,111 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         row = db.execute("select file_name, mime_type, data from tarik_files where id = %s", (file_id,)).fetchone()
     if not row:
         raise ToolError(f"Aucun fichier n° {file_id}.")
-    name, mime, data = row
-    excel = name.lower().endswith((".xlsx", ".xlsm"))
-    if not (excel or name.lower().endswith((".csv", ".txt")) or (mime or "").startswith("text/")):
-        taken(file_id)
-        return stop(f"{name} : envoyez le FEC ou le grand livre en CSV, TXT ou Excel (.xlsx).", file_id=file_id)
-    # Every refusal below is a stop with the file taken: a corrected file comes as a new one, this one is not tried again.
+    name = row[0]
+    context = in_dossier(dossier_id)
+    # Every refusal is a stop with the file taken: a corrected file comes as a new one, this one is not tried again.
     try:
-        text = sheet_text(bytes(data)) if excel else file_text(bytes(data))
-    except Exception as error:
-        print(f"import_entries {file_id}: {error}", flush=True)
+        text = entries_text(file_id, *row)
+        import_id, preview = previewed(file_id, name, text, context)
+        options = {**IMPORT_OPTIONS, **preview.get("options", {})}
+        kind = chosen_kind(kind, text, options.get("separator"))
+        headers, fields = preview["headers"], columns(preview)
+        # "Importer GL" is the same import with the lines sorted (by reference too when the file has one).
+        gl = kind == "grand livre"
+        options.update(order_lines=gl, order_lines_with_reference=gl and "reference" in fields)
+        label = "Grand livre" if gl else "FEC"
+        arguments = ([import_id], fields, headers, options)
+        with refusing(f"import_entries {file_id} test", f"{label} {name} refuse par Experio : {{reason}}"):
+            test = odoo_json("base_import.import", "execute_import", *arguments, True, context=context)
+        errors = errors_of(test)
+        if errors:
+            raise Refused(
+                f"{label} {name} refuse par le test Experio ({len(errors)} erreur(s)) : " + " | ".join(errors[:3])
+            )
+        if dry_run():
+            lines = len(test.get("ids") or [])
+            return ok(
+                f"{TEST_MODE}{label} {name} : test Experio reussi ({lines} lignes), rien n'est importe.",
+                file_id=file_id,
+            )
+        with refusing(f"import_entries {file_id}", f"{label} {name} : Experio a refuse l'import ({{reason}})."):
+            result = odoo_json("base_import.import", "execute_import", *arguments, False, context=context)
+        errors = errors_of(result)
+        if errors:
+            raise Refused(f"{label} {name} refuse par Experio : " + " | ".join(errors[:3]))
+    except Refused as refusal:
         taken(file_id)
-        return stop(f"{name} : fichier Excel illisible.", file_id=file_id)
-    context = {"allowed_company_ids": [dossier_id]}
-    try:
-        import_id = odoo_json("base_import.import", "create", {"res_model": "experio.history", "file": text,
-                                                              "file_name": name, "file_type": "text/csv"}, context=context)
-        preview = odoo_json("base_import.import", "parse_preview", [import_id], IMPORT_OPTIONS, context=context)
-    except Exception as error:
-        print(f"import_entries {file_id}: {error}", flush=True)
-        taken(file_id)
-        return stop(f"{name} : Experio n'a pas pu lire le fichier ({experio_refusal(error)}).", file_id=file_id)
-    if preview.get("error"):
-        taken(file_id)
-        return stop(f"{name} : Experio n'a pas pu lire le fichier ({preview['error']}).", file_id=file_id)
-    options = {**IMPORT_OPTIONS, **preview.get("options", {})}
-    wanted = normalized(kind or "")
-    kind = "grand livre" if "grand" in wanted or wanted == "gl" else "fec" if "fec" in wanted else entries_kind(text, options.get("separator"))
-    headers = preview["headers"]
-    fields = [(preview["matches"].get(str(i)) or [False])[0] for i in range(len(headers))]
-    for i, header in enumerate(headers):
-        guess = MANUAL_COLUMNS.get(normalized(header))
-        if not fields[i] and guess and guess not in fields:
-            fields[i] = guess
-    # "Importer GL" is the same import with the lines sorted (by reference too when the file has one).
-    options.update(order_lines=kind == "grand livre", order_lines_with_reference=kind == "grand livre" and "reference" in fields)
-    label = "Grand livre" if kind == "grand livre" else "FEC"
-    try:
-        test = odoo_json("base_import.import", "execute_import", [import_id], fields, headers, options, True, context=context)
-    except Exception as error:
-        print(f"import_entries {file_id} test: {error}", flush=True)
-        taken(file_id)
-        return stop(f"{label} {name} refuse par Experio : {experio_refusal(error)}", file_id=file_id)
-    errors = [m.get("message", "") for m in test.get("messages") or [] if m.get("type") == "error"]
-    if errors:
-        taken(file_id)
-        return stop(f"{label} {name} refuse par le test Experio ({len(errors)} erreur(s)) : " + " | ".join(errors[:3]),
-                    file_id=file_id)
-    lines = len(test.get("ids") or [])
-    if dry_run():
-        return ok(f"{TEST_MODE}{label} {name} : test Experio reussi ({lines} lignes), rien n'est importe.", file_id=file_id)
-    try:
-        result = odoo_json("base_import.import", "execute_import", [import_id], fields, headers, options, False, context=context)
-    except Exception as error:
-        print(f"import_entries {file_id}: {error}", flush=True)
-        taken(file_id)
-        return stop(f"{label} {name} : Experio a refuse l'import ({experio_refusal(error)}).", file_id=file_id)
-    errors = [m.get("message", "") for m in result.get("messages") or [] if m.get("type") == "error"]
-    if errors:
-        taken(file_id)
-        return stop(f"{label} {name} refuse par Experio : " + " | ".join(errors[:3]), file_id=file_id)
+        return stop(str(refusal), file_id=file_id)
     taken(file_id)
-    return ok(f"{label} {name} importe dans le dossier {dossier} : {len(result.get('ids') or [])} lignes. "
-              "Experio a cree les comptes, journaux, tiers et exercices manquants.", file_id=file_id)
+    return ok(
+        f"{label} {name} importe dans le dossier {dossier} : {len(result.get('ids') or [])} lignes. "
+        "Experio a cree les comptes, journaux, tiers et exercices manquants.",
+        file_id=file_id,
+    )
 
+
+# --- Finishing the onboarding ---
 
 # The stepper's last window ("Enregistrer et terminer"): the 4 journals and the tiers prefixes, as it shows them.
-STEPPER_JOURNALS = ["local_purchase_journal_id", "foreign_purchase_journal_id", "local_sale_journal_id", "foreign_sale_journal_id"]
-STEPPER_PREFIXES = {"third_party_supplier_account": "4411", "third_party_foreign_supplier_account": "4412",
-                    "third_party_customer_account": "3421", "third_party_Foreign_customer_account": "34212"}
+STEPPER_JOURNALS = [
+    "local_purchase_journal_id",
+    "foreign_purchase_journal_id",
+    "local_sale_journal_id",
+    "foreign_sale_journal_id",
+]
+STEPPER_PREFIXES = {
+    "third_party_supplier_account": "4411",
+    "third_party_foreign_supplier_account": "4412",
+    "third_party_customer_account": "3421",
+    "third_party_Foreign_customer_account": "34212",
+}
+
+
+def exercice_note(dossier_id, dossier):
+    """Opens the current year's exercice when the dossier has no open one (not in test mode): what was done (str),
+    or None when it had one."""
+    if odoo_call("exp.fiscal.entries", "search_count", [("company_id", "=", dossier_id), ("state", "=", "open")]):
+        return None
+    year = date.today().year
+    if dry_run():
+        return f"un exercice {year} serait ouvert"
+    with refused(
+        f"finish_setup {dossier_id}", f"Dossier {dossier} : Experio refuse d'ouvrir l'exercice {year} ({{reason}})."
+    ):
+        open_exercice(dossier_id, year)
+    return f"exercice {year} ouvert"
+
+
+def wait_for_newest_lines(dossier_id, context):
+    """Sleeps until the newest waiting line is over a minute old: Experio hands over only those."""
+    newest = odoo_call(
+        "experio.history",
+        "search_read",
+        [("company_id", "=", dossier_id), ("state", "=", "new")],
+        fields=["send_date"],
+        order="send_date desc",
+        limit=1,
+        context=context,
+    )
+    if newest and newest[0]["send_date"]:
+        sent = calendar.timegm(time.strptime(newest[0]["send_date"], "%Y-%m-%d %H:%M:%S"))  # Experio stores UTC
+        time.sleep(max(0.0, sent + 65 - time.time()))
+
+
+def complete_stepper(company, context):
+    """Walks the stepper to its last phase and presses "Enregistrer et terminer" with ``company``'s journals and
+    tiers prefixes (the defaults where it has none)."""
+    for phase in range(1, 9):
+        state = {
+            "current_phase": min(phase + 1, 8),
+            "completed_phases": list(range(1, phase + 1)),
+            "visited_phases": list(range(1, min(phase + 1, 8) + 1)),
+        }
+        odoo_json("res.company", "set_configuration_stepper_state", state, context=context)
+    config = {key: company[key] and company[key][0] for key in STEPPER_JOURNALS}
+    config.update({key: company[key] or prefix for key, prefix in STEPPER_PREFIXES.items()})
+    odoo_json("res.company", "save_validation_config", config, context=context)
+    odoo_json("res.company", "complete_onboarding", context=context)  # its write hands the waiting lines over
 
 
 @server.tool()
@@ -209,55 +337,88 @@ def finish_setup(dossier_id: int) -> dict:
     step, then Enregistrer et terminer): Experio then processes the imported entries.
     Opens the current exercice when the dossier has none."""
     dossier = require_dossier(dossier_id)
-    context = {"allowed_company_ids": [dossier_id]}
-    company = odoo_call("res.company", "read", [dossier_id], fields=["show_onboarding", *STEPPER_JOURNALS, *STEPPER_PREFIXES])[0]
+    context = in_dossier(dossier_id)
+    fields = ["show_onboarding", *STEPPER_JOURNALS, *STEPPER_PREFIXES]
+    company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
     if not company["show_onboarding"]:
         return ok(f"Dossier {dossier} : integration deja terminee, Experio traite les ecritures des leur import.")
-    notes = []
-    if not odoo_call("exp.fiscal.entries", "search_count", [("company_id", "=", dossier_id), ("state", "=", "open")]):
-        year = date.today().year
-        if dry_run():
-            notes.append(f"un exercice {year} serait ouvert")
-        else:
-            try:
-                open_exercice(dossier_id, year)
-            except Exception as error:
-                print(f"finish_setup {dossier_id}: {error}", flush=True)
-                raise ToolError(f"Dossier {dossier} : Experio refuse d'ouvrir l'exercice {year} ({experio_refusal(error)}).") from None
-            notes.append(f"exercice {year} ouvert")
+    notes = [note for note in (exercice_note(dossier_id, dossier),) if note]
     if dry_run():
         return ok(f"{TEST_MODE}Dossier {dossier} : integration terminee ({', '.join(notes + ['stepper termine'])}).")
-    # Experio hands over only lines imported more than a minute ago: wait for the newest.
-    newest = odoo_call("experio.history", "search_read", [("company_id", "=", dossier_id), ("state", "=", "new")],
-                       fields=["send_date"], order="send_date desc", limit=1, context=context)
-    if newest and newest[0]["send_date"]:
-        sent = calendar.timegm(time.strptime(newest[0]["send_date"], "%Y-%m-%d %H:%M:%S"))  # Experio stores UTC
-        time.sleep(max(0.0, sent + 65 - time.time()))
-    try:
-        for phase in range(1, 9):
-            odoo_json("res.company", "set_configuration_stepper_state", {
-                "current_phase": min(phase + 1, 8), "completed_phases": list(range(1, phase + 1)),
-                "visited_phases": list(range(1, min(phase + 1, 8) + 1))}, context=context)
-        config = {key: company[key] and company[key][0] for key in STEPPER_JOURNALS}
-        config.update({key: company[key] or prefix for key, prefix in STEPPER_PREFIXES.items()})
-        odoo_json("res.company", "save_validation_config", config, context=context)
-        odoo_json("res.company", "complete_onboarding", context=context)  # its write hands the waiting lines over
-    except Exception as error:
-        print(f"finish_setup {dossier_id}: {error}", flush=True)
-        raise ToolError(f"Dossier {dossier} : Experio refuse de terminer l'integration ({experio_refusal(error)}).") from None
+    wait_for_newest_lines(dossier_id, context)
+    with refused(
+        f"finish_setup {dossier_id}", f"Dossier {dossier} : Experio refuse de terminer l'integration ({{reason}})."
+    ):
+        complete_stepper(company, context)
     waiting = odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id)], context=context)
-    notes.append(f"{waiting} ligne(s) d'ecritures transmises au traitement d'Experio" if waiting else "aucune ecriture importee")
+    notes.append(
+        f"{waiting} ligne(s) d'ecritures transmises au traitement d'Experio" if waiting else "aucune ecriture importee"
+    )
     return ok(f"Dossier {dossier} : integration terminee ({', '.join(notes)}).")
 
 
+# --- Where the setup stands ---
+
 # What posting an invoice needs (exp.invoice validate_local_settings / validate_foreign_settings).
-POSTING_SETTINGS = {"local_supplier_account_id": "compte fournisseurs", "local_purchase_journal_id": "journal d'achats",
-                    "local_customer_account_id": "compte clients", "local_sale_journal_id": "journal de ventes",
-                    "foreign_supplier_account_id": "compte fournisseurs etrangers",
-                    "foreign_purchase_journal_id": "journal d'achats etrangers",
-                    "foreign_customer_account_id": "compte clients etrangers", "foreign_sale_journal_id": "journal de ventes etrangeres"}
-HISTORY_STATES = {"new": "en attente", "pending": "en cours de traitement", "done": "traitees", "reconciliation": "a lettrer",
-                  "exists": "deja presentes", "error": "en erreur"}
+POSTING_SETTINGS = {
+    "local_supplier_account_id": "compte fournisseurs",
+    "local_purchase_journal_id": "journal d'achats",
+    "local_customer_account_id": "compte clients",
+    "local_sale_journal_id": "journal de ventes",
+    "foreign_supplier_account_id": "compte fournisseurs etrangers",
+    "foreign_purchase_journal_id": "journal d'achats etrangers",
+    "foreign_customer_account_id": "compte clients etrangers",
+    "foreign_sale_journal_id": "journal de ventes etrangeres",
+}
+HISTORY_STATES = {
+    "new": "en attente",
+    "pending": "en cours de traitement",
+    "done": "traitees",
+    "reconciliation": "a lettrer",
+    "exists": "deja presentes",
+    "error": "en erreur",
+}
+
+
+def setup_facts(dossier_id, context):
+    """What Experio says of the dossier's setup: (company settings, {entries state: count},
+    error reasons read_group, exercices, {model: count} of accounts, journals, taxes and tiers)."""
+    in_it = [("company_id", "=", dossier_id)]
+    company = odoo_call("res.company", "read", [dossier_id], fields=["show_onboarding", *POSTING_SETTINGS])[0]
+    # One query, so the counts add up while Experio processes the lines.
+    groups = odoo_call("experio.history", "read_group", in_it, ["state"], ["state"], context=context)
+    states = {group["state"]: group["state_count"] for group in groups}
+    reasons = odoo_call(
+        "experio.history",
+        "read_group",
+        [*in_it, ("state", "=", "error")],
+        ["error_type"],
+        ["error_type"],
+        context=context,
+    )
+    exercices = odoo_call(
+        "exp.fiscal.entries",
+        "search_read",
+        in_it,
+        fields=["name", "state", "selected"],
+        order="date_start",
+        context=context,
+    )
+    counts = {
+        model: odoo_call(model, "search_count", in_it, context=context)
+        for model in ("exp.account", "exp.journal", "exp.tax", "exp.partner")
+    }
+    return company, states, reasons, exercices, counts
+
+
+def error_reasons(reasons):
+    """Experio's own diagnosis of the lines in error, to correct the source file: its 3 commonest reasons with
+    their line counts ("3 comptes tiers ..." and "4 comptes tiers ..." are one reason)."""
+    merged = Counter()
+    for reason in reasons:
+        text = (reason["error_type"] or "sans motif").strip()
+        merged[re.sub(r"^\d+\s+", "", text)] += reason["error_type_count"]  # without the leading count and spaces
+    return " | ".join(f"{text} ({n} lignes)" for text, n in merged.most_common(3))
 
 
 @server.tool()
@@ -266,27 +427,16 @@ def setup_status(dossier_id: int) -> dict:
     """Where a dossier's setup stands: its imported entries by state, its exercices,
     and the settings Experio needs before an invoice can be posted."""
     dossier = require_dossier(dossier_id)
-    context = {"allowed_company_ids": [dossier_id]}
     with refused(f"setup_status {dossier_id}", f"Dossier {dossier} : Experio n'a pas pu donner l'etat du parametrage."):
-        company = odoo_call("res.company", "read", [dossier_id], fields=["show_onboarding", *POSTING_SETTINGS])[0]
-        # One query, so the counts add up while Experio processes the lines.
-        groups = odoo_call("experio.history", "read_group", [("company_id", "=", dossier_id)], ["state"], ["state"], context=context)
-        states = {group["state"]: group["state_count"] for group in groups}
-        reasons = odoo_call("experio.history", "read_group", [("company_id", "=", dossier_id), ("state", "=", "error")],
-                            ["error_type"], ["error_type"], context=context)
-        exercices = odoo_call("exp.fiscal.entries", "search_read", [("company_id", "=", dossier_id)],
-                              fields=["name", "state", "selected"], order="date_start", context=context)
-        counts = {model: odoo_call(model, "search_count", [("company_id", "=", dossier_id)], context=context)
-                  for model in ("exp.account", "exp.journal", "exp.tax", "exp.partner")}
-    parts = [f"{counts['exp.account']} comptes, {counts['exp.journal']} journaux, {counts['exp.tax']} taxes, "
-             f"{counts['exp.partner']} tiers"]
+        company, states, reasons, exercices, counts = setup_facts(dossier_id, in_dossier(dossier_id))
+    parts = [
+        f"{counts['exp.account']} comptes, {counts['exp.journal']} journaux, {counts['exp.tax']} taxes, "
+        f"{counts['exp.partner']} tiers"
+    ]
     entries = [f"{states[state]} {label}" for state, label in HISTORY_STATES.items() if states.get(state)]
     parts.append("ecritures importees : " + (", ".join(entries) if entries else "aucune"))
-    if reasons:  # Experio's own diagnosis, to correct the source file ("3 comptes tiers ...", "4 comptes tiers ...": one reason)
-        merged = Counter()
-        for reason in reasons:
-            merged[re.sub(r"^\d+\s+", "", (reason["error_type"] or "sans motif").strip())] += reason["error_type_count"]
-        parts.append("erreurs signalees par Experio : " + " | ".join(f"{text} ({n} lignes)" for text, n in merged.most_common(3)))
+    if reasons:
+        parts.append("erreurs signalees par Experio : " + error_reasons(reasons))
     opened = [e["name"] + (" (en cours)" if e["selected"] else "") for e in exercices if e["state"] == "open"]
     parts.append("exercices ouverts : " + (", ".join(opened) if opened else "aucun"))
     missing = [label for key, label in POSTING_SETTINGS.items() if not company[key]]

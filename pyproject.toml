@@ -1,0 +1,4 @@
+# The one code style, for mcp/ and workflows/: black, lines of 120 at most (tests/style checks both).
+[tool.black]
+line-length = 120
+target-version = ["py312"]

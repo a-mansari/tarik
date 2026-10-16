@@ -13,8 +13,21 @@ from shared import A, B
 
 
 @pytest.mark.security
-@pytest.mark.parametrize("bad", ["Experio_Cabinet_8", "experio cabinet", "cabinet-8", "8cabinet", "public", "pg_temp",
-                                 "a;drop schema x", "a,b,a", "x" * 64, "café"])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "Experio_Cabinet_8",
+        "experio cabinet",
+        "cabinet-8",
+        "8cabinet",
+        "public",
+        "pg_temp",
+        "a;drop schema x",
+        "a,b,a",
+        "x" * 64,
+        "café",
+    ],
+)
 def test_only_exact_lowercase_names_are_cabinets(bad):
     with pytest.raises(SystemExit):
         cabinet_names(bad)
@@ -68,6 +81,7 @@ def test_a_scope_is_restored_after_an_error(two_cabinets):
 @pytest.mark.security
 def test_threads_keep_their_own_cabinet(two_cabinets):
     """Many calls at once, each in its cabinet, each checking it stays there."""
+
     def work(name):
         with using(name):
             for _ in range(200):
@@ -75,6 +89,7 @@ def test_threads_keep_their_own_cabinet(two_cabinets):
                     return False
                 time.sleep(0)
         return True
+
     with concurrent.futures.ThreadPoolExecutor(32) as pool:
         assert all(pool.map(work, [A, B] * 200))
 

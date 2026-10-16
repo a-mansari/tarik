@@ -61,6 +61,7 @@ def test_the_invoice_form_is_read_per_cabinet(two_cabinets, monkeypatch):
         if method == "read":
             return [{f"field_{current()}": "x"}]
         return {}
+
     monkeypatch.setattr(experio, "odoo_call", fake)
     monkeypatch.setattr(experio, "odoo_json", lambda *a, **k: {})
     monkeypatch.setattr(experio, "_forms", {})

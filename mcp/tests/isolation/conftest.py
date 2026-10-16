@@ -13,6 +13,7 @@ from tests import testdb
 @pytest.fixture
 def two_cabinets(monkeypatch):
     import server as mcp_server
+
     names = frozenset({A, B})
     monkeypatch.setattr(cabinets, "CABINETS", names)
     monkeypatch.setattr(mcp_server, "CABINETS", names)
@@ -34,7 +35,6 @@ def schemas(two_cabinets):
 @pytest.fixture
 def http(schemas):
     import server as mcp_server
+
     with serving(mcp_server.app()) as base:
         yield base
-
-

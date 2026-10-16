@@ -15,7 +15,9 @@ CHEF, COLLEAGUE, OUTSIDER = "chef@cabinet.ma", "comptable@cabinet.ma", "x@gmail.
 @pytest.fixture
 def mailbox(db_cabinet, monkeypatch):
     monkeypatch.setenv(f"{db_cabinet.upper()}__MAIL_ALLOWED_RECIPIENTS", "@cabinet.ma")
-    monkeypatch.setattr(inbox, "collaborator", lambda address: {"name": address} if address.endswith("@cabinet.ma") else None)
+    monkeypatch.setattr(
+        inbox, "collaborator", lambda address: {"name": address} if address.endswith("@cabinet.ma") else None
+    )
 
 
 def mail(sender, message_id, text="Voici les factures.", reply_to=None, replying_to=None):
@@ -32,7 +34,9 @@ def mail(sender, message_id, text="Voici les factures.", reply_to=None, replying
 def stored(*messages):
     with cabinet_db() as db:
         alerts = [inbox.store(db, uid, message) for uid, message in enumerate(messages, 1)]
-        threads = db.execute("select thread_id, client_address, state from tarik_mail_threads order by thread_id").fetchall()
+        threads = db.execute(
+            "select thread_id, client_address, state from tarik_mail_threads order by thread_id"
+        ).fetchall()
     return alerts, threads
 
 
@@ -92,11 +96,14 @@ def test_an_email_during_a_run_waits_for_that_run_then_is_answered(mailbox):
         assert [thread["message_ids"] for thread in inbox.claim(db)] == [["<m2@x>"]]
 
 
-BROKEN = b"From: chef@cabinet.ma\r\nMessage-ID: <m1@x>\r\nContent-Type: text/plain; charset=x-unknown\r\n\r\nbonjour\r\n"
+BROKEN = (
+    b"From: chef@cabinet.ma\r\nMessage-ID: <m1@x>\r\nContent-Type: text/plain; charset=x-unknown\r\n\r\nbonjour\r\n"
+)
 
 
 class Box:
     """The mailbox over IMAP: email 1 unreadable, email 2 from the chef."""
+
     def response(self, name):
         return name, [b"7" if name == "UIDVALIDITY" else b"3"]
 

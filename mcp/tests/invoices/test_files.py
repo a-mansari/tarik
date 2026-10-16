@@ -10,9 +10,12 @@ from tarik.invoices.pipeline import files_to_process
 
 def add(name, kind=None, parent=None, invoice_id=None, statement_id=None, data=b"%PDF"):
     with cabinet_db() as db:
-        return db.execute("insert into tarik_files (session_id, file_name, mime_type, data, kind, parent_id, invoice_id, statement_id) "
-                          "values ('s', %s, 'application/pdf', %s, %s, %s, %s, %s) returning id",
-                          (name, data, kind, parent, invoice_id, statement_id)).fetchone()[0]
+        return db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, kind, parent_id, invoice_id, "
+            "statement_id) "
+            "values ('s', %s, 'application/pdf', %s, %s, %s, %s, %s) returning id",
+            (name, data, kind, parent, invoice_id, statement_id),
+        ).fetchone()[0]
 
 
 @pytest.mark.functionality

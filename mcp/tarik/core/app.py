@@ -1,35 +1,31 @@
-"""The MCP server every phase module registers its tools on."""
+"""The MCP server every phase module registers its tools on, what its step tools return, and the log."""
 
 import functools
 import inspect
 
 from mcp.server.mcpserver import MCPServer
 
-
 server = MCPServer("tarik")
+
+
+def log(text):
+    """Print ``text`` to the container's log at once (never to the agent)."""
+    print(text, flush=True)
+
+
+def _result(status):
+    """A step result maker: message (str) and extra fields -> {"status": status, "message": message, **extra}."""
+    return lambda message, **extra: {"status": status, "message": message, **extra}
 
 
 # What a step tool returns, so the n8n workflow can route on ``status`` and the agent can read ``message``:
 # ok (go on), wait (Experio still reading: retry), question (ask the client), stop (nothing more to do on it).
-def ok(message, **extra):
-    return {"status": "ok", "message": message, **extra}
-
-
-def wait(message, **extra):
-    return {"status": "wait", "message": message, **extra}
-
-
-def question(message, **extra):
-    return {"status": "question", "message": message, **extra}
-
-
-def stop(message, **extra):
-    return {"status": "stop", "message": message, **extra}
+ok, wait, question, stop = map(_result, ("ok", "wait", "question", "stop"))
 
 
 def with_ids(tool):
-    """Copy the ids a step was called with (invoice, file, dossier) into its result, so each
-    n8n item still says which invoice it is about after the MCP node replaced it."""
+    """Decorator: copy the ids a step was called with (invoice_id, file_id, dossier_id) into its dict result,
+    so each n8n item still says which invoice it is about after the MCP node replaced it."""
     signature = inspect.signature(tool)
 
     @functools.wraps(tool)
@@ -41,4 +37,5 @@ def with_ids(tool):
                 if name in called:
                     result.setdefault(name, called[name])
         return result
+
     return step

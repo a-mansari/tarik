@@ -24,7 +24,9 @@ _state = {"token": "", "token_until": 0.0, "values": None, "next_read": 0.0}
 
 
 def _request(method, path, token="", **kwargs):
-    answer = httpx.request(method, ADDRESS + path, headers={"X-Vault-Token": token} if token else {}, timeout=10, **kwargs)
+    """Vault's JSON answer (dict) to ``method`` on ``path``, with ``token`` when given; None for a 404."""
+    headers = {"X-Vault-Token": token} if token else {}
+    answer = httpx.request(method, ADDRESS + path, headers=headers, timeout=10, **kwargs)
     if answer.status_code == 404:
         return None
     answer.raise_for_status()
@@ -32,24 +34,48 @@ def _request(method, path, token="", **kwargs):
 
 
 def _login():
+    """Log in with the AppRole's ids; the token is kept, renewed once 80% of its lease has passed."""
     ids = {name: open(os.path.join(APPROLE, name)).read().strip() for name in ("role_id", "secret_id")}
     auth = _request("POST", "/v1/auth/approle/login", json=ids)["auth"]
     _state.update(token=auth["client_token"], token_until=time.monotonic() + 0.8 * auth["lease_duration"])
 
 
 def _read(method, path):
+    """Vault's answer to ``method`` on ``path`` (as _request), logged in first when the token is missing or old."""
     if not _state["token"] or time.monotonic() > _state["token_until"]:
         _login()
     return _request(method, path, _state["token"])
 
 
 def read_all():
-    """Vault's settings: the shared ones, and each cabinet's own by cabinet."""
+    """Vault's settings: (the shared ones, {cabinet: its own})."""
     shared = ((_read("GET", "/v1/secret/data/tarik/shared") or {}).get("data") or {}).get("data") or {}
     listed = ((_read("LIST", "/v1/secret/metadata/tarik/cabinets") or {}).get("data") or {}).get("keys") or []
-    cabinets = {name: _read("GET", f"/v1/secret/data/tarik/cabinets/{name}")["data"]["data"]
-                for name in listed if not name.endswith("/")}
+    cabinets = {
+        name: _read("GET", f"/v1/secret/data/tarik/cabinets/{name}")["data"]["data"]
+        for name in listed
+        if not name.endswith("/")
+    }
     return shared, cabinets
+
+
+def _refresh(wait):
+    """Read every setting again, trying for ``wait`` seconds on a first read. Once read, an outage keeps the last
+    values, tried again RETRY_SECONDS later."""
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            _state["values"] = read_all()
+            _state["next_read"] = time.monotonic() + REFRESH_SECONDS
+            return
+        except Exception as error:
+            if _state["values"] is not None:  # Vault out for a while: carry on with what was read
+                print(f"vault: {type(error).__name__}; the last values stay in use", flush=True)
+                _state["next_read"] = time.monotonic() + RETRY_SECONDS
+                return
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(2)
 
 
 def settings(wait=0):
@@ -57,18 +83,5 @@ def settings(wait=0):
     to keep trying a first read (Vault still starting or unsealing)."""
     with _lock:
         if _state["values"] is None or time.monotonic() >= _state["next_read"]:
-            deadline = time.monotonic() + wait
-            while True:
-                try:
-                    _state["values"] = read_all()
-                    _state["next_read"] = time.monotonic() + REFRESH_SECONDS
-                    break
-                except Exception as error:
-                    if _state["values"] is not None:  # Vault out for a while: carry on with what was read
-                        print(f"vault: {type(error).__name__}; the last values stay in use", flush=True)
-                        _state["next_read"] = time.monotonic() + RETRY_SECONDS
-                        break
-                    if time.monotonic() >= deadline:
-                        raise
-                    time.sleep(2)
+            _refresh(wait)
         return _state["values"]

@@ -23,7 +23,11 @@ def test_only_cabinets_with_their_own_mailbox_are_watched(three):
 def test_a_wake_up_names_its_cabinet_and_carries_the_secret(three, monkeypatch):
     sent = []
     monkeypatch.setenv("MAIL_WEBHOOK_SECRET", "s3cret")
-    monkeypatch.setattr(watcher, "HTTP", type("Http", (), {"post": lambda self, url, json, timeout, headers: sent.append((json, headers))})())
+    monkeypatch.setattr(
+        watcher,
+        "HTTP",
+        type("Http", (), {"post": lambda self, url, json, timeout, headers: sent.append((json, headers))})(),
+    )
     with cabinets.using("tarik_test_c"):
         watcher.wake_tarik("tarik_test_c", "")
     assert sent == [({"cabinet": "tarik_test_c"}, {"X-Tarik-Webhook": "s3cret"})]
@@ -40,6 +44,7 @@ def test_each_watch_runs_in_its_own_cabinet(three, monkeypatch):
     def connect():
         logins.append(cabinets.setting("IMAP_USER"))
         raise Seen  # one login is enough to see whose
+
     monkeypatch.setattr(watcher, "connect", connect)
     for cabinet in ("tarik_test_a", "tarik_test_c"):
         with pytest.raises(Seen):

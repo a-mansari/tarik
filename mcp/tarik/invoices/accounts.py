@@ -9,10 +9,22 @@ what Experio can't: classify what was billed among the dossier's real accounts.
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import with_ids, ok, question, server
+from tarik.core.app import log, ok, question, server, with_ids
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import (TEST_MODE, dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, refused, require_draft,
-                                require_invoice, test_mode_note)
+from tarik.core.config import TEST_MODE
+from tarik.core.experio import (
+    dry_run,
+    fill_invoice,
+    in_dossier,
+    invoice_context,
+    odoo_call,
+    odoo_json,
+    refresh,
+    refused,
+    require_draft,
+    require_invoice,
+    test_mode_note,
+)
 from tarik.core.model import ask_model
 from tarik.invoices.classify import side_of
 
@@ -57,35 +69,107 @@ Rules:
 CLASS = {"purchase": "6", "sale": "7"}
 
 
+INVOICE_FIELDS = "state type company_id exercice_id partner_id account_id invoice_number amount_total".split()
+
+
 def account_question(invoice, designation):
-    """What the client reads when no account fits (tarik-master orchestrator.account_question)."""
-    about = ", ".join(str(x) for x in ((invoice["partner_id"] or [0, None])[1], f"{invoice['amount_total']} DH TTC"
-                                       if invoice["amount_total"] else None) if x)
+    """What the client reads when no account fits ``designation`` (str or None: illegible)
+    (tarik-master orchestrator.account_question)."""
+    total = f"{invoice['amount_total']} DH TTC" if invoice["amount_total"] else None
+    about = ", ".join(str(x) for x in ((invoice["partner_id"] or [0, None])[1], total) if x)
     facture = f"Facture {invoice['invoice_number'] or invoice['id']}" + (f" ({about})" if about else "")
-    why = (f"je n'ai pas pu choisir le compte pour « {designation} »" if designation
-           else "la designation est illisible, je n'ai pas pu choisir le compte")
+    why = (
+        f"je n'ai pas pu choisir le compte pour « {designation} »"
+        if designation
+        else "la designation est illisible, je n'ai pas pu choisir le compte"
+    )
     return f"{facture} : {why}.\nQuel compte utiliser (code ou intitule) ?"
 
 
-def apply_account(invoice, account_id, why):
-    """Put the account on the invoice through Experio's form, then let Experio's own refresh
-    carry it onto the HT lines (tarik-master wrote the lines itself)."""
-    context = invoice_context(invoice)
-    with refused(f"apply_account {invoice['id']} -> {account_id}", f"Facture {invoice['id']} : Experio a refuse le compte."):
-        fill_invoice(invoice["id"], {"account_id": account_id}, context)
-        if not dry_run():
-            odoo_json("exp.invoice", "action_refresh", [invoice["id"]], context=context)
-    account = odoo_call("exp.account", "read", [account_id], fields=["code", "name"])[0]
-    return ok(f"{test_mode_note()}Facture {invoice['id']} : compte {account['code']} {account['name']} ({why}).")
+def chart(company_id, *domain):
+    """The dossier's accounts matching ``domain`` (all by default), as [{id, code, name}] sorted by code."""
+    domain = [("company_id", "=", company_id), *domain]
+    return odoo_call("exp.account", "search_read", domain, fields=["id", "code", "name"], order="code")
 
 
-INVOICE_FIELDS = ["state", "type", "company_id", "exercice_id", "partner_id", "account_id", "invoice_number", "amount_total"]
+def listing(accounts):
+    """``accounts`` as the model reads them: one "code name" per line."""
+    return "\n".join(f"{a['code']} {a['name']}" for a in accounts)
 
 
 def draft_invoice(invoice_id):
+    """The invoice's INVOICE_FIELDS (dict); ToolError unless it is a draft."""
     invoice = require_invoice(invoice_id, INVOICE_FIELDS)
     require_draft(invoice_id, invoice, "changer de compte")
     return invoice
+
+
+def apply_account(invoice, account_id, why):
+    """Put the account ``account_id`` on the invoice through Experio's form, then let Experio's own refresh
+    carry it onto the HT lines (tarik-master wrote the lines itself). The ok result says ``why``."""
+    invoice_id, context = invoice["id"], invoice_context(invoice)
+    with refused(f"apply_account {invoice_id} -> {account_id}", f"Facture {invoice_id} : Experio a refuse le compte."):
+        fill_invoice(invoice_id, {"account_id": account_id}, context)
+        refresh(invoice_id, context)
+    account = odoo_call("exp.account", "read", [account_id], fields=["code", "name"])[0]
+    return ok(f"{test_mode_note()}Facture {invoice_id} : compte {account['code']} {account['name']} ({why}).")
+
+
+def _fill_empty_chart(invoice_id, company_id):
+    """Create the dossier's base accounts when its chart is empty. In test mode, the ok result saying so
+    (nothing created), else None."""
+    if odoo_call("exp.account", "search_count", [("company_id", "=", company_id)]):
+        return None
+    if dry_run():
+        return ok(
+            f"{TEST_MODE}Plan comptable vide, les comptes de base seraient crees (dossier de la facture {invoice_id})."
+        )
+    # Experio's "Creer les comptes manquants" button: its wizard lists the base CGNC accounts the dossier lacks.
+    wizard_id = odoo_call("exp.account.missing.wizard", "create", {}, context=in_dossier(company_id))
+    odoo_json("exp.account.missing.wizard", "action_confirm", [wizard_id], context=in_dossier(company_id))
+    return None
+
+
+def _memorized(invoice, context):
+    """The account id Experio memorized for the invoice's tiers, else None."""
+    if not invoice["partner_id"]:
+        return None
+    # Picking the tiers again in the form runs Experio's memorized chain (last used, tiers sheet, dossier default):
+    # only read, so nothing else it would refill (payment method, currency set from the scan) is saved.
+    return fill_invoice(invoice["id"], {"partner_id": invoice["partner_id"][0]}, context, save=False).get("account_id")
+
+
+def _designation(invoice_id):
+    """What the invoice bills, as check_invoice read it (str or None). ToolError when not checked yet."""
+    with cabinet_db() as db:
+        row = db.execute(
+            "select extracted->>'designation' from tarik_checks where invoice_id = %s", (invoice_id,)
+        ).fetchone()
+    if not row:
+        raise ToolError(
+            f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice (il faut ce qui est facture)."
+        )
+    return row[0]
+
+
+def _model_choice(invoice, kind, designation):
+    """(account {id, code, name}, reason) the model picks for ``designation`` among the dossier's class 6 or 7
+    accounts, else (None, None)."""
+    accounts = chart(invoice["company_id"][0], ("code", "=like", f"{CLASS[kind]}%"))
+    by_code = {a["code"]: a for a in accounts}
+    instruction = (
+        f"Type: {'vente' if kind == 'sale' else 'achat'}\nBilled: {designation}\n\nThis cabinet's accounts:\n"
+        + listing(accounts)
+        + '\n\nAnswer with only a JSON object: {"code": "<a code from the list above>" or null, '
+        '"reason": "one short French sentence"}'
+    )
+    answer = ask_model(ACCOUNT_PROMPT, [], instruction, "Choix du compte")
+    code = str(answer["code"]) if answer.get("code") is not None else None
+    if code not in by_code:
+        if code:
+            log(f"assign_account {invoice['id']}: model chose {code!r}, not in the chart")
+        return None, None
+    return by_code[code], str(answer.get("reason") or "")
 
 
 @server.tool()
@@ -99,42 +183,20 @@ def assign_account(invoice_id: int) -> dict:
     if invoice["account_id"]:
         return ok(f"Facture {invoice_id} : compte deja renseigne, {invoice['account_id'][1]}.")
     kind = side_of(invoice)
-    company_id = invoice["company_id"][0]
-    context = invoice_context(invoice)
     with refused(f"assign_account {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu proposer de compte."):
-        if not odoo_call("exp.account", "search_count", [("company_id", "=", company_id)]):
-            if dry_run():
-                return ok(f"{TEST_MODE}Plan comptable vide, les comptes de base seraient crees (dossier de la facture {invoice_id}).")
-            # Experio's "Creer les comptes manquants" button: its wizard lists the base CGNC accounts the dossier lacks.
-            wizard_id = odoo_call("exp.account.missing.wizard", "create", {}, context={"allowed_company_ids": [company_id]})
-            odoo_json("exp.account.missing.wizard", "action_confirm", [wizard_id], context={"allowed_company_ids": [company_id]})
-        if invoice["partner_id"]:
-            # Picking the tiers again in the form runs Experio's memorized chain (last used, tiers sheet, dossier default):
-            # only read, so nothing else it would refill (payment method, currency set from the scan) is saved.
-            memorized = fill_invoice(invoice_id, {"partner_id": invoice["partner_id"][0]}, context, save=False).get("account_id")
-            if memorized:
-                return apply_account(invoice, memorized, "compte memorise pour ce tiers")
-    with cabinet_db() as db:
-        row = db.execute("select extracted->>'designation' from tarik_checks where invoice_id = %s", (invoice_id,)).fetchone()
-    if not row:
-        raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice (il faut ce qui est facture).")
-    designation = row[0]
+        simulated = _fill_empty_chart(invoice_id, invoice["company_id"][0])
+        if simulated:
+            return simulated
+        memorized = _memorized(invoice, invoice_context(invoice))
+        if memorized:
+            return apply_account(invoice, memorized, "compte memorise pour ce tiers")
+    designation = _designation(invoice_id)
     if not designation:
         return question(account_question(invoice, None))
-    accounts = odoo_call("exp.account", "search_read", [("company_id", "=", company_id), ("code", "=like", f"{CLASS[kind]}%")],
-                         fields=["id", "code", "name"], order="code")
-    by_code = {a["code"]: a for a in accounts}
-    answer = ask_model(ACCOUNT_PROMPT, [], (
-        f"Type: {'vente' if kind == 'sale' else 'achat'}\nBilled: {designation}\n\nThis cabinet's accounts:\n"
-        + "\n".join(f"{a['code']} {a['name']}" for a in accounts)
-        + '\n\nAnswer with only a JSON object: {"code": "<a code from the list above>" or null, "reason": "one short French sentence"}'),
-        "Choix du compte")
-    code, reason = (str(answer["code"]) if answer.get("code") is not None else None), str(answer.get("reason") or "")
-    if code not in by_code:
-        if code:
-            print(f"assign_account {invoice_id}: model chose {code!r}, not in the chart", flush=True)
+    account, reason = _model_choice(invoice, kind, designation)
+    if not account:
         return question(account_question(invoice, designation))
-    return apply_account(invoice, by_code[code]["id"], reason)
+    return apply_account(invoice, account["id"], reason)
 
 
 def resolve_account(accounts, answer):
@@ -168,10 +230,12 @@ choose one yourself from what the invoice bills."""
 def account_meant(accounts, answer):
     """The account the client's free-text answer names ("Pour MEDI TELECOM, utilisez le compte 6145"), read by
     the model and checked against the chart; None when it names none clearly."""
-    code = ask_model(ANSWER_PROMPT, [], f"Client's answer: {answer}\n\nThe dossier's accounts:\n"
-                     + "\n".join(f"{a['code']} {a['name']}" for a in accounts)
-                     + '\n\nAnswer with only a JSON object: {"code": "<a code from the list above>" or null}',
-                     "Lecture de la reponse").get("code")
+    instruction = (
+        f"Client's answer: {answer}\n\nThe dossier's accounts:\n"
+        + listing(accounts)
+        + '\n\nAnswer with only a JSON object: {"code": "<a code from the list above>" or null}'
+    )
+    code = ask_model(ANSWER_PROMPT, [], instruction, "Lecture de la reponse").get("code")
     # Its code, or the start the client wrote ("6145"), as a number or text: only one of the chart's accounts.
     return resolve_account(accounts, str(code)) if code is not None and str(code).strip().isdigit() else None
 
@@ -184,10 +248,11 @@ def set_account(invoice_id, answer):
     if not (answer or "").strip():
         raise ToolError("answer manquant : le code ou l'intitule donne par le client.")
     invoice = draft_invoice(invoice_id)
-    accounts = odoo_call("exp.account", "search_read", [("company_id", "=", invoice["company_id"][0])],
-                         fields=["id", "code", "name"], order="code")
+    accounts = chart(invoice["company_id"][0])
     account = resolve_account(accounts, answer) or account_meant(accounts, answer)
     if account:
         return apply_account(invoice, account["id"], f"demande du client : {answer.strip()}")
-    return question(f"Facture {invoice_id} : « {answer.strip()} » ne designe pas un seul compte du dossier. "
-                    "Quel compte utiliser (code ou intitule) ?")
+    return question(
+        f"Facture {invoice_id} : « {answer.strip()} » ne designe pas un seul compte du dossier. "
+        "Quel compte utiliser (code ou intitule) ?"
+    )

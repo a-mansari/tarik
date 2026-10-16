@@ -24,12 +24,16 @@ import re
 import psycopg
 
 from tarik.core import vault
+from tarik.core.config import POSTGRES
 
-NAME = re.compile(r"[a-z][a-z0-9_]{0,62}")  # a Postgres schema and an env prefix as it is: no quoting, no case change
+# A lowercase letter, then up to 62 lowercase letters, digits or underscores: a Postgres schema name and an env
+# prefix as it is, with no quoting nor case change.
+NAME = re.compile(r"[a-z][a-z0-9_]{0,62}")
 
 
 def cabinet_names(value):
-    """TARIK_CABINETS, checked: each name exactly a lowercase identifier, no repeats."""
+    """TARIK_CABINETS (comma-separated) as a frozenset of names, checked: each exactly a lowercase identifier,
+    no repeats; SystemExit otherwise."""
     names = [name.strip() for name in (value or "").split(",") if name.strip()]
     for name in names:
         if not NAME.fullmatch(name) or name == "public" or name.startswith("pg_"):
@@ -64,12 +68,15 @@ def using(name):
 
 
 # Each cabinet's own: Vault secret/tarik/cabinets/<cabinet>, or env <CABINET>__<KEY>.
-CABINET_SETTINGS = frozenset({"ODOO_UID", "ODOO_USER", "ODOO_PASSWORD", "ODOO_API_KEY", "DRY_RUN",
-                              "IMAP_USER", "IMAP_PASSWORD", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM",
-                              "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "AGENT_ID"})
+CABINET_SETTINGS = frozenset(
+    "ODOO_UID ODOO_USER ODOO_PASSWORD ODOO_API_KEY DRY_RUN IMAP_USER IMAP_PASSWORD SMTP_USER SMTP_PASSWORD SMTP_FROM "
+    "MAIL_MANAGER MAIL_ALLOWED_RECIPIENTS AGENT_ID".split()
+)
 # The same for every cabinet: Vault secret/tarik/shared, or env <KEY>.
-SHARED_SETTINGS = frozenset({"IMAP_HOST", "IMAP_PORT", "IMAP_FOLDER", "SMTP_HOST", "SMTP_PORT", "MAIL_CERT_SHA256",
-                             "N8N_MCP_API_TOKEN", "MODEL_API_KEY", "MODEL_API_URL", "MODEL_API_NAME", "MAIL_WEBHOOK_SECRET"})
+SHARED_SETTINGS = frozenset(
+    "IMAP_HOST IMAP_PORT IMAP_FOLDER SMTP_HOST SMTP_PORT MAIL_CERT_SHA256 N8N_MCP_API_TOKEN MODEL_API_KEY "
+    "MODEL_API_URL MODEL_API_NAME MAIL_WEBHOOK_SECRET".split()
+)
 
 
 def source():
@@ -77,7 +84,10 @@ def source():
     if not vault.ENABLED:
         return os.environ
     shared, cabinets = vault.settings()
-    return {**shared, **{f"{name.upper()}__{key}": value for name, own in cabinets.items() for key, value in own.items()}}
+    return {
+        **shared,
+        **{f"{name.upper()}__{key}": value for name, own in cabinets.items() for key, value in own.items()},
+    }
 
 
 def setting(key, default=None):
@@ -102,15 +112,19 @@ def misplaced_in_vault(shared, cabinets, environ=os.environ):
     """With Vault: a setting under the wrong path, unknown, or still in the environment, where it
     would be a second copy. The server refuses to start with any."""
     found = [f"tarik/shared:{key}" for key in shared if key not in SHARED_SETTINGS]
-    found += [f"tarik/cabinets/{name}:{key}" for name, own in cabinets.items() for key in own if key not in CABINET_SETTINGS]
-    found += [name for name, value in environ.items() if value and (
-        name == "TARIK_CABINETS" or name in SHARED_SETTINGS or name in CABINET_SETTINGS
-        or name.partition("__")[2] in CABINET_SETTINGS | SHARED_SETTINGS)]
+    found += [
+        f"tarik/cabinets/{name}:{key}" for name, own in cabinets.items() for key in own if key not in CABINET_SETTINGS
+    ]
+    known = CABINET_SETTINGS | SHARED_SETTINGS
+    # TARIK_CABINETS, a setting (<KEY>) or a cabinet's own (<CABINET>__<KEY>), set in the environment.
+    found += [
+        name
+        for name, value in environ.items()
+        if value and (name == "TARIK_CABINETS" or name in known or name.partition("__")[2] in known)
+    ]
     return sorted(found)
 
 
-POSTGRES = {"host": os.getenv("POSTGRES_HOST", "postgres"), "dbname": os.getenv("POSTGRES_DB"),
-            "user": os.getenv("POSTGRES_USER"), "password": os.getenv("POSTGRES_PASSWORD")}
 SCHEMA = os.path.join(os.path.dirname(__file__), "cabinet.sql")
 
 

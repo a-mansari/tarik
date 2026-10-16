@@ -8,12 +8,32 @@ invoice's account, RAS and TVA flags on its tiers for next time (Experio's memor
 
 import time
 
-from tarik.core.app import ok, server, stop, with_ids
-from tarik.core.experio import (TEST_MODE, dry_run, experio_refusal, invoice_context, odoo_call, odoo_json, plain, refused,
-                                require_invoice)
+from tarik.core.app import log, ok, server, stop, with_ids
+from tarik.core.config import POSTED, TEST_MODE
+from tarik.core.experio import (
+    dry_run,
+    experio_refusal,
+    invoice_context,
+    odoo_call,
+    odoo_json,
+    plain,
+    refresh,
+    refused,
+    require_invoice,
+)
 
-POSTED = ("post", "export")
 RETRIES, PAUSE = 3, 1.0  # as tarik-master: the check can lag right after a refresh
+
+
+def _blocking(invoice_id, context):
+    """What Experio's own check (the Comptabiliser button's) says blocks the invoice ([str], plain text), asked
+    again up to RETRIES times while it says something."""
+    for attempt in range(RETRIES + 1):
+        messages = odoo_json("exp.invoice", "collect_validation_messages", [invoice_id], context=context) or []
+        blocking = [plain(text) for _level, text in messages]
+        if not blocking or attempt == RETRIES:
+            return blocking
+        time.sleep(PAUSE)
 
 
 @server.tool()
@@ -28,14 +48,8 @@ def post_invoice(invoice_id: int) -> dict:
         return stop(f"Facture {invoice_id} : en etat {invoice['state']}, elle ne peut pas etre comptabilisee.")
     context = invoice_context(invoice)
     with refused(f"post_invoice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu verifier la facture."):
-        if not dry_run():
-            odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)
-        for attempt in range(RETRIES + 1):
-            blocking = [plain(text) for _level, text in odoo_json("exp.invoice", "collect_validation_messages", [invoice_id],
-                                                                   context=context) or []]
-            if not blocking or attempt == RETRIES:
-                break
-            time.sleep(PAUSE)
+        refresh(invoice_id, context)
+        blocking = _blocking(invoice_id, context)
     if blocking:
         return stop(f"Facture {invoice_id} : pas comptabilisee, Experio signale : " + " ; ".join(blocking))
     if dry_run():
@@ -46,7 +60,7 @@ def post_invoice(invoice_id: int) -> dict:
         odoo_json("exp.invoice", "action_post", [invoice_id], context={**context, "skip_due_date_detected_check": True})
         after = odoo_call("exp.invoice", "read", [invoice_id], fields=["state", "error_msg"], context=context)[0]
     except Exception as error:  # not refused(): a refusal here stops this invoice, with Experio's own reason
-        print(f"post_invoice {invoice_id}: {error}", flush=True)
+        log(f"post_invoice {invoice_id}: {error}")
         return stop(f"Facture {invoice_id} : Experio a refuse la comptabilisation : {experio_refusal(error)}")
     if after["state"] in POSTED:
         return ok(f"Facture {invoice_id} : comptabilisee.")

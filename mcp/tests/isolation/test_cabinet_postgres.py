@@ -71,6 +71,7 @@ def test_a_saved_file_is_saved_once(schemas):
 def test_the_clients_earlier_words_count_and_stay_in_their_cabinet(schemas):
     """Written in one message, counted in a later one: in A only."""
     from tarik.core.conversation import client_messages, remember_client_message
+
     with using(A):
         remember_client_message("s", "Le dossier VEGA, ICE 008123456000100.")
         assert client_messages("s", "oui") == ["Le dossier VEGA, ICE 008123456000100.", "oui"]

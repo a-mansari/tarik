@@ -209,7 +209,7 @@ The tools live in `mcp/tarik/`, one package per kind of work, and their tests in
 
 | Package | What it holds |
 |---------|---------------|
-| `tarik/core/` | The MCP server and step results (`app`), the cabinets and the current one (`cabinets`), Experio calls, guards and test mode (`experio`), the client's own words in a conversation (`conversation`), the vision model, documents, the connection check. |
+| `tarik/core/` | The values shared by every module: services, timeouts, Experio's codes, thresholds (`config`), the MCP server, step results and the log (`app`), comparing names and words (`text`), the cabinets and the current one (`cabinets`), Experio calls, guards and test mode (`experio`), the client's own words in a conversation (`conversation`), the vision model, documents, the connection check. |
 | `tarik/invoices/` | "Tarik - Traitement": one module per step, in sequence order, `pipeline` for its bookkeeping, `listing` for `list_invoices`. |
 | `tarik/dossiers/` | Finding dossiers (`search`), creating and modifying one (`identity`), its setup: configuration, entries, onboarding (`setup`), collaborators and who may work on which dossier (`people`). |
 | `tarik/emails/` | "Tarik - Emails": reading the mailbox (`inbox`), the agent's reply (`agent`), sending replies (`sending`). |
@@ -225,6 +225,8 @@ python3 mcp/tests/run.py
 ```bash
 docker compose up -d --build --force-recreate tarik-mcp tarik-mail-watch
 ```
+
+The code has one format: black, lines of 120 at most (`pyproject.toml`; `tests/style` checks it).
 
 `run.py` picks the tests that import the changed files; `--all` runs every test, `-m <category>` one
 category. Each test has one: `security`, `functionality`, `communication`, `technical`, `style` (lint,

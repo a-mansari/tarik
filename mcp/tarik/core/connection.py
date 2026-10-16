@@ -1,6 +1,6 @@
 """Phase 0: can Tarik reach Experio?"""
 
-from tarik.core.app import server
+from tarik.core.app import log, server
 from tarik.core import experio
 from tarik.core.experio import account, odoo_call
 
@@ -13,14 +13,14 @@ def experio_connection() -> str:
     try:
         version = experio.rpc("/xmlrpc/2/common").version()["server_version"]
     except Exception as error:
-        print(f"experio_connection: {experio.ODOO_URL} unreachable: {error}", flush=True)
+        log(f"experio_connection: {experio.ODOO_URL} unreachable: {error}")
         return "Experio est injoignable pour le moment."
     try:
         # A real read, not only the login: a password can log in yet be refused every call.
         odoo_call("res.company", "search_count", [])
     except Exception as error:
         database, _, user, _ = account()
-        print(f"experio_connection: {user} on {database} refused: {error}", flush=True)
+        log(f"experio_connection: {user} on {database} refused: {error}")
         return "Experio repond, mais la connexion de Tarik est refusee."
-    print(f"experio_connection: ok, Odoo {version}", flush=True)
+    log(f"experio_connection: ok, Odoo {version}")
     return "Connecte au systeme Experio."
