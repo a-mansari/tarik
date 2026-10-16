@@ -5,6 +5,7 @@ import http.client
 import re
 import time
 import xmlrpc.client
+from typing import Final
 
 import httpx
 from mcp.server.mcpserver.exceptions import ToolError
@@ -14,7 +15,7 @@ from tarik.core.cabinets import current, setting
 from tarik.core.config import DOSSIER_DOMAIN, JSON_TIMEOUT, ODOO_URL, READING, RPC_TIMEOUT, TEST_MODE
 
 # IPv4 only: the container has no IPv6 route, and httpx does not fall back when a host's IPv6 address comes first.
-HTTP = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"))
+HTTP: Final = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"))
 # Calls that only read: asked again once when Experio's answer is cut off or the connection drops. A write is never
 # asked again: a cut answer doesn't say whether it was done.
 READS = {

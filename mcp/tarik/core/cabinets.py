@@ -21,6 +21,7 @@ import contextvars
 import os
 import re
 from pathlib import Path
+from typing import Final
 
 import psycopg
 
@@ -44,7 +45,7 @@ def cabinet_names(value):
     return frozenset(names)
 
 
-CABINETS = cabinet_names(",".join(vault.settings(wait=60)[1]) if vault.ENABLED else os.getenv("TARIK_CABINETS"))
+CABINETS: Final = cabinet_names(",".join(vault.settings(wait=60)[1]) if vault.ENABLED else os.getenv("TARIK_CABINETS"))
 _current = contextvars.ContextVar("cabinet")
 
 

@@ -7,48 +7,54 @@ import json
 import sys
 import uuid
 from pathlib import Path
+from types import MappingProxyType
+from typing import Final
 
 # tarik-mcp serves each cabinet at its own address only (mcp/server.py).
 MCP_ADDRESS = "http://tarik-mcp:8000/c/{}/mcp"
-CALL = "$('Appel').first().json"
-RESULT = "$json.content[0].text"
-OK_ELSE = f"{RESULT}.status === 'ok' ? 0 : 1"
+CALL: Final = "$('Appel').first().json"
+RESULT: Final = "$json.content[0].text"
+OK_ELSE: Final = f"{RESULT}.status === 'ok' ? 0 : 1"
 # The native n8n agent's chat files: an "Appel" input, filled by n8n (n8n/patch.js), never by the model.
-ATTACHMENTS = {"attachments": "string"}
+ATTACHMENTS: Final = MappingProxyType({"attachments": "string"})
 # The cabinet a shared workflow works for: an "Appel" input, fixed by its caller (never chosen by a model).
-CABINET_INPUT = {"cabinet": "string"}
+CABINET_INPUT: Final = MappingProxyType({"cabinet": "string"})
 # Each workflow's "Appel" inputs, in order: its builder declares them, and every caller fills them all.
-TRAITEMENT_INPUTS = {
-    "mode": "string",
-    "session_id": "string",
-    "dossier_id": "number",
-    "answer": "string",
-    "invoice_type": "string",
-    "client_message": "string",
-    **ATTACHMENTS,
-    **CABINET_INPUT,
-}
-DOSSIER_INPUTS = {
-    "mode": "string",
-    "session_id": "string",
-    "dossier_id": "number",
-    "name": "string",
-    "ice": "string",
-    "if_number": "string",
-    "folder_type": "string",
-    "skip_ice_if_check": "boolean",
-    "client_message": "string",
-    "model_dossier_id": "number",
-    "kind": "string",
-    **ATTACHMENTS,
-    **CABINET_INPUT,
-}
+TRAITEMENT_INPUTS: Final = MappingProxyType(
+    {
+        "mode": "string",
+        "session_id": "string",
+        "dossier_id": "number",
+        "answer": "string",
+        "invoice_type": "string",
+        "client_message": "string",
+        **ATTACHMENTS,
+        **CABINET_INPUT,
+    }
+)
+DOSSIER_INPUTS: Final = MappingProxyType(
+    {
+        "mode": "string",
+        "session_id": "string",
+        "dossier_id": "number",
+        "name": "string",
+        "ice": "string",
+        "if_number": "string",
+        "folder_type": "string",
+        "skip_ice_if_check": "boolean",
+        "client_message": "string",
+        "model_dossier_id": "number",
+        "kind": "string",
+        **ATTACHMENTS,
+        **CABINET_INPUT,
+    }
+)
 SAVE_ATTACHMENTS = "Pieces jointes de l'agent"
-START = "Debut"
+START: Final = "Debut"
 RECORD = "Enregistrer"  # records each step's outcome; the run's summary is made from them
-SENDER = "Expediteur (check_sender)"
-FILES = "Fichiers du message (files_to_process)"
-EACH_FILE = "Un element par fichier"
+SENDER: Final = "Expediteur (check_sender)"
+FILES: Final = "Fichiers du message (files_to_process)"
+EACH_FILE: Final = "Un element par fichier"
 END = "Fin des etapes"
 NEVER = "Jamais execute"  # keeps "Fin des etapes" waiting: see record_and_summary
 
