@@ -372,7 +372,7 @@
           "value": "finish_setup"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id, seconds_left: Math.max(1, Math.round((100000 - (Date.now() - $('Debut').first().json.started)) / 1000)) }) }}",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id, seconds_left: Math.max(1, Math.round((260000 - (Date.now() - $('Debut').first().json.started)) / 1000)) }) }}",
         "options": {
           "timeout": 300000
         }

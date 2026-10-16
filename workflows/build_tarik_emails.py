@@ -73,7 +73,7 @@ mcp(
     maxTries=3,
     waitBetweenTries=5000,
 )  # the reply is out: its thread must be closed, or it's sent twice
-# A follow-up has no email to answer: no agent, no 120 s limit. "Tarik - Traitement" takes up the drafts left
+# A follow-up has no email to answer: no agent, no 300 s limit. "Tarik - Traitement" takes up the drafts left
 # waiting, then "Tarik - Dossier" finishes the dossiers left waiting (each in mode resume); one email tells both.
 flow.route("Suite ?", "$json.follow_up ? 1 : 0", 2, [550, 300])
 CABINET = "={{ $('Nouvel email').first().json.body.cabinet }}"

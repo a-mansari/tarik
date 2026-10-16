@@ -317,7 +317,7 @@ def files_to_process(session_id: str, entries: bool = False) -> dict:
 def waiting_drafts(session_id: str) -> dict:
     """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
     waiting on Experio (still reading) or failed (an Experio or model timeout), or nothing was recorded for it:
-    n8n records a run's steps last, so a run cut short (n8n stops an agent's tool after 2 minutes) leaves its
+    n8n records a run's steps last, so a run cut short (n8n stops an agent's tool after 5 minutes) leaves its
     drafts with no outcome. Every later step runs again; a question or a stop is not resumed here. A draft
     deleted or posted in Experio since is left alone."""
     with cabinet_db() as db:

@@ -17,6 +17,9 @@ services:
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_PERSONALIZATION_ENABLED: "false"
       N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+      # How long an agent's workflow tool may run (n8n/patch.js; n8n's own is 2 minutes). Under ask_agent's 600 s
+      # wait for an email's answer; Tarik's run budgets (workflows/build_tarik_*.py, READ_WAIT) stay under it.
+      TARIK_AGENT_TOOL_TIMEOUT_MS: "300000"
       # n8n's own data (workflows, credentials, agents, conversations, executions) in Postgres, not
       # SQLite: one writer at a time doesn't hold with an agent per cabinet. Uploaded files stay in the volume.
       DB_TYPE: postgresdb

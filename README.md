@@ -23,7 +23,7 @@ Documentation: [architecture](docs/architecture.md), [tools and workflows](docs/
 | `workflows/tarik-modification.json` | Changing an existing dossier's identity fields (name, type, ICE, IF, RC, patente, T.S.C, capital, CNSS, address), only to values the client wrote. |
 | `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent (`traiter_fichiers`, mode `files`; the workflow also has `answer` and `resume`). |
 | `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), in the `tarik` package (see below). They use Experio's own wizards and onchanges, never a parallel logic. |
-| `n8n/` | n8n 2.43.5 patched (`patch.js`): a native agent's workflow tool input fixed to `{{threadId}}` gets the conversation's id, one fixed to `{{attachments}}` its attached files, and one fixed to `{{clientMessage}}` the client's latest message word for word (the dossier tools take only values from the client's own words), from n8n, not from the model. "Tarik - Traitement" and "Tarik - Dossier" save those files (`save_files`, once each by `source_id`). n8n's MCP `call_agent` also takes `newSession`, so an email thread's conversation has the thread's own id. The build fails if an n8n upgrade moves a patched line. |
+| `n8n/` | n8n 2.43.5 patched (`patch.js`): an agent's workflow tool may run `TARIK_AGENT_TOOL_TIMEOUT_MS` (5 minutes, not n8n's fixed 2); a native agent's workflow tool input fixed to `{{threadId}}` gets the conversation's id, one fixed to `{{attachments}}` its attached files, and one fixed to `{{clientMessage}}` the client's latest message word for word (the dossier tools take only values from the client's own words), from n8n, not from the model. "Tarik - Traitement" and "Tarik - Dossier" save those files (`save_files`, once each by `source_id`). n8n's MCP `call_agent` also takes `newSession`, so an email thread's conversation has the thread's own id. The build fails if an n8n upgrade moves a patched line. |
 | `mcp/tarik/core/cabinet.sql` | One cabinet's tables (received files, check results, step results, pending questions, mail), created in that cabinet's own Postgres schema. |
 
 Rules the tools keep:
@@ -68,9 +68,10 @@ cabinet, as n8n's conversation ids are shared by every agent. Every cabinet's
 `MAIL_ALLOWED_RECIPIENTS` is `@experio.ma,@sarnec.com,achraf.mansari.1@gmail.com`: Tarik writes to
 those addresses only, and only answers senders among them.
 
-n8n stops an agent's workflow tool after 120 s, so a processing run stops itself after 80 s: the invoices
-still going wait at the step they reached. A new dossier's onboarding waits until its imported lines are a
-minute old (Experio's rule): when the run's 100 s would not cover that, the dossier is left waiting
+n8n stops an agent's workflow tool after 300 s (`TARIK_AGENT_TOOL_TIMEOUT_MS`, patched; n8n's own is 120 s),
+so a processing run stops itself after 240 s: the invoices still going wait at the step they reached. A new
+dossier's onboarding waits until its imported lines are a minute old (Experio's rule): when the run's 260 s
+would not cover that, the dossier is left waiting
 (`tarik_setups`). When Tarik's reply leaves drafts or a dossier waiting, the thread is followed up for 30
 minutes: once Experio has read the drafts (a dossier: at the next tick), the watcher's tick wakes
 "Tarik - Emails", which takes them up again without the agent ("Tarik - Traitement", then "Tarik - Dossier",

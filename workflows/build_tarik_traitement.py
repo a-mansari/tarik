@@ -31,9 +31,9 @@ flow.trigger(
     **ATTACHMENTS,
     **CABINET_INPUT,
 )
-# n8n stops an agent's tool after 120 s: past BUDGET_MS, the invoices still going wait for the next run instead,
+# n8n stops an agent's tool after 300 s: past BUDGET_MS, the invoices still going wait for the next run instead,
 # leaving the step in flight time to end. A follow-up (mode resume) is no agent's tool: it has no budget.
-BUDGET_MS = 80_000
+BUDGET_MS = 240_000
 START = "Debut"
 flow.code(
     START, [60, 300], "// When the run started, for its time budget.\nreturn [{ json: { started: Date.now() } }];"

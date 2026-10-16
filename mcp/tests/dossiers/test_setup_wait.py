@@ -37,7 +37,7 @@ def experio(db_cabinet, monkeypatch):
 @pytest.mark.functionality
 def test_a_dossier_waits_when_the_run_has_no_time_left_for_experio(experio):
     assert setup.finish_setup(557, seconds_left=40)["status"] == "wait"
-    assert experio == [] and setup.waiting_setups("s")["dossiers"] == [557]  # n8n would stop the run at 120 s
+    assert experio == [] and setup.waiting_setups("s")["dossiers"] == [557]  # n8n would stop the run
     assert setup.finish_setup(557, seconds_left=90)["status"] == "ok"
     assert experio == [("sleep", 60), "stepper"] and setup.waiting_setups("s")["dossiers"] == []
 
