@@ -140,8 +140,8 @@ class Workflow:
             f"invoice_id: {given}?.invoice_id, file_id: {given}?.file_id ?? $json.file_id }} : {RESULT} }}"
         )
         self.mcp(RECORD, "record_step", arguments, record_position)
-        self.mcp("Resume", "run_summary", "{ run_id: String($execution.id) }", summary_position)
-        self.connect("Appel", "Resume")
+        self.mcp("Résumé", "run_summary", "{ run_id: String($execution.id) }", summary_position)
+        self.connect("Appel", "Résumé")
 
     def save(self, workflow_id, name, settings=None):
         """Write the workflow to the path given on the command line, else to <prefix>.json next to this file."""
