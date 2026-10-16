@@ -4,7 +4,7 @@ Sequence: create the dossier (unless it exists) -> copy a model dossier's config
 (when one is given) -> import each FEC or grand livre -> finish the onboarding, unless an
 import was refused -> the dossier's state. n8n runs the lower branches last, so the
 onboarding comes after the imports and the summary after everything. The onboarding waits on
-Experio: when the run's time (n8n stops an agent's tool after 120 s) is too short, the dossier waits
+Experio: when the run's time (n8n stops an agent's tool after 300 s) is too short, the dossier waits
 in tarik_setups. Mode resume ("Tarik - Emails" following up, no agent, no time limit) finishes those."""
 
 from steps import ATTACHMENTS, CABINET_INPUT, CALL, EACH_FILE, FILES, RESULT, SAVE_ATTACHMENTS, SENDER, Workflow
@@ -35,7 +35,7 @@ flow.trigger(
     **CABINET_INPUT,
 )
 # The onboarding ends by BUDGET_MS from the start, leaving the run time to record and sum up.
-BUDGET_MS = 100_000
+BUDGET_MS = 260_000
 START = "Debut"
 flow.code(
     START, [60, 300], "// When the run started, for its time budget.\nreturn [{ json: { started: Date.now() } }];"

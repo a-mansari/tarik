@@ -1,4 +1,4 @@
-// Patches to n8n's compiled agents module. Each replaces one exact line and fails the build if it is gone.
+// Patches to n8n's compiled agents module. Each adds to (or replaces) one exact line and fails the build if it is gone.
 const fs = require('fs');
 const path = require('path');
 
@@ -6,6 +6,12 @@ const dist = process.argv[2];
 const TOOLS = 'modules/agents/tools/workflow-tool-factory.js';
 const MCP_AGENTS = 'modules/mcp/tools/agents/agent-tools.service.js';
 const patches = [{
+  // An agent's workflow tool is stopped after TARIK_AGENT_TOOL_TIMEOUT_MS (docker-compose.yml) instead of n8n's fixed
+  // 2 minutes: a FEC import or several invoices fit in one run. Tarik's own run budgets stay under it.
+  file: TOOLS,
+  find: 'const DEFAULT_TIMEOUT_MS = 120_000;',
+  replace: 'const DEFAULT_TIMEOUT_MS = Number(process.env.TARIK_AGENT_TOOL_TIMEOUT_MS) || 120_000;',
+}, {
   // n8n's MCP call_agent may start a conversation under an id of the caller's (newSession): an email
   // thread's conversation then has the thread's own id, under which its files are already saved.
   file: MCP_AGENTS,
@@ -58,14 +64,15 @@ async function tarikClientMessage(threadId) {
 `,
 }];
 
-for (const { file, find, add = '', before = '' } of patches) {
+for (const { file, find, add = '', before = '', replace } of patches) {
   const target = path.join(dist, file);
   const code = fs.readFileSync(target, 'utf8');
-  if (code.includes(before + find + add)) {
+  const patched = replace ?? before + find + add;
+  if (code.includes(patched)) {
     console.log(`already patched ${file}`);
     continue;
   }
   if (code.split(find).length !== 2) throw new Error(`patch target not found exactly once in ${file}: n8n changed, re-check the patch`);
-  fs.writeFileSync(target, code.replace(find, before + find + add));
+  fs.writeFileSync(target, code.replace(find, patched));
   console.log(`patched ${file}`);
 }

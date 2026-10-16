@@ -172,7 +172,7 @@ def test_a_run_waits_on_experio_reading_once_for_all_its_drafts(monkeypatch):
     monkeypatch.setattr(pipeline, "READ_DEADLINES", {})
     assert pipeline.wait_until_read(1, "run")["status"] == "wait"
     waited = clock[0]
-    assert pipeline.READ_WAIT <= waited < pipeline.READ_WAIT + 15  # n8n stops the run at 120s
+    assert pipeline.READ_WAIT <= waited < pipeline.READ_WAIT + 15  # n8n stops the run at 300s
     assert pipeline.wait_until_read(2, "run")["status"] == "wait" and clock[0] == waited  # the deadline is passed
     assert pipeline.wait_until_read(3, "run")["status"] == "ok"
     assert pipeline.wait_until_read(2, "next run")["status"] == "wait" and clock[0] > waited  # its own deadline
