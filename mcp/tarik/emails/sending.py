@@ -18,7 +18,7 @@ import smtplib
 import ssl
 import time
 from email.message import EmailMessage
-from email.utils import getaddresses, make_msgid
+from email.utils import formatdate, getaddresses, make_msgid
 
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -208,6 +208,7 @@ def compose(sender, recipients, subject, body, in_reply_to, references):
     message["From"] = setting("SMTP_FROM", sender)
     message["To"] = ", ".join(recipients)
     message["Subject"] = subject
+    message["Date"] = formatdate(localtime=True)  # mail apps sort by it; the Sent copy gets no other
     message["Message-ID"] = make_msgid(domain=sender.split("@")[-1])
     if in_reply_to:
         message["In-Reply-To"] = in_reply_to
