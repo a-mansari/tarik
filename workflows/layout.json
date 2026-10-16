@@ -231,204 +231,204 @@
       208
     ],
     "Releve bancaire (import_bank_statement)": [
-      1104,
-      48
+      1168,
+      304
     ],
     "Decoupage (split_invoices)": [
-      1104,
-      240
+      1120,
+      -16
     ],
     "Suite apres split_invoices": [
-      1328,
-      240
+      1408,
+      -128
     ],
     "Une facture par fichier": [
-      1552,
-      208
+      1616,
+      -256
     ],
     "Brouillon (create_draft_invoice)": [
-      1760,
-      208
+      1952,
+      -272
     ],
     "Suite apres create_draft_invoice": [
-      1872,
-      624
+      2256,
+      -384
     ],
     "Hors delai (create_draft_invoice)": [
-      1872,
-      800
+      2560,
+      -272
     ],
     "Lecture Experio (wait_until_read)": [
-      2000,
-      432
+      2544,
+      -608
     ],
     "Suite apres wait_until_read": [
-      2112,
-      624
+      2848,
+      -848
     ],
     "Hors delai (wait_until_read)": [
-      2112,
-      800
+      3184,
+      -720
     ],
     "Verification (check_invoice)": [
-      2240,
-      432
+      3184,
+      -1040
     ],
     "Suite apres check_invoice": [
-      2352,
-      624
+      3504,
+      -1280
     ],
     "Hors delai (check_invoice)": [
-      2352,
-      800
+      3760,
+      -1136
     ],
     "Correction (correct_invoice)": [
-      2480,
-      432
+      3728,
+      -1440
     ],
     "Suite apres correct_invoice": [
-      2592,
-      624
+      3968,
+      -1664
     ],
     "Hors delai (correct_invoice)": [
-      2592,
-      800
+      4224,
+      -1520
     ],
     "Classement (classify_invoice)": [
-      2720,
-      432
+      4208,
+      -1824
     ],
     "Suite apres classify_invoice": [
-      2832,
-      624
+      4464,
+      -2048
     ],
     "Hors delai (classify_invoice)": [
-      2832,
-      800
+      4752,
+      -1920
     ],
     "Tiers (link_tiers)": [
-      2960,
-      432
+      4736,
+      -2192
     ],
     "Suite apres link_tiers": [
-      3072,
-      624
+      5040,
+      -2368
     ],
     "Hors delai (link_tiers)": [
-      3072,
-      800
+      5392,
+      -2240
     ],
     "Doublon (check_duplicate)": [
-      3200,
-      432
+      5392,
+      -2528
     ],
     "Suite apres check_duplicate": [
-      3312,
-      624
+      5744,
+      -2720
     ],
     "Hors delai (check_duplicate)": [
-      3312,
-      800
+      6016,
+      -2608
     ],
     "Compte (assign_account)": [
-      3440,
-      432
+      6016,
+      -2928
     ],
     "Suite apres assign_account": [
-      3552,
-      624
+      6320,
+      -3136
     ],
     "Hors delai (assign_account)": [
-      3552,
-      800
+      6576,
+      -3024
     ],
     "TVA (settle_tva)": [
-      3680,
-      432
+      6560,
+      -3280
     ],
     "Suite apres settle_tva": [
-      3792,
-      624
+      6896,
+      -3312
     ],
     "Hors delai (settle_tva)": [
-      3792,
-      800
+      7216,
+      -3120
     ],
     "Journal (check_journal)": [
-      3920,
-      432
+      7216,
+      -3328
     ],
     "Suite apres check_journal": [
-      4032,
-      624
+      7520,
+      -3360
     ],
     "Hors delai (check_journal)": [
-      4032,
-      800
+      7872,
+      -3168
     ],
     "Retenue a la source (settle_withholding)": [
-      4160,
-      432
+      7872,
+      -3376
     ],
     "Suite apres settle_withholding": [
-      4272,
-      624
+      8192,
+      -3408
     ],
     "Hors delai (settle_withholding)": [
-      4272,
-      800
+      8528,
+      -3216
     ],
     "Constatee d'avance (settle_prepaid)": [
-      4400,
-      432
+      8528,
+      -3424
     ],
     "Suite apres settle_prepaid": [
-      4512,
-      624
+      8832,
+      -3456
     ],
     "Hors delai (settle_prepaid)": [
-      4512,
-      800
+      9136,
+      -3280
     ],
     "Exercice (settle_exercice)": [
-      4640,
-      432
+      9136,
+      -3472
     ],
     "Suite apres settle_exercice": [
-      4752,
-      624
+      9376,
+      -3504
     ],
     "Hors delai (settle_exercice)": [
-      4752,
-      800
+      9648,
+      -3408
     ],
     "Comptabilisation (post_invoice)": [
-      4880,
-      432
+      9648,
+      -3600
     ],
     "Suite apres post_invoice": [
-      4992,
-      624
+      9920,
+      -3616
     ],
     "Brouillons en attente (waiting_drafts)": [
-      32,
-      848
+      384,
+      -208
     ],
     "Une facture par brouillon": [
-      256,
-      848
+      848,
+      -384
     ],
     "Reponse du client (answer_pending)": [
-      -416,
-      848
+      -368,
+      144
     ],
     "Reprendre ou ?": [
-      -192,
-      736
+      0,
+      -768
     ],
     "Enregistrer": [
-      5328,
-      640
+      10848,
+      -688
     ],
     "Resume": [
       224,

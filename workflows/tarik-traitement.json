@@ -249,8 +249,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        1104,
-        48
+        1168,
+        304
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -274,8 +274,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        1104,
-        240
+        1120,
+        -16
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -299,8 +299,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        1328,
-        240
+        1408,
+        -128
       ],
       "parameters": {
         "mode": "expression",
@@ -314,8 +314,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1552,
-        208
+        1616,
+        -256
       ],
       "parameters": {
         "jsCode": "// Each invoice found in the file becomes its own item.\nreturn $input.all().flatMap(item => item.json.content[0].text.files.map(file_id => ({ json: { file_id } })));"
@@ -327,8 +327,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        1760,
-        208
+        1952,
+        -272
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -352,8 +352,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        1872,
-        624
+        2256,
+        -384
       ],
       "parameters": {
         "mode": "expression",
@@ -367,8 +367,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1872,
-        800
+        2560,
+        -272
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -380,8 +380,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        2000,
-        432
+        2544,
+        -608
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -405,8 +405,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        2112,
-        624
+        2848,
+        -848
       ],
       "parameters": {
         "mode": "expression",
@@ -420,8 +420,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2112,
-        800
+        3184,
+        -720
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -433,8 +433,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        2240,
-        432
+        3184,
+        -1040
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -458,8 +458,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        2352,
-        624
+        3504,
+        -1280
       ],
       "parameters": {
         "mode": "expression",
@@ -473,8 +473,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2352,
-        800
+        3760,
+        -1136
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -486,8 +486,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        2480,
-        432
+        3728,
+        -1440
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -511,8 +511,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        2592,
-        624
+        3968,
+        -1664
       ],
       "parameters": {
         "mode": "expression",
@@ -526,8 +526,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2592,
-        800
+        4224,
+        -1520
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -539,8 +539,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        2720,
-        432
+        4208,
+        -1824
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -564,8 +564,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        2832,
-        624
+        4464,
+        -2048
       ],
       "parameters": {
         "mode": "expression",
@@ -579,8 +579,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2832,
-        800
+        4752,
+        -1920
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -592,8 +592,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        2960,
-        432
+        4736,
+        -2192
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -617,8 +617,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        3072,
-        624
+        5040,
+        -2368
       ],
       "parameters": {
         "mode": "expression",
@@ -632,8 +632,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3072,
-        800
+        5392,
+        -2240
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -645,8 +645,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        3200,
-        432
+        5392,
+        -2528
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -670,8 +670,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        3312,
-        624
+        5744,
+        -2720
       ],
       "parameters": {
         "mode": "expression",
@@ -685,8 +685,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3312,
-        800
+        6016,
+        -2608
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -698,8 +698,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        3440,
-        432
+        6016,
+        -2928
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -723,8 +723,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        3552,
-        624
+        6320,
+        -3136
       ],
       "parameters": {
         "mode": "expression",
@@ -738,8 +738,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3552,
-        800
+        6576,
+        -3024
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -751,8 +751,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        3680,
-        432
+        6560,
+        -3280
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -776,8 +776,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        3792,
-        624
+        6896,
+        -3312
       ],
       "parameters": {
         "mode": "expression",
@@ -791,8 +791,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        3792,
-        800
+        7216,
+        -3120
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -804,8 +804,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        3920,
-        432
+        7216,
+        -3328
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -829,8 +829,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        4032,
-        624
+        7520,
+        -3360
       ],
       "parameters": {
         "mode": "expression",
@@ -844,8 +844,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4032,
-        800
+        7872,
+        -3168
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -857,8 +857,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        4160,
-        432
+        7872,
+        -3376
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -882,8 +882,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        4272,
-        624
+        8192,
+        -3408
       ],
       "parameters": {
         "mode": "expression",
@@ -897,8 +897,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4272,
-        800
+        8528,
+        -3216
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -910,8 +910,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        4400,
-        432
+        8528,
+        -3424
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -935,8 +935,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        4512,
-        624
+        8832,
+        -3456
       ],
       "parameters": {
         "mode": "expression",
@@ -950,8 +950,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4512,
-        800
+        9136,
+        -3280
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -963,8 +963,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        4640,
-        432
+        9136,
+        -3472
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -988,8 +988,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        4752,
-        624
+        9376,
+        -3504
       ],
       "parameters": {
         "mode": "expression",
@@ -1003,8 +1003,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        4752,
-        800
+        9648,
+        -3408
       ],
       "parameters": {
         "jsCode": "// The run's time is up: the invoice waits for the next run.\nreturn $input.all().map(item => { const invoice_id = item.json.content[0].text.invoice_id; return { json: { content: [{ type: 'text', text: { status: 'wait', invoice_id, message: `Facture ${invoice_id} : la suite de son traitement reprendra a votre prochain message.` } }] } }; });"
@@ -1016,8 +1016,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        4880,
-        432
+        9648,
+        -3600
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -1041,8 +1041,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        4992,
-        624
+        9920,
+        -3616
       ],
       "parameters": {
         "mode": "expression",
@@ -1056,8 +1056,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        32,
-        848
+        384,
+        -208
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -1081,8 +1081,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        256,
-        848
+        848,
+        -384
       ],
       "parameters": {
         "jsCode": "// Each waiting draft, shaped like a step's answer so the reading step takes its invoice_id.\nreturn $input.first().json.content[0].text.invoices.map(invoice_id => ({ json: { content: [{ type: 'text', text: { status: 'ok', invoice_id } }] } }));"
@@ -1094,8 +1094,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        -416,
-        848
+        -368,
+        144
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -1119,8 +1119,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        -192,
-        736
+        0,
+        -768
       ],
       "parameters": {
         "mode": "expression",
@@ -1134,8 +1134,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        5328,
-        640
+        10848,
+        -688
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
