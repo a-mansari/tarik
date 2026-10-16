@@ -75,3 +75,36 @@ def test_a_mailbox_that_cannot_be_read_still_wakes_the_waiting_threads(three, mo
     with cabinets.using("tarik_test_a"):
         watcher.serve("tarik_test_a", "")
     assert woken == ["tarik_test_a"]
+
+
+class Idling:
+    """A mailbox whose IDLE hears ``heard`` ((kind, [data]) pairs), then times out."""
+
+    def __init__(self, heard):
+        self.heard = heard
+
+    def idle(self, duration):
+        heard = self.heard
+
+        class Idler:
+            def __enter__(self):
+                return iter(heard)
+
+            def __exit__(self, *exc):
+                return False
+
+        return Idler()
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "heard, expected",
+    [
+        ([("EXISTS", [b"11"])], (True, 11)),
+        ([("EXPUNGE", [b"4"]), ("EXISTS", [b"10"])], (True, 10)),  # one deleted, then one arrived: same count
+        ([("EXPUNGE", [b"4"]), ("FETCH", [b"3 (FLAGS (\\Seen))"])], (False, 9)),
+        ([], (False, 10)),
+    ],
+)
+def test_an_email_is_seen_the_moment_it_arrives(heard, expected):
+    assert watcher.wait_for_mail(Idling(heard), 10, 60) == expected
