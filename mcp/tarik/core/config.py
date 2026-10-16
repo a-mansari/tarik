@@ -17,6 +17,8 @@ RPC_TIMEOUT = 300  # one Experio XML-RPC call
 JSON_TIMEOUT = 600  # one Experio JSON-RPC call
 MODEL_TIMEOUT = 300  # one vision model answer
 N8N_TIMEOUT = 600  # one n8n agent answer
+# n8n stops an agent's workflow tool after 120s: a run stops waiting on Experio's reading in time to finish.
+READ_WAIT = 75  # one run's wait for Experio to read its drafts, all of them
 
 # Experio's codes.
 READING = ("pending", "sent")  # bluejay_state while Experio still reads a scan

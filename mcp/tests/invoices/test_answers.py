@@ -142,7 +142,7 @@ def test_the_date_the_client_gives_is_the_invoices(monkeypatch):
 
 
 @pytest.mark.functionality
-def test_a_draft_that_failed_or_waited_is_taken_up_again(db_cabinet, monkeypatch):
+def test_a_draft_that_failed_waited_or_was_cut_short_is_taken_up_again(db_cabinet, monkeypatch):
     monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain, **kw: domain[0][2])  # all still drafts
     for run, invoice_id, step, status in [
         ("r", 1, "check_invoice", "error"),
@@ -153,4 +153,26 @@ def test_a_draft_that_failed_or_waited_is_taken_up_again(db_cabinet, monkeypatch
         ("r2", 4, "post_invoice", "ok"),
     ]:
         pipeline.record_step(run, "s", f"x ({step})", {"status": status, "message": "m", "invoice_id": invoice_id})
-    assert pipeline.waiting_drafts("s")["invoices"] == [1, 2]  # 3 waits on the client, 4 went through since
+    with cabinet_db() as db:  # 5: its run was stopped before recording anything; 4's file is not resumed twice
+        for invoice_id in (4, 5):
+            db.execute(
+                "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) "
+                "values ('s', 'f.pdf', 'application/pdf', '', %s)",
+                (invoice_id,),
+            )
+    assert pipeline.waiting_drafts("s")["invoices"] == [1, 2, 5]  # 3 waits on the client, 4 went through since
+
+
+@pytest.mark.functionality
+def test_a_run_waits_on_experio_reading_once_for_all_its_drafts(monkeypatch):
+    clock, states = [0.0], {1: "pending", 2: "pending", 3: "done"}
+    monkeypatch.setattr(pipeline.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(pipeline.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    monkeypatch.setattr(pipeline, "require_invoice", lambda invoice_id, fields: {"bluejay_state": states[invoice_id]})
+    monkeypatch.setattr(pipeline, "READ_DEADLINES", {})
+    assert pipeline.wait_until_read(1, "run")["status"] == "wait"
+    waited = clock[0]
+    assert pipeline.READ_WAIT <= waited < pipeline.READ_WAIT + 15  # n8n stops the run at 120s
+    assert pipeline.wait_until_read(2, "run")["status"] == "wait" and clock[0] == waited  # the deadline is passed
+    assert pipeline.wait_until_read(3, "run")["status"] == "ok"
+    assert pipeline.wait_until_read(2, "next run")["status"] == "wait" and clock[0] > waited  # its own deadline

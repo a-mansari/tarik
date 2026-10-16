@@ -176,6 +176,21 @@
       }
     },
     {
+      "id": "fd0efb19-d0b4-5fe5-be67-b2056c63d4d5",
+      "name": "Nouveaux fichiers ?",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        440,
+        120
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.files.length ? 0 : 1 }}"
+      }
+    },
+    {
       "id": "96538f72-9234-5bd0-a7b8-feabe538ddf9",
       "name": "Identification (identify_document)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -351,7 +366,7 @@
           "value": "wait_until_read"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id, run_id: String($execution.id) }) }}",
         "options": {
           "timeout": 300000
         }
@@ -1075,7 +1090,7 @@
       "main": [
         [
           {
-            "node": "Un element par fichier",
+            "node": "Nouveaux fichiers ?",
             "type": "main",
             "index": 0
           }
@@ -1083,6 +1098,24 @@
         [
           {
             "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nouveaux fichiers ?": {
+      "main": [
+        [
+          {
+            "node": "Un element par fichier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Brouillons en attente (waiting_drafts)",
             "type": "main",
             "index": 0
           }
