@@ -17,8 +17,37 @@ from tarik.core.config import DOSSIER_DOMAIN, JSON_TIMEOUT, ODOO_URL, READING, R
 HTTP = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"))
 # Calls that only read: asked again once when Experio's answer is cut off or the connection drops. A write is never
 # asked again: a cut answer doesn't say whether it was done.
-READS = {"search", "search_read", "read", "search_count", "fields_get", "name_search", "read_group"}
-CUT_OFF = (http.client.IncompleteRead, ConnectionError, xmlrpc.client.ProtocolError)  # ProtocolError: a 502 or 503
+READS = {
+    "search",
+    "search_read",
+    "read",
+    "search_count",
+    "fields_get",
+    "name_search",
+    "read_group",
+    "onchange",  # computes a form's values, saves nothing
+    "parse_preview",  # reads an uploaded file
+    "get_duplicated_invoice_ids",
+    "get_duplicated_invoice_msg",
+    "collect_validation_messages",
+}
+
+
+class GatewayError(Exception):
+    """Experio's gateway answered 502, 503 or 504 instead of Experio."""
+
+
+# An answer cut off, a connection dropped or refused, a gateway in Experio's place; never a timeout (asking again
+# would only double the wait). ProtocolError: XML-RPC's 502 or 503.
+CUT_OFF = (
+    http.client.IncompleteRead,
+    ConnectionError,
+    xmlrpc.client.ProtocolError,
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+    httpx.ConnectError,
+    GatewayError,
+)
 
 _logins = {}  # (server, database, user, key) -> uid: one login per cabinet and key (a new key logs in again)
 _forms = {}  # cabinet -> the invoice form's fields: each database has its own
@@ -80,12 +109,26 @@ def rpc(path):
     return xmlrpc.client.ServerProxy(f"{ODOO_URL}{path}", transport=Timed(), allow_none=True)
 
 
+def once_more_if_cut(read, label, call):
+    """``call()``'s answer; a ``read`` cut off (CUT_OFF) is asked again once, a second later. ``label``: for the log."""
+    try:
+        return call()
+    except CUT_OFF as error:
+        if not read:
+            raise
+        log(f"{label} cut off ({type(error).__name__}): asked again")
+        time.sleep(1)
+        return call()
+
+
 def login():
     """Tarik's uid in the current cabinet, checked against its ODOO_UID; PermissionError otherwise."""
     database, expected, user, key = account()
     if _logins.get((ODOO_URL, database, user, key)) == expected:
         return expected
-    uid = rpc("/xmlrpc/2/common").authenticate(database, user, key, {})
+    uid = once_more_if_cut(
+        True, "login", lambda: rpc("/xmlrpc/2/common").authenticate(database, user, key, {})
+    )  # checks the key, writes nothing
     if not uid:
         raise PermissionError(f"login refused for {user} on {database}")
     if uid != expected:
@@ -98,29 +141,32 @@ def odoo_call(model, method, *args, **kw):
     """One authenticated XML-RPC call to the current cabinet's Experio; its answer. A read (READS) cut off is asked
     again once."""
     database, _, _, key = account()
-    try:
-        return rpc("/xmlrpc/2/object").execute_kw(database, login(), key, model, method, list(args), kw)
-    except CUT_OFF as error:
-        if method not in READS:
-            raise
-        log(f"odoo_call {model}.{method} cut off ({type(error).__name__}): asked again")
-        time.sleep(1)
-        return rpc("/xmlrpc/2/object").execute_kw(database, login(), key, model, method, list(args), kw)
+    return once_more_if_cut(
+        method in READS,
+        f"odoo_call {model}.{method}",
+        lambda: rpc("/xmlrpc/2/object").execute_kw(database, login(), key, model, method, list(args), kw),
+    )
 
 
 def odoo_json(model, method, *args, **kw):
-    """The same call over JSON-RPC, for answers holding None (onchange), which XML-RPC can't carry."""
+    """The same call over JSON-RPC, for answers holding None (onchange), which XML-RPC can't carry. A read (READS)
+    cut off is asked again once."""
     database, _, _, key = account()
     call = {
         "service": "object",
         "method": "execute_kw",
         "args": [database, login(), key, model, method, list(args), kw],
     }
-    answer = HTTP.post(
-        f"{ODOO_URL}/jsonrpc",
-        timeout=JSON_TIMEOUT,
-        json={"jsonrpc": "2.0", "method": "call", "params": call},
-    ).json()
+
+    def post():
+        response = HTTP.post(
+            f"{ODOO_URL}/jsonrpc", timeout=JSON_TIMEOUT, json={"jsonrpc": "2.0", "method": "call", "params": call}
+        )
+        if response.status_code in (502, 503, 504):
+            raise GatewayError(response.status_code)
+        return response.json()
+
+    answer = once_more_if_cut(method in READS, f"odoo_json {model}.{method}", post)
     if "error" in answer:
         raise RuntimeError(answer["error"].get("data", {}).get("message") or answer["error"].get("message"))
     return answer.get("result")
