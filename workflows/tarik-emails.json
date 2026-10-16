@@ -14,7 +14,7 @@
       "typeVersion": 2,
       "position": [
         0,
-        300
+        576
       ],
       "parameters": {
         "httpMethod": "POST",
@@ -37,8 +37,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        220,
-        300
+        224,
+        576
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Nouvel email').first().json.body.cabinet }}/mcp",
@@ -62,8 +62,8 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        440,
-        300
+        448,
+        576
       ],
       "parameters": {
         "jsCode": "// One item per thread waiting for an answer (claim_threads locked them for this run).\n// None when tarik-mcp answered without them (restarting): the next wake-up takes them.\nreturn ($input.first().json.content?.[0]?.text?.threads ?? []).map(thread => ({ json: thread }));"
@@ -75,8 +75,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        660,
-        300
+        896,
+        400
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Nouvel email').first().json.body.cabinet }}/mcp",
@@ -100,8 +100,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        880,
-        300
+        1568,
+        144
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Nouvel email').first().json.body.cabinet }}/mcp",
@@ -125,8 +125,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        1100,
-        300
+        2112,
+        720
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Nouvel email').first().json.body.cabinet }}/mcp",
@@ -153,8 +153,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        550,
-        300
+        672,
+        576
       ],
       "parameters": {
         "mode": "expression",
@@ -168,8 +168,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        660,
-        520
+        896,
+        1088
       ],
       "parameters": {
         "source": "database",
@@ -280,8 +280,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        770,
-        520
+        1136,
+        896
       ],
       "parameters": {
         "source": "database",
@@ -442,8 +442,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        880,
-        520
+        1424,
+        720
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Nouvel email').first().json.body.cabinet }}/mcp",
@@ -467,8 +467,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        770,
-        300
+        1104,
+        272
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Nouvel email').first().json.body.cabinet }}/mcp",
@@ -492,8 +492,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        820,
-        360
+        1328,
+        160
       ],
       "parameters": {
         "mode": "expression",
@@ -507,8 +507,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        880,
-        480
+        1552,
+        320
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Nouvel email').first().json.body.cabinet }}/mcp",

@@ -15,7 +15,7 @@
       "typeVersion": 1.1,
       "position": [
         0,
-        300
+        544
       ],
       "parameters": {
         "inputSource": "workflowInputs",
@@ -103,8 +103,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        220,
-        300
+        224,
+        448
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -128,8 +128,8 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        440,
-        300
+        464,
+        336
       ],
       "parameters": {
         "mode": "expression",
@@ -143,8 +143,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        660,
-        300
+        640,
+        256
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -168,8 +168,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        900,
-        300
+        992,
+        624
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
@@ -193,8 +193,8 @@
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        220,
-        600
+        224,
+        640
       ],
       "parameters": {
         "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",

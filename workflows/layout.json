@@ -1,0 +1,438 @@
+{
+  "TarikDossier0001": {
+    "Appel": [
+      0,
+      800
+    ],
+    "Debut": [
+      224,
+      704
+    ],
+    "Pieces jointes de l'agent": [
+      448,
+      704
+    ],
+    "Nouveau dossier ?": [
+      672,
+      1248
+    ],
+    "Creation (create_dossier)": [
+      896,
+      544
+    ],
+    "Suite apres create_dossier": [
+      1120,
+      480
+    ],
+    "Modele ?": [
+      1344,
+      400
+    ],
+    "Configuration (copy_configuration)": [
+      1568,
+      608
+    ],
+    "Suite apres copy_configuration": [
+      1792,
+      544
+    ],
+    "Dossier cible": [
+      2016,
+      336
+    ],
+    "Expediteur (check_sender)": [
+      1568,
+      1248
+    ],
+    "Suite apres check_sender": [
+      1808,
+      1024
+    ],
+    "Fichiers du message (files_to_process)": [
+      2464,
+      208
+    ],
+    "Un element par fichier": [
+      2688,
+      128
+    ],
+    "Ecritures (import_entries)": [
+      2912,
+      128
+    ],
+    "Imports acceptes ?": [
+      2240,
+      496
+    ],
+    "Integration (finish_setup)": [
+      2464,
+      496
+    ],
+    "Integration terminee ?": [
+      2688,
+      416
+    ],
+    "Etat du dossier (setup_status)": [
+      2912,
+      416
+    ],
+    "Integrations en attente (waiting_setups)": [
+      2016,
+      1600
+    ],
+    "Un element par dossier": [
+      2224,
+      1744
+    ],
+    "Integration reprise (finish_setup)": [
+      2464,
+      1696
+    ],
+    "Reprise terminee ?": [
+      2688,
+      1760
+    ],
+    "Etat du dossier repris (setup_status)": [
+      2912,
+      1760
+    ],
+    "Enregistrer": [
+      3136,
+      864
+    ],
+    "Resume": [
+      224,
+      896
+    ]
+  },
+  "TarikEmails00001": {
+    "Nouvel email": [
+      0,
+      576
+    ],
+    "Fils en attente (claim_threads)": [
+      224,
+      576
+    ],
+    "Un element par fil": [
+      448,
+      576
+    ],
+    "Tarik": [
+      896,
+      400
+    ],
+    "Reponse (send_email)": [
+      1568,
+      144
+    ],
+    "Fil traite (finish_thread)": [
+      2112,
+      720
+    ],
+    "Suite ?": [
+      672,
+      576
+    ],
+    "Suite du traitement": [
+      896,
+      1088
+    ],
+    "Suite de l'integration": [
+      1136,
+      896
+    ],
+    "Suite envoyee (send_email)": [
+      1424,
+      720
+    ],
+    "Refus de droits ? (thread_refusal)": [
+      1104,
+      272
+    ],
+    "Refuse ?": [
+      1328,
+      160
+    ],
+    "Manager prevenu (notify_manager)": [
+      1552,
+      320
+    ]
+  },
+  "TarikModif000001": {
+    "Appel": [
+      0,
+      544
+    ],
+    "Expediteur (check_sender)": [
+      224,
+      448
+    ],
+    "Suite apres check_sender": [
+      464,
+      336
+    ],
+    "Modification (update_dossier)": [
+      640,
+      256
+    ],
+    "Enregistrer": [
+      992,
+      624
+    ],
+    "Resume": [
+      224,
+      640
+    ]
+  },
+  "TarikTraitement1": {
+    "Appel": [
+      -1760,
+      848
+    ],
+    "Debut": [
+      -1536,
+      848
+    ],
+    "Pieces jointes de l'agent": [
+      -1312,
+      848
+    ],
+    "Fichiers ou reponse ?": [
+      -1088,
+      832
+    ],
+    "Fichiers du message (files_to_process)": [
+      -416,
+      544
+    ],
+    "Un element par fichier": [
+      32,
+      496
+    ],
+    "Expediteur (check_sender)": [
+      -864,
+      544
+    ],
+    "Suite apres check_sender": [
+      -640,
+      544
+    ],
+    "Nouveaux fichiers ?": [
+      -192,
+      544
+    ],
+    "Identification (identify_document)": [
+      256,
+      496
+    ],
+    "Suite apres identify_document": [
+      880,
+      208
+    ],
+    "Releve bancaire (import_bank_statement)": [
+      1104,
+      48
+    ],
+    "Decoupage (split_invoices)": [
+      1104,
+      240
+    ],
+    "Suite apres split_invoices": [
+      1328,
+      240
+    ],
+    "Une facture par fichier": [
+      1552,
+      208
+    ],
+    "Brouillon (create_draft_invoice)": [
+      1760,
+      208
+    ],
+    "Suite apres create_draft_invoice": [
+      1872,
+      624
+    ],
+    "Hors delai (create_draft_invoice)": [
+      1872,
+      800
+    ],
+    "Lecture Experio (wait_until_read)": [
+      2000,
+      432
+    ],
+    "Suite apres wait_until_read": [
+      2112,
+      624
+    ],
+    "Hors delai (wait_until_read)": [
+      2112,
+      800
+    ],
+    "Verification (check_invoice)": [
+      2240,
+      432
+    ],
+    "Suite apres check_invoice": [
+      2352,
+      624
+    ],
+    "Hors delai (check_invoice)": [
+      2352,
+      800
+    ],
+    "Correction (correct_invoice)": [
+      2480,
+      432
+    ],
+    "Suite apres correct_invoice": [
+      2592,
+      624
+    ],
+    "Hors delai (correct_invoice)": [
+      2592,
+      800
+    ],
+    "Classement (classify_invoice)": [
+      2720,
+      432
+    ],
+    "Suite apres classify_invoice": [
+      2832,
+      624
+    ],
+    "Hors delai (classify_invoice)": [
+      2832,
+      800
+    ],
+    "Tiers (link_tiers)": [
+      2960,
+      432
+    ],
+    "Suite apres link_tiers": [
+      3072,
+      624
+    ],
+    "Hors delai (link_tiers)": [
+      3072,
+      800
+    ],
+    "Doublon (check_duplicate)": [
+      3200,
+      432
+    ],
+    "Suite apres check_duplicate": [
+      3312,
+      624
+    ],
+    "Hors delai (check_duplicate)": [
+      3312,
+      800
+    ],
+    "Compte (assign_account)": [
+      3440,
+      432
+    ],
+    "Suite apres assign_account": [
+      3552,
+      624
+    ],
+    "Hors delai (assign_account)": [
+      3552,
+      800
+    ],
+    "TVA (settle_tva)": [
+      3680,
+      432
+    ],
+    "Suite apres settle_tva": [
+      3792,
+      624
+    ],
+    "Hors delai (settle_tva)": [
+      3792,
+      800
+    ],
+    "Journal (check_journal)": [
+      3920,
+      432
+    ],
+    "Suite apres check_journal": [
+      4032,
+      624
+    ],
+    "Hors delai (check_journal)": [
+      4032,
+      800
+    ],
+    "Retenue a la source (settle_withholding)": [
+      4160,
+      432
+    ],
+    "Suite apres settle_withholding": [
+      4272,
+      624
+    ],
+    "Hors delai (settle_withholding)": [
+      4272,
+      800
+    ],
+    "Constatee d'avance (settle_prepaid)": [
+      4400,
+      432
+    ],
+    "Suite apres settle_prepaid": [
+      4512,
+      624
+    ],
+    "Hors delai (settle_prepaid)": [
+      4512,
+      800
+    ],
+    "Exercice (settle_exercice)": [
+      4640,
+      432
+    ],
+    "Suite apres settle_exercice": [
+      4752,
+      624
+    ],
+    "Hors delai (settle_exercice)": [
+      4752,
+      800
+    ],
+    "Comptabilisation (post_invoice)": [
+      4880,
+      432
+    ],
+    "Suite apres post_invoice": [
+      4992,
+      624
+    ],
+    "Brouillons en attente (waiting_drafts)": [
+      32,
+      848
+    ],
+    "Une facture par brouillon": [
+      256,
+      848
+    ],
+    "Reponse du client (answer_pending)": [
+      -416,
+      848
+    ],
+    "Reprendre ou ?": [
+      -192,
+      736
+    ],
+    "Enregistrer": [
+      5328,
+      640
+    ],
+    "Resume": [
+      224,
+      1264
+    ]
+  }
+}
