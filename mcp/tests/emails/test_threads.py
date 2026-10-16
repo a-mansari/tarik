@@ -217,3 +217,18 @@ def test_a_follow_up_ends_when_its_time_is_up_its_drafts_are_settled_or_the_clie
     with cabinet_db() as db:
         assert [thread["thread_id"] for thread in inbox.claim(db)] == ["<m2@x>"]
     assert state_of("<m3@x>") == "done"
+
+
+@pytest.mark.functionality
+def test_a_dossier_left_waiting_is_followed_up_at_the_next_tick(experio, monkeypatch):
+    dossiers = [557]
+    monkeypatch.setattr(inbox, "waiting_setups", lambda session_id: {"dossiers": dossiers})
+    stored(mail(CHEF, "<m1@x>", "Voici le FEC du nouveau dossier."))
+    answered("<m1@x>")
+    assert state_of("<m1@x>") == "follow_up" and inbox.threads_waiting()
+    with cabinet_db() as db:
+        [item] = inbox.claim(db)
+    assert item["follow_up"]
+    dossiers.clear()  # finished by the follow-up
+    inbox.finish_thread("<m1@x>", item["message_ids"], True)
+    assert state_of("<m1@x>") == "done"

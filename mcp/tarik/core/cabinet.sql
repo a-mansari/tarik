@@ -48,6 +48,13 @@ create table if not exists tarik_results (
     message text not null,
     created_at timestamptz not null default now()
 );
+-- A dossier whose entries were imported and whose onboarding is not finished yet (finish_setup waits on
+-- Experio): an email follow-up finishes it when the client's run could not.
+create table if not exists tarik_setups (
+    dossier_id integer primary key,
+    session_id text not null,
+    created_at timestamptz not null default now()
+);
 create table if not exists tarik_pending (
     invoice_id integer primary key,
     session_id text not null,

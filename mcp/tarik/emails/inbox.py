@@ -20,6 +20,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from tarik.core.app import log, ok, server
 from tarik.core.cabinets import cabinet_db, current, setting
 from tarik.core.config import READING
+from tarik.dossiers.setup import waiting_setups
 from tarik.core.experio import odoo_call
 from tarik.dossiers.people import collaborator
 from tarik.emails.sending import imap_login, recipient_allowed, send_email
@@ -260,12 +261,21 @@ def drafts_to_resume(session_id):
         return []
 
 
+def to_follow_up(session_id):
+    """Is something of the conversation left for a follow-up: drafts to take up again, or dossiers to finish?"""
+    return bool(waiting_setups(session_id)["dossiers"] or drafts_to_resume(session_id))
+
+
 def follow_ups_ready(db):
-    """The follow-up threads to take now (thread ids): Experio has read every draft their conversation waits
-    on, or their time is up. One whose drafts were all settled meanwhile (posted or deleted in Experio) is done."""
+    """The follow-up threads to take now (thread ids): a dossier to finish, Experio has read every draft their
+    conversation waits on, or their time is up. One with nothing left (drafts posted or deleted in Experio
+    meanwhile) is done."""
     ready = []
     threads = "select thread_id, session_id, follow_up_until < now() from tarik_mail_threads where state = 'follow_up'"
     for thread_id, session_id, over in db.execute(threads).fetchall():
+        if waiting_setups(session_id)["dossiers"]:  # Experio's wait on its lines is over by the next tick
+            ready.append(thread_id)
+            continue
         drafts = drafts_to_resume(session_id)
         if not drafts:
             db.execute(
@@ -441,8 +451,8 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
 @server.tool()
 def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "") -> dict:
     """After Tarik's reply: its emails are answered, and the thread waits for the client
-    when Tarik asked a question, or is followed up while drafts Experio was reading wait
-    (FOLLOW_UP_MINUTES at most). When the reply could not be sent, the thread is set
+    when Tarik asked a question, or is followed up while drafts Experio was reading or
+    dossiers to finish wait (FOLLOW_UP_MINUTES at most). When the reply could not be sent, the thread is set
     aside in error, with ``reason``."""
     with cabinet_db() as db:
         session = db.execute("select session_id from tarik_mail_threads where thread_id = %s", (thread_id,)).fetchone()
@@ -457,7 +467,7 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
         ).fetchone()
         waiting = db.execute("select 1 from tarik_pending where session_id = %s limit 1", session).fetchone()
         state = "new" if newer else "waiting" if waiting else "done"  # new: an email came in during this run
-        if state == "done" and drafts_to_resume(session[0]):
+        if state == "done" and to_follow_up(session[0]):
             until = db.execute(
                 "select coalesce(follow_up_until, now() + make_interval(mins => %s)) > now() "
                 "from tarik_mail_threads where thread_id = %s",

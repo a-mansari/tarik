@@ -3,7 +3,9 @@
 Sequence: create the dossier (unless it exists) -> copy a model dossier's configuration
 (when one is given) -> import each FEC or grand livre -> finish the onboarding, unless an
 import was refused -> the dossier's state. n8n runs the lower branches last, so the
-onboarding comes after the imports and the summary after everything."""
+onboarding comes after the imports and the summary after everything. The onboarding waits on
+Experio: when the run's time (n8n stops an agent's tool after 120 s) is too short, the dossier waits
+in tarik_setups. Mode resume ("Tarik - Emails" following up, no agent, no time limit) finishes those."""
 
 from steps import ATTACHMENTS, CABINET_INPUT, CALL, EACH_FILE, FILES, RESULT, SAVE_ATTACHMENTS, SENDER, Workflow
 
@@ -18,6 +20,7 @@ flow = Workflow("tarik-dossier")
 connect, mcp, route = flow.connect, flow.mcp, flow.route
 
 flow.trigger(
+    mode="string",
     session_id="string",
     dossier_id="number",
     name="string",
@@ -31,9 +34,17 @@ flow.trigger(
     **ATTACHMENTS,
     **CABINET_INPUT,
 )
+# The onboarding ends by BUDGET_MS from the start, leaving the run time to record and sum up.
+BUDGET_MS = 100_000
+START = "Debut"
+flow.code(
+    START, [60, 300], "// When the run started, for its time budget.\nreturn [{ json: { started: Date.now() } }];"
+)
+SECONDS_LEFT = f"Math.max(1, Math.round(({BUDGET_MS} - (Date.now() - $('{START}').first().json.started)) / 1000))"
 flow.save_attachments([110, 300])
-route("Nouveau dossier ?", f"{CALL}.dossier_id > 0 ? 1 : 0", 2, [220, 300])
-connect("Appel", SAVE_ATTACHMENTS)
+route("Nouveau dossier ?", f"{CALL}.mode === 'resume' ? 2 : {CALL}.dossier_id > 0 ? 1 : 0", 3, [220, 300])
+connect("Appel", START)
+connect(START, SAVE_ATTACHMENTS)
 connect(SAVE_ATTACHMENTS, "Nouveau dossier ?", 0)
 flow.to_record(SAVE_ATTACHMENTS, 1)
 
@@ -112,13 +123,42 @@ flow.code(
         "return refused ? [] : [{ json: {} }];"
     ),
 )
-mcp("Integration (finish_setup)", "finish_setup", f"{{ dossier_id: {TARGET} }}", [1980, 460])
+mcp(
+    "Integration (finish_setup)",
+    "finish_setup",
+    f"{{ dossier_id: {TARGET}, seconds_left: {SECONDS_LEFT} }}",
+    [1980, 460],
+)
+# Its state once finished; a dossier left waiting gets it with its follow-up.
+route("Integration terminee ?", f"{RESULT}.status === 'ok' ? 0 : 1", 2, [2090, 560])
 mcp("Etat du dossier (setup_status)", "setup_status", f"{{ dossier_id: {TARGET} }}", [2200, 560])
 connect(TARGET_NODE, "Imports acceptes ?")
 connect("Imports acceptes ?", "Integration (finish_setup)")
-connect("Integration (finish_setup)", "Etat du dossier (setup_status)", 0)
+connect("Integration (finish_setup)", "Integration terminee ?", 0)
+connect("Integration terminee ?", "Etat du dossier (setup_status)", 0)
 flow.to_record("Integration (finish_setup)", 0, 1)
 flow.to_record("Etat du dossier (setup_status)", 0, 1)
+
+# Mode resume: the conversation's dossiers left waiting, each finished (no time limit) then its state.
+# A follow-up: the sender was checked when their entries were imported.
+mcp("Integrations en attente (waiting_setups)", "waiting_setups", f"{{ session_id: {CALL}.session_id }}", [440, 640])
+flow.code(
+    "Un element par dossier",
+    [660, 640],
+    "// One item per dossier left waiting.\n"
+    "return $input.first().json.content[0].text.dossiers.map(dossier_id => ({ json: { dossier_id } }));",
+)
+mcp("Integration reprise (finish_setup)", "finish_setup", "{ dossier_id: $json.dossier_id }", [880, 640])
+route("Reprise terminee ?", f"{RESULT}.status === 'ok' ? 0 : 1", 2, [990, 740])
+mcp("Etat du dossier repris (setup_status)", "setup_status", f"{{ dossier_id: {RESULT}.dossier_id }}", [1100, 740])
+connect("Nouveau dossier ?", "Integrations en attente (waiting_setups)", 2)
+connect("Integrations en attente (waiting_setups)", "Un element par dossier", 0)
+flow.to_record("Integrations en attente (waiting_setups)", 1)
+connect("Un element par dossier", "Integration reprise (finish_setup)")
+connect("Integration reprise (finish_setup)", "Reprise terminee ?", 0)
+connect("Reprise terminee ?", "Etat du dossier repris (setup_status)", 0)
+flow.to_record("Integration reprise (finish_setup)", 0, 1)
+flow.to_record("Etat du dossier repris (setup_status)", 0, 1)
 
 flow.record_and_summary([2500, 400], [220, 800])
 flow.save("TarikDossier0001", "Tarik - Dossier")

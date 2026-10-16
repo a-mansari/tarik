@@ -183,7 +183,7 @@
           "mappingMode": "defineBelow",
           "value": {
             "mode": "resume",
-            "session_id": "={{ $json.session_id }}",
+            "session_id": "={{ $('Un element par fil').item.json.session_id }}",
             "dossier_id": 0,
             "answer": "",
             "invoice_type": "",
@@ -275,6 +275,168 @@
       "onError": "continueErrorOutput"
     },
     {
+      "id": "82f1a828-6875-5974-b3cd-c7ca709fb82c",
+      "name": "Suite de l'integration",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        770,
+        520
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "TarikDossier0001",
+          "mode": "id"
+        },
+        "mode": "each",
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "mode": "resume",
+            "session_id": "={{ $('Un element par fil').item.json.session_id }}",
+            "dossier_id": 0,
+            "name": "",
+            "ice": "",
+            "if_number": "",
+            "folder_type": "",
+            "skip_ice_if_check": false,
+            "client_message": "",
+            "model_dossier_id": 0,
+            "kind": "",
+            "attachments": "",
+            "cabinet": "={{ $('Nouvel email').first().json.body.cabinet }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "mode",
+              "displayName": "mode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "session_id",
+              "displayName": "session_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "dossier_id",
+              "displayName": "dossier_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "ice",
+              "displayName": "ice",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "if_number",
+              "displayName": "if_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "folder_type",
+              "displayName": "folder_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "skip_ice_if_check",
+              "displayName": "skip_ice_if_check",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            },
+            {
+              "id": "client_message",
+              "displayName": "client_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "model_dossier_id",
+              "displayName": "model_dossier_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number"
+            },
+            {
+              "id": "kind",
+              "displayName": "kind",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "attachments",
+              "displayName": "attachments",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "cabinet",
+              "displayName": "cabinet",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
       "id": "c0d97f32-a2a5-5082-876b-3160de76faeb",
       "name": "Suite envoyee (send_email)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -292,7 +454,7 @@
           "value": "send_email"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ to: $('Un element par fil').item.json.to, subject: $('Un element par fil').item.json.subject, body: 'Suite du traitement de vos documents :\\n\\n' + $json.content[0].text.message, in_reply_to: $('Un element par fil').item.json.in_reply_to, references: $('Un element par fil').item.json.references }) }}",
+        "jsonInput": "={{ JSON.stringify({ to: $('Un element par fil').item.json.to, subject: $('Un element par fil').item.json.subject, body: 'Suite du traitement de vos documents :\\n\\n' + [$('Suite du traitement').item.json, $json].map(run => run.content[0].text.message).filter(text => text !== \"Rien n'a ete traite.\").join('\\n\\n'), in_reply_to: $('Un element par fil').item.json.in_reply_to, references: $('Un element par fil').item.json.references }) }}",
         "options": {
           "timeout": 300000
         }
@@ -418,6 +580,24 @@
       ]
     },
     "Suite du traitement": {
+      "main": [
+        [
+          {
+            "node": "Suite de l'integration",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fil traite (finish_thread)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite de l'integration": {
       "main": [
         [
           {
