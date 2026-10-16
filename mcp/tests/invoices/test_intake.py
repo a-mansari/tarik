@@ -29,7 +29,10 @@ def test_a_pdf_is_cut_where_its_invoices_start():
     parts = split_pdf(four, [1, 3])
     assert [(first, last) for first, last, _ in parts] == [(1, 2), (3, 4)]
     assert [len(pypdfium2.PdfDocument(raw)) for _, _, raw in parts] == [2, 2]
-    assert [(f, l) for f, l, _ in split_pdf(four, [3, 0, 9, 3])] == [(1, 2), (3, 4)]  # page 1 added, out of range dropped
+    assert [(f, l) for f, l, _ in split_pdf(four, [3, 0, 9, 3])] == [
+        (1, 2),
+        (3, 4),
+    ]  # page 1 added, out of range dropped
     assert [(f, l) for f, l, _ in split_pdf(four, [])] == [(1, 4)]
     assert len(split_pdf(four, [1, 2, 3, 4])) == 4
 
@@ -37,8 +40,11 @@ def test_a_pdf_is_cut_where_its_invoices_start():
 @pytest.mark.functionality
 def test_a_file_is_identified_before_anything_is_made_from_it():
     require_kind("f.pdf", "invoice", "invoice")
-    for kind, wanted, hint in ((None, "invoice", "identify_document"), ("statement", "invoice", "import_bank_statement"),
-                               ("invoice", "statement", "split_invoices")):
+    for kind, wanted, hint in (
+        (None, "invoice", "identify_document"),
+        ("statement", "invoice", "import_bank_statement"),
+        ("invoice", "statement", "split_invoices"),
+    ):
         with pytest.raises(ToolError, match=hint):
             require_kind("f.pdf", kind, wanted)
 
@@ -51,6 +57,7 @@ def test_test_mode_creates_no_draft_and_imports_no_statement(monkeypatch):
         if method == "search_read":  # the dossier's bank journals
             return [{"id": 5, "name": "BMCE", "bank_id": [1, "BMCE"]}]
         raise AssertionError(f"test mode wrote to Experio: {model}.{method}")
+
     monkeypatch.setattr(intake, "odoo_call", odoo_call)
     monkeypatch.setattr(intake, "require_dossier", lambda dossier_id: "Gecafisc")
     monkeypatch.setattr(intake, "dry_run", lambda: True)
@@ -61,4 +68,6 @@ def test_test_mode_creates_no_draft_and_imports_no_statement(monkeypatch):
 
     monkeypatch.setattr(intake, "cabinet_db", lambda: FakeDb(("r.pdf", "application/pdf", b"%PDF", "statement", None)))
     statement = intake.import_bank_statement(2, 557)
-    assert statement["status"] == "ok" and statement["message"].startswith("MODE TEST") and "BMCE" in statement["message"]
+    assert (
+        statement["status"] == "ok" and statement["message"].startswith("MODE TEST") and "BMCE" in statement["message"]
+    )

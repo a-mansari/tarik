@@ -16,48 +16,95 @@ import anyio
 import anyio.to_thread
 import uvicorn
 
-from tarik.core import connection
-from tarik.dossiers import identity, people, search, setup
-from tarik.emails import agent, inbox, sending
-from tarik.invoices import (accounts, check, classify, correct, duplicates, exercice, intake, journal, listing, pipeline,
-                            posting, prepaid, tiers, tva, withholding)
+from tarik.core import connection, vault
 from tarik.core.app import server
-from tarik.core import vault
 from tarik.core.cabinets import CABINETS, create_schemas, misplaced_in_vault, using
 from tarik.core.experio import account
+from tarik.dossiers import identity, people, search, setup
+from tarik.emails import agent, inbox, sending
+from tarik.invoices import (
+    accounts,
+    check,
+    classify,
+    correct,
+    duplicates,
+    exercice,
+    intake,
+    journal,
+    listing,
+    pipeline,
+    posting,
+    prepaid,
+    tiers,
+    tva,
+    withholding,
+)
 
 # Imported for their tools: each module registers its own on tarik.core.app.server.
-TOOL_MODULES = (connection, identity, people, search, setup, agent, inbox, sending, accounts, check, classify, correct,
-                duplicates, exercice, intake, journal, listing, pipeline, posting, prepaid, tiers, tva, withholding)
-ADDRESS = re.compile(r"/c/([^/]+)/mcp/?")
+TOOL_MODULES = (
+    connection,
+    identity,
+    people,
+    search,
+    setup,
+    agent,
+    inbox,
+    sending,
+    accounts,
+    check,
+    classify,
+    correct,
+    duplicates,
+    exercice,
+    intake,
+    journal,
+    listing,
+    pipeline,
+    posting,
+    prepaid,
+    tiers,
+    tva,
+    withholding,
+)
+ADDRESS = re.compile(r"/c/([^/]+)/mcp/?")  # /c/<cabinet>/mcp, maybe with a final slash
 PER_CABINET = int(os.getenv("TARIK_CALLS_PER_CABINET", "10"))
 TOTAL = int(os.getenv("TARIK_CALLS_TOTAL", "40"))
+
+
+async def not_found(send):
+    """Answer 404 "unknown cabinet"."""
+    await send({"type": "http.response.start", "status": 404, "headers": [(b"content-type", b"text/plain")]})
+    await send({"type": "http.response.body", "body": b"unknown cabinet"})
 
 
 def by_cabinet(app, per_cabinet=PER_CABINET, total=TOTAL):
     """The MCP app, reached only at a cabinet's address: the call runs for that cabinet, once
     its cabinet and the whole server each have a free slot."""
-    slots, everyone = {}, []  # made on the first call: anyio's semaphores belong to the running event loop
+    # A semaphore per cabinet, and the server's under None. Made on the first call: anyio's semaphores belong
+    # to the running event loop.
+    slots = {}
 
     async def route(scope, receive, send):
+        """The ASGI app: an HTTP call at a known cabinet's address goes to ``app`` as /mcp, in that cabinet."""
         if scope["type"] != "http":  # lifespan
             return await app(scope, receive, send)
         found = ADDRESS.fullmatch(scope["path"])
-        if not found or found.group(1) not in CABINETS:
-            await send({"type": "http.response.start", "status": 404, "headers": [(b"content-type", b"text/plain")]})
-            return await send({"type": "http.response.body", "body": b"unknown cabinet"})
-        name = found.group(1)
-        if not everyone:
+        name = found and found.group(1)
+        if name not in CABINETS:
+            return await not_found(send)
+        if not slots:
             slots.update({cabinet: anyio.Semaphore(per_cabinet) for cabinet in CABINETS})
-            everyone.append(anyio.Semaphore(total))
+            slots[None] = anyio.Semaphore(total)
             anyio.to_thread.current_default_thread_limiter().total_tokens = total  # sync tools run in these threads
-        async with slots[name], everyone[0]:  # the cabinet's slot first: waiting for the server holds no other's
+        async with slots[name], slots[None]:  # the cabinet's slot first: waiting for the server holds no other's
             with using(name):
                 await app(dict(scope, path="/mcp"), receive, send)
+
     return route
 
 
 def app():
+    """The server's ASGI app: stateless MCP over HTTP, by cabinet."""
     return by_cabinet(server.streamable_http_app(stateless_http=True, host="0.0.0.0"))
 
 

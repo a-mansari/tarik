@@ -9,9 +9,21 @@ Left here: the question on the usual non-recoverable accounts, and the cabinet's
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import with_ids, ok, question, server
-from tarik.core.experio import (TEST_MODE, dry_run, experio_messages, fill_invoice, invoice_context, odoo_call, odoo_json,
-                                refused, require_draft, require_invoice, test_mode_note)
+from tarik.core.app import ok, question, server, with_ids
+from tarik.core.config import TEST_MODE
+from tarik.core.experio import (
+    account_code,
+    dry_run,
+    experio_notes,
+    fill_invoice,
+    invoice_context,
+    odoo_call,
+    refresh,
+    refused,
+    require_draft,
+    require_invoice,
+    test_mode_note,
+)
 from tarik.invoices.classify import side_of
 
 # tarik-master: "A confirmer par le comptable (CGI art. 106) avant usage en production."
@@ -28,6 +40,44 @@ def vat_answer(reply):
     return None
 
 
+def _non_recoverable(invoice, answer):
+    """For a purchase with TVA not yet non-recoverable: the question to ask the client (a question result), or the
+    changes their ``answer`` makes ({} when none). Returns (question or None, changes)."""
+    told = vat_answer(answer) if answer else None
+    if answer and told is None:
+        return (
+            question(f"Facture {invoice['id']} : reponse non comprise, la TVA est-elle non recuperable ? oui / non"),
+            {},
+        )
+    if told is None and account_code(invoice).startswith(NON_RECOVERABLE_ACCOUNTS):
+        tier = (invoice["partner_id"] or [0, "ce fournisseur"])[1]
+        asked = f"Facture de {tier} : la TVA est-elle non recuperable (voyage, carburant, vehicule de tourisme) ? "
+        return question(asked + "oui / non"), {}
+    return None, ({"amount_tax_non_recoverable": True, "multi_tva": False} if told else {})
+
+
+def _prorata(invoice, changes, notes):
+    """Add the cabinet's TVA prorata to ``changes`` and ``notes`` when its dossier uses one."""
+    company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["use_prorata", "prorata_rate"])[0]
+    if company["use_prorata"]:
+        changes["tax_prorata"] = True  # Experio's onchange applies the cabinet's rate
+        notes.append(f"prorata de TVA {company['prorata_rate']} %")
+
+
+def _tax_lines(invoice_id, context):
+    """The invoice's TVA lines once Experio rebuilt them, as "<HT> HT a <rate> % (<tax>)" for each untaxed line."""
+    line_ids = odoo_call("exp.invoice", "read", [invoice_id], fields=["tva_line_ids"], context=context)[0][
+        "tva_line_ids"
+    ]
+    fields = ["line_type", "tax_id", "tax_rate", "amount_ht", "amount_tva"]
+    lines = odoo_call("exp.invoice.line", "read", line_ids, fields=fields, context=context) if line_ids else []
+    return [
+        f"{line['amount_ht']} HT a {line['tax_rate']} % ({line['tax_id'][1] if line['tax_id'] else 'sans taxe'})"
+        for line in lines
+        if line["line_type"] == "untaxed"
+    ]
+
+
 @server.tool()
 @with_ids
 def settle_tva(invoice_id: int, answer: str = "") -> dict:
@@ -35,46 +85,47 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
     the cabinet's prorata, and the tax Experio puts on each line. When the answer
     is a question (non-recoverable TVA?), ask the client and call again with
     their oui/non as ``answer``."""
-    invoice = require_invoice(invoice_id, ["state", "type", "company_id", "exercice_id", "partner_id", "account_id",
-                                           "amount_tva", "amount_tax_non_recoverable", "tax_prorata", "tva_line_ids"])
+    invoice = require_invoice(
+        invoice_id,
+        [
+            "state",
+            "type",
+            "company_id",
+            "exercice_id",
+            "partner_id",
+            "account_id",
+            "amount_tva",
+            "amount_tax_non_recoverable",
+            "tax_prorata",
+            "tva_line_ids",
+        ],
+    )
     require_draft(invoice_id, invoice)
     if not invoice["account_id"]:
         if dry_run():  # the account step only simulated its write
             return ok(f"{TEST_MODE}Facture {invoice_id} : la TVA sera reglee une fois le compte enregistre.")
-        raise ToolError(f"Facture {invoice_id} : pas encore de compte, appelez d'abord assign_account (la TVA en depend).")
-    kind = side_of(invoice)
+        raise ToolError(
+            f"Facture {invoice_id} : pas encore de compte, appelez d'abord assign_account (la TVA en depend)."
+        )
+    purchase = side_of(invoice) == "purchase"
     context = invoice_context(invoice)
     changes, notes = {}, []
-    code = invoice["account_id"][1].split(" ")[0]
-    if kind == "purchase" and not invoice["amount_tax_non_recoverable"] and invoice["amount_tva"]:
-        told = vat_answer(answer) if answer else None
-        if answer and told is None:
-            return question(f"Facture {invoice_id} : reponse non comprise, la TVA est-elle non recuperable ? oui / non")
-        if told is None and code.startswith(NON_RECOVERABLE_ACCOUNTS):
-            tier = (invoice["partner_id"] or [0, "ce fournisseur"])[1]
-            return question(f"Facture de {tier} : la TVA est-elle non recuperable (voyage, carburant, vehicule de tourisme) ? oui / non")
-        if told:
-            changes.update({"amount_tax_non_recoverable": True, "multi_tva": False})
+    if purchase and not invoice["amount_tax_non_recoverable"] and invoice["amount_tva"]:
+        asked, changes = _non_recoverable(invoice, answer)
+        if asked:
+            return asked
     non_recoverable = invoice["amount_tax_non_recoverable"] or changes.get("amount_tax_non_recoverable")
     with refused(f"settle_tva {invoice_id}", f"Facture {invoice_id} : Experio a refuse la mise a jour de la TVA."):
-        if kind == "purchase" and not non_recoverable and invoice["amount_tva"] and not invoice["tax_prorata"]:
-            company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["use_prorata", "prorata_rate"])[0]
-            if company["use_prorata"]:
-                changes["tax_prorata"] = True  # Experio's onchange applies the cabinet's rate
-                notes.append(f"prorata de TVA {company['prorata_rate']} %")
+        if purchase and not non_recoverable and invoice["amount_tva"] and not invoice["tax_prorata"]:
+            _prorata(invoice, changes, notes)
         if changes:
             fill_invoice(invoice_id, changes, context)
             if changes.get("amount_tax_non_recoverable"):
                 notes.append("TVA non recuperable")  # Experio saves it on the supplier when the invoice is posted
-        if not dry_run():
-            odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)  # Experio picks the tax for each rate
-        line_ids = odoo_call("exp.invoice", "read", [invoice_id], fields=["tva_line_ids"], context=context)[0]["tva_line_ids"]
-        lines = odoo_call("exp.invoice.line", "read", line_ids, fields=["line_type", "tax_id", "tax_rate", "amount_ht", "amount_tva"],
-                          context=context) if line_ids else []
-        messages = experio_messages(invoice_id, context)
-    taxed = [f"{line['amount_ht']} HT a {line['tax_rate']} % ({line['tax_id'][1] if line['tax_id'] else 'sans taxe'})"
-             for line in lines if line["line_type"] == "untaxed"]
+        refresh(invoice_id, context)  # Experio picks the tax for each rate
+        taxed = _tax_lines(invoice_id, context)
+        experio = experio_notes(invoice_id, context)
     body = f"{test_mode_note()}Facture {invoice_id} : TVA {'non recuperable' if non_recoverable else 'recuperable'}"
     body += (f", {', '.join(notes)}" if notes and not non_recoverable else "") + ". "
-    body += ("Lignes : " + "; ".join(taxed) + "." if taxed else "Pas encore de ligne de TVA.")
-    return ok(body + ("" if not messages else " " + " ".join(messages)))
+    body += ("Lignes : " + "; ".join(taxed) + ".") if taxed else "Pas encore de ligne de TVA."
+    return ok(body + experio)

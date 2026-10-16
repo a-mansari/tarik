@@ -2,9 +2,16 @@
 
 import pytest
 
-from tarik.dossiers.search import MIN_SIMILARITY, similarity
+from tarik.core.config import MIN_SIMILARITY
+from tarik.core.text import similarity
 
-DOSSIERS = ["STE ALLIANCE GENIE CIVIL SARL", "Alliance Transport", "Boulangerie Atlas", "ATLAS IMMOBILIER", "Cabinet Benali"]
+DOSSIERS = [
+    "STE ALLIANCE GENIE CIVIL SARL",
+    "Alliance Transport",
+    "Boulangerie Atlas",
+    "ATLAS IMMOBILIER",
+    "Cabinet Benali",
+]
 
 
 def best(query):

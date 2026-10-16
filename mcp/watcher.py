@@ -4,8 +4,9 @@ and wake "Tarik - Emails" when a thread waits for an answer. Each wake-up names 
 works in that cabinet only. Run as: python watcher.py (a new mailbox needs a restart).
 
 Per cabinet, one IMAP IDLE connection to its Tarik folder (read-only, pinned certificate, as
-read_mailbox connects): the server tells it when the folder gets a new email, and it reads it. The connection is renewed every 25 minutes (servers drop an IDLE after ~30)
-and rebuilt after any error; the 2-minute tick still catches whatever happens meanwhile.
+read_mailbox connects): the server tells it when the folder gets a new email, and it reads it. The
+connection is renewed every 25 minutes (servers drop an IDLE after ~30) and rebuilt after any error;
+the 2-minute tick still catches whatever happens meanwhile.
 Python 3.12's imaplib has no IDLE (3.14 does): the command is spoken here.
 """
 
@@ -18,6 +19,7 @@ import time
 
 import httpx
 
+from tarik.core.app import log
 from tarik.core.cabinets import CABINETS, setting, using
 from tarik.emails.inbox import connect, notify_manager, read_mailbox, threads_waiting
 
@@ -25,6 +27,11 @@ WEBHOOK = os.getenv("MAIL_WEBHOOK_URL", "http://n8n:5678/webhook/tarik-nouvel-em
 RENEW_SECONDS = 25 * 60
 TICK_SECONDS = 2 * 60
 HEADER = "X-Tarik-Webhook"  # the webhook's secret (Vault MAIL_WEBHOOK_SECRET; n8n credential "Tarik mail webhook")
+# The server's count of emails in the folder: "* <n> EXISTS" (one more arrived) or "* <n> EXPUNGE" (one deleted).
+COUNT = re.compile(rb"\* (\d+) (EXISTS|EXPUNGE)")
+
+HTTP = httpx.Client()
+logging.getLogger("httpx").setLevel(logging.WARNING)  # not one line per wake-up
 
 
 def wait_for_mail(box, count, seconds):
@@ -41,7 +48,7 @@ def wait_for_mail(box, count, seconds):
         line = box.readline()
         if not line:
             raise ConnectionError("connection closed")
-        found = re.match(rb"\* (\d+) (EXISTS|EXPUNGE)", line)
+        found = COUNT.match(line)
         if found and found.group(2) == b"EXISTS":
             grown = int(found.group(1))
         elif found:  # an email deleted elsewhere: the count to beat goes down with it
@@ -56,12 +63,13 @@ def wait_for_mail(box, count, seconds):
 
 
 def wake_tarik(cabinet, why):
+    """Call "Tarik - Emails"' webhook for ``cabinet``, logging ``why`` (nothing when ""). A failure is only logged."""
     try:
         HTTP.post(WEBHOOK, json={"cabinet": cabinet}, timeout=10, headers={HEADER: setting("MAIL_WEBHOOK_SECRET")})
         if why:
-            print(f"{cabinet}: {why}, Tarik - Emails woken", flush=True)
+            log(f"{cabinet}: {why}, Tarik - Emails woken")
     except Exception as error:  # the next tick tries again
-        print(f"{cabinet}: webhook failed: {type(error).__name__}", flush=True)
+        log(f"{cabinet}: webhook failed: {type(error).__name__}")
 
 
 def serve(cabinet, why):
@@ -70,17 +78,17 @@ def serve(cabinet, why):
     try:
         alerts = read_mailbox()
     except Exception as error:
-        print(f"{cabinet}: mailbox not read: {type(error).__name__}: {error}", flush=True)
+        log(f"{cabinet}: mailbox not read: {type(error).__name__}: {error}")
         alerts = []
     for alert in alerts:
         try:
             notify_manager(**alert)
         except Exception as error:
-            print(f"{cabinet}: manager not told of {alert['sender']}: {error}", flush=True)
+            log(f"{cabinet}: manager not told of {alert['sender']}: {error}")
     try:
         waiting = threads_waiting()
     except Exception as error:
-        print(f"{cabinet}: threads not checked: {type(error).__name__}", flush=True)
+        log(f"{cabinet}: threads not checked: {type(error).__name__}")
         waiting = False
     if waiting:
         wake_tarik(cabinet, why)
@@ -93,14 +101,14 @@ def watch(cabinet):
             try:
                 box = connect()
                 count = int(box.untagged_responses.get("EXISTS", [b"0"])[-1])
-                print(f"{cabinet}: watching ({count} emails)", flush=True)
+                log(f"{cabinet}: watching ({count} emails)")
                 while True:
                     grown = wait_for_mail(box, count, RENEW_SECONDS)
                     if grown > count:
                         serve(cabinet, "new email")
                     count = grown
             except Exception as error:
-                print(f"{cabinet}: watch interrupted: {error}; reconnecting in 30 s", flush=True)
+                log(f"{cabinet}: watch interrupted: {error}; reconnecting in 30 s")
                 time.sleep(30)
 
 
@@ -123,13 +131,12 @@ def mailboxes():
     return found
 
 
-HTTP = httpx.Client()
-logging.getLogger("httpx").setLevel(logging.WARNING)  # not one line per wake-up
-
 if __name__ == "__main__":
     watched = mailboxes()
-    print(f"mailboxes: {', '.join(watched) or 'none'}", flush=True)
-    threads = [threading.Thread(target=job, args=(cabinet,), daemon=True) for cabinet in watched for job in (watch, tick)]
+    log(f"mailboxes: {', '.join(watched) or 'none'}")
+    threads = [
+        threading.Thread(target=job, args=(cabinet,), daemon=True) for cabinet in watched for job in (watch, tick)
+    ]
     for thread in threads:
         thread.start()
     for thread in threads:

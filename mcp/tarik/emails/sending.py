@@ -22,9 +22,35 @@ from email.utils import getaddresses, make_msgid
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, server
+from tarik.core.app import log, ok, server
 from tarik.core.cabinets import current, setting
 from tarik.core.experio import odoo_call
+
+MAIL_TIMEOUT = 60  # seconds before the mail server is given up
+
+TAG = re.compile(r"</?[a-zA-Z][^<>]*>")  # an HTML tag, not "a < b"
+BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")  # **text** or __text__
+# *text*: single stars, not inside a word nor next to another star, the text not starting or ending with a space.
+ITALIC = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])")
+CODE = re.compile(r"`([^`\n]+)`")  # `text` on one line
+LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")  # [label](http(s) address)
+BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")  # a list item's mark at a line's start: -, *, •, "1." or "1)"
+HEADING = re.compile(r"^\s*#{1,6}\s*")  # a Markdown heading's leading #s
+RULE = re.compile(r"\s*([-*_]\s*){3,}")  # a Markdown rule: 3 or more -, * or _, spaces allowed
+# One line of an IMAP LIST answer: (flags) "delimiter" name, the name quoted or not.
+LIST_LINE = re.compile(rb'\(([^)]*)\) "[^"]*" "?([^"]+)"?$')
+
+PARAGRAPH = '<p style="margin:0 0 14px">{}</p>'
+LIST = '<ul style="margin:0 0 14px;padding-left:22px">{}</ul>'
+SIGNED = (
+    '<p style="margin:22px 0 0;padding-top:12px;border-top:1px solid #dddddd;color:#555555">'
+    "Cordialement,<br><br><strong>Tarik</strong><br>{}</p>"
+)
+PAGE = (
+    '<!doctype html><html><body style="margin:0;padding:24px;background:#ffffff">'
+    '<div style="max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222">'
+    "{}{}</div></body></html>"
+)
 
 
 def cert_pin():
@@ -50,32 +76,26 @@ def check_pin(sock):
 
 def imap_login():
     """The current cabinet's mailbox over IMAP, logged in on the pinned (or verified) certificate."""
-    box = imaplib.IMAP4_SSL(setting("IMAP_HOST"), int(setting("IMAP_PORT", "993")), ssl_context=tls_context(), timeout=60)
+    port = int(setting("IMAP_PORT", "993"))
+    box = imaplib.IMAP4_SSL(setting("IMAP_HOST"), port, ssl_context=tls_context(), timeout=MAIL_TIMEOUT)
     check_pin(box.sock)
     box.login(setting("IMAP_USER"), setting("IMAP_PASSWORD"))
     return box
 
 
 def allowed_recipients():
-    """The current cabinet's whitelist (MAIL_ALLOWED_RECIPIENTS). Empty: nobody."""
+    """The current cabinet's whitelist (MAIL_ALLOWED_RECIPIENTS), lowercased entries. Empty: nobody."""
     return [entry.strip().lower() for entry in setting("MAIL_ALLOWED_RECIPIENTS", "").split(",") if entry.strip()]
 
 
 def recipient_allowed(address, allowed=None):
-    """Is this address on the whitelist? Compared on the bare address, without the display name."""
+    """Is this address on the whitelist (``allowed``, by default the cabinet's)? Compared on the bare address,
+    without the display name."""
     address = (getaddresses([address or ""])[0][1] or "").strip().lower()
     allowed = allowed_recipients() if allowed is None else allowed
-    # "*" is the only wildcard: the rest of the entry matches literally.
     patterns = ["*" + entry if entry.startswith("@") else entry for entry in allowed]
+    # "*" is the only wildcard (any text): the rest of the entry matches literally.
     return bool(address) and any(re.fullmatch(re.escape(pattern).replace(r"\*", ".*"), address) for pattern in patterns)
-
-
-TAG = re.compile(r"</?[a-zA-Z][^<>]*>")  # an HTML tag, not "a < b"
-BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
-ITALIC = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])")
-CODE = re.compile(r"`([^`\n]+)`")
-LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")
-BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")
 
 
 def cabinet_name():
@@ -85,10 +105,11 @@ def cabinet_name():
 
 @functools.cache  # keyed by cabinet: one cabinet's name never signs another's email
 def _cabinet_name(cabinet):
+    """Cabinet ``cabinet``'s company name in Experio, "" when it can't be read (logged)."""
     try:
         return odoo_call("res.company", "read", [1], fields=["name"])[0]["name"]
     except Exception as error:
-        print(f"cabinet_name: {error}", flush=True)
+        log(f"cabinet_name: {error}")
         return ""
 
 
@@ -97,8 +118,8 @@ def blocks(body):
     [("p", [lines]) | ("ul", [items])]."""
     found = []
     for line in TAG.sub("", body or "").replace("\r", "").split("\n"):
-        line = re.sub(r"^\s*#{1,6}\s*", "", line).rstrip()
-        if re.fullmatch(r"\s*([-*_]\s*){3,}", line) or not line.strip():  # a rule or a blank line ends a block
+        line = HEADING.sub("", line).rstrip()
+        if RULE.fullmatch(line) or not line.strip():  # a rule or a blank line ends a block
             found.append(None)
             continue
         kind, text = ("ul", BULLET.sub("", line)) if BULLET.match(line) else ("p", line.strip())
@@ -110,40 +131,48 @@ def blocks(body):
 
 
 def inline_text(text):
+    """One line's Markdown as plain text: links as "label (address)", emphasis and code marks dropped."""
     text = LINK.sub(lambda m: f"{m.group(1)} ({m.group(2)})", text)
     text = BOLD.sub(lambda m: m.group(1) or m.group(2), text)
     return ITALIC.sub(r"\1", CODE.sub(r"\1", text))
 
 
 def inline_html(text):
+    """One line's Markdown as escaped HTML: links, bold and italics as tags, code marks dropped."""
     text = html.escape(text, quote=False)
     text = LINK.sub(lambda m: f'<a href="{html.escape(m.group(2))}">{m.group(1)}</a>', text)
     text = BOLD.sub(lambda m: f"<strong>{m.group(1) or m.group(2)}</strong>", text)
     return ITALIC.sub(r"<em>\1</em>", CODE.sub(r"\1", text))
 
 
+def plain_block(kind, lines):
+    """One block as plain text: a list's items with "- "."""
+    return "\n".join(f"- {inline_text(line)}" if kind == "ul" else inline_text(line) for line in lines)
+
+
+def html_block(kind, lines):
+    """One block as HTML: a list, or a paragraph with its lines broken."""
+    if kind == "ul":
+        return LIST.format("".join(f"<li>{inline_html(item)}</li>" for item in lines))
+    return PARAGRAPH.format("<br>".join(inline_html(line) for line in lines))
+
+
 def render(body):
     """The email Tarik sends, as plain text and HTML: the same message in the cabinet's
     template, with its signature. No Markdown or HTML tag ever reaches the client raw."""
     parts = blocks(body)
-    signature = ["Cordialement,", "", "Tarik", "Assistant comptable" + (f" | {cabinet_name()}" if cabinet_name() else "")]
-    text = "\n\n".join("\n".join((f"- {inline_text(line)}" if kind == "ul" else inline_text(line)) for line in lines)
-                       for kind, lines in parts)
-    rendered = "".join(f"<ul style=\"margin:0 0 14px;padding-left:22px\">{''.join(f'<li>{inline_html(item)}</li>' for item in lines)}</ul>"
-                       if kind == "ul" else f"<p style=\"margin:0 0 14px\">{'<br>'.join(inline_html(line) for line in lines)}</p>"
-                       for kind, lines in parts)
-    signed = ("<p style=\"margin:22px 0 0;padding-top:12px;border-top:1px solid #dddddd;color:#555555\">"
-              f"Cordialement,<br><br><strong>Tarik</strong><br>{html.escape(signature[3])}</p>")
-    page = ("<!doctype html><html><body style=\"margin:0;padding:24px;background:#ffffff\">"
-            "<div style=\"max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222\">"
-            f"{rendered}{signed}</div></body></html>")
-    return text + "\n\n" + "\n".join(signature), page
+    name = cabinet_name()
+    signer = "Assistant comptable" + (f" | {name}" if name else "")
+    text = "\n\n".join(plain_block(kind, lines) for kind, lines in parts)
+    rendered = "".join(html_block(kind, lines) for kind, lines in parts)
+    page = PAGE.format(rendered, SIGNED.format(html.escape(signer)))
+    return text + "\n\n" + "\n".join(["Cordialement,", "", "Tarik", signer]), page
 
 
 def sent_folder(box):
     """The mailbox's Sent folder, as the server flags it (special-use \\Sent), else "Sent"."""
     for line in box.list()[1] or []:
-        found = re.match(rb'\(([^)]*)\) "[^"]*" "?([^"]+)"?$', line or b"")
+        found = LIST_LINE.match(line or b"")
         if found and b"\\Sent" in found.group(1):
             return found.group(2).decode()
     return "Sent"
@@ -157,7 +186,51 @@ def save_sent(message):
         box.append(f'"{sent_folder(box)}"', "(\\Seen)", imaplib.Time2Internaldate(time.time()), message.as_bytes())
         box.logout()
     except Exception as error:
-        print(f"save_sent: {error}", flush=True)
+        log(f"save_sent: {error}")
+
+
+def whitelisted(to):
+    """The bare addresses of ``to`` (comma-separated); ToolError unless there is one and all are whitelisted."""
+    recipients = [address for _, address in getaddresses([to or ""]) if address]
+    if not recipients:
+        raise ToolError("Aucun destinataire.")
+    refused = [address for address in recipients if not recipient_allowed(address)]
+    if refused:
+        log(f"send_email refused: {refused} not whitelisted")
+        raise ToolError(f"Email non envoye : destinataire hors de la liste autorisee ({', '.join(refused)}).")
+    return recipients
+
+
+def compose(sender, recipients, subject, body, in_reply_to, references):
+    """The email (EmailMessage) from ``sender`` (its SMTP user) to ``recipients``, in its thread when it is a reply,
+    as plain text and HTML."""
+    message = EmailMessage()
+    message["From"] = setting("SMTP_FROM", sender)
+    message["To"] = ", ".join(recipients)
+    message["Subject"] = subject
+    message["Message-ID"] = make_msgid(domain=sender.split("@")[-1])
+    if in_reply_to:
+        message["In-Reply-To"] = in_reply_to
+        message["References"] = " ".join(filter(None, [references, in_reply_to]))
+    text, page = render(body)
+    message.set_content(text)
+    message.add_alternative(page, subtype="html")
+    return message
+
+
+def smtp_send(host, user, message):
+    """Send ``message`` through SMTP server ``host`` as ``user``: TLS from the start on port 465, else STARTTLS."""
+    port, context = int(setting("SMTP_PORT", "465")), tls_context()
+    if port == 465:
+        smtp = smtplib.SMTP_SSL(host, port, context=context, timeout=MAIL_TIMEOUT)
+    else:
+        smtp = smtplib.SMTP(host, port, timeout=MAIL_TIMEOUT)
+    with smtp:
+        if port != 465:
+            smtp.starttls(context=context)
+        check_pin(smtp.sock)
+        smtp.login(user, setting("SMTP_PASSWORD"))
+        smtp.send_message(message)
 
 
 @server.tool()
@@ -165,37 +238,15 @@ def send_email(to: str, subject: str, body: str, in_reply_to: str = "", referenc
     """Send Tarik's email to ``to`` (one or more addresses, comma-separated), in the thread
     given by ``in_reply_to`` and ``references`` when it is a reply. Refused unless every
     recipient is on the whitelist."""
-    recipients = [address for _, address in getaddresses([to or ""]) if address]
-    if not recipients:
-        raise ToolError("Aucun destinataire.")
-    refused = [address for address in recipients if not recipient_allowed(address)]
-    if refused:
-        print(f"send_email refused: {refused} not whitelisted", flush=True)
-        raise ToolError(f"Email non envoye : destinataire hors de la liste autorisee ({', '.join(refused)}).")
+    recipients = whitelisted(to)
     host, user = setting("SMTP_HOST", ""), setting("SMTP_USER", "")
     if not host or not user:
         raise ToolError("Email non envoye : SMTP non configure.")
-    message = EmailMessage()
-    message["From"] = setting("SMTP_FROM", user)
-    message["To"] = ", ".join(recipients)
-    message["Subject"] = subject
-    message["Message-ID"] = make_msgid(domain=user.split("@")[-1])
-    if in_reply_to:
-        message["In-Reply-To"] = in_reply_to
-        message["References"] = " ".join(filter(None, [references, in_reply_to]))
-    text, page = render(body)
-    message.set_content(text)
-    message.add_alternative(page, subtype="html")
-    port, context = int(setting("SMTP_PORT", "465")), tls_context()
+    message = compose(user, recipients, subject, body, in_reply_to, references)
     try:
-        with (smtplib.SMTP_SSL(host, port, context=context, timeout=60) if port == 465 else smtplib.SMTP(host, port, timeout=60)) as smtp:
-            if port != 465:
-                smtp.starttls(context=context)
-            check_pin(smtp.sock)
-            smtp.login(user, setting("SMTP_PASSWORD"))
-            smtp.send_message(message)
+        smtp_send(host, user, message)
     except Exception as error:
-        print(f"send_email: {error}", flush=True)
+        log(f"send_email: {error}")
         raise ToolError("Email non envoye : le serveur d'envoi a refuse.") from None
     save_sent(message)
     return ok(f"Email envoye a {', '.join(recipients)}.", message_id=message["Message-ID"])

@@ -17,6 +17,7 @@ def answers(db_cabinet, monkeypatch):
         if method == "search":  # the drafts among the ids asked: 99 was deleted in Experio
             return [i for i in query[0][2] if i in partners]
         return [{"id": i, "invoice_number": f"FA-{i}", "partner_id": [i, partners[i]]} for i in query]
+
     monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
     monkeypatch.setattr(pipeline, "check_sender", lambda session_id, dossier_id=0, invoice_id=0: ok("ok"))
     record = lambda invoice_id, answer, *asked: applied.append((invoice_id, answer)) or ok("applique")
@@ -27,8 +28,10 @@ def answers(db_cabinet, monkeypatch):
 
 def waits(invoice_id, step, text, session="s"):
     with cabinet_db() as db:
-        db.execute("insert into tarik_pending (invoice_id, session_id, step, question) values (%s, %s, %s, %s)",
-                   (invoice_id, session, step, text))
+        db.execute(
+            "insert into tarik_pending (invoice_id, session_id, step, question) values (%s, %s, %s, %s)",
+            (invoice_id, session, step, text),
+        )
 
 
 @pytest.mark.functionality
@@ -42,8 +45,12 @@ def test_the_only_question_gets_the_answer_and_the_sequence_resumes(answers):
 def test_with_several_questions_the_answer_names_its_invoice(answers):
     waits(11, "assign_account", "Facture FA-11 : quel compte utiliser ?")
     waits(12, "settle_tva", "Facture de NOVA TELECOM : la TVA est-elle non recuperable ? oui / non")
-    assert pipeline.answer_pending("s", "oui")["status"] == "question" and answers == []  # which one: asked, nothing applied
-    assert pipeline.answer_pending("s", "oui pour Nova Telecom")["invoice_id"] == 12 and answers == [(12, "oui pour Nova Telecom")]
+    assert (
+        pipeline.answer_pending("s", "oui")["status"] == "question" and answers == []
+    )  # which one: asked, nothing applied
+    assert pipeline.answer_pending("s", "oui pour Nova Telecom")["invoice_id"] == 12 and answers == [
+        (12, "oui pour Nova Telecom")
+    ]
 
 
 @pytest.mark.security
@@ -57,7 +64,9 @@ def test_a_sender_without_the_dossier_changes_nothing_and_is_recorded_as_refused
     monkeypatch.setattr(pipeline, "check_sender", lambda session_id, dossier_id=0, invoice_id=0: stop("pas ce dossier"))
     waits(11, "assign_account", "Facture FA-11 : quel compte utiliser ?")
     refused = pipeline.answer_pending("s", "6125")
-    assert refused["message"] == "pas ce dossier" and refused["step"] == "check_sender" and answers == []  # the manager is told
+    assert (
+        refused["message"] == "pas ce dossier" and refused["step"] == "check_sender" and answers == []
+    )  # the manager is told
 
 
 @pytest.mark.security
@@ -80,26 +89,51 @@ def test_a_question_on_an_invoice_deleted_since_is_dropped(answers):
 @pytest.mark.functionality
 def test_a_statement_gets_the_bank_account_the_client_names(answers, monkeypatch):
     with cabinet_db() as db:
-        file_id = db.execute("insert into tarik_files (session_id, file_name, mime_type, data, kind) values "
-                             "('s', 'releve mars.pdf', 'application/pdf', '', 'statement') returning id").fetchone()[0]
-        db.execute("insert into tarik_results (run_id, session_id, file_id, dossier_id, step, status, message) values "
-                   "('r', 's', %s, 557, 'import_bank_statement', 'question', 'releve mars.pdf : lequel ? BMCE - BMCE BANK (journal_id 4)')",
-                   (file_id,))
+        file_id = db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, kind) values "
+            "('s', 'releve mars.pdf', 'application/pdf', '', 'statement') returning id"
+        ).fetchone()[0]
+        db.execute(
+            "insert into tarik_results (run_id, session_id, file_id, dossier_id, step, status, message) values "
+            "('r', 's', %s, 557, 'import_bank_statement', 'question', 'releve mars.pdf : lequel ? BMCE - BMCE "
+            "BANK (journal_id 4)')",
+            (file_id,),
+        )
     monkeypatch.setattr(pipeline, "journal_meant", lambda dossier_id, answer: 4 if "bmce" in answer.lower() else 0)
-    monkeypatch.setattr(pipeline, "import_bank_statement", lambda file_id, dossier_id, journal_id: ok(f"{file_id} {dossier_id} {journal_id}"))
+    monkeypatch.setattr(
+        pipeline,
+        "import_bank_statement",
+        lambda file_id, dossier_id, journal_id: ok(f"{file_id} {dossier_id} {journal_id}"),
+    )
     assert pipeline.answer_pending("s", "Le compte BMCE")["message"] == f"{file_id} 557 4"
-    pipeline.record_step("r2", "s", "Reprendre ou ?", {"status": "ok", "message": "MODE TEST : importe", "file_id": file_id,
-                                                        "step": "import_bank_statement"})  # test mode: no statement saved
+    pipeline.record_step(
+        "r2",
+        "s",
+        "Reprendre ou ?",
+        {"status": "ok", "message": "MODE TEST : importe", "file_id": file_id, "step": "import_bank_statement"},
+    )  # test mode: no statement saved
     assert pipeline.waiting_on("s") == []  # answered: it waits no more
 
 
 @pytest.mark.functionality
 def test_the_date_the_client_gives_is_the_invoices(monkeypatch):
     written = []
-    monkeypatch.setattr(exercice, "require_invoice", lambda invoice_id, fields: {
-        "state": "draft", "company_id": [1, "X"], "exercice_id": False, "invoice_date": False, "is_old_invoice": False})
-    monkeypatch.setattr(exercice, "odoo_call", lambda *a, **k: [{"id": 5, "name": "Exercice 2026", "date_start": "2026-01-01",
-                                                                 "date_end": "2026-12-31"}])
+    monkeypatch.setattr(
+        exercice,
+        "require_invoice",
+        lambda invoice_id, fields: {
+            "state": "draft",
+            "company_id": [1, "X"],
+            "exercice_id": False,
+            "invoice_date": False,
+            "is_old_invoice": False,
+        },
+    )
+    monkeypatch.setattr(
+        exercice,
+        "odoo_call",
+        lambda *a, **k: [{"id": 5, "name": "Exercice 2026", "date_start": "2026-01-01", "date_end": "2026-12-31"}],
+    )
     monkeypatch.setattr(exercice, "fill_invoice", lambda invoice_id, values, context: written.append(values))
     monkeypatch.setattr(exercice, "test_mode_note", lambda: "")
     assert exercice.settle_exercice(7, "")["status"] == "question"
@@ -110,8 +144,13 @@ def test_the_date_the_client_gives_is_the_invoices(monkeypatch):
 @pytest.mark.functionality
 def test_a_draft_that_failed_or_waited_is_taken_up_again(db_cabinet, monkeypatch):
     monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain, **kw: domain[0][2])  # all still drafts
-    for run, invoice_id, step, status in [("r", 1, "check_invoice", "error"), ("r", 1, "wait_until_read", "ok"),
-                                          ("r", 2, "wait_until_read", "wait"), ("r", 3, "settle_tva", "question"),
-                                          ("r", 4, "check_invoice", "error"), ("r2", 4, "post_invoice", "ok")]:
+    for run, invoice_id, step, status in [
+        ("r", 1, "check_invoice", "error"),
+        ("r", 1, "wait_until_read", "ok"),
+        ("r", 2, "wait_until_read", "wait"),
+        ("r", 3, "settle_tva", "question"),
+        ("r", 4, "check_invoice", "error"),
+        ("r2", 4, "post_invoice", "ok"),
+    ]:
         pipeline.record_step(run, "s", f"x ({step})", {"status": status, "message": "m", "invoice_id": invoice_id})
     assert pipeline.waiting_drafts("s")["invoices"] == [1, 2]  # 3 waits on the client, 4 went through since

@@ -25,11 +25,23 @@ def no_memory(monkeypatch):
 def test_the_thread_goes_to_its_cabinets_agent_in_its_own_conversation(cabinet, monkeypatch):
     sent = {}
     monkeypatch.setattr(agent, "cabinet_db", lambda: FakeDb((1,)))
-    monkeypatch.setattr(agent, "call_n8n", lambda tool, **kw: sent.update(tool=tool, **kw) or
-                        {"ok": True, "status": "completed", "response": "Bien recu."})
+    monkeypatch.setattr(
+        agent,
+        "call_n8n",
+        lambda tool, **kw: sent.update(tool=tool, **kw)
+        or {"ok": True, "status": "completed", "response": "Bien recu."},
+    )
     assert agent.ask_agent("mail-1", "Voici la facture", ["f.pdf", "g.pdf"])["output"] == "Bien recu."
-    assert sent == {"tool": "call_agent", "agentId": "agent-of-a", "request": {
-        "type": "message", "message": "Voici la facture\n\nFichiers joints : f.pdf, g.pdf", "sessionId": "mail-1", "newSession": True}}
+    assert sent == {
+        "tool": "call_agent",
+        "agentId": "agent-of-a",
+        "request": {
+            "type": "message",
+            "message": "Voici la facture\n\nFichiers joints : f.pdf, g.pdf",
+            "sessionId": "mail-1",
+            "newSession": True,
+        },
+    }
 
 
 @pytest.mark.security
@@ -41,8 +53,14 @@ def test_only_a_known_email_conversation(cabinet, monkeypatch):
 
 
 @pytest.mark.communication
-@pytest.mark.parametrize("answer", [{"ok": False, "code": "session_not_found", "message": "Session not found."},
-                                    {"ok": True, "status": "suspended", "response": "?"}, {"ok": True, "status": "completed"}])
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"ok": False, "code": "session_not_found", "message": "Session not found."},
+        {"ok": True, "status": "suspended", "response": "?"},
+        {"ok": True, "status": "completed"},
+    ],
+)
 def test_no_reply_is_an_error_without_n8n_details(cabinet, monkeypatch, answer):
     monkeypatch.setattr(agent, "cabinet_db", lambda: FakeDb((1,)))
     monkeypatch.setattr(agent, "call_n8n", lambda *a, **k: answer)
@@ -54,5 +72,6 @@ def test_no_reply_is_an_error_without_n8n_details(cabinet, monkeypatch, answer):
 @pytest.mark.security
 def test_the_files_names_are_never_the_clients_words():
     from tarik.core.conversation import own_words
+
     assert own_words("Voici la facture\n\nFichiers joints : ICE 001122334455667.pdf") == "Voici la facture"
     assert own_words("(pas de message)\n\nFichiers joints : f.pdf") == "" and own_words(None) == ""

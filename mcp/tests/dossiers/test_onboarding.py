@@ -18,12 +18,18 @@ HEAD = "JournalCode;JournalLib;EcritureNum;EcritureDate;CompteNum;CompteLib;Ecri
 
 @pytest.mark.functionality
 def test_fec_or_grand_livre_from_the_file_alone():
-    fec = HEAD + "".join(f"\n{j};J;{i};2025010{i % 9 + 1};{a};X;L;10;0" for i, (j, a) in enumerate(
-        [("AC", "6111"), ("AC", "4411"), ("BQ", "5141"), ("BQ", "4411")] * 8))
-    ledger = HEAD + "".join(f"\nAC;J;{i};20250101;{a};X;L;10;0" for i, a in enumerate(sorted(["6111", "4411", "5141", "3421"] * 8)))
+    fec = HEAD + "".join(
+        f"\n{j};J;{i};2025010{i % 9 + 1};{a};X;L;10;0"
+        for i, (j, a) in enumerate([("AC", "6111"), ("AC", "4411"), ("BQ", "5141"), ("BQ", "4411")] * 8)
+    )
+    ledger = HEAD + "".join(
+        f"\nAC;J;{i};20250101;{a};X;L;10;0" for i, a in enumerate(sorted(["6111", "4411", "5141", "3421"] * 8))
+    )
     assert entries_kind(fec, ";") == "fec" and entries_kind(ledger, ";") == "grand livre"
     assert entries_kind(HEAD + "\nAC;J;1;20250101;6111;X;L;10;0", ";") == "fec"  # too short to tell: its headers
-    assert entries_kind("Code journal;Date;Compte;Libelle;Debit;Credit\nAC;01/01/2025;6111;L;10;0", ";") == "grand livre"
+    assert (
+        entries_kind("Code journal;Date;Compte;Libelle;Debit;Credit\nAC;01/01/2025;6111;L;10;0", ";") == "grand livre"
+    )
 
 
 @pytest.mark.technical
@@ -40,32 +46,49 @@ def test_an_excel_file_becomes_the_text_the_import_reads():
     book.active.append([None, None, None, None, None, None])
     saved = io.BytesIO()
     book.save(saved)
-    assert sheet_text(saved.getvalue()).splitlines() == ["Journal;Date;Compte;;Debit;Credit", "ACH;20250102;61250000;;17490;12.5"]
+    assert sheet_text(saved.getvalue()).splitlines() == [
+        "Journal;Date;Compte;;Debit;Credit",
+        "ACH;20250102;61250000;;17490;12.5",
+    ]
 
 
 def asked(step, message):
     with cabinet_db() as db:
-        db.execute("insert into tarik_results (run_id, session_id, step, status, message) values ('r', 's', %s, 'question', %s)",
-                   (step, message))
+        db.execute(
+            "insert into tarik_results (run_id, session_id, step, status, message) values ('r', 's', %s, "
+            "'question', %s)",
+            (step, message),
+        )
 
 
 @pytest.mark.security
 def test_skipping_the_ice_check_needs_a_yes_to_its_own_question_about_that_dossier(db_cabinet):
     skip = ("sans cette verification", "ALPHA")
     assert not confirmed("s", "Créez-le sans vérification", *skip)  # asking is not confirming: Tarik asks first
-    asked("create_dossier", "Experio verifie l'ICE et l'IF aupres du registre officiel. Confirmez-vous la creation du dossier "
-                            "ALPHA sans cette verification ? oui / non")
+    asked(
+        "create_dossier",
+        "Experio verifie l'ICE et l'IF aupres du registre officiel. Confirmez-vous la creation du dossier "
+        "ALPHA sans cette verification ? oui / non",
+    )
     assert confirmed("s", "Oui, je confirme", *skip) and not confirmed("s", "non", *skip)
-    assert not confirmed("s", "Oui, créez aussi BETA sans vérification", "sans cette verification", "BETA")  # another dossier
+    assert not confirmed(
+        "s", "Oui, créez aussi BETA sans vérification", "sans cette verification", "BETA"
+    )  # another dossier
     asked("assign_account", "Facture 12 : quel compte utiliser ?")
     assert not confirmed("s", "oui", *skip)  # this yes answers the later question, whatever its step
 
 
 @pytest.mark.security
 def test_a_value_counts_only_as_the_client_wrote_it():
-    assert client_wrote("name", "ALPHA", "Renommez-le en Alpha.") and not client_wrote("name", "ALPHA", "le code ALPHANUMERIQUE")
-    assert client_wrote("capital", "100000.5", "capital 100 000,50 DH") and not client_wrote("capital", "100000", "capital 100 000,50 DH")
-    assert client_wrote("capital", "100000", "capital : 100 000 DH") and not client_wrote("capital", "beaucoup", "capital 100 000")
+    assert client_wrote("name", "ALPHA", "Renommez-le en Alpha.") and not client_wrote(
+        "name", "ALPHA", "le code ALPHANUMERIQUE"
+    )
+    assert client_wrote("capital", "100000.5", "capital 100 000,50 DH") and not client_wrote(
+        "capital", "100000", "capital 100 000,50 DH"
+    )
+    assert client_wrote("capital", "100000", "capital : 100 000 DH") and not client_wrote(
+        "capital", "beaucoup", "capital 100 000"
+    )
     assert client_wrote("rc", "331245", "RC 331245") and not client_wrote("rc", "33124", "RC 331245")
 
 
@@ -88,8 +111,12 @@ def test_a_left_out_ice_or_if_is_the_one_the_client_wrote():
 
 @pytest.mark.security
 def test_the_model_never_overrides_with_a_number_the_client_did_not_write():
-    assert as_written("001111222333444", ICE_WRITTEN.findall(MESSAGE)) == "001111222333444"  # as given: create_dossier refuses it
-    assert as_written("", ICE_WRITTEN.findall("ICE 008123456000100 ou peut-être 008123456000999 ?")) == ""  # two: no guess
+    assert (
+        as_written("001111222333444", ICE_WRITTEN.findall(MESSAGE)) == "001111222333444"
+    )  # as given: create_dossier refuses it
+    assert (
+        as_written("", ICE_WRITTEN.findall("ICE 008123456000100 ou peut-être 008123456000999 ?")) == ""
+    )  # two: no guess
     assert as_written("", ICE_WRITTEN.findall("Créez le dossier FAIR")) == ""
 
 
@@ -109,14 +136,20 @@ def test_a_call_without_a_name_says_how_to_call_again():
 def test_a_new_dossier_takes_only_the_ice_and_if_the_client_wrote(db_cabinet, monkeypatch):
     monkeypatch.setattr(identity, "dry_run", lambda: True)
     monkeypatch.setattr(identity, "lookalikes", lambda name, ice, if_number: ([], []))
-    answer = identity.create_dossier(name="FAIR KAPPA", ice="001111222333444", if_number="0712345", client_message=MESSAGE, session_id="s")
+    answer = identity.create_dossier(
+        name="FAIR KAPPA", ice="001111222333444", if_number="0712345", client_message=MESSAGE, session_id="s"
+    )
     assert answer["status"] == "ok" and answer["message"].endswith("Non repris, le client ne l'a pas ecrit : ICE.")
 
 
 @pytest.mark.security
 def test_an_identifier_counts_only_after_its_own_label():
-    assert client_wrote("rc", "98765", "IF 12345678, RC 98765") and not client_wrote("rc", "12345678", "IF 12345678, RC 98765")
-    assert client_wrote("if_number", "71234561", "I.F : 71 234 561") and not client_wrote("if_number", "98765", "RC 98765")
+    assert client_wrote("rc", "98765", "IF 12345678, RC 98765") and not client_wrote(
+        "rc", "12345678", "IF 12345678, RC 98765"
+    )
+    assert client_wrote("if_number", "71234561", "I.F : 71 234 561") and not client_wrote(
+        "if_number", "98765", "RC 98765"
+    )
     assert not client_wrote("folder_type", "company", "Changez l'adresse de ma société.")
     assert client_wrote("folder_type", "company", "C'est une personne morale.")
 

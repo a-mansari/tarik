@@ -5,9 +5,21 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.dossiers import identity as onboarding
 
-CURRENT = {"name": "Gecafisc", "folder_type": "company", "ice": "000055632000078", "vat": "40246200", "rc": "229139",
-           "pat": False, "tsc": False, "capital": 0.0, "cnss_number": False, "street": "Avenue Tantan", "street2": False,
-           "city": "CASABLANCA", "zip": False}
+CURRENT = {
+    "name": "Gecafisc",
+    "folder_type": "company",
+    "ice": "000055632000078",
+    "vat": "40246200",
+    "rc": "229139",
+    "pat": False,
+    "tsc": False,
+    "capital": 0.0,
+    "cnss_number": False,
+    "street": "Avenue Tantan",
+    "street2": False,
+    "city": "CASABLANCA",
+    "zip": False,
+}
 
 
 @pytest.fixture
@@ -20,10 +32,13 @@ def experio(monkeypatch):
         if method == "search_read":
             return calls["others"]
         raise AssertionError(method)
+
     monkeypatch.setattr(onboarding, "odoo_call", odoo_call)
     monkeypatch.setattr(onboarding, "odoo_json", lambda model, method, ids, values: calls["write"].append(values))
     monkeypatch.setattr(onboarding, "require_dossier", lambda dossier_id: "Gecafisc")
-    monkeypatch.setattr(onboarding, "dossiers", lambda: [{"id": 557, "name": "Gecafisc"}, {"id": 25, "name": "CAFE EPSOM"}])
+    monkeypatch.setattr(
+        onboarding, "dossiers", lambda: [{"id": 557, "name": "Gecafisc"}, {"id": 25, "name": "CAFE EPSOM"}]
+    )
     monkeypatch.setattr(onboarding, "dry_run", lambda: False)
     monkeypatch.setattr(onboarding, "client_messages", lambda session_id, message: [message])
     return calls
@@ -31,8 +46,13 @@ def experio(monkeypatch):
 
 @pytest.mark.functionality
 def test_the_fields_the_client_wrote_are_changed(experio):
-    result = onboarding.update_dossier(557, rc="331245", city="Rabat", capital=100000,
-                                       client_message="Pour Gecafisc : nouveau RC 331245, ville Rabat, capital 100 000 DH.")
+    result = onboarding.update_dossier(
+        557,
+        rc="331245",
+        city="Rabat",
+        capital=100000,
+        client_message="Pour Gecafisc : nouveau RC 331245, ville Rabat, capital 100 000 DH.",
+    )
     assert experio["write"] == [{"rc": "331245", "city": "Rabat", "capital": 100000.0}]
     assert "RC : 229139 -> 331245" in result["message"] and "ville : CASABLANCA -> Rabat" in result["message"]
 
@@ -75,8 +95,9 @@ def test_the_type_needs_the_clients_words(experio):
 @pytest.mark.security
 def test_skipping_the_registry_check_is_the_clients_confirmed_request_only(experio, monkeypatch):
     monkeypatch.setattr(onboarding, "confirmed", lambda session_id, message, *parts: False)
-    result = onboarding.update_dossier(557, ice="008123456000011", skip_ice_if_check=True,
-                                       client_message="ICE 008123456000011, sans verification svp")
+    result = onboarding.update_dossier(
+        557, ice="008123456000011", skip_ice_if_check=True, client_message="ICE 008123456000011, sans verification svp"
+    )
     assert result["status"] == "question" and "sans cette verification" in result["message"] and experio["write"] == []
     monkeypatch.setattr(onboarding, "confirmed", lambda session_id, message, *parts: "Gecafisc" in parts)
     onboarding.update_dossier(557, ice="008123456000011", skip_ice_if_check=True, client_message="ICE 008123456000011")

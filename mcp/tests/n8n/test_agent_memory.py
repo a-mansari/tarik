@@ -18,9 +18,11 @@ import pytest
 PROJECT = os.getenv("N8N_MCP_PROJECT_ID", "")
 CREDENTIAL = os.getenv("N8N_MCP_CREDENTIAL", "MiniMaxAnthr0p1c")
 
-INSTRUCTIONS = ("Tu es un agent de test. Quand on te donne un code secret, retiens-le et reponds OK. "
-                "Quand on te demande le code secret, donne-le exactement s'il t'a ete donne, sinon reponds AUCUN. "
-                "N'invente jamais de code.")
+INSTRUCTIONS = (
+    "Tu es un agent de test. Quand on te donne un code secret, retiens-le et reponds OK. "
+    "Quand on te demande le code secret, donne-le exactement s'il t'a ete donne, sinon reponds AUCUN. "
+    "N'invente jamais de code."
+)
 
 
 @pytest.fixture(scope="module")
@@ -28,9 +30,17 @@ def agents(n8n):
     project = PROJECT or n8n.tool("search_agents")["data"][0]["projectId"]
     made = []
     for name in ("A", "B"):
-        created = n8n.tool("create_agent", projectId=project, name=f"Test memoire {name} {uuid.uuid4().hex[:6]}", config={
-            "model": "anthropic/MiniMax-M3", "credential": CREDENTIAL, "instructions": INSTRUCTIONS,
-            "memory": {"enabled": True, "storage": "n8n"}})
+        created = n8n.tool(
+            "create_agent",
+            projectId=project,
+            name=f"Test memoire {name} {uuid.uuid4().hex[:6]}",
+            config={
+                "model": "anthropic/MiniMax-M3",
+                "credential": CREDENTIAL,
+                "instructions": INSTRUCTIONS,
+                "memory": {"enabled": True, "storage": "n8n"},
+            },
+        )
         made.append(created.get("agentId") or created.get("id") or created["agent"]["id"])
     yield made
     for agent_id in made:

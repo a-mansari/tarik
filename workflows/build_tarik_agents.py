@@ -42,20 +42,37 @@ def settings():
             values[key.strip()] = value.strip()
     root = HERE.parent / "vault/.local/unseal/root_token"
     if "N8N_MCP_API_TOKEN" not in values and root.exists():
-        request = urllib.request.Request("http://127.0.0.1:8200/v1/secret/data/tarik/shared",
-                                         headers={"X-Vault-Token": root.read_text().strip()})
+        request = urllib.request.Request(
+            "http://127.0.0.1:8200/v1/secret/data/tarik/shared", headers={"X-Vault-Token": root.read_text().strip()}
+        )
         with urllib.request.urlopen(request, timeout=10) as answer:
             values["N8N_MCP_API_TOKEN"] = json.loads(answer.read())["data"]["data"]["N8N_MCP_API_TOKEN"]
     return values
 
 
-
 def n8n(tool, **arguments):
     """One tool of n8n's MCP server; its structured result."""
-    request = urllib.request.Request(settings()["N8N_MCP_API_URL"], method="POST", data=json.dumps({
-        "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}).encode(),
-        headers={"authorization": f"Bearer {settings()['N8N_MCP_API_TOKEN']}", "content-type": "application/json",
-                 "accept": "application/json, text/event-stream"})
+    request = urllib.request.Request(
+        settings()["N8N_MCP_API_URL"],
+        method="POST",
+        data=json.dumps(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
+        ).encode(),
+        headers={
+            "authorization": f"Bearer {settings()['N8N_MCP_API_TOKEN']}",
+            "content-type": "application/json",
+            "accept": "application/json, text/event-stream",
+        },
+    )
+    result = json.loads(answer_text(request))["result"]
+    content = result.get("structuredContent") or json.loads(result["content"][0]["text"])
+    if result.get("isError") or content.get("ok") is False:
+        raise SystemExit(f"{tool}: {content}")
+    return content
+
+
+def answer_text(request):
+    """The JSON text n8n answers ``request`` (a urllib Request) with, out of its event stream when it streams."""
     for attempt in range(8):
         try:
             with urllib.request.urlopen(request, timeout=120) as answer:
@@ -67,14 +84,11 @@ def n8n(tool, **arguments):
             time.sleep(int(error.headers.get("retry-after") or 0) or 5 * (attempt + 1))
     if "data:" in text:
         text = next(line[5:] for line in text.splitlines() if line.startswith("data:"))
-    result = json.loads(text)["result"]
-    content = result.get("structuredContent") or json.loads(result["content"][0]["text"])
-    if result.get("isError") or content.get("ok") is False:
-        raise SystemExit(f"{tool}: {content}")
-    return content
+    return text
 
 
 def config_for(cabinet, name):
+    """The agent's configuration (dict) for ``cabinet`` (its database) named ``name``, from tarik-agent.json."""
     text = (HERE / "tarik-agent.json").read_text()
     return json.loads(text.replace("__CABINET_NAME__", name).replace("__CABINET__", cabinet))
 
@@ -96,7 +110,9 @@ def skill_files():
     instructions. n8n keeps skills per agent, so every agent gets the same copy of each."""
     for path in sorted((HERE / "skills").glob("*.md")):
         _, front, body = path.read_text().split("---", 2)
-        meta = {key.strip(): value.strip() for key, _, value in (line.partition(":") for line in front.strip().splitlines())}
+        meta = {
+            key.strip(): value.strip() for key, _, value in (line.partition(":") for line in front.strip().splitlines())
+        }
         yield {"name": meta["name"], "description": meta["description"], "instructions": body.strip()}
 
 
@@ -111,16 +127,24 @@ def unknown_names(skills, config):
     for server in config.get("mcpServers", []):  # n8n shows an MCP server's tools as <server>_<tool>
         known |= {f"{server['name']}_{tool}" for tool in (server.get("toolFilter") or {}).get("tools", [])}
     names = r"\b[A-Za-z]+(?:_[a-z]+)+\b"  # snake_case, a tool's server prefix included (Experio_find_dossier)
-    return {skill["name"]: sorted(set(re.findall(names, skill["instructions"] + " " + skill["description"])) - known)
-            for skill in skills}
+    return {
+        skill["name"]: sorted(set(re.findall(names, skill["instructions"] + " " + skill["description"])) - known)
+        for skill in skills
+    }
 
 
 def check_skills():
     """Refuse to build when a skill, the instructions or a tool's description names a tool or field
     the agents do not have."""
     config = config_for("check", "check")
-    texts = [*skill_files(), {"name": "instructions", "description": " ".join(tool["description"] for tool in config["tools"]),
-                              "instructions": config["instructions"]}]
+    texts = [
+        *skill_files(),
+        {
+            "name": "instructions",
+            "description": " ".join(tool["description"] for tool in config["tools"]),
+            "instructions": config["instructions"],
+        },
+    ]
     wrong = {name: names for name, names in unknown_names(texts, config).items() if names}
     if wrong:
         raise SystemExit(f"skills name tools or fields the agents do not have: {wrong}")
@@ -128,7 +152,12 @@ def check_skills():
 
 def mutate(agent_id, operation):
     """One change to an agent, on its latest configuration (n8n refuses a change made on an older one)."""
-    return n8n("mutate_agent", agentId=agent_id, baseConfigHash=n8n("get_agent", agentId=agent_id)["configHash"], operation=operation)
+    return n8n(
+        "mutate_agent",
+        agentId=agent_id,
+        baseConfigHash=n8n("get_agent", agentId=agent_id)["configHash"],
+        operation=operation,
+    )
 
 
 def sync_skills(agent_id):
@@ -146,7 +175,20 @@ def sync_skills(agent_id):
     return [skill["name"] for skill in wanted]
 
 
+def update(agent_id, config):
+    """Replace agent ``agent_id``'s configuration with ``config``, keeping the skills attached to it."""
+    config["skills"] = n8n("get_agent", agentId=agent_id)["config"].get("skills") or []
+    mutate(agent_id, {"type": "config.replace", "config": config})
+
+
+def create(project, config):
+    """A new agent in ``project`` with ``config`` (its name taken out of it); returns its id."""
+    created = n8n("create_agent", projectId=project, name=config.pop("name"), config=config)
+    return created.get("agentId") or created.get("id") or created["agent"]["id"]
+
+
 def main():
+    """Check the skills, then update each cabinet's agent (or create it) and its skills; print each agent's id."""
     check_skills()
     existing = agents_by_cabinet()
     if any(len(agents) > 1 for agents in existing.values()):
@@ -155,16 +197,13 @@ def main():
     for cabinet, name in CABINETS.items():
         config = config_for(cabinet, name)
         if cabinet in existing:
-            agent_id = existing[cabinet][0][0]
-            config["skills"] = n8n("get_agent", agentId=agent_id)["config"].get("skills") or []  # attached: kept
-            mutate(agent_id, {"type": "config.replace", "config": config})
-            action = "updated"
+            agent_id, action = existing[cabinet][0][0], "updated"
+            update(agent_id, config)
         else:
-            created = n8n("create_agent", projectId=project, name=config.pop("name"), config=config)
-            agent_id = created.get("agentId") or created.get("id") or created["agent"]["id"]
-            action = "created"
-        skills = sync_skills(agent_id)
-        print(f"{cabinet.upper()}__AGENT_ID={agent_id}  # {config.get('name', 'Tarik - ' + name)}, {action}, skills: {', '.join(skills)}")
+            agent_id, action = create(project, config), "created"
+        skills = ", ".join(sync_skills(agent_id))
+        label = config.get("name", "Tarik - " + name)  # a created agent's name was taken out of its config
+        print(f"{cabinet.upper()}__AGENT_ID={agent_id}  # {label}, {action}, skills: {skills}")
 
 
 if __name__ == "__main__":

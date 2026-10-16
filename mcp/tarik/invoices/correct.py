@@ -2,38 +2,105 @@
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import with_ids, ok, server
+from tarik.core.app import ok, server, with_ids
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import dry_run, fill_invoice, invoice_context, odoo_call, odoo_json, refused, require_draft, require_invoice
+from tarik.core.config import TEST_MODE
+from tarik.core.experio import (
+    dry_run,
+    fill_invoice,
+    invoice_context,
+    odoo_call,
+    refresh,
+    refused,
+    require_draft,
+    require_invoice,
+)
 from tarik.invoices.check import CAPTURED
 
-WRITABLE = set(CAPTURED)  # the header fields only (tarik-master odoo.WRITABLE): tiers, account, journal... are later steps
+# The header fields only (tarik-master odoo.WRITABLE): tiers, account, journal... are later steps.
+WRITABLE = set(CAPTURED)
 
 MULTI_TVA_RATES = {7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20}  # the amount_tva_<rate> fields Experio has
 
-PAYMENT_METHODS = {"especes": "Esp", "cheque": "Ch", "virement": "Virement", "effet": "Effet",
-                   "prelevement": "Pr", "compensation": "Compensation"}
+PAYMENT_METHODS = {
+    "especes": "Esp",
+    "cheque": "Ch",
+    "virement": "Virement",
+    "effet": "Effet",
+    "prelevement": "Pr",
+    "compensation": "Compensation",
+}
+
 
 def planned_changes(extracted, bad_fields, invoice):
-    """What the check says to write: the differing header fields, the credit note and
-    the multi-TVA split (tarik-master orchestrator.correct + odoo.apply_variants)."""
-    changes = {b["field"]: extracted[b["field"]] for b in bad_fields
-               if b["field"] in WRITABLE and extracted.get(b["field"]) is not None}
+    """What the check says to write ({field: value}): the differing header fields, the credit note and
+    the multi-TVA split (tarik-master orchestrator.correct + odoo.apply_variants). ``extracted`` and
+    ``bad_fields`` come from the check, ``invoice`` holds refund and amount_tax_non_recoverable."""
+    changes = {
+        b["field"]: extracted[b["field"]]
+        for b in bad_fields
+        if b["field"] in WRITABLE and extracted.get(b["field"]) is not None
+    }
     if extracted.get("is_credit_note") is True and not invoice.get("refund"):  # the model's "false" is not true
         changes["refund"] = True
-    lines = [line for line in extracted.get("tva_lines") or [] if line.get("amount_ht") and line.get("rate") is not None]
+    lines = [
+        line for line in extracted.get("tva_lines") or [] if line.get("amount_ht") and line.get("rate") is not None
+    ]
     rates = {}  # rate -> its TVA: an invoice may list several lines at one rate
     for line in lines:
         rates[int(line["rate"])] = round(rates.get(int(line["rate"]), 0) + (line.get("amount_tva") or 0), 2)
     # Split only from lines read in full that add up to the TVA read on the scan: a line not read, or read twice, never
     # becomes a written amount.
-    trusted = (all(line.get("amount_tva") is not None for line in lines) and extracted.get("amount_tva") is not None
-               and abs(sum(rates.values()) - extracted["amount_tva"]) <= 1)
-    if len(rates) > 1 and trusted and not invoice.get("amount_tax_non_recoverable") and set(rates) - {0} <= MULTI_TVA_RATES:
+    trusted = (
+        all(line.get("amount_tva") is not None for line in lines)
+        and extracted.get("amount_tva") is not None
+        and abs(sum(rates.values()) - extracted["amount_tva"]) <= 1
+    )
+    if (
+        len(rates) > 1
+        and trusted
+        and not invoice.get("amount_tax_non_recoverable")
+        and set(rates) - {0} <= MULTI_TVA_RATES
+    ):
         changes["multi_tva"] = True
         changes.update({f"amount_tva_{rate}": amount for rate, amount in rates.items() if rate})
         changes["amount_tva"] = round(sum(rates.values()), 2)
     return changes
+
+
+def _currency(code, changes, notes):
+    """Add the currency ``code`` (ISO) the scan shows to ``changes``, or a note to ``notes`` when Experio lacks it."""
+    if code == "MAD":
+        return
+    currency = odoo_call("res.currency", "search_read", [("name", "=", code)], fields=["id"], limit=1)
+    if currency:
+        changes["currency_id"] = currency[0]["id"]  # Experio fetches the rate for the invoice date itself
+    else:
+        notes.append(f"devise {code} inconnue dans Experio")
+
+
+def _payment_method(name, invoice, changes):
+    """Add the payment method ``name`` the scan shows (especes, cheque...) to ``changes``, when the invoice has none
+    and Experio has it."""
+    method = PAYMENT_METHODS.get((name or "").lower())
+    if method and not invoice["payment_method_id"]:
+        found = odoo_call(
+            "exp.payment.method", "search_read", [("name", "=ilike", f"{method}%")], fields=["id"], limit=1
+        )
+        if found:
+            changes["payment_method_id"] = found[0]["id"]
+
+
+def _stored_check(invoice_id):
+    """The invoice's check from tarik_checks: (readable, extracted, bad_fields). ToolError when not checked yet."""
+    with cabinet_db() as db:
+        row = db.execute(
+            "select readable, extracted, bad_fields from tarik_checks where invoice_id = %s", (invoice_id,)
+        ).fetchone()
+    if not row:
+        raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice.")
+    return row
+
 
 @server.tool()
 @with_ids
@@ -42,41 +109,40 @@ def correct_invoice(invoice_id: int) -> dict:
     the scan over the fields Experio captured differently (amounts, number,
     date, credit note, multi-TVA, currency, payment method), then lets Experio
     rebuild its TVA lines. Call check_invoice first."""
-    invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "refund", "amount_tax_non_recoverable",
-                                           "payment_method_id", "currency_id"])
+    invoice = require_invoice(
+        invoice_id,
+        [
+            "state",
+            "company_id",
+            "exercice_id",
+            "refund",
+            "amount_tax_non_recoverable",
+            "payment_method_id",
+            "currency_id",
+        ],
+    )
     require_draft(invoice_id, invoice, "etre corrigee")
-    with cabinet_db() as db:
-        row = db.execute("select readable, extracted, bad_fields from tarik_checks where invoice_id = %s", (invoice_id,)).fetchone()
-    if not row:
-        raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice.")
-    readable, extracted, bad_fields = row
+    readable, extracted, bad_fields = _stored_check(invoice_id)
     if not readable:
         return ok(f"Facture {invoice_id} : scan illisible, rien a corriger.")
     changes = planned_changes(extracted, bad_fields, invoice)
     notes = []
     with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refuse la correction."):
-        code = (extracted.get("currency") or "MAD").upper()
-        if code != "MAD":
-            currency = odoo_call("res.currency", "search_read", [("name", "=", code)], fields=["id"], limit=1)
-            if currency:
-                changes["currency_id"] = currency[0]["id"]  # Experio fetches the rate for the invoice date itself
-            else:
-                notes.append(f"devise {code} inconnue dans Experio")
-        method = PAYMENT_METHODS.get((extracted.get("payment_method") or "").lower())
-        if method and not invoice["payment_method_id"]:
-            found = odoo_call("exp.payment.method", "search_read", [("name", "=ilike", f"{method}%")], fields=["id"], limit=1)
-            if found:
-                changes["payment_method_id"] = found[0]["id"]
+        _currency((extracted.get("currency") or "MAD").upper(), changes, notes)
+        _payment_method(extracted.get("payment_method"), invoice, changes)
+        noted = f" ({'; '.join(notes)})" if notes else ""
         if not changes:
-            return ok(f"Facture {invoice_id} : rien a corriger." + (f" ({'; '.join(notes)})" if notes else ""))
+            return ok(f"Facture {invoice_id} : rien a corriger.{noted}")
         context = invoice_context(invoice)
         changed = fill_invoice(invoice_id, changes, context)
         if not changed:
             return ok(f"Facture {invoice_id} : deja a jour, rien a changer.")
-        if not dry_run():
-            odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)  # Experio's own "Actualiser"; returns None, hence JSON-RPC
+        refresh(invoice_id, context)
     shown = ", ".join(f"{field} = {changed.get(field, value)}" for field, value in changes.items())
     other = sorted(set(changed) - set(changes))
-    head = (f"MODE TEST : aucune modification enregistree dans Experio. Facture {invoice_id}, correction prevue : {shown}."
-            if dry_run() else f"Facture {invoice_id} : corrigee : {shown}.")
-    return ok(head + (f" Experio a aussi mis a jour : {', '.join(other)}." if other else "") + (f" ({'; '.join(notes)})" if notes else ""))
+    if dry_run():
+        head = f"{TEST_MODE}Facture {invoice_id}, correction prevue : {shown}."
+    else:
+        head = f"Facture {invoice_id} : corrigee : {shown}."
+    also = f" Experio a aussi mis a jour : {', '.join(other)}." if other else ""
+    return ok(head + also + noted)

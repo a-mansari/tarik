@@ -14,8 +14,10 @@ import psycopg
 import pytest
 
 from tarik.core import vault
-from tarik.core.cabinets import POSTGRES, using
-from tarik.dossiers.search import dossiers, normalized
+from tarik.core.cabinets import using
+from tarik.core.config import POSTGRES
+from tarik.core.text import normalized
+from tarik.dossiers.search import dossiers
 
 CABINET = os.getenv("TARIK_TEST_CABINET", "experio_cabinet_8")
 N8N_DB = {**POSTGRES, "dbname": os.getenv("N8N_POSTGRES_DB", "n8n")}
@@ -25,17 +27,35 @@ N8N_DB = {**POSTGRES, "dbname": os.getenv("N8N_POSTGRES_DB", "n8n")}
 SCENARIOS = [
     (["Voici les factures de Gecafisc.", "Ce sont des achats."], "gecafisc", "achat"),
     (["Voici mes factures d'achat.", "Gecafisc."], "gecafisc", "achat"),
-    (["Pour toute cette conversation, les factures que je vous envoie sont des ventes.", "Voici celles de KTSYS."], "ktsys", "vente"),
-    (["Je travaille sur le dossier DJ BUILDING aujourd'hui.", "Voici les factures fournisseurs."], "dj building", "achat"),
-    (["Voici les factures d'achat de la Pharmacie Jawad.", "Et maintenant les ventes du même dossier."], "pharmacie jawad", "vente"),
-    (["Voici les relevés de CAFE EPSOM.", "Traitez aussi les fichiers que je vous ai envoyés tout à l'heure."], "cafe epsom", ""),
+    (
+        ["Pour toute cette conversation, les factures que je vous envoie sont des ventes.", "Voici celles de KTSYS."],
+        "ktsys",
+        "vente",
+    ),
+    (
+        ["Je travaille sur le dossier DJ BUILDING aujourd'hui.", "Voici les factures fournisseurs."],
+        "dj building",
+        "achat",
+    ),
+    (
+        ["Voici les factures d'achat de la Pharmacie Jawad.", "Et maintenant les ventes du même dossier."],
+        "pharmacie jawad",
+        "vente",
+    ),
+    (
+        ["Voici les relevés de CAFE EPSOM.", "Traitez aussi les fichiers que je vous ai envoyés tout à l'heure."],
+        "cafe epsom",
+        "",
+    ),
     (["Le dossier dont je parle, c'est KTSYS.", "Ce sont des factures d'achat, traitez-les."], "ktsys", "achat"),
 ]
 
 
 @pytest.fixture(scope="module")
 def agent():
-    agent_id = vault.settings()[1].get(CABINET, {}).get("AGENT_ID") if vault.ENABLED else os.getenv("TARIK_TEST_AGENT_ID")
+    agent_id = (
+        vault.settings()[1].get(CABINET, {}).get("AGENT_ID") if vault.ENABLED else os.getenv("TARIK_TEST_AGENT_ID")
+    )
     if not agent_id:
         pytest.skip(f"no agent for {CABINET}")
     return agent_id
@@ -57,11 +77,16 @@ def conversation(n8n, agent):
         for index, message in enumerate(turns):
             n8n.ask(agent, message, session, new=index == 0)
         with psycopg.connect(**N8N_DB) as db:
-            rows = db.execute('select role, content::text from agents_messages where "threadId" = %s order by "createdAt"',
-                              (session,)).fetchall()
+            rows = db.execute(
+                'select role, content::text from agents_messages where "threadId" = %s order by "createdAt"', (session,)
+            ).fetchall()
         last = max(i for i, (role, _) in enumerate(rows) if role == "user")
         last_turn = "\n".join(content for _, content in rows[last:])
-        return [json.loads(m.group(1)) for m in re.finditer(r'"toolName":\s*"Experio_traiter_fichiers",\s*"input":\s*(\{[^{}]*\})', last_turn)]
+        return [
+            json.loads(m.group(1))
+            for m in re.finditer(r'"toolName":\s*"Experio_traiter_fichiers",\s*"input":\s*(\{[^{}]*\})', last_turn)
+        ]
+
     yield talk
     with psycopg.connect(**N8N_DB) as db:
         db.execute('delete from agents_messages where "threadId" = %s', (session,))

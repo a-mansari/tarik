@@ -4,7 +4,9 @@ Each workflow's JSON is built by its script (build_tarik_*.py): edit the script,
 (tests/style checks they match)."""
 
 import json
+import sys
 import uuid
+from pathlib import Path
 
 # tarik-mcp serves each cabinet at its own address only (mcp/server.py).
 MCP_ADDRESS = "http://tarik-mcp:8000/c/{}/mcp"
@@ -12,55 +14,92 @@ CALL = "$('Appel').first().json"
 RESULT = "$json.content[0].text"
 OK_ELSE = f"{RESULT}.status === 'ok' ? 0 : 1"
 # The native n8n agent's chat files: an "Appel" input, filled by n8n (n8n/patch.js), never by the model.
-ATTACHMENTS = {"name": "attachments", "type": "string"}
+ATTACHMENTS = {"attachments": "string"}
 # The cabinet a shared workflow works for: an "Appel" input, fixed by its caller (never chosen by a model).
-CABINET_INPUT = {"name": "cabinet", "type": "string"}
+CABINET_INPUT = {"cabinet": "string"}
 SAVE_ATTACHMENTS = "Pieces jointes de l'agent"
 RECORD = "Enregistrer"  # records each step's outcome; the run's summary is made from them
+SENDER = "Expediteur (check_sender)"
+FILES = "Fichiers du message (files_to_process)"
+EACH_FILE = "Un element par fichier"
 
 
 class Workflow:
+    """One workflow being built: its nodes and connections, saved as n8n's JSON."""
+
     def __init__(self, prefix, cabinet=CALL + ".cabinet"):
-        """``cabinet``: where the workflow's MCP steps read their cabinet, by default its "Appel" input,
-        fixed by its caller (no cabinet: the steps fail, never reach another cabinet)."""
+        """``prefix``: the workflow's file name without .json, also the seed of its node ids. ``cabinet``: where
+        its MCP steps read their cabinet, by default its "Appel" input, fixed by its caller (no cabinet: the
+        steps fail, never reach another cabinet)."""
         self.prefix, self.nodes, self.connections = prefix, [], {}
         self.mcp_url = "=" + MCP_ADDRESS.format("{{ " + cabinet + " }}")
 
     def node(self, name, type_, version, position, parameters, **extra):
-        """Node ids are derived from node names, so a rebuild only changes what changed."""
-        self.nodes.append({"id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{self.prefix}/{name}")), "name": name, "type": type_,
-                           "typeVersion": version, "position": position, "parameters": parameters, **extra})
+        """Add a node; returns its name. Node ids are derived from node names, so a rebuild only changes what
+        changed."""
+        node_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{self.prefix}/{name}"))
+        self.nodes.append(
+            {
+                "id": node_id,
+                "name": name,
+                "type": type_,
+                "typeVersion": version,
+                "position": position,
+                "parameters": parameters,
+                **extra,
+            }
+        )
         return name
 
     def connect(self, source, target, output=0):
+        """Connect output ``output`` of node ``source`` to node ``target``."""
         outputs = self.connections.setdefault(source, {}).setdefault("main", [])
         while len(outputs) <= output:
             outputs.append([])
         outputs[output].append({"node": target, "type": "main", "index": 0})
 
     def mcp(self, name, tool, arguments, position, timeout=300, **extra):
-        """One step: an MCP call, given up after ``timeout`` seconds. Output 0 = its answer, output 1 = a tool
-        error. ``extra``: n8n's node settings (retryOnFail...)."""
-        return self.node(name, "@n8n/n8n-nodes-langchain.mcpClient", 1.1, position, {
-            "endpointUrl": self.mcp_url, "serverTransport": "httpStreamable",
+        """One step: an MCP call of ``tool`` with ``arguments`` (a JS object expression), given up after
+        ``timeout`` seconds. Output 0 = its answer, output 1 = a tool error. ``extra``: n8n's node settings
+        (retryOnFail...). Returns its name."""
+        parameters = {
+            "endpointUrl": self.mcp_url,
+            "serverTransport": "httpStreamable",
             "tool": {"__rl": True, "mode": "id", "value": tool},
-            "inputMode": "json", "jsonInput": "={{ JSON.stringify(" + arguments + ") }}",
+            "inputMode": "json",
+            "jsonInput": "={{ JSON.stringify(" + arguments + ") }}",
             "options": {"timeout": timeout * 1000},
-        }, onError="continueErrorOutput", **extra)
+        }
+        return self.node(
+            name,
+            "@n8n/n8n-nodes-langchain.mcpClient",
+            1.1,
+            position,
+            parameters,
+            onError="continueErrorOutput",
+            **extra,
+        )
 
     def route(self, name, expression, outputs, position):
-        return self.node(name, "n8n-nodes-base.switch", 3.2, position,
-                         {"mode": "expression", "numberOutputs": outputs, "output": "={{ " + expression + " }}"})
+        """A switch node sending each item to output number ``expression`` (a JS expression), of ``outputs``."""
+        parameters = {"mode": "expression", "numberOutputs": outputs, "output": "={{ " + expression + " }}"}
+        return self.node(name, "n8n-nodes-base.switch", 3.2, position, parameters)
+
+    def code(self, name, position, js):
+        """A code node running ``js``; returns its name."""
+        return self.node(name, "n8n-nodes-base.code", 2, position, {"jsCode": js})
 
     def save_attachments(self, position):
         """The native agent's chat files (base64 of { thread_id, files }), saved once each in the
         cabinet's tarik_files. Emails save theirs as they arrive, and send none."""
         return self.mcp(SAVE_ATTACHMENTS, "save_files", "{ payload: " + CALL + ".attachments || '' }", position)
 
-    def trigger(self, inputs):
-        """"Appel": the workflow called as a tool, with these inputs (fixed by the caller, or filled by the model)."""
-        return self.node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], {
-            "inputSource": "workflowInputs", "workflowInputs": {"values": inputs}})
+    def trigger(self, **inputs):
+        """ "Appel": the workflow called as a tool, with these inputs (name="type", in order; fixed by the caller,
+        or filled by the model)."""
+        values = [{"name": name, "type": type_} for name, type_ in inputs.items()]
+        parameters = {"inputSource": "workflowInputs", "workflowInputs": {"values": values}}
+        return self.node("Appel", "n8n-nodes-base.executeWorkflowTrigger", 1.1, [0, 300], parameters)
 
     def to_record(self, name, *outputs):
         """Each of these outputs of ``name`` (0: its answer, 1: a tool error) recorded."""
@@ -77,22 +116,48 @@ class Workflow:
         self.to_record(name, 1)
         return router
 
+    def check_sender(self, position, router_position):
+        """The email's sender must have the called dossier assigned in Experio (the agent's own chat has no
+        sender): a checked step. Returns its router's name."""
+        arguments = f"{{ session_id: {CALL}.session_id, dossier_id: {CALL}.dossier_id }}"
+        return self.checked(SENDER, "check_sender", arguments, position, router_position)
+
+    def files_to_process(self, arguments, comment, position, split_position):
+        """The conversation's files to work on (files_to_process with ``arguments``), then one item per file,
+        ``comment`` saying which. Not connected to each other."""
+        self.mcp(FILES, "files_to_process", arguments, position)
+        each = "return $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));"
+        self.code(EACH_FILE, split_position, f"// {comment}\n{each}")
+
     def record_and_summary(self, record_position, summary_position):
         """The "Enregistrer" step, then, last (lowest branch: n8n runs it after everything), the run's
         summary, which is the workflow's answer."""
         # A failed step's error item carries the item it was given (n8n merges it in): its invoice or file.
         given = "$json.content?.[0]?.text"
-        self.mcp(RECORD, "record_step", (
+        arguments = (
             f"{{ run_id: String($execution.id), session_id: {CALL}.session_id, origin: $prevNode.name, "
             f"result: $json.error ? {{ status: 'error', message: String($json.error.message ?? $json.error), "
-            f"invoice_id: {given}?.invoice_id, file_id: {given}?.file_id ?? $json.file_id }} : {RESULT} }}"),
-            record_position)
+            f"invoice_id: {given}?.invoice_id, file_id: {given}?.file_id ?? $json.file_id }} : {RESULT} }}"
+        )
+        self.mcp(RECORD, "record_step", arguments, record_position)
         self.mcp("Resume", "run_summary", "{ run_id: String($execution.id) }", summary_position)
         self.connect("Appel", "Resume")
 
-    def save(self, path, workflow_id, name, settings=None):
-        settings = settings or {"executionOrder": "v1", "callerPolicy": "workflowsFromSameOwner", "saveExecutionProgress": True}
-        workflow = {"id": workflow_id, "name": name, "active": False, "settings": settings,
-                    "nodes": self.nodes, "connections": self.connections}
+    def save(self, workflow_id, name, settings=None):
+        """Write the workflow to the path given on the command line, else to <prefix>.json next to this file."""
+        path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).with_name(f"{self.prefix}.json")
+        settings = settings or {
+            "executionOrder": "v1",
+            "callerPolicy": "workflowsFromSameOwner",
+            "saveExecutionProgress": True,
+        }
+        workflow = {
+            "id": workflow_id,
+            "name": name,
+            "active": False,
+            "settings": settings,
+            "nodes": self.nodes,
+            "connections": self.connections,
+        }
         path.write_text(json.dumps(workflow, indent=2, ensure_ascii=False) + "\n")
         print(len(self.nodes), "nodes")

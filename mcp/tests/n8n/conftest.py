@@ -16,10 +16,21 @@ class N8nMcp:
     """n8n's MCP server, spoken over plain HTTP JSON-RPC."""
 
     def __init__(self):
-        self.http = httpx.Client(timeout=300, headers={"authorization": f"Bearer {TOKEN}",
-                                                       "accept": "application/json, text/event-stream"})
-        answer = self.post({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
-            "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "tarik-tests", "version": "1"}}})
+        self.http = httpx.Client(
+            timeout=300, headers={"authorization": f"Bearer {TOKEN}", "accept": "application/json, text/event-stream"}
+        )
+        answer = self.post(
+            {
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "tarik-tests", "version": "1"},
+                },
+            }
+        )
         self.session = answer.headers.get("mcp-session-id")
         self.post({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
@@ -30,7 +41,9 @@ class N8nMcp:
         return answer
 
     def tool(self, tool, /, **arguments):
-        answer = self.post({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}})
+        answer = self.post(
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
+        )
         text = answer.text
         if "data:" in text:
             text = next(line[5:] for line in text.splitlines() if line.startswith("data:"))
@@ -39,8 +52,12 @@ class N8nMcp:
         return content
 
     def ask(self, agent_id, message, session_id=None, new=False):
-        request = {"type": "message", "message": message, **({"sessionId": session_id} if session_id else {}),
-                   **({"newSession": True} if new else {})}
+        request = {
+            "type": "message",
+            "message": message,
+            **({"sessionId": session_id} if session_id else {}),
+            **({"newSession": True} if new else {}),
+        }
         return self.tool("call_agent", agentId=agent_id, request=request)
 
 
