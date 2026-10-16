@@ -7,11 +7,9 @@ invoice sent twice before either is posted, the same rule across same-number dra
 format instead, and the label field overrides it, so that part is not ported.
 """
 
-import re
-
 from tarik.core.app import ok, server, stop, with_ids
 from tarik.core.config import POSTED
-from tarik.core.experio import invoice_context, odoo_call, odoo_json, refused, require_invoice
+from tarik.core.experio import invoice_context, odoo_call, odoo_json, plain, refused, require_invoice
 
 
 def _same_number_drafts(invoice, context):
@@ -60,5 +58,6 @@ def check_duplicate(invoice_id: int) -> dict:
                     f"{', '.join(map(str, batch[1:]))} en sont des doublons."
                 )
             message = f"Meme facture que le brouillon {batch[0]}, saisi avant."
-    detail = re.sub(r"\s*<br\s*/?>\s*", " ", message).strip()  # each HTML line break, spaces around it
-    return stop(f"Facture {invoice_id} : DOUBLON, deja enregistree dans le dossier. {detail} Ne pas la traiter.")
+    return stop(
+        f"Facture {invoice_id} : DOUBLON, deja enregistree dans le dossier. {plain(message)} Ne pas la traiter."
+    )

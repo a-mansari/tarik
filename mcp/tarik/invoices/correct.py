@@ -16,9 +16,6 @@ from tarik.core.experio import (
 )
 from tarik.invoices.check import CAPTURED, stored_check
 
-# The header fields only (tarik-master odoo.WRITABLE): tiers, account, journal... are later steps.
-WRITABLE = set(CAPTURED)
-
 MULTI_TVA_RATES = {7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20}  # the amount_tva_<rate> fields Experio has
 
 PAYMENT_METHODS = {
@@ -38,7 +35,7 @@ def planned_changes(extracted, bad_fields, invoice):
     changes = {
         b["field"]: extracted[b["field"]]
         for b in bad_fields
-        if b["field"] in WRITABLE and extracted.get(b["field"]) is not None
+        if b["field"] in CAPTURED and extracted.get(b["field"]) is not None  # the header: tiers, account... come later
     }
     if extracted.get("is_credit_note") is True and not invoice.get("refund"):  # the model's "false" is not true
         changes["refund"] = True

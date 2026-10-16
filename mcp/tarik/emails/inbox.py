@@ -244,9 +244,9 @@ def claim(db):
     """The threads with emails Tarik hasn't answered (list of thread_item), locked for this run; after 3 failed
     runs, set aside."""
     db.execute(
-        "update tarik_mail_threads set state = 'error', reason = 'traitement echoue 3 fois', claimed_at = null "
+        "update tarik_mail_threads set state = 'error', reason = %s, claimed_at = null "
         "where state = 'in_progress' and attempts >= %s and claimed_at < now() - make_interval(mins => %s)",
-        (MAX_ATTEMPTS, LEASE_MINUTES),
+        (f"traitement echoue {MAX_ATTEMPTS} fois", MAX_ATTEMPTS, LEASE_MINUTES),
     )
     ready = follow_ups_ready(db)
     rows = db.execute(
