@@ -2,7 +2,7 @@
 
 import pytest
 
-from tarik.invoices.check import drop_false_alarms, resolve_date, resolve_report
+from tarik.invoices.check import as_number, drop_false_alarms, resolve_date, resolve_report
 from tests.fakes import flag
 
 
@@ -47,3 +47,26 @@ def test_false_alarms_are_dropped():  # measured on real invoices: a real Blueja
     assert len(drop_false_alarms([flag("tier", None, "ALPHA BUREAU")], {"tier": None}, {"tier": "ALPHA BUREAU"})) == 1  # missing: kept
     assert len(drop_false_alarms([flag("tier", "BETA TRAVAUX - 123", "ALPHA BUREAU")], {"tier": "BETA TRAVAUX - 123"},
                                  {"tier": "ALPHA BUREAU"})) == 1
+
+
+@pytest.mark.functionality
+def test_amounts_are_compared_as_numbers():
+    moved = drop_false_alarms([flag("amount_untaxed", 100.5, 1005)], {"amount_untaxed": 100.5}, {"amount_untaxed": 1005.0})
+    assert len(moved) == 1  # a misplaced decimal point: "1005" both as text, a real difference
+    assert drop_false_alarms([flag("amount_total", 5000.0, 5000)], {"amount_total": 5000.0}, {"amount_total": 5000.0}) == []
+    assert drop_false_alarms([flag("amount_tva", 454.55, 454.554)], {"amount_tva": 454.55}, {"amount_tva": 454.554}) == []
+
+
+@pytest.mark.technical
+def test_the_models_numbers_are_read_as_numbers_or_refused():
+    assert [as_number(v) for v in ("454,55", "1 005,50", "1.005,50", "1,005.50", "20 %", "120 DH", "12.500.000")] == \
+        [454.55, 1005.5, 1005.5, 1005.5, 20.0, 120.0, 12500000.0]
+    assert as_number(None) is None and as_number(7) == 7
+    for bad in ("abc", "", "12.5.6", True):
+        with pytest.raises(ValueError):
+            as_number(bad)
+    report = resolve_report({"readable": True, "bad_fields": [], "extracted": {
+        "invoice_date_language": "fr", "amount_tva": "454,55", "tva_lines": [{"rate": "20%", "amount_ht": "2 272,75", "amount_tva": "454,55"}]}}, {})
+    assert report["extracted"]["amount_tva"] == 454.55 and report["extracted"]["tva_lines"][0]["rate"] == 20.0
+    with pytest.raises(ValueError):  # asked again, never guessed
+        resolve_report({"readable": True, "extracted": {"invoice_date_language": "fr", "amount_total": "illisible"}}, {})

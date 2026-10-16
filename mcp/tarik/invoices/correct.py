@@ -21,8 +21,10 @@ def planned_changes(extracted, bad_fields, invoice):
                if b["field"] in WRITABLE and extracted.get(b["field"]) is not None}
     if extracted.get("is_credit_note") and not invoice.get("refund"):
         changes["refund"] = True
-    rates = {int(line["rate"]): line["amount_tva"] for line in extracted.get("tva_lines") or []
-             if line.get("amount_ht") and line.get("rate") is not None}
+    rates = {}  # rate -> its TVA: an invoice may list several lines at one rate
+    for line in extracted.get("tva_lines") or []:
+        if line.get("amount_ht") and line.get("rate") is not None:
+            rates[int(line["rate"])] = round(rates.get(int(line["rate"]), 0) + (line.get("amount_tva") or 0), 2)
     if len(rates) > 1 and not invoice.get("amount_tax_non_recoverable") and set(rates) - {0} <= MULTI_TVA_RATES:
         changes["multi_tva"] = True
         changes.update({f"amount_tva_{rate}": amount for rate, amount in rates.items() if rate})

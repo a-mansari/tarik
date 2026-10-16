@@ -9,7 +9,7 @@ language you write in, in short sentences.
 |---|---|---|
 | Where | The cabinet's agent, "Tarik - <cabinet>", in n8n's Agents section | The cabinet's own Tarik mailbox |
 | Files accepted | Images and PDFs only, about 1 MB each | PDF, images, CSV, TXT, XLSX: any size the mail server accepts |
-| Who may use it | People with access to the agent in n8n | Only the cabinet's whitelisted addresses (`@experio.ma`, `@sarnec.com`, …); for an existing dossier, a collaborator who has that dossier in Experio |
+| Who may use it | People with access to the agent in n8n | Only the cabinet's whitelisted addresses (`@experio.ma`, `@sarnec.com`, …), as the email's From says; for an existing dossier, a collaborator who has that dossier in Experio. A colleague replying in your thread gets their own answer. |
 | When it answers | Right away | Within seconds of the email arriving (2 minutes at most) |
 
 Send FEC and grand livre files, and large scans, **by email**: the chat drops them without a word.
@@ -79,10 +79,10 @@ first; give them in the same message when you have them. Say "personne physique"
 and say for which dossier; by email, attach them to the email.
 
 **Some things only happen when you write them yourself**, on purpose:
-- Creating or modifying a dossier **without** Experio's ICE/IF check: write it ("créez-le sans
-  vérification"), after Experio refused the numbers.
+- Creating or modifying a dossier **without** Experio's ICE/IF check: ask for it ("créez-le sans
+  vérification"), after Experio refused the numbers. Tarik then asks you to confirm: answer "oui".
 - Copying another dossier's configuration into a new one: name that dossier and ask for its
-  configuration ("avec la même configuration que LYJA").
+  configuration ("avec la même configuration que LYJA"). It overwrites the new dossier's settings.
 
 **One request per message works best.** Tarik can do several things in a conversation; one clear
 request at a time makes each step easy to follow.

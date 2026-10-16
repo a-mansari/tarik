@@ -28,3 +28,12 @@ def test_several_tva_rates():
                                                              {"rate": 19, "amount_ht": 50, "amount_tva": 9.5}]}, [], {})  # no amount_tva_19 field
     assert "multi_tva" not in planned_changes({"tva_lines": [{"rate": 20, "amount_ht": 100, "amount_tva": 20},
                                                              {"rate": 10, "amount_ht": 50, "amount_tva": 5}]}, [], {"amount_tax_non_recoverable": True})
+
+
+@pytest.mark.functionality
+def test_lines_at_one_rate_add_up():
+    lines = [{"rate": 20, "amount_ht": 1000, "amount_tva": 200}, {"rate": 20, "amount_ht": 500, "amount_tva": 100},
+             {"rate": 10, "amount_ht": 100, "amount_tva": 10}]
+    assert planned_changes({"tva_lines": lines}, [], {}) == {"multi_tva": True, "amount_tva_20": 300, "amount_tva_10": 10, "amount_tva": 310}
+    one_rate = [{"rate": 20, "amount_ht": 1000, "amount_tva": 200}, {"rate": 20, "amount_ht": 500, "amount_tva": 100}]
+    assert "multi_tva" not in planned_changes({"tva_lines": one_rate}, [], {})  # one rate: no split

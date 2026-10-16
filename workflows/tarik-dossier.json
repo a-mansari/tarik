@@ -186,7 +186,7 @@
           "value": "copy_configuration"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Creation (create_dossier)').first().json.content[0].text.dossier_id, model_dossier_id: $('Appel').first().json.model_dossier_id, session_id: $('Appel').first().json.session_id, client_message: $('Appel').first().json.client_message || '' }) }}",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Creation (create_dossier)').first().json.content[0].text.dossier_id, model_dossier_id: $('Appel').first().json.model_dossier_id }) }}",
         "options": {
           "timeout": 300000
         }

@@ -89,7 +89,7 @@
         "inputMode": "json",
         "jsonInput": "={{ JSON.stringify({ session_id: $json.session_id, message: $json.message, files: $json.files }) }}",
         "options": {
-          "timeout": 300000
+          "timeout": 660000
         }
       },
       "onError": "continueErrorOutput"
@@ -142,7 +142,10 @@
           "timeout": 300000
         }
       },
-      "onError": "continueErrorOutput"
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "id": "d8451cd4-0197-5917-8fe1-34125097fd8d",
@@ -292,6 +295,13 @@
         [
           {
             "node": "Refus de droits ? (thread_refusal)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fil traite (finish_thread)",
             "type": "main",
             "index": 0
           }

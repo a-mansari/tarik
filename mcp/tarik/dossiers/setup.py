@@ -26,7 +26,6 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
-from tarik.core.conversation import client_messages
 from tarik.core.experio import TEST_MODE, dry_run, experio_refusal, odoo_call, odoo_json, refused, require_dossier
 from tarik.dossiers.search import normalized
 from tarik.invoices.exercice import open_exercice
@@ -44,33 +43,16 @@ MANUAL_COLUMNS = {"numero de piece": "reference", "n de piece": "reference", "n 
 FEC_HEADERS = {"journalcode", "ecrituredate", "comptenum", "debit", "credit"}
 
 
-COPY_WORDS = ("configuration", "config", "parametrage", "copie", "copier", "modele", "comme", "meme")
-GENERIC_WORDS = {"sarl", "sa", "sas", "ste", "societe", "test", "the", "et", "de", "du", "la", "le"}
-
-
-def copy_asked(messages, model_name):
-    """Did the client ask, in their own words, for this dossier's configuration? One of
-    their messages names it and asks to copy it: MiniMax offered the copy unprompted."""
-    names = {word for word in normalized(model_name).split() if len(word) >= 3 and word not in GENERIC_WORDS}
-    for message in messages:
-        words = normalized(message or "").split()
-        if names & set(words) and any(word.startswith(COPY_WORDS) for word in words):
-            return True
-    return False
-
-
 @server.tool()
 @with_ids
-def copy_configuration(dossier_id: int, model_dossier_id: int, session_id: str = "", client_message: str = "") -> dict:
+def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
     """Copy a model dossier's accounts, taxes, journals, bank and TPE operations and
-    settings into a new dossier (Experio's "Appliquer la configuration"), only when the
-    client asked for it in this conversation. Run it before importing the entries: it
-    overwrites the dossier's settings."""
+    settings into a new dossier (Experio's "Appliquer la configuration"). The agent asks for it
+    only when the client named the dossier to copy (skill "Nouveau dossier"). Run it before
+    importing the entries: it overwrites the dossier's settings."""
     dossier, model = require_dossier(dossier_id), require_dossier(model_dossier_id)
     if dossier_id == model_dossier_id:
         raise ToolError("Le dossier modele doit etre un autre dossier.")
-    if not copy_asked(client_messages(session_id, client_message), model):  # the rest goes on, with the dossier as created
-        return ok(f"Configuration de {model} non copiee : le client ne l'a pas demandee.")
     if odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id)]):
         raise ToolError(f"Le dossier {dossier} a deja des ecritures importees : copier la configuration "
                         "effacerait les reglages qu'Experio en a tires.")
@@ -129,6 +111,12 @@ def entries_kind(text, separator):
     return "fec" if FEC_HEADERS <= set(headers) else "grand livre"
 
 
+def taken(file_id):
+    """The file is done with, imported or refused: a corrected file comes as a new one."""
+    with cabinet_db() as db:
+        db.execute("update tarik_files set kind = 'entries' where id = %s", (file_id,))
+
+
 @server.tool()
 @with_ids
 def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
@@ -144,6 +132,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     name, mime, data = row
     excel = name.lower().endswith((".xlsx", ".xlsm"))
     if not (excel or name.lower().endswith((".csv", ".txt")) or (mime or "").startswith("text/")):
+        taken(file_id)
         return stop(f"{name} : envoyez le FEC ou le grand livre en CSV, TXT ou Excel (.xlsx).", file_id=file_id)
     with refused(f"import_entries {file_id}", f"{name} : fichier Excel illisible."):
         text = sheet_text(bytes(data)) if excel else file_text(bytes(data))
@@ -173,9 +162,11 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         test = odoo_json("base_import.import", "execute_import", [import_id], fields, headers, options, True, context=context)
     except Exception as error:
         print(f"import_entries {file_id} test: {error}", flush=True)
+        taken(file_id)
         return stop(f"{label} {name} refuse par Experio : {experio_refusal(error)}", file_id=file_id)
     errors = [m.get("message", "") for m in test.get("messages") or [] if m.get("type") == "error"]
     if errors:
+        taken(file_id)
         return stop(f"{label} {name} refuse par le test Experio ({len(errors)} erreur(s)) : " + " | ".join(errors[:3]),
                     file_id=file_id)
     lines = len(test.get("ids") or [])
@@ -188,9 +179,9 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         raise ToolError(f"{label} {name} : Experio a refuse l'import ({experio_refusal(error)}).") from None
     errors = [m.get("message", "") for m in result.get("messages") or [] if m.get("type") == "error"]
     if errors:
+        taken(file_id)
         return stop(f"{label} {name} refuse par Experio : " + " | ".join(errors[:3]), file_id=file_id)
-    with cabinet_db() as db:  # not an invoice: the invoice sequence leaves it alone
-        db.execute("update tarik_files set kind = 'entries' where id = %s", (file_id,))
+    taken(file_id)
     return ok(f"{label} {name} importe dans le dossier {dossier} : {len(result.get('ids') or [])} lignes. "
               "Experio a cree les comptes, journaux, tiers et exercices manquants.", file_id=file_id)
 

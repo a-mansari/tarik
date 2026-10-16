@@ -9,8 +9,9 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.dossiers import identity
-from tarik.dossiers.identity import ICE_WRITTEN, IF_WRITTEN, as_written, skip_agreed
-from tarik.dossiers.setup import copy_asked, entries_kind, file_text, sheet_text
+from tarik.core.cabinets import cabinet_db
+from tarik.dossiers.identity import ICE_WRITTEN, IF_WRITTEN, as_written, client_wrote, skip_confirmed
+from tarik.dossiers.setup import entries_kind, file_text, sheet_text
 
 HEAD = "JournalCode;JournalLib;EcritureNum;EcritureDate;CompteNum;CompteLib;EcritureLib;Debit;Credit"
 
@@ -42,19 +43,29 @@ def test_an_excel_file_becomes_the_text_the_import_reads():
     assert sheet_text(saved.getvalue()).splitlines() == ["Journal;Date;Compte;;Debit;Credit", "ACH;20250102;61250000;;17490;12.5"]
 
 
-@pytest.mark.security
-def test_skipping_the_ice_check_only_when_the_client_asks():
-    assert skip_agreed("Créez-le sans vérification") and skip_agreed("Ignorez la vérification de l'ICE") and skip_agreed("pas besoin de vérifier")
-    assert not skip_agreed("Les numéros sont corrects, ils viennent de nous être attribués") and not skip_agreed("Je confirme, créez-le")
-    assert not skip_agreed("") and not skip_agreed("sans modèle")
+def asked(step, message):
+    with cabinet_db() as db:
+        db.execute("insert into tarik_results (run_id, session_id, step, status, message) values ('r', 's', %s, 'question', %s)",
+                   (step, message))
 
 
 @pytest.mark.security
-def test_copying_a_configuration_only_when_the_client_asks():
-    assert copy_asked(["Ouvrez VEGA, avec la même configuration que le dossier LYJA."], "LYJA (Test)")
-    assert copy_asked(["bonjour", "copiez le paramétrage de Alpha Négoce"], "ALPHA NEGOCE SARL")
-    assert not copy_asked(["Ouvrez-nous un dossier VEGA SARL, ICE 1111", "oui"], "LYJA (Test)")
-    assert not copy_asked(["comme d'habitude"], "LYJA (Test)") and not copy_asked(["le dossier LYJA"], "LYJA (Test)")
+def test_skipping_the_ice_check_needs_a_yes_to_its_own_question(db_cabinet):
+    assert not skip_confirmed("s", "create_dossier", "Créez-le sans vérification")  # asking is not confirming: Tarik asks first
+    asked("create_dossier", "Experio verifie l'ICE et l'IF aupres du registre officiel. Confirmez-vous la creation du dossier "
+                            "ALPHA sans cette verification ? oui / non")
+    assert skip_confirmed("s", "create_dossier", "Oui, je confirme") and not skip_confirmed("s", "create_dossier", "non")
+    assert not skip_confirmed("s", "update_dossier", "oui")  # another step's question
+    asked("create_dossier", "Un dossier au nom tres proche existe deja (ALPHA SARL). Faut-il quand meme creer ALPHA ? oui / non")
+    assert not skip_confirmed("s", "create_dossier", "oui")  # this yes answers the later question
+
+
+@pytest.mark.security
+def test_a_value_counts_only_as_the_client_wrote_it():
+    assert client_wrote("name", "ALPHA", "Renommez-le en Alpha.") and not client_wrote("name", "ALPHA", "le code ALPHANUMERIQUE")
+    assert client_wrote("capital", "100000.5", "capital 100 000,50 DH") and not client_wrote("capital", "100000", "capital 100 000,50 DH")
+    assert client_wrote("capital", "100000", "capital : 100 000 DH") and not client_wrote("capital", "beaucoup", "capital 100 000")
+    assert client_wrote("rc", "331245", "RC 331245") and not client_wrote("rc", "33124", "RC 331245")
 
 
 MESSAGE = "Créez le dossier FAIR KAPPA, ICE 008123456000100 et IF n° 0712345."
@@ -76,7 +87,7 @@ def test_a_left_out_ice_or_if_is_the_one_the_client_wrote():
 
 @pytest.mark.security
 def test_the_model_never_overrides_with_a_number_the_client_did_not_write():
-    assert as_written("001111222333444", ICE_WRITTEN.findall(MESSAGE)) == "001111222333444"  # kept, Experio checks it
+    assert as_written("001111222333444", ICE_WRITTEN.findall(MESSAGE)) == "001111222333444"  # as given: create_dossier refuses it
     assert as_written("", ICE_WRITTEN.findall("ICE 008123456000100 ou peut-être 008123456000999 ?")) == ""  # two: no guess
     assert as_written("", ICE_WRITTEN.findall("Créez le dossier FAIR")) == ""
 
@@ -92,3 +103,11 @@ def test_a_call_without_a_name_says_how_to_call_again(monkeypatch):
     monkeypatch.setattr(identity, "remember_client_message", lambda *args: None)
     with pytest.raises(ToolError, match="rappelle Experio_parametrer_dossier avec dossier_id 0"):
         identity.create_dossier(client_message=MESSAGE, session_id="s")
+
+
+@pytest.mark.security
+def test_a_new_dossier_takes_only_the_ice_and_if_the_client_wrote(db_cabinet, monkeypatch):
+    monkeypatch.setattr(identity, "dry_run", lambda: True)
+    monkeypatch.setattr(identity, "lookalikes", lambda name, ice, if_number: ([], []))
+    answer = identity.create_dossier(name="FAIR KAPPA", ice="001111222333444", if_number="0712345", client_message=MESSAGE, session_id="s")
+    assert answer["status"] == "ok" and answer["message"].endswith("Non repris, le client ne l'a pas ecrit : ICE.")

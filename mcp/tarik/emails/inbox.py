@@ -89,20 +89,30 @@ def session_of(thread_id):
     return "mail-" + hashlib.sha256(f"{current()}\n{thread_id}".encode()).hexdigest()[:20]
 
 
+class UnreadableEmail(Exception):
+    """An email Python can't read (an unknown charset, a broken header): skipped, never tried again."""
+
+
 def store(db, uid, message):
-    """Record one email in its thread (found by In-Reply-To and References), with its files.
-    Returns what the cabinet's manager must hear of when its sender may not use Tarik, else None."""
+    """Record one email in its sender's thread (found by In-Reply-To and References), with its files.
+    Who wrote is the From address alone: Reply-To is only where the reply may go. A reply from someone
+    else in a thread (a colleague in copy) starts that person's own thread, with their own rights; a
+    refused one is kept aside and leaves the thread alone. Returns what the cabinet's manager must hear
+    of when the sender may not use Tarik, else None."""
     message_id = (message.get("Message-ID") or f"<uid-{uid}@{folder()}>").strip()
     if db.execute("select 1 from tarik_mail_messages where message_id = %s", (message_id,)).fetchone():
         return
-    sender = (parseaddr(message.get("Reply-To", ""))[1] or parseaddr(message.get("From", ""))[1]).lower()
+    try:
+        sender = parseaddr(message.get("From", ""))[1].lower()
+        reply_to = parseaddr(message.get("Reply-To", ""))[1].lower() or sender
+        subject = str(message.get("Subject", "") or "").strip()
+        linked = re.findall(r"<[^>]+>", f"{message.get('In-Reply-To', '')} {message.get('References', '')}")
+        text, files, auto = client_text(message), attachments(message), automatic(message)
+    except Exception as error:
+        raise UnreadableEmail(f"{message_id}: {type(error).__name__}: {error}") from None
     if sender in own_addresses():
         return  # Tarik's own reply, when the folder holds the sent copies
-    linked = re.findall(r"<[^>]+>", f"{message.get('In-Reply-To', '')} {message.get('References', '')}")
-    row = db.execute("select thread_id from tarik_mail_messages where message_id = any(%s) limit 1", (linked,)).fetchone()
-    subject = str(message.get("Subject", "") or "").strip()
-    thread_id = row[0] if row else message_id
-    if automatic(message):
+    if auto:
         reason, unauthorized = "reponse automatique ou liste de diffusion", None
     elif not recipient_allowed(sender):
         reason = unauthorized = "expediteur hors de la liste autorisee"
@@ -110,19 +120,22 @@ def store(db, uid, message):
         reason = unauthorized = "expediteur hors des collaborateurs du cabinet dans Experio"
     else:
         reason = unauthorized = None
-    if row:  # the client wrote again: back to Tarik, even after an error (the attempts start over)
-        db.execute("update tarik_mail_threads set state = 'new', attempts = 0, reason = null, updated_at = now() "
-                   "where thread_id = %s and state <> 'ignored'", (thread_id,))
-    else:
+    row = db.execute("select m.thread_id from tarik_mail_messages m join tarik_mail_threads t on t.thread_id = m.thread_id "
+                     "where m.message_id = any(%s) and t.client_address = %s limit 1", (linked, sender)).fetchone()
+    thread_id = row[0] if row else message_id
+    if not row:
         db.execute("insert into tarik_mail_threads (thread_id, session_id, client_address, subject, state, reason) "
                    "values (%s, %s, %s, %s, %s, %s)", (thread_id, session_of(thread_id), sender, subject[:300],
                                                        "ignored" if reason else "new", reason))
+    elif not reason:  # the client wrote again: back to Tarik, even after an error; a run on it now takes it after
+        db.execute("update tarik_mail_threads set state = 'new', attempts = 0, reason = null, updated_at = now() "
+                   "where thread_id = %s and state not in ('ignored', 'in_progress')", (thread_id,))
     session = db.execute("select session_id from tarik_mail_threads where thread_id = %s", (thread_id,)).fetchone()[0]
-    db.execute("insert into tarik_mail_messages (message_id, thread_id, uid, from_address, subject, body, references_ids) "
-               "values (%s, %s, %s, %s, %s, %s, %s)", (message_id, thread_id, uid, sender, subject[:300], client_text(message),
-                                                       " ".join(linked)))
+    db.execute("insert into tarik_mail_messages (message_id, thread_id, uid, from_address, reply_to, subject, body, references_ids, "
+               "handled) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+               (message_id, thread_id, uid, sender, reply_to, subject[:300], text, " ".join(linked), reason is not None))
     if not reason:
-        for name, mime, data in attachments(message):
+        for name, mime, data in files:
             db.execute("insert into tarik_files (session_id, file_name, mime_type, data) values (%s, %s, %s, %s)",
                        (session, name, mime, data))
     return {"sender": sender, "subject": subject, "reason": unauthorized} if unauthorized else None
@@ -138,16 +151,17 @@ def claim(db):
                       "returning thread_id, session_id, client_address, subject", (LEASE_MINUTES,)).fetchall()
     threads = []
     for thread_id, session_id, address, subject in rows:
-        messages = db.execute("select message_id, body, references_ids from tarik_mail_messages "
+        messages = db.execute("select message_id, body, references_ids, reply_to from tarik_mail_messages "
                               "where thread_id = %s and not handled order by received_at, uid", (thread_id,)).fetchall()
         files = [name for (name,) in db.execute(
             "select file_name from tarik_files where session_id = %s and parent_id is null and kind is null "
             "and invoice_id is null and statement_id is null order by id", (session_id,))]
-        last_id, last_references = (messages[-1][0], messages[-1][2]) if messages else ("", "")
-        threads.append({"thread_id": thread_id, "session_id": session_id, "to": address,
+        last_id, _, last_references, reply_to = messages[-1] if messages else ("", "", "", None)
+        threads.append({"thread_id": thread_id, "session_id": session_id,
+                        "to": reply_to if reply_to and recipient_allowed(reply_to) else address,
                         "subject": subject if subject.lower().startswith(("re:", "re :")) else f"Re: {subject}",
-                        "message": "\n\n".join(body for _, body, _ in messages if body) or "(pas de texte)",
-                        "files": files, "message_ids": [message_id for message_id, _, _ in messages],
+                        "message": "\n\n".join(body for _, body, _, _ in messages if body) or "(pas de texte)",
+                        "files": files, "message_ids": [message_id for message_id, *_ in messages],
                         "in_reply_to": last_id, "references": last_references})
     return threads
 
@@ -172,7 +186,15 @@ def fetch_emails() -> dict:
             for uid in sorted(u for u in uids if u > state[1]):  # "n:*" also returns the last email when there's nothing new
                 data = box.uid("fetch", str(uid), "(BODY.PEEK[])")[1]
                 raw = next((part[1] for part in data if isinstance(part, tuple)), None)
-                alert = store(db, uid, message_from_bytes(raw, policy=policy.default)) if raw else None
+                try:
+                    with db.transaction():  # a failed email leaves nothing half-written
+                        alert = store(db, uid, message_from_bytes(raw, policy=policy.default)) if raw else None
+                except UnreadableEmail as error:
+                    print(f"fetch_emails: unreadable email skipped: {error}", flush=True)
+                    alert = None
+                except Exception as error:  # Experio or the database out: this email and the next wait for the next run
+                    print(f"fetch_emails: stopped at uid {uid}: {type(error).__name__}: {error}", flush=True)
+                    break
                 if alert:
                     alerts.append(alert)
                 db.execute("update tarik_mail_state set last_uid = %s where folder = %s", (uid, folder()))
@@ -249,7 +271,9 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
                        "where thread_id = %s", ((reason or "reponse non envoyee")[:300], thread_id))
             return ok("Fil mis de cote : reponse non envoyee.")
         db.execute("update tarik_mail_messages set handled = true where message_id = any(%s)", (list(message_ids),))
+        newer = db.execute("select 1 from tarik_mail_messages where thread_id = %s and not handled limit 1", (thread_id,)).fetchone()
         waiting = db.execute("select 1 from tarik_pending where session_id = %s limit 1", session).fetchone()
+        state = "new" if newer else "waiting" if waiting else "done"  # new: an email came in during this run
         db.execute("update tarik_mail_threads set state = %s, claimed_at = null, attempts = 0, reason = null, updated_at = now() "
-                   "where thread_id = %s", ("waiting" if waiting else "done", thread_id))
-    return ok("Fil en attente du client." if waiting else "Fil traite.")
+                   "where thread_id = %s", (state, thread_id))
+    return ok({"new": "Fil traite, un nouvel email attend.", "waiting": "Fil en attente du client.", "done": "Fil traite."}[state])
