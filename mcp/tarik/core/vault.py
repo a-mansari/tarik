@@ -16,7 +16,7 @@ import httpx
 
 ADDRESS = os.getenv("VAULT_ADDR", "").rstrip("/")
 ENABLED = bool(ADDRESS)
-APPROLE = os.getenv("VAULT_APPROLE_DIR", "/run/vault")
+APPROLE = "/run/vault"  # the AppRole files, mounted by docker-compose.yml
 REFRESH_SECONDS = 300
 RETRY_SECONDS = 30
 

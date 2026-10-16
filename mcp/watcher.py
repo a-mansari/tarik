@@ -10,7 +10,6 @@ the 15-minute tick still catches whatever happens meanwhile.
 """
 
 import logging
-import os
 import threading
 import time
 
@@ -20,7 +19,7 @@ from tarik.core.app import log
 from tarik.core.cabinets import CABINETS, setting, using
 from tarik.emails.inbox import connect, notify_manager, read_mailbox, threads_waiting
 
-WEBHOOK = os.getenv("MAIL_WEBHOOK_URL", "http://n8n:5678/webhook/tarik-nouvel-email")
+WEBHOOK = "http://n8n:5678/webhook/tarik-nouvel-email"  # "Tarik - Emails", on Docker's network
 RENEW_SECONDS = 25 * 60
 TICK_SECONDS = 15 * 60
 HEADER = "X-Tarik-Webhook"  # the webhook's secret (Vault MAIL_WEBHOOK_SECRET; n8n credential "Tarik mail webhook")

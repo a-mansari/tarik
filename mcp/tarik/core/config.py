@@ -8,7 +8,7 @@ from typing import Final
 ODOO_URL: Final = os.environ["ODOO_URL"].rstrip("/")  # Experio
 # A dict, not frozen: the tests point it at their own database (tests/conftest.py).
 POSTGRES: Final = {
-    "host": os.getenv("POSTGRES_HOST", "postgres"),
+    "host": "postgres",  # docker-compose.yml's service
     "dbname": os.getenv("POSTGRES_DB"),
     "user": os.getenv("POSTGRES_USER"),
     "password": os.getenv("POSTGRES_PASSWORD"),
