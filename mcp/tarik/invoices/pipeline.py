@@ -8,7 +8,7 @@ import time
 
 from tarik.core.app import ok, question, server, wait, with_ids
 from tarik.core.cabinets import cabinet_db
-from tarik.core.config import ENTRY_FILES, READING, TEST_MODE
+from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
 from tarik.core.conversation import own_words
 from tarik.core.experio import odoo_call, require_invoice
 from tarik.core.text import normalized, said, without_if
@@ -75,15 +75,23 @@ def position(step):
     return ORDER.index(step) if step in ORDER else len(ORDER)
 
 
+READ_DEADLINES = {}  # n8n run id -> when that run stops waiting on Experio's reading (time.monotonic)
+
+
 @server.tool()
 @with_ids
-def wait_until_read(invoice_id: int) -> dict:
-    """Wait (up to 3 minutes) until Experio has finished reading a new draft."""
-    for _ in range(12):
-        if require_invoice(invoice_id, ["bluejay_state"])["bluejay_state"] not in READING:
-            return ok(f"Facture {invoice_id} : lue par Experio.")
+def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
+    """Wait until Experio has finished reading a new draft: READ_WAIT seconds at most for all the drafts of run
+    ``run_id`` together, so the run ends before n8n stops it; a draft still being read is resumed later."""
+    now = time.monotonic()
+    for old in [run for run, deadline in READ_DEADLINES.items() if deadline < now - 3600]:
+        del READ_DEADLINES[old]
+    deadline = READ_DEADLINES.setdefault(run_id, now + READ_WAIT) if run_id else now + READ_WAIT
+    while require_invoice(invoice_id, ["bluejay_state"])["bluejay_state"] in READING:
+        if time.monotonic() >= deadline:
+            return wait(f"Facture {invoice_id} : Experio la lit encore, elle sera reprise a votre prochain message.")
         time.sleep(15)
-    return wait(f"Facture {invoice_id} : Experio la lit encore, elle sera reprise a votre prochain message.")
+    return ok(f"Facture {invoice_id} : lue par Experio.")
 
 
 def readable(message):
@@ -308,12 +316,18 @@ def files_to_process(session_id: str, entries: bool = False) -> dict:
 @server.tool()
 def waiting_drafts(session_id: str) -> dict:
     """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
-    waiting on Experio (still reading) or failed (an Experio or model timeout). Every later step runs again; a
-    question or a stop is not resumed here. A draft deleted or posted in Experio since is left alone."""
+    waiting on Experio (still reading) or failed (an Experio or model timeout), or nothing was recorded for it:
+    n8n records a run's steps last, so a run cut short (n8n stops an agent's tool after 2 minutes) leaves its
+    drafts with no outcome. Every later step runs again; a question or a stop is not resumed here. A draft
+    deleted or posted in Experio since is left alone."""
     with cabinet_db() as db:
         rows = db.execute(
             "select invoice_id, step, status from tarik_results where session_id = %s and invoice_id is not null "
             "order by id",
+            (session_id,),
+        ).fetchall()
+        drafts = db.execute(
+            "select invoice_id from tarik_files where session_id = %s and invoice_id is not null order by id",
             (session_id,),
         ).fetchall()
     furthest = {}  # by the sequence's order, not the rows': n8n records a step after the ones it led to
@@ -321,6 +335,8 @@ def waiting_drafts(session_id: str) -> dict:
         if step in ORDER and (invoice_id not in furthest or position(step) >= position(furthest[invoice_id][0])):
             furthest[invoice_id] = (step, status)
     waiting = [invoice_id for invoice_id, (_, status) in furthest.items() if status in ("wait", "error")]
+    # shortcut: a draft of a run still going also has no outcome yet; one conversation runs one at a time
+    waiting += [invoice_id for (invoice_id,) in drafts if invoice_id not in furthest]
     if waiting:
         waiting = sorted(
             odoo_call("exp.invoice", "search", [("id", "in", waiting), ("state", "in", ["pending", "draft"])])

@@ -1,6 +1,7 @@
 """Build workflows/tarik-traitement.json: the fixed processing sequence as n8n nodes.
 
-Modes: files (the conversation's files, from identification to posting), answer (the client's answer
+Modes: files (the conversation's new files, from identification to posting; with none, the drafts left
+waiting or cut short are resumed), answer (the client's answer
 to what the conversation waits on, then the sequence resumes there; with nothing waiting, the drafts
 Experio hadn't read yet are resumed)."""
 
@@ -47,7 +48,10 @@ flow.to_record(SAVE_ATTACHMENTS, 1)
 connect("Fichiers ou reponse ?", SENDER, 0)
 connect(sender, FILES, 0)
 flow.to_record(sender, 1)
-connect(FILES, EACH_FILE, 0)
+# No new file ("relancez le traitement"): the conversation's drafts left waiting or cut short are resumed.
+route("Nouveaux fichiers ?", f"{RESULT}.files.length ? 0 : 1", 2, [440, 120])
+connect(FILES, "Nouveaux fichiers ?", 0)
+connect("Nouveaux fichiers ?", EACH_FILE, 0)
 flow.to_record(FILES, 1)
 
 # Files: identify -> statement import, or split -> drafts.
@@ -117,11 +121,15 @@ CHAIN = [
     ("Exercice (settle_exercice)", "settle_exercice"),
     ("Comptabilisation (post_invoice)", "post_invoice"),
 ]
+# What a step is given besides its invoice: the run (one reading deadline for all its drafts), the client's type.
+EXTRA = {
+    "wait_until_read": ", run_id: String($execution.id)",
+    "classify_invoice": f", invoice_type: {CALL}.invoice_type || ''",
+}
 x = 1760
 for index, (name, tool) in enumerate(CHAIN):
     if index:
-        extra = f", invoice_type: {CALL}.invoice_type || ''" if tool == "classify_invoice" else ""
-        mcp(name, tool, f"{{ invoice_id: {RESULT}.invoice_id{extra} }}", [x, 420])
+        mcp(name, tool, f"{{ invoice_id: {RESULT}.invoice_id{EXTRA.get(tool, '')} }}", [x, 420])
     router = f"Suite apres {tool}"
     route(router, OK_ELSE, 2, [x + 110, 620])
     connect(name, router, 0)
@@ -148,6 +156,7 @@ flow.code(
         "({ json: { content: [{ type: 'text', text: { status: 'ok', invoice_id } }] } }));"
     ),
 )
+connect("Nouveaux fichiers ?", "Brouillons en attente (waiting_drafts)", 1)
 connect("Brouillons en attente (waiting_drafts)", "Une facture par brouillon", 0)
 flow.to_record("Brouillons en attente (waiting_drafts)", 1)
 connect("Une facture par brouillon", "Lecture Experio (wait_until_read)", 0)
