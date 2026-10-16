@@ -17,6 +17,32 @@ OK_ELSE = f"{RESULT}.status === 'ok' ? 0 : 1"
 ATTACHMENTS = {"attachments": "string"}
 # The cabinet a shared workflow works for: an "Appel" input, fixed by its caller (never chosen by a model).
 CABINET_INPUT = {"cabinet": "string"}
+# Each workflow's "Appel" inputs, in order: its builder declares them, and every caller fills them all.
+TRAITEMENT_INPUTS = {
+    "mode": "string",
+    "session_id": "string",
+    "dossier_id": "number",
+    "answer": "string",
+    "invoice_type": "string",
+    "client_message": "string",
+    **ATTACHMENTS,
+    **CABINET_INPUT,
+}
+DOSSIER_INPUTS = {
+    "mode": "string",
+    "session_id": "string",
+    "dossier_id": "number",
+    "name": "string",
+    "ice": "string",
+    "if_number": "string",
+    "folder_type": "string",
+    "skip_ice_if_check": "boolean",
+    "client_message": "string",
+    "model_dossier_id": "number",
+    "kind": "string",
+    **ATTACHMENTS,
+    **CABINET_INPUT,
+}
 SAVE_ATTACHMENTS = "Pieces jointes de l'agent"
 RECORD = "Enregistrer"  # records each step's outcome; the run's summary is made from them
 SENDER = "Expediteur (check_sender)"

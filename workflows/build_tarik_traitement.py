@@ -6,8 +6,6 @@ answer (the client's answer to what the conversation waits on, then the sequence
 waiting, the drafts Experio hadn't read yet are resumed)."""
 
 from steps import (
-    ATTACHMENTS,
-    CABINET_INPUT,
     CALL,
     EACH_FILE,
     FILES,
@@ -15,22 +13,14 @@ from steps import (
     RESULT,
     SAVE_ATTACHMENTS,
     SENDER,
+    TRAITEMENT_INPUTS,
     Workflow,
 )
 
 flow = Workflow("tarik-traitement")
 connect, mcp, route = flow.connect, flow.mcp, flow.route
 
-flow.trigger(
-    mode="string",
-    session_id="string",
-    dossier_id="number",
-    answer="string",
-    invoice_type="string",
-    client_message="string",
-    **ATTACHMENTS,
-    **CABINET_INPUT,
-)
+flow.trigger(**TRAITEMENT_INPUTS)
 # n8n stops an agent's tool after 300 s: past BUDGET_MS, the invoices still going wait for the next run instead,
 # leaving the step in flight time to end. A follow-up (mode resume) is no agent's tool: it has no budget.
 BUDGET_MS = 240_000

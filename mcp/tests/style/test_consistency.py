@@ -109,3 +109,30 @@ def test_every_tool_a_workflow_or_an_agent_calls_exists():
     assert called | allowed <= tools, f"not on the server: {sorted((called | allowed) - tools)}"
     started = {tool["workflowId"] for tool in agent["tools"] if tool["type"] == "workflow"}
     assert started <= {workflow["id"] for workflow in workflows.values()}
+
+
+@pytest.mark.style
+@needs_workflows
+def test_every_caller_fills_every_input_of_the_workflow_it_calls():
+    """The agents' workflow tools and the Execute Workflow nodes give each input of the called "Appel", no other."""
+    workflows = {
+        workflow["id"]: workflow
+        for workflow in (json.loads(path.read_text()) for path in WORKFLOWS.glob("tarik-*.json"))
+        if "nodes" in workflow
+    }
+
+    def inputs(workflow_id):
+        trigger = next(node for node in workflows[workflow_id]["nodes"] if node["name"] == "Appel")
+        return {value["name"] for value in trigger["parameters"].get("workflowInputs", {}).get("values", [])}
+
+    agent = json.loads((WORKFLOWS / "tarik-agent.json").read_text())
+    calls = [(tool["name"], tool["workflowId"], set(tool["inputs"])) for tool in agent["tools"]]
+    calls += [
+        (node["name"], node["parameters"]["workflowId"]["value"], set(node["parameters"]["workflowInputs"]["value"]))
+        for workflow in workflows.values()
+        for node in workflow["nodes"]
+        if node["type"] == "n8n-nodes-base.executeWorkflow"
+    ]
+    assert len(calls) == len(agent["tools"]) + 2  # the 2 follow-ups of "Tarik - Emails"
+    for name, workflow_id, given in calls:
+        assert given == inputs(workflow_id), name
