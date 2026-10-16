@@ -80,13 +80,13 @@ def watch(cabinet):
     with using(cabinet):
         while True:
             try:
-                box = connect()
-                count = int(box.untagged_responses.get("EXISTS", [b"0"])[-1])
-                log(f"{cabinet}: watching ({count} emails)")
-                while True:
-                    arrived, count = wait_for_mail(box, count, RENEW_SECONDS)
-                    if arrived:
-                        serve(cabinet, "new email")
+                with connect() as box:
+                    count = int(box.untagged_responses.get("EXISTS", [b"0"])[-1])
+                    log(f"{cabinet}: watching ({count} emails)")
+                    while True:
+                        arrived, count = wait_for_mail(box, count, RENEW_SECONDS)
+                        if arrived:
+                            serve(cabinet, "new email")
             except Exception as error:
                 log(f"{cabinet}: watch interrupted: {error}; reconnecting in 30 s")
                 time.sleep(30)
