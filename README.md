@@ -58,7 +58,7 @@ MCP address and its own fixed `cabinet` tool input.
 
 Each cabinet has its own Tarik mailbox (its `IMAP_USER`, `IMAP_PASSWORD`, `SMTP_*` in Vault).
 `tarik-mail-watch` watches every cabinet that has one: the moment an email arrives (IMAP IDLE), and every
-2 minutes in case one was missed, it stores the new emails in their threads, tells the manager of refused
+15 minutes in case one was missed, it stores the new emails in their threads, tells the manager of refused
 senders, and wakes "Tarik - Emails" for that cabinet when a thread waits for an answer; the webhook only
 answers its `X-Tarik-Webhook` header, the secret both share (`MAIL_WEBHOOK_SECRET` in Vault, the n8n
 credential "Tarik mail webhook"; change both together). The workflow is
@@ -73,7 +73,7 @@ so a processing run stops itself after 240 s: the invoices still going wait at t
 dossier's onboarding waits until its imported lines are a minute old (Experio's rule): when the run's 260 s
 would not cover that, the dossier is left waiting
 (`tarik_setups`). When Tarik's reply leaves drafts or a dossier waiting, the thread is followed up for 30
-minutes: once Experio has read the drafts (a dossier: at the next tick), the watcher's tick wakes
+minutes: once Experio has read the drafts (a dossier: at the next tick, every 15 minutes), the watcher's tick wakes
 "Tarik - Emails", which takes them up again without the agent ("Tarik - Traitement", then "Tarik - Dossier",
 each in mode `resume`, no time limit) and sends the outcome in the thread.
 

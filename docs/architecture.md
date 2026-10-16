@@ -12,7 +12,7 @@ piece, and [using-tarik.md](using-tarik.md) explains what Tarik can do and how t
         │                                                     │
         ▼                                                     ▼
 ┌──────────────────── n8n 2.43.5, patched (n8n/) ──────────────────┐   ┌─ tarik-mail-watch ──────────────┐
-│ Agents: "Tarik - <cabinet>" ×8 (MiniMax-M3, reasoning low)       │◄──│ IMAP IDLE + 2-minute tick,       │
+│ Agents: "Tarik - <cabinet>" ×8 (MiniMax-M3, reasoning low)       │◄──│ IMAP IDLE + 15-minute tick,      │
 │   skills: Nouveau dossier · Traitement des documents ·           │   │ one per cabinet mailbox          │
 │           Modification de dossier · Réponse à une question       │   │ → webhook {cabinet}              │
 │   tools:  Experio_* MCP tools (read) at /c/<cabinet>/mcp         │   │   + X-Tarik-Webhook secret       │
@@ -52,7 +52,7 @@ skill that matches (a new dossier, documents, a modification), and calls tools b
 Read-only questions (Experio's status, dossiers, invoices, collaborators) go straight to the MCP tools.
 Actions go to a workflow: n8n runs it with the model's fields plus values the model never sets.
 
-**Email.** `tarik-mail-watch` reads each cabinet's mailbox when an email arrives (and every 2 minutes):
+**Email.** `tarik-mail-watch` reads each cabinet's mailbox when an email arrives (and every 15 minutes):
 it stores the new emails in their threads (the mailbox is never changed, attachments are saved in the
 cabinet's schema), tells the manager of refused senders, and wakes "Tarik - Emails" with the cabinet's
 name when a thread waits. The workflow claims the waiting threads (`claim_threads`), asks the cabinet's

@@ -45,7 +45,7 @@ services:
     dns: [1.1.1.1, 8.8.8.8]
 
   # Wakes "Tarik - Emails" for each cabinet with a Tarik mailbox: as soon as an email arrives (IMAP IDLE),
-  # and every 2 minutes in case one was missed. Each wake-up names its cabinet (mcp/watcher.py).
+  # and every 15 minutes in case one was missed. Each wake-up names its cabinet (mcp/watcher.py).
   tarik-mail-watch:
     build: ./mcp
     restart: unless-stopped

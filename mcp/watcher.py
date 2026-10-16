@@ -1,4 +1,4 @@
-"""Read each Tarik mailbox (a cabinet's own IMAP_USER) the moment an email arrives, and every 2 minutes in
+"""Read each Tarik mailbox (a cabinet's own IMAP_USER) the moment an email arrives, and every 15 minutes in
 case one was missed: store the new emails in their threads, tell the cabinet's manager of refused senders,
 and wake "Tarik - Emails" when a thread waits for an answer. Each wake-up names its cabinet, and the workflow
 works in that cabinet only. Run as: python watcher.py (a new mailbox needs a restart).
@@ -6,7 +6,7 @@ works in that cabinet only. Run as: python watcher.py (a new mailbox needs a res
 Per cabinet, one IMAP IDLE connection to its Tarik folder (read-only, pinned certificate, as
 read_mailbox connects): the server tells it when the folder gets a new email, and it reads it. The
 connection is renewed every 25 minutes (servers drop an IDLE after ~30) and rebuilt after any error;
-the 2-minute tick still catches whatever happens meanwhile.
+the 15-minute tick still catches whatever happens meanwhile.
 Python 3.12's imaplib has no IDLE (3.14 does): the command is spoken here.
 """
 
@@ -25,7 +25,7 @@ from tarik.emails.inbox import connect, notify_manager, read_mailbox, threads_wa
 
 WEBHOOK = os.getenv("MAIL_WEBHOOK_URL", "http://n8n:5678/webhook/tarik-nouvel-email")
 RENEW_SECONDS = 25 * 60
-TICK_SECONDS = 2 * 60
+TICK_SECONDS = 15 * 60
 HEADER = "X-Tarik-Webhook"  # the webhook's secret (Vault MAIL_WEBHOOK_SECRET; n8n credential "Tarik mail webhook")
 # The server's count of emails in the folder: "* <n> EXISTS" (one more arrived) or "* <n> EXPUNGE" (one deleted).
 COUNT = re.compile(rb"\* (\d+) (EXISTS|EXPUNGE)")
@@ -113,7 +113,7 @@ def watch(cabinet):
 
 
 def tick(cabinet):
-    """Every 2 minutes, whatever IDLE saw: an email it missed (connection down, server quirk), or a thread whose
+    """Every 15 minutes, whatever IDLE saw: an email it missed (connection down, server quirk), or a thread whose
     run failed, waits no longer."""
     with using(cabinet):
         while True:
