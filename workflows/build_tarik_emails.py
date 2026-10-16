@@ -49,6 +49,7 @@ mcp("Manager prevenu (notify_manager)", "notify_manager",
     "{ sender: $json.content[0].text.sender, subject: $json.content[0].text.subject, reason: $json.content[0].text.reason }",
     [880, 480])
 connect("Tarik", "Refus de droits ? (thread_refusal)", 0)
+connect("Refus de droits ? (thread_refusal)", "Fil traite (finish_thread)", 1)  # not known whether refused: set aside, nothing sent
 connect("Refus de droits ? (thread_refusal)", "Refuse ?", 0)
 connect("Refuse ?", "Reponse (send_email)", 0)
 connect("Refuse ?", "Manager prevenu (notify_manager)", 1)

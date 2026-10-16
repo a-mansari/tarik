@@ -113,7 +113,8 @@ OCR_SHAPE = """Answer with only one JSON object, of this shape:
  "period_start": str|null, "period_end": str|null, "country": str|null,
  "tva_lines": [{"rate": num, "amount_ht": num, "amount_tva": num}]},
  "bad_fields": [{"field": str, "stored": str, "extracted": str, "problem": str}]}
-invoice_date_language is required: always pick one."""
+invoice_date_language is required: always pick one. Every num is a JSON number, with a decimal point and no
+thousands separator (1005.5, never "1 005,50" nor "1,005")."""
 
 # The invoice header fields Experio captured (correct_invoice may write them back), then the tiers' name and ICE.
 CAPTURED = ["invoice_number", "invoice_date", "amount_untaxed", "amount_tva", "amount_stamp", "amount_disbursement",
@@ -220,16 +221,19 @@ def check_invoice(invoice_id: int) -> dict:
     # The model is told "Experio", never "Odoo": its explanations reach the client.
     # Asked twice when it says "unreadable" or answers out of shape: MiniMax-M3 sometimes does on a page it
     # reads fine the next time.
+    unclear = ""
     for attempt in range(2):
         answer = ask_model(f"{OCR_PROMPT.replace('Odoo', 'Experio')}\nToday's date is {date.today()}.", pages,
                            "Values captured in Experio:\n" + json.dumps(stored, default=str, ensure_ascii=False, indent=2)
-                           + "\n\n" + OCR_SHAPE, "Verification de la facture")
+                           + "\n\n" + OCR_SHAPE + unclear, "Verification de la facture")
         try:
             report = resolve_report(answer, stored)
         except ValueError as error:
             print(f"check_invoice {invoice_id}: {error} (attempt {attempt + 1})", flush=True)
             if attempt:
                 raise ToolError("Verification de la facture : echec, reessayez plus tard.") from None
+            # The model, which sees the scan, says which reading it meant (a number written "1,005": 1.005 or 1005).
+            unclear = f"\nYour last answer was unusable: {error}. Read that value on the scan again, as a JSON number."
             continue
         if report["readable"]:
             break

@@ -109,8 +109,9 @@ def assign_account(invoice_id: int) -> dict:
             wizard_id = odoo_call("exp.account.missing.wizard", "create", {}, context={"allowed_company_ids": [company_id]})
             odoo_json("exp.account.missing.wizard", "action_confirm", [wizard_id], context={"allowed_company_ids": [company_id]})
         if invoice["partner_id"]:
-            # Picking the tiers again in the form runs Experio's memorized chain (last used, tiers sheet, dossier default).
-            memorized = fill_invoice(invoice_id, {"partner_id": invoice["partner_id"][0]}, context).get("account_id")
+            # Picking the tiers again in the form runs Experio's memorized chain (last used, tiers sheet, dossier default):
+            # only read, so nothing else it would refill (payment method, currency set from the scan) is saved.
+            memorized = fill_invoice(invoice_id, {"partner_id": invoice["partner_id"][0]}, context, save=False).get("account_id")
             if memorized:
                 return apply_account(invoice, memorized, "compte memorise pour ce tiers")
     with cabinet_db() as db:

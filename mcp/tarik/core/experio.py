@@ -156,11 +156,12 @@ FORM_SKIP = {"one2many", "many2many", "binary", "html", "properties", "json"}
 
 _forms = {}  # per cabinet: each database has its own fields
 
-def fill_invoice(invoice_id, changes, context):
+def fill_invoice(invoice_id, changes, context, save=True):
     """Type ``changes`` into the invoice form one field at a time, as a user does:
     after each one Experio's onchange fills what it fills on screen (exchange
-    rate, withholding...). Then save, unless DRY_RUN. Returns every field that
-    ends up changed, Experio's included (tarik-master odoo.fill)."""
+    rate, withholding...). Then save, unless DRY_RUN or ``save`` is False (only to see
+    what Experio would fill). Returns every field that ends up changed, Experio's
+    included (tarik-master odoo.fill)."""
     _form = _forms.setdefault(current(), {})
     if not _form:
         meta = odoo_call("exp.invoice", "fields_get", [], attributes=["type", "store", "readonly"])
@@ -179,6 +180,6 @@ def fill_invoice(invoice_id, changes, context):
             if key in types:
                 values[key] = new.get("id") if isinstance(new, dict) else new
     changed = {k: v for k, v in values.items() if v != start.get(k) and (k in _form["editable"] or k in changes)}
-    if changed and not dry_run():
+    if changed and save and not dry_run():
         odoo_call("exp.invoice", "write", [invoice_id], changed, context=context)
     return changed
