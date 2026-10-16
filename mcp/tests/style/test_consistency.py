@@ -1,8 +1,8 @@
-"""The code and the generated files kept consistent: one format (black, lines of 120 at most), no unused import
-nor unknown name, each workflow
-exactly what its script builds, and every tool a workflow, an agent or a skill names really exists.
+"""The code and the generated files kept consistent: one style (ruff's linter and formatter, as pyproject.toml
+sets them), each workflow exactly what its script builds, and every tool a workflow, an agent or a skill names
+really exists.
 
-Needs workflows/ next to mcp/ (tests/run.py mounts it in the container)."""
+Needs workflows/, docs/ and pyproject.toml next to mcp/ (tests/run.py mounts them in the container)."""
 
 import json
 import subprocess
@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 from server import server  # its import registers every tool
-
 
 ROOT = Path(__file__).resolve().parents[3]  # the repository on the host, / in the container
 WORKFLOWS = ROOT / "workflows"
@@ -27,29 +26,26 @@ BUILDERS = {
 needs_workflows = pytest.mark.skipif(not WORKFLOWS.is_dir(), reason="workflows/ not mounted")
 
 
-CHECKED = [str(Path(__file__).resolve().parents[2])] + ([str(WORKFLOWS)] if WORKFLOWS.is_dir() else [])
-LINE_LENGTH = 120  # as pyproject.toml says, which the container doesn't see
+CONFIG = ROOT / "pyproject.toml"
+CHECKED = [str(folder) for folder in (Path(__file__).resolve().parents[2], WORKFLOWS, ROOT / "docs") if folder.is_dir()]
+
+
+def ruff(*command):
+    """ruff's ``command`` on all of our Python code, in the repository's style."""
+    found = [sys.executable, "-m", "ruff", *command, "--no-cache", "--config", str(CONFIG), *CHECKED]
+    return subprocess.run(found, capture_output=True, text=True)
 
 
 @pytest.mark.style
-def test_no_unused_import_nor_unknown_name():
-    found = subprocess.run([sys.executable, "-m", "pyflakes", *CHECKED], capture_output=True, text=True)
-    assert found.stdout == "", found.stdout
+def test_no_lint_error():
+    found = ruff("check", "--output-format", "concise")
+    assert found.returncode == 0, found.stdout + found.stderr
 
 
 @pytest.mark.style
 def test_one_format():
-    black = [sys.executable, "-m", "black", "--check", "--quiet", "-l", str(LINE_LENGTH), "-t", "py312", *CHECKED]
-    found = subprocess.run(black, capture_output=True, text=True)
-    assert found.returncode == 0, f"run black on the repository: {found.stderr}"
-    long = [
-        f"{path}:{number}"
-        for folder in CHECKED
-        for path in Path(folder).rglob("*.py")
-        for number, line in enumerate(path.read_text().splitlines(), 1)
-        if len(line) > LINE_LENGTH
-    ]
-    assert not long, f"lines over {LINE_LENGTH} characters (black leaves long strings and comments): {long}"
+    found = ruff("format", "--check")
+    assert found.returncode == 0, f"run ruff format on the repository: {found.stdout}{found.stderr}"
 
 
 @pytest.mark.style
@@ -58,9 +54,9 @@ def test_one_format():
 def test_each_workflow_is_what_its_script_builds(builder, tmp_path):
     built = tmp_path / "workflow.json"
     subprocess.run([sys.executable, str(WORKFLOWS / builder), str(built)], check=True, capture_output=True)
-    assert json.loads(built.read_text()) == json.loads(
-        (WORKFLOWS / BUILDERS[builder]).read_text()
-    ), f"{BUILDERS[builder]} was edited by hand, or {builder} changed without rebuilding it"
+    assert json.loads(built.read_text()) == json.loads((WORKFLOWS / BUILDERS[builder]).read_text()), (
+        f"{BUILDERS[builder]} was edited by hand, or {builder} changed without rebuilding it"
+    )
 
 
 @pytest.mark.style

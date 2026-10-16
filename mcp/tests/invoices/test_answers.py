@@ -20,7 +20,11 @@ def answers(db_cabinet, monkeypatch):
 
     monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
     monkeypatch.setattr(pipeline, "check_sender", lambda session_id, dossier_id=0, invoice_id=0: ok("ok"))
-    record = lambda invoice_id, answer, *asked: applied.append((invoice_id, answer)) or ok("applique")
+
+    def record(invoice_id, answer, *asked):
+        applied.append((invoice_id, answer))
+        return ok("applique")
+
     monkeypatch.setitem(pipeline.ANSWERS, "assign_account", (record, "settle_tva"))
     monkeypatch.setitem(pipeline.ANSWERS, "settle_tva", (record, "check_journal"))
     return applied

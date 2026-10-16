@@ -6,6 +6,8 @@ Google Chrome installed, a PDF of each page and tarik-workflows.pdf, all of them
 Run on the host after a workflow changes: python3 docs/workflows-overview/build.py
 It fails when a node has no explanation here: add one to its page below."""
 
+# ruff: noqa: E501 -- its rows are prose for the reader, one string each: wrapping them helps nobody.
+
 import html
 import json
 import re

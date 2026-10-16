@@ -20,6 +20,7 @@ import calendar
 import contextlib
 import csv
 import io
+import itertools
 import re
 import time
 from collections import Counter
@@ -142,9 +143,9 @@ def entries_kind(text, separator):
         if column is not None and column < len(r) and r[column].strip()[:1].isdigit()
     ]
     if len(accounts) >= 20:
-        backwards = sum(1 for x, y in zip(accounts, accounts[1:]) if y < x)
+        backwards = sum(1 for x, y in itertools.pairwise(accounts) if y < x)
         return "grand livre" if backwards / len(accounts) < 0.02 else "fec"
-    return "fec" if FEC_HEADERS <= set(headers) else "grand livre"
+    return "fec" if set(headers) >= FEC_HEADERS else "grand livre"
 
 
 def taken(file_id):

@@ -2,11 +2,12 @@
 
 import base64
 import io
+import itertools
 
 import pypdfium2
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import log, with_ids, ok, question, server, stop
+from tarik.core.app import log, ok, question, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import client_messages
@@ -99,7 +100,7 @@ def split_pdf(raw, starts):
     count = len(pdf)
     starts = sorted({1, *(n for n in starts if 1 <= n <= count)})
     documents = []
-    for first, after in zip(starts, [*starts[1:], count + 1]):
+    for first, after in itertools.pairwise([*starts, count + 1]):
         document = pypdfium2.PdfDocument.new()
         document.import_pages(pdf, list(range(first - 1, after - 1)))
         buffer = io.BytesIO()

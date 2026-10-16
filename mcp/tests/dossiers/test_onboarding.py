@@ -4,12 +4,11 @@ import io
 from datetime import datetime
 
 import openpyxl
-
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.dossiers import identity
 from tarik.core.cabinets import cabinet_db
+from tarik.dossiers import identity
 from tarik.dossiers.identity import ICE_WRITTEN, IF_WRITTEN, as_written, client_wrote, confirmed
 from tarik.dossiers.setup import entries_kind, file_text, sheet_text
 
@@ -34,7 +33,7 @@ def test_fec_or_grand_livre_from_the_file_alone():
 
 @pytest.mark.technical
 def test_text_files_in_any_usual_encoding():
-    assert file_text("Débit".encode("utf-8")) == "Débit" and file_text("Débit".encode("cp1252")) == "Débit"
+    assert file_text("Débit".encode()) == "Débit" and file_text("Débit".encode("cp1252")) == "Débit"
     assert file_text(b"\xef\xbb\xbfJournalCode") == "JournalCode"
 
 

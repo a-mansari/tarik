@@ -1,7 +1,7 @@
 """Phase 0: can Tarik reach Experio?"""
 
-from tarik.core.app import log, server
 from tarik.core import experio
+from tarik.core.app import log, server
 from tarik.core.experio import account, odoo_call
 
 

@@ -20,6 +20,7 @@ import contextlib
 import contextvars
 import os
 import re
+from pathlib import Path
 
 import psycopg
 
@@ -69,13 +70,37 @@ def using(name):
 
 # Each cabinet's own: Vault secret/tarik/cabinets/<cabinet>, or env <CABINET>__<KEY>.
 CABINET_SETTINGS = frozenset(
-    "ODOO_UID ODOO_USER ODOO_PASSWORD ODOO_API_KEY DRY_RUN IMAP_USER IMAP_PASSWORD SMTP_USER SMTP_PASSWORD SMTP_FROM "
-    "MAIL_MANAGER MAIL_ALLOWED_RECIPIENTS AGENT_ID".split()
+    [
+        "ODOO_UID",
+        "ODOO_USER",
+        "ODOO_PASSWORD",
+        "ODOO_API_KEY",
+        "DRY_RUN",
+        "IMAP_USER",
+        "IMAP_PASSWORD",
+        "SMTP_USER",
+        "SMTP_PASSWORD",
+        "SMTP_FROM",
+        "MAIL_MANAGER",
+        "MAIL_ALLOWED_RECIPIENTS",
+        "AGENT_ID",
+    ]
 )
 # The same for every cabinet: Vault secret/tarik/shared, or env <KEY>.
 SHARED_SETTINGS = frozenset(
-    "IMAP_HOST IMAP_PORT IMAP_FOLDER SMTP_HOST SMTP_PORT MAIL_CERT_SHA256 N8N_MCP_API_TOKEN MODEL_API_KEY "
-    "MODEL_API_URL MODEL_API_NAME MAIL_WEBHOOK_SECRET".split()
+    [
+        "IMAP_HOST",
+        "IMAP_PORT",
+        "IMAP_FOLDER",
+        "SMTP_HOST",
+        "SMTP_PORT",
+        "MAIL_CERT_SHA256",
+        "N8N_MCP_API_TOKEN",
+        "MODEL_API_KEY",
+        "MODEL_API_URL",
+        "MODEL_API_NAME",
+        "MAIL_WEBHOOK_SECRET",
+    ]
 )
 
 
@@ -125,7 +150,7 @@ def misplaced_in_vault(shared, cabinets, environ=os.environ):
     return sorted(found)
 
 
-SCHEMA = os.path.join(os.path.dirname(__file__), "cabinet.sql")
+SCHEMA = Path(__file__).with_name("cabinet.sql")
 
 
 def cabinet_db():
@@ -136,7 +161,7 @@ def cabinet_db():
 
 def create_schemas():
     """Each cabinet's schema and tables, created if missing (cabinet.sql is idempotent)."""
-    ddl = open(SCHEMA).read()
+    ddl = SCHEMA.read_text()
     for name in sorted(CABINETS):
         with psycopg.connect(**POSTGRES) as admin:
             admin.execute(f"create schema if not exists {name}")

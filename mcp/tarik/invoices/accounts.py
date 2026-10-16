@@ -69,7 +69,16 @@ Rules:
 CLASS = {"purchase": "6", "sale": "7"}
 
 
-INVOICE_FIELDS = "state type company_id exercice_id partner_id account_id invoice_number amount_total".split()
+INVOICE_FIELDS = [
+    "state",
+    "type",
+    "company_id",
+    "exercice_id",
+    "partner_id",
+    "account_id",
+    "invoice_number",
+    "amount_total",
+]
 
 
 def account_question(invoice, designation):

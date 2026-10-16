@@ -28,8 +28,9 @@ def test_the_thread_goes_to_its_cabinets_agent_in_its_own_conversation(cabinet, 
     monkeypatch.setattr(
         agent,
         "call_n8n",
-        lambda tool, **kw: sent.update(tool=tool, **kw)
-        or {"ok": True, "status": "completed", "response": "Bien recu."},
+        lambda tool, **kw: (
+            sent.update(tool=tool, **kw) or {"ok": True, "status": "completed", "response": "Bien recu."}
+        ),
     )
     assert agent.ask_agent("mail-1", "Voici la facture", ["f.pdf", "g.pdf"])["output"] == "Bien recu."
     assert sent == {

@@ -3,18 +3,16 @@
 import contextlib
 import threading
 import time
-
-import httpx
-import pytest
 import xmlrpc.client
 from xmlrpc.server import SimpleXMLRPCRequestHandler, SimpleXMLRPCServer
 
+import httpx
+import pytest
+
 from server import server  # its import registers every tool
+from shared import A, call
 from tarik.core import experio
 from tarik.core.cabinets import POSTGRES, cabinet_db, using
-
-from shared import A, call
-
 
 LEAKS = {  # a marker in every setting: none may show in anything a tool returns
     "ODOO_USER": "leak-odoo-user",

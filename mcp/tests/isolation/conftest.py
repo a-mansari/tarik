@@ -4,9 +4,8 @@ the fixtures that serve it, so a test that doesn't is not run for every tool's c
 
 import pytest
 
-from tarik.core import cabinets
-
 from shared import A, B, serving
+from tarik.core import cabinets
 from tests import testdb
 
 

@@ -5,6 +5,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
 import pytest
 
 from tarik.core import cabinets, vault
@@ -137,14 +138,14 @@ def test_an_outage_keeps_the_last_values(fake):
 @pytest.mark.technical
 def test_no_vault_at_start_stops_the_server(fake):
     fake.down[0] = True
-    with pytest.raises(Exception):
+    with pytest.raises(httpx.HTTPStatusError):
         vault.settings(wait=0)
 
 
 @pytest.mark.security
 def test_a_wrong_approle_is_refused(fake, tmp_path):
     (tmp_path / "secret_id").write_text("guessed")
-    with pytest.raises(Exception):
+    with pytest.raises(httpx.HTTPStatusError):
         vault.settings()
 
 
