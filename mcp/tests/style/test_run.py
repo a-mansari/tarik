@@ -20,3 +20,9 @@ def test_a_change_runs_the_tests_that_import_it():
 def test_a_file_no_import_reaches_is_mapped():
     assert "isolation/test_cabinet_postgres.py" in chosen("tarik/core/cabinet.sql")
     assert chosen("pytest.ini") == {str(test.relative_to(run.TESTS)) for test in run.TESTS.rglob("test_*.py")}
+
+
+@pytest.mark.technical
+def test_a_workflow_change_runs_every_live_n8n_test():
+    tests = {str(test.relative_to(run.TESTS)) for test in run.selected({run.REPO / "workflows/steps.py"})}
+    assert {"n8n/test_conversation.py", "n8n/test_at_the_end.py", "style/test_consistency.py"} <= tests

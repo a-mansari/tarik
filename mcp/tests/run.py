@@ -30,7 +30,7 @@ def other(path):
     if path == MCP / "tarik/core/cabinet.sql":
         return [MCP / "tarik/core/cabinets.py"]  # the tables cabinets.py creates
     if path.is_relative_to(REPO / "workflows"):
-        return [STYLE, TESTS / "n8n/test_conversation.py"]
+        return [STYLE, *(TESTS / "n8n").glob("test_*.py")]  # the live tests run what the workflows say
     if path == REPO / "pyproject.toml":
         return [STYLE]  # the code's style
     if path == REPO / "n8n/patch.js":
