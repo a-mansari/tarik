@@ -275,6 +275,10 @@ PAGES["emails"] = page(
             "",
             [
                 (
+                    "Accuse de reception (acknowledge_thread)",
+                    "A new conversation (its first email, not a reply in an earlier thread) gets an instant reply in the thread: “Votre message est bien reçu. Tarik le traite et vous répond dans ce fil, en général d'ici quelques minutes.” Once per thread, never for a reply or a follow-up. If it cannot be sent, the agent answers all the same.",
+                ),
+                (
                     "Tarik",
                     "Asks the firm's AI agent to answer the thread's new emails, in the thread's own conversation, with its attachments. The agent calls Tarik - Traitement, Tarik - Dossier or Tarik - Modification. Waits up to 11 minutes for the answer.",
                 ),

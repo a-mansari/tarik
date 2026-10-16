@@ -70,12 +70,37 @@
       }
     },
     {
+      "id": "43b65df3-cf95-5eb8-a106-cc7b9790827f",
+      "name": "Accuse de reception (acknowledge_thread)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        784,
+        400
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Nouvel email').first().json.body.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "acknowledge_thread"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ thread_id: $('Un element par fil').item.json.thread_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
       "id": "28285773-1f60-5e25-87ad-6eefd09d3a22",
       "name": "Tarik",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
       "typeVersion": 1.1,
       "position": [
-        896,
+        960,
         400
       ],
       "parameters": {
@@ -87,7 +112,7 @@
           "value": "ask_agent"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ session_id: $json.session_id, message: $json.message, files: $json.files }) }}",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Un element par fil').item.json.session_id, message: $('Un element par fil').item.json.message, files: $('Un element par fil').item.json.files }) }}",
         "options": {
           "timeout": 660000
         }
@@ -565,7 +590,7 @@
       "main": [
         [
           {
-            "node": "Tarik",
+            "node": "Accuse de reception (acknowledge_thread)",
             "type": "main",
             "index": 0
           }
@@ -573,6 +598,24 @@
         [
           {
             "node": "Suite du traitement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Accuse de reception (acknowledge_thread)": {
+      "main": [
+        [
+          {
+            "node": "Tarik",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Tarik",
             "type": "main",
             "index": 0
           }

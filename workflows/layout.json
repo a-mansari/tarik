@@ -119,7 +119,7 @@
       576
     ],
     "Tarik": [
-      896,
+      960,
       400
     ],
     "Reponse (send_email)": [
@@ -157,6 +157,10 @@
     "Manager prevenu (notify_manager)": [
       1552,
       320
+    ],
+    "Accuse de reception (acknowledge_thread)": [
+      784,
+      400
     ]
   },
   "TarikModif000001": {
