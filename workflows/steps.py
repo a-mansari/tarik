@@ -22,6 +22,8 @@ RECORD = "Enregistrer"  # records each step's outcome; the run's summary is made
 SENDER = "Expediteur (check_sender)"
 FILES = "Fichiers du message (files_to_process)"
 EACH_FILE = "Un element par fichier"
+END = "Fin des etapes"
+NEVER = "Jamais execute"  # keeps "Fin des etapes" waiting: see record_and_summary
 
 
 class Workflow:
@@ -130,8 +132,8 @@ class Workflow:
         self.code(EACH_FILE, split_position, f"// {comment}\n{each}")
 
     def record_and_summary(self, record_position, summary_position):
-        """The "Enregistrer" step, then, last (lowest branch: n8n runs it after everything), the run's
-        summary, which is the workflow's answer."""
+        """The "Enregistrer" step, then, once every step has ended, the run's summary, which is the workflow's
+        answer."""
         # A failed step's error item carries the item it was given (n8n merges it in): its invoice or file.
         given = "$json.content?.[0]?.text"
         arguments = (
@@ -140,8 +142,22 @@ class Workflow:
             f"invoice_id: {given}?.invoice_id, file_id: {given}?.file_id ?? $json.file_id }} : {RESULT} }}"
         )
         self.mcp(RECORD, "record_step", arguments, record_position)
-        self.mcp("Résumé", "run_summary", "{ run_id: String($execution.id) }", summary_position)
-        self.connect("Appel", "Résumé")
+        x, y = summary_position
+        self.mcp("Résumé", "run_summary", "{ run_id: String($execution.id) }", [x + 220, y])
+        self.at_the_end("Résumé", [x, y])
+
+    def at_the_end(self, target, position):
+        """``target`` run once every other node has ended, wherever it sits in the editor: "Appel", through
+        "Fin des etapes". tests/n8n/test_at_the_end.py checks n8n still does it (tarik-merge-test.json)."""
+        # n8n holds a node with two inputs that got data on one only, and runs it once nothing else is left to run
+        # (workflow-execute.js, executionOrder v1). The Merge gets "Appel" on input 0; input 1 comes from a node
+        # nothing runs.
+        x, y = position
+        self.node(END, "n8n-nodes-base.merge", 3.2, [x, y], {})
+        self.node(NEVER, "n8n-nodes-base.noOp", 1, [x - 220, y + 100], {})
+        self.connect("Appel", END)
+        self.connections[NEVER] = {"main": [[{"node": END, "type": "main", "index": 1}]]}
+        self.connect(END, target)
 
     def save(self, workflow_id, name, settings=None):
         """Write the workflow to the path given on the command line, else to <prefix>.json next to this file."""

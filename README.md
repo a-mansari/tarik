@@ -93,6 +93,8 @@ calls, the call caps, and every tool's answers, with Experio unreachable, empty,
 logging in the wrong user, for any setting. `mcp/tests/n8n/test_agent_memory.py` checks, on the
 running n8n with the real model, that two agents never share memory nor conversations; it needs
 n8n's MCP server on (Settings > n8n MCP) and its token in Vault (`N8N_MCP_API_TOKEN`), and skips without.
+`mcp/tests/n8n/test_at_the_end.py` runs "Tarik - Test Merge" (`TarikMergeTest01`, imported like the
+other workflows) to check n8n still runs "Résumé" after every step: run it after each n8n upgrade.
 These live tests run only when asked:
 
 ```bash
