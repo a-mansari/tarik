@@ -68,7 +68,7 @@ def test_the_invoice_form_is_read_per_cabinet(two_cabinets, monkeypatch):
         assert experio.fill_invoice(1, {f"field_{A}": "y"}, {}) == {f"field_{A}": "y"}
     with using(B):
         assert experio.fill_invoice(1, {f"field_{B}": "y"}, {}) == {f"field_{B}": "y"}
-    assert ("tarik_test_b", "fields_get") in calls  # B read its own form, not A's cached one
+    assert (B, "fields_get") in calls  # B read its own form, not A's cached one
 
 
 @pytest.mark.security

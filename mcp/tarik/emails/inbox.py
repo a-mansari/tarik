@@ -170,25 +170,25 @@ def claim(db):
     return threads
 
 
-@server.tool()
-def fetch_emails() -> dict:
-    """Read the mailbox's new emails (without changing anything there), sort them into
-    threads, and hand over the threads waiting for an answer, each locked for this run.
-    The first run only notes where the mailbox stands: earlier emails are left alone."""
+def read_mailbox():
+    """Store the mailbox's new emails in their threads (without changing anything there), and return
+    what the cabinet's manager must hear of: the refused senders. Run by tarik-mail-watch, never by n8n:
+    however many emails wait, no workflow waits on it. The first reading only notes where the mailbox
+    stands: earlier emails are left alone."""
     box = connect()
     try:
         uidvalidity = int(box.response("UIDVALIDITY")[1][0])
         newest = int(box.response("UIDNEXT")[1][0]) - 1
         with cabinet_db() as db:
-            # One reading at a time per cabinet (the watcher's wake-up and its tick overlap): held until this
-            # connection closes, across the commits below. The other run only hands out the waiting threads.
-            if not db.execute("select pg_try_advisory_lock(hashtext(%s))", (f"fetch_emails {current()}",)).fetchone()[0]:
-                return ok("Lecture deja en cours.", threads=claim(db), alerts=[])
+            # One reading at a time per cabinet (the watcher's wake-up and its tick may overlap): held until this
+            # connection closes, across the commits below.
+            if not db.execute("select pg_try_advisory_lock(hashtext(%s))", (f"read_mailbox {current()}",)).fetchone()[0]:
+                return []
             state = db.execute("select uidvalidity, last_uid from tarik_mail_state where folder = %s", (folder(),)).fetchone()
-            if not state or state[0] != uidvalidity:  # first run, or the folder was rebuilt: start from now
+            if not state or state[0] != uidvalidity:  # first reading, or the folder was rebuilt: start from now
                 db.execute("insert into tarik_mail_state (folder, uidvalidity, last_uid) values (%s, %s, %s) on conflict (folder) "
                            "do update set uidvalidity = excluded.uidvalidity, last_uid = excluded.last_uid", (folder(), uidvalidity, newest))
-                return ok("Boite aux lettres prise en compte a partir de maintenant.", threads=claim(db), alerts=[])
+                return []
             uids = [int(uid) for uid in box.uid("search", None, f"UID {state[1] + 1}:*")[1][0].split()]
             alerts = []
             for uid in sorted(u for u in uids if u > state[1]):  # "n:*" also returns the last email when there's nothing new
@@ -198,19 +198,33 @@ def fetch_emails() -> dict:
                     with db.transaction():  # a failed email leaves nothing half-written
                         alert = store(db, uid, message_from_bytes(raw, policy=policy.default)) if raw else None
                 except (UnreadableEmail, psycopg.DataError) as error:  # this email can't be stored: never tried again
-                    print(f"fetch_emails: unreadable email skipped: {error}", flush=True)
+                    print(f"read_mailbox: unreadable email skipped: {error}", flush=True)
                     alert = None
-                except Exception as error:  # Experio or the database out: this email and the next wait for the next run
-                    print(f"fetch_emails: stopped at uid {uid}: {type(error).__name__}: {error}", flush=True)
+                except Exception as error:  # Experio or the database out: this email and the next wait for the next reading
+                    print(f"read_mailbox: stopped at uid {uid}: {type(error).__name__}: {error}", flush=True)
                     break
                 if alert:
                     alerts.append(alert)
                 db.execute("update tarik_mail_state set last_uid = %s where folder = %s", (uid, folder()))
                 db.commit()  # each email recorded for good before the next
-            threads = claim(db)
     finally:
         box.logout()
-    return ok(f"{len(threads)} fil(s) a traiter, {len(alerts)} expediteur(s) refuse(s).", threads=threads, alerts=alerts)
+    return alerts
+
+
+def threads_waiting():
+    """Is a thread waiting for Tarik's answer, so that "Tarik - Emails" has work?"""
+    with cabinet_db() as db:
+        return db.execute("select 1 from tarik_mail_threads where state = 'new' or (state = 'in_progress' and "
+                          "claimed_at < now() - make_interval(mins => %s)) limit 1", (LEASE_MINUTES,)).fetchone() is not None
+
+
+@server.tool()
+def claim_threads() -> dict:
+    """The threads waiting for Tarik's answer, each locked for this run (tarik-mail-watch stored their emails)."""
+    with cabinet_db() as db:
+        threads = claim(db)
+    return ok(f"{len(threads)} fil(s) a traiter.", threads=threads)
 
 
 @server.tool()

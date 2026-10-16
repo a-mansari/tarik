@@ -45,3 +45,28 @@ def test_each_watch_runs_in_its_own_cabinet(three, monkeypatch):
         with pytest.raises(Seen):
             watcher.watch(cabinet)
     assert logins == ["tarik@a.ma", "tarik@c.ma"]
+
+
+@pytest.mark.functionality
+def test_the_workflow_is_woken_only_when_a_thread_waits(three, monkeypatch):
+    woken, told = [], []
+    monkeypatch.setattr(watcher, "read_mailbox", lambda: [{"sender": "x@gmail.com", "subject": "s", "reason": "r"}])
+    monkeypatch.setattr(watcher, "notify_manager", lambda **alert: told.append(alert["sender"]))
+    monkeypatch.setattr(watcher, "wake_tarik", lambda cabinet, why: woken.append(cabinet))
+    with cabinets.using("tarik_test_a"):
+        monkeypatch.setattr(watcher, "threads_waiting", lambda: False)
+        watcher.serve("tarik_test_a", "new email")
+        monkeypatch.setattr(watcher, "threads_waiting", lambda: True)
+        watcher.serve("tarik_test_a", "new email")
+    assert told == ["x@gmail.com", "x@gmail.com"] and woken == ["tarik_test_a"]
+
+
+@pytest.mark.technical
+def test_a_mailbox_that_cannot_be_read_still_wakes_the_waiting_threads(three, monkeypatch):
+    woken = []
+    monkeypatch.setattr(watcher, "read_mailbox", lambda: (_ for _ in ()).throw(ConnectionError("IMAP down")))
+    monkeypatch.setattr(watcher, "threads_waiting", lambda: True)
+    monkeypatch.setattr(watcher, "wake_tarik", lambda cabinet, why: woken.append(cabinet))
+    with cabinets.using("tarik_test_a"):
+        watcher.serve("tarik_test_a", "")
+    assert woken == ["tarik_test_a"]

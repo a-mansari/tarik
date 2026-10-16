@@ -39,7 +39,7 @@ an MCP call at the cabinet's address, its outcome recorded; the run's summary is
 | **Tarik - Traitement** (`TarikTraitement1`) | `Experio_traiter_fichiers`, `Experio_repondre` | Saves the agent's attachments, checks the email sender, then for each file: identifies it, imports a bank statement, or splits a PDF into invoices and runs each through the sequence: draft, Experio's reading, check against the scan, correction, classification, tiers, duplicate, account, TVA, journal, withholding, prepaid charges, fiscal year, posting. A step that needs the client stops with a question. Answer mode: `answer_pending` applies the client's answer, then the sequence resumes at the next step; with nothing waiting, drafts Experio hadn't read yet are resumed. |
 | **Tarik - Dossier** (`TarikDossier0001`) | `Experio_parametrer_dossier` | A new dossier: creates it, copies a model dossier's configuration when the agent gives one. An existing one: checks the email sender. Then imports each FEC or grand livre, finishes the onboarding, and reports the dossier's state. |
 | **Tarik - Modification** (`TarikModif000001`) | `Experio_modifier_dossier` | Checks the email sender, then changes only the given fields, only to values the client wrote. |
-| **Tarik - Emails** (`TarikEmails00001`) | `tarik-mail-watch` (webhook, secret header) | Reads the cabinet's new emails, gets each thread's reply from the cabinet's agent, sends it, and tells the manager about refused senders. |
+| **Tarik - Emails** (`TarikEmails00001`) | `tarik-mail-watch` (webhook, secret header) | Claims the threads waiting for an answer, gets each one's reply from the cabinet's agent, sends it. The watcher reads and stores the emails, and tells the manager about refused senders. |
 
 ## The Python tools (`tarik-mcp`)
 
@@ -84,7 +84,7 @@ above; the workflows call the rest.
 
 | Tool | What it does |
 |---|---|
-| `fetch_emails` | Reads the cabinet's new emails without changing the mailbox, sorts them into threads, saves attachments. |
+| `claim_threads` | The threads waiting for an answer, each locked for the run (`tarik-mail-watch` stored their emails). |
 | `ask_agent` | Gets a thread's reply from the cabinet's agent, in the thread's own conversation. |
 | `send_email` | Sends Tarik's reply (whitelisted addresses only), with a copy in the Sent folder. |
 | `finish_thread` / `thread_refusal` / `notify_manager` | Closes a thread / detects a refused sender / tells the cabinet's manager. |

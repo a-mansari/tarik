@@ -1,11 +1,11 @@
 """Build workflows/tarik-emails.json: Tarik answering his mailbox.
 
-One workflow for every cabinet: tarik-mail-watch (mcp/watcher.py) calls its webhook for a cabinet
-as soon as an email arrives in that cabinet's mailbox, and every 2 minutes in case it missed one.
-The run works in that cabinet only, every step at its address: read the new emails (the mailbox
-is not changed), then for each thread waiting for an answer, the cabinet's own n8n agent answers
-its client's emails (ask_agent), and the reply goes out in the thread, to whitelisted addresses only. A thread whose run
-fails is picked up again 30 minutes later; after 3 failures it is set aside in error."""
+One workflow for every cabinet: tarik-mail-watch (mcp/watcher.py) reads the cabinet's mailbox, stores
+its new emails in their threads and tells the manager of refused senders, then calls this webhook when a
+thread waits for an answer. The run works in that cabinet only, every step at its address: for each
+waiting thread, the cabinet's own n8n agent answers its client's emails (ask_agent), and the reply goes out
+in the thread, to whitelisted addresses only. A thread whose run stops midway is taken again 30 minutes
+later; after 3 such runs it is set aside in error."""
 
 import sys
 from pathlib import Path
@@ -24,9 +24,9 @@ node("Nouvel email", "n8n-nodes-base.webhook", 2, [0, 300],
       "authentication": "headerAuth"},
      webhookId="5d0f6c2a-8e4b-4f17-9a3c-2b7e1d6f8a40",
      credentials={"httpHeaderAuth": {"id": "TarikMailWebhook1", "name": "Tarik mail webhook"}})
-mcp("Nouveaux emails (fetch_emails)", "fetch_emails", "{}", [220, 300])
+mcp("Fils en attente (claim_threads)", "claim_threads", "{}", [220, 300])
 node("Un element par fil", "n8n-nodes-base.code", 2, [440, 300], {"jsCode": (
-    "// One item per thread waiting for an answer (fetch_emails locked them for this run).\n"
+    "// One item per thread waiting for an answer (claim_threads locked them for this run).\n"
     "// None when tarik-mcp answered without them (restarting): the next wake-up takes them.\n"
     "return ($input.first().json.content?.[0]?.text?.threads ?? []).map(thread => ({ json: thread }));")})
 # The cabinet's own agent answers, in the thread's conversation (ask_agent: n8n's call_agent).
@@ -39,8 +39,8 @@ mcp("Fil traite (finish_thread)", "finish_thread", (
     f"{{ thread_id: {THREAD}.thread_id, message_ids: {THREAD}.message_ids, sent: !$json.error, "
     "reason: $json.error ? String($json.error.message ?? $json.error).replace(/^Error executing tool \\w+: /, '') : '' }"),
     [1100, 300], retryOnFail=True, maxTries=3, waitBetweenTries=5000)  # the reply is out: its thread must be closed, or it's sent twice
-connect("Nouvel email", "Nouveaux emails (fetch_emails)")
-connect("Nouveaux emails (fetch_emails)", "Un element par fil", 0)
+connect("Nouvel email", "Fils en attente (claim_threads)")
+connect("Fils en attente (claim_threads)", "Un element par fil", 0)
 connect("Un element par fil", "Tarik")
 # Refused for the sender's rights on the dossier: the sender gets nothing, the manager is told.
 mcp("Refus de droits ? (thread_refusal)", "thread_refusal", f"{{ thread_id: {THREAD}.thread_id }}", [770, 300])
@@ -54,14 +54,6 @@ connect("Refus de droits ? (thread_refusal)", "Refuse ?", 0)
 connect("Refuse ?", "Reponse (send_email)", 0)
 connect("Refuse ?", "Manager prevenu (notify_manager)", 1)
 
-# Senders who may not use Tarik (not collaborators, or off the whitelist): the manager is told, the sender gets nothing.
-node("Une alerte par refus", "n8n-nodes-base.code", 2, [440, 520], {"jsCode": (
-    "// One item per email whose sender fetch_emails refused.\n"
-    "return ($input.first().json.content?.[0]?.text?.alerts ?? []).map(alert => ({ json: alert }));")})
-mcp("Manager prevenu de l'expediteur (notify_manager)", "notify_manager",
-    "{ sender: $json.sender, subject: $json.subject, reason: $json.reason }", [660, 520])
-connect("Nouveaux emails (fetch_emails)", "Une alerte par refus", 0)
-connect("Une alerte par refus", "Manager prevenu de l'expediteur (notify_manager)")
 connect("Reponse (send_email)", "Fil traite (finish_thread)", 0)
 connect("Reponse (send_email)", "Fil traite (finish_thread)", 1)  # not sent (whitelist, SMTP): set aside, with why
 connect("Tarik", "Fil traite (finish_thread)", 1)  # no reply (n8n or the model failing): set aside, with why, never asked twice

@@ -1,10 +1,10 @@
-"""Wake "Tarik - Emails" for each cabinet with a Tarik mailbox (its own IMAP_USER): the moment an
-email arrives, and every 2 minutes in case one was missed. Each wake-up names its cabinet, and the
-workflow works in that cabinet only. Run as: python watcher.py (a new mailbox needs a restart).
+"""Read each Tarik mailbox (a cabinet's own IMAP_USER) the moment an email arrives, and every 2 minutes in
+case one was missed: store the new emails in their threads, tell the cabinet's manager of refused senders,
+and wake "Tarik - Emails" when a thread waits for an answer. Each wake-up names its cabinet, and the workflow
+works in that cabinet only. Run as: python watcher.py (a new mailbox needs a restart).
 
 Per cabinet, one IMAP IDLE connection to its Tarik folder (read-only, pinned certificate, as
-fetch_emails connects): the server tells it when the folder gets a new email, and it calls the
-workflow's webhook. The connection is renewed every 25 minutes (servers drop an IDLE after ~30)
+read_mailbox connects): the server tells it when the folder gets a new email, and it reads it. The connection is renewed every 25 minutes (servers drop an IDLE after ~30)
 and rebuilt after any error; the 2-minute tick still catches whatever happens meanwhile.
 Python 3.12's imaplib has no IDLE (3.14 does): the command is spoken here.
 """
@@ -19,7 +19,7 @@ import time
 import httpx
 
 from tarik.core.cabinets import CABINETS, setting, using
-from tarik.emails.inbox import connect
+from tarik.emails.inbox import connect, notify_manager, read_mailbox, threads_waiting
 
 WEBHOOK = os.getenv("MAIL_WEBHOOK_URL", "http://n8n:5678/webhook/tarik-nouvel-email")
 RENEW_SECONDS = 25 * 60
@@ -64,6 +64,28 @@ def wake_tarik(cabinet, why):
         print(f"{cabinet}: webhook failed: {type(error).__name__}", flush=True)
 
 
+def serve(cabinet, why):
+    """Store the cabinet's new emails, tell its manager of the refused senders, and wake the workflow when a thread
+    waits. Whatever fails is logged: the next wake-up or tick tries again."""
+    try:
+        alerts = read_mailbox()
+    except Exception as error:
+        print(f"{cabinet}: mailbox not read: {type(error).__name__}: {error}", flush=True)
+        alerts = []
+    for alert in alerts:
+        try:
+            notify_manager(**alert)
+        except Exception as error:
+            print(f"{cabinet}: manager not told of {alert['sender']}: {error}", flush=True)
+    try:
+        waiting = threads_waiting()
+    except Exception as error:
+        print(f"{cabinet}: threads not checked: {type(error).__name__}", flush=True)
+        waiting = False
+    if waiting:
+        wake_tarik(cabinet, why)
+
+
 def watch(cabinet):
     """IDLE on the cabinet's mailbox: Tarik is woken the moment an email arrives."""
     with using(cabinet):
@@ -75,7 +97,7 @@ def watch(cabinet):
                 while True:
                     grown = wait_for_mail(box, count, RENEW_SECONDS)
                     if grown > count:
-                        wake_tarik(cabinet, "new email")
+                        serve(cabinet, "new email")
                     count = grown
             except Exception as error:
                 print(f"{cabinet}: watch interrupted: {error}; reconnecting in 30 s", flush=True)
@@ -83,11 +105,12 @@ def watch(cabinet):
 
 
 def tick(cabinet):
-    """Every 2 minutes, whatever IDLE saw: an email it missed (connection down, server quirk) waits no longer."""
+    """Every 2 minutes, whatever IDLE saw: an email it missed (connection down, server quirk), or a thread whose
+    run failed, waits no longer."""
     with using(cabinet):
         while True:
             time.sleep(TICK_SECONDS)
-            wake_tarik(cabinet, "")
+            serve(cabinet, "")
 
 
 def mailboxes():
