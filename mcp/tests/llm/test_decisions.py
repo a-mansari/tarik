@@ -1,5 +1,6 @@
 """The decisions the agent makes from the client's reply, measured on the real model: what it reads as oui or
-non, which proposed tiers the client chose, a clear yes to a confirmation, the invoices' filter. Each kind must
+non, which proposed tiers the client chose, a clear yes to a confirmation, the invoices' filter, the exercice and
+the bank account chosen, and which waiting question the reply answers. Each kind must
 be right on average (MIN_RIGHT) and almost never decide what the client did not (MAX_WRONG; never for a
 confirmation): an unclear reply must leave the decision empty, so the client is asked again.
 
@@ -9,7 +10,10 @@ import pytest
 
 from tarik.core.conversation import yes_no
 from tarik.core.text import normalized
+from tarik.invoices.exercice import exercice_choice
+from tarik.invoices.intake import journal_chosen
 from tarik.invoices.listing import STATUSES
+from tarik.invoices.pipeline import meant
 from tarik.invoices.tiers import proposed_choice
 
 MIN_RIGHT = 0.9
@@ -212,4 +216,111 @@ def status(call, expected):
 @pytest.mark.llm
 def test_the_invoices_shown_are_those_the_client_asked_for(measure):
     right, wrong, _ = measure(LISTS, status)
+    assert right >= MIN_RIGHT and wrong <= MAX_WRONG
+
+
+OPENS = [
+    {"id": 31, "name": "Exercice 2024", "date_start": "2024-01-01", "date_end": "2024-12-31"},
+    {"id": 32, "name": "Exercice 2025", "date_start": "2025-01-01", "date_end": "2025-12-31"},
+]
+EXERCICE_QUESTION = (
+    "- facture 12 : QUESTION : Facture 12 : Elle est datee du 2023-11-20, en dehors des exercices ouverts "
+    "(Exercice 2024, Exercice 2025). Je la comptabilise dans un de ceux-la (comme facture anterieure, precisez "
+    "lequel), ou je cree un nouvel exercice couvrant sa vraie date (repondez « nouveau ») ?"
+)
+EXERCICES = [
+    processing(EXERCICE_QUESTION, "Mettez-la dans 2025", "Exercice 2025"),
+    processing(EXERCICE_QUESTION, "Comptabilisez-la comme facture antérieure dans l'exercice 2024", "Exercice 2024"),
+    processing(EXERCICE_QUESTION, "Dans la plus récente des deux", "Exercice 2025"),
+    processing(EXERCICE_QUESTION, "nouveau", "nouveau"),
+    processing(EXERCICE_QUESTION, "Créez un nouvel exercice", "nouveau"),
+    processing(EXERCICE_QUESTION, "Pas besoin de créer un exercice, mettez-la dans l'exercice 2024", "Exercice 2024"),
+    processing(EXERCICE_QUESTION, "Ne créez rien pour l'instant, je vérifie", None),
+    processing(EXERCICE_QUESTION, "Dans l'exercice ouvert", None),
+    processing(EXERCICE_QUESTION, "Je ne sais pas", None),
+]
+
+
+def exercice(call, expected):
+    """The exercice the server books the invoice in from the agent's decision (exercice_choice): an open one or new."""
+    if not call:
+        return "right" if expected is None else "asked again"
+    if call["name"] != "Experio_repondre":
+        return "wrong"
+    choice = exercice_choice(str(call["input"].get("decision", "")), OPENS)
+    read = None if not choice else "nouveau" if choice[0] == "new" else choice[1]["name"]
+    return "right" if read == expected else "asked again" if read is None else "wrong"
+
+
+@pytest.mark.llm
+def test_the_exercice_is_the_one_the_client_chose(measure):
+    right, wrong, _ = measure(EXERCICES, exercice)
+    assert right >= MIN_RIGHT and wrong <= MAX_WRONG
+
+
+BANK_QUESTION = (
+    "- releve bancaire : QUESTION : releve_mars.pdf : le dossier GECAFISC a plusieurs comptes bancaires, lequel ? "
+    "BMCE - BMCE BANK (n° 41), BP - BANQUE POPULAIRE (n° 42), AWB - ATTIJARIWAFA BANK (n° 43)"
+)
+BANKS = [
+    processing(BANK_QUESTION, "Le compte BMCE", 41),
+    processing(BANK_QUESTION, "j'ai 7 relevés, c'est le compte BP", 42),
+    processing(BANK_QUESTION, "AWB", 43),
+    processing(BANK_QUESTION, "Attijari", 43),
+    processing(BANK_QUESTION, "la Banque Populaire", 42),
+    processing(BANK_QUESTION, "le deuxième", 42),
+    processing(BANK_QUESTION, "Je ne sais pas", 0),
+    processing(BANK_QUESTION, "celui de la CIH", 0),
+]
+
+
+def bank(call, expected):
+    """The bank journal the server imports the statement into from the agent's decision (journal_chosen)."""
+    if not call:
+        return "right" if not expected else "asked again"
+    if call["name"] != "Experio_repondre":
+        return "wrong"
+    chosen = journal_chosen(str(call["input"].get("decision", "")), BANK_QUESTION)
+    return "right" if chosen == expected else "asked again" if not chosen else "wrong"
+
+
+@pytest.mark.llm
+def test_the_statement_goes_to_the_bank_account_the_client_chose(measure):
+    right, wrong, _ = measure(BANKS, bank)
+    assert right >= MIN_RIGHT and wrong <= MAX_WRONG
+
+
+TWO_QUESTIONS = (
+    "- facture 11 : QUESTION : Facture FA-11 : quel compte utiliser ? (compte de charge, ex. 6125)\n"
+    "- facture 12 : QUESTION : Facture de NOVA TELECOM : la TVA est-elle non recuperable (voyage, carburant, "
+    "vehicule de tourisme) ? oui / non"
+)
+WAITING = [
+    {"invoice_id": 11, "names": {"11"}, "step": "assign_account"},
+    {"invoice_id": 12, "names": {"12"}, "step": "settle_tva"},
+]
+ABOUT = [
+    processing(TWO_QUESTIONS, "Oui pour Nova Telecom", 12),
+    processing(TWO_QUESTIONS, "Pour la 11 : compte 6125", 11),
+    processing(TWO_QUESTIONS, "La facture FA-11 va en 6125", 11),
+    processing(TWO_QUESTIONS, "Compte 6125", 11),
+    processing(TWO_QUESTIONS, "Non, elle est récupérable", 12),
+    processing(TWO_QUESTIONS, "Pour laquelle ? Je ne comprends pas", None),
+]
+
+
+def about(call, expected):
+    """The question the server applies the reply to from the agent's ``about`` (meant), among those waiting."""
+    if not call:
+        return "right" if expected is None else "asked again"
+    if call["name"] != "Experio_repondre":
+        return "wrong"
+    item = meant(WAITING, str(call["input"].get("about", "")))
+    read = item and item["invoice_id"]
+    return "right" if read == expected else "asked again" if not read else "wrong"
+
+
+@pytest.mark.llm
+def test_a_reply_goes_to_the_question_it_answers(measure):
+    right, wrong, _ = measure(ABOUT, about)
     assert right >= MIN_RIGHT and wrong <= MAX_WRONG

@@ -50,10 +50,11 @@ def test_the_only_question_gets_the_answer_and_the_sequence_resumes(answers):
 def test_with_several_questions_the_answer_names_its_invoice(answers):
     waits(11, "assign_account", "Facture FA-11 : quel compte utiliser ?")
     waits(12, "settle_tva", "Facture de NOVA TELECOM : la TVA est-elle non recuperable ? oui / non")
-    assert (
-        pipeline.answer_pending("s", "oui")["status"] == "question" and answers == []
-    )  # which one: asked, nothing applied
-    assert pipeline.answer_pending("s", "oui pour Nova Telecom", "oui")["invoice_id"] == 12 and answers == [(12, "oui")]
+    which = pipeline.answer_pending("s", "oui pour Nova Telecom", "oui")  # the agent didn't say which: asked
+    assert which["status"] == "question" and "- facture 12 : Facture de NOVA TELECOM" in which["message"]
+    assert answers == []
+    assert pipeline.answer_pending("s", "oui pour Nova Telecom", "oui", "12")["invoice_id"] == 12
+    assert answers == [(12, "oui")]
 
 
 @pytest.mark.security
@@ -89,11 +90,12 @@ def test_a_sender_without_the_dossier_changes_nothing_and_is_recorded_as_refused
 
 
 @pytest.mark.security
-def test_a_bare_number_names_no_invoice(answers):
+def test_only_the_invoice_the_agent_names_among_those_waiting_is_answered(answers):
     waits(20, "settle_tva", "Facture FA-20 : la TVA est-elle non recuperable ? oui / non")
     waits(35, "settle_tva", "Facture FA-35 : la TVA est-elle non recuperable ? oui / non")
-    assert pipeline.answer_pending("s", "oui, TVA 20 %")["status"] == "question" and answers == []
-    assert pipeline.answer_pending("s", "oui pour la facture 35")["invoice_id"] == 35
+    for about in ("", "99", "FA-20 ou FA-35"):  # none, one not waiting, not one
+        assert pipeline.answer_pending("s", "oui, TVA 20 %", "oui", about)["status"] == "question" and answers == []
+    assert pipeline.answer_pending("s", "oui pour la facture 35", "oui", "facture 35")["invoice_id"] == 35
 
 
 @pytest.mark.functionality
@@ -115,16 +117,16 @@ def test_a_statement_gets_the_bank_account_the_client_names(answers, monkeypatch
         db.execute(
             "insert into tarik_results (run_id, session_id, file_id, dossier_id, step, status, message) values "
             "('r', 's', %s, 557, 'import_bank_statement', 'question', 'releve mars.pdf : lequel ? BMCE - BMCE "
-            "BANK (journal_id 4)')",
+            "BANK (n° 4), BP - BANQUE POPULAIRE (n° 5)')",
             (file_id,),
         )
-    monkeypatch.setattr(pipeline, "journal_meant", lambda dossier_id, answer: 4 if "bmce" in answer.lower() else 0)
     monkeypatch.setattr(
         pipeline,
         "import_bank_statement",
         lambda file_id, dossier_id, journal_id: ok(f"{file_id} {dossier_id} {journal_id}"),
     )
-    assert pipeline.answer_pending("s", "Le compte BMCE")["message"] == f"{file_id} 557 4"
+    assert pipeline.answer_pending("s", "j'ai 7 releves, compte BMCE", "7")["message"] == f"{file_id} 557 0"  # unlisted
+    assert pipeline.answer_pending("s", "Le compte BMCE", "4")["message"] == f"{file_id} 557 4"
     pipeline.record_step(
         "r2",
         "s",

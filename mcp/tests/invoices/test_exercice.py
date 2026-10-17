@@ -11,24 +11,12 @@ OPENS = [
 
 
 @pytest.mark.functionality
-def test_the_choice_is_read():
-    assert exercice_choice("dans l'exercice 2025 svp", OPENS) == ("old", OPENS[1])
-    assert exercice_choice("Exercice 2024", OPENS) == ("old", OPENS[0])
-    assert exercice_choice("cree un nouvel exercice", OPENS) == ("new", None) and exercice_choice("nouveau", OPENS) == (
-        "new",
-        None,
-    )
-    assert (
-        exercice_choice("le premier", OPENS) is None and exercice_choice("2023", OPENS) is None
-    )  # unclear, or not an open one
-
-
-@pytest.mark.functionality
-def test_a_new_exercice_only_when_that_is_all_the_client_says():
-    opens = [{"id": 1, "name": "Exercice 2024", "date_start": "2024-01-01", "date_end": "2024-12-31"}]
-    assert exercice_choice("nouveau", opens) == ("new", None)
-    assert exercice_choice("ne creez pas de nouvel exercice, mettez-la dans 2024", opens) is None
-    assert exercice_choice("dans 2024", opens) == ("old", opens[0])
+def test_the_agents_choice_is_taken_only_among_the_open_exercices():
+    assert exercice_choice("Exercice 2025", OPENS) == ("old", OPENS[1])  # named as the question lists it
+    assert exercice_choice(str(OPENS[0]["id"]), OPENS) == ("old", OPENS[0])
+    assert exercice_choice("nouveau", OPENS) == exercice_choice(" Nouveau ", OPENS) == ("new", None)
+    for unclear in ("", "Exercice 2023", "2025", "cree un nouvel exercice", "le premier"):
+        assert exercice_choice(unclear, OPENS) is None, unclear  # the client is asked again
 
 
 @pytest.mark.functionality
