@@ -26,20 +26,15 @@ from tarik.core.experio import (
 from tarik.core.text import normalized
 from tarik.invoices.check import resolve_date
 
-NEW = ("nouveau", "nouvel", "nouvelle", "creer", "cree", "creez", "new")  # a new exercice is asked for
 
-
-def exercice_choice(answer, opens):
-    """What the client chose: ("old", exercice) to book it late in an open exercice, ("new", None)
-    for a new exercice, or None when unclear (a year or a name is enough)."""
-    text = normalized(answer)
-    named = [e for e in opens if normalized(e["name"]) in text]
-    years = set(re.findall(r"\b(?:19|20)\d\d\b", text))  # a year 1900-2099 as a whole word
-    by_year = [e for e in opens if {e["date_start"][:4], e["date_end"][:4]} & years]
-    chosen = named or by_year
-    if any(word in text.split() for word in NEW):  # "pas de nouvel exercice, mettez-la dans 2024": both said, ask again
-        return None if chosen else ("new", None)
-    return ("old", chosen[0]) if len(chosen) == 1 else None
+def exercice_choice(decision, opens):
+    """What the client chose, as the agent read it (``decision``): ("old", exercice) to book it late in one of
+    ``opens``, named as the question lists it, ("new", None) for "nouveau", None for anything else (asked again)."""
+    decision = normalized(str(decision or ""))
+    if decision == "nouveau":
+        return ("new", None)
+    named = [e for e in opens if decision in (normalized(e["name"]), str(e["id"]))]
+    return ("old", named[0]) if len(named) == 1 else None
 
 
 # A date with its 4-digit year, day first (15/03/2026) or year first (2026-03-15), any separator,
@@ -74,7 +69,7 @@ def asked(invoice, opens):
     return (
         f"Elle est datee du {invoice['invoice_date']}, en dehors des exercices ouverts ({', '.join(names)}). "
         "Je la comptabilise dans un de ceux-la (comme facture anterieure, precisez lequel), ou je cree un nouvel "
-        "exercice couvrant sa vraie date (repondez 'nouveau') ?"
+        "exercice couvrant sa vraie date (repondez « nouveau ») ?"
     )
 
 
@@ -136,10 +131,12 @@ def new_exercice(invoice_id, invoice, opens):
 
 @server.tool()
 @with_ids
-def settle_exercice(invoice_id: int, answer: str = "") -> dict:
+def settle_exercice(invoice_id: int, answer: str = "", decision: str = "") -> dict:
     """Make sure a draft invoice is booked in an open fiscal year. When none covers its
     date, the answer is a question (late invoice in an open exercice, or a new one);
-    call again with the client's reply as ``answer``."""
+    call again with the client's reply as ``answer`` and what the agent read in it as
+    ``decision``: "nouveau", or the open exercice chosen, named as the question lists it.
+    An invoice without a date asks for it first: ``answer`` then holds the date."""
     invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "invoice_date", "is_old_invoice"])
     require_draft(invoice_id, invoice, "changer d'exercice")
     if not invoice["invoice_date"]:  # the answer to "Quelle est sa date ?" is its date, written as the client wrote it
@@ -169,7 +166,7 @@ def settle_exercice(invoice_id: int, answer: str = "") -> dict:
         return ok(f"Facture {invoice_id} : deja comptabilisee comme facture anterieure.")
     if not answer:
         return question(f"Facture {invoice_id} : {asked(invoice, opens)}")
-    choice = exercice_choice(answer, opens)
+    choice = exercice_choice(decision, opens)
     if not choice:
         return question(f"Reponse non comprise. Facture {invoice_id} : {asked(invoice, opens)}")
     if choice[0] == "old":

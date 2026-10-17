@@ -212,6 +212,7 @@
             "dossier_id": 0,
             "answer": "",
             "decision": "",
+            "about": "",
             "invoice_type": "",
             "client_message": "",
             "attachments": "",
@@ -258,6 +259,15 @@
             {
               "id": "decision",
               "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "about",
+              "displayName": "about",
               "required": false,
               "defaultMatch": false,
               "display": true,

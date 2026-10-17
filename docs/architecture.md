@@ -88,6 +88,8 @@ right every time is decided by n8n or by code:
   words, amounts as numbers), checked in Python.
 - **Which answers count**: a oui / non question takes exactly "oui" or "non", anything else asks it again;
   a tiers question takes only a tiers it proposed (or an ICE that names one of the dossier's tiers); an
+  exercice question takes "nouveau" or one of the open exercices it listed; a bank account question one of
+  the accounts it listed; with several questions waiting, the answer goes to the one named among them; an
   invoice filter is one of the four statuses.
 - **ICE and IF exactly as written**: a number that lost its leading zeros is restored from the
   client's message.
@@ -103,8 +105,9 @@ right every time is decided by n8n or by code:
   (a test calls every tool with marker values to check it).
 
 What the agent does decide, from the client's reply and guided by its skills: whether it said oui or
-non (`decision`), which proposed tiers it chose, a clear yes to Tarik's confirmation question
-(`client_confirmed`), the invoices' filter, and copying a model dossier's configuration. An unclear reply
+non (`decision`), which proposed tiers, open exercice (or "nouveau") or bank account it chose, which waiting
+question the reply answers (`about`), a clear yes to Tarik's confirmation question (`client_confirmed`), the
+invoices' filter, and copying a model dossier's configuration. An unclear reply
 leaves the decision empty, and the question is asked again.
 
 ## The agents and their skills

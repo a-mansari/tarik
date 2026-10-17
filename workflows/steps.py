@@ -27,6 +27,7 @@ TRAITEMENT_INPUTS: Final = MappingProxyType(
         "dossier_id": "number",
         "answer": "string",
         "decision": "string",  # what the agent read in the client's answer (answer_pending)
+        "about": "string",  # with several questions waiting, the invoice or statement the client answers
         "invoice_type": "string",
         "client_message": "string",
         **ATTACHMENTS,

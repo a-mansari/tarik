@@ -11,11 +11,11 @@ from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
 from tarik.core.conversation import own_words, yes_no
 from tarik.core.experio import odoo_call, require_invoice
-from tarik.core.text import normalized, said, without_if
+from tarik.core.text import normalized
 from tarik.dossiers.people import check_sender
 from tarik.invoices.accounts import set_account
 from tarik.invoices.exercice import settle_exercice
-from tarik.invoices.intake import import_bank_statement, journal_meant
+from tarik.invoices.intake import import_bank_statement, journal_chosen
 from tarik.invoices.prepaid import settle_prepaid
 from tarik.invoices.tiers import choose_tiers
 from tarik.invoices.tva import settle_tva
@@ -182,22 +182,11 @@ STATEMENTS_ASKED = (
 )
 
 
-def invoice_names(ids):
-    """How the client may name each invoice of ``ids`` besides "facture <id>": {id: [its own number, its tiers]}."""
-    if not ids:
-        return {}
-    invoices = odoo_call("exp.invoice", "read", ids, fields=["invoice_number", "partner_id"])
-    return {
-        invoice["id"]: [invoice["invoice_number"], invoice["partner_id"] and without_if(invoice["partner_id"][1])]
-        for invoice in invoices
-    }
-
-
 def waiting_on(session_id):
     """What this conversation waits on the client for, oldest first: each draft invoice's question, and each bank
     statement whose last import asked for its bank account. A question on an invoice deleted or posted since is
-    dropped: nothing can answer it any more. Each item: {invoice_id or file_id and dossier_id, step, question,
-    names (how the client may name it)}."""
+    dropped: nothing can answer it any more. Each item: {invoice_id, or file_id and dossier_id; step, question,
+    label (how the questions are listed: "facture 12", "releve mars.pdf"), names (what ``about`` may say)}."""
     with cabinet_db() as db:
         invoices = db.execute(
             "select invoice_id, step, question from tarik_pending where session_id = %s order by created_at",
@@ -209,30 +198,30 @@ def waiting_on(session_id):
         gone = [i for i in ids if i not in drafts]
         if gone:
             db.execute("delete from tarik_pending where invoice_id = any(%s)", (gone,))
-    invoices = [row for row in invoices if row[0] in drafts]
-    named = invoice_names([i for i, _, _ in invoices])
     return [
-        {"invoice_id": i, "step": step, "question": text, "names": [f"facture {i}", f"n {i}", *named.get(i, [])]}
+        {"invoice_id": i, "step": step, "question": text, "label": f"facture {i}", "names": {str(i)}}
         for i, step, text in invoices
+        if i in drafts
     ] + [
         {
             "file_id": f,
             "dossier_id": d,
             "step": "import_bank_statement",
             "question": text,
-            "names": [name.rsplit(".", 1)[0]],
+            "label": f"releve {name}",
+            "names": {normalized(name), normalized(name.rsplit(".", 1)[0])},
         }
         for f, d, text, name in statements
     ]
 
 
-def meant(waiting, answer):
-    """The question the client answers: the only one, or the one their answer names (whole words). A bare number
-    names no invoice: "oui, TVA 20 %" is not about invoice 20."""
+def meant(waiting, about):
+    """The question the client answers: the only one, or the one the agent read they meant (``about``: an invoice's
+    number or a statement's name, as the questions are listed). None when unclear: the client is asked which."""
     if len(waiting) == 1:
         return waiting[0]
-    words = normalized(answer)
-    named = [item for item in waiting if any(said(normalized(name), words) for name in item["names"] if name)]
+    about = normalized(str(about or "")).removeprefix("facture ").removeprefix("releve ")
+    named = [item for item in waiting if about and about in item["names"]]
     return named[0] if len(named) == 1 else None
 
 
@@ -242,11 +231,14 @@ def apply_answer(item, answer, decision):
     fine, the ``next_step`` the sequence resumes at. A oui / non question the decision doesn't settle is asked
     again."""
     if item["step"] == "import_bank_statement":
-        imported = import_bank_statement(item["file_id"], item["dossier_id"], journal_meant(item["dossier_id"], answer))
+        chosen = journal_chosen(decision, item["question"])  # 0: the question is asked again
+        imported = import_bank_statement(item["file_id"], item["dossier_id"], chosen)
         return {**imported, "step": "import_bank_statement"}
     apply, following = ANSWERS[item["step"]]
     if item["step"] == "link_tiers":
         result = apply(item["invoice_id"], decision, answer, item["question"])  # the question holds the tiers proposed
+    elif item["step"] == "settle_exercice":  # the client's date, or the exercice chosen
+        result = apply(item["invoice_id"], answer, decision)
     elif item["step"] in DECIDED and yes_no(decision) is None:
         result = question(f"Reponse non comprise. {item['question']}")
     else:
@@ -257,13 +249,15 @@ def apply_answer(item, answer, decision):
 
 
 @server.tool()
-def answer_pending(session_id: str, answer: str, decision: str = "") -> dict:
+def answer_pending(session_id: str, answer: str, decision: str = "", about: str = "") -> dict:
     """Apply the client's answer (their own words) to what this conversation waits on: an invoice's question
     (tiers, account, TVA, withholding, prepaid, exercice) or a statement's bank account. ``decision`` is what
     the agent read in that answer: "oui" or "non" for a oui / non question, the id of the tiers chosen among
-    those proposed (or the other name or ICE given) for a tiers question, else empty. ``next_step`` says where
-    the sequence resumes; with nothing waiting, the drafts Experio hadn't read yet are resumed. The email's
-    sender must have the dossier, as for any work on it."""
+    those proposed (or the other name or ICE given) for a tiers question, "nouveau" or the open exercice chosen
+    for an exercice question, the journal_id chosen for a bank account, else empty. ``about``: with several
+    questions waiting, the invoice's number or the statement's name the client answers. ``next_step`` says
+    where the sequence resumes; with nothing waiting, the drafts Experio hadn't read yet are resumed. The
+    email's sender must have the dossier, as for any work on it."""
     answer = own_words(answer)
     waiting = waiting_on(session_id)
     if not waiting:
@@ -272,9 +266,9 @@ def answer_pending(session_id: str, answer: str, decision: str = "") -> dict:
             next_step="waiting_drafts",
             step="answer_pending",
         )
-    item = meant(waiting, answer)
+    item = meant(waiting, about)
     if not item:
-        questions = "\n".join(f"- {entry['question']}" for entry in waiting)
+        questions = "\n".join(f"- {entry['label']} : {entry['question']}" for entry in waiting)
         return question(
             f"Plusieurs questions attendent votre reponse ; precisez la facture ou le releve :\n{questions}",
             step="answer_pending",

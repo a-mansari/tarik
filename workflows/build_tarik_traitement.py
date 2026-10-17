@@ -184,7 +184,10 @@ ANSWER = "Reponse du client (answer_pending)"
 mcp(
     ANSWER,
     "answer_pending",
-    f"{{ session_id: {CALL}.session_id, answer: {CALL}.answer, decision: String({CALL}.decision ?? '') }}",
+    (
+        f"{{ session_id: {CALL}.session_id, answer: {CALL}.answer, decision: String({CALL}.decision ?? ''), "
+        f"about: String({CALL}.about ?? '') }}"
+    ),
     [440, 760],
 )
 outputs = ", ".join(f"{tool}: {output}" for output, tool in enumerate([*RESUMED, "waiting_drafts"], 1))

@@ -3,6 +3,7 @@
 import base64
 import io
 import itertools
+import re
 
 import pypdfium2
 from mcp.server.mcpserver.exceptions import ToolError
@@ -14,7 +15,6 @@ from tarik.core.conversation import client_messages
 from tarik.core.documents import pdf_pages, to_pdf
 from tarik.core.experio import dry_run, in_dossier, odoo_call, refused, require_dossier
 from tarik.core.model import ask_model
-from tarik.core.text import normalized, said
 from tarik.invoices.classify import classify_pages, client_side
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
@@ -238,18 +238,12 @@ def bank_journals(dossier_id):
     return journals, [journal for journal in journals if journal["bank_id"]]
 
 
-def journal_meant(dossier_id, answer):
-    """The bank journal the client's answer names (its name, its bank or its journal_id), or 0 when it names
-    none or several: the statement then asks again."""
-    words = normalized(answer)
-    named = [
-        journal
-        for journal in bank_journals(dossier_id)[1]
-        if said(normalized(journal["name"]), words)
-        or said(normalized(journal["bank_id"][1]), words)
-        or str(journal["id"]) in words.split()
-    ]
-    return named[0]["id"] if len(named) == 1 else 0
+def journal_chosen(decision, question_asked):
+    """The bank journal the agent read in the client's reply (``decision``) among those ``question_asked`` lists
+    ("(n° 41)" as statement_journal writes them): its id, else 0 (the question is asked again)."""
+    listed = {int(n) for n in re.findall(r"\(n° (\d+)\)", question_asked)}
+    chosen = str(decision or "").strip().removeprefix("n°").strip()
+    return int(chosen) if chosen.isdigit() and int(chosen) in listed else 0
 
 
 def statement_journal(name, dossier, dossier_id, journal_id):
@@ -263,7 +257,7 @@ def statement_journal(name, dossier, dossier_id, journal_id):
         )
     if not journal_id:
         if len(usable) > 1:
-            choices = ", ".join(f"{j['name']} - {j['bank_id'][1]} (journal_id {j['id']})" for j in usable)
+            choices = ", ".join(f"{j['name']} - {j['bank_id'][1]} (n° {j['id']})" for j in usable)
             return question(f"{name} : le dossier {dossier} a plusieurs comptes bancaires, lequel ? {choices}")
         return usable[0]
     if journal_id not in {j["id"] for j in usable}:

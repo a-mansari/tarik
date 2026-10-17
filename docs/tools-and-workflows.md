@@ -15,7 +15,7 @@ Each "Tarik - <cabinet>" agent has these tools, named exactly as below:
 | `Experio_list_invoices` | A dossier's invoices, most recent first; filter: en cours, brouillon, comptabilisee, payee. | MCP, read |
 | `Experio_list_collaborators` | The cabinet's collaborators: role, manager or not, number of dossiers. | MCP, read |
 | `Experio_traiter_fichiers` | Processes the invoices and bank statements attached to the conversation, for one dossier, as purchases, sales or both, as the client said. | Workflow "Tarik - Traitement" |
-| `Experio_repondre` | Hands the client's answer (their own words, filled by n8n) to what the conversation waits on, and resumes the processing. Its one parameter, `decision`: what the agent read in the answer (oui or non, the tiers chosen). | Workflow "Tarik - Traitement" (answer mode) |
+| `Experio_repondre` | Hands the client's answer (their own words, filled by n8n) to what the conversation waits on, and resumes the processing. Its parameters: `decision`, what the agent read in the answer (oui or non, the tiers, exercice or bank account chosen), and `about`, the invoice or statement answered when several questions wait. | Workflow "Tarik - Traitement" (answer mode) |
 | `Experio_parametrer_dossier` | Creates a dossier, or imports a FEC or grand livre into one. | Workflow "Tarik - Dossier" |
 | `Experio_modifier_dossier` | Changes an existing dossier's identity fields. | Workflow "Tarik - Modification" |
 | `load_skill` | Loads one of the skills below (n8n's own). | n8n |
@@ -77,7 +77,7 @@ above; the workflows call the rest.
 | `settle_tva` / `check_journal` / `settle_withholding` / `settle_prepaid` / `settle_exercice` | TVA, journal, withholding tax, prepaid charges, fiscal year: each settled, or a question to the client. |
 | `post_invoice` | Posts the invoice when nothing blocks it. |
 | `list_invoices` | A dossier's invoices, amounts as Experio shows them. |
-| `answer_pending` / `waiting_drafts` | The client's answer to what the conversation waits on (an invoice's question, a statement's bank account; the invoice or statement it names when several wait), with the agent's `decision` (oui or non, the tiers chosen), after the email sender check / drafts waiting for Experio. |
+| `answer_pending` / `waiting_drafts` | The client's answer to what the conversation waits on (an invoice's question, a statement's bank account; the invoice or statement it names when several wait), with the agent's `decision` (oui or non, the tiers, exercice or bank account chosen) and `about` (which question, when several wait), after the email sender check / drafts waiting for Experio. |
 | `record_step` / `run_summary` | A run's step outcomes / its summary for the client. |
 
 ### Emails (`tarik/emails`)
