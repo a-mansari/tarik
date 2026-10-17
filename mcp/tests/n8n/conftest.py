@@ -45,7 +45,7 @@ class N8nMcp:
             {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": arguments}}
         )
         text = answer.text
-        if "data:" in text:
+        if answer.headers.get("content-type", "").startswith("text/event-stream"):
             text = next(line[5:] for line in text.splitlines() if line.startswith("data:"))
         result = json.loads(text)["result"]
         content = result.get("structuredContent") or json.loads(result["content"][0]["text"])

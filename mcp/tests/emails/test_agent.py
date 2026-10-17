@@ -1,5 +1,8 @@
 """Asking the cabinet's agent for an email thread's reply."""
 
+import json
+
+import httpx
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -76,3 +79,16 @@ def test_the_files_names_are_never_the_clients_words():
 
     assert own_words("Voici la facture\n\nFichiers joints : ICE 001122334455667.pdf") == "Voici la facture"
     assert own_words("(pas de message)\n\nFichiers joints : f.pdf") == "" and own_words(None) == ""
+
+
+@pytest.mark.technical
+@pytest.mark.parametrize("content_type", ["application/json", "text/event-stream"])
+def test_n8n_s_answer_is_read_by_its_shape_whatever_the_reply_says(monkeypatch, content_type):
+    reply = {"response": "Les metadata: et data:image/png sont dans le fichier."}  # words the old check misread
+    body = json.dumps({"result": {"structuredContent": reply}})
+    text = f"event: message\ndata: {body}\n\n" if content_type == "text/event-stream" else body
+    answer = httpx.Response(200, text=text, headers={"content-type": content_type}, request=httpx.Request("POST", "u"))
+    monkeypatch.setenv("N8N_MCP_API_URL", "http://n8n/mcp")
+    monkeypatch.setattr(agent, "setting", lambda key: "token")
+    monkeypatch.setattr(agent.httpx, "post", lambda *args, **kwargs: answer)
+    assert agent.call_n8n("call_agent") == reply

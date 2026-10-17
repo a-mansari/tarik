@@ -27,7 +27,8 @@ def call_n8n(tool, **arguments):
     answer = httpx.post(os.environ["N8N_MCP_API_URL"], timeout=N8N_TIMEOUT, json=request, headers=headers)
     answer.raise_for_status()
     text = answer.text
-    if "data:" in text:  # an event stream: the answer is its "data:" line
+    # The answer's shape is in its header, never guessed from its text: a reply may itself say "metadata:".
+    if answer.headers.get("content-type", "").startswith("text/event-stream"):  # the answer is its "data:" line
         text = next(line[5:] for line in text.splitlines() if line.startswith("data:"))
     result = json.loads(text)["result"]
     return result.get("structuredContent") or json.loads(result["content"][0]["text"])
