@@ -21,9 +21,9 @@ def _test_database():
 
 @pytest.fixture(autouse=True)
 def settings_from_the_environment(request, monkeypatch):
-    """Settings from the environment and data in the test database; tests/n8n alone check the running
-    services, with Vault and the cabinets' own database."""
-    if "tests/n8n/" not in str(request.path):
+    """Settings from the environment and data in the test database; tests/n8n and tests/llm alone use the running
+    services, with Vault (and, for tests/n8n, the cabinets' own database)."""
+    if not any(f"tests/{folder}/" in str(request.path) for folder in ("n8n", "llm")):
         monkeypatch.setattr(vault, "ENABLED", False)
         monkeypatch.setitem(cabinets.POSTGRES, "dbname", testdb.DATABASE)
 

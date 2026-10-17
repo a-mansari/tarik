@@ -1,0 +1,215 @@
+"""The decisions the agent makes from the client's reply, measured on the real model: what it reads as oui or
+non, which proposed tiers the client chose, a clear yes to a confirmation, the invoices' filter. Each kind must
+be right on average (MIN_RIGHT) and almost never decide what the client did not (MAX_WRONG; never for a
+confirmation): an unclear reply must leave the decision empty, so the client is asked again.
+
+Slow and billed: python3 mcp/tests/run.py -m llm -s (-s shows the cases missed and the scores)."""
+
+import pytest
+
+from tarik.core.conversation import yes_no
+from tarik.core.text import normalized
+from tarik.invoices.listing import STATUSES
+from tarik.invoices.tiers import proposed_choice
+
+MIN_RIGHT = 0.9
+MAX_WRONG = 0.05
+
+
+def after(first, tool, given, result, said):
+    """The conversation: the client's ``first`` message, the agent's call of ``tool`` with ``given`` and its
+    ``result``, relayed to the client as is, then the client's reply ``said``."""
+    return [
+        {"role": "user", "content": first},
+        {"role": "assistant", "content": [{"type": "tool_use", "id": "call_1", "name": tool, "input": given}]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": result}]},
+        {"role": "assistant", "content": result},
+        {"role": "user", "content": said},
+    ]
+
+
+def processing(question, said, expected):
+    """A case: the invoices processed, ``question`` asked, the client says ``said``."""
+    given = {"dossier_id": 557, "invoice_type": "achat"}
+    messages = after("Voici les factures d'achat de GECAFISC.", "Experio_traiter_fichiers", given, question, said)
+    return {"skill": "Réponse à une question", "messages": messages, "expected": expected, "said": said}
+
+
+TVA = "- facture 12 : QUESTION : Facture de NOVA TELECOM : la TVA est-elle non recuperable (voyage, carburant, vehicule de tourisme) ? oui / non"  # noqa: E501
+PREPAID = "- facture 14 : QUESTION : Facture F-2026-031 : elle couvre 12 mois (2026-01-01 au 2026-12-31). La repartir en charges constates d'avance ? oui / non"  # noqa: E501
+OUI_NON = [
+    processing(TVA, "Oui", "oui"),
+    processing(TVA, "oui, elle n'est pas récupérable", "oui"),
+    processing(TVA, "Elle est non récupérable", "oui"),
+    processing(TVA, "Nous sommes d'accord, c'est du carburant, pas récupérable", "oui"),
+    processing(TVA, "Yes", "oui"),
+    processing(TVA, "Non", "non"),
+    processing(TVA, "Non, elle est récupérable", "non"),
+    processing(TVA, "récupérable", "non"),
+    processing(TVA, "Ok non merci", "non"),
+    processing(TVA, "Je ne sais pas, je vérifie avec le client", ""),
+    processing(TVA, "oui... enfin non, attendez", ""),
+    processing(TVA, "Si c'est un véhicule de tourisme, oui", ""),
+    processing(TVA, "Pourquoi cette question ?", ""),
+    processing(PREPAID, "Oui, répartissez-la", "oui"),
+    processing(PREPAID, "vas-y", "oui"),
+    processing(PREPAID, "Non, c'est une charge ponctuelle", "non"),
+    processing(PREPAID, "Pas besoin", "non"),
+    processing(PREPAID, "À voir avec mon comptable", ""),
+]
+
+
+def oui_non(call, expected):
+    """The server's reading of the agent's decision (yes_no), against the client's."""
+    if not call:  # the agent asked the client itself: nothing applied
+        return "right" if expected == "" else "asked again"
+    if call["name"] != "Experio_repondre":
+        return "wrong"
+    read = {True: "oui", False: "non", None: ""}[yes_no(str(call["input"].get("decision", "")))]
+    return "right" if read == expected else "asked again" if not read else "wrong"
+
+
+@pytest.mark.llm
+def test_oui_or_non_is_read_as_the_client_meant_it(measure):
+    right, wrong, _ = measure(OUI_NON, oui_non)
+    assert right >= MIN_RIGHT and wrong <= MAX_WRONG
+
+
+TIERS_QUESTION = (
+    "- facture 12 : QUESTION : Facture 12 : fournisseur « ATLAS » introuvable par ICE/IF. Tiers proches : "
+    "ATLAS DE ROULEMENT (id 7, ICE 001234567000089) 92 %; ATLAS TRANSPORT (id 8) 88 %; ATLAS MAROC SARL (id 15) "
+    "81 %. Lequel est-ce ? Sinon, donnez un autre nom ou l'ICE du tiers."
+)
+ICES = {"001234567000089": 7}
+TIERS = [
+    processing(TIERS_QUESTION, "Le premier", 7),
+    processing(TIERS_QUESTION, "ATLAS TRANSPORT", 8),
+    processing(TIERS_QUESTION, "c'est le troisième", 15),
+    processing(TIERS_QUESTION, "Atlas Maroc", 15),
+    processing(TIERS_QUESTION, "celui avec l'ICE 001234567000089", 7),
+    processing(TIERS_QUESTION, "Aucun, c'est NOVA TELECOM", "nova telecom"),
+    processing(TIERS_QUESTION, "Aucun des trois", None),
+    processing(TIERS_QUESTION, "Je ne sais pas", None),
+    processing(TIERS_QUESTION, "oui", None),
+    processing(TIERS_QUESTION, "Atlas", None),
+]
+
+
+def tiers(call, expected):
+    """The tiers the server links from the agent's decision (an id proposed, or an ICE), else the name it searches."""
+    if not call:  # the agent asked the client itself: nothing linked
+        return "right" if expected is None else "asked again"
+    if call["name"] != "Experio_repondre":
+        return "wrong"
+    decision = str(call["input"].get("decision", "")).strip()
+    linked = proposed_choice(decision, TIERS_QUESTION) or ICES.get(decision)
+    if linked:
+        return "right" if linked == expected else "wrong"
+    if isinstance(expected, str):  # another tiers named: searched
+        return "right" if expected in normalized(decision) else "asked again"
+    return "right" if expected is None else "asked again"
+
+
+@pytest.mark.llm
+def test_the_tiers_linked_is_the_one_the_client_chose(measure):
+    right, wrong, _ = measure(TIERS, tiers)
+    assert right >= MIN_RIGHT and wrong <= MAX_WRONG
+
+
+SKIP_ASKED = (
+    "QUESTION : Experio verifie l'ICE et l'IF aupres du registre officiel. Confirmez-vous la creation du dossier "
+    "ALPHA SARL sans cette verification ? oui / non"
+)
+CREATE = {
+    "dossier_id": 0,
+    "name": "ALPHA SARL",
+    "ice": "001234567000089",
+    "if_number": "",
+    "folder_type": "company",
+    "skip_ice_if_check": True,
+    "client_confirmed": False,
+    "model_dossier_id": 0,
+    "kind": "",
+}
+
+
+def confirmation(said, expected):
+    """A case: a dossier asked to be created without the registry check, its confirmation asked, the reply."""
+    first = "Créez le dossier ALPHA SARL, ICE 001234567000089, sans la vérification du registre."
+    messages = after(first, "Experio_parametrer_dossier", CREATE, SKIP_ASKED, said)
+    return {"skill": "Nouveau dossier", "messages": messages, "expected": expected, "said": said}
+
+
+CONFIRMATIONS = [
+    confirmation("Oui, je confirme", True),
+    confirmation("oui", True),
+    confirmation("Ok, allez-y", True),
+    confirmation("Non, attendez, je vérifie l'ICE", False),
+    confirmation("Pourquoi ? C'est risqué ?", False),
+    confirmation("Oui mais pour BETA, pas pour ALPHA", False),
+    confirmation("Je ne sais pas", False),
+    confirmation("Ok non merci", False),
+]
+
+
+def confirmed(call, expected):
+    """Whether the agent calls back with client_confirmed true for the dossier asked about (the server takes it for
+    that dossier only): never unless the client clearly said yes."""
+    said_yes = bool(call) and call["name"] == "Experio_parametrer_dossier"
+    said_yes = said_yes and str(call["input"].get("client_confirmed")).lower() == "true"
+    said_yes = said_yes and normalized(str(call["input"].get("name"))) in normalized(SKIP_ASKED)
+    if said_yes:
+        return "right" if expected else "wrong"
+    return "asked again" if expected else "right"
+
+
+@pytest.mark.llm
+def test_a_confirmation_is_only_a_clear_yes(measure):
+    right, wrong, _ = measure(CONFIRMATIONS, confirmed)
+    assert right >= MIN_RIGHT and wrong == 0  # a skipped check the client didn't confirm: never
+
+
+FOUND = "GECAFISC (id 557) : 100 %"
+
+
+def listing(said, expected):
+    """A case: the client asks for a dossier's invoices (``said``), the dossier already found."""
+    messages = [
+        {"role": "user", "content": said},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "call_1", "name": "Experio_find_dossier", "input": {"name": "Gecafisc"}}
+            ],
+        },  # noqa: E501
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": FOUND}]},
+    ]
+    return {"skill": "Traitement des documents", "messages": messages, "expected": expected, "said": said}
+
+
+LISTS = [
+    listing("Montre-moi les factures impayées de Gecafisc", "comptabilisee"),
+    listing("Quelles factures de Gecafisc sont payées ?", "payee"),
+    listing("Les brouillons de Gecafisc", "brouillon"),
+    listing("Les factures de Gecafisc qu'Experio est encore en train de lire", "en cours"),
+    listing("Toutes les factures de Gecafisc", ""),
+    listing("Les factures comptabilisées de Gecafisc", "comptabilisee"),
+    listing("Liste les factures de Gecafisc", ""),
+    listing("Gecafisc : quelles factures restent à payer ?", "comptabilisee"),
+]
+
+
+def status(call, expected):
+    """The status the agent filters by: one the server accepts, the one the client asked for."""
+    if not call or call["name"] != "Experio_list_invoices":
+        return "asked again"
+    given = str(call["input"].get("status") or "").strip()
+    if given == expected:
+        return "right"
+    return "wrong" if given in STATUSES or not given else "asked again"  # any other value is refused
+
+
+@pytest.mark.llm
+def test_the_invoices_shown_are_those_the_client_asked_for(measure):
+    right, wrong, _ = measure(LISTS, status)
+    assert right >= MIN_RIGHT and wrong <= MAX_WRONG

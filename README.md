@@ -100,6 +100,17 @@ These live tests run only when asked:
 python3 mcp/tests/run.py -m live
 ```
 
+`mcp/tests/llm/` measures the decisions the agent makes from the client's replies on the real model (Vault's
+`MODEL_API_*`, the agents' MiniMax-M3), shown Tarik's instructions, skills and tools as the agents have them: what
+it reads as oui or non, which proposed tiers the client chose, a clear yes to a confirmation, the invoices' filter.
+Each kind must be right on average (90 %) and almost never decide what the client did not (5 %, never for a
+confirmation). The tool calls are only read: nothing reaches n8n or Experio. Run them after changing the agent's
+instructions or skills, `REPEAT` times each case for a steadier average (`-s` shows each miss):
+
+```bash
+REPEAT=3 python3 mcp/tests/run.py -m llm -s
+```
+
 ## Skills
 
 n8n keeps an agent's skills (instructions it loads when a request matches) per agent. They are
@@ -245,7 +256,8 @@ docker compose run --rm --no-deps --user "$(id -u):$(id -g)" -v "$PWD:/repo" -w 
 
 `run.py` picks the tests that import the changed files; `--all` runs every test, `-m <category>` one
 category. Each test has one: `security`, `functionality`, `communication`, `technical`, `style` (lint,
-workflows rebuilt from their scripts, tool names), `live` (the real n8n and model, only with `-m live`).
+workflows rebuilt from their scripts, tool names), `live` (the real n8n and model, only with `-m live`), `llm`
+(the real model's decisions, only with `-m llm`).
 
 A new tool is registered by importing its module in `mcp/server.py` (`TOOL_MODULES`). To give it to the
 agent, add it to the Experio MCP server's tool list in the agent's configuration; to make it a

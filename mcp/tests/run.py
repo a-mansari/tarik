@@ -14,6 +14,7 @@ on its path. The files no import reaches are mapped in OTHER. A change to what e
 (EVERYTHING) runs them all. Live tests (the real n8n and model) run only with -m live."""
 
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -30,7 +31,8 @@ def other(path):
     if path == MCP / "tarik/core/cabinet.sql":
         return [MCP / "tarik/core/cabinets.py"]  # the tables cabinets.py creates
     if path.is_relative_to(REPO / "workflows"):
-        return [STYLE, *(TESTS / "n8n").glob("test_*.py")]  # the live tests run what the workflows say
+        # The live and llm tests run what the workflows, the agent and its skills say.
+        return [STYLE, *(TESTS / "n8n").glob("test_*.py"), *(TESTS / "llm").glob("test_*.py")]
     if path == REPO / "pyproject.toml":
         return [STYLE]  # the code's style
     if path == REPO / "n8n/patch.js":
@@ -116,6 +118,7 @@ def pytest_command(tests, args):
     """The docker compose command running pytest on ``tests`` with ``args``, in a throwaway tarik-mcp container."""
     # --build: the image the tests run in is the Dockerfile's as it is now (its dependencies), the code mounted over it.
     container = ["docker", "compose", "run", "--rm", "--build", "--no-deps", "-e", "PYTHONDONTWRITEBYTECODE=1"]
+    container += ["-e", f"REPEAT={os.environ['REPEAT']}"] if "REPEAT" in os.environ else []  # tests/llm's runs a case
     mounts = ["-v", f"{MCP}:/app", "-v", f"{REPO / 'workflows'}:/workflows:ro", "-v", f"{REPO / 'docs'}:/docs:ro"]
     mounts += ["-v", f"{REPO / 'pyproject.toml'}:/pyproject.toml:ro", "tarik-mcp"]
     pytest = ["python", "-m", "pytest", "-p", "no:cacheprovider"]
