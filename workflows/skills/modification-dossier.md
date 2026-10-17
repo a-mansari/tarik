@@ -36,6 +36,7 @@ QUAND Experio_modifier_dossier RÉPOND :
 NE JAMAIS :
 - remplir un champ que le client n'a pas demandé de changer ;
 - mettre client_confirmed à true sans une question posée juste avant et un oui clair du client à cette question ;
+- mettre client_confirmed à true pour un oui avec une réserve, une condition, ou qui porte sur un autre dossier (« oui mais pour BETA ») : c'est false ;
 - inventer, corriger ou compléter une valeur que le client n'a pas écrite ;
 - appeler Experio_modifier_dossier sans l'id donné par Experio_find_dossier ;
 - utiliser Experio_parametrer_dossier pour modifier un dossier existant.

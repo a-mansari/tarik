@@ -59,6 +59,15 @@ def test_the_agent_chooses_among_the_tiers_proposed_only(chosen):
 
 
 @pytest.mark.functionality
+def test_a_proposed_tiers_is_named_by_its_id_or_its_name():
+    from tarik.invoices.tiers import proposed_choice
+
+    assert proposed_choice("7", QUESTION) == proposed_choice("id 7", QUESTION) == 7
+    assert proposed_choice("atlas transport", QUESTION) == 8  # its name as proposed
+    assert proposed_choice("ATLAS", QUESTION) is None and proposed_choice("9", QUESTION) is None
+
+
+@pytest.mark.functionality
 def test_another_tiers_the_client_names_is_searched_or_linked_by_its_ice(chosen):
     assert chosen("001234567000089", "non, celui avec l'ICE 001234567000089") == 10  # an ICE names one tiers
     proposed = chosen("Nova Telecom", "non, c'est plutôt Nova Telecom")

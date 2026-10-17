@@ -25,7 +25,7 @@ from tarik.core.experio import (
     still_reading,
     test_mode_note,
 )
-from tarik.core.text import ranked
+from tarik.core.text import normalized, ranked
 from tarik.invoices.classify import side_of
 
 # Per invoice side: the party Experio detected, the name printed on the scan, the tiers' Compte Tiers field.
@@ -49,6 +49,8 @@ NO_AUTOFILL = (
     "pas de Compte Tiers {role} : dans ce dossier le cabinet les attribue lui-meme "
     "(numerotation automatique desactivee), la facture ne pourra pas etre comptabilisee avant"
 )
+# A proposed tiers in find_tiers' question: "NAME (id 123" after "Tiers proches : " or "; ".
+PROPOSED = re.compile(r"(?:Tiers proches : |; )([^;]+?) \(id (\d+)")
 INVOICE_FIELDS = [
     "state",
     "type",
@@ -166,16 +168,28 @@ def find_tiers(invoice_id, name):
     return f"Tiers proches : {proposed}. Lequel est-ce ? Sinon, donnez un autre nom ou l'ICE du tiers."
 
 
+def proposed_choice(decision, question_asked):
+    """The id of the tiers ``decision`` names among those ``question_asked`` proposed ("NAME (id 123" as find_tiers
+    writes them): its id, "id 123", or its name as proposed. None for anything else."""
+    proposed = {int(tiers_id): normalized(name) for name, tiers_id in PROPOSED.findall(question_asked)}
+    decision = normalized(str(decision or ""))
+    as_id = decision.removeprefix("id ")
+    if as_id.isdigit() and int(as_id) in proposed:
+        return int(as_id)
+    named = [tiers_id for tiers_id, name in proposed.items() if name == decision]
+    return named[0] if len(named) == 1 else None
+
+
 def choose_tiers(invoice_id, decision, answer, question_asked=""):
     """Link the tiers the client chose for a tiers question (``question_asked``, which proposes some by id). The
-    agent's ``decision``, read from the client's ``answer`` (their own words), is the chosen tiers' id, taken only
-    when the question proposed it; or the other name or ICE the client gave instead: the ICE of one of the
-    dossier's tiers links it, a name is searched for and the closest are proposed again."""
+    agent's ``decision``, read from the client's ``answer`` (their own words), names the chosen tiers (proposed_choice),
+    taken only when the question proposed it; or it is the other name or ICE the client gave instead: the ICE of one
+    of the dossier's tiers links it, a name is searched for and the closest are proposed again."""
     invoice = draft_invoice(invoice_id)
-    proposed = {int(n) for n in re.findall(r"\(id (\d+)", question_asked)}  # "(id 123" as find_tiers writes it
+    chosen = proposed_choice(decision, question_asked)
+    if chosen:
+        return link(invoice, chosen, side_of(invoice))
     decision = str(decision or "").strip()
-    if decision.isdigit() and int(decision) in proposed:
-        return link(invoice, int(decision), side_of(invoice))
     # Not one proposed: the name or ICE the client gave instead, as the agent read it, else their own words.
     an_id = decision.isdigit() and len(decision) < 15
     given = decision if decision and not an_id else answer
