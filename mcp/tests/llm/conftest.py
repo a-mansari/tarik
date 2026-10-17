@@ -3,7 +3,8 @@ instructions, the skill the agent would load, and their tools (workflow tools fr
 MCP tools from the server). It answers a conversation with a tool call, which is only read: no n8n, no Experio.
 
 Differences with n8n's native agent, kept small: the skill is in the system prompt (n8n loads it on demand), and
-n8n's own reasoning setting is left out. Each case runs REPEAT times (env, default 1), 3 at once."""
+the model thinks only with THINKING=on (env): n8n's reasoning setting, whatever its level, sends M3 a 1024-token
+budget M3 does not keep to. Each case runs REPEAT times (env, default 1), 3 at once."""
 
 import asyncio
 import json
@@ -20,6 +21,7 @@ from tarik.core.cabinets import setting, using
 
 CABINET = os.getenv("TARIK_TEST_CABINET", "experio_cabinet_8")
 REPEAT = int(os.getenv("REPEAT", "1"))
+THINKING = os.getenv("THINKING") == "on"
 WORKFLOWS = Path(__file__).resolve().parents[3] / "workflows"  # the repository on the host, / in the container
 TYPES = {"string": "string", "number": "number", "boolean": "boolean"}
 
@@ -83,6 +85,9 @@ def decide():
             "tools": tools,
             "messages": messages,
         }
+        if THINKING:  # as n8n sends it: no temperature, room for the thinking
+            del request["temperature"]
+            request |= {"max_tokens": 16384, "thinking": {"type": "enabled", "budget_tokens": 1024}}
         for attempt in range(6):  # the agents share this account: a 429 waits its turn, never crowds them out
             answer = http.post(f"{url.rstrip('/')}/v1/messages", json=request)
             if answer.status_code != 429:
