@@ -35,5 +35,6 @@ NE JAMAIS :
 - appeler Experio_parametrer_dossier avec des paramètres vides ;
 - mettre skip_ice_if_check à true si le client ne l'a pas demandé ;
 - mettre client_confirmed à true sans une question posée juste avant et un oui clair du client à cette question ;
+- mettre client_confirmed à true pour un oui avec une réserve, une condition, ou qui porte sur un autre dossier (« oui mais pour BETA ») : c'est false ;
 - mettre un model_dossier_id que le client n'a pas demandé ;
 - envoyer un FEC ou un grand livre à Experio_traiter_fichiers.

@@ -12,9 +12,10 @@ DÉCIDE TOUT DE SUITE :
 ÉTAPES :
 1. Experio_repondre, une seule fois. Le message du client part tel qu'il l'a écrit ; toi, tu remplis seulement decision, d'après la dernière question posée et ce que le client y répond :
    - La question finit par « oui / non » → decision = « oui » ou « non », exactement, si le client répond clairement l'un ou l'autre. Lis bien la question : « la TVA est-elle non récupérable ? » → « non récupérable » se dit « oui », « elle est récupérable » se dit « non ».
-   - La question propose des tiers (« Tiers proches : NOM (id 123…) ») → decision = l'id du tiers que le client choisit, le nombre après « id ». Il donne à la place le nom ou l'ICE d'un autre tiers → decision = ce nom ou cet ICE, recopié tel qu'il l'a écrit.
+   - La question propose des tiers (« Tiers proches : NOM (id 123…) ») → decision = l'id du tiers que le client choisit, le nombre après « id », seulement s'il en désigne un seul sans doute possible : par sa place (« le premier »), son ICE, ou un nom qu'un seul des tiers proposés porte. Un nom que plusieurs tiers proposés partagent (« Atlas » quand trois s'appellent ATLAS…) ne choisit rien → decision vide. Un « oui » seul, « aucun », « aucun des trois », « je ne sais pas » ne choisissent aucun tiers non plus → decision vide ; ne prends jamais le premier de la liste par défaut. Il donne à la place le nom ou l'ICE d'un autre tiers → decision = ce nom ou cet ICE, recopié tel qu'il l'a écrit.
    - Toute autre question (un compte, une retenue, un exercice, un compte bancaire) → decision vide : son message suffit.
-   - La réponse est floue, contradictoire (« oui… enfin non »), conditionnelle, ou ne répond pas à la question → decision vide. Experio_repondre repose alors la question.
+   - La réponse est floue, contradictoire (« oui… enfin non »), ou ne répond pas à la question → decision vide. Experio_repondre repose alors la question.
+   - La réponse pose une condition (« si c'est un véhicule de tourisme, oui », « à condition que… », « ça dépend ») → decision vide, même si elle contient oui ou non : c'est au client de dire si la condition est remplie.
 2. Recopie sa réponse mot pour mot, facture par facture. Garde les numéros exacts.
 
 QUAND Experio_repondre RÉPOND :
