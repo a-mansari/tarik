@@ -119,6 +119,7 @@ def pytest_command(tests, args):
     # --build: the image the tests run in is the Dockerfile's as it is now (its dependencies), the code mounted over it.
     container = ["docker", "compose", "run", "--rm", "--build", "--no-deps", "-e", "PYTHONDONTWRITEBYTECODE=1"]
     container += ["-e", f"REPEAT={os.environ['REPEAT']}"] if "REPEAT" in os.environ else []  # tests/llm's runs a case
+    container += ["-e", f"THINKING={os.environ['THINKING']}"] if "THINKING" in os.environ else []  # tests/llm thinking
     mounts = ["-v", f"{MCP}:/app", "-v", f"{REPO / 'workflows'}:/workflows:ro", "-v", f"{REPO / 'docs'}:/docs:ro"]
     mounts += ["-v", f"{REPO / 'pyproject.toml'}:/pyproject.toml:ro", "tarik-mcp"]
     pytest = ["python", "-m", "pytest", "-p", "no:cacheprovider"]
