@@ -66,8 +66,8 @@ def agent():
 
 
 @pytest.fixture(scope="session")
-def decide():
-    """decide(skill, messages) -> the first tool call the model makes ({"name", "input"}), or None."""
+def ask():
+    """ask(skill, messages) -> the model's whole answer (its JSON: content blocks, usage) and the seconds it took."""
     instructions, skills, tools = agent()
     with using(CABINET):
         url, key, model = (setting(name, "") for name in ("MODEL_API_URL", "MODEL_API_KEY", "MODEL_API_NAME"))
@@ -89,12 +89,24 @@ def decide():
             del request["temperature"]
             request |= {"max_tokens": 16384, "thinking": {"type": "enabled", "budget_tokens": 1024}}
         for attempt in range(6):  # the agents share this account: a 429 waits its turn, never crowds them out
+            started = time.monotonic()
             answer = http.post(f"{url.rstrip('/')}/v1/messages", json=request)
             if answer.status_code != 429:
                 break
             time.sleep(float(answer.headers.get("retry-after") or 2**attempt))
         answer.raise_for_status()
-        return next((block for block in answer.json()["content"] if block["type"] == "tool_use"), None)
+        return answer.json(), time.monotonic() - started
+
+    return call
+
+
+@pytest.fixture(scope="session")
+def decide(ask):
+    """decide(skill, messages) -> the first tool call the model makes ({"name", "input"}), or None."""
+
+    def call(skill, messages):
+        content = ask(skill, messages)[0]["content"]
+        return next((block for block in content if block["type"] == "tool_use"), None)
 
     return call
 

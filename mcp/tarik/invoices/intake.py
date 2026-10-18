@@ -8,7 +8,7 @@ import re
 import pypdfium2
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import log, ok, question, server, stop, with_ids
+from tarik.core.app import log, ok, question, routine, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import client_messages
@@ -54,7 +54,7 @@ def identify_document(file_id: int) -> dict:
     with cabinet_db() as db:
         name, mime, data, kind = file_row(db, file_id, "file_name, mime_type, data, kind")
         if kind:
-            return ok(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
+            return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
         if mime != "application/pdf" and not mime.startswith("image/"):
             raise ToolError(f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
         try:
@@ -66,7 +66,7 @@ def identify_document(file_id: int) -> dict:
         category, _ = classify_pages(pages, "Identification du document")
         kind = "statement" if category == "rb" else "invoice"
         db.execute("update tarik_files set kind = %s where id = %s", (kind, file_id))
-    return ok(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
+    return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
 
 
 PAGES_PROMPT = instruction("split-pdf")
@@ -142,7 +142,7 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
         ).fetchall()
         if parts:
             return ok(f"{name} : deja decoupe en {len(parts)} factures : {listed(parts)}.", files=[i for i, _ in parts])
-        one = ok(f"{name} : 1 facture, fichier n° {file_id}.", files=[file_id])
+        one = routine(f"{name} : 1 facture, fichier n° {file_id}.", files=[file_id])
         if invoice_id or parent_id or mime != "application/pdf":  # parent_id: already one invoice cut out of a PDF
             return one
         try:
@@ -153,7 +153,7 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
             return one
         documents = split_pdf(bytes(data), invoice_starts(pdf_pages(bytes(data), limit=None, scale=1.0)))
         if len(documents) == 1:
-            return ok(f"{name} : 1 facture sur {count} pages, fichier n° {file_id}.", files=[file_id])
+            return routine(f"{name} : 1 facture sur {count} pages, fichier n° {file_id}.", files=[file_id])
         made = save_parts(db, session_id, name, file_id, documents)
     return ok(f"{name} : {len(made)} factures : {listed(made)}.", files=[i for i, _ in made])
 
@@ -209,7 +209,8 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
         with refused(f"create_draft_invoice: file {file_id}", f"Experio n'a pas pu creer la facture pour {name}."):
             invoice_id = import_pdf("exp.invoice.import", name, raw, dossier_id, type="purchase")
         db.execute("update tarik_files set invoice_id = %s where id = %s", (invoice_id, file_id))
-    return ok(f"{name} : facture brouillon n° {invoice_id} creee dans le dossier {dossier}.", invoice_id=invoice_id)
+    created = f"{name} : facture brouillon n° {invoice_id} creee dans le dossier {dossier}."
+    return routine(created, invoice_id=invoice_id)
 
 
 def bank_journals(dossier_id):

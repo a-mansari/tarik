@@ -23,5 +23,5 @@ def test_a_validation_error_is_told_plainly(monkeypatch):
             ),
         },
     )
-    message = db.queries[0][1][-1]
+    message = db.queries[0][1][-2]  # the message, then whether it is routine
     assert message == "des informations manquent ou sont invalides pour cette etape."

@@ -56,6 +56,8 @@ create table if not exists tarik_setups (
     session_id text not null,
     created_at timestamptz not null default now()
 );
+-- A step outcome the client needn't read (tarik.core.app.routine): left out of the run's summary.
+alter table tarik_results add column if not exists routine boolean not null default false;
 -- The questions waiting for the client, one per invoice.
 create table if not exists tarik_pending (
     invoice_id integer primary key,

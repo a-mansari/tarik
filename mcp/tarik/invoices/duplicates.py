@@ -7,7 +7,7 @@ invoice sent twice before either is posted, the same rule across same-number dra
 format, and the label field would override it.
 """
 
-from tarik.core.app import ok, server, stop, with_ids
+from tarik.core.app import ok, routine, server, stop, with_ids
 from tarik.core.config import POSTED
 from tarik.core.experio import invoice_context, odoo_call, odoo_json, plain, refused, require_invoice
 
@@ -51,7 +51,7 @@ def check_duplicate(invoice_id: int) -> dict:
             # rule (date or year) decides. Its "original" depends on SQL order, so the oldest draft is kept instead.
             batch = _same_number_drafts(invoice, context)
             if len(batch) == 1 or not odoo_json("exp.invoice", "get_duplicated_invoice_ids", batch, context=context):
-                return ok(f"Facture {invoice_id} : pas de doublon dans le dossier.")
+                return routine(f"Facture {invoice_id} : pas de doublon dans le dossier.")
             if invoice_id == batch[0]:
                 return ok(
                     f"Facture {invoice_id} : pas de doublon, c'est la premiere saisie ; les brouillons "

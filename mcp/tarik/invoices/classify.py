@@ -4,7 +4,7 @@ import re
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import log, ok, server, stop, with_ids
+from tarik.core.app import log, ok, routine, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.documents import scan_pages
 from tarik.core.experio import (
@@ -94,7 +94,7 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     if reading:
         return reading
     if not has_scan(invoice):
-        return ok(f"Facture {invoice_id} : pas de scan PDF a classer.")
+        return routine(f"Facture {invoice_id} : pas de scan PDF a classer.")
     category, reason = classify_pages(scan_pages(invoice["document_pdf"]), "Classement de la facture")
     _save_classification(invoice_id, category, reason)
     if category == "rb":
@@ -111,7 +111,8 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
         )
     wanted = CATEGORY_TO_TYPE[category]
     if invoice["type"] == wanted:
-        return ok(f"Facture {invoice_id} : {category}, deja enregistree comme telle ({reason}).", category=category)
+        already = f"Facture {invoice_id} : {category}, deja enregistree comme telle ({reason})."
+        return routine(already, category=category)
     require_draft(invoice_id, invoice, "changer de type")
     with refused(f"classify_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refuse le changement de type."):
         fill_invoice(

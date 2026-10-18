@@ -6,7 +6,7 @@ import json
 import re
 import time
 
-from tarik.core.app import ok, question, server, wait, with_ids
+from tarik.core.app import ok, question, routine, server, wait, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
 from tarik.core.conversation import own_words, yes_no
@@ -69,7 +69,6 @@ ANSWERS = {
 }
 # The oui / non questions: they take the agent's decision, read from the client's answer, never a guess from it here.
 DECIDED = {"settle_tva", "settle_prepaid"}
-QUIET = {"wait_until_read", "check_sender"}  # outcomes the client doesn't need when they went fine
 
 
 def position(step):
@@ -93,7 +92,7 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
         if time.monotonic() >= deadline:
             return wait(f"Facture {invoice_id} : Experio la lit encore, elle sera reprise a votre prochain message.")
         time.sleep(15)
-    return ok(f"Facture {invoice_id} : lue par Experio.")
+    return routine(f"Facture {invoice_id} : lue par Experio.")
 
 
 def readable(message):
@@ -116,9 +115,9 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     invoice_id, file_id, dossier_id = result.get("invoice_id"), result.get("file_id"), result.get("dossier_id")
     with cabinet_db() as db:
         db.execute(
-            "insert into tarik_results (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message) "
-            "values (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message),
+            "insert into tarik_results (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, "
+            "routine) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, result.get("routine") is True),
         )
         if invoice_id and status == "question":
             db.execute(
@@ -149,10 +148,12 @@ def summary_line(key, step, status, message):
 
 @server.tool()
 def run_summary(run_id: str) -> dict:
-    """What happened in one processing run, invoice by invoice and step by step, for the client."""
+    """What happened in one processing run, invoice by invoice, for the client: each invoice's (or file's) outcomes
+    that say something (a question, a stop, a problem, what was set or changed), and where it stands, its furthest
+    outcome. Routine ones (nothing to do, the expected setting) are left out; a dossier's setup is shown whole."""
     with cabinet_db() as db:
         rows = db.execute(
-            "select coalesce(invoice_id, -file_id), step, status, message from tarik_results "
+            "select coalesce(invoice_id, -file_id), step, status, message, routine from tarik_results "
             "where run_id = %s order by id",
             (run_id,),
         ).fetchall()
@@ -160,16 +161,19 @@ def run_summary(run_id: str) -> dict:
         return ok("Rien n'a ete traite.")
     # n8n records a step after running the next ones, so rows come in reverse: sort by the sequence instead.
     rows = sorted(rows, key=lambda row: position(row[1]))
-    test = any(message.startswith(TEST_MODE) for *_, message in rows)
-    blocks, seen = {}, set()
-    for key, step, status, message in rows:
+    test = any(message.startswith(TEST_MODE) for _, _, _, message, _ in rows)
+    outcomes, seen = {}, set()
+    for key, step, status, message, unread in rows:
         if step in SETUP_STEPS:
             key = None  # a dossier's setup is one block, its imports in it in order
-        if (key, step, message) in seen or (status == "ok" and step in QUIET):
-            continue
-        seen.add((key, step, message))
-        blocks.setdefault(key, []).append(summary_line(key, step, status, message))
-    summary = "\n\n".join("\n".join(lines) for lines in blocks.values())
+        if (key, step, message) not in seen:
+            seen.add((key, step, message))
+            outcomes.setdefault(key, []).append((step, status, message, unread))
+    blocks = [
+        [summary_line(key, *outcome[:3]) for outcome in found if not outcome[3] or outcome is found[-1]]
+        for key, found in outcomes.items()
+    ]
+    summary = "\n\n".join("\n".join(lines) for lines in blocks)
     return ok((TEST_MODE + "\n\n" if test else "") + summary)
 
 

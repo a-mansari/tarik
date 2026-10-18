@@ -9,7 +9,7 @@ when the dossier has none -- creating journals is the cabinet's setup, not Tarik
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, server, with_ids
+from tarik.core.app import ok, routine, server, with_ids
 from tarik.core.config import TEST_MODE
 from tarik.core.experio import dry_run, invoice_context, odoo_call, refresh, refused, require_draft, require_invoice
 
@@ -42,7 +42,7 @@ def check_journal(invoice_id: int) -> dict:
     )
     if invoice["enable_multi_journal"] and invoice["journal_id"] or invoice["folder_id"] or invoice["is_fnp_invoice"]:
         journal = (invoice["journal_id"] or [0, "non renseigne"])[1]
-        return ok(f"Facture {invoice_id} : journal {journal} (choix propre au dossier).")
+        return routine(f"Facture {invoice_id} : journal {journal} (choix propre au dossier).")
     field, label = SETTING[(invoice["type"], bool(invoice["is_local_invoice"]))]
     expected = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=[field])[0][field]
     if not expected:
@@ -51,7 +51,7 @@ def check_journal(invoice_id: int) -> dict:
             "(Configuration > Parametres) avant de comptabiliser."
         )
     if invoice["journal_id"] and invoice["journal_id"][0] == expected[0]:
-        return ok(f"Facture {invoice_id} : journal {expected[1]}.")
+        return routine(f"Facture {invoice_id} : journal {expected[1]}.")
     require_draft(invoice_id, invoice, "changer de journal")
     if dry_run():
         return ok(f"{TEST_MODE}Facture {invoice_id} : elle passerait au journal {expected[1]}.")
@@ -63,4 +63,4 @@ def check_journal(invoice_id: int) -> dict:
         raise ToolError(
             f"Facture {invoice_id} : Experio a garde le journal {(now or [0, 'vide'])[1]} au lieu de {expected[1]}."
         )
-    return ok(f"Facture {invoice_id} : journal {expected[1]}.")
+    return routine(f"Facture {invoice_id} : journal {expected[1]}.")

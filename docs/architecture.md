@@ -60,7 +60,10 @@ agent for the reply (`ask_agent`, through n8n's MCP `call_agent`, in the thread'
 conversation), and sends it (`send_email`, whitelisted addresses only).
 
 **A workflow run.** Each step is one MCP call to `/c/<cabinet>/mcp`; each outcome is recorded
-(`record_step`), and the run's summary (`run_summary`) is the answer the agent passes on word for word.
+(`record_step`), and the run's summary (`run_summary`) is the answer the agent passes on word for word. The
+summary is built in code, never by the model: per invoice, what the client needs (questions, stops, problems,
+what was set or changed) and where it stands; the outcomes a step marks routine (`routine()`: nothing to do,
+the expected setting) stay in `tarik_results` only.
 
 ## Keeping cabinets apart
 

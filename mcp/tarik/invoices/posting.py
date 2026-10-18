@@ -8,7 +8,7 @@ invoice's account, RAS and TVA flags on its tiers for next time (Experio's memor
 
 import time
 
-from tarik.core.app import log, ok, server, stop, with_ids
+from tarik.core.app import log, ok, routine, server, stop, with_ids
 from tarik.core.config import POSTED, TEST_MODE
 from tarik.core.experio import (
     dry_run,
@@ -43,7 +43,7 @@ def post_invoice(invoice_id: int) -> dict:
     blocking; otherwise list what blocks it."""
     invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id"])
     if invoice["state"] in POSTED:
-        return ok(f"Facture {invoice_id} : deja comptabilisee.")
+        return routine(f"Facture {invoice_id} : deja comptabilisee.")
     if invoice["state"] != "draft":
         return stop(f"Facture {invoice_id} : en etat {invoice['state']}, elle ne peut pas etre comptabilisee.")
     context = invoice_context(invoice)
