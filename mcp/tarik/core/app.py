@@ -23,6 +23,12 @@ def _result(status):
 ok, wait, question, stop = map(_result, ("ok", "wait", "question", "stop"))
 
 
+def routine(message, **extra):
+    """An ok outcome the client needn't read (nothing to do, nothing found, the expected setting): recorded as any
+    other, left out of the run's summary unless it is where the invoice stands (run_summary)."""
+    return ok(message, routine=True, **extra)
+
+
 def with_ids(tool):
     """Decorator: copy the ids a step was called with (invoice_id, file_id, dossier_id) into its dict result,
     so each n8n item still says which invoice it is about after the MCP node replaced it."""

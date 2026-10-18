@@ -7,7 +7,7 @@ from typing import Final
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import log, ok, server, stop, with_ids
+from tarik.core.app import log, ok, routine, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import MIN_SIMILARITY
 from tarik.core.documents import scan_pages
@@ -233,9 +233,10 @@ def _check_result(invoice_id, report):
     if not report["readable"]:
         return stop(f"Facture {invoice_id} : scan illisible, demandez au client de la renvoyer plus nette.")
     if not report["bad_fields"]:
-        return ok(f"Facture {invoice_id} : conforme, ce qu'Experio a lu correspond au scan.")
+        return routine(f"Facture {invoice_id} : conforme, ce qu'Experio a lu correspond au scan.")
     differences = "\n".join(f"- {b['field']} : {b['problem']}" for b in report["bad_fields"])
-    return ok(f"Facture {invoice_id} : {len(report['bad_fields'])} ecart(s) entre Experio et le scan :\n{differences}")
+    found = f"{len(report['bad_fields'])} ecart(s) entre Experio et le scan"
+    return routine(f"Facture {invoice_id} : {found} :\n{differences}")  # correct_invoice says what it changed
 
 
 @server.tool()
@@ -252,7 +253,7 @@ def check_invoice(invoice_id: int) -> dict:
         return ok(f"Facture {invoice_id} : Experio n'a pas lu cette facture automatiquement, rien a comparer.")
     stored = _captured(invoice)
     if not has_scan(invoice):
-        return ok(f"Facture {invoice_id} : pas de scan PDF a verifier.")
+        return routine(f"Facture {invoice_id} : pas de scan PDF a verifier.")
     report = _read_scan(invoice_id, scan_pages(invoice["document_pdf"]), stored)
     _save_check(invoice_id, report)
     return _check_result(invoice_id, report)

@@ -2,7 +2,7 @@
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, server, with_ids
+from tarik.core.app import ok, routine, server, with_ids
 from tarik.core.config import TEST_MODE
 from tarik.core.experio import (
     dry_run,
@@ -120,11 +120,11 @@ def correct_invoice(invoice_id: int) -> dict:
         _payment_method(extracted.get("payment_method"), invoice, changes)
         noted = f" ({'; '.join(notes)})" if notes else ""
         if not changes:
-            return ok(f"Facture {invoice_id} : rien a corriger.{noted}")
+            return routine(f"Facture {invoice_id} : rien a corriger.{noted}")
         context = invoice_context(invoice)
         changed = fill_invoice(invoice_id, changes, context)
         if not changed:
-            return ok(f"Facture {invoice_id} : deja a jour, rien a changer.")
+            return routine(f"Facture {invoice_id} : deja a jour, rien a changer.")
         refresh(invoice_id, context)
     shown = ", ".join(f"{field} = {changed.get(field, value)}" for field, value in changes.items())
     other = sorted(set(changed) - set(changes))

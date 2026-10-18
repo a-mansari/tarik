@@ -100,7 +100,9 @@ These live tests run only when asked:
 python3 mcp/tests/run.py -m live
 ```
 
-`mcp/tests/llm/` measures the decisions the agent makes from the client's replies on the real model (Vault's
+`mcp/tests/llm/test_relay.py` compares, on the same model, the reply a client gets from a ten-invoice run's summary
+as it was (every step) and as it is now: every fact must reach them, and the reply's length, time and tokens are
+printed. `mcp/tests/llm/` also measures the decisions the agent makes from the client's replies on the real model (Vault's
 `MODEL_API_*`, the agents' MiniMax-M3), shown Tarik's instructions, skills and tools as the agents have them: what
 it reads as oui or non, which proposed tiers the client chose, a clear yes to a confirmation, the invoices' filter.
 Each kind must be right on average (90 %) and almost never decide what the client did not (5 %, never for a

@@ -6,7 +6,7 @@ ticking it in the form fills and validates the period, and posting generates the
 entries with the dossier's prepaid account and journal.
 """
 
-from tarik.core.app import ok, question, server, with_ids
+from tarik.core.app import ok, question, routine, server, with_ids
 from tarik.core.conversation import yes_no
 from tarik.core.experio import (
     experio_notes,
@@ -41,11 +41,11 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
         invoice_id, ["state", "type", "company_id", "exercice_id", "invoice_number", "has_prepaid_expenses"]
     )
     if invoice["has_prepaid_expenses"]:
-        return ok(f"Facture {invoice_id} : deja repartie en constatee d'avance.")
+        return routine(f"Facture {invoice_id} : deja repartie en constatee d'avance.")
     check = stored_check(invoice_id)
     values = check and prepaid_period(check[1].get("period_start"), check[1].get("period_end"))
     if not values:
-        return ok(f"Facture {invoice_id} : pas de periode sur plusieurs mois, rien a repartir.")
+        return routine(f"Facture {invoice_id} : pas de periode sur plusieurs mois, rien a repartir.")
     kind = "produits" if invoice["type"] == "sale" else "charges"
     asked = (
         f"Facture {invoice['invoice_number'] or invoice_id} : elle couvre {values['prepaid_months']} mois "
@@ -56,7 +56,7 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
     if spread is None:
         return question(asked if not answer else f"Reponse non comprise. {asked}")
     if not spread:
-        return ok(f"Facture {invoice_id} : pas de repartition.")
+        return routine(f"Facture {invoice_id} : pas de repartition.")
     require_draft(invoice_id, invoice)
     context = invoice_context(invoice)
     with refused(f"settle_prepaid {invoice_id}", f"Facture {invoice_id} : Experio a refuse la repartition."):

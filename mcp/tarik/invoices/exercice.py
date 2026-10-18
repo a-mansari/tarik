@@ -9,7 +9,7 @@ question when no open exercice covers the date -- late invoice in an open one, o
 
 import re
 
-from tarik.core.app import log, ok, question, server, with_ids
+from tarik.core.app import log, ok, question, routine, server, with_ids
 from tarik.core.experio import (
     dry_run,
     experio_refusal,
@@ -77,7 +77,7 @@ def relink(invoice_id, invoice, exercice):
     """Link the invoice to ``exercice`` (the open one covering its date), when it isn't yet: ok."""
     linked = invoice["exercice_id"]
     if linked and linked[0] == exercice["id"]:
-        return ok(f"Facture {invoice_id} : exercice {exercice['name']}.")
+        return routine(f"Facture {invoice_id} : exercice {exercice['name']}.")
     # The exercice was created after the invoice: Experio's compute only reruns when the date changes.
     with refused(
         f"settle_exercice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu la rattacher a l'exercice."
@@ -163,7 +163,7 @@ def settle_exercice(invoice_id: int, answer: str = "", decision: str = "") -> di
     if covering and not answer:
         return relink(invoice_id, invoice, covering[0])
     if invoice["is_old_invoice"]:
-        return ok(f"Facture {invoice_id} : deja comptabilisee comme facture anterieure.")
+        return routine(f"Facture {invoice_id} : deja comptabilisee comme facture anterieure.")
     if not answer:
         return question(f"Facture {invoice_id} : {asked(invoice, opens)}")
     choice = exercice_choice(decision, opens)

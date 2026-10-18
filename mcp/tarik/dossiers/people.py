@@ -11,7 +11,7 @@ the same dossiers they see in Experio.
 
 import re
 
-from tarik.core.app import ok, server, stop
+from tarik.core.app import routine, server, stop
 from tarik.core.cabinets import cabinet_db
 from tarik.core.experio import odoo_call, refused, require_dossier
 
@@ -85,7 +85,7 @@ def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> d
     dossier = require_dossier(dossier_id)
     address = sender_of(session_id)
     if address is None:
-        return ok("Conversation sans expediteur a verifier.")
+        return routine("Conversation sans expediteur a verifier.")
     user = collaborator(address)
     if not user:
         return stop(
@@ -94,4 +94,4 @@ def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> d
         )
     if dossier_id not in user["company_ids"]:
         return stop(f"Le dossier {dossier} n'est pas attribue a {user['name']} dans Experio : rien n'y est fait.")
-    return ok(f"{user['name']} a le dossier {dossier}.")
+    return routine(f"{user['name']} a le dossier {dossier}.")

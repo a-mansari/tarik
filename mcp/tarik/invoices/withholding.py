@@ -7,7 +7,7 @@ so nothing is written onto the tiers here. Left here: a foreign supplier's last 
 supplier with no known rule, local fees (6136) with none.
 """
 
-from tarik.core.app import ok, question, server, with_ids
+from tarik.core.app import ok, question, routine, server, with_ids
 from tarik.core.config import POSTED
 from tarik.core.experio import (
     account_code,
@@ -149,7 +149,7 @@ def _rule(invoice, kind, answer):
         values = _last_foreign_rule(invoice)
         return (None, values) if values else (question(f"Facture de {tier} : {QUESTIONS['foreign']}"), None)
     if not account_code(invoice).startswith(LOCAL_RAS_ACCOUNTS):
-        return ok(f"Facture {invoice_id} : sans retenue a la source."), None
+        return routine(f"Facture {invoice_id} : sans retenue a la source."), None
     return question(f"Facture de {tier} : {QUESTIONS['local']}"), None
 
 
@@ -174,7 +174,7 @@ def settle_withholding(invoice_id: int, answer: str = "") -> dict:
         ],
     )
     if invoice["type"] != "purchase" or not invoice["partner_id"]:
-        return ok(f"Facture {invoice_id} : pas de retenue a la source a regler ici (vente ou tiers absent).")
+        return routine(f"Facture {invoice_id} : pas de retenue a la source a regler ici (vente ou tiers absent).")
     require_draft(invoice_id, invoice)
     kind = "local" if invoice["is_local_invoice"] else "foreign"
     if invoice["retenue"]:  # the tiers' remembered rule, applied by Experio when the tiers was picked

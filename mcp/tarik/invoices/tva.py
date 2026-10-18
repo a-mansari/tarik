@@ -8,7 +8,7 @@ Left here: the question on the usual non-recoverable accounts, and the cabinet's
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, question, server, with_ids
+from tarik.core.app import ok, question, routine, server, with_ids
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import yes_no
 from tarik.core.experio import (
@@ -114,4 +114,5 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
     body = f"{test_mode_note()}Facture {invoice_id} : TVA {'non recuperable' if non_recoverable else 'recuperable'}"
     body += (f", {', '.join(notes)}" if notes and not non_recoverable else "") + ". "
     body += ("Lignes : " + "; ".join(taxed) + ".") if taxed else "Pas encore de ligne de TVA."
-    return ok(body + experio)
+    told = non_recoverable or notes or experio  # what the client should know: else routine
+    return ok(body + experio) if told else routine(body)
