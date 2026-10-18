@@ -20,7 +20,7 @@ Each "Tarik - <cabinet>" agent has these tools, named exactly as below:
 | `Experio_modifier_dossier` | Changes an existing dossier's identity fields. | Workflow "Tarik - Modification" |
 | `load_skill` | Loads one of the skills below (n8n's own). | n8n |
 
-And four skills (`workflows/skills/`), loaded when a request matches:
+And four skills (`instructions/skills/`), loaded when a request matches:
 
 | Skill | When |
 |---|---|

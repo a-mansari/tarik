@@ -3,8 +3,8 @@ instructions, the skill the agent would load, and their tools (workflow tools fr
 MCP tools from the server). It answers a conversation with a tool call, which is only read: no n8n, no Experio.
 
 Differences with n8n's native agent, kept small: the skill is in the system prompt (n8n loads it on demand), and
-the model thinks only with THINKING=on (env): n8n's reasoning setting, whatever its level, sends M3 a 1024-token
-budget M3 does not keep to. Each case runs REPEAT times (env, default 1), 3 at once."""
+the model thinks as n8n has it (its reasoning setting, whatever its level, sends M3 a 1024-token budget M3 does not
+keep to), unless THINKING=off (env). Each case runs REPEAT times (env, default 1), 3 at once."""
 
 import asyncio
 import json
@@ -21,7 +21,7 @@ from tarik.core.cabinets import setting, using
 
 CABINET = os.getenv("TARIK_TEST_CABINET", "experio_cabinet_8")
 REPEAT = int(os.getenv("REPEAT", "1"))
-THINKING = os.getenv("THINKING") == "on"
+THINKING = os.getenv("THINKING") != "off"
 WORKFLOWS = Path(__file__).resolve().parents[3] / "workflows"  # the repository on the host, / in the container
 TYPES = {"string": "string", "number": "number", "boolean": "boolean"}
 
@@ -31,7 +31,7 @@ def agent():
     config = json.loads((WORKFLOWS / "tarik-agent.json").read_text())
     instructions = config["instructions"].replace("__CABINET_NAME__", "GECAFISC CONSEIL")
     skills = {}
-    for path in (WORKFLOWS / "skills").glob("*.md"):
+    for path in (WORKFLOWS.parent / "instructions/skills").glob("*.md"):
         _, front, body = path.read_text().split("---", 2)
         skills[next(line[6:] for line in front.splitlines() if line.startswith("name: "))] = body.strip()
     triggers = {}  # workflow id -> its "Appel" inputs' types

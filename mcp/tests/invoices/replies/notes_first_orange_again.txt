@@ -1,0 +1,64 @@
+Looking at the scan carefully:
+
+**Reading from the scan:**
+- Invoice number: F-0726-2580188
+- Date: 25-07-2026
+- Language: French ("Numéro de facture", "Date de facture", "Montant total à payer", "Total TTC", etc.)
+- Montant HT: 248,33
+- TVA (20%): 49,67
+- Total TTC: 298,00
+- No timbre, debours, retenue, prorata, assurance, TS, TSP, avance
+- Currency: MAD (DH)
+- Supplier: MEDI TELECOM (with Orange/MEDITELECOM branding) - but the ICE in footer is 001524628000001, while the client ICE is 000000000000000
+- ICE supplier: 001524628000001
+- IF supplier: 1086826
+- Country: MA (Maroc, Casablanca)
+- Designation: Vos forfaits/abonnements et options
+- Not a credit note
+- TVA lines: [{rate: 20, amount_ht: 248.33, amount_tva: 49.67}]
+
+**Verification:** 248.33 + 49.67 = 298.00 ✓ (matches TTC)
+
+**Comparison with captured values:**
+- amount_total: captured 398.00, extracted 298.00 → mismatch
+
+```json
+{
+  "readable": true,
+  "extracted": {
+    "invoice_number": "F-0726-2580188",
+    "invoice_date_raw": "25-07-2026",
+    "invoice_date_language": "fr",
+    "amount_untaxed": 248.33,
+    "amount_tva": 49.67,
+    "amount_stamp": 0,
+    "amount_disbursement": 0,
+    "amount_guarantee_holdback": 0,
+    "amount_prorata": 0,
+    "amount_insurance": 0,
+    "amount_ts": 0,
+    "amount_tsp": 0,
+    "advance_amount": 0,
+    "amount_total": 298.00,
+    "tier": "MEDI TELECOM",
+    "designation": "Vos forfaits/abonnements et options",
+    "ice": "001524628000001",
+    "vat": "1086826",
+    "is_credit_note": false,
+    "currency": "MAD",
+    "payment_method": null,
+    "period_start": null,
+    "period_end": null,
+    "country": "MA",
+    "tva_lines": [{"rate": 20, "amount_ht": 248.33, "amount_tva": 49.67}]
+  },
+  "bad_fields": [
+    {
+      "field": "amount_total",
+      "stored": "398.00",
+      "extracted": "298.00",
+      "problem": "Le TTC saisi est de 398,00 alors que la facture indique un Total TTC de 298,00 DH."
+    }
+  ]
+}
+```

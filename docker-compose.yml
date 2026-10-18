@@ -48,6 +48,7 @@ services:
       VAULT_ADDR: http://vault:8200
     volumes:
       - ./vault/.local/approle:/run/vault:ro # tarik-mcp's AppRole: it may only read secret/tarik/*
+      - ./instructions/tools:/instructions/tools:ro # the prompts the tools give the model
     depends_on: [vault]
     dns: [1.1.1.1, 8.8.8.8]
 

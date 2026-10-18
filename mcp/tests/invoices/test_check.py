@@ -1,9 +1,12 @@
 """Does what Experio read match the scan: dates, the model's report, false alarms."""
 
+from pathlib import Path
+
 import pytest
 
+from tarik.core.model import json_answer
 from tarik.core.numbers import readings
-from tarik.invoices.check import as_number, drop_false_alarms, resolve_date, resolve_report
+from tarik.invoices.check import REPORT_KEYS, as_number, drop_false_alarms, resolve_date, resolve_report
 from tests.fakes import flag
 
 
@@ -61,6 +64,10 @@ def test_false_alarms_are_dropped():  # measured on real invoices: a real Blueja
         {"amount_untaxed": 1884.73, "amount_tva": 394.17, "amount_stamp": 5.91, "amount_total": 2370.89},
     )
     assert noise == []  # 1884.73 + 394.17 + 5.91 != 2370.89: the model misread
+    # The HU bill (electricity and water, their other taxes in no field): its parts read add up to 2459.71, not 2545.79.
+    hu = {"amount_untaxed": 2044.29, "amount_tva": 409.07, "amount_stamp": 6.35, "amount_total": 2545.79}
+    assert len(drop_false_alarms([flag("amount_total", 2645.79, 2545.79)], {"amount_total": 2645.79}, hu)) == 1
+    assert drop_false_alarms([flag("amount_total", 2459.71, 2545.79)], {"amount_total": 2459.71}, hu) == []
     assert (
         drop_false_alarms(
             [flag("ice", "001234567000089", "001234567000089")], {"ice": "001234567000089"}, {"ice": "001234567000089"}
@@ -147,3 +154,36 @@ def test_a_number_with_two_readings_is_never_guessed():
         as_number("1,005")
     with pytest.raises(ValueError):  # the scan's model is asked again, told which value
         resolve_report({"readable": True, "extracted": {"invoice_date_language": "fr", "amount_total": "1,005"}}, {})
+
+
+REPLIES = Path(__file__).parent / "replies"  # MiniMax-M3's real replies the first-to-last brace cut failed on
+
+
+@pytest.mark.parametrize(
+    "reply, flagged",
+    [
+        ("notes_first_total", ["amount_total", "amount_untaxed", "amount_tva", "invoice_number", "invoice_date"]),
+        (
+            "two_objects_first_incomplete",
+            ["invoice_number", "invoice_date", "amount_untaxed", "amount_tva", "amount_stamp"],
+        ),
+        ("notes_first_orange", ["amount_total"]),
+        ("notes_first_orange_again", ["amount_total"]),
+        ("notes_with_json_fragment", ["amount_total"]),
+    ],
+)
+@pytest.mark.functionality
+def test_the_whole_answer_is_found_among_the_models_notes(reply, flagged):
+    report = json_answer((REPLIES / f"{reply}.txt").read_text(), REPORT_KEYS)
+    assert report["readable"] is True and [b["field"] for b in report["bad_fields"]] == flagged
+
+
+@pytest.mark.functionality
+def test_no_single_whole_answer_is_never_guessed():
+    whole = '{"readable": true, "extracted": {}, "bad_fields": []}'
+    other = '{"readable": true, "extracted": {}, "bad_fields": [{"field": "amount_total"}]}'
+    assert json_answer(f"{whole}\nThe same again:\n{whole}", REPORT_KEYS)["bad_fields"] == []
+    for text in (f"{whole}\n{other}", '{"readable": true, "extracted": {}}', "no JSON at all", "{rate: 10}"):
+        with pytest.raises(ValueError):
+            json_answer(text, REPORT_KEYS)
+    assert json_answer('Sure: {"code": "6145"}') == {"code": "6145"}  # no keys asked: the one object

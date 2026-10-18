@@ -33,6 +33,10 @@ def other(path):
     if path.is_relative_to(REPO / "workflows"):
         # The live and llm tests run what the workflows, the agent and its skills say.
         return [STYLE, *(TESTS / "n8n").glob("test_*.py"), *(TESTS / "llm").glob("test_*.py")]
+    if path.is_relative_to(REPO / "instructions/skills"):
+        return [STYLE, *(TESTS / "n8n").glob("test_*.py"), *(TESTS / "llm").glob("test_*.py")]  # the agent's skills
+    if path.is_relative_to(REPO / "instructions/tools"):
+        return [STYLE, *(TESTS / "invoices").glob("test_*.py")]  # the prompts the invoice tools load
     if path == REPO / "pyproject.toml":
         return [STYLE]  # the code's style
     if path == REPO / "n8n/patch.js":
@@ -121,6 +125,7 @@ def pytest_command(tests, args):
     container += ["-e", f"REPEAT={os.environ['REPEAT']}"] if "REPEAT" in os.environ else []  # tests/llm's runs a case
     container += ["-e", f"THINKING={os.environ['THINKING']}"] if "THINKING" in os.environ else []  # tests/llm thinking
     mounts = ["-v", f"{MCP}:/app", "-v", f"{REPO / 'workflows'}:/workflows:ro", "-v", f"{REPO / 'docs'}:/docs:ro"]
+    mounts += ["-v", f"{REPO / 'instructions'}:/instructions:ro"]
     mounts += ["-v", f"{REPO / 'pyproject.toml'}:/pyproject.toml:ro", "tarik-mcp"]
     pytest = ["python", "-m", "pytest", "-p", "no:cacheprovider"]
     return [*container, *mounts, *pytest, *(str(test.relative_to(MCP)) for test in tests), *args]

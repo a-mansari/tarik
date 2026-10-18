@@ -40,3 +40,16 @@ def test_a_sentence_is_read_by_the_model_but_only_the_charts_accounts_count(monk
     monkeypatch.setattr(accounts, "ask_model", lambda *args: {"code": read})
     found = account_meant(CHART, "Pour MEDI TELECOM, utilisez le compte 6145.")
     assert (found or {}).get("id") == expected
+
+
+@pytest.mark.functionality
+def test_a_code_start_the_client_wrote_is_theirs_not_the_models(monkeypatch):
+    travel = [
+        {"id": 9, "code": "61431000", "name": "Voyages et déplacements"},
+        {"id": 10, "code": "61436000", "name": "Réceptions"},
+    ]
+    monkeypatch.setattr(accounts, "ask_model", lambda *args: {"code": "61431000"})
+    assert account_meant(travel, "6143") is None  # two accounts start with it: asked again
+    assert account_meant(travel, "Mettez 6143, 2 factures") is None
+    assert account_meant(travel, "61431 voyages")["id"] == 9
+    assert account_meant(travel, "Voyages et déplacements")["id"] == 9  # no code written: the model's

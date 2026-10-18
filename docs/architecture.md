@@ -113,7 +113,7 @@ leaves the decision empty, and the question is asked again.
 ## The agents and their skills
 
 All 8 agents are made from one template, `workflows/tarik-agent.json`, and the skills in
-`workflows/skills/`, by `workflows/build_tarik_agents.py`. The base instructions hold the rules that
+`instructions/skills/`, by `workflows/build_tarik_agents.py`. The base instructions hold the rules that
 always apply; each process lives in a skill the agent loads when a request matches it. A skill names
 tools exactly as the model sees them (`Experio_…`), and the build refuses a skill, instruction or tool
 description naming a tool the agents do not have.
@@ -123,7 +123,8 @@ description naming a tool the agents do not have.
 | Path | What |
 |---|---|
 | `mcp/` | The Python tools (`tarik/core`, `invoices`, `dossiers`, `emails`), `server.py`, `watcher.py`, tests. |
-| `workflows/` | Workflow builders (`build_tarik_*.py`) and their JSON, the agent template, its skills, the agents' build script. |
+| `workflows/` | Workflow builders (`build_tarik_*.py`) and their JSON, the agent template, the agents' build script. |
+| `instructions/` | Everything the model is told: the agent's skills (`skills/`), the tools' prompts (`tools/`). |
 | `n8n/` | The patched n8n image. |
 | `vault/` | Vault's config, start and setup scripts (`vault/.local/`: keys, never in git). |
 | `.env` | What the services need to start; everything else is in Vault. |
