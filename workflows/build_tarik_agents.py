@@ -1,5 +1,5 @@
 """Create or update Tarik, one native n8n agent per cabinet, from workflows/tarik-agent.json and
-the skills in workflows/skills/ (one file each, the same skill in every agent).
+the skills in instructions/skills/ (one file each, the same skill in every agent).
 
 Run on the host: python3 workflows/build_tarik_agents.py
 Each cabinet's agent is "Tarik - <cabinet's name>", alike but for its cabinet: its MCP address
@@ -107,9 +107,9 @@ def agents_by_cabinet():
 
 
 def skill_files():
-    """The skills, written once in workflows/skills/*.md: front matter (name, description), then the
+    """The skills, written once in instructions/skills/*.md: front matter (name, description), then the
     instructions. n8n keeps skills per agent, so every agent gets the same copy of each."""
-    for path in sorted((HERE / "skills").glob("*.md")):
+    for path in sorted((HERE.parent / "instructions/skills").glob("*.md")):
         _, front, body = path.read_text().split("---", 2)
         meta = {
             key.strip(): value.strip() for key, _, value in (line.partition(":") for line in front.strip().splitlines())
@@ -158,8 +158,8 @@ def mutate(agent_id, base, operation):
 
 
 def sync_skills(agent_id, current, base):
-    """Each skill of workflows/skills/ in the agent, as written there: updated in place (found by name),
-    or created and attached, when it differs. A skill of the agent's not in workflows/skills/ is deleted.
+    """Each skill of instructions/skills/ in the agent, as written there: updated in place (found by name),
+    or created and attached, when it differs. A skill of the agent's not in instructions/skills/ is deleted.
     ``current``: get_agent's answer, ``base`` the hash since. Returns the skills' names and the new hash."""
     by_name = {skill["name"]: (skill_id, skill) for skill_id, skill in current["skills"].items()}
     wanted = list(skill_files())

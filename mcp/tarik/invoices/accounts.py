@@ -7,6 +7,8 @@ the lines from the header. So the model only does what Experio can't: classify w
 billed among the dossier's real accounts.
 """
 
+import re
+
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import log, ok, question, server, with_ids
@@ -24,46 +26,11 @@ from tarik.core.experio import (
     require_invoice,
     test_mode_note,
 )
-from tarik.core.model import ask_model
+from tarik.core.model import ask_model, instruction
 from tarik.invoices.check import stored_check
 from tarik.invoices.classify import side_of
 
-ACCOUNT_PROMPT = """You choose the accounting account (Compte) of an invoice in a
-Moroccan cabinet, following the CGNC plan.
-
-You are told whether this is a purchase (achat) or a sale (vente), and what the
-invoice bills, as printed on it. Classify THAT.
-
-CGNC, class 6 (charges) -- for a purchase, the usual ones:
-
-- 6111 achats de marchandises (revente en l'etat)
-- 6121 matieres premieres / 6122 matieres et fournitures consommables
-- 6125 achats non stockes (eau, electricite, fournitures de bureau)
-- 6126 achats de travaux, etudes et prestations de service -- sous-traitance,
-  main d'oeuvre facturee par un tiers, travaux de chantier
-- 6131 locations (locaux, materiel) / 6133 entretien et reparations
-- 6134 primes d'assurance / 6136 remunerations d'intermediaires et honoraires
-- 6141 transports / 6142 deplacements, missions et receptions
-- 6145 frais postaux et telecommunications / 6147 services bancaires
-- 6167 impots et taxes / 617 charges de personnel
-
-CGNC, class 7 (produits) -- for a sale, the usual ones:
-
-- 7111 ventes de marchandises (revente en l'etat)
-- 7121 ventes de biens produits / 7124 ventes de services produits -- prestations
-  facturees a un client, travaux, honoraires factures
-- 7127 ventes de produits accessoires (transport facture, emballages...)
-- 7136 locations rendues / 7181 reprises de subventions
-- 7381 interets et produits assimiles
-
-Rules:
-- Classify on the designation, never on the amount: 100 000 DH of main d'oeuvre
-  and 100 000 DH of marchandise are two different accounts.
-- Several accounts share a label ("Achats de marchandises" twice, different
-  codes): take the lowest code, it is the main one.
-- You cannot create an account. If the plan has nothing suitable, set nothing
-  and say which account is missing.
-"""
+ACCOUNT_PROMPT = instruction("choose-account")
 CLASS = {"purchase": "6", "sale": "7"}
 
 
@@ -218,11 +185,7 @@ def resolve_account(accounts, answer):
     return None
 
 
-ANSWER_PROMPT = """You read a client's answer to the question "which account (Compte) should this invoice use?",
-for a Moroccan cabinet's dossier, and say which account of the dossier's chart below they mean: by its code (a
-code's start, such as 6145, means the account whose code starts with it) or by its label. Report only an account
-the answer itself names; when it names none, or could mean several with different labels, answer null. Never
-choose one yourself from what the invoice bills."""
+ANSWER_PROMPT = instruction("read-account-answer")
 
 
 def account_meant(accounts, answer):
@@ -234,8 +197,13 @@ def account_meant(accounts, answer):
         + '\n\nAnswer with only a JSON object: {"code": "<a code from the list above>" or null}'
     )
     code = ask_model(ANSWER_PROMPT, [], instruction, "Lecture de la reponse").get("code")
-    # Its code, or the start the client wrote ("6145"), as a number or text: only one of the chart's accounts.
-    return resolve_account(accounts, str(code)) if code is not None and str(code).strip().isdigit() else None
+    if code is None or not str(code).strip().isdigit():
+        return None
+    code = str(code).strip()
+    # The digits the client wrote, when the model's code starts with them: "6143" is 61431000 or 61436000, the model
+    # picks one, the client chose neither.
+    written = next((digits for digits in re.findall(r"\d{3,}", answer) if code.startswith(digits)), code)
+    return resolve_account(accounts, written)
 
 
 @with_ids

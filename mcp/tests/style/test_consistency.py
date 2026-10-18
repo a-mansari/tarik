@@ -2,9 +2,10 @@
 sets them), each workflow exactly what its script builds, and every tool a workflow, an agent or a skill names
 really exists.
 
-Needs workflows/, docs/ and pyproject.toml next to mcp/ (tests/run.py mounts them in the container)."""
+Needs workflows/, instructions/, docs/ and pyproject.toml next to mcp/ (tests/run.py mounts them in the container)."""
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -136,3 +137,17 @@ def test_every_caller_fills_every_input_of_the_workflow_it_calls():
     assert len(calls) == len(agent["tools"]) + 2  # the 2 follow-ups of "Tarik - Emails"
     for name, workflow_id, given in calls:
         assert given == inputs(workflow_id), name
+
+
+@pytest.mark.style
+def test_each_tool_prompt_is_read_by_the_tool_its_file_names():
+    code = Path(__file__).resolve().parents[2] / "tarik"
+    loaded = {  # prompt name -> the module loading it
+        name: "mcp/" + str(path.relative_to(code.parent))  # mcp/ is /app in the container
+        for path in code.rglob("*.py")
+        for name in re.findall(r'instruction\("([a-z-]+)"\)', path.read_text())
+    }
+    files = {path.stem: path.read_text() for path in (ROOT / "instructions/tools").glob("*.md")}
+    assert sorted(loaded) == sorted(files), "a prompt file no tool reads, or a tool reading a missing one"
+    for name, text in files.items():
+        assert f"({loaded[name]})" in text.split("\n---\n", 1)[0], f"{name}.md: used_by names another file"

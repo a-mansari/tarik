@@ -16,7 +16,7 @@ Documentation: [architecture](docs/architecture.md), [tools and workflows](docs/
 
 | Part | What it does |
 |------|--------------|
-| n8n Agents section | Tarik: one native agent per cabinet, "Tarik - <cabinet's name>" (MiniMax-M3). It only finds the dossier, lists invoices and hands the work over to the workflows below. All are made from `workflows/tarik-agent.json` and the skills in `workflows/skills/` by `workflows/build_tarik_agents.py`, which lists the cabinets: edit those, not the agents in n8n. |
+| n8n Agents section | Tarik: one native agent per cabinet, "Tarik - <cabinet's name>" (MiniMax-M3). It only finds the dossier, lists invoices and hands the work over to the workflows below. All are made from `workflows/tarik-agent.json` and the skills in `instructions/skills/` by `workflows/build_tarik_agents.py`, which lists the cabinets: edit those, not the agents in n8n. |
 | `workflows/tarik-emails.json` | Every cabinet's mailbox, woken per cabinet by `tarik-mail-watch`: each email thread is answered by that cabinet's agent (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own conversation). |
 | `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, finish the onboarding. |
 | `workflows/tarik-modification.json` | Changing an existing dossier's identity fields (name, type, ICE, IF, RC, patente, T.S.C, capital, CNSS, address), only to values the client wrote. |
@@ -105,16 +105,25 @@ python3 mcp/tests/run.py -m live
 it reads as oui or non, which proposed tiers the client chose, a clear yes to a confirmation, the invoices' filter.
 Each kind must be right on average (90 %) and almost never decide what the client did not (5 %, never for a
 confirmation). The tool calls are only read: nothing reaches n8n or Experio. Run them after changing the agent's
-instructions or skills, `REPEAT` times each case for a steadier average (`-s` shows each miss):
+instructions or skills, `REPEAT` times each case for a steadier average (`-s` shows each miss). The model thinks,
+as the agents' does; `THINKING=off` measures it without (2026-10-17, REPEAT=3: 3 decisions the client did not make
+without thinking, none with it):
 
 ```bash
 REPEAT=3 python3 mcp/tests/run.py -m llm -s
 ```
 
+## Instructions
+
+Everything the model is told is in `instructions/`, nowhere else: `skills/` for the agent (below), `tools/` for
+the prompts the Python tools give the model (one file per prompt, front matter `used_by`: the tool and the file
+reading it, then the prompt, sent word for word). The container mounts `instructions/tools/`, so a prompt
+changed there applies on the next restart, no rebuild. A style test checks each file is read by the file it names.
+
 ## Skills
 
 n8n keeps an agent's skills (instructions it loads when a request matches) per agent. They are
-written once, one file per skill in `workflows/skills/` (front matter `name`, `description`, then
+written once, one file per skill in `instructions/skills/` (front matter `name`, `description`, then
 the instructions), and `workflows/build_tarik_agents.py` gives every agent the same copy, found by
 name, updated in place, and removed from all agents when its file goes.
 
