@@ -28,7 +28,7 @@ FACTS = {
 
 def relay(ask, summary):
     """The agent's reply to the client once Experio_traiter_fichiers answered ``summary``: (text, seconds, usage)."""
-    called = {"dossier_id": 557, "invoice_type": "achat"}
+    called = {"dossier": "Gecafisc", "invoice_type": "achat"}
     messages = [
         {"role": "user", "content": "Voici les factures d'achat de GECAFISC."},
         {

@@ -30,8 +30,8 @@
               "type": "string"
             },
             {
-              "name": "dossier_id",
-              "type": "number"
+              "name": "dossier",
+              "type": "string"
             },
             {
               "name": "answer",
@@ -181,6 +181,46 @@
       }
     },
     {
+      "id": "eb95235b-ce43-5a20-9001-5f16d5684568",
+      "name": "Dossier (resolve_dossier)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        260,
+        20
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "resolve_dossier"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ name: $('Appel').first().json.dossier || '' }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "5a1e4030-3054-5ddd-923c-8917320d83f7",
+      "name": "Suite apres resolve_dossier",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        300,
+        60
+      ],
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 2,
+        "output": "={{ $json.content[0].text.status === 'ok' ? 0 : 1 }}"
+      }
+    },
+    {
       "id": "432b61e8-e965-530a-9d0e-1293b74117b3",
       "name": "Expediteur (check_sender)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -198,7 +238,7 @@
           "value": "check_sender"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, dossier_id: $('Appel').first().json.dossier_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, dossier_id: $('Dossier (resolve_dossier)').first().json.content[0].text.dossier_id }) }}",
         "options": {
           "timeout": 300000
         }
@@ -293,7 +333,7 @@
           "value": "import_bank_statement"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ file_id: $json.content[0].text.file_id, dossier_id: $('Appel').first().json.dossier_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ file_id: $json.content[0].text.file_id, dossier_id: $('Dossier (resolve_dossier)').first().json.content[0].text.dossier_id }) }}",
         "options": {
           "timeout": 300000
         }
@@ -371,7 +411,7 @@
           "value": "create_draft_invoice"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ file_id: $json.file_id, dossier_id: $('Appel').first().json.dossier_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ file_id: $json.file_id, dossier_id: $('Dossier (resolve_dossier)').first().json.content[0].text.dossier_id }) }}",
         "options": {
           "timeout": 300000
         }
@@ -1332,6 +1372,42 @@
         ]
       ]
     },
+    "Dossier (resolve_dossier)": {
+      "main": [
+        [
+          {
+            "node": "Suite apres resolve_dossier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Suite apres resolve_dossier": {
+      "main": [
+        [
+          {
+            "node": "Expediteur (check_sender)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Expediteur (check_sender)": {
       "main": [
         [
@@ -1372,7 +1448,7 @@
       "main": [
         [
           {
-            "node": "Expediteur (check_sender)",
+            "node": "Dossier (resolve_dossier)",
             "type": "main",
             "index": 0
           }

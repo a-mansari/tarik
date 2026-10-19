@@ -3,3 +3,6 @@ __pycache__/
 .temp/
 vault/.local/
 .claude/
+
+# The LangGraph dev server's state (pickled runs, threads, client data) and Python caches.
+langgraph/.langgraph_api/

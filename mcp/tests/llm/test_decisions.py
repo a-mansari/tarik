@@ -32,7 +32,7 @@ def after(first, tool, given, result, said):
 
 def processing(question, said, expected):
     """A case: the invoices processed, ``question`` asked, the client says ``said``."""
-    given = {"dossier_id": 557, "invoice_type": "achat"}
+    given = {"dossier": "Gecafisc", "invoice_type": "achat"}
     messages = after("Voici les factures d'achat de GECAFISC.", "Experio_traiter_fichiers", given, question, said)
     return {"skill": "Réponse à une question", "messages": messages, "expected": expected, "said": said}
 

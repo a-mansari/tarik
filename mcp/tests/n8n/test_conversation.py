@@ -17,7 +17,7 @@ from tarik.core import cabinets
 from tarik.core.cabinets import using
 from tarik.core.config import POSTGRES
 from tarik.core.words import normalized
-from tarik.dossiers.search import dossiers
+from tarik.dossiers.search import dossiers, resolve_dossier
 
 CABINET = os.getenv("TARIK_TEST_CABINET", "experio_cabinet_8")
 N8N_DB = {**POSTGRES, "dbname": os.getenv("N8N_POSTGRES_DB", "n8n")}
@@ -102,5 +102,6 @@ def conversation(n8n, agent):
 def test_the_last_message_is_handled_with_what_was_said_before(conversation, dossier_ids, turns, dossier, invoice_type):
     calls = conversation(turns)
     assert len(calls) == 1, calls
-    assert int(float(calls[0].get("dossier_id") or 0)) == dossier_ids[dossier], calls
+    with using(CABINET):  # the name the agent gave finds the dossier the client meant, as the workflow will
+        assert resolve_dossier(str(calls[0].get("dossier") or "")).get("dossier_id") == dossier_ids[dossier], calls
     assert (calls[0].get("invoice_type") or "") == invoice_type, calls

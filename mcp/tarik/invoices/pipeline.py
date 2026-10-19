@@ -25,6 +25,7 @@ from tarik.invoices.withholding import settle_withholding
 # The sequence, in order: step tool -> what the client reads it as.
 STEPS = {
     "answer_pending": "reponse",
+    "resolve_dossier": "dossier",
     "check_sender": "expediteur",
     "create_dossier": "creation du dossier",
     "update_dossier": "modification du dossier",
