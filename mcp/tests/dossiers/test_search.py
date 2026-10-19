@@ -3,7 +3,7 @@
 import pytest
 
 from tarik.core.config import MIN_SIMILARITY
-from tarik.core.text import similarity
+from tarik.core.words import similarity
 
 DOSSIERS = [
     "STE ALLIANCE GENIE CIVIL SARL",

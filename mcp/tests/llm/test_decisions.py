@@ -9,7 +9,7 @@ Slow and billed: python3 mcp/tests/run.py -m llm -s (-s shows the cases missed a
 import pytest
 
 from tarik.core.conversation import yes_no
-from tarik.core.text import normalized
+from tarik.core.words import normalized
 from tarik.invoices.exercice import exercice_choice
 from tarik.invoices.intake import journal_chosen
 from tarik.invoices.listing import STATUSES

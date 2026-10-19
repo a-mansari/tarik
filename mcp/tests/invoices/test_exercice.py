@@ -26,3 +26,23 @@ def test_the_date_given_is_one_full_date():
     assert (
         given_date("le 15/03/25") is None and given_date("15/03/2025 ou 16/03/2025") is None and given_date("") is None
     )
+
+
+@pytest.mark.functionality
+def test_an_exercice_covering_the_date_is_linked_whatever_the_answer(monkeypatch):
+    """The cabinet opened the year by hand between the question and the answer: the invoice goes there."""
+    from tarik.invoices import exercice
+
+    invoice = {
+        "state": "draft",
+        "company_id": [5, "D"],
+        "exercice_id": False,
+        "invoice_date": "2025-03-15",
+        "is_old_invoice": False,
+    }
+    monkeypatch.setattr(exercice, "require_invoice", lambda invoice_id, fields: dict(invoice))
+    monkeypatch.setattr(exercice, "odoo_call", lambda *args, **kw: OPENS)
+    monkeypatch.setattr(
+        exercice, "relink", lambda invoice_id, invoice, found: {"status": "ok", "message": found["name"]}
+    )
+    assert exercice.settle_exercice(3, answer="nouveau", decision="nouveau")["message"] == "Exercice 2025"

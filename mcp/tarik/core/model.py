@@ -1,14 +1,18 @@
-"""The vision model (MiniMax-M3), in the Anthropic message format it imitates."""
+"""The vision model (MiniMax-M3), in the Anthropic message format it imitates, and the pages of the documents
+clients send, as images it can read."""
 
 import base64
+import io
 import json
 from pathlib import Path
 
+import pypdfium2
 from mcp.server.mcpserver.exceptions import ToolError
+from PIL import Image
 
 from tarik.core.app import log
 from tarik.core.cabinets import setting
-from tarik.core.config import MODEL_TIMEOUT
+from tarik.core.config import MAX_PAGES, MODEL_TIMEOUT, SCALE
 from tarik.core.experio import HTTP
 
 INSTRUCTIONS = Path(__file__).resolve().parents[3] / "instructions" / "tools"  # the repository's, / in the container
@@ -66,3 +70,28 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
     except Exception as error:
         log(f"{what}: {error}")
         raise ToolError(f"{what} : echec, reessayez plus tard.") from None
+
+
+# --- The documents' pages ---
+
+
+def to_pdf(raw):
+    """A photo (image bytes) as one-page PDF bytes: Experio only takes PDFs."""
+    buffer = io.BytesIO()
+    Image.open(io.BytesIO(raw)).convert("RGB").save(buffer, format="PDF")
+    return buffer.getvalue()
+
+
+def pdf_pages(raw, limit=MAX_PAGES, scale=SCALE):
+    """The first ``limit`` pages (None: all) of a PDF (bytes), as PNG bytes rendered at ``scale``."""
+    pages = []
+    for page in list(pypdfium2.PdfDocument(raw))[:limit]:
+        buffer = io.BytesIO()
+        page.render(scale=scale).to_pil().save(buffer, format="PNG")
+        pages.append(buffer.getvalue())
+    return pages
+
+
+def scan_pages(document_pdf):
+    """The first MAX_PAGES pages of a scan stored in Experio (base64 str), as PNG bytes."""
+    return pdf_pages(base64.b64decode(document_pdf))

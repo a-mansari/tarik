@@ -3,7 +3,7 @@
 import pytest
 
 from tarik.core.config import TIERS_MIN_SIMILARITY
-from tarik.core.text import similarity
+from tarik.core.words import similarity
 
 TIERS = [
     {"id": 7, "name": "ATLAS DE ROULEMENT - 12345678"},

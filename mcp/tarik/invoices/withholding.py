@@ -22,7 +22,7 @@ from tarik.core.experio import (
     test_mode_note,
 )
 from tarik.core.model import ask_model, instruction
-from tarik.core.numbers import as_number
+from tarik.core.words import as_number
 
 QUESTIONS = {
     "foreign": (

@@ -10,11 +10,9 @@ from mcp.server.mcpserver.exceptions import ToolError
 from tarik.core.app import log, ok, routine, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import MIN_SIMILARITY
-from tarik.core.documents import scan_pages
 from tarik.core.experio import has_scan, odoo_call, require_invoice, still_reading
-from tarik.core.model import ask_model, instruction
-from tarik.core.numbers import as_number
-from tarik.core.text import normalized, similarity, without_if
+from tarik.core.model import ask_model, instruction, scan_pages
+from tarik.core.words import as_number, normalized, similarity, without_if
 
 OCR_PROMPT = instruction("check-invoice")
 

@@ -11,7 +11,7 @@ from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
 from tarik.core.conversation import own_words, yes_no
 from tarik.core.experio import odoo_call, require_invoice
-from tarik.core.text import normalized
+from tarik.core.words import normalized
 from tarik.dossiers.people import check_sender
 from tarik.invoices.accounts import set_account
 from tarik.invoices.exercice import settle_exercice
@@ -98,10 +98,11 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
 def readable(message):
     """A step's refusal (str) as the client may read it: without n8n's wrapper, nor the MCP library's own
     validation text, which names tools and their arguments."""
-    message = re.sub(r"^Error executing tool \w+: ", "", message)  # n8n's wrapper, at the very start
+    # The MCP library's wrapper, at the very start; a crash is only that, with no text after the tool's name.
+    message = re.sub(r"^Error executing tool \w+:?\s*", "", message)
     if "validation error for" in message:
         return "des informations manquent ou sont invalides pour cette etape."
-    return message
+    return message or "echec technique, reessayez plus tard."
 
 
 @server.tool()

@@ -10,7 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from tarik.core.text import normalized
+from tarik.core.words import normalized
 from tests import runs
 from tests.llm.conftest import REPEAT
 

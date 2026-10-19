@@ -8,7 +8,6 @@ format, and the label field would override it.
 """
 
 from tarik.core.app import ok, routine, server, stop, with_ids
-from tarik.core.config import POSTED
 from tarik.core.experio import invoice_context, odoo_call, odoo_json, plain, refused, require_invoice
 
 
@@ -21,7 +20,7 @@ def _same_number_drafts(invoice, context):
         ("type", "=", invoice["type"]),
         ("id", "!=", invoice["id"]),
         ("partner_id", "=", invoice["partner_id"][0]),
-        ("state", "not in", list(POSTED)),
+        ("state", "in", ["pending", "draft"]),  # a cancelled one is no duplicate (Experio counts every id given)
         ("invoice_number", "ilike", invoice["invoice_number"].strip()),
     ]
     drafts = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number"], context=context)

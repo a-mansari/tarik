@@ -241,7 +241,7 @@ The tools live in `mcp/tarik/`, one package per kind of work, and their tests in
 
 | Package | What it holds |
 |---------|---------------|
-| `tarik/core/` | The values shared by every module: services, timeouts, Experio's codes, thresholds (`config`), the MCP server, step results and the log (`app`), comparing names and words (`text`), the cabinets and the current one (`cabinets`), Experio calls, guards and test mode (`experio`), the client's own words in a conversation (`conversation`), numbers as clients write them (`numbers`), the settings in Vault (`vault`), the vision model, documents, the connection check. |
+| `tarik/core/` | The values shared by every module: services, timeouts, Experio's codes, thresholds (`config`), the MCP server, step results and the log (`app`), names, words and numbers as clients write them (`words`), the cabinets, the current one and their settings in Vault (`cabinets`), Experio calls, guards, test mode and the connection check (`experio`), the client's own words in a conversation (`conversation`), the vision model and the documents' pages (`model`). |
 | `tarik/invoices/` | "Tarik - Traitement": one module per step, in sequence order, `pipeline` for its bookkeeping, `listing` for `list_invoices`. |
 | `tarik/dossiers/` | Finding dossiers (`search`), creating and modifying one (`identity`), its setup: configuration, entries, onboarding (`setup`), collaborators and who may work on which dossier (`people`). |
 | `tarik/emails/` | "Tarik - Emails": reading the mailbox (`inbox`), the agent's reply (`agent`), sending replies (`sending`). |

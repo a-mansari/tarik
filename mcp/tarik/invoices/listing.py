@@ -5,7 +5,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from tarik.core.app import ok, server
 from tarik.core.config import POSTED
 from tarik.core.experio import odoo_call, refused, require_dossier
-from tarik.core.text import without_if
+from tarik.core.words import without_if
 
 # The statuses the agent may filter by -> Experio's own domain. Exclusive: each invoice is in one of them.
 STATUSES = {

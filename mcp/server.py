@@ -16,9 +16,9 @@ import anyio
 import anyio.to_thread
 import uvicorn
 
-from tarik.core import connection, vault
+from tarik.core import experio
 from tarik.core.app import server
-from tarik.core.cabinets import CABINETS, create_schemas, misplaced_in_vault, using
+from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.experio import account
 from tarik.dossiers import identity, people, search, setup
 from tarik.emails import agent, inbox, sending
@@ -42,7 +42,7 @@ from tarik.invoices import (
 
 # Imported for their tools: each module registers its own on tarik.core.app.server.
 TOOL_MODULES = (
-    connection,
+    experio,
     identity,
     people,
     search,
@@ -110,11 +110,11 @@ def app():
 
 def check_cabinets():
     """At start: every cabinet fully configured and its schema ready, or nothing is served."""
-    if not vault.ENABLED:
+    if not VAULT_ENABLED:
         raise SystemExit("VAULT_ADDR is not set: Tarik's settings are read from Vault only")
     if not CABINETS:
         raise SystemExit("no cabinet in Vault (secret/tarik/cabinets/<cabinet>): no cabinet to serve")
-    misplaced = misplaced_in_vault(*vault.settings())
+    misplaced = misplaced_in_vault(*vault_settings())
     if misplaced:
         raise SystemExit(f"settings not where they belong (see tarik/core/cabinets.py): {', '.join(misplaced)}")
     for name in sorted(CABINETS):

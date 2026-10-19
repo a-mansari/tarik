@@ -31,7 +31,7 @@ POSTED: Final = ("post", "export")  # state of a posted invoice
 DOSSIER_DOMAIN: Final = (("enabled", "=", True), ("id", "!=", 1), ("is_deleted", "=", False))
 TEST_MODE: Final = "MODE TEST : aucune modification enregistree dans Experio. "  # run_summary spots test runs by it
 
-# Name matching (text.similarity, 0..1).
+# Name matching (words.similarity, 0..1).
 MIN_SIMILARITY: Final = 0.7  # dossiers: right matches score 0.9+, unrelated ones stay under 0.6
 # Tiers names share generic words ("distribution", "SARL"). On 449 real tiers, right matches
 # scored 0.89+ and wrong ones up to 0.71 (e.g. two "... DISTRIBUTION" companies).
