@@ -40,7 +40,8 @@ def page(path):
     with using(parts[0]), cabinet_db() as db:
         if len(parts) == 1:
             rows = db.execute(
-                "select session_id, count(*), max(created_at) from tarik_prompt_calls group by 1 order by 3 desc limit 200"
+                "select session_id, count(*), max(created_at) from tarik_prompt_calls "
+                "group by 1 order by 3 desc limit 200"
             ).fetchall()
             return f"<h1>{parts[0]}</h1><ul>" + "".join(
                 link(f"/{parts[0]}/{session}", f"{session}: {count} calls, last {last:%Y-%m-%d %H:%M:%S}")
