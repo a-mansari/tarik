@@ -1,6 +1,7 @@
 """What n8n's agents were sent, to read in a browser: cabinets, then their conversations, then each model call's
-system text, messages and tools (tarik_prompt_calls and tarik_prompt_parts, saved by n8n/patch.js). Read-only, served on port 8081, which
-docker-compose.yml publishes on this machine only: the prompts hold the clients' words. Run as: python prompts.py"""
+system text, messages and tools (tarik_prompt_calls and tarik_prompt_parts, saved by n8n/patch.js). Read-only, served
+on port 8081, which docker-compose.yml publishes on this machine only: the prompts hold the clients' words.
+Run as: python prompts.py"""
 
 import html
 import json
