@@ -134,6 +134,43 @@ function tarikSavePrompt(config, threadId, prompt, toolMap) {
     }
 }
 `,
+}, {
+  // A model call must call a tool while the conversation holds files no step has taken yet and the agent has called
+  // none of the processing tools since the client's last message (toolChoice required). The agent cannot see the
+  // files attached in the chat and sometimes answers that none came; its tool finds them. Never blocks the call.
+  file: RUNTIME,
+  find: '            aiSdkOptions: this.buildAiSdkOptions(tools.toolMap, options),',
+  replace: '            aiSdkOptions: { ...this.buildAiSdkOptions(tools.toolMap, options), ...(await tarikToolChoice(this.config, options?.persistence?.threadId, prompt.messages)) },',
+}, {
+  file: RUNTIME,
+  find: '//# sourceMappingURL=agent-runtime.js.map',
+  add: `
+// The tools that take the conversation's files; once one is called in a turn, the agent answers freely.
+const TARIK_PROCESSING = new Set(['Experio_traiter_fichiers', 'Experio_parametrer_dossier', 'Experio_importer_dossiers']);
+let tarikGate;
+async function tarikToolChoice(config, threadId, messages) {
+    const cabinet = config.tarikCabinet;
+    if (!cabinet || !threadId || process.env.TARIK_REQUIRE_TOOL === 'off') return {};
+    try {
+        const after = messages.slice(messages.map((message) => message.role).lastIndexOf('user') + 1);
+        const called = after.some((message) => Array.isArray(message.content)
+            && message.content.some((part) => part.type === 'tool-call' && TARIK_PROCESSING.has(part.toolName)));
+        if (called) return {};
+        const { Pool } = require('pg');
+        const settings = { host: process.env.DB_POSTGRESDB_HOST, user: process.env.DB_POSTGRESDB_USER, password: process.env.DB_POSTGRESDB_PASSWORD, max: 2 };
+        tarikGate ??= { n8n: new Pool({ ...settings, database: process.env.DB_POSTGRESDB_DATABASE }), tarik: new Pool({ ...settings, database: process.env.TARIK_POSTGRES_DB }) };
+        const attached = (await tarikGate.n8n.query('select id from agent_chat_attachments where "threadId" = $1', [threadId])).rows.map((row) => row.id);
+        const files = (await tarikGate.tarik.query(
+            'select source_id, (kind is not null or invoice_id is not null or statement_id is not null or parent_id is not null) as taken from "' + cabinet + '".tarik_files where session_id = $1',
+            [threadId])).rows;
+        const untaken = files.some((file) => !file.taken) || attached.some((id) => !files.some((file) => file.source_id === id));
+        return untaken ? { toolChoice: 'required' } : {};
+    } catch (error) {
+        console.error('tarik tool choice not checked:', error.message);
+        return {};
+    }
+}
+`,
 }];
 
 for (const { file, find, add = '', before = '', replace } of patches) {
