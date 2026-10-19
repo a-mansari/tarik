@@ -168,3 +168,16 @@ def test_the_agent_says_which_reading_of_the_clients_number_it_meant():
     assert client_wrote("capital", 1005, "capital 1,005 DH") and client_wrote("capital", 1.005, "capital 1,005 DH")
     assert not client_wrote("capital", "1,005", "capital 1,005 DH")  # still two readings: the agent must choose
     assert not client_wrote("capital", "10050", "capital 1,005 DH")
+
+
+@pytest.mark.functionality
+def test_a_new_dossier_is_created_from_the_main_one(db_cabinet, monkeypatch):
+    """Else it takes its journals from the dossier Tarik works in, and Experio then refuses to read them."""
+    monkeypatch.setattr(identity, "dry_run", lambda: False)
+    monkeypatch.setattr(identity, "lookalikes", lambda name, ice, if_number: ([], []))
+    monkeypatch.setattr(identity, "main_dossier_context", lambda: {"allowed_company_ids": [1]})
+    monkeypatch.setattr(identity, "attach_user", lambda *a: None)
+    calls = []
+    monkeypatch.setattr(identity, "odoo_json", lambda *a, **k: calls.append((a, k)) or 77)
+    answer = identity.create_dossier(name="FAIR KAPPA", client_message=MESSAGE, session_id="s")
+    assert answer["dossier_id"] == 77 and calls[0][1] == {"context": {"allowed_company_ids": [1]}}
