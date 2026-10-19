@@ -305,6 +305,44 @@
       }
     },
     {
+      "id": "37b90e43-bdd3-5cd8-b43d-406a34ca2f79",
+      "name": "Questions du dossier (dossier_questions)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        20
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "dossier_questions"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, dossier_id: $('Dossier (resolve_dossier)').first().json.content[0].text.dossier_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "55858d20-e6c9-52a8-af54-ff6e816f42d7",
+      "name": "Une question par facture",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        20
+      ],
+      "parameters": {
+        "jsCode": "// Each question left waiting on the dossier's invoices, shaped like a step's answer.\nreturn $input.first().json.content[0].text.questions.map(question => ({ json: { content: [{ type: 'text', text: { status: 'question', ...question } }] } }));"
+      }
+    },
+    {
       "id": "96538f72-9234-5bd0-a7b8-feabe538ddf9",
       "name": "Identification (identify_document)",
       "type": "@n8n/n8n-nodes-langchain.mcpClient",
@@ -1610,7 +1648,41 @@
         ],
         [
           {
+            "node": "Questions du dossier (dossier_questions)",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Brouillons en attente (waiting_drafts)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Questions du dossier (dossier_questions)": {
+      "main": [
+        [
+          {
+            "node": "Une question par facture",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Une question par facture": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }
