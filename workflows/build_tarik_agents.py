@@ -52,7 +52,8 @@ def settings():
 
 
 def n8n(tool, **arguments):
-    """One tool of n8n's MCP server; its structured result."""
+    """One tool of n8n's MCP server; its structured result. The same call as tarik.emails.agent.call_n8n, on the
+    standard library: this script runs on the host, where httpx is not installed."""
     request = urllib.request.Request(
         settings()["N8N_MCP_API_URL"],
         method="POST",

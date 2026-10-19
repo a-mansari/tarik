@@ -115,10 +115,10 @@ def test_a_statement_gets_the_bank_account_the_client_names(answers, monkeypatch
             "('s', 'releve mars.pdf', 'application/pdf', '', 'statement') returning id"
         ).fetchone()[0]
         db.execute(
-            "insert into tarik_results (run_id, session_id, file_id, dossier_id, step, status, message) values "
-            "('r', 's', %s, 557, 'import_bank_statement', 'question', 'releve mars.pdf : lequel ? BMCE - BMCE "
-            "BANK (n° 4), BP - BANQUE POPULAIRE (n° 5)')",
-            (file_id,),
+            "insert into tarik_results (run_id, session_id, file_id, dossier_id, step, status, message, choices) "
+            "values ('r', 's', %s, 557, 'import_bank_statement', 'question', 'releve mars.pdf : lequel ? BMCE - BMCE "
+            "BANK (n° 4), BP - BANQUE POPULAIRE (n° 5)', %s)",
+            (file_id, '{"4": "BMCE - BMCE BANK", "5": "BP - BANQUE POPULAIRE"}'),
         )
     monkeypatch.setattr(
         pipeline,

@@ -9,13 +9,13 @@ import time
 from tarik.core.app import ok, question, routine, server, step_tool, wait
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
-from tarik.core.conversation import own_words, yes_no
+from tarik.core.conversation import chosen_among, own_words, yes_no
 from tarik.core.experio import odoo_call, require_invoice
 from tarik.core.words import normalized
 from tarik.dossiers.people import check_sender
 from tarik.invoices.accounts import set_account
 from tarik.invoices.exercice import settle_exercice
-from tarik.invoices.intake import import_bank_statement, journal_chosen
+from tarik.invoices.intake import import_bank_statement
 from tarik.invoices.prepaid import settle_prepaid
 from tarik.invoices.tiers import choose_tiers
 from tarik.invoices.tva import settle_tva
@@ -113,18 +113,20 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     status = result.get("status", "error")
     message = readable(result.get("message") or result.get("error") or str(result))
     invoice_id, file_id, dossier_id = result.get("invoice_id"), result.get("file_id"), result.get("dossier_id")
+    choices = json.dumps(result["choices"]) if result.get("choices") else None  # {id: name} a question proposed
+    row = (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, result.get("routine") is True)
     with cabinet_db() as db:
         db.execute(
             "insert into tarik_results (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, "
-            "routine) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, result.get("routine") is True),
+            "routine, choices) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (*row, choices),
         )
         if invoice_id and status == "question":
             db.execute(
-                "insert into tarik_pending (invoice_id, session_id, step, question) values (%s, %s, %s, %s) "
-                "on conflict (invoice_id) do update set step = excluded.step, question = excluded.question, "
-                "created_at = now()",
-                (invoice_id, session_id, step, message),
+                "insert into tarik_pending (invoice_id, session_id, step, question, choices) "
+                "values (%s, %s, %s, %s, %s) on conflict (invoice_id) do update set step = excluded.step, "
+                "question = excluded.question, choices = excluded.choices, created_at = now()",
+                (invoice_id, session_id, step, message, choices),
             )
         elif invoice_id:
             # Only an outcome at or after the pending step settles it: n8n records the earlier steps after the question.
@@ -179,8 +181,9 @@ def run_summary(run_id: str) -> dict:
 
 # Each bank statement of a conversation not imported yet whose last import asked for its bank account.
 STATEMENTS_ASKED = (
-    "select file_id, dossier_id, message, file_name from (select distinct on (r.file_id) r.file_id, r.dossier_id, "
-    "r.status, r.message, f.file_name from tarik_results r join tarik_files f on f.id = r.file_id "
+    "select file_id, dossier_id, message, file_name, choices from (select distinct on (r.file_id) r.file_id, "
+    "r.dossier_id, r.status, r.message, r.choices, f.file_name from tarik_results r join tarik_files f "
+    "on f.id = r.file_id "
     "where r.session_id = %s and r.step = 'import_bank_statement' and f.statement_id is null "
     "order by r.file_id, r.id desc) latest where status = 'question'"
 )
@@ -190,21 +193,29 @@ def waiting_on(session_id):
     """What this conversation waits on the client for, oldest first: each draft invoice's question, and each bank
     statement whose last import asked for its bank account. A question on an invoice deleted or posted since is
     dropped: nothing can answer it any more. Each item: {invoice_id, or file_id and dossier_id; step, question,
-    label (how the questions are listed: "facture 12", "releve mars.pdf"), names (what ``about`` may say)}."""
+    label (how the questions are listed: "facture 12", "releve mars.pdf"), names (what ``about`` may say), choices
+    ({id: name} the question proposed, if any)}."""
     with cabinet_db() as db:
         invoices = db.execute(
-            "select invoice_id, step, question from tarik_pending where session_id = %s order by created_at",
+            "select invoice_id, step, question, choices from tarik_pending where session_id = %s order by created_at",
             (session_id,),
         ).fetchall()
         statements = db.execute(STATEMENTS_ASKED, (session_id,)).fetchall()
-        ids = [i for i, _, _ in invoices]
+        ids = [i for i, _, _, _ in invoices]
         drafts = set(odoo_call("exp.invoice", "search", [("id", "in", ids), ("state", "=", "draft")])) if ids else set()
         gone = [i for i in ids if i not in drafts]
         if gone:
             db.execute("delete from tarik_pending where invoice_id = any(%s)", (gone,))
     return [
-        {"invoice_id": i, "step": step, "question": text, "label": f"facture {i}", "names": {str(i)}}
-        for i, step, text in invoices
+        {
+            "invoice_id": i,
+            "step": step,
+            "question": text,
+            "label": f"facture {i}",
+            "names": {str(i)},
+            "choices": choices,
+        }
+        for i, step, text, choices in invoices
         if i in drafts
     ] + [
         {
@@ -214,8 +225,9 @@ def waiting_on(session_id):
             "question": text,
             "label": f"releve {name}",
             "names": {normalized(name), normalized(name.rsplit(".", 1)[0])},
+            "choices": choices,
         }
-        for f, d, text, name in statements
+        for f, d, text, name, choices in statements
     ]
 
 
@@ -235,12 +247,12 @@ def apply_answer(item, answer, decision):
     fine, the ``next_step`` the sequence resumes at. A oui / non question the decision doesn't settle is asked
     again."""
     if item["step"] == "import_bank_statement":
-        chosen = journal_chosen(decision, item["question"])  # 0: the question is asked again
+        chosen = chosen_among(decision, item["choices"]) or 0  # 0: the question is asked again
         imported = import_bank_statement(item["file_id"], item["dossier_id"], chosen)
         return {**imported, "step": "import_bank_statement"}
     apply, following = ANSWERS[item["step"]]
     if item["step"] == "link_tiers":
-        result = apply(item["invoice_id"], decision, answer, item["question"])  # the question holds the tiers proposed
+        result = apply(item["invoice_id"], decision, answer, item["choices"])  # the tiers the question proposed
     elif item["step"] == "settle_exercice":  # the client's date, or the exercice chosen
         result = apply(item["invoice_id"], answer, decision)
     elif item["step"] in DECIDED and yes_no(decision) is None:

@@ -8,13 +8,11 @@ Slow and billed: python3 mcp/tests/run.py -m llm -s (-s shows the cases missed a
 
 import pytest
 
-from tarik.core.conversation import yes_no
+from tarik.core.conversation import chosen_among, yes_no
 from tarik.core.words import normalized
 from tarik.invoices.exercice import exercice_choice
-from tarik.invoices.intake import journal_chosen
 from tarik.invoices.listing import STATUSES
 from tarik.invoices.pipeline import meant
-from tarik.invoices.tiers import proposed_choice
 
 MIN_RIGHT = 0.9
 MAX_WRONG = 0.05
@@ -85,6 +83,7 @@ TIERS_QUESTION = (
     "81 %. Lequel est-ce ? Sinon, donnez un autre nom ou l'ICE du tiers."
 )
 ICES = {"001234567000089": 7}
+TIERS_CHOICES = {7: "ATLAS DE ROULEMENT", 8: "ATLAS TRANSPORT", 15: "ATLAS MAROC SARL"}
 TIERS = [
     processing(TIERS_QUESTION, "Le premier", 7),
     processing(TIERS_QUESTION, "ATLAS TRANSPORT", 8),
@@ -106,7 +105,7 @@ def tiers(call, expected):
     if call["name"] != "Experio_repondre":
         return "wrong"
     decision = str(call["input"].get("decision", "")).strip()
-    linked = proposed_choice(decision, TIERS_QUESTION) or ICES.get(decision)
+    linked = chosen_among(decision, TIERS_CHOICES) or ICES.get(decision)
     if linked:
         return "right" if linked == expected else "wrong"
     if isinstance(expected, str):  # another tiers named: searched
@@ -262,6 +261,7 @@ BANK_QUESTION = (
     "- releve bancaire : QUESTION : releve_mars.pdf : le dossier GECAFISC a plusieurs comptes bancaires, lequel ? "
     "BMCE - BMCE BANK (n° 41), BP - BANQUE POPULAIRE (n° 42), AWB - ATTIJARIWAFA BANK (n° 43)"
 )
+BANK_CHOICES = {41: "BMCE - BMCE BANK", 42: "BP - BANQUE POPULAIRE", 43: "AWB - ATTIJARIWAFA BANK"}
 BANKS = [
     processing(BANK_QUESTION, "Le compte BMCE", 41),
     processing(BANK_QUESTION, "j'ai 7 relevés, c'est le compte BP", 42),
@@ -275,12 +275,12 @@ BANKS = [
 
 
 def bank(call, expected):
-    """The bank journal the server imports the statement into from the agent's decision (journal_chosen)."""
+    """The bank journal the server imports the statement into from the agent's decision (chosen_among)."""
     if not call:
         return "right" if not expected else "asked again"
     if call["name"] != "Experio_repondre":
         return "wrong"
-    chosen = journal_chosen(str(call["input"].get("decision", "")), BANK_QUESTION)
+    chosen = chosen_among(str(call["input"].get("decision", "")), BANK_CHOICES) or 0
     return "right" if chosen == expected else "asked again" if not chosen else "wrong"
 
 

@@ -6,12 +6,11 @@ its own wizard assigns the Compte Tiers. So this step only links the right detec
 party and has Experio assign its Compte Tiers.
 """
 
-import re
-
 from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, question, step_tool
 from tarik.core.config import TIERS_MIN_SIMILARITY
+from tarik.core.conversation import chosen_among
 from tarik.core.experio import (
     dry_run,
     fill_invoice,
@@ -24,7 +23,7 @@ from tarik.core.experio import (
     require_invoice,
     test_mode_note,
 )
-from tarik.core.words import ICE_WRITTEN, normalized, ranked
+from tarik.core.words import ICE_WRITTEN, ranked
 from tarik.invoices.classify import side_of
 
 # Per invoice side: the party Experio detected, the name printed on the scan, the tiers' Compte Tiers field.
@@ -48,8 +47,6 @@ NO_AUTOFILL = (
     "pas de Compte Tiers {role} : dans ce dossier le cabinet les attribue lui-meme "
     "(numerotation automatique desactivee), la facture ne pourra pas etre comptabilisee avant"
 )
-# A proposed tiers in find_tiers' question: "NAME (id 123" after "Tiers proches : " or "; ".
-PROPOSED = re.compile(r"(?:Tiers proches : |; )([^;]+?) \(id (\d+)")
 INVOICE_FIELDS = [
     "state",
     "type",
@@ -134,48 +131,38 @@ def link_tiers(invoice_id: int) -> dict:
     printed = invoice[SIDE[kind]["printed"]]
     if not printed:
         return question(f"Facture {invoice_id} : aucun {role} detecte sur le scan. Quel est son nom ?")
-    return question(
-        f"Facture {invoice_id} : {role} « {printed} » introuvable par ICE/IF. " + find_tiers(invoice_id, printed)
-    )
+    phrase, choices = find_tiers(invoice_id, printed)
+    return question(f"Facture {invoice_id} : {role} « {printed} » introuvable par ICE/IF. {phrase}", choices=choices)
 
 
 def find_tiers(invoice_id, name):
     """The tiers of the invoice's dossier whose name looks like ``name`` (misspelled or partial is fine), the 5
-    closest first with their id, for the client to choose: a phrase for the question. However many tiers the
-    dossier has, the client is shown 5 at most, and narrows them with another name or the tiers' ICE."""
+    closest first with their id, for the client to choose: (a phrase for the question, {id: name} proposed).
+    However many tiers the dossier has, the client is shown 5 at most, and narrows them with another name or the
+    tiers' ICE."""
     company_id = require_invoice(invoice_id, ["company_id"])["company_id"][0]
     close = ranked(name, dossier_tiers(company_id), TIERS_MIN_SIMILARITY, top=5)
     if not close:
         return (
             f"Aucun tiers du dossier ne ressemble a « {name} » : donnez un autre nom ou l'ICE du tiers, "
-            "ou il est a creer par le cabinet."
+            "ou il est a creer par le cabinet.",
+            {},
         )
     proposed = "; ".join(
         f"{p['name']} (id {p['id']}{', ICE ' + p['ice'] if p['ice'] else ''}) {round(score * 100)} %"
         for score, p in close
     )
-    return f"Tiers proches : {proposed}. Lequel est-ce ? Sinon, donnez un autre nom ou l'ICE du tiers."
+    phrase = f"Tiers proches : {proposed}. Lequel est-ce ? Sinon, donnez un autre nom ou l'ICE du tiers."
+    return phrase, {p["id"]: p["name"] for _, p in close}
 
 
-def proposed_choice(decision, question_asked):
-    """The id of the tiers ``decision`` names among those ``question_asked`` proposed ("NAME (id 123" as find_tiers
-    writes them): its id, "id 123", or its name as proposed. None for anything else."""
-    proposed = {int(tiers_id): normalized(name) for name, tiers_id in PROPOSED.findall(question_asked)}
-    decision = normalized(str(decision or ""))
-    as_id = decision.removeprefix("id ")
-    if as_id.isdigit() and int(as_id) in proposed:
-        return int(as_id)
-    named = [tiers_id for tiers_id, name in proposed.items() if name == decision]
-    return named[0] if len(named) == 1 else None
-
-
-def choose_tiers(invoice_id, decision, answer, question_asked=""):
-    """Link the tiers the client chose for a tiers question (``question_asked``, which proposes some by id). The
-    agent's ``decision``, read from the client's ``answer`` (their own words), names the chosen tiers (proposed_choice),
-    taken only when the question proposed it; or it is the other name or ICE the client gave instead: the ICE of one
+def choose_tiers(invoice_id, decision, answer, choices=None):
+    """Link the tiers the client chose for a tiers question (``choices``: {id: name} it proposed). The agent's
+    ``decision``, read from the client's ``answer`` (their own words), names the chosen tiers (chosen_among: taken
+    only when the question proposed it); or it is the other name or ICE the client gave instead: the ICE of one
     of the dossier's tiers links it, a name is searched for and the closest are proposed again."""
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de tiers", read=True)
-    chosen = proposed_choice(decision, question_asked)
+    chosen = chosen_among(decision, choices)
     if chosen:
         return link(invoice, chosen, side_of(invoice))
     decision = str(decision or "").strip()
@@ -186,5 +173,5 @@ def choose_tiers(invoice_id, decision, answer, question_asked=""):
     by_ice = [p for p in dossier_tiers(invoice["company_id"][0]) if p["ice"] and p["ice"] in written]
     if len(by_ice) == 1:
         return link(invoice, by_ice[0]["id"], side_of(invoice))
-    unclear = f"Facture {invoice_id} : « {given} » ne designe pas un seul tiers. "
-    return question(unclear + find_tiers(invoice_id, given))
+    phrase, choices = find_tiers(invoice_id, given)
+    return question(f"Facture {invoice_id} : « {given} » ne designe pas un seul tiers. {phrase}", choices=choices)
