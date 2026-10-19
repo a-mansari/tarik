@@ -438,13 +438,14 @@ def files_to_process(session_id: str, entries: bool = False) -> dict:
 
 
 @server.tool()
-def waiting_drafts(session_id: str, held: bool = False) -> dict:
+def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0) -> dict:
     """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
     waiting on Experio (still reading) or failed (an Experio or model timeout), or nothing was recorded for it:
     n8n records a run's steps last, so a run cut short (n8n stops an agent's tool after 5 minutes) leaves its
     drafts with no outcome. Every later step runs again; a question or a stop is not resumed here, except the
-    drafts the client asked to leave unposted when ``held`` (they now ask to post). A draft deleted or posted in
-    Experio since is left alone."""
+    drafts the client asked to leave unposted when ``held`` (they now ask to post): those of the dossier
+    ``dossier_id`` from any conversation, since the client may ask in a new email thread. A draft deleted or posted
+    in Experio since is left alone."""
     with cabinet_db() as db:
         rows = db.execute(
             "select invoice_id, step, status from tarik_results where session_id = %s and invoice_id is not null "
@@ -462,12 +463,13 @@ def waiting_drafts(session_id: str, held: bool = False) -> dict:
     waiting = [invoice_id for invoice_id, (_, status) in furthest.items() if status in ("wait", "error")]
     # shortcut: a draft of a run still going also has no outcome yet; one conversation runs one at a time
     waiting += [invoice_id for (invoice_id,) in drafts if invoice_id not in furthest]
-    if held:
+    if held and dossier_id:
         with cabinet_db() as db:
-            rows = db.execute("select invoice_id from tarik_held where session_id = %s", (session_id,)).fetchall()
-        waiting += [invoice_id for (invoice_id,) in rows]
+            waiting += [invoice_id for (invoice_id,) in db.execute("select invoice_id from tarik_held").fetchall()]
     if waiting:
-        waiting = sorted(
-            odoo_call("exp.invoice", "search", [("id", "in", waiting), ("state", "in", ["pending", "draft"])])
-        )
+        domain = [("id", "in", waiting), ("state", "in", ["pending", "draft"])]
+        # The held drafts come from any conversation: keep this dossier's only.
+        if held and dossier_id:
+            domain.append(("company_id", "in", [dossier_id]))
+        waiting = sorted(odoo_call("exp.invoice", "search", domain))
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)

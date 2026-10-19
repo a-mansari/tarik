@@ -1275,7 +1275,7 @@
           "value": "waiting_drafts"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, held: $('Appel').first().json.comptabiliser === 'oui' }) }}",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, held: $('Appel').first().json.comptabiliser === 'oui', dossier_id: $('Dossier (resolve_dossier)').isExecuted ? $('Dossier (resolve_dossier)').first().json.content[0].text.dossier_id : 0 }) }}",
         "options": {
           "timeout": 300000
         }

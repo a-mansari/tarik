@@ -186,11 +186,12 @@ flow.to_record("Suite apres split_invoices", 1)
 flow.to_record("Releve bancaire (import_bank_statement)", 0, 1)
 
 # Nothing waiting on the client: the conversation's drafts Experio hadn't read yet go back to the reading step.
-# "oui" (post what was left as drafts) also takes up the drafts held back.
+# "oui" (post what was left as drafts) also takes up the dossier's drafts held back, from any conversation.
 mcp(
     "Brouillons en attente (waiting_drafts)",
     "waiting_drafts",
-    f"{{ session_id: {CALL}.session_id, held: {CALL}.comptabiliser === 'oui' }}",
+    f"{{ session_id: {CALL}.session_id, held: {CALL}.comptabiliser === 'oui', "
+    f"dossier_id: $('{RESOLVE}').isExecuted ? {DOSSIER_ID} : 0 }}",
     [440, 1000],
 )
 flow.code(
