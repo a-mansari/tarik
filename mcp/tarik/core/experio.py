@@ -2,6 +2,7 @@
 
 import contextlib
 import http.client
+import threading
 import time
 import xmlrpc.client
 from typing import Final
@@ -97,17 +98,24 @@ def refused(log_text, message, error=ToolError):
 # --- Calls ---
 
 
+_proxies = threading.local()  # this thread's ServerProxy per (URL, path): its connection stays open between calls
+
+
 def rpc(path):
-    """Experio's XML-RPC endpoint ``path`` (a ServerProxy), every call given up after RPC_TIMEOUT seconds."""
-    base = xmlrpc.client.SafeTransport if ODOO_URL.startswith("https") else xmlrpc.client.Transport
+    """Experio's XML-RPC endpoint ``path`` (a ServerProxy), every call given up after RPC_TIMEOUT seconds. One per
+    thread and path, kept: a run makes hundreds of calls, each on the same connection instead of a new TLS one."""
+    proxies = _proxies.__dict__.setdefault("by_path", {})
+    if (ODOO_URL, path) not in proxies:
+        base = xmlrpc.client.SafeTransport if ODOO_URL.startswith("https") else xmlrpc.client.Transport
 
-    class Timed(base):
-        def make_connection(self, host):
-            connection = super().make_connection(host)
-            connection.timeout = RPC_TIMEOUT
-            return connection
+        class Timed(base):
+            def make_connection(self, host):
+                connection = super().make_connection(host)
+                connection.timeout = RPC_TIMEOUT
+                return connection
 
-    return xmlrpc.client.ServerProxy(f"{ODOO_URL}{path}", transport=Timed(), allow_none=True)
+        proxies[(ODOO_URL, path)] = xmlrpc.client.ServerProxy(f"{ODOO_URL}{path}", transport=Timed(), allow_none=True)
+    return proxies[(ODOO_URL, path)]
 
 
 def once_more_if_cut(read, label, call):
