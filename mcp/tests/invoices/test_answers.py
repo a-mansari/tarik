@@ -236,3 +236,16 @@ def test_a_bank_journals_answer_sets_its_bank_then_asks_the_next(db_cabinet, mon
     assert pipeline.answer_pending("s", "je ne sais plus", "")["message"] == "again"  # asked again
     monkeypatch.setattr(pipeline, "journal_name", lambda journal_id: None)  # given its bank since
     assert pipeline.waiting_on("s") == []
+
+
+@pytest.mark.functionality
+def test_an_invoice_the_client_asked_not_to_post_stays_a_draft_until_they_say_so(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain, **kw: domain[0][2])  # all still drafts
+    assert pipeline.hold_posting(7, "s", "non")["status"] == "stop"
+    assert pipeline.hold_posting(7, "s")["status"] == "stop"  # a later run carries no answer: still held
+    assert pipeline.hold_posting(8, "s")["status"] == "ok"
+    pipeline.record_step("r", "s", "x (hold_posting)", {"status": "stop", "message": "m", "invoice_id": 7})
+    assert pipeline.waiting_drafts("s")["invoices"] == []  # a stop is not resumed...
+    assert pipeline.waiting_drafts("s", held=True)["invoices"] == [7]  # ...unless they now ask to post
+    assert pipeline.hold_posting(7, "s", "oui")["status"] == "ok"
+    assert pipeline.hold_posting(7, "s")["status"] == "ok"

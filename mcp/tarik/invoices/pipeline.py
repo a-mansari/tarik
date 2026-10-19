@@ -6,7 +6,7 @@ import json
 import re
 import time
 
-from tarik.core.app import ok, question, routine, server, step_tool, wait
+from tarik.core.app import ok, question, routine, server, step_tool, stop, wait
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
 from tarik.core.conversation import chosen_among, own_words, yes_no
@@ -54,6 +54,7 @@ STEPS = {
     "settle_prepaid": "constatee d'avance",
     "settle_exercice": "exercice",
     "configure_cabinet": "parametrage",
+    "hold_posting": "mise en attente",
     "post_invoice": "comptabilisation",
 }
 ORDER = list(STEPS)
@@ -103,6 +104,25 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
             return wait(f"Facture {invoice_id} : Experio la lit encore, elle sera reprise a votre prochain message.")
         time.sleep(15)
     return routine(f"Facture {invoice_id} : lue par Experio.")
+
+
+@step_tool
+def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
+    """Stop an invoice before posting when the client asked not to post (``answer`` "non"), and keep it stopped
+    on later runs, which don't carry the answer; "oui" lets it through again."""
+    with cabinet_db() as db:
+        if answer in ("oui", "non"):
+            db.execute("delete from tarik_held where invoice_id = %s", (invoice_id,))
+        if answer == "non":
+            db.execute("insert into tarik_held (invoice_id, session_id) values (%s, %s)", (invoice_id, session_id))
+        held = answer == "non" or (
+            not answer and db.execute("select 1 from tarik_held where invoice_id = %s", (invoice_id,)).fetchone()
+        )
+    if held:
+        return stop(
+            f"Facture {invoice_id} : verifiee et laissee en brouillon, comme demande. Dites-moi quand la comptabiliser."
+        )
+    return routine(f"Facture {invoice_id} : a comptabiliser.")
 
 
 def readable(message):
@@ -418,12 +438,13 @@ def files_to_process(session_id: str, entries: bool = False) -> dict:
 
 
 @server.tool()
-def waiting_drafts(session_id: str) -> dict:
+def waiting_drafts(session_id: str, held: bool = False) -> dict:
     """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
     waiting on Experio (still reading) or failed (an Experio or model timeout), or nothing was recorded for it:
     n8n records a run's steps last, so a run cut short (n8n stops an agent's tool after 5 minutes) leaves its
-    drafts with no outcome. Every later step runs again; a question or a stop is not resumed here. A draft
-    deleted or posted in Experio since is left alone."""
+    drafts with no outcome. Every later step runs again; a question or a stop is not resumed here, except the
+    drafts the client asked to leave unposted when ``held`` (they now ask to post). A draft deleted or posted in
+    Experio since is left alone."""
     with cabinet_db() as db:
         rows = db.execute(
             "select invoice_id, step, status from tarik_results where session_id = %s and invoice_id is not null "
@@ -441,6 +462,10 @@ def waiting_drafts(session_id: str) -> dict:
     waiting = [invoice_id for invoice_id, (_, status) in furthest.items() if status in ("wait", "error")]
     # shortcut: a draft of a run still going also has no outcome yet; one conversation runs one at a time
     waiting += [invoice_id for (invoice_id,) in drafts if invoice_id not in furthest]
+    if held:
+        with cabinet_db() as db:
+            rows = db.execute("select invoice_id from tarik_held where session_id = %s", (session_id,)).fetchall()
+        waiting += [invoice_id for (invoice_id,) in rows]
     if waiting:
         waiting = sorted(
             odoo_call("exp.invoice", "search", [("id", "in", waiting), ("state", "in", ["pending", "draft"])])

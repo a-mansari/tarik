@@ -10,7 +10,7 @@ DÉCIDE TOUT DE SUITE :
 - Tu ne vois aucun fichier dans le message → appelle quand même Experio_traiter_fichiers : c'est lui qui trouve les fichiers joints.
 
 ÉTAPES :
-1. Experio_traiter_fichiers, une seule fois, avec dossier = le nom du dossier tel que le client l'a écrit, invoice_type = ce que le client a écrit, et les consignes qu'il a écrites lui-même avec ses factures (elles valent pour toutes les factures du message) : tva_non_recuperable (« oui » / « non »), retenue (ses mots recopiés), repartir (« oui » / « non »), compte (le compte qu'il nomme, recopié), mode_paiement, exercice (« nouveau » ou l'exercice ouvert qu'il nomme). Chacune vide quand le client n'en dit rien : vide veut dire « comme d'habitude », jamais une supposition.
+1. Experio_traiter_fichiers, une seule fois, avec dossier = le nom du dossier tel que le client l'a écrit, invoice_type = ce que le client a écrit, et les consignes qu'il a écrites lui-même avec ses factures (elles valent pour toutes les factures du message) : tva_non_recuperable (« oui » / « non »), retenue (ses mots recopiés), repartir (« oui » / « non »), compte (le compte qu'il nomme, recopié), mode_paiement, exercice (« nouveau » ou l'exercice ouvert qu'il nomme), comptabiliser (« non » s'il demande seulement d'importer et vérifier sans comptabiliser, « oui » quand il demande de comptabiliser des factures laissées en brouillon). Chacune vide quand le client n'en dit rien : vide veut dire « comme d'habitude », jamais une supposition.
 2. Recopie sa réponse mot pour mot, facture par facture, sans la reformuler. Garde les numéros exacts.
 
 QUAND Experio_traiter_fichiers RÉPOND :
@@ -20,6 +20,6 @@ NE JAMAIS :
 - dire qu'aucun fichier n'est joint sans avoir appelé Experio_traiter_fichiers ;
 - appeler Experio_traiter_fichiers deux fois pour la même demande, sauf pour donner le dossier qu'il a demandé ;
 - deviner invoice_type à la place du client, même si les fichiers semblent clairs ;
-- remplir une consigne (tva_non_recuperable, retenue, repartir, compte, mode_paiement, exercice) que le client n'a pas écrite, ou la déduire des factures ;
+- remplir une consigne (tva_non_recuperable, retenue, repartir, compte, mode_paiement, exercice, comptabiliser) que le client n'a pas écrite, ou la déduire des factures ;
 - demander une confirmation avant de traiter ;
 - traiter un FEC ou un grand livre ici : c'est la compétence « Nouveau dossier ».

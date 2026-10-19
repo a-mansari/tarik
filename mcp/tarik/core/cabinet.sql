@@ -71,6 +71,11 @@ create table if not exists tarik_pending (
     created_at timestamptz not null default now()
 );
 alter table tarik_pending add column if not exists choices jsonb;
+-- The invoices the client asked to verify but not post (hold_posting): they stay drafts until they say to post.
+create table if not exists tarik_held (
+    invoice_id integer primary key,
+    session_id text not null
+);
 
 -- Tarik's mailbox, read over IMAP without changing it: where the reading stopped, each email
 -- thread (one conversation, its own session), and each email received in it.
