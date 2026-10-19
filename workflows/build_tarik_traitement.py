@@ -111,10 +111,18 @@ CHAIN = [
     ("Exercice (settle_exercice)", "settle_exercice"),
     ("Comptabilisation (post_invoice)", "post_invoice"),
 ]
-# What a step is given besides its invoice: the run (one reading deadline for all its drafts), the client's type.
+# What a step is given besides its invoice: the run (one reading deadline for all its drafts), the client's type,
+# and what the client wrote with the invoices (each step checks it against their message).
+WORDS = f", client_message: {CALL}.client_message || ''"
 EXTRA = {
     "wait_until_read": ", run_id: String($execution.id)",
+    "correct_invoice": f", payment_method: {CALL}.mode_paiement || ''{WORDS}",
     "classify_invoice": f", invoice_type: {CALL}.invoice_type || ''",
+    "assign_account": f", answer: {CALL}.compte || ''{WORDS}",
+    "settle_tva": f", answer: {CALL}.tva_non_recuperable || ''",
+    "settle_withholding": f", answer: {CALL}.retenue || ''{WORDS}",
+    "settle_prepaid": f", answer: {CALL}.repartir || ''",
+    "settle_exercice": f", answer: {CALL}.exercice || '', decision: {CALL}.exercice || ''",
 }
 x = 1760
 for index, (name, tool) in enumerate(CHAIN):

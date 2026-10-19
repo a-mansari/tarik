@@ -2,7 +2,7 @@
 wrote themselves (a model may not decide a value or a copy), and the agent's reading of their oui / non."""
 
 from tarik.core.cabinets import cabinet_db
-from tarik.core.words import normalized
+from tarik.core.words import normalized, said
 
 # What ask_agent adds to an email's text for the agent: never the client's own words.
 FILES_NOTE, NO_TEXT = "\n\nFichiers joints : ", "(pas de message)"
@@ -50,6 +50,17 @@ def chosen_among(decision, choices):
         return int(decision)
     named = [key for key, name in choices.items() if name == decision]
     return int(named[0]) if len(named) == 1 else None
+
+
+def instructed(value, client_message):
+    """``value``, an instruction the agent read for an invoice (an account, a payment method, a withholding), when
+    the client wrote it themselves in ``client_message`` (its words, whole, or its digits); else "". A model may
+    not add an instruction the client did not give."""
+    words = normalized(value or "")
+    if not words:
+        return ""
+    message = normalized(own_words(client_message))
+    return value if said(words, message) or (words.isdigit() and said(words, message)) else ""
 
 
 def yes_no(decision):

@@ -30,6 +30,13 @@ TRAITEMENT_INPUTS: Final = MappingProxyType(
         "about": "string",  # with several questions waiting, the invoice or statement the client answers
         "invoice_type": "string",
         "client_message": "string",
+        # What the client wrote with the invoices, for every invoice of the message (each empty when they didn't):
+        "tva_non_recuperable": "string",  # oui / non, the agent's reading of "TVA non recuperable" / "recuperable"
+        "retenue": "string",  # their words on the retenue a la source ("sans retenue", "10 et 75", "a la charge...")
+        "repartir": "string",  # oui / non: charges constatees d'avance
+        "compte": "string",  # the account they named (code or label)
+        "mode_paiement": "string",  # especes, cheque, virement, effet, prelevement, compensation
+        "exercice": "string",  # "nouveau" or the open exercice named, for an invoice outside the open ones
         **ATTACHMENTS,
         **CABINET_INPUT,
     }

@@ -34,7 +34,7 @@
       "workflowId": "TarikTraitement1",
       "workflow": "Tarik - Traitement",
       "name": "Experio_traiter_fichiers",
-      "description": "Traite les factures et releves joints a la conversation pour un dossier (id donne par Experio_find_dossier). Renvoie le resultat facture par facture. Paramètres, à toujours remplir : dossier_id (nombre : l'id du dossier donné par Experio_find_dossier), invoice_type (achat, vente, ou mixte pour les deux : seulement ce que le client a écrit ; vide s'il ne l'a pas dit).",
+      "description": "Traite les factures et releves joints a la conversation pour un dossier (id donne par Experio_find_dossier). Renvoie le resultat facture par facture. Paramètres, à toujours remplir : dossier_id (nombre : l'id du dossier donné par Experio_find_dossier), invoice_type (achat, vente, ou mixte pour les deux : seulement ce que le client a écrit ; vide s'il ne l'a pas dit). Puis ce que le client a écrit lui-même avec ses factures, pour toutes les factures du message, chacun vide s'il ne l'a pas dit : tva_non_recuperable (« oui » s'il écrit que la TVA est non récupérable ou non facturable, « non » s'il écrit qu'elle est récupérable), retenue (ses mots sur la retenue à la source, recopiés : « sans retenue », « 10 et 75 », « à la charge de la société »), repartir (« oui » s'il demande de répartir en charges constatées d'avance, « non » s'il dit de ne pas répartir), compte (le compte qu'il nomme, recopié : « 6125 », « fournitures de bureau »), mode_paiement (especes, cheque, virement, effet, prelevement ou compensation, s'il l'écrit), exercice (« nouveau », ou le nom de l'exercice ouvert où comptabiliser une facture antérieure, s'il le demande).",
       "inputs": {
         "mode": {
           "mode": "fixed",
@@ -73,6 +73,24 @@
         "client_message": {
           "mode": "fixed",
           "value": "{{clientMessage}}"
+        },
+        "tva_non_recuperable": {
+          "mode": "ai"
+        },
+        "retenue": {
+          "mode": "ai"
+        },
+        "repartir": {
+          "mode": "ai"
+        },
+        "compte": {
+          "mode": "ai"
+        },
+        "mode_paiement": {
+          "mode": "ai"
+        },
+        "exercice": {
+          "mode": "ai"
         }
       }
     },
@@ -120,6 +138,30 @@
         "client_message": {
           "mode": "fixed",
           "value": "{{clientMessage}}"
+        },
+        "tva_non_recuperable": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "retenue": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "repartir": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "compte": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "mode_paiement": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "exercice": {
+          "mode": "fixed",
+          "value": ""
         }
       }
     },

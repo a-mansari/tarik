@@ -9,6 +9,7 @@ supplier with no known rule, local fees (6136) with none.
 
 from tarik.core.app import ok, question, routine, step_tool
 from tarik.core.config import POSTED
+from tarik.core.conversation import instructed
 from tarik.core.experio import (
     account_code,
     experio_notes,
@@ -167,9 +168,13 @@ def _rule(invoice, kind, answer):
 
 
 @step_tool
-def settle_withholding(invoice_id: int, answer: str = "") -> dict:
+def settle_withholding(invoice_id: int, answer: str = "", client_message: str = "") -> dict:
     """Settle a draft purchase invoice's withholding tax (RAS): the tiers' known rule,
-    else a question to the client; call again with their answer as ``answer``."""
+    else a question to the client; call again with their answer as ``answer``. With
+    ``client_message``, ``answer`` is what the client wrote on the RAS with the invoice,
+    taken only when the message holds it."""
+    if client_message:
+        answer = instructed(answer, client_message)
     invoice = require_invoice(
         invoice_id,
         [

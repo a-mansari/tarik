@@ -4,6 +4,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import ok, routine, step_tool
 from tarik.core.config import TEST_MODE
+from tarik.core.conversation import instructed
 from tarik.core.experio import (
     dry_run,
     fill_invoice,
@@ -87,11 +88,13 @@ def _payment_method(name, invoice, changes):
 
 
 @step_tool
-def correct_invoice(invoice_id: int) -> dict:
+def correct_invoice(invoice_id: int, payment_method: str = "", client_message: str = "") -> dict:
     """Correct a draft invoice from its check: writes what check_invoice read on
     the scan over the fields Experio captured differently (amounts, number,
     date, credit note, multi-TVA, currency, payment method), then lets Experio
-    rebuild its TVA lines. Call check_invoice first."""
+    rebuild its TVA lines. Call check_invoice first. ``payment_method``: the one the
+    client wrote with the invoice (especes, cheque, virement, effet, prelevement,
+    compensation), over the scan's; taken only when ``client_message`` holds it."""
     fields = ["state", "company_id", "exercice_id", "refund", "amount_tax_non_recoverable", "payment_method_id"]
     invoice = require_draft_invoice(invoice_id, [*fields, "currency_id"], "etre corrigee")
     check = stored_check(invoice_id)
@@ -104,7 +107,8 @@ def correct_invoice(invoice_id: int) -> dict:
     notes = []
     with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refuse la correction."):
         _currency((extracted.get("currency") or "MAD").upper(), changes, notes)
-        _payment_method(extracted.get("payment_method"), invoice, changes)
+        told = instructed(payment_method, client_message)
+        _payment_method(told or extracted.get("payment_method"), invoice, changes)
         noted = f" ({'; '.join(notes)})" if notes else ""
         if not changes:
             return routine(f"Facture {invoice_id} : rien a corriger.{noted}")
