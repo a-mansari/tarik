@@ -10,5 +10,5 @@ select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM"]
 
 [tool.ruff.lint.isort]
 # Our own modules, wherever ruff runs from (the host, or tests/run.py's container).
-known-first-party = ["tarik", "server", "watcher", "steps", "tests", "shared", "conftest"]
+known-first-party = ["tarik", "server", "watcher", "prompts", "steps", "tests", "shared", "conftest"]
 
