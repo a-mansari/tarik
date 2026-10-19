@@ -34,7 +34,7 @@
       "workflowId": "TarikTraitement1",
       "workflow": "Tarik - Traitement",
       "name": "Experio_traiter_fichiers",
-      "description": "Traite les factures et releves joints a la conversation pour un dossier (donne par son nom). Renvoie le resultat facture par facture. Paramètres, à toujours remplir : dossier (le nom du dossier, tel que le client l'a écrit : Tarik le retrouve lui-même, même mal orthographié ; jamais un id), invoice_type (achat, vente, ou mixte pour les deux : seulement ce que le client a écrit ; vide s'il ne l'a pas dit). Puis ce que le client a écrit lui-même avec ses factures, pour toutes les factures du message, chacun vide s'il ne l'a pas dit : tva_non_recuperable (« oui » s'il écrit que la TVA est non récupérable ou non facturable, « non » s'il écrit qu'elle est récupérable), retenue (ses mots sur la retenue à la source, recopiés : « sans retenue », « 10 et 75 », « à la charge de la société »), repartir (« oui » s'il demande de répartir en charges constatées d'avance, « non » s'il dit de ne pas répartir), compte (le compte qu'il nomme, recopié : « 6125 », « fournitures de bureau »), mode_paiement (especes, cheque, virement, effet, prelevement ou compensation, s'il l'écrit), exercice (« nouveau », ou le nom de l'exercice ouvert où comptabiliser une facture antérieure, s'il le demande).",
+      "description": "Traite les factures et releves joints a la conversation pour un dossier (donne par son nom). Renvoie le resultat facture par facture. Paramètres, à toujours remplir : dossier (le nom du dossier, tel que le client l'a écrit : Tarik le retrouve lui-même, même mal orthographié ; jamais un id), invoice_type (achat, vente, ou mixte pour les deux : seulement ce que le client a écrit ; vide s'il ne l'a pas dit). Puis ce que le client a écrit lui-même avec ses factures, pour toutes les factures du message, chacun vide s'il ne l'a pas dit : tva_non_recuperable (« oui » s'il écrit que la TVA est non récupérable ou non facturable, « non » s'il écrit qu'elle est récupérable), retenue (ses mots sur la retenue à la source, recopiés : « sans retenue », « 10 et 75 », « à la charge de la société »), repartir (« oui » s'il demande de répartir en charges constatées d'avance, « non » s'il dit de ne pas répartir), compte (le compte qu'il nomme, recopié : « 6125 », « fournitures de bureau »), comptabiliser (« non » s'il demande de ne pas comptabiliser, juste importer et verifier, pour plus tard ; « oui » s'il demande de comptabiliser les factures laissees en brouillon), mode_paiement (especes, cheque, virement, effet, prelevement ou compensation, s'il l'écrit), exercice (« nouveau », ou le nom de l'exercice ouvert où comptabiliser une facture antérieure, s'il le demande).",
       "inputs": {
         "mode": {
           "mode": "fixed",
@@ -81,6 +81,9 @@
           "mode": "ai"
         },
         "repartir": {
+          "mode": "ai"
+        },
+        "comptabiliser": {
           "mode": "ai"
         },
         "compte": {
@@ -148,6 +151,10 @@
           "value": ""
         },
         "repartir": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "comptabiliser": {
           "mode": "fixed",
           "value": ""
         },

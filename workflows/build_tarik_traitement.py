@@ -3,7 +3,7 @@
 The message goes where the database says (route_message), not where the agent's tool says: an answer when
 questions wait and no file came, the files when files came and nothing waits, both when both.
 Modes: files (the dossier found from the name the client gave, then the conversation's new files, from
-identification to posting; with none, the drafts left
+identification to posting, or only to verified drafts when the client said not to post; with none, the drafts left
 waiting or cut short are resumed), resume (those drafts only: "Tarik - Emails" following up, no agent),
 answer (the client's answer to what the conversation waits on, then the sequence resumes there; with nothing
 waiting, the drafts Experio hadn't read yet are resumed)."""
@@ -133,6 +133,7 @@ CHAIN = [
     ("Constatee d'avance (settle_prepaid)", "settle_prepaid"),
     ("Exercice (settle_exercice)", "settle_exercice"),
     ("Parametrage (configure_cabinet)", "configure_cabinet"),
+    ("Garde (hold_posting)", "hold_posting"),
     ("Comptabilisation (post_invoice)", "post_invoice"),
 ]
 # What a step is given besides its invoice: the run (one reading deadline for all its drafts), the client's type,
@@ -146,6 +147,7 @@ EXTRA = {
     "settle_tva": f", answer: {CALL}.tva_non_recuperable || ''",
     "settle_withholding": f", answer: {CALL}.retenue || ''{WORDS}",
     "settle_prepaid": f", answer: {CALL}.repartir || ''",
+    "hold_posting": f", session_id: {CALL}.session_id, answer: {CALL}.comptabiliser || ''",
     "settle_exercice": f", answer: {CALL}.exercice || '', decision: {CALL}.exercice || ''",
 }
 x = 1760
@@ -184,7 +186,13 @@ flow.to_record("Suite apres split_invoices", 1)
 flow.to_record("Releve bancaire (import_bank_statement)", 0, 1)
 
 # Nothing waiting on the client: the conversation's drafts Experio hadn't read yet go back to the reading step.
-mcp("Brouillons en attente (waiting_drafts)", "waiting_drafts", f"{{ session_id: {CALL}.session_id }}", [440, 1000])
+# "oui" (post what was left as drafts) also takes up the drafts held back.
+mcp(
+    "Brouillons en attente (waiting_drafts)",
+    "waiting_drafts",
+    f"{{ session_id: {CALL}.session_id, held: {CALL}.comptabiliser === 'oui' }}",
+    [440, 1000],
+)
 flow.code(
     "Une facture par brouillon",
     [660, 1000],
@@ -211,6 +219,7 @@ RESUMED = [
     "settle_prepaid",
     "settle_exercice",
     "configure_cabinet",
+    "hold_posting",
     "post_invoice",
 ]
 ANSWER = "Reponse du client (answer_pending)"

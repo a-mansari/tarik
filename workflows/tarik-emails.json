@@ -218,6 +218,7 @@
             "tva_non_recuperable": "",
             "retenue": "",
             "repartir": "",
+            "comptabiliser": "",
             "compte": "",
             "mode_paiement": "",
             "exercice": "",
@@ -319,6 +320,15 @@
             {
               "id": "repartir",
               "displayName": "repartir",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "comptabiliser",
+              "displayName": "comptabiliser",
               "required": false,
               "defaultMatch": false,
               "display": true,
