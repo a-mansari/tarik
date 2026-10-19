@@ -48,6 +48,7 @@ DOSSIER_INPUTS: Final = MappingProxyType(
         "client_message": "string",
         "model_dossier_id": "number",
         "kind": "string",
+        "finish": "boolean",  # the client said every setup file was sent: finish the onboarding
         # Mode update: the other identity fields a client may change (name, folder_type, ice, if_number above).
         "rc": "string",
         "patente": "string",

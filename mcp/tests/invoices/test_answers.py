@@ -197,3 +197,34 @@ def test_a_run_waits_on_experio_reading_once_for_all_its_drafts(monkeypatch):
     assert pipeline.wait_until_read(2, "run")["status"] == "wait" and clock[0] == waited  # the deadline is passed
     assert pipeline.wait_until_read(3, "run")["status"] == "ok"
     assert pipeline.wait_until_read(2, "next run")["status"] == "wait" and clock[0] > waited  # its own deadline
+
+
+@pytest.mark.functionality
+def test_a_bank_journals_answer_sets_its_bank_then_asks_the_next(db_cabinet, monkeypatch):
+    pipeline.record_step(
+        "r",
+        "s",
+        "Banques (ask_banks)",
+        {
+            "status": "question",
+            "message": "Dossier Gecafisc : le journal BQ1 est a quelle banque ? CIH (n° 3), BP (n° 5).",
+            "dossier_id": 557,
+            "journal_id": 11,
+            "choices": {3: "CIH", 5: "BP"},
+        },
+    )
+    monkeypatch.setattr(pipeline, "journal_name", lambda journal_id: "BQ1")
+    monkeypatch.setattr(pipeline, "check_sender", lambda session_id, dossier_id, invoice_id: {"status": "ok"})
+    monkeypatch.setattr(pipeline, "odoo_call", lambda *a, **k: [])
+    set_calls = []
+    monkeypatch.setattr(
+        pipeline, "set_journal_bank", lambda d, j, b: set_calls.append((d, j, b)) or ok("Dossier Gecafisc : BQ1 a CIH.")
+    )
+    monkeypatch.setattr(pipeline, "ask_banks", lambda d: {"status": "question", "message": "again"})
+    waiting = pipeline.waiting_on("s")
+    assert [item["label"] for item in waiting] == ["journal BQ1"] and waiting[0]["choices"] == {"3": "CIH", "5": "BP"}
+    assert pipeline.answer_pending("s", "c'est le CIH", "3")["message"] == "Dossier Gecafisc : BQ1 a CIH."
+    assert set_calls == [(557, 11, 3)]
+    assert pipeline.answer_pending("s", "je ne sais plus", "")["message"] == "again"  # asked again
+    monkeypatch.setattr(pipeline, "journal_name", lambda journal_id: None)  # given its bank since
+    assert pipeline.waiting_on("s") == []

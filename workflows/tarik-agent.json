@@ -128,7 +128,7 @@
       "workflowId": "TarikDossier0001",
       "workflow": "Tarik - Dossier",
       "name": "Experio_parametrer_dossier",
-      "description": "Cree un dossier (dossier_id 0) ou reprend un dossier existant, dans l'ordre : creation, import des FEC ou grands livres joints (Experio cree les comptes, journaux, tiers et exercices manquants), fin de l'integration, etat du dossier. Renvoie le resultat. Paramètres, à toujours remplir : dossier_id (nombre : 0 pour un nouveau dossier, sinon l'id donné par Experio_find_dossier), name (nom du nouveau dossier, vide pour un dossier existant), ice (vide si inconnu), if_number (l'IF, vide si inconnu), folder_type (company ou person), skip_ice_if_check (false, sauf demande écrite du client), client_confirmed (true seulement si le message du client répond clairement oui à ta dernière question de confirmation sur ce dossier, « Faut-il quand même créer… » ou « Confirmez-vous … sans cette vérification » ; false sinon, et false si sa réponse est floue ou s'il n'y a pas eu de question), model_dossier_id (l'id, trouvé avec Experio_find_dossier, du dossier dont le client a lui-même demandé de copier la configuration ; 0 sinon), kind (fec, grand livre ou vide).",
+      "description": "Cree un dossier (dossier_id 0) ou reprend un dossier existant, dans l'ordre : creation, import des fichiers joints (FEC ou grand livre : Experio cree les comptes, journaux, tiers et exercices manquants ; ou les fichiers de parametrage : plan comptable, journaux, fournisseurs, clients), la banque de chaque journal de banque, fin de l'integration, etat du dossier. Renvoie le resultat. Paramètres, à toujours remplir : dossier_id (nombre : 0 pour un nouveau dossier, sinon l'id donné par Experio_find_dossier), name (nom du nouveau dossier, vide pour un dossier existant), ice (vide si inconnu), if_number (l'IF, vide si inconnu), folder_type (company ou person), skip_ice_if_check (false, sauf demande écrite du client), client_confirmed (true seulement si le message du client répond clairement oui à ta dernière question de confirmation sur ce dossier, « Faut-il quand même créer… » ou « Confirmez-vous … sans cette vérification » ; false sinon, et false si sa réponse est floue ou s'il n'y a pas eu de question), model_dossier_id (l'id, trouvé avec Experio_find_dossier, du dossier dont le client a lui-même demandé de copier la configuration ; 0 sinon), kind (ce que le client dit du fichier joint : fec, grand livre, plan comptable, journaux, fournisseurs ou clients ; vide s'il ne le dit pas), finish (true seulement si le client dit lui-meme que tous ses fichiers de parametrage sont envoyes, qu'il n'en a pas d'autre, ou demande de terminer l'integration ; false sinon).",
       "inputs": {
         "mode": {
           "mode": "fixed",
@@ -212,6 +212,9 @@
         "zip": {
           "mode": "fixed",
           "value": ""
+        },
+        "finish": {
+          "mode": "ai"
         }
       }
     },
@@ -297,6 +300,10 @@
         "kind": {
           "mode": "fixed",
           "value": ""
+        },
+        "finish": {
+          "mode": "fixed",
+          "value": false
         }
       }
     }

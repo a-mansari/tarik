@@ -581,7 +581,7 @@ PAGES["dossier"] = page(
                 ("Un element par fichier", "One item per file."),
                 (
                     "Ecritures (import_entries)",
-                    "Imports the entries through Experio's Importation screen, after Experio's own test of the file. Experio creates the missing accounts, journals, suppliers, customers and fiscal years. A refused file is reported; the client sends a corrected one.",
+                    "Imports the file through Experio's own import screen, after Experio's test of it: entries (FEC or general ledger: Experio creates the missing accounts, journals, suppliers, customers and fiscal years), or a setup file (chart of accounts, journals, suppliers, customers). A file nothing tells apart is asked about. A refused file is reported; the client sends a corrected one.",
                 ),
             ],
         ),
@@ -602,8 +602,12 @@ PAGES["dossier"] = page(
             [
                 ("Imports acceptes ?", "Only when no import was refused."),
                 (
+                    "Banques (ask_banks)",
+                    "Asks which bank each bank journal is at, one journal at a time, from Experio's list of banks: a FEC or a journals file names none. The client's answer goes through the processing workflow's answer step.",
+                ),
+                (
                     "Integration (finish_setup)",
-                    "Completes Experio's onboarding steps so Experio processes the imported entries, opening the current fiscal year if none is open. Experio only takes lines once they are a minute old: when that wait does not fit in the run's time, the file is left waiting for the follow-up.",
+                    "Completes Experio's onboarding steps so Experio processes the imported entries, opening the current fiscal year if none is open. A file set up from separate files, with no entries imported, waits for them until the client says every file was sent. Experio only takes lines once they are a minute old: when that wait does not fit in the run's time, the file is left waiting for the follow-up.",
                 ),
                 (
                     "Integration terminee ?",
