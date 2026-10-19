@@ -33,7 +33,6 @@ SHARED_LEAKS = {
     "IMAP_FOLDER": "LeakFolder",
     "MODEL_API_URL": "http://leak-model.invalid",
     "MODEL_API_KEY": "leak-model-key",
-    "MODEL_API_NAME": "leak-model",
     "N8N_MCP_API_URL": "http://leak-n8n.invalid/mcp-server/http",
     "N8N_MCP_API_TOKEN": "leak-n8n-token",
     "MAIL_WEBHOOK_SECRET": "leak-webhook-secret",

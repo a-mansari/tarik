@@ -1,6 +1,7 @@
-"""The real model (Vault's MODEL_API_*, MiniMax-M3, the agents' own) shown Tarik as the agents have it: their
-instructions, the skill the agent would load, and their tools (workflow tools from workflows/tarik-agent.json,
-MCP tools from the server). It answers a conversation with a tool call, which is only read: no n8n, no Experio.
+"""The real model (Vault's MODEL_API_URL and KEY, the agents' own model, asked of n8n) shown Tarik as the agents
+have it: their instructions, the skill the agent would load, and their tools (workflow tools from
+workflows/tarik-agent.json, MCP tools from the server). It answers a conversation with a tool call, which is only
+read: no n8n, no Experio.
 
 Differences with n8n's native agent, kept small: the skill is in the system prompt (n8n loads it on demand), and
 the model thinks as n8n has it (its reasoning setting, whatever its level, sends M3 a 1024-token budget M3 does not
@@ -18,6 +19,7 @@ import pytest
 
 from server import server
 from tarik.core.cabinets import setting, using
+from tarik.core.model import model_name
 
 CABINET = os.getenv("TARIK_TEST_CABINET", "experio_cabinet_8")
 REPEAT = int(os.getenv("REPEAT", "1"))
@@ -70,7 +72,8 @@ def ask():
     """ask(skill, messages) -> the model's whole answer (its JSON: content blocks, usage) and the seconds it took."""
     instructions, skills, tools = agent()
     with using(CABINET):
-        url, key, model = (setting(name, "") for name in ("MODEL_API_URL", "MODEL_API_KEY", "MODEL_API_NAME"))
+        url, key = (setting(name, "") for name in ("MODEL_API_URL", "MODEL_API_KEY"))
+        model = model_name() if url and key else ""  # the agents' own, asked of n8n
     if not (url and key and model):
         pytest.skip("no model in Vault (MODEL_API_*)")
     http = httpx.Client(timeout=180, headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
