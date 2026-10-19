@@ -52,8 +52,8 @@ arguments there. A model is used in two places only: the agent, and some tools t
   | `settle_withholding` | the client's reply, only when there is one |
   | `answer_pending` | the client's answer, only when it needs reading (account, withholding) |
 
-- **Deterministic** (no model call): every Switch, Code, Merge and sub-workflow node; all of "Tarik - Modification"
-  and "Tarik - Dossier"; in "Tarik - Emails" everything but the agent; in "Tarik - Traitement" `check_sender`,
+- **Deterministic** (no model call): every Switch, Code, Merge and sub-workflow node; all of "Tarik - Dossier"
+  (creation, setup and the `update` mode); in "Tarik - Emails" everything but the agent; in "Tarik - Traitement" `check_sender`,
   `files_to_process`, `import_bank_statement`, `create_draft_invoice`, `wait_until_read`, `correct_invoice`,
   `link_tiers`, `check_duplicate`, `settle_tva`, `check_journal`, `settle_prepaid`, `settle_exercice`,
   `post_invoice`, `waiting_drafts`. They still depend on Experio's data and timing.
