@@ -169,6 +169,16 @@ docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault
 docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault vault kv put secret/tarik/cabinets/experio_cabinet_8 ODOO_UID=... AGENT_ID=...
 ```
 
+A cabinet not ready yet waits under `secret/tarik/pending/<cabinet>`, which `tarik-mcp` never reads: every
+cabinet under `secret/tarik/cabinets/` must be fully set, or the server doesn't start. Its settings are there,
+empty but `AGENT_ID`; fill them in with `kv patch`, then move it and restart (here for `experio_cabinet_158`):
+
+```bash
+docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault vault kv patch secret/tarik/pending/experio_cabinet_158 ODOO_UID=... ODOO_USER=... ODOO_PASSWORD=...
+docker compose exec -T vault sh -c 'export VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=$(cat /vault/unseal/root_token) C=experio_cabinet_158; vault kv get -format=json -field=data secret/tarik/pending/$C > /tmp/c.json && vault kv put secret/tarik/cabinets/$C @/tmp/c.json && vault kv metadata delete secret/tarik/pending/$C; rm -f /tmp/c.json'
+docker compose restart tarik-mcp tarik-mail-watch
+```
+
 `kv patch` changes one setting and keeps the others. Vault's own page is at http://127.0.0.1:8200
 (the root token logs in). On the public server, use a real Vault instead: TLS, its own unseal
 (operators' key shares or a KMS, never a key file next to it), and the same paths, policy and role.
