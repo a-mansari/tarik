@@ -34,7 +34,7 @@ TRAITEMENT_INPUTS: Final = MappingProxyType(
         "tva_non_recuperable": "string",  # oui / non, the agent's reading of "TVA non recuperable" / "recuperable"
         "retenue": "string",  # their words on the retenue a la source ("sans retenue", "10 et 75", "a la charge...")
         "repartir": "string",  # oui / non: charges constatees d'avance
-        "comptabiliser": "string",  # non: verified but left as drafts; oui: post the drafts left that way
+        "comptabiliser": "string",  # oui only when the client asks to post, these invoices or the drafts left unposted
         "compte": "string",  # the account they named (code or label)
         "mode_paiement": "string",  # especes, cheque, virement, effet, prelevement, compensation
         "exercice": "string",  # "nouveau" or the open exercice named, for an invoice outside the open ones

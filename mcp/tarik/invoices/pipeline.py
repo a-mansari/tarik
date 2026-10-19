@@ -108,19 +108,24 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
 
 @step_tool
 def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
-    """Stop an invoice before posting when the client asked not to post (``answer`` "non"), and keep it stopped
-    on later runs, which don't carry the answer; "oui" lets it through again."""
+    """Stop an invoice at its verified draft unless the client explicitly asked to post it (``answer`` "oui"); "non"
+    takes that back. The choice is kept per invoice, since later runs don't carry the answer."""
     with cabinet_db() as db:
         if answer in ("oui", "non"):
-            db.execute("delete from tarik_held where invoice_id = %s", (invoice_id,))
-        if answer == "non":
-            db.execute("insert into tarik_held (invoice_id, session_id) values (%s, %s)", (invoice_id, session_id))
-        held = answer == "non" or (
-            not answer and db.execute("select 1 from tarik_held where invoice_id = %s", (invoice_id,)).fetchone()
-        )
-    if held:
+            db.execute(
+                "insert into tarik_held (invoice_id, session_id, released) values (%s, %s, %s) "
+                "on conflict (invoice_id) do update set released = excluded.released",
+                (invoice_id, session_id, answer == "oui"),
+            )
+        else:
+            db.execute(
+                "insert into tarik_held (invoice_id, session_id) values (%s, %s) on conflict do nothing",
+                (invoice_id, session_id),
+            )
+        released = db.execute("select released from tarik_held where invoice_id = %s", (invoice_id,)).fetchone()[0]
+    if not released:
         return stop(
-            f"Facture {invoice_id} : verifiee et laissee en brouillon, comme demande. Dites-moi quand la comptabiliser."
+            f"Facture {invoice_id} : importee et verifiee, laissee en brouillon. Dites-moi quand la comptabiliser."
         )
     return routine(f"Facture {invoice_id} : a comptabiliser.")
 
@@ -437,15 +442,30 @@ def files_to_process(session_id: str, entries: bool = False) -> dict:
     return ok(f"{len(own)} fichier(s) a traiter.", files=own)
 
 
+HOLDS = {("hold_posting", "stop")}  # a draft kept unposted: only ``held`` takes it up
+
+
+def furthest_outcomes(rows):
+    """{invoice_id: (step, status)}: the furthest step each invoice of ``rows`` (invoice_id, step, status) reached, by
+    the sequence's order, not the rows': n8n records a step after the ones it led to."""
+    furthest = {}
+    for invoice_id, step, status in rows:
+        if step in ORDER and (invoice_id not in furthest or position(step) >= position(furthest[invoice_id][0])):
+            furthest[invoice_id] = (step, status)
+    return furthest
+
+
 @server.tool()
-def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0) -> dict:
+def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, stopped: bool = False) -> dict:
     """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
     waiting on Experio (still reading) or failed (an Experio or model timeout), or nothing was recorded for it:
     n8n records a run's steps last, so a run cut short (n8n stops an agent's tool after 5 minutes) leaves its
-    drafts with no outcome. Every later step runs again; a question or a stop is not resumed here, except the
-    drafts the client asked to leave unposted when ``held`` (they now ask to post): those of the dossier
-    ``dossier_id`` from any conversation, since the client may ask in a new email thread. A draft deleted or posted
-    in Experio since is left alone."""
+    drafts with no outcome. Every later step runs again; a question or a stop is not resumed here, except what the
+    client asks for. ``held``: the drafts they asked to leave unposted (they now ask to post). ``stopped``: the
+    drafts a step stopped (a setting the cabinet has fixed since: they ask to resume). Both also reach the dossier
+    ``dossier_id``'s drafts from any conversation, since the client may ask in a new email thread; never an
+    automatic follow-up's. A draft deleted or posted in Experio since is left alone."""
+    resumable = ("wait", "error", "stop") if stopped else ("wait", "error")
     with cabinet_db() as db:
         rows = db.execute(
             "select invoice_id, step, status from tarik_results where session_id = %s and invoice_id is not null "
@@ -456,20 +476,27 @@ def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0) -> 
             "select invoice_id from tarik_files where session_id = %s and invoice_id is not null order by id",
             (session_id,),
         ).fetchall()
-    furthest = {}  # by the sequence's order, not the rows': n8n records a step after the ones it led to
-    for invoice_id, step, status in rows:
-        if step in ORDER and (invoice_id not in furthest or position(step) >= position(furthest[invoice_id][0])):
-            furthest[invoice_id] = (step, status)
-    waiting = [invoice_id for invoice_id, (_, status) in furthest.items() if status in ("wait", "error")]
+        elsewhere = []
+        if dossier_id and stopped:
+            elsewhere = db.execute(
+                "select invoice_id, step, status from tarik_results where invoice_id in "
+                "(select invoice_id from tarik_results where status = 'stop' and invoice_id is not null) order by id"
+            ).fetchall()
+        kept = []
+        if held:
+            kept = db.execute("select invoice_id, session_id from tarik_held where not released").fetchall()
+    mine = furthest_outcomes(rows)
+    waiting = [i for i, (step, status) in mine.items() if status in resumable and (step, status) not in HOLDS]
     # shortcut: a draft of a run still going also has no outcome yet; one conversation runs one at a time
-    waiting += [invoice_id for (invoice_id,) in drafts if invoice_id not in furthest]
-    if held and dossier_id:
-        with cabinet_db() as db:
-            waiting += [invoice_id for (invoice_id,) in db.execute("select invoice_id from tarik_held").fetchall()]
+    waiting += [invoice_id for (invoice_id,) in drafts if invoice_id not in mine]
+    if dossier_id and stopped:
+        waiting += [i for i, (step, status) in furthest_outcomes(elsewhere).items() if (step, status) not in HOLDS]
+    # The conversation's own held drafts, and the dossier's from any other.
+    waiting += [invoice_id for invoice_id, owner in kept if owner == session_id or dossier_id]
     if waiting:
-        domain = [("id", "in", waiting), ("state", "in", ["pending", "draft"])]
-        # The held drafts come from any conversation: keep this dossier's only.
-        if held and dossier_id:
+        domain = [("id", "in", sorted(set(waiting))), ("state", "in", ["pending", "draft"])]
+        # What came from any conversation is limited to this dossier's.
+        if dossier_id and (held or stopped):
             domain.append(("company_id", "in", [dossier_id]))
         waiting = sorted(odoo_call("exp.invoice", "search", domain))
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
