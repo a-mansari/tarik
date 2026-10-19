@@ -13,13 +13,16 @@ piece, and [using-tarik.md](using-tarik.md) explains what Tarik can do and how t
         ▼                                                     ▼
 ┌──────────────────── n8n 2.43.5, patched (n8n/) ──────────────────┐   ┌─ tarik-mail-watch ──────────────┐
 │ Agents: "Tarik - <cabinet>" ×8 (MiniMax-M3, reasoning low)       │◄──│ IMAP IDLE + 15-minute tick,      │
-│   skills: Nouveau dossier · Traitement des documents ·           │   │ one per cabinet mailbox          │
+│   skills: Nouveau dossier · Traitement des documents ·           │
+│           Gestion des dossiers ·                                 │   │ one per cabinet mailbox          │
 │           Modification de dossier · Réponse à une question       │   │ → webhook {cabinet}              │
 │   tools:  Experio_* MCP tools (read) at /c/<cabinet>/mcp         │   │   + X-Tarik-Webhook secret       │
 │           Experio_traiter_fichiers   → "Tarik - Traitement"      │   └──────────────────────────────────┘
 │           Experio_repondre           → "Tarik - Traitement"      │
 │           Experio_parametrer_dossier → "Tarik - Dossier"         │
 │           Experio_modifier_dossier   → "Tarik - Dossier" (update)│
+│           Experio_importer_dossiers · Experio_creer_acces ·       │
+│           Experio_archiver_dossier   → "Tarik - Dossier" (modes) │
 │ "Tarik - Emails" (webhook) ── ask_agent ──► n8n MCP call_agent    │
 └───────────────┬────────────────────────────────────┬─────────────┘
                 │ every workflow step → /c/<cabinet>/mcp   │ n8n's own data

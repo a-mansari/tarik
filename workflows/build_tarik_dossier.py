@@ -9,7 +9,9 @@ Experio: when the run's time (n8n stops an agent's tool after 300 s) is too shor
 in tarik_setups. Mode resume ("Tarik - Emails" following up, no agent, no time limit) finishes those.
 
 Mode update: the email's sender must have the dossier (the agent's own chat has no sender), then update_dossier
-changes only the fields given, and only to values the client wrote."""
+changes only the fields given, and only to values the client wrote. Modes person (a collaborateur or a client put
+on the dossier) and archive go through the same sender check. Mode dossiers creates the dossiers listed in the
+spreadsheet attached, once the client confirmed the list read back."""
 
 from steps import CALL, DOSSIER_INPUTS, EACH_FILE, FILES, RESULT, SENDER, START, Workflow
 
@@ -18,6 +20,9 @@ COPY = "Configuration (copy_configuration)"
 TARGET_NODE = "Dossier cible"
 IMPORT = "Ecritures (import_entries)"
 UPDATE = "Modification (update_dossier)"
+PERSON = "Acces (create_person)"
+ARCHIVE = "Archivage (archive_dossier)"
+LIST = "Liste de dossiers (import_dossiers)"
 IDENTITY = [
     "name",
     "folder_type",
@@ -46,8 +51,8 @@ SECONDS_LEFT = f"Math.max(1, Math.round(({BUDGET_MS} - (Date.now() - $('{START}'
 flow.start("Nouveau dossier ?")
 route(
     "Nouveau dossier ?",
-    f"{{ resume: 2, update: 3 }}[{CALL}.mode] ?? ({CALL}.dossier_id > 0 ? 1 : 0)",
-    4,
+    f"{{ resume: 2, update: 3, person: 3, archive: 3, dossiers: 4 }}[{CALL}.mode] ?? ({CALL}.dossier_id > 0 ? 1 : 0)",
+    5,
     [220, 300],
 )
 
@@ -87,9 +92,57 @@ connect("Nouveau dossier ?", CREATE, 0)
 sender = flow.check_sender([440, 420], [660, 420])
 connect("Nouveau dossier ?", SENDER, 1)
 connect("Nouveau dossier ?", SENDER, 3)
-route("Modifier ?", f"{CALL}.mode === 'update' ? 0 : 1", 2, [880, 420])
+route("Modifier ?", f"{{ update: 0, person: 2, archive: 3 }}[{CALL}.mode] ?? 1", 4, [880, 420])
 connect(sender, "Modifier ?", 0)
 connect("Modifier ?", TARGET_NODE, 1)
+mcp(
+    PERSON,
+    "create_person",
+    (
+        f"{{ kind: {CALL}.person_kind, dossier_id: {CALL}.dossier_id, name: {CALL}.person_name ?? '', "
+        f"email: {CALL}.email ?? '', phone: {CALL}.phone ?? '', profile: {CALL}.profile ?? '', "
+        f"client_confirmed: {CALL}.client_confirmed === true, client_message: {CALL}.client_message || '', "
+        f"session_id: {CALL}.session_id }}"
+    ),
+    [1100, 640],
+)
+mcp(
+    ARCHIVE,
+    "archive_dossier",
+    (
+        f"{{ dossier_id: {CALL}.dossier_id, client_confirmed: {CALL}.client_confirmed === true, "
+        f"session_id: {CALL}.session_id }}"
+    ),
+    [1100, 760],
+)
+connect("Modifier ?", PERSON, 2)
+connect("Modifier ?", ARCHIVE, 3)
+flow.to_record(PERSON, 0, 1)
+flow.to_record(ARCHIVE, 0, 1)
+# Mode dossiers: each spreadsheet of the message, its dossiers created once the client confirmed the list.
+mcp(
+    "Fichiers de dossiers (files_to_process)",
+    "files_to_process",
+    f"{{ session_id: {CALL}.session_id, entries: true }}",
+    [440, 880],
+)
+flow.code(
+    "Un element par liste",
+    [660, 880],
+    "// One item per spreadsheet of dossiers.\n"
+    "return $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));",
+)
+mcp(
+    LIST,
+    "import_dossiers",
+    f"{{ file_id: $json.file_id, client_confirmed: {CALL}.client_confirmed === true, session_id: {CALL}.session_id }}",
+    [880, 880],
+)
+connect("Nouveau dossier ?", "Fichiers de dossiers (files_to_process)", 4)
+connect("Fichiers de dossiers (files_to_process)", "Un element par liste", 0)
+flow.to_record("Fichiers de dossiers (files_to_process)", 1)
+connect("Un element par liste", LIST)
+flow.to_record(LIST, 0, 1)
 identity = ", ".join(f"{field}: {CALL}.{field} ?? ''" for field in IDENTITY)
 mcp(
     UPDATE,

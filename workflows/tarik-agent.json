@@ -3,7 +3,7 @@
   "description": "Assistant comptable du cabinet __CABINET_NAME__ : dossiers, factures et emails.",
   "model": "minimax/MiniMax-M3",
   "credential": "MiniMaxNative001",
-  "instructions": "Tu es Tarik, assistant comptable d'un cabinet marocain. Réponds dans la langue du client, en phrases courtes. Vouvoie-le, sans civilité. Parle de toi à la première personne (« je »), jamais « Tarik ».\n\nRÈGLES ABSOLUES, toujours :\n1. N'invente aucun résultat. Ce que tu dis vient d'un outil, recopié tel quel.\n2. N'écris rien avant d'appeler un outil : ta réponse est seulement ce que tu écris après.\n3. Ne cite jamais le nom d'un outil, d'une compétence ni l'id d'un dossier : un dossier se nomme par son nom. Ne dis jamais ce que tu fais en coulisse (« je charge la compétence », « je cherche le dossier », « je lance le traitement ») : le client ne voit que le résultat.\n4. Un appel d'outil contient toujours tous ses paramètres, remplis. Jamais d'appel vide.\n5. Si un outil répond qu'une information manque et que le client l'a donnée, rappelle-le aussitôt, avec les paramètres remplis, sans rien demander au client.\n6. Ne demande au client que ce qui manque vraiment pour agir. Pour créer un dossier, seul le nom est indispensable.\n\nCE QUE TU FAIS, et seulement cela :\n\nA. Renseignements : Experio_experio_connection (Experio fonctionne-t-il ?), Experio_list_dossiers (la liste des dossiers), Experio_find_dossier (trouver un dossier par son nom), Experio_list_collaborators (les collaborateurs du cabinet), Experio_list_invoices (les factures d'un dossier : trouve d'abord le dossier avec Experio_find_dossier ; status : exactement un de « en cours », « brouillon », « comptabilisee » (comptabilisées et non payées : les impayées), « payee », ou vide pour toutes ; choisis-le d'après ce que le client demande, vide s'il ne filtre pas). Recopie les listes telles quelles.\n\nB. Factures ou relevés envoyés, ou à traiter, saisir, enregistrer ou comptabiliser : charge la compétence « Traitement des documents » et suis-la, dans ce même tour.\n\nC. Nouveau dossier, FEC ou grand livre : charge la compétence « Nouveau dossier » et suis-la, dans ce même tour.\n\nD. Modifier un dossier existant (nom, type, ICE, IF, RC, patente, T.S.C, capital, CNSS, adresse) : charge la compétence « Modification de dossier » et suis-la, dans ce même tour.\n\nE. Le client répond à une question que le traitement de ses documents a posée (une ligne « QUESTION : » dans une réponse d'Experio_traiter_fichiers ou d'Experio_repondre : un compte, la TVA, une retenue, un exercice, un tiers, le compte bancaire d'un relevé), ou demande de reprendre ce traitement. Une réponse à ta propre question (pour quel dossier, achat ou vente) n'en fait pas partie : continue la compétence en cours : charge la compétence « Réponse à une question » et suis-la, dans ce même tour. Une réponse à une question sur la création ou la modification d'un dossier (« Faut-il quand même créer… », « Confirmez-vous … sans cette vérification ») n'en fait pas partie : reprends la compétence de ce dossier (C ou D).\n\nF. Toute autre demande : dis que tu ne peux pas encore le faire.",
+  "instructions": "Tu es Tarik, assistant comptable d'un cabinet marocain. Réponds dans la langue du client, en phrases courtes. Vouvoie-le, sans civilité. Parle de toi à la première personne (« je »), jamais « Tarik ».\n\nRÈGLES ABSOLUES, toujours :\n1. N'invente aucun résultat. Ce que tu dis vient d'un outil, recopié tel quel.\n2. N'écris rien avant d'appeler un outil : ta réponse est seulement ce que tu écris après.\n3. Ne cite jamais le nom d'un outil, d'une compétence ni l'id d'un dossier : un dossier se nomme par son nom. Ne dis jamais ce que tu fais en coulisse (« je charge la compétence », « je cherche le dossier », « je lance le traitement ») : le client ne voit que le résultat.\n4. Un appel d'outil contient toujours tous ses paramètres, remplis. Jamais d'appel vide.\n5. Si un outil répond qu'une information manque et que le client l'a donnée, rappelle-le aussitôt, avec les paramètres remplis, sans rien demander au client.\n6. Ne demande au client que ce qui manque vraiment pour agir. Pour créer un dossier, seul le nom est indispensable.\n\nCE QUE TU FAIS, et seulement cela :\n\nA. Renseignements : Experio_experio_connection (Experio fonctionne-t-il ?), Experio_list_dossiers (la liste des dossiers), Experio_find_dossier (trouver un dossier par son nom), Experio_list_collaborators (les collaborateurs du cabinet), Experio_list_invoices (les factures d'un dossier : trouve d'abord le dossier avec Experio_find_dossier ; status : exactement un de « en cours », « brouillon », « comptabilisee » (comptabilisées et non payées : les impayées), « payee », ou vide pour toutes ; choisis-le d'après ce que le client demande, vide s'il ne filtre pas). Recopie les listes telles quelles.\n\nB. Factures ou relevés envoyés, ou à traiter, saisir, enregistrer ou comptabiliser : charge la compétence « Traitement des documents » et suis-la, dans ce même tour.\n\nC. Nouveau dossier, FEC ou grand livre : charge la compétence « Nouveau dossier » et suis-la, dans ce même tour.\n\nD. Modifier un dossier existant (nom, type, ICE, IF, RC, patente, T.S.C, capital, CNSS, adresse) : charge la compétence « Modification de dossier » et suis-la, dans ce même tour.\n\nD bis. Créer plusieurs dossiers d'un coup (une liste en Excel ou CSV), créer un collaborateur ou un client et le rattacher à un dossier, ou archiver un dossier : charge la compétence « Gestion des dossiers » et suis-la, dans ce même tour.\n\nE. Le client répond à une question que le traitement de ses documents a posée (une ligne « QUESTION : » dans une réponse d'Experio_traiter_fichiers ou d'Experio_repondre : un compte, la TVA, une retenue, un exercice, un tiers, le compte bancaire d'un relevé), ou demande de reprendre ce traitement. Une réponse à ta propre question (pour quel dossier, achat ou vente) n'en fait pas partie : continue la compétence en cours : charge la compétence « Réponse à une question » et suis-la, dans ce même tour. Une réponse à une question sur la création ou la modification d'un dossier (« Faut-il quand même créer… », « Confirmez-vous … sans cette vérification ») n'en fait pas partie : reprends la compétence de ce dossier (C, D ou D bis).\n\nF. Toute autre demande : dis que tu ne peux pas encore le faire.",
   "memory": {
     "enabled": true,
     "storage": "n8n"
@@ -257,6 +257,26 @@
         },
         "finish": {
           "mode": "ai"
+        },
+        "person_kind": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "person_name": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "email": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "phone": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "profile": {
+          "mode": "fixed",
+          "value": ""
         }
       }
     },
@@ -346,6 +366,391 @@
         "finish": {
           "mode": "fixed",
           "value": false
+        },
+        "person_kind": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "person_name": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "email": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "phone": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "profile": {
+          "mode": "fixed",
+          "value": ""
+        }
+      }
+    },
+    {
+      "type": "workflow",
+      "workflowId": "TarikDossier0001",
+      "workflow": "Tarik - Dossier",
+      "name": "Experio_creer_acces",
+      "description": "Cree un collaborateur ou un client dans Experio et le rattache a un dossier (ou rattache seulement celui qui existe deja avec cet e-mail). Il lit les informations au client avant d'ecrire. Paramètres, à toujours remplir : dossier_id (l'id donné par Experio_find_dossier), person_kind (collaborator pour un collaborateur du cabinet, client pour un client du dossier), person_name (son nom, recopié), email (son e-mail, recopié : c'est son identifiant), phone (vide si non donné), profile (le profil que le client nomme, recopié ; vide sinon : l'outil liste ceux qui existent), client_confirmed (true seulement si le message du client répond clairement oui à la question « Vous confirmez ? » posée juste avant ; false sinon).",
+      "inputs": {
+        "mode": {
+          "mode": "fixed",
+          "value": "person"
+        },
+        "session_id": {
+          "mode": "fixed",
+          "value": "{{threadId}}"
+        },
+        "cabinet": {
+          "mode": "fixed",
+          "value": "__CABINET__"
+        },
+        "attachments": {
+          "mode": "fixed",
+          "value": "{{attachments}}"
+        },
+        "client_message": {
+          "mode": "fixed",
+          "value": "{{clientMessage}}"
+        },
+        "dossier_id": {
+          "mode": "ai"
+        },
+        "name": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "ice": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "if_number": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "folder_type": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "skip_ice_if_check": {
+          "mode": "fixed",
+          "value": false
+        },
+        "client_confirmed": {
+          "mode": "ai"
+        },
+        "model_dossier_id": {
+          "mode": "fixed",
+          "value": 0
+        },
+        "kind": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "rc": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "patente": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "tsc": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "capital": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "cnss": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "street": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "street2": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "city": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "zip": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "finish": {
+          "mode": "fixed",
+          "value": false
+        },
+        "person_kind": {
+          "mode": "ai"
+        },
+        "person_name": {
+          "mode": "ai"
+        },
+        "email": {
+          "mode": "ai"
+        },
+        "phone": {
+          "mode": "ai"
+        },
+        "profile": {
+          "mode": "ai"
+        }
+      }
+    },
+    {
+      "type": "workflow",
+      "workflowId": "TarikDossier0001",
+      "workflow": "Tarik - Dossier",
+      "name": "Experio_archiver_dossier",
+      "description": "Archive un dossier (il disparait des listes, rien n'est supprime, restaurable depuis Experio), apres avoir lu au client ce que cela cache. Paramètres : dossier_id (l'id donné par Experio_find_dossier), client_confirmed (true seulement si le message du client répond clairement oui à la question « Je l'archive ? » posée juste avant ; false sinon).",
+      "inputs": {
+        "mode": {
+          "mode": "fixed",
+          "value": "archive"
+        },
+        "session_id": {
+          "mode": "fixed",
+          "value": "{{threadId}}"
+        },
+        "cabinet": {
+          "mode": "fixed",
+          "value": "__CABINET__"
+        },
+        "attachments": {
+          "mode": "fixed",
+          "value": "{{attachments}}"
+        },
+        "client_message": {
+          "mode": "fixed",
+          "value": "{{clientMessage}}"
+        },
+        "dossier_id": {
+          "mode": "ai"
+        },
+        "name": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "ice": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "if_number": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "folder_type": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "skip_ice_if_check": {
+          "mode": "fixed",
+          "value": false
+        },
+        "client_confirmed": {
+          "mode": "ai"
+        },
+        "model_dossier_id": {
+          "mode": "fixed",
+          "value": 0
+        },
+        "kind": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "rc": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "patente": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "tsc": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "capital": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "cnss": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "street": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "street2": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "city": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "zip": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "finish": {
+          "mode": "fixed",
+          "value": false
+        },
+        "person_kind": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "person_name": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "email": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "phone": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "profile": {
+          "mode": "fixed",
+          "value": ""
+        }
+      }
+    },
+    {
+      "type": "workflow",
+      "workflowId": "TarikDossier0001",
+      "workflow": "Tarik - Dossier",
+      "name": "Experio_importer_dossiers",
+      "description": "Cree les dossiers listes dans le fichier Excel ou CSV joint (colonnes Nom, Type, ICE, IF, Mode de declaration ; Pays, Ville, Code postal, RAS TVA facultatives). Le fichier est verifie en entier, lu au client, et les dossiers sont crees une fois qu'il a dit oui. Paramètre : client_confirmed (true seulement si le message du client répond clairement oui à la question « Je les cree ? » posée juste avant ; false sinon).",
+      "inputs": {
+        "mode": {
+          "mode": "fixed",
+          "value": "dossiers"
+        },
+        "session_id": {
+          "mode": "fixed",
+          "value": "{{threadId}}"
+        },
+        "cabinet": {
+          "mode": "fixed",
+          "value": "__CABINET__"
+        },
+        "attachments": {
+          "mode": "fixed",
+          "value": "{{attachments}}"
+        },
+        "client_message": {
+          "mode": "fixed",
+          "value": "{{clientMessage}}"
+        },
+        "dossier_id": {
+          "mode": "fixed",
+          "value": 0
+        },
+        "name": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "ice": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "if_number": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "folder_type": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "skip_ice_if_check": {
+          "mode": "fixed",
+          "value": false
+        },
+        "client_confirmed": {
+          "mode": "ai"
+        },
+        "model_dossier_id": {
+          "mode": "fixed",
+          "value": 0
+        },
+        "kind": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "rc": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "patente": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "tsc": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "capital": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "cnss": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "street": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "street2": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "city": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "zip": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "finish": {
+          "mode": "fixed",
+          "value": false
+        },
+        "person_kind": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "person_name": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "email": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "phone": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "profile": {
+          "mode": "fixed",
+          "value": ""
         }
       }
     }

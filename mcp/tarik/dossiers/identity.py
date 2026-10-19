@@ -13,6 +13,7 @@ from tarik.core.config import DOSSIER_DOMAIN, SIMILAR_NAME, TEST_MODE
 from tarik.core.conversation import client_messages, own_words
 from tarik.core.experio import dry_run, odoo_call, odoo_json, refused, require_dossier
 from tarik.core.words import ICE_WRITTEN, as_number, normalized, said, similarity, written_numbers
+from tarik.dossiers.people import attach_user
 from tarik.dossiers.search import dossiers
 
 FOLDER_TYPES = {"company": "societe", "person": "personne physique", "cpu": "CPU", "st": "ST"}
@@ -269,6 +270,7 @@ def create_dossier(
         return ok(f"{TEST_MODE}Le dossier {name} serait cree.{not_taken}")
     with refused(f"create_dossier {name}", f"Experio refuse de creer le dossier {name} : {{reason}}"):
         dossier_id = odoo_json("res.company", "create", values)
+        attach_user(None, dossier_id)  # Tarik works in it from here on
     unchecked = " ICE et IF non verifies (verification ignoree, a la demande du client)." if skip_ice_if_check else ""
     return ok(f"Dossier {name} cree dans Experio.{unchecked}{not_taken}", dossier_id=dossier_id)
 

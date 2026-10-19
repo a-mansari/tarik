@@ -13,7 +13,7 @@ import re
 
 from tarik.core.app import routine, server, stop
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import odoo_call, refused, require_dossier, require_invoice
+from tarik.core.experio import login, odoo_call, refused, require_dossier, require_invoice
 
 # Who may give Tarik work: the cabinet's collaborators and Experio's own staff (not client contacts).
 STAFF = ["employee", "internal"]
@@ -63,6 +63,26 @@ def collaborator(address):
         limit=2,
     )
     return found[0] if len(found) == 1 else None  # two users with one address: not a reliable sender
+
+
+def attach_user(user_id, dossier_id, profile_id=None, employee_type="employee"):
+    """Put a user on a dossier, with a profile there, as the dossier form does: in its Collaborateurs
+    (employee_ids) or Clients (contact_ids), which Experio copies into the user's dossiers, and the
+    "Profils par Dossier" row (exp.user.company.profile). Already on it: left as is. ``user_id`` None: Tarik's
+    own user, with its own profile, so Tarik sees the dossier it just made."""
+    if user_id is None:
+        user_id = login()
+        profile_id = odoo_call("res.users", "read", [user_id], fields=["exp_profile_id"])[0]["exp_profile_id"]
+        profile_id = profile_id and profile_id[0]
+    members = "employee_ids" if employee_type == "employee" else "contact_ids"
+    odoo_call("res.company", "write", [dossier_id], {members: [(4, user_id)]})
+    row = [("user_id", "=", user_id), ("company_id", "=", dossier_id)]
+    if profile_id and not odoo_call("exp.user.company.profile", "search_count", row):
+        odoo_call(
+            "exp.user.company.profile",
+            "create",
+            {"user_id": user_id, "company_id": dossier_id, "profile_id": profile_id},
+        )
 
 
 def sender_of(session_id):

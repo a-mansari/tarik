@@ -74,6 +74,26 @@
               "type": "boolean"
             },
             {
+              "name": "person_kind",
+              "type": "string"
+            },
+            {
+              "name": "person_name",
+              "type": "string"
+            },
+            {
+              "name": "email",
+              "type": "string"
+            },
+            {
+              "name": "phone",
+              "type": "string"
+            },
+            {
+              "name": "profile",
+              "type": "string"
+            },
+            {
               "name": "rc",
               "type": "string"
             },
@@ -170,8 +190,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 4,
-        "output": "={{ { resume: 2, update: 3 }[$('Appel').first().json.mode] ?? ($('Appel').first().json.dossier_id > 0 ? 1 : 0) }}"
+        "numberOutputs": 5,
+        "output": "={{ { resume: 2, update: 3, person: 3, archive: 3, dossiers: 4 }[$('Appel').first().json.mode] ?? ($('Appel').first().json.dossier_id > 0 ? 1 : 0) }}"
       }
     },
     {
@@ -333,9 +353,122 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 2,
-        "output": "={{ $('Appel').first().json.mode === 'update' ? 0 : 1 }}"
+        "numberOutputs": 4,
+        "output": "={{ { update: 0, person: 2, archive: 3 }[$('Appel').first().json.mode] ?? 1 }}"
       }
+    },
+    {
+      "id": "fd410795-b65d-5760-bb1f-2c12f2446e5c",
+      "name": "Acces (create_person)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        640
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "create_person"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ kind: $('Appel').first().json.person_kind, dossier_id: $('Appel').first().json.dossier_id, name: $('Appel').first().json.person_name ?? '', email: $('Appel').first().json.email ?? '', phone: $('Appel').first().json.phone ?? '', profile: $('Appel').first().json.profile ?? '', client_confirmed: $('Appel').first().json.client_confirmed === true, client_message: $('Appel').first().json.client_message || '', session_id: $('Appel').first().json.session_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "4c6376e4-77f1-529d-8087-d3aa52fb5db5",
+      "name": "Archivage (archive_dossier)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        760
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "archive_dossier"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Appel').first().json.dossier_id, client_confirmed: $('Appel').first().json.client_confirmed === true, session_id: $('Appel').first().json.session_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "e0782731-4d95-5ddf-9728-9df6e118b99f",
+      "name": "Fichiers de dossiers (files_to_process)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        880
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "files_to_process"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, entries: true }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "6805187f-de4b-519c-a51d-2653abcfaf1e",
+      "name": "Un element par liste",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        880
+      ],
+      "parameters": {
+        "jsCode": "// One item per spreadsheet of dossiers.\nreturn $input.first().json.content[0].text.files.map(file_id => ({ json: { file_id } }));"
+      }
+    },
+    {
+      "id": "d3308438-9fbf-5006-92f1-375d100c119d",
+      "name": "Liste de dossiers (import_dossiers)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        880
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "import_dossiers"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ file_id: $json.file_id, client_confirmed: $('Appel').first().json.client_confirmed === true, session_id: $('Appel').first().json.session_id }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
     },
     {
       "id": "37ed7ef9-afde-5177-963e-75be24a5dcfe",
@@ -815,6 +948,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Fichiers de dossiers (files_to_process)",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -866,6 +1006,103 @@
         [
           {
             "node": "Dossier cible",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Acces (create_person)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Archivage (archive_dossier)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Acces (create_person)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Archivage (archive_dossier)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fichiers de dossiers (files_to_process)": {
+      "main": [
+        [
+          {
+            "node": "Un element par liste",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Un element par liste": {
+      "main": [
+        [
+          {
+            "node": "Liste de dossiers (import_dossiers)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Liste de dossiers (import_dossiers)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }

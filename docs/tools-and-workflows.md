@@ -18,6 +18,9 @@ Each "Tarik - <cabinet>" agent has these tools, named exactly as below:
 | `Experio_repondre` | Hands the client's answer (their own words, filled by n8n) to what the conversation waits on, and resumes the processing. Its parameters: `decision`, what the agent read in the answer (oui or non, the tiers, exercice or bank account chosen), and `about`, the invoice or statement answered when several questions wait. | Workflow "Tarik - Traitement" (answer mode) |
 | `Experio_parametrer_dossier` | Creates a dossier, or imports a FEC, a grand livre or a setup file (plan comptable, journaux, fournisseurs, clients) into one; `finish` when the client says every setup file was sent. | Workflow "Tarik - Dossier" |
 | `Experio_modifier_dossier` | Changes an existing dossier's identity fields. | Workflow "Tarik - Dossier" (mode `update`) |
+| `Experio_importer_dossiers` | Creates the dossiers listed in a spreadsheet, once the list read back is confirmed. | Workflow "Tarik - Dossier" (mode `dossiers`) |
+| `Experio_creer_acces` | Creates a collaborateur or a client and puts them on a dossier, once confirmed. | Workflow "Tarik - Dossier" (mode `person`) |
+| `Experio_archiver_dossier` | Archives a dossier, once confirmed. | Workflow "Tarik - Dossier" (mode `archive`) |
 | `load_skill` | Loads one of the skills below (n8n's own). | n8n |
 
 And four skills (`instructions/skills/`), loaded when a request matches:
@@ -27,6 +30,7 @@ And four skills (`instructions/skills/`), loaded when a request matches:
 | Traitement des documents | Invoices or statements sent, or to process, enter ("saisir"), record or post. |
 | Nouveau dossier | A new dossier, or a FEC or grand livre for one. |
 | Modification de dossier | A change to a dossier's name, type, ICE, IF, RC, patente, T.S.C, capital, CNSS or address. |
+| Gestion des dossiers | A list of dossiers to create, a collaborateur or a client to create and attach, a dossier to archive: each read back and confirmed first. |
 | Réponse à une question | The client answers a question Tarik asked while processing documents, or asks to resume that processing. |
 
 ## Workflows
@@ -58,6 +62,7 @@ above; the workflows call the rest.
 | `copy_configuration` | Copies a model dossier's configuration (the agent asks for it when the client named that dossier). |
 | `import_entries` | Imports a FEC or grand livre, or a setup file (plan comptable, journaux, fournisseurs, clients), through Experio's import screens; asks what a file is when nothing tells. |
 | `ask_banks` | Asks which bank each bank journal is at, one journal at a time; the answer goes through `answer_pending`. |
+| `import_dossiers` / `create_person` / `archive_dossier` | A spreadsheet of dossiers checked whole, read back and created / a collaborateur or client created (or found by email) and put on a dossier with a profile / a dossier archived; each only after the client's yes to its own question. |
 | `finish_setup` / `setup_status` / `waiting_setups` | Finishes a new dossier's onboarding (a dossier without imported entries waits for its setup files until the client says every file was sent) / where its setup stands / the conversation's dossiers left waiting. |
 
 ### Invoices and statements (`tarik/invoices`)

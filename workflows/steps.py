@@ -56,6 +56,12 @@ DOSSIER_INPUTS: Final = MappingProxyType(
         "model_dossier_id": "number",
         "kind": "string",
         "finish": "boolean",  # the client said every setup file was sent: finish the onboarding
+        # Mode person: a collaborateur or a client to create and put on the dossier.
+        "person_kind": "string",
+        "person_name": "string",
+        "email": "string",
+        "phone": "string",
+        "profile": "string",
         # Mode update: the other identity fields a client may change (name, folder_type, ice, if_number above).
         "rc": "string",
         "patente": "string",
