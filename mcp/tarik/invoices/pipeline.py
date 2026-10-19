@@ -13,6 +13,7 @@ from tarik.core.conversation import chosen_among, own_words, yes_no
 from tarik.core.experio import odoo_call, require_invoice
 from tarik.core.words import normalized
 from tarik.dossiers.people import check_sender
+from tarik.dossiers.setup import ask_banks, set_journal_bank
 from tarik.invoices.accounts import set_account
 from tarik.invoices.exercice import settle_exercice
 from tarik.invoices.intake import import_bank_statement
@@ -30,6 +31,7 @@ STEPS = {
     "copy_configuration": "configuration",
     "import_entries": "ecritures",
     "finish_setup": "integration",
+    "ask_banks": "banque",
     "setup_status": "etat du dossier",
     "identify_document": "identification",
     "import_bank_statement": "releve bancaire",
@@ -56,6 +58,7 @@ SETUP_STEPS = {
     "copy_configuration",
     "import_entries",
     "finish_setup",
+    "ask_banks",
     "setup_status",
 }
 # A pending question, the call that applies the client's answer, and the step that follows.
@@ -118,8 +121,8 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     with cabinet_db() as db:
         db.execute(
             "insert into tarik_results (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, "
-            "routine, choices) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (*row, choices),
+            "routine, choices, journal_id) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (*row, choices, result.get("journal_id")),
         )
         if invoice_id and status == "question":
             db.execute(
@@ -189,46 +192,79 @@ STATEMENTS_ASKED = (
 )
 
 
+# Each dossier of a conversation whose last bank question (ask_banks) is still a question.
+BANKS_ASKED = (
+    "select dossier_id, journal_id, message, choices from (select distinct on (dossier_id) dossier_id, journal_id, "
+    "status, message, choices from tarik_results where session_id = %s and step = 'ask_banks' "
+    "order by dossier_id, id desc) latest where status = 'question'"
+)
+
+
+def journal_name(journal_id):
+    """The bank journal's name while it still lacks its bank, else None."""
+    found = odoo_call("exp.journal", "search_read", [("id", "=", journal_id), ("bank_id", "=", False)], fields=["name"])
+    return found[0]["name"] if found else None
+
+
 def waiting_on(session_id):
-    """What this conversation waits on the client for, oldest first: each draft invoice's question, and each bank
-    statement whose last import asked for its bank account. A question on an invoice deleted or posted since is
-    dropped: nothing can answer it any more. Each item: {invoice_id, or file_id and dossier_id; step, question,
-    label (how the questions are listed: "facture 12", "releve mars.pdf"), names (what ``about`` may say), choices
-    ({id: name} the question proposed, if any)}."""
+    """What this conversation waits on the client for, oldest first: each draft invoice's question, each bank
+    statement whose last import asked for its bank account, and each dossier whose bank journal was asked its
+    bank. A question on an invoice deleted or posted since, or on a journal given its bank since, is dropped:
+    nothing can answer it any more. Each item: {invoice_id, or file_id and dossier_id, or dossier_id and
+    journal_id; step, question, label (how the questions are listed: "facture 12", "releve mars.pdf", "journal
+    BQ"), names (what ``about`` may say), choices ({id: name} the question proposed, if any)}."""
     with cabinet_db() as db:
         invoices = db.execute(
             "select invoice_id, step, question, choices from tarik_pending where session_id = %s order by created_at",
             (session_id,),
         ).fetchall()
         statements = db.execute(STATEMENTS_ASKED, (session_id,)).fetchall()
+        banks = db.execute(BANKS_ASKED, (session_id,)).fetchall()
         ids = [i for i, _, _, _ in invoices]
         drafts = set(odoo_call("exp.invoice", "search", [("id", "in", ids), ("state", "=", "draft")])) if ids else set()
         gone = [i for i in ids if i not in drafts]
         if gone:
             db.execute("delete from tarik_pending where invoice_id = any(%s)", (gone,))
-    return [
-        {
-            "invoice_id": i,
-            "step": step,
-            "question": text,
-            "label": f"facture {i}",
-            "names": {str(i)},
-            "choices": choices,
-        }
-        for i, step, text, choices in invoices
-        if i in drafts
-    ] + [
-        {
-            "file_id": f,
-            "dossier_id": d,
-            "step": "import_bank_statement",
-            "question": text,
-            "label": f"releve {name}",
-            "names": {normalized(name), normalized(name.rsplit(".", 1)[0])},
-            "choices": choices,
-        }
-        for f, d, text, name, choices in statements
-    ]
+    return (
+        [
+            {
+                "invoice_id": i,
+                "step": step,
+                "question": text,
+                "label": f"facture {i}",
+                "names": {str(i)},
+                "choices": choices,
+            }
+            for i, step, text, choices in invoices
+            if i in drafts
+        ]
+        + [
+            {
+                "file_id": f,
+                "dossier_id": d,
+                "step": "import_bank_statement",
+                "question": text,
+                "label": f"releve {name}",
+                "names": {normalized(name), normalized(name.rsplit(".", 1)[0])},
+                "choices": choices,
+            }
+            for f, d, text, name, choices in statements
+        ]
+        + [
+            {
+                "dossier_id": d,
+                "journal_id": j,
+                "step": "ask_banks",
+                "question": text,
+                "label": f"journal {name}",
+                "names": {normalized(name), f"journal {j}"},
+                "choices": choices,
+            }
+            for d, j, text, choices in banks
+            for name in [journal_name(j)]
+            if name  # still without its bank
+        ]
+    )
 
 
 def meant(waiting, about):
@@ -250,6 +286,11 @@ def apply_answer(item, answer, decision):
         chosen = chosen_among(decision, item["choices"]) or 0  # 0: the question is asked again
         imported = import_bank_statement(item["file_id"], item["dossier_id"], chosen)
         return {**imported, "step": "import_bank_statement"}
+    if item["step"] == "ask_banks":
+        bank = chosen_among(decision, item["choices"])
+        if not bank:
+            return {**ask_banks(item["dossier_id"]), "step": "ask_banks"}  # asked again, the same journal first
+        return {**set_journal_bank(item["dossier_id"], item["journal_id"], bank), "step": "ask_banks"}
     apply, following = ANSWERS[item["step"]]
     if item["step"] == "link_tiers":
         result = apply(item["invoice_id"], decision, answer, item["choices"])  # the tiers the question proposed

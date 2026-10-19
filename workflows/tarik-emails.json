@@ -351,6 +351,7 @@
             "client_message": "",
             "model_dossier_id": 0,
             "kind": "",
+            "finish": false,
             "rc": "",
             "patente": "",
             "tsc": "",
@@ -472,6 +473,15 @@
               "display": true,
               "canBeUsedToMatch": true,
               "type": "string"
+            },
+            {
+              "id": "finish",
+              "displayName": "finish",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
             },
             {
               "id": "rc",

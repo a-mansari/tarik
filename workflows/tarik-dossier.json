@@ -70,6 +70,10 @@
               "type": "string"
             },
             {
+              "name": "finish",
+              "type": "boolean"
+            },
+            {
               "name": "rc",
               "type": "string"
             },
@@ -452,7 +456,32 @@
           "value": "finish_setup"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id, seconds_left: Math.max(1, Math.round((260000 - (Date.now() - $('Debut').first().json.started)) / 1000)) }) }}",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id, seconds_left: Math.max(1, Math.round((260000 - (Date.now() - $('Debut').first().json.started)) / 1000)), finish: $('Appel').first().json.finish === true }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "e412dce7-4169-558f-946c-0d6d86b21cd6",
+      "name": "Banques (ask_banks)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        340
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "ask_banks"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ dossier_id: $('Dossier cible').first().json.dossier_id }) }}",
         "options": {
           "timeout": 300000
         }
@@ -992,7 +1021,30 @@
       "main": [
         [
           {
+            "node": "Banques (ask_banks)",
+            "type": "main",
+            "index": 0
+          },
+          {
             "node": "Integration (finish_setup)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Banques (ask_banks)": {
+      "main": [
+        [
+          {
+            "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Enregistrer",
             "type": "main",
             "index": 0
           }

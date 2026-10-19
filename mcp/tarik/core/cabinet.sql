@@ -60,6 +60,7 @@ create table if not exists tarik_setups (
 -- A step outcome the client needn't read (tarik.core.app.routine): left out of the run's summary.
 alter table tarik_results add column if not exists routine boolean not null default false;
 alter table tarik_results add column if not exists choices jsonb;
+alter table tarik_results add column if not exists journal_id integer; -- the bank journal a question (ask_banks) is about
 -- The questions waiting for the client, one per invoice.
 create table if not exists tarik_pending (
     invoice_id integer primary key,

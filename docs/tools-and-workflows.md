@@ -16,7 +16,7 @@ Each "Tarik - <cabinet>" agent has these tools, named exactly as below:
 | `Experio_list_collaborators` | The cabinet's collaborators: role, manager or not, number of dossiers. | MCP, read |
 | `Experio_traiter_fichiers` | Processes the invoices and bank statements attached to the conversation, for one dossier, as purchases, sales or both, as the client said. | Workflow "Tarik - Traitement" |
 | `Experio_repondre` | Hands the client's answer (their own words, filled by n8n) to what the conversation waits on, and resumes the processing. Its parameters: `decision`, what the agent read in the answer (oui or non, the tiers, exercice or bank account chosen), and `about`, the invoice or statement answered when several questions wait. | Workflow "Tarik - Traitement" (answer mode) |
-| `Experio_parametrer_dossier` | Creates a dossier, or imports a FEC or grand livre into one. | Workflow "Tarik - Dossier" |
+| `Experio_parametrer_dossier` | Creates a dossier, or imports a FEC, a grand livre or a setup file (plan comptable, journaux, fournisseurs, clients) into one; `finish` when the client says every setup file was sent. | Workflow "Tarik - Dossier" |
 | `Experio_modifier_dossier` | Changes an existing dossier's identity fields. | Workflow "Tarik - Dossier" (mode `update`) |
 | `load_skill` | Loads one of the skills below (n8n's own). | n8n |
 
@@ -56,8 +56,9 @@ above; the workflows call the rest.
 | `create_dossier` | Creates a dossier; refuses an existing ICE or IF, asks about a very similar name; ICE/IF as the client wrote them. |
 | `update_dossier` | Changes a dossier's identity fields; only values the client wrote; refuses another dossier's ICE, IF or name. |
 | `copy_configuration` | Copies a model dossier's configuration (the agent asks for it when the client named that dossier). |
-| `import_entries` | Imports a FEC or grand livre through Experio's Importation screen. |
-| `finish_setup` / `setup_status` / `waiting_setups` | Finishes a new dossier's onboarding / where its setup stands / the conversation's dossiers left waiting. |
+| `import_entries` | Imports a FEC or grand livre, or a setup file (plan comptable, journaux, fournisseurs, clients), through Experio's import screens; asks what a file is when nothing tells. |
+| `ask_banks` | Asks which bank each bank journal is at, one journal at a time; the answer goes through `answer_pending`. |
+| `finish_setup` / `setup_status` / `waiting_setups` | Finishes a new dossier's onboarding (a dossier without imported entries waits for its setup files until the client says every file was sent) / where its setup stands / the conversation's dossiers left waiting. |
 
 ### Invoices and statements (`tarik/invoices`)
 

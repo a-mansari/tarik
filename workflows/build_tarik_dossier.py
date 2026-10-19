@@ -145,9 +145,13 @@ flow.code(
 mcp(
     "Integration (finish_setup)",
     "finish_setup",
-    f"{{ dossier_id: {TARGET}, seconds_left: {SECONDS_LEFT} }}",
+    f"{{ dossier_id: {TARGET}, seconds_left: {SECONDS_LEFT}, finish: {CALL}.finish === true }}",
     [1980, 460],
 )
+# The bank of each bank journal, asked after the imports (a FEC or a journals file names none).
+mcp("Banques (ask_banks)", "ask_banks", f"{{ dossier_id: {TARGET} }}", [1980, 340])
+connect("Imports acceptes ?", "Banques (ask_banks)")
+flow.to_record("Banques (ask_banks)", 0, 1)
 # Its state once finished; a dossier left waiting gets it with its follow-up.
 route("Integration terminee ?", f"{RESULT}.status === 'ok' ? 0 : 1", 2, [2090, 560])
 mcp("Etat du dossier (setup_status)", "setup_status", f"{{ dossier_id: {TARGET} }}", [2200, 560])
