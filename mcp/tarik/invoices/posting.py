@@ -23,6 +23,23 @@ from tarik.core.experio import (
 )
 
 RETRIES, PAUSE = 3, 1.0  # the check can lag right after a refresh
+ACCOUNT = {
+    "purchase": ("third_party_supplier_account", "fournisseur"),
+    "sale": ("third_party_customer_account", "client"),
+}
+
+
+def missing_compte_tiers(invoice):
+    """The role ("fournisseur" or "client") whose Compte Tiers the invoice's tiers lacks, else None. Experio posts
+    without it unless the dossier turned on its optional block, and a posting without one cannot be exported."""
+    field, role = ACCOUNT.get(invoice["type"], (None, None))
+    if not field or not invoice["partner_id"]:
+        return None
+    company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["ignore_third_party_account"])[0]
+    if company["ignore_third_party_account"]:
+        return None
+    partner = odoo_call("exp.partner", "read", [invoice["partner_id"][0]], fields=[field])[0]
+    return None if partner[field] else role
 
 
 def _blocking(invoice_id, context):
@@ -40,11 +57,16 @@ def _blocking(invoice_id, context):
 def post_invoice(invoice_id: int) -> dict:
     """Post (comptabiliser) a draft invoice when Experio's own check finds nothing
     blocking; otherwise list what blocks it."""
-    invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id"])
+    invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "type", "partner_id"])
     if invoice["state"] in POSTED:
         return routine(f"Facture {invoice_id} : deja comptabilisee.")
     if invoice["state"] != "draft":
         return stop(f"Facture {invoice_id} : en etat {invoice['state']}, elle ne peut pas etre comptabilisee.")
+    if role := missing_compte_tiers(invoice):
+        return stop(
+            f"Facture {invoice_id} : pas comptabilisee, son tiers n'a pas de Compte Tiers {role} : le cabinet doit "
+            "l'attribuer dans Experio (fiche du tiers), puis me dire de la comptabiliser."
+        )
     context = invoice_context(invoice)
     with refused(f"post_invoice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu verifier la facture."):
         refresh(invoice_id, context)
