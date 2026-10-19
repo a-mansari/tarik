@@ -272,6 +272,23 @@ def refresh(invoice_id, context):
         odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)
 
 
+def misplaced_journals(company_id, fields):
+    """{setting: journal name, or None when unset} among the dossier's journal settings ``fields`` that are unset or
+    point to another dossier's journal: Experio gives every new dossier its first dossier's journals as defaults,
+    which the dossier's own accounting then cannot read ("enregistrements top secrets")."""
+    company = odoo_call("res.company", "read", [company_id], fields=list(fields))[0]
+    ids = [company[field][0] for field in fields if company[field]]
+    owners = {}
+    if ids:
+        found = odoo_call("exp.journal", "search_read", [("id", "in", ids)], fields=["company_id"])
+        owners = {journal["id"]: journal["company_id"][0] for journal in found}
+    return {
+        field: company[field] and company[field][1]
+        for field in fields
+        if not company[field] or owners.get(company[field][0]) != company_id
+    }
+
+
 def experio_refusal(error):
     """Experio's own message in ``error``: the last line of its traceback, 300 characters at most."""
     return str(error).strip().splitlines()[-1][:300]

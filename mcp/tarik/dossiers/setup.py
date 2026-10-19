@@ -32,7 +32,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from tarik.core.app import ok, question, routine, server, step_tool, stop, wait
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, TEST_MODE
-from tarik.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused, require_dossier
+from tarik.core.experio import dry_run, in_dossier, misplaced_journals, odoo_call, odoo_json, refused, require_dossier
 from tarik.core.words import normalized, said
 from tarik.invoices.exercice import open_exercice
 
@@ -602,6 +602,11 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     notes.append(
         f"{waiting} ligne(s) d'ecritures transmises au traitement d'Experio" if waiting else "aucune ecriture importee"
     )
+    if foreign := other_dossiers_journals(dossier_id):
+        notes.append(
+            f"a regler : {foreign} sont ceux d'un autre dossier, creer ou importer les journaux du dossier "
+            "(Configuration > Comptabilite > Journaux)"
+        )
     return ok(f"Dossier {dossier} : integration terminee ({', '.join(notes)}).")
 
 
@@ -669,6 +674,13 @@ def error_reasons(reasons):
     return " | ".join(f"{text} ({n} lignes)" for text, n in merged.most_common(3))
 
 
+def other_dossiers_journals(dossier_id):
+    """The labels of the dossier's journal settings that point to another dossier's journal (Experio's default for
+    a new dossier, until its own journals are created or imported), "" when none does."""
+    wrong = misplaced_journals(dossier_id, [key for key in POSTING_SETTINGS if "journal" in key])
+    return ", ".join(POSTING_SETTINGS[key] for key, name in wrong.items() if name)
+
+
 @step_tool
 def setup_status(dossier_id: int) -> dict:
     """Where a dossier's setup stands: its imported entries by state, its exercices,
@@ -689,6 +701,8 @@ def setup_status(dossier_id: int) -> dict:
     missing = [label for key, label in POSTING_SETTINGS.items() if not company[key]]
     if missing:
         parts.append("a parametrer avant de comptabiliser : " + ", ".join(missing))
+    if foreign := other_dossiers_journals(dossier_id):
+        parts.append(f"reglages sur les journaux d'un autre dossier (a creer ou importer) : {foreign}")
     if company["show_onboarding"]:
         parts.append("integration pas encore terminee")
     return ok(f"Dossier {dossier} : " + " ; ".join(parts) + ".")

@@ -32,6 +32,8 @@ def experio(monkeypatch):
         return [{"journal_id": state["after"]}]
 
     monkeypatch.setattr(journal, "odoo_call", odoo_call)
+    state["misplaced"] = {}
+    monkeypatch.setattr(journal, "misplaced_journals", lambda company_id, fields: state["misplaced"])
     return state
 
 
@@ -47,8 +49,35 @@ def test_the_invoice_sits_in_the_dossiers_journal(experio):
 
 @pytest.mark.communication
 def test_the_missing_setting_is_named(experio):
-    experio["setting"] = False
+    experio["misplaced"] = {"foreign_purchase_journal_id": None}
     experio["invoice"]["is_local_invoice"] = False
-    assert "journal d'achats etranger" in journal.check_journal(3)["message"]
+    result = journal.check_journal(3)
+    assert result["status"] == "stop" and "journal d'achats etranger configure" in result["message"]
     experio["invoice"].update(enable_multi_journal=True, journal_id=[4, "Choisi"])
     assert journal.check_journal(3)["message"] == "Facture 3 : journal Choisi (choix propre au dossier)."
+
+
+@pytest.mark.communication
+def test_another_dossiers_journal_stops_the_invoice(experio):
+    """Experio's default for a new dossier is its first dossier's journals: the account step could only fail on them."""
+    experio["misplaced"] = {"local_purchase_journal_id": "ACHAT"}
+    result = journal.journal_stop(3, INVOICE)
+    assert result["status"] == "stop"
+    assert "journal d'achats local du dossier (ACHAT) est celui d'un autre dossier" in result["message"]
+    assert "Configuration > Comptabilite > Journaux" in result["message"] and "carte Achat local" in result["message"]
+    experio["misplaced"] = {}
+    assert journal.journal_stop(3, INVOICE) is None
+    experio["misplaced"] = {"local_purchase_journal_id": "ACHAT"}
+    assert journal.journal_stop(3, {**INVOICE, "folder_id": [1, "Douane"]}) is None  # the dossier's own choice
+
+
+@pytest.mark.functionality
+def test_no_account_is_looked_up_without_the_dossiers_journal(experio, monkeypatch):
+    from tarik.invoices import accounts
+
+    draft = {"account_id": False, "type": "purchase"}
+    monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: draft)
+    monkeypatch.setattr(accounts, "require_invoice", lambda invoice_id, fields: INVOICE)
+    experio["misplaced"] = {"local_purchase_journal_id": "ACHAT"}
+    monkeypatch.setattr(accounts, "side_of", lambda invoice: pytest.fail("Experio is not asked for an account"))
+    assert accounts.assign_account(3)["status"] == "stop"

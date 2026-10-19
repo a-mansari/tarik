@@ -25,6 +25,7 @@ def experio(db_cabinet, monkeypatch):
         return 7  # lines handed to Experio
 
     monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {})
     with cabinet_db() as db:
         file_id = db.execute(
             "insert into tarik_files (session_id, file_name, mime_type, data) "
@@ -58,3 +59,11 @@ def test_a_refused_import_never_leaves_the_dossier_waiting(experio, monkeypatch)
         ).fetchone()[0]
     assert setup.import_entries(557, broken)["status"] == "stop"
     assert setup.waiting_setups("s")["dossiers"] == []  # the client sends a corrected file first
+
+
+@pytest.mark.communication
+def test_a_setup_ends_telling_the_journals_still_to_create(experio, monkeypatch):
+    monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {"local_purchase_journal_id": "ACHAT"})
+    message = setup.finish_setup(557, seconds_left=90)["message"]
+    assert "journal d'achats sont ceux d'un autre dossier" in message
+
