@@ -6,7 +6,6 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import log, ok, routine, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
-from tarik.core.documents import scan_pages
 from tarik.core.experio import (
     fill_invoice,
     has_scan,
@@ -17,8 +16,8 @@ from tarik.core.experio import (
     still_reading,
     test_mode_note,
 )
-from tarik.core.model import ask_model, instruction
-from tarik.core.text import normalized
+from tarik.core.model import ask_model, instruction, scan_pages
+from tarik.core.words import normalized
 
 CLASSIFY_PROMPT = instruction("classify-document")
 

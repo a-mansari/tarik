@@ -25,3 +25,12 @@ def test_a_validation_error_is_told_plainly(monkeypatch):
     )
     message = db.queries[0][1][-2]  # the message, then whether it is routine
     assert message == "des informations manquent ou sont invalides pour cette etape."
+
+
+@pytest.mark.communication
+def test_a_crash_is_told_plainly():
+    """The MCP library masks a crash as "Error executing tool <name>", nothing after: the client reads French."""
+    assert pipeline.readable("Error executing tool link_tiers") == "echec technique, reessayez plus tard."
+    assert (
+        pipeline.readable("Error executing tool link_tiers: Facture 3 : tiers refuse.") == "Facture 3 : tiers refuse."
+    )

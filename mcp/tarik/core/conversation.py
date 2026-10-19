@@ -2,7 +2,7 @@
 wrote themselves (a model may not decide a value or a copy), and the agent's reading of their oui / non."""
 
 from tarik.core.cabinets import cabinet_db
-from tarik.core.text import normalized
+from tarik.core.words import normalized
 
 # What ask_agent adds to an email's text for the agent: never the client's own words.
 FILES_NOTE, NO_TEXT = "\n\nFichiers joints : ", "(pas de message)"

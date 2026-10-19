@@ -12,8 +12,7 @@ from tarik.core.cabinets import cabinet_db
 from tarik.core.config import DOSSIER_DOMAIN, SIMILAR_NAME, TEST_MODE
 from tarik.core.conversation import client_messages, own_words
 from tarik.core.experio import dry_run, odoo_call, odoo_json, refused, require_dossier
-from tarik.core.numbers import as_number, written_numbers
-from tarik.core.text import normalized, said, similarity
+from tarik.core.words import as_number, normalized, said, similarity, written_numbers
 from tarik.dossiers.search import dossiers
 
 FOLDER_TYPES = {"company": "societe", "person": "personne physique", "cpu": "CPU", "st": "ST"}

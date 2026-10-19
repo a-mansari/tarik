@@ -25,7 +25,7 @@ from tarik.core.experio import (
     still_reading,
     test_mode_note,
 )
-from tarik.core.text import normalized, ranked
+from tarik.core.words import normalized, ranked
 from tarik.invoices.classify import side_of
 
 # Per invoice side: the party Experio detected, the name printed on the scan, the tiers' Compte Tiers field.

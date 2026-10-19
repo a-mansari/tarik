@@ -5,28 +5,114 @@ Postgres schema (its files, results, questions, mail). A setting is either the c
 (CABINET_SETTINGS: its Experio login, its mailbox's credentials and addresses, its n8n agent) or
 shared by all of them (SHARED_SETTINGS: the mail server, n8n's MCP token, the model), never both.
 
-They come from Vault (tarik.core.vault: secret/tarik/shared, secret/tarik/cabinets/<cabinet>, the
-cabinets being those paths). The tests set them in the environment instead: TARIK_CABINETS lists the
-cabinets, a cabinet's own settings are prefixed with its name (EXPERIO_CABINET_8__ODOO_UID).
+They come from Vault (secret/tarik/shared, secret/tarik/cabinets/<cabinet>, the cabinets being those
+paths). The tests set them in the environment instead: TARIK_CABINETS lists the cabinets, a cabinet's own
+settings are prefixed with its name (EXPERIO_CABINET_8__ODOO_UID).
 
 Settings stay on the server: no tool returns one, and only a ToolError's own message reaches
 the agent (tests/isolation/test_no_setting_shown.py checks every tool).
 
 Each call names its cabinet (the URL /c/<cabinet>/mcp, see server.py), and everything
 cabinet-specific goes through current(): with no cabinet set it fails. There is no
-default cabinet, so a call can only ever work in the one it named."""
+default cabinet, so a call can only ever work in the one it named.
+
+Tarik's settings in Vault (VAULT_ADDR): secret/tarik/shared holds the shared ones, and
+secret/tarik/cabinets/<cabinet> each cabinet's own; the cabinets are those paths.
+
+tarik-mcp logs in with its AppRole (role_id and secret_id files in /run/vault, vault/setup.sh), whose
+policy only reads secret/tarik/*. Everything is read at start, then again every 5 minutes, so a
+changed secret applies without a restart (a new cabinet still needs one: its schema is made at
+start). When Vault can't be reached, the last values stay in use. Without VAULT_ADDR, nothing is
+read here and the settings come from the environment: the tests only (server.py refuses to start)."""
 
 import contextlib
 import contextvars
 import os
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Final
 
+import httpx
 import psycopg
 
-from tarik.core import vault
 from tarik.core.config import POSTGRES
+
+# --- Vault ---
+
+VAULT_ADDRESS = os.getenv("VAULT_ADDR", "").rstrip("/")
+VAULT_ENABLED = bool(VAULT_ADDRESS)
+VAULT_APPROLE = "/run/vault"  # the AppRole files, mounted by docker-compose.yml
+VAULT_REFRESH_SECONDS = 300
+VAULT_RETRY_SECONDS = 30
+
+_vault_lock = threading.Lock()
+_vault_state = {"token": "", "token_until": 0.0, "values": None, "next_read": 0.0}
+
+
+def _vault_request(method, path, token="", **kwargs):
+    """Vault's JSON answer (dict) to ``method`` on ``path``, with ``token`` when given; None for a 404."""
+    headers = {"X-Vault-Token": token} if token else {}
+    answer = httpx.request(method, VAULT_ADDRESS + path, headers=headers, timeout=10, **kwargs)
+    if answer.status_code == 404:
+        return None
+    answer.raise_for_status()
+    return answer.json()
+
+
+def _vault_read(method, path):
+    """Vault's answer to ``method`` on ``path`` (as _vault_request), logged in first when the token is missing
+    or old."""
+    if not _vault_state["token"] or time.monotonic() > _vault_state["token_until"]:  # logged in with the AppRole's ids
+        ids = {name: Path(VAULT_APPROLE, name).read_text().strip() for name in ("role_id", "secret_id")}
+        auth = _vault_request("POST", "/v1/auth/approle/login", json=ids)["auth"]
+        # The token is kept, renewed once 80% of its lease has passed.
+        _vault_state.update(token=auth["client_token"], token_until=time.monotonic() + 0.8 * auth["lease_duration"])
+    return _vault_request(method, path, _vault_state["token"])
+
+
+def read_vault():
+    """Vault's vault_settings: (the shared ones, {cabinet: its own})."""
+    shared = ((_vault_read("GET", "/v1/secret/data/tarik/shared") or {}).get("data") or {}).get("data") or {}
+    listed = ((_vault_read("LIST", "/v1/secret/metadata/tarik/cabinets") or {}).get("data") or {}).get("keys") or []
+    cabinets = {
+        name: _vault_read("GET", f"/v1/secret/data/tarik/cabinets/{name}")["data"]["data"]
+        for name in listed
+        if not name.endswith("/")
+    }
+    return shared, cabinets
+
+
+def _refresh_vault(wait):
+    """Read every setting again, trying for ``wait`` seconds on a first read. Once read, an outage keeps the last
+    values, tried again VAULT_RETRY_SECONDS later."""
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            _vault_state["values"] = read_vault()
+            _vault_state["next_read"] = time.monotonic() + VAULT_REFRESH_SECONDS
+            return
+        except Exception as error:
+            if _vault_state["values"] is not None:  # Vault out for a while: carry on with what was read
+                print(f"vault: {type(error).__name__}; the last values stay in use", flush=True)
+                _vault_state["next_read"] = time.monotonic() + VAULT_RETRY_SECONDS
+                return
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(2)
+
+
+def vault_settings(wait=0):
+    """The shared and per-cabinet vault_settings, read again once they are 5 minutes old. ``wait``: seconds
+    to keep trying a first read (Vault still starting or unsealing)."""
+    with _vault_lock:
+        if _vault_state["values"] is None or time.monotonic() >= _vault_state["next_read"]:
+            _refresh_vault(wait)
+        return _vault_state["values"]
+
+
+# --- The cabinets ---
 
 # A lowercase letter, then up to 62 lowercase letters, digits or underscores: a Postgres schema name and an env
 # prefix as it is, with no quoting nor case change.
@@ -45,7 +131,7 @@ def cabinet_names(value):
     return frozenset(names)
 
 
-CABINETS: Final = cabinet_names(",".join(vault.settings(wait=60)[1]) if vault.ENABLED else os.getenv("TARIK_CABINETS"))
+CABINETS: Final = cabinet_names(",".join(vault_settings(wait=60)[1]) if VAULT_ENABLED else os.getenv("TARIK_CABINETS"))
 _current = contextvars.ContextVar("cabinet")
 
 
@@ -107,9 +193,9 @@ SHARED_SETTINGS = frozenset(
 
 def source():
     """Every setting, as one mapping: <KEY> for a shared one, <CABINET>__<KEY> for a cabinet's own."""
-    if not vault.ENABLED:
+    if not VAULT_ENABLED:
         return os.environ
-    shared, cabinets = vault.settings()
+    shared, cabinets = vault_settings()
     return {
         **shared,
         **{f"{name.upper()}__{key}": value for name, own in cabinets.items() for key, value in own.items()},

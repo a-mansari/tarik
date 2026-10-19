@@ -13,10 +13,10 @@ import uuid
 import psycopg
 import pytest
 
-from tarik.core import vault
+from tarik.core import cabinets
 from tarik.core.cabinets import using
 from tarik.core.config import POSTGRES
-from tarik.core.text import normalized
+from tarik.core.words import normalized
 from tarik.dossiers.search import dossiers
 
 CABINET = os.getenv("TARIK_TEST_CABINET", "experio_cabinet_8")
@@ -54,7 +54,9 @@ SCENARIOS = [
 @pytest.fixture(scope="module")
 def agent():
     agent_id = (
-        vault.settings()[1].get(CABINET, {}).get("AGENT_ID") if vault.ENABLED else os.getenv("TARIK_TEST_AGENT_ID")
+        cabinets.vault_settings()[1].get(CABINET, {}).get("AGENT_ID")
+        if cabinets.VAULT_ENABLED
+        else os.getenv("TARIK_TEST_AGENT_ID")
     )
     if not agent_id:
         pytest.skip(f"no agent for {CABINET}")

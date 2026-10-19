@@ -32,7 +32,7 @@ from tarik.core.app import ok, server, stop, wait, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, TEST_MODE
 from tarik.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused, require_dossier
-from tarik.core.text import normalized
+from tarik.core.words import normalized
 from tarik.invoices.exercice import open_exercice
 
 # The import screen's options; the separator is left empty for Experio to detect it.

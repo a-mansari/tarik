@@ -1,6 +1,6 @@
 """Finding the client's dossier."""
 
-from tarik.core import text
+from tarik.core import words
 from tarik.core.app import log, server
 from tarik.core.config import DOSSIER_DOMAIN, MIN_SIMILARITY
 from tarik.core.experio import odoo_call
@@ -40,7 +40,7 @@ def find_dossier(name: str) -> str:
     found = dossiers_or_none("find_dossier")
     if found is None:
         return UNAVAILABLE
-    close = text.ranked(name, found, MIN_SIMILARITY, top=5)
+    close = words.ranked(name, found, MIN_SIMILARITY, top=5)
     if not close:
         return f"Aucun dossier ne ressemble a « {name} »."
     return "\n".join(f"- {c['name']} (id {c['id']}) : ressemblance {round(score * 100)} %" for score, c in close)

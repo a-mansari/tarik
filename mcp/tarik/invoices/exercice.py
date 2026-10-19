@@ -23,7 +23,7 @@ from tarik.core.experio import (
     require_invoice,
     test_mode_note,
 )
-from tarik.core.text import normalized
+from tarik.core.words import normalized
 from tarik.invoices.check import resolve_date
 
 
@@ -160,7 +160,7 @@ def settle_exercice(invoice_id: int, answer: str = "", decision: str = "") -> di
         order="date_start",
     )
     covering = [e for e in opens if e["date_start"] <= invoice["invoice_date"] <= e["date_end"]]
-    if covering and not answer:
+    if covering:  # an exercice opened meanwhile covers it: linked, whatever the client answered
         return relink(invoice_id, invoice, covering[0])
     if invoice["is_old_invoice"]:
         return routine(f"Facture {invoice_id} : deja comptabilisee comme facture anterieure.")

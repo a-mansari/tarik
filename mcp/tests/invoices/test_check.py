@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tarik.core.model import json_answer
-from tarik.core.numbers import readings
+from tarik.core.words import readings
 from tarik.invoices.check import REPORT_KEYS, as_number, drop_false_alarms, resolve_date, resolve_report
 from tests.fakes import flag
 

@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import httpx
 import pytest
 
-from tarik.core import cabinets, vault
+from tarik.core import cabinets
 
 SECRETS = {
     "shared": {"IMAP_HOST": "mail.example.ma", "N8N_MCP_API_TOKEN": "t"},
@@ -68,10 +68,10 @@ def fake(monkeypatch, tmp_path):
     FakeVault.logins, FakeVault.down, FakeVault.token_ttl = [], [False], [3600]
     server = ThreadingHTTPServer(("127.0.0.1", 0), FakeVault)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    monkeypatch.setattr(vault, "ADDRESS", f"http://127.0.0.1:{server.server_address[1]}")
-    monkeypatch.setattr(vault, "ENABLED", True)
-    monkeypatch.setattr(vault, "APPROLE", str(tmp_path))
-    monkeypatch.setattr(vault, "_state", {"token": "", "token_until": 0.0, "values": None, "next_read": 0.0})
+    monkeypatch.setattr(cabinets, "VAULT_ADDRESS", f"http://127.0.0.1:{server.server_address[1]}")
+    monkeypatch.setattr(cabinets, "VAULT_ENABLED", True)
+    monkeypatch.setattr(cabinets, "VAULT_APPROLE", str(tmp_path))
+    monkeypatch.setattr(cabinets, "_vault_state", {"token": "", "token_until": 0.0, "values": None, "next_read": 0.0})
     monkeypatch.setattr(cabinets, "CABINETS", frozenset({"experio_cabinet_8", "experio_cabinet_60"}))
     yield FakeVault
     server.shutdown()
@@ -102,7 +102,7 @@ def test_the_environment_is_not_read_with_vault(fake, monkeypatch):
 
 @pytest.mark.technical
 def test_the_cabinets_are_the_vaults_paths(fake):
-    assert cabinets.cabinet_names(",".join(vault.settings()[1])) == {"experio_cabinet_8", "experio_cabinet_60"}
+    assert cabinets.cabinet_names(",".join(cabinets.vault_settings()[1])) == {"experio_cabinet_8", "experio_cabinet_60"}
 
 
 @pytest.mark.technical
@@ -111,26 +111,26 @@ def test_a_changed_secret_applies_at_the_next_read(fake, monkeypatch):
         assert cabinets.setting("IMAP_PASSWORD") == "p8"
         fake.secrets["cabinets/experio_cabinet_8"]["IMAP_PASSWORD"] = "rotated"
         assert cabinets.setting("IMAP_PASSWORD") == "p8"  # read once, kept 5 minutes
-        vault._state["next_read"] = 0.0
+        cabinets._vault_state["next_read"] = 0.0
         assert cabinets.setting("IMAP_PASSWORD") == "rotated"
 
 
 @pytest.mark.technical
 def test_one_login_per_token_then_a_new_one_when_it_expires(fake):
-    vault.settings()
-    vault._state["next_read"] = 0.0
-    vault.settings()
+    cabinets.vault_settings()
+    cabinets._vault_state["next_read"] = 0.0
+    cabinets.vault_settings()
     assert len(fake.logins) == 1  # the token lives on: no login per read
-    vault._state.update(token_until=0.0, next_read=0.0)  # expired
-    vault.settings()
+    cabinets._vault_state.update(token_until=0.0, next_read=0.0)  # expired
+    cabinets.vault_settings()
     assert len(fake.logins) == 2
 
 
 @pytest.mark.technical
 def test_an_outage_keeps_the_last_values(fake):
-    vault.settings()
+    cabinets.vault_settings()
     fake.down[0] = True
-    vault._state["next_read"] = 0.0
+    cabinets._vault_state["next_read"] = 0.0
     with cabinets.using("experio_cabinet_8"):
         assert cabinets.setting("IMAP_PASSWORD") == "p8"
 
@@ -139,14 +139,14 @@ def test_an_outage_keeps_the_last_values(fake):
 def test_no_vault_at_start_stops_the_server(fake):
     fake.down[0] = True
     with pytest.raises(httpx.HTTPStatusError):
-        vault.settings(wait=0)
+        cabinets.vault_settings(wait=0)
 
 
 @pytest.mark.security
 def test_a_wrong_approle_is_refused(fake, tmp_path):
     (tmp_path / "secret_id").write_text("guessed")
     with pytest.raises(httpx.HTTPStatusError):
-        vault.settings()
+        cabinets.vault_settings()
 
 
 @pytest.mark.security

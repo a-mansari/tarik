@@ -6,10 +6,12 @@ import os
 import httpx
 import pytest
 
-from tarik.core import vault
+from tarik.core import cabinets
 
 URL = os.getenv("N8N_MCP_API_URL", "http://n8n:5678/mcp-server/http")
-TOKEN = os.getenv("N8N_MCP_API_TOKEN") or (vault.settings()[0].get("N8N_MCP_API_TOKEN", "") if vault.ENABLED else "")
+TOKEN = os.getenv("N8N_MCP_API_TOKEN") or (
+    cabinets.vault_settings()[0].get("N8N_MCP_API_TOKEN", "") if cabinets.VAULT_ENABLED else ""
+)
 
 
 class N8nMcp:

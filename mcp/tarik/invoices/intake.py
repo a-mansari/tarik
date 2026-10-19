@@ -12,9 +12,8 @@ from tarik.core.app import log, ok, question, routine, server, stop, with_ids
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import client_messages
-from tarik.core.documents import pdf_pages, to_pdf
 from tarik.core.experio import dry_run, in_dossier, odoo_call, refused, require_dossier
-from tarik.core.model import ask_model, instruction
+from tarik.core.model import ask_model, instruction, pdf_pages, to_pdf
 from tarik.invoices.classify import classify_pages, client_side
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
