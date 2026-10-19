@@ -382,6 +382,11 @@ PAGES["traitement"] = page(
             "",
             [
                 (
+                    "Dossier (resolve_dossier)",
+                    "Finds the client file from the name the client wrote, even misspelled. Only a 100 % match goes on; otherwise the run stops and the client is asked which file they mean.",
+                ),
+                ("Suite apres resolve_dossier", "One file found: on to the sender check. Otherwise the run stops."),
+                (
                     "Expediteur (check_sender)",
                     "The email's sender must be one of the firm's staff, or of Experio's own team, with this client file assigned. Otherwise the run stops there.",
                 ),

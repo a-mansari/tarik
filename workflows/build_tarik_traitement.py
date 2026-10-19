@@ -1,6 +1,7 @@
 """Build workflows/tarik-traitement.json: the fixed processing sequence as n8n nodes.
 
-Modes: files (the conversation's new files, from identification to posting; with none, the drafts left
+Modes: files (the dossier found from the name the client gave, then the conversation's new files, from
+identification to posting; with none, the drafts left
 waiting or cut short are resumed), resume (those drafts only: "Tarik - Emails" following up, no agent),
 answer (the client's answer to what the conversation waits on, then the sequence resumes there; with nothing
 waiting, the drafts Experio hadn't read yet are resumed)."""
@@ -16,6 +17,9 @@ from steps import (
     TRAITEMENT_INPUTS,
     Workflow,
 )
+
+RESOLVE = "Dossier (resolve_dossier)"
+DOSSIER_ID = f"$('{RESOLVE}').first().json.content[0].text.dossier_id"  # the dossier found, for the whole run
 
 flow = Workflow("tarik-traitement")
 connect, mcp, route = flow.connect, flow.mcp, flow.route
@@ -34,9 +38,13 @@ flow.files_to_process(
     [330, 200],
     [440, 200],
 )
-# Work on an existing dossier: the email's sender must have it.
-sender = flow.check_sender([260, 120], [300, 160])
-connect("Fichiers ou reponse ?", SENDER, 0)
+# The dossier the client named, found here (not by the agent: it never sees an id), then the email's sender must
+# have it. A name that is no single dossier ends the run: the summary asks the client.
+resolved = flow.checked(RESOLVE, "resolve_dossier", f"{{ name: {CALL}.dossier || '' }}", [260, 20], [300, 60])
+flow.to_record(resolved, 1)
+sender = flow.check_sender([260, 120], [300, 160], DOSSIER_ID)
+connect("Fichiers ou reponse ?", RESOLVE, 0)
+connect(resolved, SENDER, 0)
 connect(sender, FILES, 0)
 # No new file ("relancez le traitement"): the conversation's drafts left waiting or cut short are resumed.
 route("Nouveaux fichiers ?", f"{RESULT}.files.length ? 0 : 1", 2, [440, 120])
@@ -55,7 +63,7 @@ route(
 mcp(
     "Releve bancaire (import_bank_statement)",
     "import_bank_statement",
-    f"{{ file_id: {RESULT}.file_id, dossier_id: {CALL}.dossier_id }}",
+    f"{{ file_id: {RESULT}.file_id, dossier_id: {DOSSIER_ID} }}",
     [1100, 40],
 )
 # The client says whether the invoices are purchases or sales; split_invoices asks them when they didn't.
@@ -80,7 +88,7 @@ flow.code(
 mcp(
     "Brouillon (create_draft_invoice)",
     "create_draft_invoice",
-    f"{{ file_id: $json.file_id, dossier_id: {CALL}.dossier_id }}",
+    f"{{ file_id: $json.file_id, dossier_id: {DOSSIER_ID} }}",
     [1760, 200],
 )
 for source, target, output in [

@@ -209,7 +209,7 @@
           "value": {
             "mode": "resume",
             "session_id": "={{ $('Un element par fil').item.json.session_id }}",
-            "dossier_id": 0,
+            "dossier": "",
             "answer": "",
             "decision": "",
             "about": "",
@@ -245,13 +245,13 @@
               "type": "string"
             },
             {
-              "id": "dossier_id",
-              "displayName": "dossier_id",
+              "id": "dossier",
+              "displayName": "dossier",
               "required": false,
               "defaultMatch": false,
               "display": true,
               "canBeUsedToMatch": true,
-              "type": "number"
+              "type": "string"
             },
             {
               "id": "answer",

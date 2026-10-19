@@ -14,7 +14,7 @@ Each "Tarik - <cabinet>" agent has these tools, named exactly as below:
 | `Experio_find_dossier` | Finds a dossier from a name, even misspelled or partial; closest first, with a likeness score. | MCP, read |
 | `Experio_list_invoices` | A dossier's invoices, most recent first; filter: en cours, brouillon, comptabilisee, payee. | MCP, read |
 | `Experio_list_collaborators` | The cabinet's collaborators: role, manager or not, number of dossiers. | MCP, read |
-| `Experio_traiter_fichiers` | Processes the invoices and bank statements attached to the conversation, for one dossier, as purchases, sales or both, as the client said; with what they wrote with the invoices (TVA non récupérable, retenue, répartition, compte, mode de paiement, exercice), each step takes it instead of asking. | Workflow "Tarik - Traitement" |
+| `Experio_traiter_fichiers` | Processes the invoices and bank statements attached to the conversation, for one dossier given by name (Tarik finds it, `resolve_dossier`), as purchases, sales or both, as the client said; with what they wrote with the invoices (TVA non récupérable, retenue, répartition, compte, mode de paiement, exercice), each step takes it instead of asking. | Workflow "Tarik - Traitement" |
 | `Experio_repondre` | Hands the client's answer (their own words, filled by n8n) to what the conversation waits on, and resumes the processing. Its parameters: `decision`, what the agent read in the answer (oui or non, the tiers, exercice or bank account chosen), and `about`, the invoice or statement answered when several questions wait. | Workflow "Tarik - Traitement" (answer mode) |
 | `Experio_parametrer_dossier` | Creates a dossier, or imports a FEC, a grand livre or a setup file (plan comptable, journaux, fournisseurs, clients) into one; `finish` when the client says every setup file was sent. | Workflow "Tarik - Dossier" |
 | `Experio_modifier_dossier` | Changes an existing dossier's identity fields. | Workflow "Tarik - Dossier" (mode `update`) |
@@ -55,6 +55,7 @@ above; the workflows call the rest.
 |---|---|
 | `experio_connection` | Checks Experio can be reached and Tarik can log in. |
 | `list_dossiers` / `find_dossier` | The cabinet's dossiers / the closest ones to a name. |
+| `resolve_dossier` | The dossier of a processing run, from the name the client wrote: its id when exactly one matches at 100 %, otherwise a message asking the client which. |
 | `list_collaborators` | The cabinet's collaborators and their dossiers. |
 | `check_sender` | An email's sender must be a collaborator, or one of Experio's own staff, with that dossier; the chat has no sender to check. |
 | `create_dossier` | Creates a dossier; refuses an existing ICE or IF, asks about a very similar name; ICE/IF as the client wrote them. |

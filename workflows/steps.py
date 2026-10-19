@@ -24,7 +24,7 @@ TRAITEMENT_INPUTS: Final = MappingProxyType(
     {
         "mode": "string",
         "session_id": "string",
-        "dossier_id": "number",
+        "dossier": "string",  # the dossier's name as the client wrote it: resolve_dossier finds it
         "answer": "string",
         "decision": "string",  # what the agent read in the client's answer (answer_pending)
         "about": "string",  # with several questions waiting, the invoice or statement the client answers
@@ -185,10 +185,10 @@ class Workflow:
         self.to_record(name, 1)
         return router
 
-    def check_sender(self, position, router_position):
-        """The email's sender must have the called dossier assigned in Experio (the agent's own chat has no
-        sender): a checked step, a refusal recorded. Returns its router's name."""
-        arguments = f"{{ session_id: {CALL}.session_id, dossier_id: {CALL}.dossier_id }}"
+    def check_sender(self, position, router_position, dossier_id=f"{CALL}.dossier_id"):
+        """The email's sender must have the called dossier (``dossier_id``, a JS expression) assigned in Experio
+        (the agent's own chat has no sender): a checked step, a refusal recorded. Returns its router's name."""
+        arguments = f"{{ session_id: {CALL}.session_id, dossier_id: {dossier_id} }}"
         router = self.checked(SENDER, "check_sender", arguments, position, router_position)
         self.to_record(router, 1)
         return router
