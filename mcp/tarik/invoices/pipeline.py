@@ -304,13 +304,48 @@ def apply_answer(item, answer, decision):
         result = apply(item["invoice_id"], decision, answer, item["choices"])  # the tiers the question proposed
     elif item["step"] == "settle_exercice":  # the client's date, or the exercice chosen
         result = apply(item["invoice_id"], answer, decision)
-    elif item["step"] in DECIDED and yes_no(decision) is None:
+    elif item["step"] in DECIDED and yes_no(decision) is None and yes_no(answer) is None:
         result = question(f"Reponse non comprise. {item['question']}")
     else:
-        result = apply(item["invoice_id"], decision if item["step"] in DECIDED else answer)
+        # A plain "oui" or "non" is read here when the agent left the decision empty (it chose another tool).
+        settled = decision if yes_no(decision) is not None else answer
+        result = apply(item["invoice_id"], settled if item["step"] in DECIDED else answer)
     if result["status"] == "ok":
         result["next_step"] = following
     return {**result, "invoice_id": item["invoice_id"], "step": item["step"]}
+
+
+# The files that came since the conversation's last run recorded anything: not yet taken by any step, not cut
+# parts, not a dossier's entries (those go to the dossier workflow).
+NEW_FILES = (
+    "select file_name from tarik_files where session_id = %s and invoice_id is null and statement_id is null "
+    "and parent_id is null and kind is distinct from 'entries' and created_at > "
+    "coalesce((select max(created_at) from tarik_results where session_id = %s), '-infinity')"
+)
+
+
+def new_files(session_id):
+    """How many files (int) came in this conversation since its last run, for the processing sequence."""
+    with cabinet_db() as db:
+        names = [name for (name,) in db.execute(NEW_FILES, (session_id, session_id))]
+    return sum(not name.lower().endswith(ENTRY_FILES) for name in names)
+
+
+@server.tool()
+def route_message(session_id: str, mode: str = "files") -> dict:
+    """Where a message of this conversation goes in the processing workflow, from what the database knows, not
+    from the tool the agent happened to call (``mode``: files, answer or resume). ``route``: answer when the
+    conversation waits on the client and no file came since its last run; files when files came and nothing
+    waits; both, the answer and the files, when both; else ``mode``, files or answer. A follow-up (resume)
+    stays one."""
+    if mode == "resume":
+        return ok("Suite du traitement.", route="resume")
+    waiting, fresh = bool(waiting_on(session_id)), new_files(session_id) > 0
+    if waiting:
+        route = "both" if fresh else "answer"
+    else:
+        route = "files" if fresh else mode if mode in ("files", "answer") else "files"
+    return ok(f"Aiguillage : {route}.", route=route)
 
 
 @server.tool()

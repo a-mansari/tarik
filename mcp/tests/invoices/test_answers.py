@@ -66,6 +66,14 @@ def test_a_oui_non_question_the_agents_decision_does_not_settle_is_asked_again(a
     assert answers == []  # nothing applied: the client is asked again
 
 
+@pytest.mark.functionality
+def test_a_plain_oui_is_read_even_when_the_agent_left_the_decision_empty(answers):
+    """The agent called the wrong tool for an answer: its decision is empty, the client's "Oui" is still exact."""
+    waits(12, "settle_tva", "Facture de NOVA TELECOM : la TVA est-elle non recuperable ? oui / non")
+    result = pipeline.answer_pending("s", "Oui", "")
+    assert answers == [(12, "Oui")] and result["next_step"] == "check_journal"
+
+
 @pytest.mark.security
 def test_only_a_plain_oui_or_non_decides():
     assert yes_no("oui") is True and yes_no(" Oui ") is True and yes_no("non") is False

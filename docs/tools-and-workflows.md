@@ -84,6 +84,7 @@ above; the workflows call the rest.
 | `configure_cabinet` | Before posting: Experio's own tax creation from the TVA accounts and its settings auto-detection (the Configuration screen's button), then the switches and accounts the invoice's amounts need (retenue de garantie, prorata, assurance, avance, timbre, debours, taxes de sejour) written through the Configuration form, then what still blocks, for the cabinet. |
 | `post_invoice` | Posts the invoice when nothing blocks it. |
 | `list_invoices` | A dossier's invoices, amounts as Experio shows them. |
+| `route_message` | Where a message goes in the Traitement workflow, from the database: an answer when questions wait and no file came since the last run, the files when files came and nothing waits, both when both. The tool the agent picked only decides when nothing else does. |
 | `answer_pending` / `waiting_drafts` | The client's answer to what the conversation waits on (an invoice's question, a statement's bank account; the invoice or statement it names when several wait), with the agent's `decision` (oui or non, the tiers, exercice or bank account chosen) and `about` (which question, when several wait), after the email sender check / drafts waiting for Experio. |
 | `record_step` / `run_summary` | A run's step outcomes (each marked routine or not) / its summary for the client: per invoice, what is not routine, and where it stands. |
 

@@ -128,6 +128,31 @@
       "onError": "continueErrorOutput"
     },
     {
+      "id": "19986e04-edac-598a-ad28-a791db6457f0",
+      "name": "Aiguillage (route_message)",
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1.1,
+      "position": [
+        160,
+        300
+      ],
+      "parameters": {
+        "endpointUrl": "=http://tarik-mcp:8000/c/{{ $('Appel').first().json.cabinet }}/mcp",
+        "serverTransport": "httpStreamable",
+        "tool": {
+          "__rl": true,
+          "mode": "id",
+          "value": "route_message"
+        },
+        "inputMode": "json",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, mode: $('Appel').first().json.mode }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
       "id": "e4425a08-09f5-50b5-b293-662b953ac9ec",
       "name": "Fichiers ou reponse ?",
       "type": "n8n-nodes-base.switch",
@@ -138,8 +163,8 @@
       ],
       "parameters": {
         "mode": "expression",
-        "numberOutputs": 3,
-        "output": "={{ { answer: 1, resume: 2 }[$('Appel').first().json.mode] ?? 0 }}"
+        "numberOutputs": 4,
+        "output": "={{ { files: 0, answer: 1, resume: 2, both: 3 }[$('Aiguillage (route_message)').first().json.content?.[0]?.text?.route ?? $('Appel').first().json.mode] ?? 0 }}"
       }
     },
     {
@@ -1231,7 +1256,7 @@
           "value": "answer_pending"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, answer: $('Appel').first().json.answer, decision: String($('Appel').first().json.decision ?? ''), about: String($('Appel').first().json.about ?? '') }) }}",
+        "jsonInput": "={{ JSON.stringify({ session_id: $('Appel').first().json.session_id, answer: $('Appel').first().json.answer || $('Appel').first().json.client_message || '', decision: String($('Appel').first().json.decision ?? ''), about: String($('Appel').first().json.about ?? '') }) }}",
         "options": {
           "timeout": 300000
         }
@@ -1358,7 +1383,7 @@
       "main": [
         [
           {
-            "node": "Fichiers ou reponse ?",
+            "node": "Aiguillage (route_message)",
             "type": "main",
             "index": 0
           }
@@ -1366,6 +1391,24 @@
         [
           {
             "node": "Enregistrer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aiguillage (route_message)": {
+      "main": [
+        [
+          {
+            "node": "Fichiers ou reponse ?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fichiers ou reponse ?",
             "type": "main",
             "index": 0
           }
@@ -1463,6 +1506,18 @@
         [
           {
             "node": "Brouillons en attente (waiting_drafts)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Dossier (resolve_dossier)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Reponse du client (answer_pending)",
             "type": "main",
             "index": 0
           }
