@@ -1,6 +1,7 @@
 """The guards every tool goes through: a real dossier or invoice id, Tarik's own user."""
 
 import http.client
+import threading
 
 import httpx
 import pytest
@@ -131,3 +132,18 @@ def test_json_reads_are_asked_again_once_writes_and_timeouts_never(monkeypatch):
     with pytest.raises(httpx.ReadTimeout):
         experio.odoo_json("exp.invoice", "onchange", [7])
     assert posted == ["onchange"]
+
+
+@pytest.mark.technical
+def test_one_xml_rpc_proxy_per_thread_and_path(monkeypatch):
+    """Calls reuse their connection: the same proxy within a thread, another per path, URL or thread."""
+    monkeypatch.setattr(experio, "ODOO_URL", "http://experio.invalid")
+    common, other = experio.rpc("/xmlrpc/2/common"), experio.rpc("/xmlrpc/2/object")
+    assert experio.rpc("/xmlrpc/2/common") is common and other is not common
+    monkeypatch.setattr(experio, "ODOO_URL", "http://other.invalid")
+    assert experio.rpc("/xmlrpc/2/common") is not common  # the tests point ODOO_URL elsewhere: never the old proxy
+    elsewhere = []
+    thread = threading.Thread(target=lambda: elsewhere.append(experio.rpc("/xmlrpc/2/common")))
+    thread.start()
+    thread.join()
+    assert elsewhere[0] is not experio.rpc("/xmlrpc/2/common")
