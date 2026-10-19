@@ -89,6 +89,8 @@ right every time is decided by n8n or by code:
   dossier whose name is very close to another's, needs Tarik's own question about that dossier first;
   every modified value, and a new dossier's ICE and IF, must appear in the client's own messages (whole
   words, amounts as numbers), checked in Python.
+- **Instructions sent with the invoices** (an account, a payment method, a retenue): taken only when the client's
+  own message holds them (`instructed`); oui / non ones are the agent's reading, as for a question.
 - **Which answers count**: a oui / non question takes exactly "oui" or "non", anything else asks it again;
   a tiers question takes only a tiers it proposed (or an ICE that names one of the dossier's tiers); an
   exercice question takes "nouveau" or one of the open exercices it listed; a bank account question one of

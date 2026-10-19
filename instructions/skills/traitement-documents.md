@@ -13,12 +13,13 @@ DÉCIDE TOUT DE SUITE :
 
 ÉTAPES :
 1. Experio_find_dossier avec le nom donné par le client.
-2. Experio_traiter_fichiers, une seule fois, avec dossier_id = l'id du dossier choisi et invoice_type = ce que le client a écrit.
+2. Experio_traiter_fichiers, une seule fois, avec dossier_id = l'id du dossier choisi, invoice_type = ce que le client a écrit, et les consignes qu'il a écrites lui-même avec ses factures (elles valent pour toutes les factures du message) : tva_non_recuperable (« oui » / « non »), retenue (ses mots recopiés), repartir (« oui » / « non »), compte (le compte qu'il nomme, recopié), mode_paiement, exercice (« nouveau » ou l'exercice ouvert qu'il nomme). Chacune vide quand le client n'en dit rien : vide veut dire « comme d'habitude », jamais une supposition.
 3. Recopie sa réponse mot pour mot, facture par facture, sans la reformuler. Garde les numéros exacts.
 
 NE JAMAIS :
 - dire qu'aucun fichier n'est joint sans avoir appelé Experio_traiter_fichiers ;
 - appeler Experio_traiter_fichiers sans l'id donné par Experio_find_dossier, ou deux fois pour la même demande ;
 - deviner invoice_type à la place du client, même si les fichiers semblent clairs ;
+- remplir une consigne (tva_non_recuperable, retenue, repartir, compte, mode_paiement, exercice) que le client n'a pas écrite, ou la déduire des factures ;
 - demander une confirmation avant de traiter ;
 - traiter un FEC ou un grand livre ici : c'est la compétence « Nouveau dossier ».

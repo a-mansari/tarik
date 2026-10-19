@@ -54,6 +54,30 @@
               "type": "string"
             },
             {
+              "name": "tva_non_recuperable",
+              "type": "string"
+            },
+            {
+              "name": "retenue",
+              "type": "string"
+            },
+            {
+              "name": "repartir",
+              "type": "string"
+            },
+            {
+              "name": "compte",
+              "type": "string"
+            },
+            {
+              "name": "mode_paiement",
+              "type": "string"
+            },
+            {
+              "name": "exercice",
+              "type": "string"
+            },
+            {
               "name": "attachments",
               "type": "string"
             },
@@ -506,7 +530,7 @@
           "value": "correct_invoice"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id, payment_method: $('Appel').first().json.mode_paiement || '', client_message: $('Appel').first().json.client_message || '' }) }}",
         "options": {
           "timeout": 300000
         }
@@ -718,7 +742,7 @@
           "value": "assign_account"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id, answer: $('Appel').first().json.compte || '', client_message: $('Appel').first().json.client_message || '' }) }}",
         "options": {
           "timeout": 300000
         }
@@ -771,7 +795,7 @@
           "value": "settle_tva"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id, answer: $('Appel').first().json.tva_non_recuperable || '' }) }}",
         "options": {
           "timeout": 300000
         }
@@ -877,7 +901,7 @@
           "value": "settle_withholding"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id, answer: $('Appel').first().json.retenue || '', client_message: $('Appel').first().json.client_message || '' }) }}",
         "options": {
           "timeout": 300000
         }
@@ -930,7 +954,7 @@
           "value": "settle_prepaid"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id, answer: $('Appel').first().json.repartir || '' }) }}",
         "options": {
           "timeout": 300000
         }
@@ -983,7 +1007,7 @@
           "value": "settle_exercice"
         },
         "inputMode": "json",
-        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id }) }}",
+        "jsonInput": "={{ JSON.stringify({ invoice_id: $json.content[0].text.invoice_id, answer: $('Appel').first().json.exercice || '', decision: $('Appel').first().json.exercice || '' }) }}",
         "options": {
           "timeout": 300000
         }

@@ -13,6 +13,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 from tarik.core.app import log, ok, question, step_tool, with_ids
 from tarik.core.config import TEST_MODE
+from tarik.core.conversation import instructed
 from tarik.core.experio import (
     dry_run,
     fill_invoice,
@@ -125,11 +126,16 @@ def _model_choice(invoice, kind, designation):
 
 
 @step_tool
-def assign_account(invoice_id: int) -> dict:
-    """Give a draft invoice its account (Compte): the one Experio memorized for
-    its tiers, else the one matching what the invoice bills. Call it after
-    link_tiers and check_invoice. When none fits, the answer is the question to
-    ask the client; their answer goes to set_account (answer_pending)."""
+def assign_account(invoice_id: int, answer: str = "", client_message: str = "") -> dict:
+    """Give a draft invoice its account (Compte): the one the client named with
+    the invoice (``answer``, taken only when ``client_message`` holds it: set_account),
+    else the one Experio memorized for its tiers, else the one matching what the
+    invoice bills. Call it after link_tiers and check_invoice. When none fits, the
+    answer is the question to ask the client; their answer goes to set_account
+    (answer_pending)."""
+    told = instructed(answer, client_message)
+    if told:
+        return set_account(invoice_id, told)
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     if invoice["account_id"]:
         return ok(f"Facture {invoice_id} : compte deja renseigne, {invoice['account_id'][1]}.")
