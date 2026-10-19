@@ -186,6 +186,17 @@ def in_dossier(dossier_id):
     return {"allowed_company_ids": [dossier_id]}
 
 
+def main_dossier_context():
+    """The context that makes Experio create a dossier as if from the cabinet's main one (base.main_company): a new
+    dossier takes its defaults (journals, accounts, taxes) from the creator's current dossier, which is a client's,
+    whose ones the new dossier then cannot read. The main one has none, so the new dossier starts empty and Experio
+    fills its settings from the dossier's own journals and accounts as they are created or imported."""
+    main = odoo_call(
+        "ir.model.data", "search_read", [("module", "=", "base"), ("name", "=", "main_company")], fields=["res_id"]
+    )
+    return in_dossier(main[0]["res_id"])
+
+
 # --- Guards: a real dossier or invoice, else a ToolError the agent reads ---
 
 
