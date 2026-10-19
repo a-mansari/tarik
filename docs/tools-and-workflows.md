@@ -17,7 +17,7 @@ Each "Tarik - <cabinet>" agent has these tools, named exactly as below:
 | `Experio_traiter_fichiers` | Processes the invoices and bank statements attached to the conversation, for one dossier, as purchases, sales or both, as the client said. | Workflow "Tarik - Traitement" |
 | `Experio_repondre` | Hands the client's answer (their own words, filled by n8n) to what the conversation waits on, and resumes the processing. Its parameters: `decision`, what the agent read in the answer (oui or non, the tiers, exercice or bank account chosen), and `about`, the invoice or statement answered when several questions wait. | Workflow "Tarik - Traitement" (answer mode) |
 | `Experio_parametrer_dossier` | Creates a dossier, or imports a FEC or grand livre into one. | Workflow "Tarik - Dossier" |
-| `Experio_modifier_dossier` | Changes an existing dossier's identity fields. | Workflow "Tarik - Modification" |
+| `Experio_modifier_dossier` | Changes an existing dossier's identity fields. | Workflow "Tarik - Dossier" (mode `update`) |
 | `load_skill` | Loads one of the skills below (n8n's own). | n8n |
 
 And four skills (`instructions/skills/`), loaded when a request matches:
@@ -37,8 +37,7 @@ an MCP call at the cabinet's address, its outcome recorded; the run's summary is
 | Workflow | Started by | What it does |
 |---|---|---|
 | **Tarik - Traitement** (`TarikTraitement1`) | `Experio_traiter_fichiers`, `Experio_repondre`, "Tarik - Emails" (follow-up) | Saves the agent's attachments, checks the email sender, then for each file: identifies it, imports a bank statement, or splits a PDF into invoices and runs each through the sequence: draft, Experio's reading, check against the scan, correction, classification, tiers, duplicate, account, TVA, journal, withholding, prepaid charges, fiscal year, posting. A step that needs the client stops with a question. Answer mode: `answer_pending` applies the client's answer, then the sequence resumes at the next step; with nothing waiting, drafts Experio hadn't read yet are resumed. Resume mode (a follow-up): those drafts only. |
-| **Tarik - Dossier** (`TarikDossier0001`) | `Experio_parametrer_dossier`, "Tarik - Emails" (follow-up) | A new dossier: creates it, copies a model dossier's configuration when the agent gives one. An existing one: checks the email sender. Then imports each FEC or grand livre, finishes the onboarding, and reports the dossier's state. Resume mode (a follow-up): finishes the dossiers left waiting. |
-| **Tarik - Modification** (`TarikModif000001`) | `Experio_modifier_dossier` | Checks the email sender, then changes only the given fields, only to values the client wrote. |
+| **Tarik - Dossier** (`TarikDossier0001`) | `Experio_parametrer_dossier`, `Experio_modifier_dossier`, "Tarik - Emails" (follow-up) | A new dossier: creates it, copies a model dossier's configuration when the agent gives one. An existing one: checks the email sender. Then imports each FEC or grand livre, finishes the onboarding, and reports the dossier's state. Resume mode (a follow-up): finishes the dossiers left waiting. |
 | **Tarik - Emails** (`TarikEmails00001`) | `tarik-mail-watch` (webhook, secret header) | Claims the threads waiting for an answer, acknowledges a new one, gets each one's reply from the cabinet's agent, sends it; a sender refused on the dossier gets nothing, the manager is told. A follow-up runs Traitement and Dossier in resume mode, without the agent, and sends their summaries. The watcher reads and stores the emails, and tells the manager about refused senders. |
 
 ## The Python tools (`tarik-mcp`)
@@ -94,7 +93,7 @@ above; the workflows call the rest.
 
 | Script | Use |
 |---|---|
-| `workflows/build_tarik_traitement.py`, `build_tarik_dossier.py`, `build_tarik_modification.py`, `build_tarik_emails.py`, `build_tarik_merge_test.py` | Rebuild a workflow's JSON; then import and publish it (README). |
+| `workflows/build_tarik_traitement.py`, `build_tarik_dossier.py`, `build_tarik_emails.py`, `build_tarik_merge_test.py` | Rebuild a workflow's JSON; then import and publish it (README). |
 | `workflows/build_tarik_agents.py` | Create or update every cabinet's agent from the template and the skills; checks the tool names first. |
 | `workflows/save_layout.py` | Saves the node positions arranged in n8n's editor to `workflows/layout.json`, which the builders apply. |
 | `docs/workflows-overview/build.py` | Rebuilds the workflows overview pages (and their PDFs) from the workflows' JSON. |

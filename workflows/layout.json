@@ -163,32 +163,6 @@
       400
     ]
   },
-  "TarikModif000001": {
-    "Appel": [
-      0,
-      544
-    ],
-    "Expediteur (check_sender)": [
-      224,
-      448
-    ],
-    "Suite apres check_sender": [
-      464,
-      336
-    ],
-    "Modification (update_dossier)": [
-      640,
-      256
-    ],
-    "Enregistrer": [
-      992,
-      624
-    ],
-    "Résumé": [
-      224,
-      640
-    ]
-  },
   "TarikTraitement1": {
     "Appel": [
       -1760,
