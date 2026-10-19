@@ -60,6 +60,15 @@ arguments there. A model is used in two places only: the agent, and some tools t
 
 This is read from the code (which tools call `ask_model`): when you add a tool that calls the model, add it here.
 
+## Why not n8n Data Tables
+
+Tarik keeps all its state in Postgres, one schema per cabinet, and does not use n8n's Data Tables. They are
+scoped to an n8n project, not to a cabinet, their total size across the instance is capped (set with
+`N8N_DATA_TABLES_MAX_SIZE_BYTES`; the n8n docs call them suited to light storage), and Code nodes can't read them. Our state
+is relational and large (PDFs, check results, pending questions, mail) and written by the Python tools, so
+n8n nodes would only add a second place for it. Worth revisiting only if non-developers need to edit a small list
+(cabinets, allowed senders) in the n8n UI.
+
 ## Cabinets
 
 One Tarik serves several cabinets, and never mixes them. A cabinet is named by its exact
