@@ -38,7 +38,7 @@ def chosen(monkeypatch):
     from tarik.invoices import tiers
 
     invoice = {"id": 4, "company_id": [778, "D"], "type": "purchase", "partner_id": False}
-    monkeypatch.setattr(tiers, "draft_invoice", lambda invoice_id: invoice)
+    monkeypatch.setattr(tiers, "require_draft_invoice", lambda invoice_id, fields, what, read: invoice)
     monkeypatch.setattr(tiers, "require_invoice", lambda invoice_id, fields: invoice)
     monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"ice": "", **p} for p in TIERS])
     monkeypatch.setattr(tiers, "side_of", lambda invoice: "purchase")

@@ -4,7 +4,7 @@ import re
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import log, ok, routine, server, stop, with_ids
+from tarik.core.app import log, ok, routine, step_tool, stop
 from tarik.core.cabinets import cabinet_db
 from tarik.core.experio import (
     fill_invoice,
@@ -78,8 +78,7 @@ def _save_classification(invoice_id, category, reason):
         )
 
 
-@server.tool()
-@with_ids
+@step_tool
 def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     """Decide what a draft really is once Experio has read it: a purchase
     (achat), a sale (vente) or a bank statement (rb, not an invoice at all).

@@ -6,7 +6,7 @@ ticking it in the form fills and validates the period, and posting generates the
 entries with the dossier's prepaid account and journal.
 """
 
-from tarik.core.app import ok, question, routine, server, with_ids
+from tarik.core.app import ok, question, routine, step_tool
 from tarik.core.conversation import yes_no
 from tarik.core.experio import (
     experio_notes,
@@ -31,8 +31,7 @@ def prepaid_period(start, end):
     return {"prepaid_start_date": start, "prepaid_end_date": end, "prepaid_months": months}
 
 
-@server.tool()
-@with_ids
+@step_tool
 def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
     """When a draft invoice bills a period over several months, ask whether to spread it
     (charges or produits constates d'avance); call again with ``answer`` "oui" or "non", as the agent read the

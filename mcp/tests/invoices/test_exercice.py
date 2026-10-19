@@ -40,7 +40,7 @@ def test_an_exercice_covering_the_date_is_linked_whatever_the_answer(monkeypatch
         "invoice_date": "2025-03-15",
         "is_old_invoice": False,
     }
-    monkeypatch.setattr(exercice, "require_invoice", lambda invoice_id, fields: dict(invoice))
+    monkeypatch.setattr(exercice, "require_draft_invoice", lambda invoice_id, fields, what: dict(invoice))
     monkeypatch.setattr(exercice, "odoo_call", lambda *args, **kw: OPENS)
     monkeypatch.setattr(
         exercice, "relink", lambda invoice_id, invoice, found: {"status": "ok", "message": found["name"]}

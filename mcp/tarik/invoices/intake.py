@@ -8,7 +8,7 @@ import re
 import pypdfium2
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import log, ok, question, routine, server, stop, with_ids
+from tarik.core.app import log, ok, question, routine, step_tool, stop
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import client_messages
@@ -44,8 +44,7 @@ def as_pdf(mime, data):
     return to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
 
 
-@server.tool()
-@with_ids
+@step_tool
 def identify_document(file_id: int) -> dict:
     """Call it first for every file the client sends: says whether it is an
     invoice (then split_invoices, create_draft_invoice) or a bank statement
@@ -122,8 +121,7 @@ def save_parts(db, session_id, name, file_id, documents):
     return made
 
 
-@server.tool()
-@with_ids
+@step_tool
 def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "") -> dict:
     """Call it for every file identify_document found to be an invoice: a PDF
     may hold several invoices. Returns the file number of each invoice found (the same file
@@ -177,8 +175,7 @@ def import_pdf(wizard, name, raw, dossier_id, **values):
     return created[0]
 
 
-@server.tool()
-@with_ids
+@step_tool
 def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
     """Create a draft invoice in Experio from a file the client sent, in the
     client's dossier. file_id is the number shown next to the file name;
@@ -255,8 +252,7 @@ def statement_journal(name, dossier, dossier_id, journal_id):
     return next(j for j in usable if j["id"] == journal_id)
 
 
-@server.tool()
-@with_ids
+@step_tool
 def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) -> dict:
     """Import a bank statement the client sent into the dossier's bank journal,
     through Experio's own statement import (Experio then reads its lines).

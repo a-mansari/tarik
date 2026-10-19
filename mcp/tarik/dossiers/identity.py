@@ -7,12 +7,12 @@ from typing import Final
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, question, server, stop, with_ids
+from tarik.core.app import ok, question, server, step_tool, stop
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import DOSSIER_DOMAIN, SIMILAR_NAME, TEST_MODE
 from tarik.core.conversation import client_messages, own_words
 from tarik.core.experio import dry_run, odoo_call, odoo_json, refused, require_dossier
-from tarik.core.words import as_number, normalized, said, similarity, written_numbers
+from tarik.core.words import ICE_WRITTEN, as_number, normalized, said, similarity, written_numbers
 from tarik.dossiers.search import dossiers
 
 FOLDER_TYPES = {"company": "societe", "person": "personne physique", "cpu": "CPU", "st": "ST"}
@@ -26,9 +26,6 @@ SIMILAR_QUESTION = (
     "Un dossier au nom tres proche existe deja ({names}). Faut-il quand meme creer un nouveau dossier {name} ? "
     "oui / non"
 )
-
-# 15 digits, not inside a longer number: an ICE.
-ICE_WRITTEN: Final = re.compile(r"(?<!\d)\d{15}(?!\d)")
 
 # What a client may change in a dossier: the fields of Experio's dossier form, before its tabs (the
 # currency and the logo aside). Tool argument -> Experio field, and how Tarik names it to the client.
@@ -316,8 +313,7 @@ def conflict(dossier_id, dossier, changes):
     return None
 
 
-@server.tool()
-@with_ids
+@step_tool
 def update_dossier(
     dossier_id: int,
     name: str = "",

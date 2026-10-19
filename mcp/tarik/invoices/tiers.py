@@ -10,7 +10,7 @@ import re
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, question, server, with_ids
+from tarik.core.app import ok, question, step_tool
 from tarik.core.config import TIERS_MIN_SIMILARITY
 from tarik.core.experio import (
     dry_run,
@@ -20,12 +20,11 @@ from tarik.core.experio import (
     odoo_call,
     odoo_json,
     refused,
-    require_draft,
+    require_draft_invoice,
     require_invoice,
-    still_reading,
     test_mode_note,
 )
-from tarik.core.words import normalized, ranked
+from tarik.core.words import ICE_WRITTEN, normalized, ranked
 from tarik.invoices.classify import side_of
 
 # Per invoice side: the party Experio detected, the name printed on the scan, the tiers' Compte Tiers field.
@@ -107,15 +106,6 @@ def link(invoice, partner_id, kind):
     return ok(f"{test_mode_note()}Facture {invoice['id']} : {SIDE[kind]['role']} {name}, {account}.")
 
 
-def draft_invoice(invoice_id):
-    """The invoice's INVOICE_FIELDS (dict); ToolError unless it is a draft Experio has finished reading."""
-    invoice = require_invoice(invoice_id, INVOICE_FIELDS)
-    require_draft(invoice_id, invoice, "changer de tiers")
-    if waiting := still_reading(invoice):
-        raise ToolError(waiting["message"])
-    return invoice
-
-
 def dossier_tiers(company_id):
     """The dossier's tiers: [{id, name, ice}]."""
     return odoo_call(
@@ -127,14 +117,13 @@ def dossier_tiers(company_id):
     )
 
 
-@server.tool()
-@with_ids
+@step_tool
 def link_tiers(invoice_id: int) -> dict:
     """Give a draft invoice its tiers -- the supplier of a purchase, the customer
     of a sale -- as Experio detected it from the scan, and make sure that tiers has
     its Compte Tiers (needed to post). Call it after classify_invoice. When no tiers
     was detected, the question suggests close names; the client's answer goes to choose_tiers (answer_pending)."""
-    invoice = draft_invoice(invoice_id)
+    invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de tiers", read=True)
     kind = side_of(invoice)
     role = SIDE[kind]["role"]
     detected = invoice[SIDE[kind]["detected"]]
@@ -185,7 +174,7 @@ def choose_tiers(invoice_id, decision, answer, question_asked=""):
     agent's ``decision``, read from the client's ``answer`` (their own words), names the chosen tiers (proposed_choice),
     taken only when the question proposed it; or it is the other name or ICE the client gave instead: the ICE of one
     of the dossier's tiers links it, a name is searched for and the closest are proposed again."""
-    invoice = draft_invoice(invoice_id)
+    invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de tiers", read=True)
     chosen = proposed_choice(decision, question_asked)
     if chosen:
         return link(invoice, chosen, side_of(invoice))
@@ -193,7 +182,7 @@ def choose_tiers(invoice_id, decision, answer, question_asked=""):
     # Not one proposed: the name or ICE the client gave instead, as the agent read it, else their own words.
     an_id = decision.isdigit() and len(decision) < 15
     given = decision if decision and not an_id else answer
-    written = re.findall(r"(?<!\d)\d{15}(?!\d)", given)  # an ICE: 15 digits
+    written = ICE_WRITTEN.findall(given)
     by_ice = [p for p in dossier_tiers(invoice["company_id"][0]) if p["ice"] and p["ice"] in written]
     if len(by_ice) == 1:
         return link(invoice, by_ice[0]["id"], side_of(invoice))

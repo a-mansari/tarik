@@ -9,7 +9,7 @@ question when no open exercice covers the date -- late invoice in an open one, o
 
 import re
 
-from tarik.core.app import log, ok, question, routine, server, with_ids
+from tarik.core.app import log, ok, question, routine, step_tool
 from tarik.core.experio import (
     dry_run,
     experio_refusal,
@@ -19,8 +19,7 @@ from tarik.core.experio import (
     odoo_call,
     odoo_json,
     refused,
-    require_draft,
-    require_invoice,
+    require_draft_invoice,
     test_mode_note,
 )
 from tarik.core.words import normalized
@@ -129,16 +128,15 @@ def new_exercice(invoice_id, invoice, opens):
     return ok(f"Facture {invoice_id} : exercice {year} cree et ouvert, la facture y est rattachee.")
 
 
-@server.tool()
-@with_ids
+@step_tool
 def settle_exercice(invoice_id: int, answer: str = "", decision: str = "") -> dict:
     """Make sure a draft invoice is booked in an open fiscal year. When none covers its
     date, the answer is a question (late invoice in an open exercice, or a new one);
     call again with the client's reply as ``answer`` and what the agent read in it as
     ``decision``: "nouveau", or the open exercice chosen, named as the question lists it.
     An invoice without a date asks for it first: ``answer`` then holds the date."""
-    invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "invoice_date", "is_old_invoice"])
-    require_draft(invoice_id, invoice, "changer d'exercice")
+    fields = ["state", "company_id", "exercice_id", "invoice_date", "is_old_invoice"]
+    invoice = require_draft_invoice(invoice_id, fields, "changer d'exercice")
     if not invoice["invoice_date"]:  # the answer to "Quelle est sa date ?" is its date, written as the client wrote it
         given = given_date(answer)
         if not given:

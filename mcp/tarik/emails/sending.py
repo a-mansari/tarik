@@ -25,10 +25,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from tarik.core.app import log, ok, server
 from tarik.core.cabinets import current, setting
 from tarik.core.experio import odoo_call
+from tarik.core.words import strip_tags
 
 MAIL_TIMEOUT = 60  # seconds before the mail server is given up
 
-TAG = re.compile(r"</?[a-zA-Z][^<>]*>")  # an HTML tag, not "a < b"
 BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")  # **text** or __text__
 # *text*: single stars, not inside a word nor next to another star, the text not starting or ending with a space.
 ITALIC = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])")
@@ -126,7 +126,7 @@ def blocks(body):
     """The message as paragraphs and lists, cleaned of HTML tags and Markdown headings and rules:
     [("p", [lines]) | ("ul", [items])]."""
     found = []
-    for line in TAG.sub("", body or "").replace("\r", "").split("\n"):
+    for line in strip_tags(body).replace("\r", "").split("\n"):
         line = HEADING.sub("", line).rstrip()
         if RULE.fullmatch(line) or not line.strip():  # a rule or a blank line ends a block
             found.append(None)

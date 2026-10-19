@@ -28,7 +28,7 @@ from datetime import date, datetime
 import openpyxl
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, server, stop, wait, with_ids
+from tarik.core.app import ok, server, step_tool, stop, wait
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, TEST_MODE
 from tarik.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused, require_dossier
@@ -54,8 +54,7 @@ FEC_HEADERS = {"journalcode", "ecrituredate", "comptenum", "debit", "credit"}
 ACCOUNT_HEADERS = ("comptenum", "compte", "numerocompte", "numcompte")
 
 
-@server.tool()
-@with_ids
+@step_tool
 def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
     """Copy a model dossier's accounts, taxes, journals, bank and TPE operations and
     settings into a new dossier (Experio's "Appliquer la configuration"). The agent asks for it
@@ -225,8 +224,7 @@ def errors_of(answer):
     return [m.get("message", "") for m in answer.get("messages") or [] if m.get("type") == "error"]
 
 
-@server.tool()
-@with_ids
+@step_tool
 def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     """Import a dossier's entries from a FEC or grand livre file (CSV, TXT or Excel), through
     Experio's Importation screen: it creates the missing accounts, journals, tiers and
@@ -351,8 +349,7 @@ def complete_stepper(company, context):
     odoo_json("res.company", "complete_onboarding", context=context)  # its write hands the waiting lines over
 
 
-@server.tool()
-@with_ids
+@step_tool
 def finish_setup(dossier_id: int, seconds_left: int = 0) -> dict:
     """Finish a new dossier's onboarding as its stepper does (Suivant to the last
     step, then Enregistrer et terminer): Experio then processes the imported entries.
@@ -452,8 +449,7 @@ def error_reasons(reasons):
     return " | ".join(f"{text} ({n} lignes)" for text, n in merged.most_common(3))
 
 
-@server.tool()
-@with_ids
+@step_tool
 def setup_status(dossier_id: int) -> dict:
     """Where a dossier's setup stands: its imported entries by state, its exercices,
     and the settings Experio needs before an invoice can be posted."""

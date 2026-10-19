@@ -7,7 +7,7 @@ invoice sent twice before either is posted, the same rule across same-number dra
 format, and the label field would override it.
 """
 
-from tarik.core.app import ok, routine, server, stop, with_ids
+from tarik.core.app import ok, routine, step_tool, stop
 from tarik.core.experio import invoice_context, odoo_call, odoo_json, plain, refused, require_invoice
 
 
@@ -28,8 +28,7 @@ def _same_number_drafts(invoice, context):
     return sorted([invoice["id"]] + same)
 
 
-@server.tool()
-@with_ids
+@step_tool
 def check_duplicate(invoice_id: int) -> dict:
     """Check whether this invoice is already recorded in its dossier (same number,
     tiers and date). Call it once the tiers is set. A duplicate must not be

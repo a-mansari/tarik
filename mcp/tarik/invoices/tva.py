@@ -8,7 +8,7 @@ Left here: the question on the usual non-recoverable accounts, and the cabinet's
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, question, routine, server, with_ids
+from tarik.core.app import ok, question, routine, step_tool
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import yes_no
 from tarik.core.experio import (
@@ -20,8 +20,7 @@ from tarik.core.experio import (
     odoo_call,
     refresh,
     refused,
-    require_draft,
-    require_invoice,
+    require_draft_invoice,
     test_mode_note,
 )
 from tarik.invoices.classify import side_of
@@ -60,29 +59,14 @@ def _tax_lines(invoice_id, context):
     ]
 
 
-@server.tool()
-@with_ids
+@step_tool
 def settle_tva(invoice_id: int, answer: str = "") -> dict:
     """Settle a draft invoice's TVA once its account is set: recoverable or not,
     the cabinet's prorata, and the tax Experio puts on each line. When the answer
     is a question (non-recoverable TVA?), ask the client and call again with
     ``answer`` "oui" (non-recoverable) or "non", as the agent read their reply."""
-    invoice = require_invoice(
-        invoice_id,
-        [
-            "state",
-            "type",
-            "company_id",
-            "exercice_id",
-            "partner_id",
-            "account_id",
-            "amount_tva",
-            "amount_tax_non_recoverable",
-            "tax_prorata",
-            "tva_line_ids",
-        ],
-    )
-    require_draft(invoice_id, invoice)
+    fields = ["state", "type", "company_id", "exercice_id", "partner_id", "account_id", "amount_tva"]
+    invoice = require_draft_invoice(invoice_id, [*fields, "amount_tax_non_recoverable", "tax_prorata", "tva_line_ids"])
     if not invoice["account_id"]:
         if dry_run():  # the account step only simulated its write
             return ok(f"{TEST_MODE}Facture {invoice_id} : la TVA sera reglee une fois le compte enregistre.")

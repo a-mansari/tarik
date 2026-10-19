@@ -6,7 +6,7 @@ import json
 import re
 import time
 
-from tarik.core.app import ok, question, routine, server, wait, with_ids
+from tarik.core.app import ok, question, routine, server, step_tool, wait
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
 from tarik.core.conversation import own_words, yes_no
@@ -79,8 +79,7 @@ def position(step):
 READ_DEADLINES = {}  # n8n run id -> when that run stops waiting on Experio's reading (time.monotonic)
 
 
-@server.tool()
-@with_ids
+@step_tool
 def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
     """Wait until Experio has finished reading a new draft: READ_WAIT seconds at most for all the drafts of run
     ``run_id`` together, so the run ends before n8n stops it; a draft still being read is resumed later."""

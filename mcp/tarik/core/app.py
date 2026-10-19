@@ -30,12 +30,12 @@ def routine(message, **extra):
 
 
 def with_ids(tool):
-    """Decorator: copy the ids a step was called with (invoice_id, file_id, dossier_id) into its dict result,
+    """Decorator: copy the ids a tool was called with (invoice_id, file_id, dossier_id) into its dict result,
     so each n8n item still says which invoice it is about after the MCP node replaced it."""
     signature = inspect.signature(tool)
 
     @functools.wraps(tool)
-    def step(*args, **kwargs):
+    def called(*args, **kwargs):
         result = tool(*args, **kwargs)
         if isinstance(result, dict):
             called = signature.bind(*args, **kwargs).arguments
@@ -44,4 +44,10 @@ def with_ids(tool):
                     result.setdefault(name, called[name])
         return result
 
-    return step
+    return called
+
+
+def step_tool(tool):
+    """Decorator: a step tool of the n8n workflows, registered on the server, its ids copied into its result
+    (with_ids)."""
+    return server.tool()(with_ids(tool))

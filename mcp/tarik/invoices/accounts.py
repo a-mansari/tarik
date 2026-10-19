@@ -11,7 +11,7 @@ import re
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import log, ok, question, server, with_ids
+from tarik.core.app import log, ok, question, step_tool, with_ids
 from tarik.core.config import TEST_MODE
 from tarik.core.experio import (
     dry_run,
@@ -22,8 +22,7 @@ from tarik.core.experio import (
     odoo_json,
     refresh,
     refused,
-    require_draft,
-    require_invoice,
+    require_draft_invoice,
     test_mode_note,
 )
 from tarik.core.model import ask_model, instruction
@@ -68,13 +67,6 @@ def chart(company_id, *domain):
 def listing(accounts):
     """``accounts`` as the model reads them: one "code name" per line."""
     return "\n".join(f"{a['code']} {a['name']}" for a in accounts)
-
-
-def draft_invoice(invoice_id):
-    """The invoice's INVOICE_FIELDS (dict); ToolError unless it is a draft."""
-    invoice = require_invoice(invoice_id, INVOICE_FIELDS)
-    require_draft(invoice_id, invoice, "changer de compte")
-    return invoice
 
 
 def apply_account(invoice, account_id, why):
@@ -132,14 +124,13 @@ def _model_choice(invoice, kind, designation):
     return by_code[code], str(answer.get("reason") or "")
 
 
-@server.tool()
-@with_ids
+@step_tool
 def assign_account(invoice_id: int) -> dict:
     """Give a draft invoice its account (Compte): the one Experio memorized for
     its tiers, else the one matching what the invoice bills. Call it after
     link_tiers and check_invoice. When none fits, the answer is the question to
     ask the client; their answer goes to set_account (answer_pending)."""
-    invoice = draft_invoice(invoice_id)
+    invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     if invoice["account_id"]:
         return ok(f"Facture {invoice_id} : compte deja renseigne, {invoice['account_id'][1]}.")
     kind = side_of(invoice)
@@ -213,7 +204,7 @@ def set_account(invoice_id, answer):
     names none clearly, the question again."""
     if not (answer or "").strip():
         raise ToolError("answer manquant : le code ou l'intitule donne par le client.")
-    invoice = draft_invoice(invoice_id)
+    invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     accounts = chart(invoice["company_id"][0])
     account = resolve_account(accounts, answer) or account_meant(accounts, answer)
     if account:

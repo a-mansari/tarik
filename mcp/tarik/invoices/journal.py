@@ -9,7 +9,7 @@ when the dossier has none -- creating journals is the cabinet's setup, not Tarik
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, routine, server, with_ids
+from tarik.core.app import ok, routine, step_tool
 from tarik.core.config import TEST_MODE
 from tarik.core.experio import dry_run, invoice_context, odoo_call, refresh, refused, require_draft, require_invoice
 
@@ -21,8 +21,7 @@ SETTING = {  # (type, local?) -> the dossier setting Experio takes the journal f
 }
 
 
-@server.tool()
-@with_ids
+@step_tool
 def check_journal(invoice_id: int) -> dict:
     """Make sure a draft invoice sits in the journal Experio's rule gives it, and say
     which dossier setting is missing when there is none."""

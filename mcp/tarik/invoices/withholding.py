@@ -7,7 +7,7 @@ so nothing is written onto the tiers here. Left here: a foreign supplier's last 
 supplier with no known rule, local fees (6136) with none.
 """
 
-from tarik.core.app import ok, question, routine, server, with_ids
+from tarik.core.app import ok, question, routine, step_tool
 from tarik.core.config import POSTED
 from tarik.core.experio import (
     account_code,
@@ -153,8 +153,7 @@ def _rule(invoice, kind, answer):
     return question(f"Facture de {tier} : {QUESTIONS['local']}"), None
 
 
-@server.tool()
-@with_ids
+@step_tool
 def settle_withholding(invoice_id: int, answer: str = "") -> dict:
     """Settle a draft purchase invoice's withholding tax (RAS): the tiers' known rule,
     else a question to the client; call again with their answer as ``answer``."""
