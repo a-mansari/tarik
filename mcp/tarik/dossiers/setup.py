@@ -78,6 +78,23 @@ FEC_HEADERS = {"journalcode", "ecrituredate", "comptenum", "debit", "credit"}
 ACCOUNT_HEADERS = ("comptenum", "compte", "numerocompte", "numcompte")
 
 
+def make_advance_accounts_reconcilable(model_dossier_id):
+    """Mark reconcilable the accounts the model's advance operations use, as Experio requires of them: it creates
+    4421 and 3411 (Avance Client, Avance Fournisseur) as not reconcilable, so its copy of the model, which carries
+    each account's flag over, is then refused by its own rule. Returns how many accounts it changed."""
+    advances = odoo_call(
+        "bank.operation.type",
+        "search_read",
+        [("company_id", "=", model_dossier_id), ("type", "in", ["sale_advance", "purchase_advance"])],
+        fields=["account_id"],
+    )
+    accounts = [op["account_id"][0] for op in advances if op["account_id"]]
+    unset = odoo_call("exp.account", "search", [("id", "in", accounts), ("reconcile", "=", False)]) if accounts else []
+    if unset:
+        odoo_call("exp.account", "write", unset, {"reconcile": True})
+    return len(unset)
+
+
 @step_tool
 def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
     """Copy a model dossier's accounts, taxes, journals, bank and TPE operations and
@@ -105,6 +122,7 @@ def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
         f"copy_configuration {model_dossier_id} -> {dossier_id}",
         "Experio n'a pas pu copier la configuration : {reason}",
     ):
+        make_advance_accounts_reconcilable(model_dossier_id)
         wizard_id = odoo_json("company.config.wizard", "create", wizard)
         odoo_json("company.config.wizard", "action_apply", [wizard_id])
     return ok(

@@ -67,3 +67,17 @@ def test_a_setup_ends_telling_the_journals_still_to_create(experio, monkeypatch)
     message = setup.finish_setup(557, seconds_left=90)["message"]
     assert "journal d'achats sont ceux d'un autre dossier" in message
 
+
+@pytest.mark.functionality
+def test_the_models_advance_accounts_are_made_reconcilable_before_its_copy(monkeypatch):
+    """Experio refuses to copy an advance operation whose account is not reconcilable, and creates them so."""
+    calls = []
+
+    def odoo_call(model, method, *args, **kw):
+        calls.append((model, method, args))
+        found = {"search_read": [{"account_id": [7, "4421"]}, {"account_id": False}], "search": [7], "write": True}
+        return found[method]
+
+    monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    assert setup.make_advance_accounts_reconcilable(890) == 1
+    assert calls[-1] == ("exp.account", "write", ([7], {"reconcile": True}))
