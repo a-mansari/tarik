@@ -27,7 +27,7 @@ services:
       DB_POSTGRESDB_DATABASE: ${N8N_POSTGRES_DB}
       DB_POSTGRESDB_USER: ${POSTGRES_USER}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
-      # Where the agents' prompts are saved (tarik_prompts in each cabinet's schema; n8n/patch.js), and for how long.
+      # Where the agents' prompts are saved (tarik_prompt_calls and tarik_prompt_parts in each cabinet's schema; n8n/patch.js), and for how long.
       TARIK_POSTGRES_DB: ${POSTGRES_DB}
       TARIK_PROMPTS_KEEP_DAYS: "30"
     depends_on: [postgres]

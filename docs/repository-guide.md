@@ -81,7 +81,7 @@ returns a dict with `status` (`ok`, `wait`, `question`, `stop`) and a French `me
 | File | Role |
 | --- | --- |
 | `mcp/server.py` | The ASGI app: routes `/c/<cabinet>/mcp` to the MCP server inside `cabinets.using(name)`, with a semaphore per cabinet and one for the whole server. At start it refuses to run unless Vault is set, every cabinet logs into Experio with the expected user id, and each schema exists. |
-| `mcp/prompts.py` | `tarik-prompts`: read-only pages on `127.0.0.1:8081` showing the prompts n8n's agents were sent (`tarik_prompts`, saved by `n8n/patch.js`). |
+| `mcp/prompts.py` | `tarik-prompts`: read-only pages on `127.0.0.1:8081` showing the prompts n8n's agents were sent (`tarik_prompt_calls` and `tarik_prompt_parts`, saved by `n8n/patch.js`). |
 | `mcp/watcher.py` | `tarik-mail-watch`: one IMAP IDLE thread and one 15-minute tick thread per cabinet mailbox. Stores new emails, tells the manager of refused senders, and posts to the "Tarik - Emails" webhook with a shared secret header. |
 | `mcp/Dockerfile`, `.dockerignore`, `pytest.ini` | Python 3.14 slim with pinned dependencies (mcp, psycopg, pillow, pypdfium2, httpx, openpyxl, pytest, ruff). `pytest.ini` declares the test categories as markers and excludes `live` and `llm` by default. |
 

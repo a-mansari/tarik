@@ -129,16 +129,23 @@ create table if not exists tarik_client_messages (
 );
 create index if not exists tarik_client_messages_session on tarik_client_messages (session_id);
 
--- What the cabinet's agent was sent at each model call (written by n8n, n8n/patch.js; shown by prompts.py):
--- the system text, the messages (conversation so far, files left out), the tools' names and descriptions.
--- n8n keeps TARIK_PROMPTS_KEEP_DAYS days of them.
-create table if not exists tarik_prompts (
+-- What the cabinet's agent was sent at each model call (written by n8n, n8n/patch.js; shown by prompts.py).
+-- A call holds only the hashes of its system text, its tools and its messages: each distinct one is kept once in
+-- tarik_prompt_parts, so a conversation's growing history is not stored again at every call, and the viewer
+-- builds the full prompt from them. n8n keeps TARIK_PROMPTS_KEEP_DAYS days of calls.
+drop table if exists tarik_prompts; -- the first version, one full copy per call
+create table if not exists tarik_prompt_parts (
+    hash text primary key,
+    content jsonb not null, -- a system text, the tools' names and descriptions, or one message (files left out)
+    created_at timestamptz not null default now()
+);
+create table if not exists tarik_prompt_calls (
     id serial primary key,
     session_id text not null,
     agent text not null,
-    system jsonb,
-    messages jsonb not null,
-    tools jsonb not null,
+    system_hash text not null,
+    tools_hash text not null,
+    message_hashes text[] not null, -- in order
     created_at timestamptz not null default now()
 );
-create index if not exists tarik_prompts_session on tarik_prompts (session_id, id);
+create index if not exists tarik_prompt_calls_session on tarik_prompt_calls (session_id, id);
