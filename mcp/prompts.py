@@ -1,5 +1,5 @@
 """What n8n's agents were sent, to read in a browser: cabinets, then their conversations, then each model call's
-system text, messages and tools (tarik_prompts, saved by n8n/patch.js). Read-only, served on port 8081, which
+system text, messages and tools (tarik_prompt_calls and tarik_prompt_parts, saved by n8n/patch.js). Read-only, served on port 8081, which
 docker-compose.yml publishes on this machine only: the prompts hold the clients' words. Run as: python prompts.py"""
 
 import html
@@ -40,22 +40,28 @@ def page(path):
     with using(parts[0]), cabinet_db() as db:
         if len(parts) == 1:
             rows = db.execute(
-                "select session_id, count(*), max(created_at) from tarik_prompts group by 1 order by 3 desc limit 200"
+                "select session_id, count(*), max(created_at) from tarik_prompt_calls group by 1 order by 3 desc limit 200"
             ).fetchall()
             return f"<h1>{parts[0]}</h1><ul>" + "".join(
                 link(f"/{parts[0]}/{session}", f"{session}: {count} calls, last {last:%Y-%m-%d %H:%M:%S}")
                 for session, count, last in rows
             )
         rows = db.execute(
-            "select id, created_at, agent, system, messages, tools from tarik_prompts "
-            "where session_id = %s order by id",
+            "select c.id, c.created_at, c.agent, system.content, tools.content, ("
+            " select coalesce(jsonb_agg(part.content order by hash.position), '[]')"
+            " from unnest(c.message_hashes) with ordinality as hash(value, position)"
+            " join tarik_prompt_parts part on part.hash = hash.value) "
+            "from tarik_prompt_calls c "
+            "left join tarik_prompt_parts system on system.hash = c.system_hash "
+            "left join tarik_prompt_parts tools on tools.hash = c.tools_hash "
+            "where c.session_id = %s order by c.id",
             (parts[1],),
         ).fetchall()
     calls = "".join(
         f"<details><summary>#{id} {created:%Y-%m-%d %H:%M:%S} {html.escape(agent)}: {len(messages)} messages</summary>"
         f"<h3>System</h3><pre>{text(system)}</pre><h3>Messages</h3><pre>{text(messages)}</pre>"
         f"<h3>Tools</h3><pre>{text(tools)}</pre></details>"
-        for id, created, agent, system, messages, tools in rows
+        for id, created, agent, system, tools, messages in rows
     )
     return f'<p><a href="/{parts[0]}">{parts[0]}</a></p><h1>{html.escape(parts[1])}</h1>{calls or "No call."}'
 

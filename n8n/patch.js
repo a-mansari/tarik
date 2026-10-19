@@ -71,7 +71,7 @@ async function tarikClientMessage(threadId) {
   find: "            name: this.name,\n            model: modelConfig,",
   replace: "            name: this.name,\n            tarikCabinet: this.mcpClients.flatMap((client) => client.configs).map((cfg) => /\\/c\\/([a-z0-9_]+)\\/mcp/.exec(cfg.url ?? '')?.[1]).find(Boolean),\n            model: modelConfig,",
 }, {
-  // Each model call's full prompt (system, messages, tools) is saved in the cabinet's tarik_prompts, to see
+  // Each model call's prompt (system, messages, tools) is saved in the cabinet's tarik_prompt_calls and _parts, to see
   // what the agent was sent (prompts.py). Never blocks or fails the call; files are left out.
   file: RUNTIME,
   find: "        return { toolMap: tools.toolMap, modelCallContext };",
@@ -86,6 +86,11 @@ function tarikPlain(key, value) {
     if (typeof value === 'string' && value.length > 5000 && !value.includes(' ')) return \`[\${value.length} characters]\`;
     return value;
 }
+// One distinct piece of a prompt: its JSON, and the hash that names it (equal pieces are stored once).
+function tarikPart(value) {
+    const content = JSON.stringify(value, tarikPlain) ?? 'null';
+    return { content, hash: require('crypto').createHash('sha256').update(content).digest('hex').slice(0, 32) };
+}
 function tarikSavePrompt(config, threadId, prompt, toolMap) {
     const cabinet = config.tarikCabinet;
     if (!cabinet || !threadId) return;
@@ -97,14 +102,25 @@ function tarikSavePrompt(config, threadId, prompt, toolMap) {
             database: process.env.TARIK_POSTGRES_DB,
             max: 2,
         });
-        const json = (value) => JSON.stringify(value, tarikPlain) ?? null;
         const tools = [...toolMap.values()].map((tool) => ({ name: tool.name, description: tool.description }));
+        const [system, toolsPart, ...messages] = [prompt.system, tools, ...prompt.messages].map(tarikPart);
+        const parts = new Map([system, toolsPart, ...messages].map((part) => [part.hash, part.content]));
         const days = Number(process.env.TARIK_PROMPTS_KEEP_DAYS) || 30;
+        const schema = \`"\${cabinet}"\`;
         tarikPrompts.query(
-            \`insert into "\${cabinet}".tarik_prompts (session_id, agent, system, messages, tools) values ($1, $2, $3, $4, $5)\`,
-            [threadId, config.name, json(prompt.system), json(prompt.messages), json(tools)],
-        ).then(() => Math.random() < 0.01 && tarikPrompts.query(\`delete from "\${cabinet}".tarik_prompts where created_at < now() - $1 * interval '1 day'\`, [days]))
-            .catch((error) => console.error('tarik prompts not saved:', error.message));
+            \`with new_parts as (
+                insert into \${schema}.tarik_prompt_parts (hash, content)
+                select hash, content::jsonb from unnest($1::text[], $2::text[]) as t(hash, content) on conflict do nothing)
+            insert into \${schema}.tarik_prompt_calls (session_id, agent, system_hash, tools_hash, message_hashes)
+            values ($3, $4, $5, $6, $7)\`,
+            [[...parts.keys()], [...parts.values()], threadId, config.name, system.hash, toolsPart.hash, messages.map((part) => part.hash)],
+        ).then(async () => {
+            if (Math.random() >= 0.01) return;
+            await tarikPrompts.query(\`delete from \${schema}.tarik_prompt_calls where created_at < now() - $1 * interval '1 day'\`, [days]);
+            // A part younger than a day may belong to a call being saved right now.
+            await tarikPrompts.query(\`delete from \${schema}.tarik_prompt_parts p where p.created_at < now() - interval '1 day' and not exists (
+                select 1 from \${schema}.tarik_prompt_calls c where p.hash = c.system_hash or p.hash = c.tools_hash or p.hash = any(c.message_hashes))\`);
+        }).catch((error) => console.error('tarik prompts not saved:', error.message));
     } catch (error) {
         console.error('tarik prompts not saved:', error.message);
     }
