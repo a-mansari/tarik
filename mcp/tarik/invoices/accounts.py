@@ -30,7 +30,7 @@ from tarik.core.experio import (
 from tarik.core.model import ask_model, instruction
 from tarik.invoices.check import stored_check
 from tarik.invoices.classify import side_of
-from tarik.invoices.journal import JOURNAL_FIELDS, journal_stop
+from tarik.invoices.journal import JOURNAL_FIELDS, check_journal, journal_stop
 
 ACCOUNT_PROMPT = instruction("choose-account")
 CLASS = {"purchase": "6", "sale": "7"}
@@ -141,9 +141,11 @@ def assign_account(invoice_id: int, answer: str = "", client_message: str = "") 
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     if invoice["account_id"]:
         return ok(f"Facture {invoice_id} : compte deja renseigne, {invoice['account_id'][1]}.")
-    # Without the dossier's own journal Experio cannot propose any account, and says so obscurely.
+    # Without the dossier's own journal Experio cannot propose any account, and says so obscurely: an invoice made
+    # before the dossier had journals still sits on another dossier's, which check_journal moves to its own.
     if refusal := journal_stop(invoice_id, require_invoice(invoice_id, JOURNAL_FIELDS)):
         return refusal
+    check_journal(invoice_id)
     kind = side_of(invoice)
     with refused(f"assign_account {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu proposer de compte."):
         simulated = _fill_empty_chart(invoice_id, invoice["company_id"][0])

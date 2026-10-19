@@ -81,3 +81,17 @@ def test_no_account_is_looked_up_without_the_dossiers_journal(experio, monkeypat
     experio["misplaced"] = {"local_purchase_journal_id": "ACHAT"}
     monkeypatch.setattr(accounts, "side_of", lambda invoice: pytest.fail("Experio is not asked for an account"))
     assert accounts.assign_account(3)["status"] == "stop"
+
+
+@pytest.mark.functionality
+def test_an_invoice_made_before_the_dossiers_journals_is_moved_to_them_first(experio, monkeypatch):
+    from tarik.invoices import accounts
+
+    moved = []
+    monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: {"account_id": False, "type": "purchase"})
+    monkeypatch.setattr(accounts, "require_invoice", lambda invoice_id, fields: INVOICE)
+    monkeypatch.setattr(accounts, "check_journal", lambda invoice_id: moved.append(invoice_id))
+    monkeypatch.setattr(accounts, "side_of", lambda invoice: pytest.fail("stops after the journal, before any account"))
+    with pytest.raises(pytest.fail.Exception):
+        accounts.assign_account(3)
+    assert moved == [3]
