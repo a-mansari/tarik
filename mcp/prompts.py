@@ -5,6 +5,7 @@ Run as: python prompts.py"""
 
 import html
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
 
@@ -34,6 +35,7 @@ details.call>summary{cursor:pointer;padding:.7em 1em;font-weight:600;display:fle
 details.call>summary small{color:var(--mute);font-weight:400}
 .body{padding:0 1em 1em}
 details.part{border-top:1px solid var(--line);padding:.4em 0}
+h4{margin:.4em 0;color:var(--mute)}
 details.part>summary{cursor:pointer;color:var(--mute);font-weight:600}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--code);padding:.6em .8em;border-radius:8px;
 overflow:auto;margin:.5em 0;font:13px/1.45 ui-monospace,monospace}
@@ -42,17 +44,38 @@ overflow:auto;margin:.5em 0;font:13px/1.45 ui-monospace,monospace}
 .msg pre{background:none;padding:0;margin:.2em 0 0}
 .system{background:var(--system)}.user{background:var(--user)}.assistant{background:var(--assistant)}
 .tool{background:var(--tool)}
+.key{color:#0b6bcb}.str{color:#18794e}.num{color:#b45309}.lit{color:#a8328a}
+@media(prefers-color-scheme:dark){.key{color:#7cb7ff}.str{color:#6fd39b}.num{color:#f0b35a}.lit{color:#e68bd0}}
 </style><main>"""
 
 
+TOKEN = re.compile(r'("(?:\\.|[^"\\])*")(\s*:)?|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?')
+
+
+def escaped(value):
+    """``value`` safe in element text (quotes stay as they are)."""
+    return html.escape(value, quote=False)
+
+
+def highlight(value):
+    """``value`` as indented JSON, its keys, strings, numbers and true/false/null each in their own colour."""
+    code, end, shown = json.dumps(value, indent=2, ensure_ascii=False), 0, []
+    for token in TOKEN.finditer(code):
+        kind = "key" if token[2] else "str" if token[1] else "lit" if token[0][0] in "tfn" else "num"
+        shown.append(escaped(code[end : token.start()]))
+        shown.append(f'<span class="{kind}">{escaped(token[1] or token[0])}</span>{escaped(token[2] or "")}')
+        end = token.end()
+    return "".join(shown) + escaped(code[end:])
+
+
 def text(value):
-    """``value`` (from the database) as shown: a message's content as written, a list of messages one after the
-    other, the rest as indented JSON."""
-    if isinstance(value, list):
-        return "\n\n".join(text(item) for item in value)
-    if isinstance(value, dict) and isinstance(value.get("content"), str):
-        return html.escape(f"[{value.get('role', '')}]\n{value['content']}")
-    return html.escape(value if isinstance(value, str) else json.dumps(value, indent=2, ensure_ascii=False))
+    """``value`` (from the database) as shown: a string as written, JSON text or anything else as coloured JSON."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value) if value.lstrip()[:1] in ("{", "[") else value
+        except ValueError:
+            pass
+    return html.escape(value) if isinstance(value, str) else highlight(value)
 
 
 def link(href, label, detail=""):
@@ -66,10 +89,10 @@ def crumbs(*trail):
 
 
 def message(item):
-    """One message of a call as a bubble coloured by its role; what is not a message stays JSON."""
-    if isinstance(item, dict) and isinstance(item.get("content"), str):
-        role = html.escape(str(item.get("role", "")))
-        return f'<div class="msg {role}"><b>{role}</b><pre>{html.escape(item["content"])}</pre></div>'
+    """One message of a call as a bubble coloured by its role; what is not a message is shown as JSON."""
+    if isinstance(item, dict) and "role" in item and "content" in item:
+        role = html.escape(str(item["role"]))
+        return f'<div class="msg {role}"><b>{role}</b><pre>{text(item["content"])}</pre></div>'
     return f"<pre>{text(item)}</pre>"
 
 
@@ -107,9 +130,9 @@ def page(path):
     calls = "".join(
         f'<details class="call"><summary>#{id} <small>{created:%Y-%m-%d %H:%M:%S}</small> {html.escape(agent)} '
         f'<span class="badge">{len(messages)} messages</span></summary><div class="body">'
-        f'{"".join(message(item) for item in messages)}'
-        f'<details class="part"><summary>System</summary><pre>{text(system)}</pre></details>'
-        f'<details class="part"><summary>Tools</summary><pre>{text(tools)}</pre></details></div></details>'
+        f'<details class="part" open><summary>Tools</summary><pre>{text(tools)}</pre></details>'
+        f'<details class="part" open><summary>System</summary><pre>{text(system)}</pre></details>'
+        f'<div class="part"><h4>Messages</h4>{"".join(message(item) for item in messages)}</div></div></details>'
         for id, created, agent, system, tools, messages in rows
     )
     return (
