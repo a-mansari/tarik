@@ -117,9 +117,10 @@ REPEAT=3 python3 mcp/tests/run.py -m llm -s
 
 ## Instructions
 
-Everything the model is told is in `instructions/`, nowhere else: `skills/` for the agent (below), `tools/` for
-the prompts the Python tools give the model (one file per prompt, front matter `used_by`: the tool and the file
-reading it, then the prompt, sent word for word). The container mounts `instructions/tools/`, so a prompt
+What the model is told is in `instructions/`: `skills/` for the agent (below), `tools/` for the prompts the
+Python tools give the model (one file per prompt, front matter `used_by`: the tool and the file reading it, then
+the prompt, sent word for word). Only a short answer shape (a few lines saying which JSON to answer with) stays
+next to the code that reads the answer. The container mounts `instructions/tools/`, so a prompt
 changed there applies on the next restart, no rebuild. A style test checks each file is read by the file it names.
 
 ## Skills
