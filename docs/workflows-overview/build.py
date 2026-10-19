@@ -511,9 +511,12 @@ PAGES["traitement"] = page(
 PAGES["dossier"] = page(
     "dossier",
     "Tarik - Dossier",
-    "Opens a new client file (dossier) in Experio, optionally copies another file's setup, imports the client's accounting history (FEC or general ledger), finishes the onboarding and reports where the file stands. Also loads a FEC into an existing file.",
+    "Opens a new client file (dossier) in Experio, optionally copies another file's setup, imports the client's accounting history (FEC or general ledger), finishes the onboarding and reports where the file stands. Also loads a FEC into an existing file, or (update mode) changes an existing file's details: name, type, ICE, IF, RC, patente, T.S.C, capital, CNSS, address.",
     [
-        ("Started by", "The AI agent (Experio_parametrer_dossier), or Tarik - Emails following up."),
+        (
+            "Started by",
+            "The AI agent (Experio_parametrer_dossier, Experio_modifier_dossier), or Tarik - Emails following up.",
+        ),
         (
             "Time budget",
             "260 seconds. When Experio's wait would not fit, the file is left waiting and the email follow-up finishes it.",
@@ -531,7 +534,7 @@ PAGES["dossier"] = page(
                 ),
                 ("Debut", "Notes when the run started, for its time budget."),
                 ("Pieces jointes de l'agent", "Saves files attached in n8n's chat."),
-                ("Nouveau dossier ?", "A new client file, an existing one, or a follow-up."),
+                ("Nouveau dossier ?", "A new client file, an existing one, a change to one, or a follow-up."),
             ],
         ),
         phase(
@@ -562,7 +565,7 @@ PAGES["dossier"] = page(
                     "Expediteur (check_sender)",
                     "The email's sender must be one of the firm's staff, or of Experio's own team, with this client file assigned.",
                 ),
-                ("Suite apres check_sender", "Allowed: on to the import. Otherwise the run stops."),
+                ("Suite apres check_sender", "Allowed: on to the change or the import. Otherwise the run stops."),
             ],
         ),
         phase(
@@ -578,6 +581,17 @@ PAGES["dossier"] = page(
                 (
                     "Ecritures (import_entries)",
                     "Imports the entries through Experio's Importation screen, after Experio's own test of the file. Experio creates the missing accounts, journals, suppliers, customers and fiscal years. A refused file is reported; the client sends a corrected one.",
+                ),
+            ],
+        ),
+        phase(
+            "Changing a client file",
+            "Only in update mode (Experio_modifier_dossier).",
+            [
+                ("Modifier ?", "A change: on to it. Otherwise the existing file is set up (imports below)."),
+                (
+                    "Modification (update_dossier)",
+                    "Changes only the fields given, as the client file's Experio form does, and only to values the client wrote in this conversation. An ICE, IF or name another file already has is refused. A new ICE or IF is checked against the official register; skipping that check needs the client's confirmation first.",
                 ),
             ],
         ),
@@ -625,39 +639,6 @@ PAGES["dossier"] = page(
     load("dossier"),
 )
 
-PAGES["modification"] = page(
-    "modification",
-    "Tarik - Modification",
-    "Changes an existing client file's details in Experio: name, type, ICE, IF, RC, patente, T.S.C, capital, CNSS, address. Only the fields the client asked for, only to values the client wrote.",
-    [
-        ("Started by", "The AI agent (Experio_modifier_dossier)."),
-        ("Duration", "A few seconds: nothing waits on Experio."),
-        ("Ends with", "What was changed, or why not."),
-    ],
-    [
-        phase(
-            "The steps",
-            "",
-            [
-                (
-                    "Appel",
-                    "The call: the conversation, the client file, the fields to change with their new values, the client's message, the firm.",
-                ),
-                (
-                    "Expediteur (check_sender)",
-                    "The email's sender must be one of the firm's staff, or of Experio's own team, with this client file assigned.",
-                ),
-                ("Suite apres check_sender", "Allowed: on to the change. Otherwise recorded, and nothing changes."),
-                (
-                    "Modification (update_dossier)",
-                    "Changes only the fields given, as the client file's Experio form does, and only to values the client wrote in this conversation. An ICE, IF or name another file already has is refused. A new ICE or IF is checked against the official register; skipping that check needs the client's confirmation first.",
-                ),
-                *ending("Records the outcome.", "the summary, which the agent copies."),
-            ],
-        ),
-    ],
-    load("modification"),
-)
 
 overview = OVERVIEW.replace("</style>", PRINT_OVERVIEW + "</style>", 1)
 (OUT / "index.html").write_text(full(overview))

@@ -1,5 +1,5 @@
 """n8n still runs the node made by Workflow.at_the_end after every other one, wherever it sits in the editor:
-"Résumé" relies on it in Traitement, Dossier and Modification. Runs "Tarik - Test Merge" (TarikMergeTest01,
+"Résumé" relies on it in Traitement and Dossier. Runs "Tarik - Test Merge" (TarikMergeTest01,
 workflows/tarik-merge-test.json) in the real n8n; re-run after each n8n upgrade.
 
 Needs n8n's MCP token (tests/n8n/conftest.py). Run: docker compose exec -T tarik-mcp python -m pytest -m live

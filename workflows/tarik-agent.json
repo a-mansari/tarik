@@ -176,16 +176,56 @@
         },
         "kind": {
           "mode": "ai"
+        },
+        "rc": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "patente": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "tsc": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "capital": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "cnss": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "street": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "street2": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "city": {
+          "mode": "fixed",
+          "value": ""
+        },
+        "zip": {
+          "mode": "fixed",
+          "value": ""
         }
       }
     },
     {
       "type": "workflow",
-      "workflowId": "TarikModif000001",
-      "workflow": "Tarik - Modification",
+      "workflowId": "TarikDossier0001",
+      "workflow": "Tarik - Dossier",
       "name": "Experio_modifier_dossier",
       "description": "Modifie un dossier existant : seulement les champs donnés, les autres restent tels quels. Renvoie le résultat. Paramètres : dossier_id (nombre : l'id donné par Experio_find_dossier), puis seulement les champs que le client veut changer, tous les autres vides : name, folder_type (company ou person), ice, if_number, rc, patente, tsc, capital, cnss, street, street2, city, zip ; skip_ice_if_check (false, sauf demande écrite du client), client_confirmed (true seulement si le message du client répond clairement oui à ta dernière question de confirmation sur ce dossier, « Faut-il quand même créer… » ou « Confirmez-vous … sans cette vérification » ; false sinon, et false si sa réponse est floue ou s'il n'y a pas eu de question).",
       "inputs": {
+        "mode": {
+          "mode": "fixed",
+          "value": "update"
+        },
         "session_id": {
           "mode": "fixed",
           "value": "{{threadId}}"
@@ -245,6 +285,18 @@
         },
         "client_confirmed": {
           "mode": "ai"
+        },
+        "attachments": {
+          "mode": "fixed",
+          "value": "{{attachments}}"
+        },
+        "model_dossier_id": {
+          "mode": "fixed",
+          "value": 0
+        },
+        "kind": {
+          "mode": "fixed",
+          "value": ""
         }
       }
     }

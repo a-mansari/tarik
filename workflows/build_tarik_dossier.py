@@ -1,11 +1,15 @@
-"""Build workflows/tarik-dossier.json: a dossier's creation, configuration and entries import.
+"""Build workflows/tarik-dossier.json: a dossier's creation, configuration and entries import, or (mode update) a change
+to an existing dossier's identity fields.
 
 Sequence: create the dossier (unless it exists) -> copy a model dossier's configuration
 (when one is given) -> import each FEC or grand livre -> finish the onboarding, unless an
 import was refused -> the dossier's state. n8n runs the lower branches last, so the
 onboarding comes after the imports and the summary after everything. The onboarding waits on
 Experio: when the run's time (n8n stops an agent's tool after 300 s) is too short, the dossier waits
-in tarik_setups. Mode resume ("Tarik - Emails" following up, no agent, no time limit) finishes those."""
+in tarik_setups. Mode resume ("Tarik - Emails" following up, no agent, no time limit) finishes those.
+
+Mode update: the email's sender must have the dossier (the agent's own chat has no sender), then update_dossier
+changes only the fields given, and only to values the client wrote."""
 
 from steps import CALL, DOSSIER_INPUTS, EACH_FILE, FILES, RESULT, SENDER, START, Workflow
 
@@ -13,6 +17,22 @@ CREATE = "Creation (create_dossier)"
 COPY = "Configuration (copy_configuration)"
 TARGET_NODE = "Dossier cible"
 IMPORT = "Ecritures (import_entries)"
+UPDATE = "Modification (update_dossier)"
+IDENTITY = [
+    "name",
+    "folder_type",
+    "ice",
+    "if_number",
+    "rc",
+    "patente",
+    "tsc",
+    "capital",
+    "cnss",
+    "street",
+    "street2",
+    "city",
+    "zip",
+]
 TARGET = f"$('{TARGET_NODE}').first().json.dossier_id"
 CREATED = f"$('{CREATE}').first().json.content[0].text.dossier_id"
 
@@ -24,7 +44,12 @@ flow.trigger(**DOSSIER_INPUTS)
 BUDGET_MS = 260_000
 SECONDS_LEFT = f"Math.max(1, Math.round(({BUDGET_MS} - (Date.now() - $('{START}').first().json.started)) / 1000))"
 flow.start("Nouveau dossier ?")
-route("Nouveau dossier ?", f"{CALL}.mode === 'resume' ? 2 : {CALL}.dossier_id > 0 ? 1 : 0", 3, [220, 300])
+route(
+    "Nouveau dossier ?",
+    f"{{ resume: 2, update: 3 }}[{CALL}.mode] ?? ({CALL}.dossier_id > 0 ? 1 : 0)",
+    4,
+    [220, 300],
+)
 
 # A new dossier: created, then its configuration copied from the model, before any import.
 created = flow.checked(
@@ -58,10 +83,26 @@ flow.code(
     ),
 )
 connect("Nouveau dossier ?", CREATE, 0)
-# An existing dossier: the email's sender must have it.
+# An existing dossier, to set up or to change: the email's sender must have it.
 sender = flow.check_sender([440, 420], [660, 420])
 connect("Nouveau dossier ?", SENDER, 1)
-connect(sender, TARGET_NODE, 0)
+connect("Nouveau dossier ?", SENDER, 3)
+route("Modifier ?", f"{CALL}.mode === 'update' ? 0 : 1", 2, [880, 420])
+connect(sender, "Modifier ?", 0)
+connect("Modifier ?", TARGET_NODE, 1)
+identity = ", ".join(f"{field}: {CALL}.{field} ?? ''" for field in IDENTITY)
+mcp(
+    UPDATE,
+    "update_dossier",
+    (
+        f"{{ dossier_id: {CALL}.dossier_id, {identity}, skip_ice_if_check: {CALL}.skip_ice_if_check === true, "
+        f"client_confirmed: {CALL}.client_confirmed === true, client_message: {CALL}.client_message || '', "
+        f"session_id: {CALL}.session_id }}"
+    ),
+    [1100, 520],
+)
+connect("Modifier ?", UPDATE, 0)
+flow.to_record(UPDATE, 0, 1)
 connect(created, "Modele ?", 0)
 flow.to_record(created, 0, 1)
 connect("Modele ?", COPY, 0)

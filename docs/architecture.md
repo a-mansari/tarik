@@ -19,7 +19,7 @@ piece, and [using-tarik.md](using-tarik.md) explains what Tarik can do and how t
 │           Experio_traiter_fichiers   → "Tarik - Traitement"      │   └──────────────────────────────────┘
 │           Experio_repondre           → "Tarik - Traitement"      │
 │           Experio_parametrer_dossier → "Tarik - Dossier"         │
-│           Experio_modifier_dossier   → "Tarik - Modification"    │
+│           Experio_modifier_dossier   → "Tarik - Dossier" (update)│
 │ "Tarik - Emails" (webhook) ── ask_agent ──► n8n MCP call_agent    │
 └───────────────┬────────────────────────────────────┬─────────────┘
                 │ every workflow step → /c/<cabinet>/mcp   │ n8n's own data

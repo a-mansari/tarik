@@ -351,6 +351,15 @@
             "client_message": "",
             "model_dossier_id": 0,
             "kind": "",
+            "rc": "",
+            "patente": "",
+            "tsc": "",
+            "capital": "",
+            "cnss": "",
+            "street": "",
+            "street2": "",
+            "city": "",
+            "zip": "",
             "attachments": "",
             "cabinet": "={{ $('Nouvel email').first().json.body.cabinet }}"
           },
@@ -458,6 +467,87 @@
             {
               "id": "kind",
               "displayName": "kind",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "rc",
+              "displayName": "rc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "patente",
+              "displayName": "patente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "tsc",
+              "displayName": "tsc",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "capital",
+              "displayName": "capital",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "cnss",
+              "displayName": "cnss",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "street",
+              "displayName": "street",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "street2",
+              "displayName": "street2",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "city",
+              "displayName": "city",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "zip",
+              "displayName": "zip",
               "required": false,
               "defaultMatch": false,
               "display": true,
