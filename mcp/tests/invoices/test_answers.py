@@ -260,3 +260,26 @@ def test_an_invoice_stays_a_verified_draft_until_the_client_says_to_post_it(db_c
     assert pipeline.hold_posting(7, "s")["status"] == "ok"  # kept for the runs resumed after a question
     assert pipeline.waiting_drafts("other", held=True, dossier_id=5)["invoices"] == []  # nothing left to post
     assert pipeline.hold_posting(7, "s", "non")["status"] == "stop"  # taken back
+
+
+@pytest.mark.functionality
+def test_stopped_drafts_are_resumed_only_when_the_client_asks(db_cabinet, monkeypatch):
+    searched = []
+
+    def search(model, method, domain, **kw):
+        searched.append(domain)
+        return domain[0][2]  # all still drafts
+
+    monkeypatch.setattr(pipeline, "odoo_call", search)
+    for session, invoice_id, step, status in [
+        ("s", 1, "assign_account", "stop"),  # its cabinet fixed the journal since
+        ("s", 2, "hold_posting", "stop"),  # kept unposted: held, not stopped
+        ("s", 3, "check_duplicate", "ok"),
+        ("old", 4, "assign_account", "stop"),  # another conversation, same dossier
+    ]:
+        pipeline.record_step("r", session, f"x ({step})", {"status": status, "message": "m", "invoice_id": invoice_id})
+    assert pipeline.waiting_drafts("s")["invoices"] == []  # a follow-up never retries a stop
+    assert pipeline.waiting_drafts("s", stopped=True)["invoices"] == [1]  # this conversation's, asked for
+    assert pipeline.waiting_drafts("new", stopped=True, dossier_id=5)["invoices"] == [1, 4]  # the dossier's
+    assert ("company_id", "in", [5]) in searched[-1]
+    assert pipeline.waiting_drafts("new", stopped=True)["invoices"] == []  # no dossier: nothing from elsewhere
