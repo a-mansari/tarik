@@ -4,6 +4,7 @@ clients send, as images it can read."""
 import base64
 import io
 import json
+import time
 from pathlib import Path
 
 import pypdfium2
@@ -11,7 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from PIL import Image
 
 from tarik.core.app import log
-from tarik.core.cabinets import setting
+from tarik.core.cabinets import current, setting
 from tarik.core.config import MAX_PAGES, MODEL_TIMEOUT, SCALE
 from tarik.core.experio import HTTP
 
@@ -41,13 +42,40 @@ def json_answer(text, keys=()):
     return found[0]
 
 
+MODEL_KEPT_SECONDS = 300
+_models = {}  # cabinet: (the agent's model, when to ask n8n again)
+
+
+def model_name():
+    """The model the current cabinet's agent runs on in n8n, without its provider ("minimax/MiniMax-M3" gives
+    "MiniMax-M3"): the model chosen for the agents is the one every tool uses. Asked of n8n, kept 5 minutes;
+    when n8n can't answer, the last one. ToolError when there is none."""
+    from tarik.emails.agent import call_n8n  # imported here: core does not import emails at import time
+
+    cabinet = current()
+    known = _models.get(cabinet)
+    if known and time.monotonic() < known[1]:
+        return known[0]
+    try:
+        model = call_n8n("get_agent", agentId=setting("AGENT_ID"))["config"]["model"].split("/", 1)[-1]
+    except Exception as error:
+        log(f"model_name {cabinet}: {error}")
+        if known:
+            return known[0]
+        raise ToolError("Le modele de l'agent est inconnu pour le moment, reessayez plus tard.") from None
+    _models[cabinet] = (model, time.monotonic() + MODEL_KEPT_SECONDS)
+    return model
+
+
 def ask_model(system, pages, instruction, what, think=True, keys=()):
-    """MiniMax-M3's JSON answer (dict) to ``instruction`` about ``pages`` (PNG bytes, in order, maybe none).
+    """The agents' model's (model_name) JSON answer (dict) to ``instruction`` about ``pages`` (PNG bytes, in order,
+    maybe none).
     ``what`` names the step in the log and in the agent's ToolError when it fails. ``think``: M3 thinks first.
     ``keys``: the ones the answer must hold (json_answer)."""
-    url, key, model = (setting(name, "") for name in ("MODEL_API_URL", "MODEL_API_KEY", "MODEL_API_NAME"))
-    if not (url and key and model):
+    url, key = (setting(name, "") for name in ("MODEL_API_URL", "MODEL_API_KEY"))
+    if not (url and key):
         raise ToolError(f"{what} : le modele n'est pas encore configure.")
+    model = model_name()
     png = [{"type": "base64", "media_type": "image/png", "data": base64.b64encode(page).decode()} for page in pages]
     images = [{"type": "image", "source": source} for source in png]
     content = [*images, {"type": "text", "text": instruction}]

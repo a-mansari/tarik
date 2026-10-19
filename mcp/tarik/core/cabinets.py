@@ -185,7 +185,6 @@ SHARED_SETTINGS = frozenset(
         "N8N_MCP_API_TOKEN",
         "MODEL_API_KEY",
         "MODEL_API_URL",
-        "MODEL_API_NAME",
         "MAIL_WEBHOOK_SECRET",
     ]
 )
