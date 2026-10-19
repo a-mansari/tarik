@@ -96,5 +96,5 @@ above; the workflows call the rest.
 | `workflows/build_tarik_traitement.py`, `build_tarik_dossier.py`, `build_tarik_emails.py`, `build_tarik_merge_test.py` | Rebuild a workflow's JSON; then import and publish it (README). |
 | `workflows/build_tarik_agents.py` | Create or update every cabinet's agent from the template and the skills; checks the tool names first. |
 | `workflows/save_layout.py` | Saves the node positions arranged in n8n's editor to `workflows/layout.json`, which the builders apply. |
-| `docs/workflows-overview/build.py` | Rebuilds the workflows overview pages (and their PDFs) from the workflows' JSON. |
+| `docs/workflows-overview/build.py` | Rebuilds the workflows overview pages (and their PDFs) from the workflows' JSON, and the developers' guide page from `docs/repository-guide.md`. |
 | `vault/setup.sh` | Sets up the local Vault. |

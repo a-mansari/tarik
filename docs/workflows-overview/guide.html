@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Tarik repository guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one ledger sheet — header, a flow strip, a 2×2 grid of workflow cards, then a two-column footer of rules and limits. */
+:root {
+  --paper: #f5f7f6;
+  --sheet: #ffffff;
+  --ink: #17262a;
+  --muted: #56676b;
+  --rule: #d5dedc;
+  --accent: #1d6274;
+  --accent-soft: #e3eff2;
+  --warn: #8a5a12;
+  --warn-soft: #fbf1df;
+  --display: "Fraunces", Georgia, "Times New Roman", serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1719; --sheet: #162124; --ink: #e3ecec; --muted: #9db0b3; --rule: #2b3b3f;
+    --accent: #7cc3d6; --accent-soft: #1b3239; --warn: #e8b968; --warn-soft: #2e2617; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1719; --sheet: #162124; --ink: #e3ecec; --muted: #9db0b3; --rule: #2b3b3f;
+  --accent: #7cc3d6; --accent-soft: #1b3239; --warn: #e8b968; --warn-soft: #2e2617; color-scheme: dark;
+}
+body { background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+.page { max-width: 1080px; margin: 0 auto; padding: 32px 20px 40px; display: grid; gap: 28px; }
+header { display: grid; gap: 8px; border-bottom: 2px solid var(--ink); padding-bottom: 18px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+h1 { font-family: var(--display); font-weight: 700; font-size: clamp(28px, 4.2vw, 40px); line-height: 1.1; margin: 0; text-wrap: balance; }
+.lede { margin: 0; color: var(--ink); font-size: 16px; }
+h2 { font-family: var(--display); font-weight: 600; font-size: 20px; margin: 0; text-wrap: balance; }
+h3 { font-size: 13px; font-family: var(--mono); font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0; }
+
+/* Flow strip */
+.flow { overflow-x: auto; }
+.flow-inner { display: grid; grid-template-columns: auto 24px auto 24px auto 24px 1fr; align-items: center; gap: 8px; min-width: 760px; }
+.node { background: var(--sheet); border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; font-size: 14px; }
+.node b { display: block; font-weight: 600; }
+.node span { color: var(--muted); font-size: 13px; }
+.node.agent { border-color: var(--accent); background: var(--accent-soft); }
+.arrow { color: var(--muted); text-align: center; font-family: var(--mono); }
+.targets { display: grid; gap: 6px; }
+.targets .node { padding: 7px 12px; }
+.flow-note { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+
+/* Workflow cards */
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 18px 20px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.card header { border: 0; padding: 0; gap: 2px; }
+.card .what { margin: 0; }
+ol { margin: 0; padding-left: 20px; display: grid; gap: 3px; }
+ol li::marker { font-family: var(--mono); color: var(--accent); }
+.note { font-size: 14px; border-left: 3px solid var(--accent); padding: 6px 10px; background: var(--accent-soft); border-radius: 0 4px 4px 0; margin: 0; }
+.more { justify-self: start; font-weight: 600; color: var(--accent); text-decoration: none; border-bottom: 1px solid currentColor; }
+.more:hover, .more:focus-visible { border-bottom-width: 2px; }
+.term { font-family: var(--mono); font-size: 13px; background: var(--accent-soft); padding: 0 4px; border-radius: 3px; }
+
+/* Footer */
+.foot { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.foot section { display: grid; gap: 10px; align-content: start; min-width: 0; }
+ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.limits { background: var(--warn-soft); border: 1px solid var(--rule); border-radius: 8px; padding: 16px 18px; }
+.limits h2 { color: var(--warn); }
+.stamp { font-family: var(--mono); font-size: 12px; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 12px; }
+
+@media (max-width: 760px) {
+  .grid, .foot { grid-template-columns: 1fr; }
+  .page { padding-top: 22px; }
+}
+
+.crumb { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+.crumb a { color: var(--accent); text-decoration: none; }
+.crumb a:hover, .crumb a:focus-visible { text-decoration: underline; }
+.facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.fact { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.fact b { display: block; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+.map { overflow-x: auto; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 12px; }
+.map svg { display: block; width: 100%; height: auto; }
+.map .edge { fill: none; stroke: var(--rule); stroke-width: 2; }
+.map .box { stroke-width: 2; }
+.map .label { fill: var(--ink); font-family: var(--body); font-size: 20px; }
+.k-trigger { fill: var(--accent-soft); stroke: var(--accent); }
+.k-step { fill: var(--sheet); stroke: var(--accent); }
+.k-decision { fill: var(--warn-soft); stroke: var(--warn); }
+.k-helper { fill: var(--paper); stroke: var(--muted); }
+.k-sub { fill: var(--accent-soft); stroke: var(--ink); }
+.k-record { fill: var(--ink); stroke: var(--ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); margin-top: 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 14px; border-radius: 4px; border: 2px solid; display: inline-block; }
+.legend .k-trigger { background: var(--accent-soft); border-color: var(--accent); }
+.legend .k-step { background: var(--sheet); border-color: var(--accent); }
+.legend .k-decision { background: var(--warn-soft); border-color: var(--warn); }
+.legend .k-helper { background: var(--paper); border-color: var(--muted); }
+.legend .k-sub { background: var(--accent-soft); border-color: var(--ink); }
+.legend .k-record { background: var(--ink); border-color: var(--ink); }
+.phase { display: grid; gap: 10px; }
+.phase > p { margin: 0; color: var(--muted); }
+.steps { display: grid; gap: 0; border-top: 1px solid var(--rule); }
+.step { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 4px 20px; padding: 10px 0; border-bottom: 1px solid var(--rule); break-inside: avoid; }
+.step code { font-family: var(--mono); font-size: 13px; color: var(--ink); background: var(--accent-soft); padding: 2px 6px; border-radius: 4px; justify-self: start; overflow-wrap: anywhere; }
+.step p { margin: 0; }
+.chain { counter-reset: s; }
+.chain .step code::before { counter-increment: s; content: counter(s) ". "; color: var(--accent); }
+@media screen and (max-width: 760px) {
+  .facts { grid-template-columns: 1fr; }
+  .step { grid-template-columns: 1fr; }
+}
+@page { size: A4 landscape; margin: 12mm; }
+.print-only { display: none; }
+@media print {
+  body { font-size: 12px; background: #fff; }
+  .page { max-width: none; padding: 0; gap: 18px; }
+  .print-only { display: block; }
+  .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .step { grid-template-columns: minmax(0, 300px) minmax(0, 1fr); }
+  .mapwrap { break-before: page; break-inside: avoid; }
+  .map { overflow: visible; }
+  .map svg { min-width: 0 !important; }
+  .phase { break-inside: auto; }
+  .card, .fact, .limits { break-inside: avoid; }
+  a.more { display: none; }
+}
+
+.guide h2 { margin: 28px 0 8px; }
+.guide h3 { margin: 22px 0 6px; font-size: 16px; }
+.guide p { margin: 0 0 12px; }
+.guide ul, .guide ol { margin: 0 0 12px; padding-left: 24px; }
+.guide li { margin: 4px 0; }
+.guide code { font-family: var(--mono); font-size: 12.5px; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.guide table { width: 100%; border-collapse: collapse; margin: 0 0 16px; font-size: 14px; }
+.guide th, .guide td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+.guide th { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.guide td:first-child { white-space: nowrap; }
+.guide .map svg { max-width: 760px; }
+@media print { .guide table, .guide tr { break-inside: avoid; } .guide td:first-child { white-space: normal; } }
+</style>
+<div class="page guide">
+  <header>
+    <div class="crumb"><a href="index.html">← Tarik workflows overview</a></div>
+    <h1>Tarik repository guide</h1>
+  </header>
+  <p>For a developer joining the project: what Tarik is, every file and folder of the repository and what it is for, and the day-to-day loop. The <a href="https://github.com/a-mansari/tarik#readme">README</a> is the reference; this is the tour.</p>
+<h2>What Tarik is</h2>
+<p>Tarik is an accounting assistant for Moroccan cabinets (accounting firms) using Experio, an Odoo 15 app. A clerk writes to Tarik by chat or email, attaches invoices, bank statements or a FEC, and Tarik puts them into Experio through Experio's own screens and wizards. Nothing is invented: a model (MiniMax-M3) only reads scans and the client's words; every write is a fixed Python step.</p>
+<p>The pieces, each a Docker service in <code>docker-compose.yml</code>:</p>
+<ul><li><b>n8n</b> (patched, <code>n8n/</code>): hosts one native agent per cabinet ("Tarik - GECAFISC" and 7 more) and three workflows. The agent finds the dossier and hands the work to a workflow; the workflow calls the Python tools step by step.</li><li><b>tarik-mcp</b> (<code>mcp/</code>): the Python tools, served over MCP at <code>http://tarik-mcp:8000/c/&lt;cabinet&gt;/mcp</code>. One address per cabinet, so a call can only ever work in the cabinet it named.</li><li><b>tarik-mail-watch</b> (<code>mcp/watcher.py</code>, same image): watches each cabinet's mailbox over IMAP IDLE and wakes the email workflow.</li><li><b>postgres</b>: Tarik's own data (one schema per cabinet, from <code>mcp/tarik/core/cabinet.sql</code>) and n8n's data.</li><li><b>vault</b>: every secret and per-cabinet setting (<code>secret/tarik/shared</code>, <code>secret/tarik/cabinets/&lt;cabinet&gt;</code>). The cabinets are those Vault paths.</li></ul>
+<p>A cabinet is named by its exact Experio database (<code>experio_cabinet_8</code>). That name is its MCP address, its Vault path and its Postgres schema. The agent never sees Odoo, a URL or a setting: it is "Experio" everywhere.</p>
+<p>A request flows like this: an email arrives, the watcher stores it and wakes "Tarik - Emails"; that workflow asks the cabinet's agent; the agent calls "Tarik - Traitement" (invoices and statements) or "Tarik - Dossier" (a new dossier, a FEC, or a change to a dossier); each node of those workflows is one MCP tool in <code>mcp/tarik/</code>; the run's summary comes back to the agent, then to the client. Chat follows the same path without the watcher and the email workflow.</p>
+<div class="map"><svg viewBox="0 0 760 460" role="img" aria-label="Every write to Experio goes through a workflow step, never through the model" font-size="13" font-family="var(--body)"><defs><marker id="guide-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs><text x="24" y="34" font-size="15" font-weight="600" fill="var(--ink)">Every write to Experio goes through a workflow step, never through the model</text><g fill="none" stroke="var(--muted)" stroke-width="1.25"><path d="M175.0 96H205.0" marker-end="url(#guide-arrow)"/><path d="M355.0 96H385.0" marker-end="url(#guide-arrow)"/><path d="M535.0 96H565.0" marker-end="url(#guide-arrow)"/><path d="M100 72.0V58H640V72.0" marker-end="url(#guide-arrow)"/><path d="M640 120.0V176.0" marker-end="url(#guide-arrow)"/><path d="M600 120.0V148.0H460V176.0" marker-end="url(#guide-arrow)"/><path d="M460 224.0V280.0" marker-end="url(#guide-arrow)"/><path d="M640 224.0V280.0" marker-end="url(#guide-arrow)"/><path d="M460 328.0V384.0" marker-end="url(#guide-arrow)"/><path d="M640 328.0V384.0" marker-end="url(#guide-arrow)"/><path d="M355.0 304H400"/></g><rect x="25.0" y="72.0" width="150" height="48" rx="8" fill="var(--sheet)" stroke="var(--rule)" stroke-width="1.25"/><text x="100" y="92" text-anchor="middle" font-weight="600" fill="var(--ink)">Client</text><text x="100" y="110" text-anchor="middle" font-size="11.5" fill="var(--muted)">a cabinet&#x27;s clerk</text><rect x="205.0" y="72.0" width="150" height="48" rx="8" fill="var(--sheet)" stroke="var(--rule)" stroke-width="1.25"/><text x="280" y="92" text-anchor="middle" font-weight="600" fill="var(--ink)">Mail watcher</text><text x="280" y="110" text-anchor="middle" font-size="11.5" fill="var(--muted)">mcp/watcher.py</text><rect x="385.0" y="72.0" width="150" height="48" rx="8" fill="var(--sheet)" stroke="var(--rule)" stroke-width="1.25"/><text x="460" y="92" text-anchor="middle" font-weight="600" fill="var(--ink)">Tarik - Emails</text><text x="460" y="110" text-anchor="middle" font-size="11.5" fill="var(--muted)">n8n workflow</text><rect x="565.0" y="72.0" width="150" height="48" rx="8" fill="var(--sheet)" stroke="var(--rule)" stroke-width="1.25"/><text x="640" y="92" text-anchor="middle" font-weight="600" fill="var(--ink)">AI agent</text><text x="640" y="110" text-anchor="middle" font-size="11.5" fill="var(--muted)">one per cabinet, in n8n</text><rect x="385.0" y="176.0" width="150" height="48" rx="8" fill="var(--sheet)" stroke="var(--rule)" stroke-width="1.25"/><text x="460" y="196" text-anchor="middle" font-weight="600" fill="var(--ink)">Tarik - Traitement</text><text x="460" y="214" text-anchor="middle" font-size="11.5" fill="var(--muted)">invoices, statements</text><rect x="565.0" y="176.0" width="150" height="48" rx="8" fill="var(--sheet)" stroke="var(--rule)" stroke-width="1.25"/><text x="640" y="196" text-anchor="middle" font-weight="600" fill="var(--ink)">Tarik - Dossier</text><text x="640" y="214" text-anchor="middle" font-size="11.5" fill="var(--muted)">create, FEC, update</text><rect x="400.0" y="280.0" width="300" height="48" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="2"/><text x="550.0" y="300" text-anchor="middle" font-weight="600" fill="var(--ink)">tarik-mcp: the Python tools, one step per call</text><text x="550.0" y="318" text-anchor="middle" font-size="11.5" fill="var(--muted)">mcp/tarik/ at /c/&lt;cabinet&gt;/mcp</text><rect x="205.0" y="280.0" width="150" height="48" rx="8" fill="var(--sheet)" stroke="var(--rule)" stroke-width="1.25"/><text x="280" y="300" text-anchor="middle" font-weight="600" fill="var(--ink)">Postgres</text><text x="280" y="318" text-anchor="middle" font-size="11.5" fill="var(--muted)">one schema per cabinet</text><rect x="385.0" y="384.0" width="150" height="48" rx="8" fill="var(--sheet)" stroke="var(--rule)" stroke-width="1.25"/><text x="460" y="404" text-anchor="middle" font-weight="600" fill="var(--ink)">Vault</text><text x="460" y="422" text-anchor="middle" font-size="11.5" fill="var(--muted)">secrets and settings</text><rect x="565.0" y="384.0" width="150" height="48" rx="8" fill="var(--sheet)" stroke="var(--rule)" stroke-width="1.25"/><text x="640" y="404" text-anchor="middle" font-weight="600" fill="var(--ink)">Experio</text><text x="640" y="422" text-anchor="middle" font-size="11.5" fill="var(--muted)">Odoo 15, over RPC</text><text x="370.0" y="52" text-anchor="middle" font-size="11.5" fill="var(--muted)">chat, straight to the agent</text><text x="648" y="152.0" font-size="11.5" fill="var(--muted)">summary back</text></svg></div>
+<p>The agent only chooses which workflow to call and fills a few fields; each workflow node is one Python tool, and only those tools write to Experio. Postgres also holds n8n's own data.</p>
+<h2>Repository layout</h2>
+<p>Everything at the root, and what each entry is for.</p>
+<table><thead><tr><th>Entry</th><th>What it is</th></tr></thead><tbody><tr><td><code>README.md</code></td><td>The reference: how it is built, the rules the tools keep, cabinets and Vault, setup, deploy, tests. Read it first.</td></tr><tr><td><code>docker-compose.yml</code></td><td>The five services above. <code>tarik-mcp</code> gets only the variables Tarik reads, never the whole <code>.env</code>.</td></tr><tr><td><code>.env</code> / <code>.env.example</code></td><td>Host settings: Postgres names and password, <code>ODOO_URL</code>, n8n's encryption key, <code>N8N_MCP_API_URL</code>. <code>.env</code> is ignored by git; copy the example.</td></tr><tr><td><code>pyproject.toml</code></td><td>Ruff's formatter and linter settings: Python 3.14, 120 columns. A style test enforces them on every Python file.</td></tr><tr><td><code>.gitignore</code></td><td><code>.env</code>, <code>vault/.local/</code> (unseal key, root token, AppRole ids), <code>.temp/</code>, caches.</td></tr><tr><td><code>mcp/</code></td><td>The Python side: the MCP server, the mail watcher, the <code>tarik</code> package and its tests. Built into the <code>tarik-mcp</code> image.</td></tr><tr><td><code>workflows/</code></td><td>The n8n workflows as JSON, the Python builders that generate them, and the agent template.</td></tr><tr><td><code>instructions/</code></td><td>Everything the model is told: the agents' skills and the prompts the tools send.</td></tr><tr><td><code>n8n/</code></td><td>The n8n image: a Dockerfile and <code>patch.js</code>, which edits a few lines of n8n at build time.</td></tr><tr><td><code>vault/</code></td><td>Vault's config and the two scripts that start, unseal and set it up locally.</td></tr><tr><td><code>docs/</code></td><td>Three Markdown docs, this guide, and a generated HTML/PDF overview of the workflows for the project team.</td></tr><tr><td><code>.claude/</code>, <code>.temp/</code></td><td>Local tooling and scratch; not part of the project.</td></tr></tbody></table>
+<h2>mcp/: the Python tools</h2>
+<p>Every tool is a Python function decorated with <code>@server.tool()</code> (or <code>@step_tool</code>, which also copies the invoice, file and dossier ids into the result so n8n can route on them). Importing a module registers its tools. A tool returns a dict with <code>status</code> (<code>ok</code>, <code>wait</code>, <code>question</code>, <code>stop</code>) and a French <code>message</code> the client reads; a <code>ToolError</code> is the only text that reaches the agent on failure.</p>
+<p><b>Entry points and packaging</b></p>
+<table><thead><tr><th>File</th><th>Role</th></tr></thead><tbody><tr><td><code>mcp/server.py</code></td><td>The ASGI app: routes <code>/c/&lt;cabinet&gt;/mcp</code> to the MCP server inside <code>cabinets.using(name)</code>, with a semaphore per cabinet and one for the whole server. At start it refuses to run unless Vault is set, every cabinet logs into Experio with the expected user id, and each schema exists.</td></tr><tr><td><code>mcp/watcher.py</code></td><td><code>tarik-mail-watch</code>: one IMAP IDLE thread and one 15-minute tick thread per cabinet mailbox. Stores new emails, tells the manager of refused senders, and posts to the "Tarik - Emails" webhook with a shared secret header.</td></tr><tr><td><code>mcp/Dockerfile</code>, <code>.dockerignore</code>, <code>pytest.ini</code></td><td>Python 3.14 slim with pinned dependencies (mcp, psycopg, pillow, pypdfium2, httpx, openpyxl, pytest, ruff). <code>pytest.ini</code> declares the test categories as markers and excludes <code>live</code> and <code>llm</code> by default.</td></tr></tbody></table>
+<p>**<code>tarik/core/</code>: what every tool builds on**</p>
+<table><thead><tr><th>Module</th><th>Role</th></tr></thead><tbody><tr><td><code>app.py</code></td><td>The <code>MCPServer</code> instance, <code>log()</code>, the result makers <code>ok</code>/<code>wait</code>/<code>question</code>/<code>stop</code>/<code>routine</code>, and the <code>with_ids</code> and <code>step_tool</code> decorators.</td></tr><tr><td><code>config.py</code></td><td>Constants shared by all cabinets: <code>ODOO_URL</code>, Postgres, timeouts, Experio's state codes, the dossier domain, name-matching thresholds, PDF rendering settings.</td></tr><tr><td><code>cabinets.py</code></td><td>The Vault client (AppRole login, settings re-read every 5 minutes, last values kept on an outage), the list of cabinets, <code>current()</code> and <code>using()</code> (a context variable holding the call's cabinet), <code>setting(key)</code> which refuses a key in the wrong place, <code>cabinet_db()</code> (a Postgres connection whose search_path is that cabinet's schema only), and <code>create_schemas()</code>.</td></tr><tr><td><code>cabinet.sql</code></td><td>One cabinet's tables, idempotent: <code>tarik_files</code>, <code>tarik_checks</code>, <code>tarik_classifications</code>, <code>tarik_results</code>, <code>tarik_pending</code>, <code>tarik_setups</code>, the mail tables, <code>tarik_client_messages</code>. Columns added later use <code>alter table ... add column if not exists</code>.</td></tr><tr><td><code>experio.py</code></td><td>Experio calls and guards: XML-RPC (<code>odoo_call</code>, one proxy per thread) and JSON-RPC (<code>odoo_json</code>, for answers holding None), login checked against <code>ODOO_UID</code>, <code>dry_run()</code> and <code>TEST_MODE</code>, the <code>refused()</code> context manager that turns any failure into a French ToolError, <code>require_dossier</code>, <code>require_invoice</code>, <code>require_draft_invoice</code>, <code>fill_invoice</code> (types fields into the form one by one so Experio's onchanges run), <code>refresh</code>, <code>experio_notes</code>, and the <code>experio_connection</code> tool.</td></tr><tr><td><code>model.py</code></td><td>The vision model over the Anthropic message format MiniMax imitates: <code>ask_model</code>, <code>json_answer</code> (the one JSON object in a reply), <code>instruction(name)</code> reading <code>instructions/tools/&lt;name&gt;.md</code>, and the PDF page rendering (<code>pdf_pages</code>, <code>scan_pages</code>, <code>to_pdf</code>).</td></tr><tr><td><code>words.py</code></td><td>Reading what people write: <code>normalized</code>, <code>said</code>, <code>similarity</code>, <code>ranked</code>, <code>strip_tags</code>, <code>ICE_WRITTEN</code>, and numbers in French or American style (<code>readings</code>, <code>as_number</code>, <code>written_numbers</code>).</td></tr><tr><td><code>conversation.py</code></td><td>The client's own words per conversation (<code>client_messages</code>, <code>own_words</code>), <code>yes_no</code> and <code>chosen_among</code>: a choice is read from the agent's decision, never guessed.</td></tr></tbody></table>
+<p>**<code>tarik/dossiers/</code>: dossiers and people**</p>
+<table><thead><tr><th>Module</th><th>Tools</th></tr></thead><tbody><tr><td><code>search.py</code></td><td><code>list_dossiers</code>, <code>find_dossier</code> (fuzzy name match, 5 closest with a score).</td></tr><tr><td><code>people.py</code></td><td><code>list_collaborators</code>, <code>check_sender</code>: an email's sender must be a collaborator or Experio staff with the dossier assigned.</td></tr><tr><td><code>identity.py</code></td><td><code>create_dossier</code>, <code>update_dossier</code>: identity fields only to values the client wrote themselves, duplicates by ICE, IF or name refused, confirmation questions before skipping the registry check.</td></tr><tr><td><code>setup.py</code></td><td><code>copy_configuration</code>, <code>import_entries</code> (FEC or grand livre through Experio's import screen), <code>finish_setup</code> (walks the onboarding stepper, waits for lines to be a minute old), <code>setup_status</code>, <code>waiting_setups</code>.</td></tr></tbody></table>
+<p>**<code>tarik/invoices/</code>: the fixed sequence, one module per step**</p>
+<table><thead><tr><th>Module</th><th>Tools</th></tr></thead><tbody><tr><td><code>intake.py</code></td><td><code>identify_document</code>, <code>split_invoices</code> (one PDF into several), <code>create_draft_invoice</code>, <code>import_bank_statement</code>. Rows are locked <code>for update</code> so a retry never creates a second draft.</td></tr><tr><td><code>classify.py</code></td><td><code>classify_invoice</code>: achat, vente or bank statement; also <code>side_of</code> and <code>client_side</code> used by other steps.</td></tr><tr><td><code>check.py</code></td><td><code>check_invoice</code>: the model reads the scan and compares with what Experio captured; dates resolved in code; false alarms dropped. Stores the report in <code>tarik_checks</code>.</td></tr><tr><td><code>correct.py</code></td><td><code>correct_invoice</code>: writes the differences back, plus credit note, multi-TVA split, currency, payment method.</td></tr><tr><td><code>tiers.py</code></td><td><code>link_tiers</code>, <code>find_tiers</code>, <code>choose_tiers</code>: the supplier or customer, Experio's detection first, else a question listing close names.</td></tr><tr><td><code>duplicates.py</code></td><td><code>check_duplicate</code>: Experio's own check against posted invoices and the dossier's other drafts.</td></tr><tr><td><code>accounts.py</code></td><td><code>assign_account</code>, <code>set_account</code>: the memorized account, else the model picks among the dossier's real chart, else a question.</td></tr><tr><td><code>tva.py</code></td><td><code>settle_tva</code>: recoverable or not (a question on fuel, travel and car accounts), the cabinet's prorata, Experio's tax lines.</td></tr><tr><td><code>journal.py</code></td><td><code>check_journal</code>: the journal Experio's rule gives, or which dossier setting is missing.</td></tr><tr><td><code>withholding.py</code></td><td><code>settle_withholding</code>: retenue à la source, the tiers' known rule or a question read by the model.</td></tr><tr><td><code>prepaid.py</code></td><td><code>settle_prepaid</code>: charges constatées d'avance when the billed period spans months.</td></tr><tr><td><code>exercice.py</code></td><td><code>settle_exercice</code>: the fiscal year, relinking, late invoices, or opening a new year.</td></tr><tr><td><code>posting.py</code></td><td><code>post_invoice</code>: only when Experio's own validation is clear; state read back.</td></tr><tr><td><code>listing.py</code></td><td><code>list_invoices</code>: a dossier's invoices by status, for the agent.</td></tr><tr><td><code>pipeline.py</code></td><td>The run's bookkeeping, used by n8n rather than the agent: <code>wait_until_read</code>, <code>record_step</code>, <code>run_summary</code>, <code>answer_pending</code>, <code>save_files</code>, <code>files_to_process</code>, <code>waiting_drafts</code>. <code>STEPS</code> is the sequence in order.</td></tr></tbody></table>
+<p>**<code>tarik/emails/</code>: the mailbox**</p>
+<table><thead><tr><th>Module</th><th>Role</th></tr></thead><tbody><tr><td><code>inbox.py</code></td><td>Reads IMAP without changing it, threads emails by <code>In-Reply-To</code> and <code>References</code>, refuses non-collaborators and auto-replies, and the thread tools the email workflow calls: <code>claim_threads</code>, <code>acknowledge_thread</code>, <code>thread_refusal</code>, <code>notify_manager</code>, <code>finish_thread</code>.</td></tr><tr><td><code>sending.py</code></td><td><code>send_email</code>: whitelist only (<code>MAIL_ALLOWED_RECIPIENTS</code>), pinned certificate, Markdown rendered to text and HTML, a copy saved in Sent.</td></tr><tr><td><code>agent.py</code></td><td><code>ask_agent</code>: asks the cabinet's n8n agent through n8n's MCP <code>call_agent</code>, in the thread's own conversation.</td></tr></tbody></table>
+<h2>mcp/tests/: the tests</h2>
+<p>Tests run in a throwaway <code>tarik-mcp</code> container on your working copy, against the test database <code>tarik_test</code> (never the cabinets' own) with settings from the environment instead of Vault. Each test has one category marker: <code>security</code>, <code>functionality</code>, <code>communication</code>, <code>technical</code>, <code>style</code>, plus <code>live</code> (the real n8n) and <code>llm</code> (the real model, slow, billed), which only run when asked.</p>
+<table><thead><tr><th>File or folder</th><th>Role</th></tr></thead><tbody><tr><td><code>run.py</code></td><td>The runner. <code>python3 mcp/tests/run.py</code> runs the tests covering the files changed since the last commit (it follows imports); <code>--all</code> runs everything; <code>-m llm</code> a category. Any other argument goes to pytest.</td></tr><tr><td><code>conftest.py</code>, <code>testdb.py</code>, <code>fakes.py</code></td><td>The test database and a throwaway cabinet schema per run (<code>db_cabinet</code> fixture, emptied around each test); <code>FakeDb</code> and <code>flag</code> stand-ins.</td></tr><tr><td><code>runs.py</code></td><td>A realistic ten-invoice run, recorded as n8n records it, for the summary tests.</td></tr><tr><td><code>core/</code></td><td>Experio guards and the proxy cache (<code>test_experio.py</code>), Vault against a fake server (<code>test_vault.py</code>), the test database itself.</td></tr><tr><td><code>dossiers/</code></td><td>Search, people, dossier creation and update rules, onboarding, the setup wait.</td></tr><tr><td><code>invoices/</code></td><td>One file per step (<code>test_check.py</code>, <code>test_tiers.py</code>, <code>test_duplicates.py</code>, <code>test_tva.py</code> ...), the answer routing (<code>test_answers.py</code>), the summary, the files. <code>replies/</code> holds real model replies that once broke the JSON reader.</td></tr><tr><td><code>emails/</code></td><td>Threads, inbox reading, sending and whitelist, the agent call, the watcher.</td></tr><tr><td><code>isolation/</code></td><td>The security suite: one cabinet never sees another's schema, settings or HTTP address, and no tool ever shows a setting, whatever Experio, the mailbox or the model do (<code>test_no_setting_shown.py</code> calls every tool).</td></tr><tr><td><code>style/</code></td><td>Ruff lint and format on every Python file, each workflow JSON equal to what its builder produces, every tool a workflow or skill names exists, every caller fills every workflow input, each prompt file read by the tool it names.</td></tr><tr><td><code>n8n/</code></td><td>Live: the agent's memory and conversation, and <code>test_at_the_end.py</code> which runs "Tarik - Test Merge" to check n8n's execution order after an upgrade.</td></tr><tr><td><code>llm/</code></td><td>Live, measured on many replies: <code>test_decisions.py</code> (what the agent reads as oui/non, which tiers, exercice or bank account the client chose) and <code>test_relay.py</code> (every fact of a summary reaches the client).</td></tr></tbody></table>
+<h2>workflows/: n8n</h2>
+<p>The JSON files are generated. Edit a builder, run it, then import and publish the JSON (README). A style test fails when a JSON differs from what its builder produces.</p>
+<table><thead><tr><th>File</th><th>Role</th></tr></thead><tbody><tr><td><code>steps.py</code></td><td>What the builders share: the <code>Workflow</code> class (nodes, connections, an MCP step with its cabinet address, a router, a code node, <code>record_and_summary</code>, <code>at_the_end</code>), and the input lists <code>TRAITEMENT_INPUTS</code> and <code>DOSSIER_INPUTS</code> every caller must fill.</td></tr><tr><td><code>build_tarik_traitement.py</code> / <code>tarik-traitement.json</code></td><td>"Tarik - Traitement" (<code>TarikTraitement1</code>): the invoice sequence, one node per step, each only when the previous said ok. Modes <code>files</code> (new files), <code>answer</code> (the client's answer, resumed at the right step), <code>resume</code> (drafts Experio was still reading, no agent). A 240-second budget: invoices still going wait for the next run.</td></tr><tr><td><code>build_tarik_dossier.py</code> / <code>tarik-dossier.json</code></td><td>"Tarik - Dossier" (<code>TarikDossier0001</code>): create, copy a model's configuration, import each FEC, finish the onboarding, report the state. Mode <code>update</code> changes an existing dossier's identity fields instead. Mode <code>resume</code> finishes dossiers left waiting.</td></tr><tr><td><code>build_tarik_emails.py</code> / <code>tarik-emails.json</code></td><td>"Tarik - Emails" (<code>TarikEmails00001</code>): a webhook woken by the watcher; claims the waiting threads, acknowledges a new one, asks the cabinet's agent, sends the reply; a follow-up runs Traitement then Dossier in mode resume and emails both summaries.</td></tr><tr><td><code>build_tarik_merge_test.py</code> / <code>tarik-merge-test.json</code></td><td>"Tarik - Test Merge": only for <code>tests/n8n/test_at_the_end.py</code>, which checks n8n still runs the summary node last after an upgrade.</td></tr><tr><td><code>tarik-agent.json</code></td><td>The agent template: instructions, the five read-only MCP tools, and four workflow tools (<code>Experio_traiter_fichiers</code>, <code>Experio_repondre</code>, <code>Experio_parametrer_dossier</code>, <code>Experio_modifier_dossier</code>) with their fixed and model-filled inputs. <code>__CABINET__</code> and <code>__CABINET_NAME__</code> are replaced per cabinet.</td></tr><tr><td><code>build_tarik_agents.py</code></td><td>Creates or updates every cabinet's agent from the template and the skills, through n8n's MCP server. The cabinets are listed in its <code>CABINETS</code> dict. It refuses to build when a skill names a tool the agents do not have. Prints each <code>AGENT_ID</code> for Vault.</td></tr><tr><td><code>layout.json</code> / <code>save_layout.py</code></td><td>Node positions as arranged in n8n's editor, read from n8n's database by the script and applied by the builders, so a rebuild keeps the layout.</td></tr></tbody></table>
+<h2>instructions/, n8n/, vault/, docs/</h2>
+<p>**<code>instructions/</code>: what the model is told, written once**</p>
+<table><thead><tr><th>File</th><th>Role</th></tr></thead><tbody><tr><td><code>skills/nouveau-dossier.md</code>, <code>traitement-documents.md</code>, <code>modification-dossier.md</code>, <code>reponse-question.md</code></td><td>The agents' four skills (front matter <code>name</code>, <code>description</code>, then the instructions, in French). <code>build_tarik_agents.py</code> gives every agent the same copy and removes a skill from all agents when its file goes. They name tools exactly as the model sees them (<code>Experio_find_dossier</code>).</td></tr><tr><td><code>tools/check-invoice.md</code>, <code>check-invoice-answer.md</code></td><td>What <code>check_invoice</code> tells the model: how to read a Moroccan invoice, and the JSON shape to answer with.</td></tr><tr><td><code>tools/classify-document.md</code></td><td>Achat, vente or releve bancaire, for <code>identify_document</code> and <code>classify_invoice</code>.</td></tr><tr><td><code>tools/split-pdf.md</code></td><td>Which pages begin a new invoice, for <code>split_invoices</code>.</td></tr><tr><td><code>tools/choose-account.md</code></td><td>The CGNC accounts and the rules, for <code>assign_account</code>.</td></tr></tbody></table>
+<p>Each prompt file starts with front matter <code>used_by</code>; a style test checks it is read by that tool. The container mounts the folder, so a prompt change applies on restart with no rebuild. Short answer shapes (a few lines) live as constants next to the code that reads the answer.</p>
+<p>**<code>n8n/</code>: the patched n8n image**</p>
+<table><thead><tr><th>File</th><th>Role</th></tr></thead><tbody><tr><td><code>Dockerfile</code></td><td>n8n 2.43.5 plus the patch.</td></tr><tr><td><code>patch.js</code></td><td>Edits n8n's own source at build time: an agent's workflow tool may run <code>TARIK_AGENT_TOOL_TIMEOUT_MS</code> (5 minutes, n8n's fixed value is 2); a tool input fixed to <code>{{threadId}}</code>, <code>{{attachments}}</code> or <code>{{clientMessage}}</code> is filled by n8n with the conversation's id, its files and the client's latest message word for word, never by the model; <code>call_agent</code> accepts <code>newSession</code>. The build fails if an n8n upgrade moves a patched line.</td></tr></tbody></table>
+<p>**<code>vault/</code>: secrets, local setup**</p>
+<table><thead><tr><th>File</th><th>Role</th></tr></thead><tbody><tr><td><code>config.hcl</code></td><td>Vault's file storage config.</td></tr><tr><td><code>start.sh</code></td><td>The container's entrypoint: starts Vault and unseals it with the key kept in <code>vault/.local/unseal/</code>.</td></tr><tr><td><code>setup.sh</code></td><td>Run once: creates the KV mount, the policy that only reads <code>secret/tarik/*</code>, and the AppRole whose <code>role_id</code> and <code>secret_id</code> are written to <code>vault/.local/approle/</code> and mounted read-only into <code>tarik-mcp</code>.</td></tr></tbody></table>
+<p><code>vault/.local/</code> is git-ignored: unseal key, root token and AppRole ids live on the machine only. On the public server a real Vault takes this container's place.</p>
+<p>**<code>docs/</code>: documentation**</p>
+<table><thead><tr><th>File</th><th>Role</th></tr></thead><tbody><tr><td><code>architecture.md</code></td><td>The system diagram, the trust rules (what the model may decide, what only the client's words may set), the data each service keeps.</td></tr><tr><td><code>tools-and-workflows.md</code></td><td>Every tool, skill and workflow in one table each, and the scripts.</td></tr><tr><td><code>using-tarik.md</code></td><td>For the cabinet: what Tarik can do and how to write to it.</td></tr><tr><td><code>repository-guide.md</code></td><td>This guide; <code>workflows-overview/build.py</code> renders it to <code>guide.html</code> and <code>guide.pdf</code>.</td></tr><tr><td><code>workflows-overview/build.py</code>, <code>overview.html</code></td><td>A generated site for the project team: <code>index.html</code> from the hand-written <code>overview.html</code>, one page per workflow with a map drawn from the JSON and every node explained, this guide, then PDFs with Chrome and <code>pdfunite</code>. The generated <code>.html</code> and <code>.pdf</code> files are committed. Run it after a workflow changes; it fails when a node has no explanation.</td></tr></tbody></table>
+<h2>Day to day</h2>
+<p><b>Rules the code keeps, and tests enforce</b></p>
+<ul><li>Every dossier tool needs a real dossier id from <code>find_dossier</code>; every invoice tool a real draft of one of the cabinet's dossiers.</li><li>The model never decides a value: an ICE, an amount, a name is taken only when the client wrote it; a choice only among what the question proposed.</li><li><code>DRY_RUN=1</code> per cabinet (the default): drafts and statements are created, nothing else is written; replies start with <code>MODE TEST</code>.</li><li>A setting is either the cabinet's own or shared, never both, and never shown to the agent.</li><li>One module per invoice step; a step tells the client what it did in one French sentence; routine outcomes are left out of the summary.</li></ul>
+<p><b>Changing Python</b></p>
+<ol><li>Edit a module under <code>mcp/tarik/</code>.</li><li><code>python3 mcp/tests/run.py</code> runs the tests that cover your change; <code>--all</code> for everything. Ruff lint and format are part of the style tests.</li><li><code>docker compose up -d --build --force-recreate tarik-mcp tarik-mail-watch</code>.</li></ol>
+<p><b>Changing a workflow or the agents</b></p>
+<ol><li>Edit <code>workflows/build_tarik_*.py</code> or <code>workflows/steps.py</code>, run the builder.</li><li><code>docker compose cp</code> the JSON into n8n, <code>n8n import:workflow</code>, <code>n8n publish:workflow --id=...</code>, <code>docker compose restart n8n</code> (README has the exact commands).</li><li>A change to <code>tarik-agent.json</code> or a skill: <code>python3 workflows/build_tarik_agents.py</code>. It updates all cabinets and republishes the agents that were published.</li><li><code>python3 docs/workflows-overview/build.py</code> to regenerate the team overview.</li></ol>
+<p><b>Changing a prompt</b>: edit <code>instructions/tools/*.md</code>, restart <code>tarik-mcp</code>.</p>
+<p><b>Adding a cabinet</b>: give Tarik a user in that cabinet's Experio, add its database name to <code>CABINETS</code> in <code>build_tarik_agents.py</code>, run it, put the agent id and the cabinet's settings in Vault under <code>secret/tarik/cabinets/&lt;cabinet&gt;</code>, restart <code>tarik-mcp</code> (its schema is made at start).</p>
+<p><b>Where to look when something goes wrong</b>: <code>docker compose logs tarik-mcp</code> (every Experio refusal is logged with the tool and the invoice), the run's rows in <code>tarik_results</code>, the thread's state in <code>tarik_mail_threads</code>, and n8n's execution of the workflow.</p>
+  <div class="stamp">State as of 19 October 2026 · docs/repository-guide.md</div>
+</div>
+</body>
+</html>
