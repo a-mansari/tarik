@@ -442,7 +442,15 @@ def files_to_process(session_id: str, entries: bool = False) -> dict:
     return ok(f"{len(own)} fichier(s) a traiter.", files=own)
 
 
-HOLDS = {("hold_posting", "stop")}  # a draft kept unposted: only ``held`` takes it up
+# The stops a client's "reprenez" retries: a dossier setting or an Experio check the cabinet may have fixed since.
+# A duplicate, a type or a draft kept unposted (hold_posting) is the client's call, not a setting.
+FIXABLE_STOPS = {"assign_account", "check_journal", "post_invoice"}
+
+
+def resumable(step, status, stopped):
+    """True when a draft whose furthest outcome is ``status`` at ``step`` is taken up again: it waited or failed, or
+    (``stopped``, the client asked) a fixable setting stopped it."""
+    return status in ("wait", "error") or (stopped and status == "stop" and step in FIXABLE_STOPS)
 
 
 def furthest_outcomes(rows):
@@ -462,10 +470,9 @@ def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, sto
     n8n records a run's steps last, so a run cut short (n8n stops an agent's tool after 5 minutes) leaves its
     drafts with no outcome. Every later step runs again; a question or a stop is not resumed here, except what the
     client asks for. ``held``: the drafts they asked to leave unposted (they now ask to post). ``stopped``: the
-    drafts a step stopped (a setting the cabinet has fixed since: they ask to resume). Both also reach the dossier
-    ``dossier_id``'s drafts from any conversation, since the client may ask in a new email thread; never an
-    automatic follow-up's. A draft deleted or posted in Experio since is left alone."""
-    resumable = ("wait", "error", "stop") if stopped else ("wait", "error")
+    drafts a fixable setting stopped (FIXABLE_STOPS: the cabinet has fixed it since, they ask to resume). Both also
+    reach the dossier ``dossier_id``'s drafts from any conversation, since the client may ask in a new email thread;
+    never an automatic follow-up's. A draft deleted or posted in Experio since is left alone."""
     with cabinet_db() as db:
         rows = db.execute(
             "select invoice_id, step, status from tarik_results where session_id = %s and invoice_id is not null "
@@ -486,11 +493,12 @@ def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, sto
         if held:
             kept = db.execute("select invoice_id, session_id from tarik_held where not released").fetchall()
     mine = furthest_outcomes(rows)
-    waiting = [i for i, (step, status) in mine.items() if status in resumable and (step, status) not in HOLDS]
+    waiting = [i for i, (step, status) in mine.items() if resumable(step, status, stopped)]
     # shortcut: a draft of a run still going also has no outcome yet; one conversation runs one at a time
     waiting += [invoice_id for (invoice_id,) in drafts if invoice_id not in mine]
     if dossier_id and stopped:
-        waiting += [i for i, (step, status) in furthest_outcomes(elsewhere).items() if (step, status) not in HOLDS]
+        found = furthest_outcomes(elsewhere).items()
+        waiting += [i for i, (step, status) in found if resumable(step, status, True)]
     # The conversation's own held drafts, and the dossier's from any other.
     waiting += [invoice_id for invoice_id, owner in kept if owner == session_id or dossier_id]
     if waiting:

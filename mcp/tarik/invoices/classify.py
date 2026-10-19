@@ -67,6 +67,16 @@ def client_side(invoice_type, words):
     return invoice_type if invoice_type in SIDES and SIDES[invoice_type] <= written else None
 
 
+def _kept_classification(invoice_id, invoice_type):
+    """The (category, reason) already decided for the invoice, or None: a draft taken up again keeps its side, the
+    model's second look must not flip it. The client giving a side that differs asks for a new look."""
+    with cabinet_db() as db:
+        row = db.execute(
+            "select category, reason from tarik_classifications where invoice_id = %s", (invoice_id,)
+        ).fetchone()
+    return row if row and invoice_type in ("", row[0]) else None
+
+
 def _save_classification(invoice_id, category, reason):
     """Store the invoice's ``category`` and its ``reason`` in tarik_classifications, replacing any earlier one."""
     with cabinet_db() as db:
@@ -93,8 +103,12 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
         return reading
     if not has_scan(invoice):
         return routine(f"Facture {invoice_id} : pas de scan PDF a classer.")
-    category, reason = classify_pages(scan_pages(invoice["document_pdf"]), "Classement de la facture")
-    _save_classification(invoice_id, category, reason)
+    kept = _kept_classification(invoice_id, invoice_type)
+    if kept:
+        category, reason = kept
+    else:
+        category, reason = classify_pages(scan_pages(invoice["document_pdf"]), "Classement de la facture")
+        _save_classification(invoice_id, category, reason)
     if category == "rb":
         return stop(
             f"Facture {invoice_id} : ce n'est pas une facture mais un releve bancaire ({reason}). "

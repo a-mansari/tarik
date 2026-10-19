@@ -274,8 +274,10 @@ def test_stopped_drafts_are_resumed_only_when_the_client_asks(db_cabinet, monkey
     for session, invoice_id, step, status in [
         ("s", 1, "assign_account", "stop"),  # its cabinet fixed the journal since
         ("s", 2, "hold_posting", "stop"),  # kept unposted: held, not stopped
-        ("s", 3, "check_duplicate", "ok"),
+        ("s", 3, "check_duplicate", "stop"),  # a real duplicate: the client's call, not a setting
         ("old", 4, "assign_account", "stop"),  # another conversation, same dossier
+        ("old", 5, "assign_account", "stop"),  # stopped once, went through since
+        ("old", 5, "post_invoice", "ok"),
     ]:
         pipeline.record_step("r", session, f"x ({step})", {"status": status, "message": "m", "invoice_id": invoice_id})
     assert pipeline.waiting_drafts("s")["invoices"] == []  # a follow-up never retries a stop
