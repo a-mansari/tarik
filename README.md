@@ -61,6 +61,14 @@ arguments there. A model is used in two places only: the agent, and some tools t
 
 This is read from the code (which tools call `ask_model`): when you add a tool that calls the model, add it here.
 
+## Seeing what the agent is sent
+
+n8n assembles the agent's prompt (its rules, the instructions, the skills, the conversation so far, the tools) at each
+model call. `n8n/patch.js` saves every call in the cabinet's schema (`tarik_prompts`: system text, messages, the tools'
+names and descriptions; files left out; kept `TARIK_PROMPTS_KEEP_DAYS` days, 30 by default). Read them at
+<http://localhost:8081> (`tarik-prompts`, `mcp/prompts.py`): cabinet, conversation (an email thread's id, or the chat's),
+then each call. The prompts hold the clients' words: the page is read-only and published on this machine only.
+
 ## Why not n8n Data Tables
 
 Tarik keeps all its state in Postgres, one schema per cabinet, and does not use n8n's Data Tables. They are

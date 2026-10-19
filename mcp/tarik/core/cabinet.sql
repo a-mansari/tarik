@@ -128,3 +128,17 @@ create table if not exists tarik_client_messages (
     created_at timestamptz not null default now()
 );
 create index if not exists tarik_client_messages_session on tarik_client_messages (session_id);
+
+-- What the cabinet's agent was sent at each model call (written by n8n, n8n/patch.js; shown by prompts.py):
+-- the system text, the messages (conversation so far, files left out), the tools' names and descriptions.
+-- n8n keeps TARIK_PROMPTS_KEEP_DAYS days of them.
+create table if not exists tarik_prompts (
+    id serial primary key,
+    session_id text not null,
+    agent text not null,
+    system jsonb,
+    messages jsonb not null,
+    tools jsonb not null,
+    created_at timestamptz not null default now()
+);
+create index if not exists tarik_prompts_session on tarik_prompts (session_id, id);

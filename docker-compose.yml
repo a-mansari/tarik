@@ -27,6 +27,9 @@ services:
       DB_POSTGRESDB_DATABASE: ${N8N_POSTGRES_DB}
       DB_POSTGRESDB_USER: ${POSTGRES_USER}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      # Where the agents' prompts are saved (tarik_prompts in each cabinet's schema; n8n/patch.js), and for how long.
+      TARIK_POSTGRES_DB: ${POSTGRES_DB}
+      TARIK_PROMPTS_KEEP_DAYS: "30"
     depends_on: [postgres]
     volumes:
       - n8n_data:/home/node/.n8n
@@ -57,6 +60,13 @@ services:
   tarik-mail-watch:
     <<: *tarik
     command: ["python", "watcher.py"]
+
+  # The prompts n8n's agents were sent, to read at http://localhost:8081 (mcp/prompts.py). Read-only, local only.
+  tarik-prompts:
+    <<: *tarik
+    command: ["python", "prompts.py"]
+    ports:
+      - "127.0.0.1:8081:8081"
 
   # Tarik's data (database POSTGRES_DB: one schema per cabinet, mcp/tarik/core/cabinet.sql) and n8n's own
   # (database N8N_POSTGRES_DB). Not exposed to the host.

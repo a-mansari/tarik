@@ -5,6 +5,9 @@ const path = require('path');
 const dist = process.argv[2];
 const TOOLS = 'modules/agents/tools/workflow-tool-factory.js';
 const MCP_AGENTS = 'modules/mcp/tools/agents/agent-tools.service.js';
+const AGENTS_SDK = '../node_modules/@n8n/agents/dist'; // the agents package, next to n8n's dist
+const AGENT = `${AGENTS_SDK}/sdk/agent.js`;
+const RUNTIME = `${AGENTS_SDK}/runtime/loop/agent-runtime.js`;
 const patches = [{
   // An agent's workflow tool is stopped after TARIK_AGENT_TOOL_TIMEOUT_MS (docker-compose.yml) instead of n8n's fixed
   // 2 minutes: a FEC import or several invoices fit in one run. Tarik's own run budgets stay under it.
@@ -60,6 +63,51 @@ async function tarikClientMessage(threadId) {
     if (typeof parts === 'string')
         return parts;
     return Array.isArray(parts) ? parts.filter((part) => part?.type === 'text').map((part) => part.text).join('\\n') : '';
+}
+`,
+}, {
+  // The agent's cabinet, from its Experio MCP server's address (/c/<cabinet>/mcp): the runtime saves its prompts there.
+  file: AGENT,
+  find: "            name: this.name,\n            model: modelConfig,",
+  replace: "            name: this.name,\n            tarikCabinet: this.mcpClients.flatMap((client) => client.configs).map((cfg) => /\\/c\\/([a-z0-9_]+)\\/mcp/.exec(cfg.url ?? '')?.[1]).find(Boolean),\n            model: modelConfig,",
+}, {
+  // Each model call's full prompt (system, messages, tools) is saved in the cabinet's tarik_prompts, to see
+  // what the agent was sent (prompts.py). Never blocks or fails the call; files are left out.
+  file: RUNTIME,
+  find: "        return { toolMap: tools.toolMap, modelCallContext };",
+  before: "        tarikSavePrompt(this.config, options?.persistence?.threadId, prompt, tools.toolMap);\n",
+}, {
+  file: RUNTIME,
+  find: '//# sourceMappingURL=agent-runtime.js.map',
+  before: `let tarikPrompts;
+// A file's bytes, or a very long unbroken string (base64), shown by its size.
+function tarikPlain(key, value) {
+    if (value?.type === 'Buffer' || value instanceof Uint8Array) return \`[file, \${value.data?.length ?? value.length} bytes]\`;
+    if (typeof value === 'string' && value.length > 5000 && !value.includes(' ')) return \`[\${value.length} characters]\`;
+    return value;
+}
+function tarikSavePrompt(config, threadId, prompt, toolMap) {
+    const cabinet = config.tarikCabinet;
+    if (!cabinet || !threadId) return;
+    try {
+        tarikPrompts ??= new (require('pg').Pool)({
+            host: process.env.DB_POSTGRESDB_HOST,
+            user: process.env.DB_POSTGRESDB_USER,
+            password: process.env.DB_POSTGRESDB_PASSWORD,
+            database: process.env.TARIK_POSTGRES_DB,
+            max: 2,
+        });
+        const json = (value) => JSON.stringify(value, tarikPlain) ?? null;
+        const tools = [...toolMap.values()].map((tool) => ({ name: tool.name, description: tool.description }));
+        const days = Number(process.env.TARIK_PROMPTS_KEEP_DAYS) || 30;
+        tarikPrompts.query(
+            \`insert into "\${cabinet}".tarik_prompts (session_id, agent, system, messages, tools) values ($1, $2, $3, $4, $5)\`,
+            [threadId, config.name, json(prompt.system), json(prompt.messages), json(tools)],
+        ).then(() => Math.random() < 0.01 && tarikPrompts.query(\`delete from "\${cabinet}".tarik_prompts where created_at < now() - $1 * interval '1 day'\`, [days]))
+            .catch((error) => console.error('tarik prompts not saved:', error.message));
+    } catch (error) {
+        console.error('tarik prompts not saved:', error.message);
+    }
 }
 `,
 }];
