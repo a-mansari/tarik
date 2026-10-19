@@ -412,6 +412,11 @@
             "model_dossier_id": 0,
             "kind": "",
             "finish": false,
+            "person_kind": "",
+            "person_name": "",
+            "email": "",
+            "phone": "",
+            "profile": "",
             "rc": "",
             "patente": "",
             "tsc": "",
@@ -542,6 +547,51 @@
               "display": true,
               "canBeUsedToMatch": true,
               "type": "boolean"
+            },
+            {
+              "id": "person_kind",
+              "displayName": "person_kind",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "person_name",
+              "displayName": "person_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "email",
+              "displayName": "email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "phone",
+              "displayName": "phone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "profile",
+              "displayName": "profile",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
             },
             {
               "id": "rc",

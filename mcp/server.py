@@ -20,7 +20,7 @@ from tarik.core import experio
 from tarik.core.app import server
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.experio import account
-from tarik.dossiers import identity, people, search, setup
+from tarik.dossiers import identity, management, people, search, setup
 from tarik.emails import agent, inbox, sending
 from tarik.invoices import (
     accounts,
@@ -44,6 +44,7 @@ from tarik.invoices import (
 TOOL_MODULES = (
     experio,
     identity,
+    management,
     people,
     search,
     setup,

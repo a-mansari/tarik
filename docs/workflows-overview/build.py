@@ -535,7 +535,10 @@ PAGES["dossier"] = page(
                 ),
                 ("Debut", "Notes when the run started, for its time budget."),
                 ("Pieces jointes de l'agent", "Saves files attached in n8n's chat."),
-                ("Nouveau dossier ?", "A new client file, an existing one, a change to one, or a follow-up."),
+                (
+                    "Nouveau dossier ?",
+                    "A new client file, an existing one, a change to one, a person to add or an archiving, a list of files to create, or a follow-up.",
+                ),
             ],
         ),
         phase(
@@ -586,13 +589,39 @@ PAGES["dossier"] = page(
             ],
         ),
         phase(
-            "Changing a client file",
-            "Only in update mode (Experio_modifier_dossier).",
+            "Changing a client file, giving someone access, archiving",
+            "Only in the update, person and archive modes (Experio_modifier_dossier, Experio_creer_acces, Experio_archiver_dossier).",
             [
-                ("Modifier ?", "A change: on to it. Otherwise the existing file is set up (imports below)."),
+                (
+                    "Modifier ?",
+                    "A change, a person or an archiving: on to it. Otherwise the existing file is set up (imports below).",
+                ),
+                (
+                    "Acces (create_person)",
+                    "Creates a staff member or a client contact in Experio (email as login, a profile) and puts them on the client file, after reading the details back and the client's yes. One with that email already is only attached.",
+                ),
+                (
+                    "Archivage (archive_dossier)",
+                    "Archives the client file (hidden from the lists, nothing deleted, restorable in Experio), after reading back what it hides and the client's yes.",
+                ),
                 (
                     "Modification (update_dossier)",
                     "Changes only the fields given, as the client file's Experio form does, and only to values the client wrote in this conversation. An ICE, IF or name another file already has is refused. A new ICE or IF is checked against the official register; skipping that check needs the client's confirmation first.",
+                ),
+            ],
+        ),
+        phase(
+            "A list of client files",
+            "Only in dossiers mode (Experio_importer_dossiers).",
+            [
+                (
+                    "Fichiers de dossiers (files_to_process)",
+                    "The spreadsheets attached to the conversation, not handled yet.",
+                ),
+                ("Un element par liste", "One item per spreadsheet."),
+                (
+                    "Liste de dossiers (import_dossiers)",
+                    "Checks the whole file (columns, types, ICE and IF, duplicates in the file and in Experio): one problem and nothing is created, the client corrects the file. All good: the list is read back and the files are created on the client's yes; those Experio refuses are listed.",
                 ),
             ],
         ),

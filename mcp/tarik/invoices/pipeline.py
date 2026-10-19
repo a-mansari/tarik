@@ -33,6 +33,9 @@ STEPS = {
     "finish_setup": "integration",
     "ask_banks": "banque",
     "setup_status": "etat du dossier",
+    "import_dossiers": "liste de dossiers",
+    "create_person": "acces",
+    "archive_dossier": "archivage",
     "identify_document": "identification",
     "import_bank_statement": "releve bancaire",
     "split_invoices": "decoupage",
@@ -60,6 +63,9 @@ SETUP_STEPS = {
     "finish_setup",
     "ask_banks",
     "setup_status",
+    "import_dossiers",
+    "create_person",
+    "archive_dossier",
 }
 # A pending question, the call that applies the client's answer, and the step that follows.
 ANSWERS = {
