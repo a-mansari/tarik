@@ -3,7 +3,6 @@
 import base64
 import io
 import itertools
-import re
 
 import pypdfium2
 from mcp.server.mcpserver.exceptions import ToolError
@@ -225,14 +224,6 @@ def bank_journals(dossier_id):
     return journals, [journal for journal in journals if journal["bank_id"]]
 
 
-def journal_chosen(decision, question_asked):
-    """The bank journal the agent read in the client's reply (``decision``) among those ``question_asked`` lists
-    ("(n° 41)" as statement_journal writes them): its id, else 0 (the question is asked again)."""
-    listed = {int(n) for n in re.findall(r"\(n° (\d+)\)", question_asked)}
-    chosen = str(decision or "").strip().removeprefix("n°").strip()
-    return int(chosen) if chosen.isdigit() and int(chosen) in listed else 0
-
-
 def statement_journal(name, dossier, dossier_id, journal_id):
     """The usable bank journal (dict) statement ``name`` goes to: ``journal_id``, or the dossier's only one.
     Without one to use, or with several to choose from, the stop or question result (a dict with "status")."""
@@ -244,8 +235,11 @@ def statement_journal(name, dossier, dossier_id, journal_id):
         )
     if not journal_id:
         if len(usable) > 1:
-            choices = ", ".join(f"{j['name']} - {j['bank_id'][1]} (n° {j['id']})" for j in usable)
-            return question(f"{name} : le dossier {dossier} a plusieurs comptes bancaires, lequel ? {choices}")
+            listed = ", ".join(f"{j['name']} - {j['bank_id'][1]} (n° {j['id']})" for j in usable)
+            return question(
+                f"{name} : le dossier {dossier} a plusieurs comptes bancaires, lequel ? {listed}",
+                choices={j["id"]: f"{j['name']} - {j['bank_id'][1]}" for j in usable},
+            )
         return usable[0]
     if journal_id not in {j["id"] for j in usable}:
         raise ToolError(f"journal_id {journal_id} n'est pas un journal de banque utilisable du dossier {dossier}.")

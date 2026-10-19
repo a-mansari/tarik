@@ -26,10 +26,7 @@ def test_names_compared():
     )
 
 
-QUESTION = (
-    "Facture 4 : fournisseur « ATLAS » introuvable par ICE/IF. "
-    "Tiers proches : ATLAS DE ROULEMENT (id 7) 90 %; ATLAS TRANSPORT (id 8) 88 %."
-)
+CHOICES = {"7": "ATLAS DE ROULEMENT", "8": "ATLAS TRANSPORT"}  # as record_step kept them: keys are text
 
 
 @pytest.fixture
@@ -45,7 +42,7 @@ def chosen(monkeypatch):
     monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: {"status": "ok", "linked": partner_id})
 
     def choose(decision, answer):
-        result = tiers.choose_tiers(4, decision, answer, QUESTION)
+        result = tiers.choose_tiers(4, decision, answer, CHOICES)
         return result.get("linked") or result["message"]
 
     return choose
@@ -60,11 +57,12 @@ def test_the_agent_chooses_among_the_tiers_proposed_only(chosen):
 
 @pytest.mark.functionality
 def test_a_proposed_tiers_is_named_by_its_id_or_its_name():
-    from tarik.invoices.tiers import proposed_choice
+    from tarik.core.conversation import chosen_among
 
-    assert proposed_choice("7", QUESTION) == proposed_choice("id 7", QUESTION) == 7
-    assert proposed_choice("atlas transport", QUESTION) == 8  # its name as proposed
-    assert proposed_choice("ATLAS", QUESTION) is None and proposed_choice("9", QUESTION) is None
+    assert chosen_among("7", CHOICES) == chosen_among("id 7", CHOICES) == chosen_among("n° 7", CHOICES) == 7
+    assert chosen_among("atlas transport", CHOICES) == 8  # its name as proposed
+    assert chosen_among("ATLAS", CHOICES) is None and chosen_among("9", CHOICES) is None
+    assert chosen_among("7", None) is None  # nothing proposed
 
 
 @pytest.mark.functionality

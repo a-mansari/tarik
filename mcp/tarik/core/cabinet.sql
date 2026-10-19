@@ -47,6 +47,7 @@ create table if not exists tarik_results (
     step text not null,
     status text not null,
     message text not null,
+    choices jsonb, -- {id: name} a question proposed, for the client's answer
     created_at timestamptz not null default now()
 );
 -- A dossier whose entries were imported and whose onboarding is not finished yet (finish_setup waits on
@@ -58,14 +59,17 @@ create table if not exists tarik_setups (
 );
 -- A step outcome the client needn't read (tarik.core.app.routine): left out of the run's summary.
 alter table tarik_results add column if not exists routine boolean not null default false;
+alter table tarik_results add column if not exists choices jsonb;
 -- The questions waiting for the client, one per invoice.
 create table if not exists tarik_pending (
     invoice_id integer primary key,
     session_id text not null,
     step text not null,
     question text not null,
+    choices jsonb, -- {id: name} the question proposed
     created_at timestamptz not null default now()
 );
+alter table tarik_pending add column if not exists choices jsonb;
 
 -- Tarik's mailbox, read over IMAP without changing it: where the reading stopped, each email
 -- thread (one conversation, its own session), and each email received in it.

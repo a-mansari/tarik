@@ -38,6 +38,20 @@ def client_messages(session_id, client_message):
         return [text for (text,) in rows]
 
 
+def chosen_among(decision, choices):
+    """The id the agent's ``decision`` names among ``choices`` ({id: name}, as the question listed them and
+    record_step kept them): the id itself ("7", "id 7", "n° 7"), or the name as listed. None for anything else,
+    nothing proposed included: the question is asked again."""
+    choices = {str(key): normalized(name) for key, name in (choices or {}).items()}
+    decision = normalized(str(decision or ""))
+    for prefix in ("id ", "n "):  # "n° 7" normalizes to "n 7"
+        decision = decision.removeprefix(prefix)
+    if decision in choices:
+        return int(decision)
+    named = [key for key, name in choices.items() if name == decision]
+    return int(named[0]) if len(named) == 1 else None
+
+
 def yes_no(decision):
     """The agent's ``decision`` on a oui / non question, read from the client's answer: True for exactly "oui",
     False for exactly "non", None for anything else (the client was unclear: the question is asked again)."""
