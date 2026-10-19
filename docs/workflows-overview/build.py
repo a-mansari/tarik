@@ -460,6 +460,10 @@ PAGES["traitement"] = page(
                     "Books the invoice in an open fiscal year. When none covers its date, asks the client.",
                 ),
                 (
+                    "Parametrage (configure_cabinet)",
+                    "When Experio's own check says a setting is missing, fills what its screens would: the taxes the chart of accounts calls for, then Configuration's automatic detection of every empty setting from the chart and the journals. What still blocks is for the firm: an account or a journal the file lacks.",
+                ),
+                (
                     "Comptabilisation (post_invoice)",
                     "Posts the invoice when Experio's own check finds nothing blocking; otherwise lists what blocks it.",
                 ),

@@ -6,7 +6,7 @@ A client writes to Tarik (each cabinet's own n8n agent, by chat or by email) and
 or bank statements, or asks for a new dossier with its FEC. Tarik finds the dossier,
 then a fixed sequence puts each document into Experio: draft, check against the scan,
 correction, tiers, duplicate, account, TVA, journal, withholding, prepaid charges,
-fiscal year and posting. When a step needs the client, Tarik asks, and the sequence
+fiscal year, the dossier's settings and posting. When a step needs the client, Tarik asks, and the sequence
 resumes from there with the answer.
 
 Documentation: [architecture](docs/architecture.md), [tools and workflows](docs/tools-and-workflows.md),

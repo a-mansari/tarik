@@ -52,6 +52,7 @@ STEPS = {
     "settle_withholding": "retenue a la source",
     "settle_prepaid": "constatee d'avance",
     "settle_exercice": "exercice",
+    "configure_cabinet": "parametrage",
     "post_invoice": "comptabilisation",
 }
 ORDER = list(STEPS)
@@ -74,7 +75,7 @@ ANSWERS = {
     "settle_tva": (settle_tva, "check_journal"),
     "settle_withholding": (settle_withholding, "settle_prepaid"),
     "settle_prepaid": (settle_prepaid, "settle_exercice"),
-    "settle_exercice": (settle_exercice, "post_invoice"),
+    "settle_exercice": (settle_exercice, "configure_cabinet"),
 }
 # The oui / non questions: they take the agent's decision, read from the client's answer, never a guess from it here.
 DECIDED = {"settle_tva", "settle_prepaid"}

@@ -80,6 +80,7 @@ above; the workflows call the rest.
 | `check_duplicate` | Refuses an invoice already recorded. |
 | `assign_account` | The invoice's account; when none fits, a question. |
 | `settle_tva` / `check_journal` / `settle_withholding` / `settle_prepaid` / `settle_exercice` | TVA, journal, withholding tax, prepaid charges, fiscal year: each settled, or a question to the client. |
+| `configure_cabinet` | Before posting: Experio's own tax creation from the TVA accounts and its settings auto-detection (the Configuration screen's button), then what still blocks, for the cabinet. |
 | `post_invoice` | Posts the invoice when nothing blocks it. |
 | `list_invoices` | A dossier's invoices, amounts as Experio shows them. |
 | `answer_pending` / `waiting_drafts` | The client's answer to what the conversation waits on (an invoice's question, a statement's bank account; the invoice or statement it names when several wait), with the agent's `decision` (oui or non, the tiers, exercice or bank account chosen) and `about` (which question, when several wait), after the email sender check / drafts waiting for Experio. |
