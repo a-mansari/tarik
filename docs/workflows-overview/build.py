@@ -429,7 +429,7 @@ PAGES["traitement"] = page(
                 ),
                 (
                     "Tiers (link_tiers)",
-                    "Sets the supplier or customer Experio detected, with the account it needs. When none was detected, asks the client, suggesting close names.",
+                    "Sets the supplier or customer Experio detected, with the account it needs. When none was detected, asks the client, suggesting close names; when no name is close, creates the tiers from the scan, as the invoice screen's Créer does.",
                 ),
                 (
                     "Doublon (check_duplicate)",
@@ -461,7 +461,7 @@ PAGES["traitement"] = page(
                 ),
                 (
                     "Parametrage (configure_cabinet)",
-                    "When Experio's own check says a setting is missing, fills what its screens would: the taxes the chart of accounts calls for, then Configuration's automatic detection of every empty setting from the chart and the journals. What still blocks is for the firm: an account or a journal the file lacks.",
+                    "When Experio's own check says a setting is missing, fills what its screens would: the taxes the chart of accounts calls for, then Configuration's automatic detection of every empty setting from the chart and the journals, then the switches and accounts the invoice's amounts need (retenue de garantie, prorata, assurance, avance, timbre, debours, taxes de sejour), written through the Configuration form. What still blocks is for the firm: an account or a journal the file lacks.",
                 ),
                 (
                     "Comptabilisation (post_invoice)",

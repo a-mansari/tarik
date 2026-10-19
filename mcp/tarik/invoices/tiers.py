@@ -3,7 +3,9 @@
 Experio does most of it: when Bluejay reads a draft, orion.wizard.get_partner_data finds the tiers by ICE then IF,
 creates it from the national registry when the dossier lacks it, and links it. And
 its own wizard assigns the Compte Tiers. So this step only links the right detected
-party and has Experio assign its Compte Tiers.
+party and has Experio assign its Compte Tiers. A tiers the registry did not give and no
+tiers of the dossier resembles is created from the scan (its name, ICE and IF), as the
+invoice screen's "Créer" does; a name close to existing tiers is asked about first.
 """
 
 from mcp.server.mcpserver.exceptions import ToolError
@@ -31,15 +33,21 @@ SIDE = {
     "purchase": {
         "detected": "detected_supplier_id",
         "printed": "supplier_name",
+        "ice": "detected_supplier_ice",
+        "if": "detected_supplier_if",
         "account": "third_party_supplier_account",
         "autofill": "third_party_supplier_autofill",
+        "side": "is_supplier",
         "role": "fournisseur",
     },
     "sale": {
         "detected": "detected_customer_id",
         "printed": "customer_name",
+        "ice": "detected_customer_ice",
+        "if": "detected_customer_if",
         "account": "third_party_customer_account",
         "autofill": "third_party_customer_autofill",
+        "side": "is_customer",
         "role": "client",
     },
 }
@@ -57,6 +65,10 @@ INVOICE_FIELDS = [
     "detected_customer_id",
     "supplier_name",
     "customer_name",
+    "detected_supplier_ice",
+    "detected_supplier_if",
+    "detected_customer_ice",
+    "detected_customer_if",
     "bluejay_state",
 ]
 
@@ -103,6 +115,21 @@ def link(invoice, partner_id, kind):
     return ok(f"{test_mode_note()}Facture {invoice['id']} : {SIDE[kind]['role']} {name}, {account}.")
 
 
+def create_tiers(invoice, name, kind):
+    """Create tiers ``name`` in the invoice's dossier for side ``kind`` (its ICE and IF as read on the scan, when
+    the scan named this tiers) as the invoice screen's "Créer" does, then link it: ok."""
+    side = SIDE[kind]
+    values = {"name": name, "type": "company", "company_id": invoice["company_id"][0], side["side"]: True}
+    if name == invoice[side["printed"]]:
+        values.update({k: v for k, v in (("ice", invoice[side["ice"]]), ("vat", invoice[side["if"]])) if v})
+    if dry_run():
+        return ok(f"{test_mode_note()}Facture {invoice['id']} : {side['role']} {name} serait cree dans le dossier.")
+    with refused(f"tiers cree {invoice['id']} {name}", f"Facture {invoice['id']} : Experio a refuse le tiers {name}."):
+        partner_id = odoo_call("exp.partner", "create", values, context=invoice_context(invoice))
+    result = link(invoice, partner_id, kind)
+    return {**result, "message": result["message"].replace(f"{side['role']} {name},", f"{side['role']} {name} cree,")}
+
+
 def dossier_tiers(company_id):
     """The dossier's tiers: [{id, name, ice}]."""
     return odoo_call(
@@ -119,7 +146,8 @@ def link_tiers(invoice_id: int) -> dict:
     """Give a draft invoice its tiers -- the supplier of a purchase, the customer
     of a sale -- as Experio detected it from the scan, and make sure that tiers has
     its Compte Tiers (needed to post). Call it after classify_invoice. When no tiers
-    was detected, the question suggests close names; the client's answer goes to choose_tiers (answer_pending)."""
+    was detected, the question suggests close names (the client's answer goes to choose_tiers, answer_pending),
+    or, none being close, the tiers is created from the scan."""
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de tiers", read=True)
     kind = side_of(invoice)
     role = SIDE[kind]["role"]
@@ -132,6 +160,8 @@ def link_tiers(invoice_id: int) -> dict:
     if not printed:
         return question(f"Facture {invoice_id} : aucun {role} detecte sur le scan. Quel est son nom ?")
     phrase, choices = find_tiers(invoice_id, printed)
+    if not choices:  # nothing of the dossier resembles it: a new tiers, as the screen's "Créer"
+        return create_tiers(invoice, printed, kind)
     return question(f"Facture {invoice_id} : {role} « {printed} » introuvable par ICE/IF. {phrase}", choices=choices)
 
 
@@ -143,11 +173,7 @@ def find_tiers(invoice_id, name):
     company_id = require_invoice(invoice_id, ["company_id"])["company_id"][0]
     close = ranked(name, dossier_tiers(company_id), TIERS_MIN_SIMILARITY, top=5)
     if not close:
-        return (
-            f"Aucun tiers du dossier ne ressemble a « {name} » : donnez un autre nom ou l'ICE du tiers, "
-            "ou il est a creer par le cabinet.",
-            {},
-        )
+        return f"Aucun tiers du dossier ne ressemble a « {name} ».", {}
     proposed = "; ".join(
         f"{p['name']} (id {p['id']}{', ICE ' + p['ice'] if p['ice'] else ''}) {round(score * 100)} %"
         for score, p in close
@@ -174,4 +200,6 @@ def choose_tiers(invoice_id, decision, answer, choices=None):
     if len(by_ice) == 1:
         return link(invoice, by_ice[0]["id"], side_of(invoice))
     phrase, choices = find_tiers(invoice_id, given)
+    if not choices and given == decision and not given.isdigit():  # a name the client gave, nothing like it: created
+        return create_tiers(invoice, given, side_of(invoice))
     return question(f"Facture {invoice_id} : « {given} » ne designe pas un seul tiers. {phrase}", choices=choices)
