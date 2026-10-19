@@ -66,10 +66,18 @@ async function tarikClientMessage(threadId) {
 }
 `,
 }, {
-  // The agent's cabinet, from its Experio MCP server's address (/c/<cabinet>/mcp): the runtime saves its prompts there.
+  // The agent's cabinet, from its Experio MCP server's address (/c/<cabinet>/mcp): the runtime saves its prompts there,
+  // and a Tarik agent loses the built-in tools it never needs (n8n adds them to every agent): each costs prompt
+  // characters, and the model may call it by mistake. n8n's rules for a tool go with it.
+  file: AGENT,
+  find: "        let modelCost;\n",
+  before: `        const tarikCabinet = this.mcpClients.flatMap((client) => client.configs).map((cfg) => /\\/c\\/([a-z0-9_]+)\\/mcp/.exec(cfg.url ?? '')?.[1]).find(Boolean);
+        if (tarikCabinet) allTools = allTools.filter((tool) => !['chat_action', 'chat_context', 'delegate_subagent', 'write_todos', 'get_environment', 'mark_session_failed'].includes(tool.name));
+`,
+}, {
   file: AGENT,
   find: "            name: this.name,\n            model: modelConfig,",
-  replace: "            name: this.name,\n            tarikCabinet: this.mcpClients.flatMap((client) => client.configs).map((cfg) => /\\/c\\/([a-z0-9_]+)\\/mcp/.exec(cfg.url ?? '')?.[1]).find(Boolean),\n            model: modelConfig,",
+  replace: "            name: this.name,\n            tarikCabinet,\n            model: modelConfig,",
 }, {
   // Each model call's prompt (system, messages, tools) is saved in the cabinet's tarik_prompt_calls and _parts, to see
   // what the agent was sent (prompts.py). Never blocks or fails the call; files are left out.

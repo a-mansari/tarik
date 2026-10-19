@@ -374,7 +374,14 @@ PAGES["traitement"] = page(
                     "Pieces jointes de l'agent",
                     "Saves files attached in n8n's chat. Files sent by email were saved when the email arrived.",
                 ),
-                ("Fichiers ou reponse ?", "Files to process, the client's answer to a question, or a follow-up."),
+                (
+                    "Aiguillage (route_message)",
+                    "Decides where the message goes from the database, not from the tool the agent picked: an answer when questions wait and no file came since the last run, the files when files came and nothing waits, both when both.",
+                ),
+                (
+                    "Fichiers ou reponse ?",
+                    "Files to process, the client's answer to a question, a follow-up, or both the answer and the files.",
+                ),
             ],
         ),
         phase(

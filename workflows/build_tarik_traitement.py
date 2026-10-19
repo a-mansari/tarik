@@ -1,5 +1,7 @@
 """Build workflows/tarik-traitement.json: the fixed processing sequence as n8n nodes.
 
+The message goes where the database says (route_message), not where the agent's tool says: an answer when
+questions wait and no file came, the files when files came and nothing waits, both when both.
 Modes: files (the dossier found from the name the client gave, then the conversation's new files, from
 identification to posting; with none, the drafts left
 waiting or cut short are resumed), resume (those drafts only: "Tarik - Emails" following up, no agent),
@@ -18,6 +20,10 @@ from steps import (
     Workflow,
 )
 
+ROUTE = "Aiguillage (route_message)"
+# Where the message goes: files, answer, resume or both, from the database, not from the tool the agent called.
+# Without it (the routing failed), the tool the agent called decides.
+WHERE = f"$('{ROUTE}').first().json.content?.[0]?.text?.route"
 RESOLVE = "Dossier (resolve_dossier)"
 DOSSIER_ID = f"$('{RESOLVE}').first().json.content[0].text.dossier_id"  # the dossier found, for the whole run
 
@@ -29,8 +35,16 @@ flow.trigger(**TRAITEMENT_INPUTS)
 # leaving the step in flight time to end. A follow-up (mode resume) is no agent's tool: it has no budget.
 BUDGET_MS = 240_000
 LATE = f"({CALL}.mode !== 'resume' && Date.now() - $('{START}').first().json.started > {BUDGET_MS})"
-flow.start("Fichiers ou reponse ?")
-route("Fichiers ou reponse ?", f"{{ answer: 1, resume: 2 }}[{CALL}.mode] ?? 0", 3, [220, 300])
+flow.start(ROUTE)
+mcp(ROUTE, "route_message", f"{{ session_id: {CALL}.session_id, mode: {CALL}.mode }}", [160, 300])
+route(
+    "Fichiers ou reponse ?",
+    f"{{ files: 0, answer: 1, resume: 2, both: 3 }}[{WHERE} ?? {CALL}.mode] ?? 0",
+    4,
+    [330, 300],
+)
+connect(ROUTE, "Fichiers ou reponse ?", 0)
+connect(ROUTE, "Fichiers ou reponse ?", 1)  # a failed routing: the tool the agent called decides
 flow.files_to_process(
     f"{{ session_id: {CALL}.session_id }}",
     "One item per file to process (files_to_process picked the conversation's invoices and statements "
@@ -44,6 +58,7 @@ resolved = flow.checked(RESOLVE, "resolve_dossier", f"{{ name: {CALL}.dossier ||
 flow.to_record(resolved, 1)
 sender = flow.check_sender([260, 120], [300, 160], DOSSIER_ID)
 connect("Fichiers ou reponse ?", RESOLVE, 0)
+connect("Fichiers ou reponse ?", RESOLVE, 3)  # both: the files too
 connect(resolved, SENDER, 0)
 connect(sender, FILES, 0)
 # No new file ("relancez le traitement"): the conversation's drafts left waiting or cut short are resumed.
@@ -203,7 +218,8 @@ mcp(
     ANSWER,
     "answer_pending",
     (
-        f"{{ session_id: {CALL}.session_id, answer: {CALL}.answer, decision: String({CALL}.decision ?? ''), "
+        f"{{ session_id: {CALL}.session_id, answer: {CALL}.answer || {CALL}.client_message || '', "
+        f"decision: String({CALL}.decision ?? ''), "
         f"about: String({CALL}.about ?? '') }}"
     ),
     [440, 760],
@@ -216,6 +232,7 @@ route(
     [660, 760],
 )
 connect("Fichiers ou reponse ?", ANSWER, 1)
+connect("Fichiers ou reponse ?", ANSWER, 3)  # both: the answer first or last, the summary tells all
 connect(ANSWER, "Reprendre ou ?", 0)
 flow.to_record(ANSWER, 1)
 flow.to_record("Reprendre ou ?", *range(len(RESUMED) + 2))  # the answer's own outcome too, under its step
