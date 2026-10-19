@@ -109,6 +109,7 @@ CHAIN = [
     ("Retenue a la source (settle_withholding)", "settle_withholding"),
     ("Constatee d'avance (settle_prepaid)", "settle_prepaid"),
     ("Exercice (settle_exercice)", "settle_exercice"),
+    ("Parametrage (configure_cabinet)", "configure_cabinet"),
     ("Comptabilisation (post_invoice)", "post_invoice"),
 ]
 # What a step is given besides its invoice: the run (one reading deadline for all its drafts), the client's type,
@@ -186,6 +187,7 @@ RESUMED = [
     "settle_withholding",
     "settle_prepaid",
     "settle_exercice",
+    "configure_cabinet",
     "post_invoice",
 ]
 ANSWER = "Reponse du client (answer_pending)"
