@@ -1,6 +1,7 @@
-"""Build the Tarik workflows overview for the project team: index.html (from overview.html, written by hand) and
-one page per workflow (emails, traitement, dossier, modification .html), each with its map drawn from
-workflows/tarik-*.json (n8n's node positions, workflows/layout.json) and every node explained below. Then, with
+"""Build the Tarik workflows overview for the project team: index.html (from overview.html, written by hand),
+one page per workflow (emails, traitement, dossier .html), each with its map drawn from
+workflows/tarik-*.json (n8n's node positions, workflows/layout.json) and every node explained below, and
+guide.html, the developers' repository guide rendered from docs/repository-guide.md. Then, with
 Google Chrome or Chromium installed, a PDF of each page, and with pdfunite tarik-workflows.pdf, all of them in one.
 
 Run on the host after a workflow changes: python3 docs/workflows-overview/build.py
@@ -639,6 +640,177 @@ PAGES["dossier"] = page(
     load("dossier"),
 )
 
+
+# --- The repository guide (docs/repository-guide.md), for developers ---
+
+GUIDE_CSS = """
+.guide h2 { margin: 28px 0 8px; }
+.guide h3 { margin: 22px 0 6px; font-size: 16px; }
+.guide p { margin: 0 0 12px; }
+.guide ul, .guide ol { margin: 0 0 12px; padding-left: 24px; }
+.guide li { margin: 4px 0; }
+.guide code { font-family: var(--mono); font-size: 12.5px; background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.guide table { width: 100%; border-collapse: collapse; margin: 0 0 16px; font-size: 14px; }
+.guide th, .guide td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+.guide th { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.guide td:first-child { white-space: nowrap; }
+.guide .map svg { max-width: 760px; }
+@media print { .guide table, .guide tr { break-inside: avoid; } .guide td:first-child { white-space: normal; } }
+"""
+
+INLINE = [
+    (re.compile(r"`([^`]+)`"), lambda m: f"<code>{html.escape(m.group(1))}</code>"),
+    (re.compile(r"\*\*(.+?)\*\*"), r"<b>\1</b>"),
+    (re.compile(r"\[([^\]]+)\]\(([^)]+)\)"), r'<a href="\2">\1</a>'),
+]
+
+
+def inline(text):
+    """One line of Markdown as HTML: code spans kept verbatim, bold and links."""
+    parts = re.split(r"(`[^`]+`)", html.escape(text, quote=False))
+    out = []
+    for part in parts:
+        if part.startswith("`") and part.endswith("`") and len(part) > 1:
+            out.append(f"<code>{part[1:-1]}</code>")
+        else:
+            for pattern, repl in INLINE[1:]:
+                part = pattern.sub(repl, part)
+            out.append(part)
+    return "".join(out)
+
+
+def markdown_html(text):
+    """The guide's Markdown as HTML: headings, paragraphs, bullet and numbered lists, pipe tables; a mermaid
+    block becomes the architecture drawing. Enough for docs/repository-guide.md, not a general converter."""
+    out, lines, i = [], text.split("\n"), 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("```"):
+            fence = i
+            while not lines[i + 1].startswith("```"):
+                i += 1
+            i += 2
+            if lines[fence].startswith("```mermaid"):
+                out.append(f'<div class="map">{guide_svg()}</div>')
+            continue
+        if line.startswith("#"):
+            level = len(line) - len(line.lstrip("#"))
+            out.append(f"<h{level}>{inline(line.lstrip('#').strip())}</h{level}>")
+            i += 1
+        elif line.startswith("|"):
+            rows = []
+            while i < len(lines) and lines[i].startswith("|"):
+                rows.append([cell.strip() for cell in lines[i].strip().strip("|").split(" | ")])
+                i += 1
+            head, body = rows[0], [row for row in rows[1:] if not set("".join(row)) <= set("- ")]
+            cells = lambda row, tag: "".join(f"<{tag}>{inline(cell)}</{tag}>" for cell in row)  # noqa: E731
+            out.append(
+                f"<table><thead><tr>{cells(head, 'th')}</tr></thead><tbody>"
+                + "".join(f"<tr>{cells(row, 'td')}</tr>" for row in body)
+                + "</tbody></table>"
+            )
+        elif re.match(r"\s*(-|\d+\.)\s", line):
+            kind = "ol" if re.match(r"\s*\d+\.", line) else "ul"
+            items = []
+            while i < len(lines) and lines[i].strip():
+                if re.match(r"\s*(-|\d+\.)\s", lines[i]):
+                    items.append(re.sub(r"^\s*(-|\d+\.)\s", "", lines[i]))
+                else:
+                    items[-1] += " " + lines[i].strip()  # a wrapped item
+                i += 1
+            out.append(f"<{kind}>" + "".join(f"<li>{inline(item)}</li>" for item in items) + f"</{kind}>")
+        elif line.strip():
+            paragraph = []
+            while i < len(lines) and lines[i].strip() and not lines[i].startswith(("#", "|", "```")):
+                paragraph.append(lines[i].strip())
+                i += 1
+            out.append(f"<p>{inline(' '.join(paragraph))}</p>")
+        else:
+            i += 1
+    return "\n".join(out)
+
+
+def guide_svg():
+    """The architecture drawing: how a request reaches Experio (the same picture as the guide's mermaid block)."""
+    W, H = 150, 48
+    row_a, row_b, row_c, row_d = 96, 200, 304, 408
+    c1, c2, c3, c4, mx0, mx1 = 100, 280, 460, 640, 400, 700
+    boxes = [  # (cx, cy, width, main, name, sub)
+        (c1, row_a, W, False, "Client", "a cabinet's clerk"),
+        (c2, row_a, W, False, "Mail watcher", "mcp/watcher.py"),
+        (c3, row_a, W, False, "Tarik - Emails", "n8n workflow"),
+        (c4, row_a, W, False, "AI agent", "one per cabinet, in n8n"),
+        (c3, row_b, W, False, "Tarik - Traitement", "invoices, statements"),
+        (c4, row_b, W, False, "Tarik - Dossier", "create, FEC, update"),
+        (
+            (mx0 + mx1) / 2,
+            row_c,
+            mx1 - mx0,
+            True,
+            "tarik-mcp: the Python tools, one step per call",
+            "mcp/tarik/ at /c/<cabinet>/mcp",
+        ),
+        (c2, row_c, W, False, "Postgres", "one schema per cabinet"),
+        (c3, row_d, W, False, "Vault", "secrets and settings"),
+        (c4, row_d, W, False, "Experio", "Odoo 15, over RPC"),
+    ]
+    arrows = [
+        f"M{c1 + W / 2} {row_a}H{c2 - W / 2}",
+        f"M{c2 + W / 2} {row_a}H{c3 - W / 2}",
+        f"M{c3 + W / 2} {row_a}H{c4 - W / 2}",
+        f"M{c1} {row_a - H / 2}V58H{c4}V{row_a - H / 2}",
+        f"M{c4} {row_a + H / 2}V{row_b - H / 2}",
+        f"M{c4 - 40} {row_a + H / 2}V{(row_a + row_b) / 2}H{c3}V{row_b - H / 2}",
+        f"M{c3} {row_b + H / 2}V{row_c - H / 2}",
+        f"M{c4} {row_b + H / 2}V{row_c - H / 2}",
+        f"M{c3} {row_c + H / 2}V{row_d - H / 2}",
+        f"M{c4} {row_c + H / 2}V{row_d - H / 2}",
+    ]
+    parts = [
+        '<svg viewBox="0 0 760 460" role="img" aria-label="Every write to Experio goes through a workflow step, never through the model" font-size="13" font-family="var(--body)">',
+        '<defs><marker id="guide-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker></defs>',
+        '<text x="24" y="34" font-size="15" font-weight="600" fill="var(--ink)">Every write to Experio goes through a workflow step, never through the model</text>',
+        '<g fill="none" stroke="var(--muted)" stroke-width="1.25">',
+        *(f'<path d="{d}" marker-end="url(#guide-arrow)"/>' for d in arrows),
+        f'<path d="M{c2 + W / 2} {row_c}H{mx0}"/></g>',
+    ]
+    for cx, cy, width, main, name, sub in boxes:
+        stroke, fill = ("var(--accent)", "var(--accent-soft)") if main else ("var(--rule)", "var(--sheet)")
+        parts.append(
+            f'<rect x="{cx - width / 2}" y="{cy - H / 2}" width="{width}" height="{H}" rx="8" fill="{fill}" stroke="{stroke}" stroke-width="{2 if main else 1.25}"/>'
+            f'<text x="{cx}" y="{cy - 4}" text-anchor="middle" font-weight="600" fill="var(--ink)">{html.escape(name)}</text>'
+            f'<text x="{cx}" y="{cy + 14}" text-anchor="middle" font-size="11.5" fill="var(--muted)">{html.escape(sub)}</text>'
+        )
+    parts.append(
+        f'<text x="{(c1 + c4) / 2}" y="52" text-anchor="middle" font-size="11.5" fill="var(--muted)">chat, straight to the agent</text>'
+    )
+    parts.append(
+        f'<text x="{c4 + 8}" y="{(row_a + row_b) / 2 + 4}" font-size="11.5" fill="var(--muted)">summary back</text>'
+    )
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def guide_page():
+    """docs/repository-guide.md as a page of the overview, in its style."""
+    text = (REPO / "docs/repository-guide.md").read_text()
+    title, _, rest = text.partition("\n")
+    body = markdown_html(rest).replace('href="../README.md"', 'href="https://github.com/a-mansari/tarik#readme"')
+    return f"""<title>{html.escape(title.lstrip("# "))}</title>
+{FONTS}
+<style>{BASE_CSS}{EXTRA_CSS}{GUIDE_CSS}</style>
+<div class="page guide">
+  <header>
+    <div class="crumb"><a href="index.html">← Tarik workflows overview</a></div>
+    <h1>{html.escape(title.lstrip("# "))}</h1>
+  </header>
+  {body}
+  <div class="stamp">State as of {date.today():%d %B %Y} · docs/repository-guide.md</div>
+</div>
+"""
+
+
+PAGES["guide"] = guide_page()
 
 overview = OVERVIEW.replace("</style>", PRINT_OVERVIEW + "</style>", 1)
 (OUT / "index.html").write_text(full(overview))

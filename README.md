@@ -10,7 +10,8 @@ fiscal year and posting. When a step needs the client, Tarik asks, and the seque
 resumes from there with the answer.
 
 Documentation: [architecture](docs/architecture.md), [tools and workflows](docs/tools-and-workflows.md),
-[using Tarik](docs/using-tarik.md) (what it can do, and how to write to it).
+[using Tarik](docs/using-tarik.md) (what it can do, and how to write to it), [repository guide](docs/repository-guide.md)
+(every file and folder, for a developer joining).
 
 ## How it is built
 
