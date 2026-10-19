@@ -92,7 +92,7 @@ above; the workflows call the rest.
 |---|---|
 | `claim_threads` | The threads waiting for an answer, each locked for the run (`tarik-mail-watch` stored their emails). |
 | `acknowledge_thread` | Tells the client their new thread was received, once, before the agent works on it. |
-| `ask_agent` | Gets a thread's reply from the cabinet's agent, in the thread's own conversation. |
+| `ask_agent` | Gets a thread's reply from the cabinet's agent, in the thread's own conversation. When files came and no tool took them, the agent is reminded, up to 3 asks. |
 | `send_email` | Sends Tarik's reply (whitelisted addresses only), with a copy in the Sent folder. |
 | `finish_thread` / `thread_refusal` / `notify_manager` | Closes a thread / detects a refused sender / tells the cabinet's manager. |
 

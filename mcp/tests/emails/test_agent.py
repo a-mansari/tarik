@@ -22,6 +22,7 @@ def cabinet(monkeypatch):
 @pytest.fixture(autouse=True)
 def no_memory(monkeypatch):
     monkeypatch.setattr(agent, "remember_client_message", lambda *args: None)
+    monkeypatch.setattr(agent, "untaken", lambda session_id: 0)  # the files were taken: asked once
 
 
 @pytest.mark.security
@@ -92,3 +93,58 @@ def test_n8n_s_answer_is_read_by_its_shape_whatever_the_reply_says(monkeypatch, 
     monkeypatch.setattr(agent, "setting", lambda key: "token")
     monkeypatch.setattr(agent.httpx, "post", lambda *args, **kwargs: answer)
     assert agent.call_n8n("call_agent") == reply
+
+
+@pytest.fixture
+def asked(cabinet, monkeypatch):
+    """ask_agent for files: the messages the agent got, and how many files stay untaken after each ask."""
+    sent, left = [], []
+    monkeypatch.setattr(agent, "cabinet_db", lambda: FakeDb((1,)))
+
+    def call_n8n(tool, **kw):
+        sent.append(kw["request"]["message"])
+        return {"ok": True, "status": "completed", "response": f"reponse {len(sent)}"}
+
+    monkeypatch.setattr(agent, "call_n8n", call_n8n)
+    monkeypatch.setattr(agent, "untaken", lambda session_id: left.pop(0))
+    return sent, left
+
+
+@pytest.mark.functionality
+def test_files_left_untaken_remind_the_agent_until_it_takes_them(asked):
+    sent, left = asked
+    left += [2, 0]  # the first answer took none, the second took them
+    assert agent.ask_agent("mail-1", "Voici les achats de KTSYS", ["f.pdf"])["output"] == "reponse 2"
+    assert len(sent) == 2 and sent[1].startswith(sent[0]) and "Rappel" in sent[1] and "Rappel" not in sent[0]
+
+
+@pytest.mark.functionality
+def test_the_agent_is_asked_at_most_a_set_number_of_times(asked):
+    sent, left = asked
+    left += [2] * agent.ASK_TRIES
+    assert agent.ask_agent("mail-1", "x", ["f.pdf"])["output"] == f"reponse {agent.ASK_TRIES}"
+    assert len(sent) == agent.ASK_TRIES and sent[1] == sent[2]  # the reminder is not stacked
+
+
+@pytest.mark.security
+def test_the_reminder_is_never_the_clients_words(asked):
+    from tarik.core.conversation import own_words
+
+    sent, left = asked
+    left += [1, 0]
+    agent.ask_agent("mail-1", "Voici les achats", ["f.pdf"])
+    assert [own_words(text) for text in sent] == ["Voici les achats"] * 2
+
+
+@pytest.mark.functionality
+def test_no_file_no_check_and_a_slow_ask_is_not_repeated(asked, monkeypatch):
+    sent, left = asked
+    monkeypatch.setattr(agent, "untaken", lambda session_id: pytest.fail("checked without a file"))
+    agent.ask_agent("mail-1", "Une question", None)
+    assert len(sent) == 1
+    sent.clear()
+    monkeypatch.setattr(agent, "untaken", lambda session_id: 3)
+    clock = iter([0, agent.QUICK + 1])
+    monkeypatch.setattr(agent.time, "monotonic", lambda: next(clock))
+    agent.ask_agent("mail-1", "x", ["f.pdf"])
+    assert len(sent) == 1  # a tool cut at 5 minutes may still run: never a second run beside it
