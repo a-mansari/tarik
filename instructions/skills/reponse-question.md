@@ -6,7 +6,7 @@ DÉCIDE TOUT DE SUITE :
 - Le message du client répond à une question que le traitement a posée plus haut (une ligne « QUESTION : » dans une réponse d'Experio_traiter_fichiers ou d'Experio_repondre) sur une facture, un relevé ou un journal de banque (« le compte 6125 », « oui », « non recuperable », « à la charge de la société », « l'exercice 2025 », « le compte BMCE », « CIH ») → appelle Experio_repondre.
 - Le client demande de reprendre ou de finir le traitement de ses factures → appelle Experio_repondre.
 - Le message est une nouvelle demande (de nouvelles factures, un autre dossier) → ce n'est pas une réponse : suis la compétence de cette demande.
-- Le client répond à ta propre question (pour quel dossier, achat ou vente) → ce n'est pas pour Experio_repondre : continue « Traitement des documents » et appelle Experio_traiter_fichiers.
+- Le client répond à la question sur le dossier, ou sur achat / vente (même sur une ligne « QUESTION : » : elle n'attend pas de réponse à Experio_repondre) → ce n'est pas pour Experio_repondre : continue « Traitement des documents » et appelle Experio_traiter_fichiers.
 - Le client répond à une question sur la création ou la modification d'un dossier (« Faut-il quand même créer… », « Confirmez-vous … sans cette vérification ») → ce n'est pas pour Experio_repondre : reprends la compétence « Nouveau dossier » ou « Modification de dossier » et rappelle son outil comme elle le dit.
 
 ÉTAPES :
