@@ -239,7 +239,7 @@ def test_a_bank_journals_answer_sets_its_bank_then_asks_the_next(db_cabinet, mon
 
 
 @pytest.mark.functionality
-def test_an_invoice_the_client_asked_not_to_post_stays_a_draft_until_they_say_so(db_cabinet, monkeypatch):
+def test_an_invoice_stays_a_verified_draft_until_the_client_says_to_post_it(db_cabinet, monkeypatch):
     searched = []
 
     def search(model, method, domain, **kw):
@@ -247,14 +247,16 @@ def test_an_invoice_the_client_asked_not_to_post_stays_a_draft_until_they_say_so
         return domain[0][2]  # all still drafts
 
     monkeypatch.setattr(pipeline, "odoo_call", search)
-    assert pipeline.hold_posting(7, "s", "non")["status"] == "stop"
+    assert pipeline.hold_posting(7, "s")["status"] == "stop"  # nothing said: imported and verified only
     assert pipeline.hold_posting(7, "s")["status"] == "stop"  # a later run carries no answer: still held
-    assert pipeline.hold_posting(8, "s")["status"] == "ok"
     pipeline.record_step("r", "s", "x (hold_posting)", {"status": "stop", "message": "m", "invoice_id": 7})
     assert pipeline.waiting_drafts("s")["invoices"] == []  # a stop is not resumed...
-    assert pipeline.waiting_drafts("s", held=True)["invoices"] == []  # ...nor without the dossier
-    # ...unless they now ask to post, in any conversation, for the dossier: only its drafts
+    assert pipeline.waiting_drafts("s", held=True)["invoices"] == [7]  # ...unless they now ask to post
+    assert pipeline.waiting_drafts("other", held=True)["invoices"] == []  # another conversation needs the dossier
+    # ...in any conversation, for the dossier: only its drafts
     assert pipeline.waiting_drafts("other", held=True, dossier_id=5)["invoices"] == [7]
     assert ("company_id", "in", [5]) in searched[-1]
     assert pipeline.hold_posting(7, "s", "oui")["status"] == "ok"
-    assert pipeline.hold_posting(7, "s")["status"] == "ok"
+    assert pipeline.hold_posting(7, "s")["status"] == "ok"  # kept for the runs resumed after a question
+    assert pipeline.waiting_drafts("other", held=True, dossier_id=5)["invoices"] == []  # nothing left to post
+    assert pipeline.hold_posting(7, "s", "non")["status"] == "stop"  # taken back

@@ -3,7 +3,7 @@
 The message goes where the database says (route_message), not where the agent's tool says: an answer when
 questions wait and no file came, the files when files came and nothing waits, both when both.
 Modes: files (the dossier found from the name the client gave, then the conversation's new files, from
-identification to posting, or only to verified drafts when the client said not to post; with none, the drafts left
+identification to verified drafts, posted only when the client asked to; with none, the drafts left
 waiting or cut short are resumed), resume (those drafts only: "Tarik - Emails" following up, no agent),
 answer (the client's answer to what the conversation waits on, then the sequence resumes there; with nothing
 waiting, the drafts Experio hadn't read yet are resumed)."""
@@ -186,12 +186,13 @@ flow.to_record("Suite apres split_invoices", 1)
 flow.to_record("Releve bancaire (import_bank_statement)", 0, 1)
 
 # Nothing waiting on the client: the conversation's drafts Experio hadn't read yet go back to the reading step.
-# "oui" (post what was left as drafts) also takes up the dossier's drafts held back, from any conversation.
+# "oui" (post what was left as drafts) also takes up the dossier's drafts held back, from any conversation. What
+# the client asks (not a follow-up, mode resume) also resumes the drafts a step stopped.
 mcp(
     "Brouillons en attente (waiting_drafts)",
     "waiting_drafts",
     f"{{ session_id: {CALL}.session_id, held: {CALL}.comptabiliser === 'oui', "
-    f"dossier_id: $('{RESOLVE}').isExecuted ? {DOSSIER_ID} : 0 }}",
+    f"dossier_id: $('{RESOLVE}').isExecuted ? {DOSSIER_ID} : 0, stopped: {CALL}.mode !== 'resume' }}",
     [440, 1000],
 )
 flow.code(
