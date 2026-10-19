@@ -67,6 +67,25 @@ connect(FILES, "Nouveaux fichiers ?", 0)
 connect("Nouveaux fichiers ?", EACH_FILE, 0)
 flow.to_record(FILES, 1)
 
+# The same request about a dossier whose invoices wait on a question asked in another conversation: the questions come
+# here, recorded as this run's (record_step keeps each as this conversation's pending question), so the summary asks
+# them again and the answer finds them.
+QUESTIONS = "Questions du dossier (dossier_questions)"
+mcp(QUESTIONS, "dossier_questions", f"{{ session_id: {CALL}.session_id, dossier_id: {DOSSIER_ID} }}", [440, 20])
+flow.code(
+    "Une question par facture",
+    [660, 20],
+    (
+        "// Each question left waiting on the dossier's invoices, shaped like a step's answer.\n"
+        "return $input.first().json.content[0].text.questions.map(question => ({ json: { content: [{ type: 'text', "
+        "text: { status: 'question', ...question } }] } }));"
+    ),
+)
+connect("Nouveaux fichiers ?", QUESTIONS, 1)
+connect(QUESTIONS, "Une question par facture", 0)
+flow.to_record("Une question par facture", 0)
+flow.to_record(QUESTIONS, 1)
+
 # Files: identify -> statement import, or split -> drafts.
 mcp("Identification (identify_document)", "identify_document", "{ file_id: $json.file_id }", [660, 200])
 route(

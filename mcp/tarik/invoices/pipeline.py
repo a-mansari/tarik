@@ -161,7 +161,8 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
             db.execute(
                 "insert into tarik_pending (invoice_id, session_id, step, question, choices) "
                 "values (%s, %s, %s, %s, %s) on conflict (invoice_id) do update set step = excluded.step, "
-                "question = excluded.question, choices = excluded.choices, created_at = now()",
+                "session_id = excluded.session_id, question = excluded.question, choices = excluded.choices, "
+                "created_at = now()",
                 (invoice_id, session_id, step, message, choices),
             )
         elif invoice_id:
@@ -298,6 +299,36 @@ def waiting_on(session_id):
             if name  # still without its bank
         ]
     )
+
+
+@server.tool()
+def dossier_questions(session_id: str, dossier_id: int) -> dict:
+    """The invoice questions other conversations left waiting on the dossier ``dossier_id``'s drafts, for the client
+    who asks about that dossier in a new conversation (the workflow records each one as this run's question:
+    record_step then keeps it as this conversation's pending question, so their answer finds it). Never the
+    conversation's own; a draft deleted or posted since, or of another dossier, is left out. Each: {invoice_id,
+    step (the one it waits at), message, choices}."""
+    with cabinet_db() as db:
+        rows = db.execute(
+            "select invoice_id, step, question, choices from tarik_pending where session_id <> %s order by created_at",
+            (session_id,),
+        ).fetchall()
+    ids = [invoice_id for invoice_id, *_ in rows]
+    here = (
+        set(
+            odoo_call(
+                "exp.invoice", "search", [("id", "in", ids), ("state", "=", "draft"), ("company_id", "=", dossier_id)]
+            )
+        )
+        if ids and dossier_id
+        else set()
+    )
+    questions = [
+        {"invoice_id": i, "step": step, "message": text, "choices": choices}
+        for i, step, text, choices in rows
+        if i in here
+    ]
+    return ok(f"{len(questions)} question(s) en attente sur ce dossier.", questions=questions)
 
 
 def meant(waiting, about):
