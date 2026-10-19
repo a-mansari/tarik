@@ -33,6 +33,34 @@ Rules the tools keep:
 - A cabinet's `DRY_RUN=1` (default): drafts and bank statements are created, but nothing else is written and nothing is posted.
   Replies then start with "MODE TEST".
 
+## Deterministic steps and LLM steps
+
+Every step in the workflows is a plain MCP Client node with fixed parameters: no model chooses a tool or its
+arguments there. A model is used in two places only: the agent, and some tools that call the model themselves
+(`ask_model` in `mcp/tarik/invoices/`; the tool's output can then vary).
+
+- **Agent** (LLM): the `Tarik` node in "Tarik - Emails" and the cabinet's native agent. It reads the email,
+  chooses which workflow to call and with what inputs, and writes the reply.
+- **Tool with a model call**, in "Tarik - Traitement":
+
+  | Tool | Model reads |
+  |------|-------------|
+  | `identify_document` | the first pages: invoice or bank statement (skipped when the file's kind is already stored) |
+  | `split_invoices` | the PDF's pages: where each invoice starts |
+  | `check_invoice` | the scan, compared with what Experio captured |
+  | `classify_invoice` | the scan: the invoice's category |
+  | `assign_account` | the invoice: the account (skipped when a memorised account or a simulation settles it) |
+  | `settle_withholding` | the client's reply, only when there is one |
+  | `answer_pending` | the client's answer, only when it needs reading (account, withholding) |
+
+- **Deterministic** (no model call): every Switch, Code, Merge and sub-workflow node; all of "Tarik - Modification"
+  and "Tarik - Dossier"; in "Tarik - Emails" everything but the agent; in "Tarik - Traitement" `check_sender`,
+  `files_to_process`, `import_bank_statement`, `create_draft_invoice`, `wait_until_read`, `correct_invoice`,
+  `link_tiers`, `check_duplicate`, `settle_tva`, `check_journal`, `settle_prepaid`, `settle_exercice`,
+  `post_invoice`, `waiting_drafts`. They still depend on Experio's data and timing.
+
+This is read from the code (which tools call `ask_model`): when you add a tool that calls the model, add it here.
+
 ## Cabinets
 
 One Tarik serves several cabinets, and never mixes them. A cabinet is named by its exact
