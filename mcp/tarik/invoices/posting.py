@@ -8,7 +8,7 @@ invoice's account, RAS and TVA flags on its tiers for next time (Experio's memor
 
 import time
 
-from tarik.core.app import log, ok, routine, server, stop, with_ids
+from tarik.core.app import log, ok, routine, step_tool, stop
 from tarik.core.config import POSTED, TEST_MODE
 from tarik.core.experio import (
     dry_run,
@@ -36,8 +36,7 @@ def _blocking(invoice_id, context):
         time.sleep(PAUSE)
 
 
-@server.tool()
-@with_ids
+@step_tool
 def post_invoice(invoice_id: int) -> dict:
     """Post (comptabiliser) a draft invoice when Experio's own check finds nothing
     blocking; otherwise list what blocks it."""

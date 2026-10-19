@@ -141,8 +141,8 @@ def test_the_date_the_client_gives_is_the_invoices(monkeypatch):
     written = []
     monkeypatch.setattr(
         exercice,
-        "require_invoice",
-        lambda invoice_id, fields: {
+        "require_draft_invoice",
+        lambda invoice_id, fields, what: {
             "state": "draft",
             "company_id": [1, "X"],
             "exercice_id": False,

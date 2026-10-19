@@ -9,6 +9,14 @@ import re
 import unicodedata
 from difflib import SequenceMatcher
 
+TAG = re.compile(r"</?[a-zA-Z][^<>]*>")  # an HTML tag, not "a < b"
+ICE_WRITTEN = re.compile(r"(?<!\d)\d{15}(?!\d)")  # 15 digits, not inside a longer number: an ICE
+
+
+def strip_tags(html, by=""):
+    """``html`` without its tags, each replaced ``by``."""
+    return TAG.sub(by, html or "")
+
 
 def normalized(text):
     """``text`` lowercased, without accents, words only: "Sté  Alliance-Génie" -> "ste alliance genie"."""

@@ -2,7 +2,6 @@
 
 import contextlib
 import http.client
-import re
 import time
 import xmlrpc.client
 from typing import Final
@@ -13,6 +12,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from tarik.core.app import log, server, wait
 from tarik.core.cabinets import current, setting
 from tarik.core.config import DOSSIER_DOMAIN, JSON_TIMEOUT, ODOO_URL, READING, RPC_TIMEOUT, TEST_MODE
+from tarik.core.words import strip_tags
 
 # IPv4 only: the container has no IPv6 route, and httpx does not fall back when a host's IPv6 address comes first.
 HTTP: Final = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"))
@@ -218,6 +218,16 @@ def require_draft(invoice_id, invoice, what="etre modifiee"):
         raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut {what}.")
 
 
+def require_draft_invoice(invoice_id, fields, what="etre modifiee", read=False):
+    """The invoice's ``fields`` (with its state), ToolError unless it is a draft that may ``what``; with ``read``,
+    unless Experio has finished reading it too (``fields`` then holds bluejay_state)."""
+    invoice = require_invoice(invoice_id, fields)
+    require_draft(invoice_id, invoice, what)
+    if read and (waiting := still_reading(invoice)):
+        raise ToolError(waiting["message"])
+    return invoice
+
+
 def still_reading(invoice):
     """A wait result while Experio still reads the scan of ``invoice`` (with id and bluejay_state), else None."""
     if invoice["bluejay_state"] in READING:
@@ -261,8 +271,7 @@ def experio_refusal(error):
 
 def plain(html):
     """Experio's HTML message as one line of text."""
-    without_tags = re.sub(r"<[^>]+>", " ", html or "")  # any HTML tag
-    return re.sub(r"\s+", " ", without_tags).strip()
+    return " ".join(strip_tags(html, " ").split())
 
 
 def experio_notes(invoice_id, context):

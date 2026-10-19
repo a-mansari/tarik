@@ -7,7 +7,7 @@ from typing import Final
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import log, ok, routine, server, stop, with_ids
+from tarik.core.app import log, ok, routine, step_tool, stop
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import MIN_SIMILARITY
 from tarik.core.experio import has_scan, odoo_call, require_invoice, still_reading
@@ -237,8 +237,7 @@ def _check_result(invoice_id, report):
     return routine(f"Facture {invoice_id} : {found} :\n{differences}")  # correct_invoice says what it changed
 
 
-@server.tool()
-@with_ids
+@step_tool
 def check_invoice(invoice_id: int) -> dict:
     """Check a draft invoice once Experio has read it: compares what Experio
     captured with what the scan shows, and lists every difference. Changes

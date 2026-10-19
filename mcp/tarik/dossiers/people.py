@@ -13,7 +13,7 @@ import re
 
 from tarik.core.app import routine, server, stop
 from tarik.core.cabinets import cabinet_db
-from tarik.core.experio import odoo_call, refused, require_dossier
+from tarik.core.experio import odoo_call, refused, require_dossier, require_invoice
 
 # Who may give Tarik work: the cabinet's collaborators and Experio's own staff (not client contacts).
 STAFF = ["employee", "internal"]
@@ -80,8 +80,7 @@ def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> d
     the email's sender must be a collaborator or Experio staff member with that dossier assigned to them.
     The chat has no sender to check."""
     if invoice_id and not dossier_id:
-        found = odoo_call("exp.invoice", "read", [invoice_id], fields=["company_id"])
-        dossier_id = found[0]["company_id"][0] if found and found[0]["company_id"] else 0
+        dossier_id = require_invoice(invoice_id, ["company_id"])["company_id"][0]
     dossier = require_dossier(dossier_id)
     address = sender_of(session_id)
     if address is None:

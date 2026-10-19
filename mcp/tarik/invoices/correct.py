@@ -2,7 +2,7 @@
 
 from mcp.server.mcpserver.exceptions import ToolError
 
-from tarik.core.app import ok, routine, server, with_ids
+from tarik.core.app import ok, routine, step_tool
 from tarik.core.config import TEST_MODE
 from tarik.core.experio import (
     dry_run,
@@ -11,8 +11,7 @@ from tarik.core.experio import (
     odoo_call,
     refresh,
     refused,
-    require_draft,
-    require_invoice,
+    require_draft_invoice,
 )
 from tarik.invoices.check import CAPTURED, stored_check
 
@@ -87,26 +86,14 @@ def _payment_method(name, invoice, changes):
             changes["payment_method_id"] = found[0]["id"]
 
 
-@server.tool()
-@with_ids
+@step_tool
 def correct_invoice(invoice_id: int) -> dict:
     """Correct a draft invoice from its check: writes what check_invoice read on
     the scan over the fields Experio captured differently (amounts, number,
     date, credit note, multi-TVA, currency, payment method), then lets Experio
     rebuild its TVA lines. Call check_invoice first."""
-    invoice = require_invoice(
-        invoice_id,
-        [
-            "state",
-            "company_id",
-            "exercice_id",
-            "refund",
-            "amount_tax_non_recoverable",
-            "payment_method_id",
-            "currency_id",
-        ],
-    )
-    require_draft(invoice_id, invoice, "etre corrigee")
+    fields = ["state", "company_id", "exercice_id", "refund", "amount_tax_non_recoverable", "payment_method_id"]
+    invoice = require_draft_invoice(invoice_id, [*fields, "currency_id"], "etre corrigee")
     check = stored_check(invoice_id)
     if not check:
         raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice.")

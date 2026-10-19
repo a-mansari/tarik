@@ -22,6 +22,7 @@ from tarik.core.app import log, ok, server
 from tarik.core.cabinets import cabinet_db, current, setting
 from tarik.core.config import READING
 from tarik.core.experio import odoo_call
+from tarik.core.words import strip_tags
 from tarik.dossiers.people import collaborator
 from tarik.dossiers.setup import waiting_setups
 from tarik.emails.sending import imap_session, recipient_allowed, send_email
@@ -47,7 +48,6 @@ QUOTE_START = re.compile(
 )
 LINE_END_TAG = re.compile(r"<(br|/p|/div)[^>]*>", re.IGNORECASE)  # <br>, </p> or </div>: where an HTML line ends
 HIDDEN = re.compile(r"<(style|script)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)  # a style or script element
-TAG = re.compile(r"<[^>]+>")  # any HTML tag
 BLANK_LINES = re.compile(r"\n{3,}")  # more than one blank line in a row
 AUTOMATIC_SENDER = re.compile(r"(no-?reply|mailer-daemon|postmaster)@")  # noreply@, no-reply@, mailer-daemon@...
 MESSAGE_ID = re.compile(r"<[^>]+>")  # one <message id> in In-Reply-To or References
@@ -71,7 +71,7 @@ def client_text(message):
     part = message.get_body(preferencelist=("plain", "html"))
     text = part.get_content() if part else ""
     if part and part.get_content_type() == "text/html":
-        text = TAG.sub("", HIDDEN.sub("", LINE_END_TAG.sub("\n", text)))
+        text = strip_tags(HIDDEN.sub("", LINE_END_TAG.sub("\n", text)))
     lines = []
     for line in text.splitlines():
         if QUOTE_START.match(line):
