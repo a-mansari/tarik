@@ -13,6 +13,7 @@ def experio(monkeypatch):
         posting, "require_invoice", lambda i, f: {"state": state["state"], "company_id": [5, "D"], "exercice_id": False}
     )
     monkeypatch.setattr(posting, "dry_run", lambda: False)
+    monkeypatch.setattr(posting, "missing_compte_tiers", lambda invoice: None)
     monkeypatch.setattr(posting, "refresh", lambda invoice_id, context: None)
     monkeypatch.setattr(posting.time, "sleep", lambda seconds: None)
 
@@ -50,3 +51,26 @@ def test_experios_refusal_and_state_decide(experio):
     assert posting.post_invoice(3)["message"] == "Facture 3 : pas comptabilisee (Bloque)."
     experio["state"] = "post"
     assert posting.post_invoice(3)["routine"]
+
+
+@pytest.mark.functionality
+def test_an_invoice_whose_tiers_has_no_compte_tiers_is_not_posted(experio, monkeypatch):
+    monkeypatch.undo()  # the fixture's fakes go; this test brings its own
+    posted = []
+    accounts = {"third_party_supplier_account": False, "third_party_customer_account": "3421"}
+    company = {"ignore_third_party_account": False}
+
+    def odoo_call(model, method, ids, fields):
+        return [company if model == "res.company" else dict(accounts)]
+
+    monkeypatch.setattr(posting, "odoo_call", odoo_call)
+    monkeypatch.setattr(posting, "dry_run", lambda: False)
+    purchase = {"state": "draft", "company_id": [5, "D"], "exercice_id": False, "partner_id": [9, "T"]}
+    purchase["type"] = "purchase"
+    monkeypatch.setattr(posting, "require_invoice", lambda i, f: purchase)
+    monkeypatch.setattr(posting, "refresh", lambda invoice_id, context: posted.append("refresh"))
+    result = posting.post_invoice(3)
+    assert result["status"] == "stop" and "Compte Tiers fournisseur" in result["message"] and posted == []
+    assert posting.missing_compte_tiers({**purchase, "type": "sale"}) is None  # its customer account is there
+    company["ignore_third_party_account"] = True  # the dossier does without them
+    assert posting.missing_compte_tiers(purchase) is None
