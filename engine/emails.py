@@ -16,8 +16,8 @@ from engine import agent, dossier, traitement
 from engine.tools import ToolFailure, call, within
 from tarik.core.conversation import FILES_NOTE, NO_TEXT, remember_client_message
 from tarik.emails.inbox import untaken
+from tarik.invoices.pipeline import NOTHING
 
-NOTHING = "Rien n'a ete traite."
 # Files no tool took after the reply mean the files tool did not run (tarik.emails.inbox.untaken): the agent is
 # asked again with a reminder, ASK_TRIES asks at most, none after QUICK seconds; the last reply is sent.
 ASK_TRIES, QUICK = 3, 200

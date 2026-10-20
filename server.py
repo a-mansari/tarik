@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, quote
 
 import uvicorn
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg.conninfo import make_conninfo
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
@@ -36,14 +37,12 @@ from starlette.staticfiles import StaticFiles
 
 from engine import accounts, agent, content, graphs, layouts, mail, prompts, runs
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
+from tarik.core.config import POSTGRES
 from tarik.core.experio import account
 from ui import content_pages, pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
-DATABASE = (
-    f"host={os.getenv('POSTGRES_HOST', 'db')} dbname={os.environ['POSTGRES_DB']} "
-    f"user={os.environ['POSTGRES_USER']} password={os.environ['POSTGRES_PASSWORD']}"
-)
+DATABASE = make_conninfo(**POSTGRES)  # the tools' own Postgres settings
 
 
 OPEN = ("/ok", "/login", "/ui/static/")

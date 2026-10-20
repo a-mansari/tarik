@@ -4,10 +4,11 @@ Python), inside using(cabinet), so it can only ever touch that cabinet's schema 
 import asyncio
 import inspect
 import os
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 from tarik import catalogue  # noqa: F401 -- its import registers every tool
-from tarik.core.app import TOOLS, ToolError, log
+from tarik.core.app import CRASHED, TOOLS, ToolError, log
 from tarik.core.cabinets import using
 
 # At most PER_CABINET calls at once for one cabinet (wait_until_read holds one up to READ_WAIT), so a cabinet's long
@@ -17,7 +18,6 @@ TOTAL = int(os.getenv("TARIK_CALLS_TOTAL", "40"))
 POOL = ThreadPoolExecutor(TOTAL, thread_name_prefix="tool")
 SLOTS = {}  # cabinet: its semaphore, made on its first call (in the running loop)
 INVALID = "des informations manquent ou sont invalides pour cette etape."
-CRASHED = "echec technique, reessayez plus tard."
 
 # Steps whose ok answer is plumbing, not an outcome: recorded only when they fail or refuse.
 QUIET_WHEN_OK = {
@@ -87,3 +87,32 @@ async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a
         origin = result.get("step") or tool if tool == "answer_pending" else tool
         await call(cabinet, "record_step", run_id=run_id, session_id=session, origin=origin, result=result)
     return result
+
+
+# Nodes every workflow (Traitement, Dossier) begins and ends with.
+
+
+async def started(state, config, inputs):
+    """A run's first node: its inputs kept, its id (the summary's key), the conversation's attachments saved once."""
+    given = {key: state["call"].get(key) for key in inputs}
+    run_id = str(config.get("run_id") or uuid.uuid4())
+    session = given["session_id"]
+    files = given.get("attachments") or []
+    result = await step(given["cabinet"], run_id, session, "save_files", session_id=session, files=files)
+    return {"call": given, "run_id": run_id, "outcomes": [result]}
+
+
+async def sender_checked(state, dossier_id):
+    """The email's sender may work on ``dossier_id`` (check_sender): its outcome."""
+    given = state["call"]
+    session = given["session_id"]
+    result = await step(
+        given["cabinet"], state["run_id"], session, "check_sender", session_id=session, dossier_id=dossier_id
+    )
+    return {"outcomes": [result]}
+
+
+async def summary(state):
+    """A run's last node: what the client reads of it (run_summary)."""
+    result = await call(state["call"]["cabinet"], "run_summary", run_id=state["run_id"])
+    return {"message": result["message"]}

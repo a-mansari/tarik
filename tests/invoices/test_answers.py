@@ -26,8 +26,8 @@ def answers(db_cabinet, monkeypatch):
         applied.append((invoice_id, answer))
         return ok("applique")
 
-    monkeypatch.setitem(pipeline.ANSWERS, "assign_account", (record, "settle_tva"))
-    monkeypatch.setitem(pipeline.ANSWERS, "settle_tva", (record, "check_journal"))
+    monkeypatch.setitem(pipeline.ANSWERS, "assign_account", record)
+    monkeypatch.setitem(pipeline.ANSWERS, "settle_tva", record)
     return applied
 
 
@@ -181,7 +181,7 @@ def test_a_draft_that_failed_waited_or_was_cut_short_is_taken_up_again(db_cabine
         ("r", 4, "check_invoice", "error"),
         ("r2", 4, "post_invoice", "ok"),
     ]:
-        pipeline.record_step(run, "s", f"x ({step})", {"status": status, "message": "m", "invoice_id": invoice_id})
+        pipeline.record_step(run, "s", step, {"status": status, "message": "m", "invoice_id": invoice_id})
     with cabinet_db() as db:  # 5: its run was stopped before recording anything; 4's file is not resumed twice
         for invoice_id in (4, 5):
             db.execute(
@@ -212,7 +212,7 @@ def test_a_bank_journals_answer_sets_its_bank_then_asks_the_next(db_cabinet, mon
     pipeline.record_step(
         "r",
         "s",
-        "Banques (ask_banks)",
+        "ask_banks",
         {
             "status": "question",
             "message": "Dossier Gecafisc : le journal BQ1 est a quelle banque ? CIH (n° 3), BP (n° 5).",
@@ -249,7 +249,7 @@ def test_an_invoice_stays_a_verified_draft_until_the_client_says_to_post_it(db_c
     monkeypatch.setattr(pipeline, "odoo_call", search)
     assert pipeline.hold_posting(7, "s")["status"] == "stop"  # nothing said: imported and verified only
     assert pipeline.hold_posting(7, "s")["status"] == "stop"  # a later run carries no answer: still held
-    pipeline.record_step("r", "s", "x (hold_posting)", {"status": "stop", "message": "m", "invoice_id": 7})
+    pipeline.record_step("r", "s", "hold_posting", {"status": "stop", "message": "m", "invoice_id": 7})
     assert pipeline.waiting_drafts("s")["invoices"] == []  # a stop is not resumed...
     assert pipeline.waiting_drafts("s", held=True)["invoices"] == [7]  # ...unless they now ask to post
     assert pipeline.waiting_drafts("other", held=True)["invoices"] == []  # another conversation needs the dossier
@@ -279,7 +279,7 @@ def test_stopped_drafts_are_resumed_only_when_the_client_asks(db_cabinet, monkey
         ("old", 5, "assign_account", "stop"),  # stopped once, went through since
         ("old", 5, "post_invoice", "ok"),
     ]:
-        pipeline.record_step("r", session, f"x ({step})", {"status": status, "message": "m", "invoice_id": invoice_id})
+        pipeline.record_step("r", session, step, {"status": status, "message": "m", "invoice_id": invoice_id})
     assert pipeline.waiting_drafts("s")["invoices"] == []  # a follow-up never retries a stop
     assert pipeline.waiting_drafts("s", stopped=True)["invoices"] == [1]  # this conversation's, asked for
     assert pipeline.waiting_drafts("new", stopped=True, dossier_id=5)["invoices"] == [1, 4]  # the dossier's
@@ -307,6 +307,6 @@ def test_a_dossiers_waiting_questions_are_reached_from_a_new_conversation(db_cab
     assert [q["invoice_id"] for q in found] == [1]  # not its own (2), not a posted one (3)
     assert ("company_id", "=", 5) in asked[-1] and pipeline.dossier_questions("new", 0)["questions"] == []
     # Recorded as this run's question, it becomes this conversation's: its answer finds it.
-    pipeline.record_step("r", "new", "x (dossier_questions)", {"status": "question", "message": "Q ?", **found[0]})
+    pipeline.record_step("r", "new", "dossier_questions", {"status": "question", "message": "Q ?", **found[0]})
     assert sorted(item["invoice_id"] for item in pipeline.waiting_on("new")) == [1, 2]
     assert pipeline.waiting_on("old") == []

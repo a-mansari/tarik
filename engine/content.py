@@ -10,11 +10,10 @@ A change that would break what reads it is refused (checked()): content, not log
 
 import json
 import re
-from pathlib import Path
 
 import tarik.core.model
+from tarik.core.model import CONTENT, front_matter
 
-CONTENT = Path(__file__).resolve().parents[1] / "content"
 FIRST = "Version du dépôt"  # who wrote the versions taken from content/
 TABLE = """
 create table if not exists content_versions (
@@ -168,15 +167,6 @@ async def last_changes(pool):
 
 
 # --- What a version must keep ---
-
-
-def front_matter(text_):
-    """A Markdown document's front matter ({key: value}) and body; ValueError without one."""
-    found = re.fullmatch(r"---\n(.*?)\n---\n(.*)", text_, flags=re.S)
-    if not found:
-        raise ValueError("l'en-tête (entre les deux lignes ---) a disparu")
-    meta = dict(line.split(": ", 1) for line in found.group(1).splitlines() if ": " in line)
-    return meta, found.group(2)
 
 
 def same_shape(old, new, where=""):

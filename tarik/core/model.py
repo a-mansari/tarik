@@ -4,6 +4,7 @@ clients send, as images it can read."""
 import base64
 import io
 import json
+import re
 from pathlib import Path
 
 import pypdfium2
@@ -27,9 +28,18 @@ def content(path):
     return SOURCE(path) if SOURCE else (CONTENT / path).read_text()
 
 
+def front_matter(text):
+    """A Markdown document's front matter ({key: value}) and body; ValueError without one."""
+    found = re.fullmatch(r"---\n(.*?)\n---\n(.*)", text, flags=re.S)
+    if not found:
+        raise ValueError("l'en-tête (entre les deux lignes ---) a disparu")
+    meta = dict(line.split(": ", 1) for line in found.group(1).splitlines() if ": " in line)
+    return meta, found.group(2)
+
+
 def tool_prompt(name):
     """The prompt content/tools/<name>.md holds, after its front matter (used_by: the tool reading it)."""
-    return content(f"tools/{name}.md").split("\n---\n", 1)[1]
+    return front_matter(content(f"tools/{name}.md"))[1]
 
 
 def json_answer(text, keys=()):

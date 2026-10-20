@@ -36,13 +36,17 @@ def client_message(runtime):
     """The client's latest message, word for word (its text parts)."""
     for message in reversed(runtime.state["messages"]):
         if isinstance(message, HumanMessage):
-            content = message.content
-            if isinstance(content, str):
-                return content
-            return "\n".join(
-                part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text"
-            )
+            return text_of(message.content)
     return ""
+
+
+def text_of(parts):
+    """A message's text: its string, or its text parts joined."""
+    if isinstance(parts, str):
+        return parts
+    return "\n".join(
+        part.get("text", "") for part in parts or [] if isinstance(part, dict) and part.get("type") == "text"
+    )
 
 
 def attachments(runtime):

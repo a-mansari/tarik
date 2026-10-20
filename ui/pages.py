@@ -9,6 +9,7 @@ from starlette.responses import RedirectResponse
 from starlette.templating import Jinja2Templates
 
 from engine import graphs, prompts, runs
+from engine.agent import text_of
 from engine.content import LABELS
 
 HERE = Path(__file__).parent
@@ -24,10 +25,6 @@ def graph_description(graph):
     return LABELS["descriptions"]["graphs"].get(graph, "")
 
 
-def step_name(graph, node):
-    return LABELS["steps"].get(graph, {}).get(node, node)
-
-
 def status_name(status):
     return LABELS["statuses"].get(status, status)
 
@@ -35,16 +32,7 @@ def status_name(status):
 templates.env.filters.update(
     when=when, graph_name=graph_name, graph_description=graph_description, status_name=status_name
 )
-templates.env.globals.update(step_name=step_name)
-
-
-def text_of(content):
-    """A message's text: its string, or its text parts."""
-    if isinstance(content, str):
-        return content
-    return "\n".join(
-        part.get("text", "") for part in content or [] if isinstance(part, dict) and part.get("type") == "text"
-    )
+templates.env.globals.update(step_name=graphs.label)  # a follow-up's Traitement steps too
 
 
 def conversation(messages):

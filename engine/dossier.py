@@ -3,13 +3,11 @@ entries import; or (mode update, person, archive, dossiers) one change after the
 finishes the dossiers left waiting. No time budget: finish_setup gets seconds_left 0 (no limit)."""
 
 import operator
-import uuid
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from engine.tools import call as run_tool
-from engine.tools import step
+from engine.tools import sender_checked, started, step, summary
 
 INPUTS = [
     "mode",
@@ -72,17 +70,8 @@ def ids(call):
 
 
 async def start(state: Run, config):
-    call = {key: state["call"].get(key) for key in INPUTS}
-    run_id = str(config.get("run_id") or uuid.uuid4())
-    result = await step(
-        call["cabinet"],
-        run_id,
-        call["session_id"],
-        "save_files",
-        session_id=call["session_id"],
-        files=call.get("attachments") or [],
-    )
-    return {"call": call, "run_id": run_id, "target": call.get("dossier_id") or 0, "outcomes": [result]}
+    begun = await started(state, config, INPUTS)
+    return {**begun, "target": begun["call"].get("dossier_id") or 0}
 
 
 def by_mode(state: Run):
@@ -134,16 +123,7 @@ async def create(state: Run):
 
 
 async def sender(state: Run):
-    call = state["call"]
-    result = await step(
-        call["cabinet"],
-        state["run_id"],
-        call["session_id"],
-        "check_sender",
-        session_id=call["session_id"],
-        dossier_id=call["dossier_id"],
-    )
-    return {"outcomes": [result]}
+    return await sender_checked(state, state["call"]["dossier_id"])
 
 
 def after_sender(state: Run):
@@ -276,11 +256,6 @@ async def resume_setups(state: Run):
         if finished.get("status") == "ok":
             outcomes.append(await step(cabinet, state["run_id"], session, "setup_status", dossier_id=dossier_id))
     return {"outcomes": outcomes}
-
-
-async def summary(state: Run):
-    result = await run_tool(state["call"]["cabinet"], "run_summary", run_id=state["run_id"])
-    return {"message": result["message"]}
 
 
 run = StateGraph(Run)

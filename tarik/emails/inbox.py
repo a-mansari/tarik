@@ -19,7 +19,7 @@ import psycopg
 
 from tarik.core.app import ToolError, log, ok, tool
 from tarik.core.cabinets import cabinet_db, current, setting
-from tarik.core.config import READING
+from tarik.core.config import ENTRY_FILES, READING
 from tarik.core.experio import odoo_call
 from tarik.core.words import strip_tags
 from tarik.dossiers.people import collaborator
@@ -34,7 +34,7 @@ FOLLOW_UP_MINUTES = 30  # how long after Tarik's reply the drafts Experio was re
 ACKNOWLEDGEMENT = (
     "Votre message est bien reçu. Je le traite et vous réponds dans ce fil, en général d'ici quelques minutes."
 )
-FILE_TYPES = (".pdf", ".jpg", ".jpeg", ".png", ".csv", ".txt", ".xlsx", ".xlsm")
+FILE_TYPES = (".pdf", ".jpg", ".jpeg", ".png", *ENTRY_FILES)
 # A thread Tarik must answer: new, or taken by a run that died (its lease is over). Its one parameter: LEASE_MINUTES.
 WAITING = "state = 'new' or (state = 'in_progress' and claimed_at < now() - make_interval(mins => %s))"
 

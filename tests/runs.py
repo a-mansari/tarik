@@ -94,7 +94,7 @@ def record(run_id, routine=True):
         for step, status, message, unread in reversed(steps):
             ids = {"invoice_id": key} if key > 0 else {"file_id": -key}
             result = {"status": status, "message": message, **ids, **({"routine": True} if unread and routine else {})}
-            record_step(run_id, "s", f"Etape ({step})", result)
+            record_step(run_id, "s", step, result)
 
 
 def kept():

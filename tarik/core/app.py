@@ -7,6 +7,9 @@ import inspect
 TOOLS = {}  # name: the function
 
 
+CRASHED = "echec technique, reessayez plus tard."  # what the client reads of a tool's crash (its cause is logged)
+
+
 class ToolError(Exception):
     """A tool's refusal: its message is the only text the client or the agent may read."""
 

@@ -5,7 +5,7 @@ import base64
 import json
 import time
 
-from tarik.core.app import ok, question, routine, step_tool, stop, tool, wait
+from tarik.core.app import CRASHED, ok, question, routine, step_tool, stop, tool, wait
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
 from tarik.core.conversation import chosen_among, own_words, yes_no
@@ -57,6 +57,8 @@ STEPS = {
     "post_invoice": "comptabilisation",
 }
 ORDER = list(STEPS)
+INVOICE_CHAIN = ORDER[ORDER.index("create_draft_invoice") :]  # an invoice's own steps, from its draft (Traitement)
+NOTHING = "Rien n'a ete traite."  # a run's summary when it did nothing (the Emails follow-up leaves it out)
 SETUP_STEPS = {
     "create_dossier",
     "update_dossier",
@@ -69,14 +71,14 @@ SETUP_STEPS = {
     "create_person",
     "archive_dossier",
 }
-# A pending question, the call that applies the client's answer, and the step that follows.
+# A pending question, and the call that applies the client's answer; the sequence resumes at the step after it.
 ANSWERS = {
-    "link_tiers": (choose_tiers, "check_duplicate"),
-    "assign_account": (set_account, "settle_tva"),
-    "settle_tva": (settle_tva, "check_journal"),
-    "settle_withholding": (settle_withholding, "settle_prepaid"),
-    "settle_prepaid": (settle_prepaid, "settle_exercice"),
-    "settle_exercice": (settle_exercice, "configure_cabinet"),
+    "link_tiers": choose_tiers,
+    "assign_account": set_account,
+    "settle_tva": settle_tva,
+    "settle_withholding": settle_withholding,
+    "settle_prepaid": settle_prepaid,
+    "settle_exercice": settle_exercice,
 }
 # The oui / non questions: they take the agent's decision, read from the client's answer, never a guess from it here.
 DECIDED = {"settle_tva", "settle_prepaid"}
@@ -131,15 +133,15 @@ def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
 
 def readable(message):
     """A step's refusal (str) as the client may read it: never a technical text naming tools and their arguments."""
-    return message or "echec technique, reessayez plus tard."
+    return message or CRASHED
 
 
 @tool
 def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict:
-    """Record a step's outcome for this run. ``origin``: the step that ran (a name holding the step tool);
-    ``result``: that step's answer. A question becomes
-    the invoice's pending question; an outcome at or after that step clears it."""
-    step = next((tool for tool in STEPS if tool in origin), result.get("step") or origin)
+    """Record a step's outcome for this run. ``origin``: the step tool that ran, or what asked (dossier_questions:
+    the step is the result's own); ``result``: that step's answer. A question becomes the invoice's pending question;
+    an outcome at or after that step clears it."""
+    step = origin if origin in STEPS else result.get("step") or origin
     status = result.get("status", "error")
     message = readable(result.get("message") or result.get("error") or str(result))
     invoice_id, file_id, dossier_id = result.get("invoice_id"), result.get("file_id"), result.get("dossier_id")
@@ -191,7 +193,7 @@ def run_summary(run_id: str) -> dict:
             (run_id,),
         ).fetchall()
     if not rows:
-        return ok("Rien n'a ete traite.")
+        return ok(NOTHING)
     # In the sequence's order, whatever order the rows were recorded in (invoices of one run are interleaved).
     rows = sorted(rows, key=lambda row: position(row[1]))
     test = any(message.startswith(TEST_MODE) for _, _, _, message, _ in rows)
@@ -349,7 +351,7 @@ def apply_answer(item, answer, decision):
         if not bank:
             return {**ask_banks(item["dossier_id"]), "step": "ask_banks"}  # asked again, the same journal first
         return {**set_journal_bank(item["dossier_id"], item["journal_id"], bank), "step": "ask_banks"}
-    apply, following = ANSWERS[item["step"]]
+    apply, following = ANSWERS[item["step"]], ORDER[position(item["step"]) + 1]
     if item["step"] == "link_tiers":
         result = apply(item["invoice_id"], decision, answer, item["choices"])  # the tiers the question proposed
     elif item["step"] == "settle_exercice":  # the client's date, or the exercice chosen

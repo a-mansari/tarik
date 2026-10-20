@@ -8,35 +8,17 @@ resumes at its next step), or both. One subgraph per file, one per invoice, each
 after another, so two invoices of one message never race on the same tiers or duplicate check."""
 
 import operator
-import uuid
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from engine.tools import call as run_tool
-from engine.tools import step
+from engine.tools import sender_checked, started, step, summary
+from tarik.invoices.pipeline import INVOICE_CHAIN
 
-# The sequence, in order (CHAIN in build_tarik_traitement.py), and where an answer resumes it (RESUMED).
-CHAIN = [
-    "create_draft_invoice",
-    "wait_until_read",
-    "check_invoice",
-    "correct_invoice",
-    "classify_invoice",
-    "link_tiers",
-    "check_duplicate",
-    "assign_account",
-    "settle_tva",
-    "check_journal",
-    "settle_withholding",
-    "settle_prepaid",
-    "settle_exercice",
-    "configure_cabinet",
-    "hold_posting",
-    "post_invoice",
-]
-RESUMED = CHAIN[6:]
+# The sequence of an invoice, in order: the tools' own (tarik/invoices/pipeline.py).
+CHAIN = INVOICE_CHAIN
 INPUTS = [
     "mode",
     "session_id",
@@ -82,7 +64,7 @@ class Invoice(Outcomes, total=False):
 
 
 def extra(tool, call, run_id):
-    """What a step is given besides its invoice (EXTRA in build_tarik_traitement.py)."""
+    """What a step is given besides its invoice."""
     words = {"client_message": call.get("client_message") or ""}
     return {
         "wait_until_read": {"run_id": run_id},
@@ -210,18 +192,7 @@ FILE = file.compile(name="fichier")
 
 
 async def start(state: Run, config):
-    """The run's id (the summary's key), the agent's attachments saved once each."""
-    call = {key: state["call"].get(key) for key in INPUTS}
-    run_id = str(config.get("run_id") or uuid.uuid4())
-    result = await step(
-        call["cabinet"],
-        run_id,
-        call["session_id"],
-        "save_files",
-        session_id=call["session_id"],
-        files=call.get("attachments") or [],
-    )
-    return {"call": call, "run_id": run_id, "outcomes": [result]}
+    return await started(state, config, INPUTS)
 
 
 async def aiguillage(state: Run):
@@ -258,16 +229,7 @@ async def dossier_found(state: Run):
 
 
 async def sender(state: Run):
-    call = state["call"]
-    result = await step(
-        call["cabinet"],
-        state["run_id"],
-        call["session_id"],
-        "check_sender",
-        session_id=call["session_id"],
-        dossier_id=state["dossier_id"],
-    )
-    return {"outcomes": [result]}
+    return await sender_checked(state, state["dossier_id"])
 
 
 async def files(state: Run):
@@ -383,12 +345,6 @@ def resume_at(state: Run):
             "outcomes": [],
         },
     )
-
-
-async def summary(state: Run):
-    call = state["call"]
-    result = await run_tool(call["cabinet"], "run_summary", run_id=state["run_id"])
-    return {"message": result["message"]}
 
 
 run = StateGraph(Run)

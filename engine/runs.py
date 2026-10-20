@@ -15,7 +15,7 @@ from langchain_core.messages import BaseMessage
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
-from engine import agent, dossier, emails, traitement
+from engine import agent, graphs
 from engine.content import LABELS
 from engine.settings import DEFAULT_CABINET
 
@@ -53,7 +53,7 @@ create table if not exists layouts (
     updated_at timestamptz not null default now()
 );
 """
-GRAPHS = {"traitement": traitement.graph, "dossier": dossier.graph, "emails": emails.graph}  # the agent: made per run
+GRAPHS = graphs.COMPILED  # the agent: made per run
 NAMES = sorted([*GRAPHS, "agent"])
 DETAIL_LIMIT = 50_000  # characters of a node's update kept: a scan's text or a long history is cut, never the run
 
