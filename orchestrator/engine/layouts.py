@@ -6,7 +6,7 @@ from psycopg.types.json import Jsonb
 
 from engine import runs
 
-STYLES = {"taxi", "straight", "bezier"}  # right angles, straight, curved
+STYLES = {"straight", "taxi", "bezier"}  # straight (the default), right angles, curved
 LIMIT = 2000  # nodes or edges in one layout: far over any workflow's
 
 
@@ -25,7 +25,7 @@ def cleaned(layout):
     kept_edges = {}
     for key, edge in edges.items():
         points = [{"x": number(p["x"]), "y": number(p["y"])} for p in (edge.get("points") or [])][:20]
-        style = edge.get("style") if edge.get("style") in STYLES else "taxi"
+        style = edge.get("style") if edge.get("style") in STYLES else "straight"
         kept_edges[str(key)] = {"points": points, "style": style}
     return {"nodes": kept_nodes, "edges": kept_edges}
 

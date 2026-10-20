@@ -35,7 +35,7 @@
         "border-color": css("--accent"), "events": "no",
       } },
       { selector: "edge", style: {
-        "curve-style": "taxi", "taxi-direction": "rightward", "width": 1.6, "line-color": css("--edge"),
+        "curve-style": "straight", "taxi-direction": "rightward", "width": 1.6, "line-color": css("--edge"),
         "target-arrow-shape": "triangle", "target-arrow-color": css("--edge"), "arrow-scale": 0.9,
       } },
       { selector: "edge.conditional", style: { "line-style": "dashed" } },
@@ -152,35 +152,57 @@
     }
 
     // An edge as arranged: its style (right angles, straight, curved), and through its bend points when it has some.
+    // A list of points as cytoscape places them: each as its share along the source→target line and its distance from
+    // it. Which side a positive distance bends to is checked once against where cytoscape actually draws it.
+    function relative(edge, points, sign) {
+      const s = edge.source().position(), t = edge.target().position();
+      const vx = t.x - s.x, vy = t.y - s.y, length2 = vx * vx + vy * vy || 1, length = Math.sqrt(length2);
+      return {
+        weights: points.map((p) => ((p.x - s.x) * vx + (p.y - s.y) * vy) / length2).join(" "),
+        distances: points.map((p) => sign * ((p.x - s.x) * vy - (p.y - s.y) * vx) / length).join(" "),
+      };
+    }
+
+    function oriented(edge, points, apply, drawn) {
+      if (!bendSign) {
+        apply(relative(edge, points, 1));
+        const first = drawn()?.[0], wanted = points[0];
+        bendSign = first && Math.hypot(first.x - wanted.x, first.y - wanted.y) > 2 ? -1 : 1;
+      }
+      apply(relative(edge, points, bendSign));
+    }
+
+    const OVERRIDES = "segment-weights segment-distances control-point-weights control-point-distances edge-distances curve-style source-endpoint target-endpoint";
+
+    // An edge as arranged: its style (straight by default, right angles, or curved), through its bend points when it has
+    // some. Curved is an S as n8n draws one: out of its step to the right, into the next from the left.
     function drawEdge(edge) {
-      const saved = layout.edges?.[edge.id()] || { points: [], style: "taxi" };
-      if (!saved.points.length) {
-        edge.removeStyle("segment-weights segment-distances edge-distances");
-        edge.style("curve-style", saved.style || "taxi");
+      const saved = layout.edges?.[edge.id()] || { points: [], style: "straight" };
+      edge.removeStyle(OVERRIDES);
+      if (saved.points.length) {
+        oriented(edge, saved.points,
+          (r) => edge.style({ "curve-style": "segments", "edge-distances": "node-position", "segment-weights": r.weights, "segment-distances": r.distances }),
+          () => edge.segmentPoints());
         return;
       }
-      const place = (sign) => {
+      if (saved.style === "bezier") {
         const s = edge.source().position(), t = edge.target().position();
-        const vx = t.x - s.x, vy = t.y - s.y, length2 = vx * vx + vy * vy || 1, length = Math.sqrt(length2);
-        const weights = [], distances = [];
-        for (const p of saved.points) {
-          const px = p.x - s.x, py = p.y - s.y;
-          weights.push((px * vx + py * vy) / length2);
-          distances.push(sign * (px * vy - py * vx) / length);
-        }
-        edge.style({ "curve-style": "segments", "edge-distances": "node-position", "segment-weights": weights.join(" "), "segment-distances": distances.join(" ") });
-      };
-      if (!bendSign) { // which way is "positive": checked once against where cytoscape actually draws the bend
-        place(1);
-        const drawn = edge.segmentPoints()?.[0], wanted = saved.points[0];
-        bendSign = drawn && Math.hypot(drawn.x - wanted.x, drawn.y - wanted.y) > 2 ? -1 : 1;
+        const reach = Math.max(40, Math.abs(t.x - s.x) / 2);
+        const controls = [{ x: s.x + reach, y: s.y }, { x: t.x - reach, y: t.y }];
+        oriented(edge, controls,
+          (r) => edge.style({
+            "curve-style": "unbundled-bezier", "edge-distances": "node-position", "control-point-weights": r.weights,
+            "control-point-distances": r.distances, "source-endpoint": "90deg", "target-endpoint": "270deg", // right side out, left side in
+          }),
+          () => edge.controlPoints());
+        return;
       }
-      place(bendSign);
+      edge.style("curve-style", saved.style || "straight");
     }
 
     function edgeLayout(edge) {
       layout.edges ||= {};
-      return (layout.edges[edge.id()] ||= { points: [], style: "taxi" });
+      return (layout.edges[edge.id()] ||= { points: [], style: "straight" });
     }
 
     // The selected edge's bend points, as small handles to drag; double-click one to remove it.
@@ -380,7 +402,7 @@
       panel.append(text("h2", "", `${edge.source().data("label")} → ${edge.target().data("label")}`));
       panel.append(text("p", "muted", edge.hasClass("conditional") ? "Suivie selon le cas." : "Toujours suivie."));
       const routes = text("div", "panel-actions");
-      for (const [style, name] of [["taxi", "Angles droits"], ["straight", "Droite"], ["bezier", "Courbe"]]) {
+      for (const [style, name] of [["straight", "Droite"], ["taxi", "Angles droits"], ["bezier", "Courbe"]]) {
         const b = button(name, () => { saved.style = style; drawEdge(edge); showEdge(edge); changed(); });
         b.setAttribute("aria-pressed", String(saved.style === style && !saved.points.length));
         routes.append(b);
