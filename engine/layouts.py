@@ -17,8 +17,7 @@ def number(value):
 
 
 def cleaned(layout):
-    """``layout`` as it may be kept: positions as numbers, known edge styles, whether a sub-workflow's nodes are placed
-    relative to it (relative), nothing else. ValueError otherwise."""
+    """``layout`` as it may be kept: positions as numbers, known edge styles, nothing else. ValueError otherwise."""
     nodes, edges = layout.get("nodes") or {}, layout.get("edges") or {}
     if not isinstance(nodes, dict) or not isinstance(edges, dict) or len(nodes) > LIMIT or len(edges) > LIMIT:
         raise ValueError("nodes and edges are objects of a reasonable size")
@@ -28,7 +27,7 @@ def cleaned(layout):
         points = [{"x": number(p["x"]), "y": number(p["y"])} for p in (edge.get("points") or [])][:20]
         style = edge.get("style") if edge.get("style") in STYLES else "straight"
         kept_edges[str(key)] = {"points": points, "style": style}
-    return {"nodes": kept_nodes, "edges": kept_edges, "relative": layout.get("relative") is True}
+    return {"nodes": kept_nodes, "edges": kept_edges}
 
 
 async def read(graph):

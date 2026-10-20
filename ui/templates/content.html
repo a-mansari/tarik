@@ -89,7 +89,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/ui/static/import.js"></script>
+<script src="{{ asset('import.js') }}"></script>
 <script>
   // Every card at once; a card whose field was changed shows it, so nothing edited hides in a closed card.
   document.querySelectorAll("[data-cards]").forEach((button) => button.addEventListener("click", () => {

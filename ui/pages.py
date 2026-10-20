@@ -32,7 +32,15 @@ def status_name(status):
 templates.env.filters.update(
     when=runs.when, graph_name=graph_name, graph_description=graph_description, status_name=status_name
 )
-templates.env.globals.update(step_name=graphs.label)  # a follow-up's Traitement steps too
+templates.env.globals.update(step_name=graphs.label)
+
+
+def asset(path):
+    """A static file's address, with its version (its last change): a browser never keeps an old copy of a changed one."""
+    return f"/ui/static/{path}?v={int((HERE / 'static' / path).stat().st_mtime)}"
+
+
+templates.env.globals.update(asset=asset)  # a follow-up's Traitement steps too
 
 
 def conversation(messages):
