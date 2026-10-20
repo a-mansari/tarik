@@ -12,6 +12,7 @@
     <nav>
       <a href="/ui/runs" {% if request.url.path.startswith('/ui/runs') %}aria-current="page"{% endif %}>Exécutions</a>
       <a href="/ui/workflows" {% if request.url.path.startswith('/ui/workflows') %}aria-current="page"{% endif %}>Workflows</a>
+      <a href="/ui/prompts" {% if request.url.path.startswith('/ui/prompts') %}aria-current="page"{% endif %}>Prompts</a>
     </nav>
   </header>
   <main class="page{% block page_class %}{% endblock %}">

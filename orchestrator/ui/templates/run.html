@@ -48,6 +48,16 @@
 </section>
 {% endif %}
 
+{% if prompts %}
+<section class="panel">
+  <h2>Ce que Tarik a reçu</h2>
+  <p class="muted">Chaque appel du modèle pendant cette exécution : ses instructions, ses outils et la conversation, tels qu'envoyés.</p>
+  <ul class="runs-side">
+    {% for call in prompts %}<li><a href="/ui/prompts/{{ run.cabinet }}/{{ run.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}"><span class="num">{{ call.at | when }} · Appel {{ loop.index }}</span><span class="muted">{{ call.messages }} message(s)</span></a></li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
 <section class="panel">
   <h2>Les étapes</h2>
   <p class="muted">Dans l'ordre où elles se sont terminées. Ouvrez une étape pour voir tout ce qu'elle a produit.</p>

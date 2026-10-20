@@ -29,7 +29,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from engine import agent, graphs, layouts, runs
+from engine import agent, graphs, layouts, prompts, runs
 from ui import pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
@@ -123,6 +123,15 @@ async def layout(request: Request):
     return JSONResponse(await layouts.read(name))
 
 
+async def prompt(request: Request):
+    """One model call's whole prompt (the UI opens it when asked: it holds the clients' words)."""
+    cabinet = request.path_params["cabinet"]
+    found = await prompts.prompt(cabinet, int(request.path_params["call_id"])) if cabinet in await prompts.cabinets() else None
+    if found is None:
+        return JSONResponse({"error": "unknown call"}, status_code=404)
+    return JSONResponse({**found, "at": runs.when(found["at"])})
+
+
 async def step(request: Request):
     found = await runs.step_detail(request.path_params["run_id"], int(request.path_params["step_id"]))
     return JSONResponse(found) if found is not None else JSONResponse({"error": "unknown step"}, status_code=404)
@@ -149,6 +158,9 @@ app = Starlette(
         Route("/runs/{run_id}/steps/{step_id}", step),
         Route("/graphs/{graph}", graph_shape),
         Route("/graphs/{graph}/layout", layout, methods=["GET", "PUT", "DELETE"]),
+        Route("/prompts/{cabinet}/{call_id:int}", prompt),
+        Route("/ui/prompts", pages.prompts_page),
+        Route("/ui/prompts/{cabinet}/{session_id}", pages.prompt_calls_page),
         Route("/ui/workflows", pages.workflows_page),
         Route("/ui/workflows/{graph}", pages.workflow_page),
         Route("/", pages.home),

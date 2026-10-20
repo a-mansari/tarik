@@ -12,7 +12,7 @@ from langchain.agents import create_agent
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import HumanMessage
 
-from engine import dossier, traitement
+from engine import dossier, prompts, traitement
 from engine.content import AGENT
 from engine.model import model
 from engine.settings import SKILLS, cabinet_of
@@ -209,5 +209,6 @@ CHECKPOINTER = None  # the conversations' memory, set by server.py (Postgres); N
 def make_agent(config=None):
     """The cabinet's Tarik (config.configurable.cabinet, else the default one). One thread per conversation."""
     return create_agent(
-        model(), TOOLS, system_prompt=system_prompt(), name=f"Tarik - {cabinet_of(config)}", checkpointer=CHECKPOINTER
+        model(), TOOLS, system_prompt=system_prompt(), name=f"Tarik - {cabinet_of(config)}", checkpointer=CHECKPOINTER,
+        middleware=[prompts.logged],  # each model call's prompt saved, as n8n does
     )

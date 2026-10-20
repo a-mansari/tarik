@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Prompts{% endblock %}
+{% block content %}
+<div class="head">
+  <div>
+    <h1>Prompts</h1>
+    <p class="muted">Ce que Tarik a reçu à chaque appel du modèle : ses instructions, ses outils et toute la conversation. Les appels de n8n et ceux de l'orchestrateur, gardés 30 jours. Ils contiennent les mots des clients : à ne pas partager.</p>
+  </div>
+  <form class="filters" method="get" action="/ui/prompts">
+    <label>Cabinet
+      <select name="cabinet" onchange="this.form.submit()">
+        {% for name in cabinets %}<option value="{{ name }}" {% if name == cabinet %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+    </label>
+  </form>
+</div>
+<div class="table-wrap">
+  <table class="runs">
+    <thead><tr><th>Dernier appel</th><th>Conversation</th><th>Agent</th><th>Appels</th></tr></thead>
+    <tbody>
+      {% for item in conversations %}
+      <tr>
+        <td class="num">{{ item.last | when }}</td>
+        <td><a class="mono" href="/ui/prompts/{{ cabinet }}/{{ item.session_id | urlencode }}">{{ item.session_id }}</a></td>
+        <td>{{ item.agents | join(", ") }}</td>
+        <td class="num">{{ item.calls }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">Aucun appel enregistré pour ce cabinet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

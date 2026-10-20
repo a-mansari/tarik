@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Prompts{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/ui/prompts?cabinet={{ cabinet }}">Prompts</a> › {{ cabinet }}</p>
+<div class="head"><div>
+  <h1>Conversation <span class="mono">{{ session_id }}</span></h1>
+  <p class="muted">{{ calls | length }} appel(s) du modèle, dans l'ordre. Ouvrez-en un pour voir exactement ce que Tarik a reçu : ses instructions, ses outils, puis chaque message.</p>
+</div></div>
+<ol class="prompt-calls" id="prompt-calls" data-cabinet="{{ cabinet }}">
+  {% for call in calls %}
+  <li>
+    <details id="call-{{ call.id }}" data-call="{{ call.id }}" {% if open == call.id | string %}open{% endif %}>
+      <summary><span class="time num">{{ call.at | when }}</span> <b>Appel {{ loop.index }}</b> <span class="muted">{{ call.agent }} · {{ call.messages }} message(s)</span></summary>
+      <div class="prompt">…</div>
+    </details>
+  </li>
+  {% endfor %}
+</ol>
+{% endblock %}
+{% block scripts %}<script src="/ui/static/prompts.js"></script>{% endblock %}

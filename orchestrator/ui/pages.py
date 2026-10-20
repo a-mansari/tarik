@@ -8,7 +8,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 from starlette.templating import Jinja2Templates
 
-from engine import graphs, runs
+from engine import graphs, prompts, runs
 from engine.content import LABELS
 
 HERE = Path(__file__).parent
@@ -102,8 +102,31 @@ async def run_page(request: Request):
         "summary": output.get("message") if found["graph"] != "agent" else None,
         "conversation": conversation(output.get("messages")) if found["graph"] == "agent" else [],
         "labels": LABELS,
+        # The model calls of this run: its conversation's, while it ran.
+        "prompts": await prompts.calls(found["cabinet"], found["session_id"], found["started"], found["ended"])
+        if found["graph"] == "agent" and found["cabinet"] in await prompts.cabinets() else [],
     }
     return templates.TemplateResponse(request, "run.html", context)
+
+
+async def prompts_page(request: Request):
+    """The conversations whose model calls were saved, one cabinet at a time (n8n's and the orchestrator's)."""
+    known = await prompts.cabinets()
+    cabinet = request.query_params.get("cabinet")
+    cabinet = cabinet if cabinet in known else (known[0] if known else None)
+    found = await prompts.conversations(cabinet) if cabinet else []
+    return templates.TemplateResponse(request, "prompts.html", {"cabinets": known, "cabinet": cabinet, "conversations": found})
+
+
+async def prompt_calls_page(request: Request):
+    """A conversation's model calls, each opened to read its whole prompt."""
+    cabinet, session = request.path_params["cabinet"], request.path_params["session_id"]
+    if cabinet not in await prompts.cabinets():
+        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+    found = await prompts.calls(cabinet, session)
+    if not found:
+        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+    return templates.TemplateResponse(request, "prompt_calls.html", {"cabinet": cabinet, "session_id": session, "calls": found, "open": request.query_params.get("call")})
 
 
 async def workflows_page(request: Request):
