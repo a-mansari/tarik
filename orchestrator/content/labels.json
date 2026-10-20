@@ -84,5 +84,74 @@
   "subworkflows": {
     "suite": "traitement"
   },
-  "_subworkflows": "A group that is a whole workflow of its own: its panel offers to open that workflow's page."
+  "_subworkflows": "A group that is a whole workflow of its own: its panel offers to open that workflow's page.",
+  "descriptions": {
+    "graphs": {
+      "agent": "Tarik lit le message du client, choisit quoi faire et appelle les outils nécessaires (traitement des documents, dossiers, questions). Il répond ensuite au client avec ses propres mots.",
+      "traitement": "Traite les factures et relevés bancaires envoyés par le client, étape par étape, jusqu'au brouillon vérifié dans Experio. La facture est comptabilisée seulement si le client l'a demandé. Ce workflow traite aussi les réponses du client aux questions posées.",
+      "dossier": "Crée, modifie ou archive un dossier. Il donne aussi l'accès à une personne, importe les écritures (FEC, grand livre) et termine le paramétrage d'un nouveau dossier.",
+      "emails": "Relève les emails reçus pour le cabinet. Pour chaque fil : accusé de réception, réponse de Tarik, puis envoi de la réponse aux adresses autorisées. Les relances automatiques reprennent les traitements restés en attente."
+    },
+    "steps": {
+      "agent": {
+        "model": "Tarik (le modèle) lit la conversation et décide : répondre au client, ou utiliser un outil d'abord.",
+        "tools": "L'outil demandé par Tarik s'exécute ; son résultat lui revient pour la suite de la réflexion."
+      },
+      "traitement": {
+        "debut": "Enregistre les fichiers joints au message, une seule fois chacun, même si le message est traité plusieurs fois.",
+        "aiguillage": "Décide d'après la base de données ce que contient le message : de nouveaux fichiers, une réponse à une question en attente, les deux, ou une simple reprise.",
+        "dossier": "Retrouve le dossier à partir du nom donné par le client, même mal orthographié. Si plusieurs dossiers sont possibles ou aucun, le client est invité à préciser.",
+        "expediteur": "Vérifie que l'expéditeur de l'email est un collaborateur à qui ce dossier est confié. Sinon, rien n'est traité.",
+        "fichiers": "Liste les fichiers de la conversation qui n'ont pas encore été traités.",
+        "fichier": "Le traitement d'un fichier : identification, puis import du relevé ou découpage en factures.",
+        "identification": "Détermine si le fichier est une facture ou un relevé bancaire.",
+        "releve": "Importe le relevé bancaire dans le journal de banque du dossier via l'import d'Experio. S'il y a plusieurs journaux de banque, le client choisit.",
+        "decoupage": "Repère chaque facture contenue dans le fichier (un PDF peut en contenir plusieurs). Demande au client s'il s'agit d'achats ou de ventes s'il ne l'a pas dit.",
+        "facture": "Le parcours d'une facture, de la création du brouillon à la comptabilisation. Chaque étape doit être OK pour passer à la suivante ; sinon la facture s'arrête là ou attend la réponse du client.",
+        "questions": "Sans nouveau fichier : reprend les questions laissées en attente sur ce dossier dans d'autres conversations, pour les poser ici.",
+        "brouillons": "Retrouve les brouillons à reprendre : ceux qu'Experio n'avait pas fini de lire, ceux arrêtés par un paramétrage corrigé depuis, et ceux que le client demande maintenant de comptabiliser.",
+        "reponse": "Applique la réponse du client à la question en attente (tiers, compte, TVA, retenue, exercice, banque…). La facture reprend ensuite à l'étape concernée.",
+        "resume": "Rédige le résumé envoyé au client : ce qui a été fait, facture par facture, et les questions à lui poser.",
+        "create_draft_invoice": "Crée le brouillon de facture dans Experio à partir du fichier. Experio commence alors à lire la facture.",
+        "wait_until_read": "Attend qu'Experio ait fini de lire la facture. Si la lecture prend trop de temps, la facture sera reprise plus tard.",
+        "check_invoice": "Compare ce qu'Experio a lu avec ce que montre la facture (montants, numéro, date, TVA…) et liste les différences. Ne modifie rien.",
+        "correct_invoice": "Corrige dans Experio les champs mal lus d'après la vérification, ainsi que le mode de paiement indiqué par le client.",
+        "classify_invoice": "Détermine s'il s'agit d'un achat ou d'une vente et corrige le type dans Experio si besoin. Si le document contredit le client, la facture s'arrête.",
+        "link_tiers": "Associe le fournisseur ou le client de la facture, avec son compte tiers. S'il n'est pas reconnu, propose des noms proches au client ou le crée.",
+        "check_duplicate": "Vérifie que la facture n'est pas déjà enregistrée (même numéro, tiers et date). Un doublon s'arrête ici.",
+        "assign_account": "Choisit le compte de charge ou de produit : celui donné par le client, sinon celui mémorisé pour ce tiers, sinon celui qui correspond à ce qui est facturé. Sinon, le client est interrogé.",
+        "settle_tva": "Règle la TVA : récupérable ou non, prorata du cabinet, taxe de chaque ligne. En cas de doute, le client est interrogé.",
+        "check_journal": "Vérifie que la facture est dans le bon journal et signale tout paramétrage manquant dans le dossier.",
+        "settle_withholding": "Pour un achat, règle la retenue à la source selon la règle connue du tiers, sinon interroge le client.",
+        "settle_prepaid": "Si la facture couvre plusieurs mois, demande au client s'il faut la répartir en charges ou produits constatés d'avance.",
+        "settle_exercice": "Vérifie qu'un exercice ouvert couvre la date de la facture. Sinon, le client choisit un exercice ouvert ou un nouvel exercice.",
+        "configure_cabinet": "Complète les paramètres du dossier nécessaires à la comptabilisation (taxes, détection automatique d'Experio) et signale ce qui bloque encore.",
+        "hold_posting": "La facture reste en brouillon vérifié, sauf si le client a demandé de la comptabiliser. Il pourra le demander plus tard.",
+        "post_invoice": "Comptabilise la facture dans Experio si le contrôle d'Experio ne trouve rien de bloquant ; sinon, liste ce qui bloque."
+      },
+      "dossier": {
+        "debut": "Enregistre les fichiers joints au message et choisit le travail à faire : création, modification, accès, archivage, liste de dossiers ou reprise.",
+        "creation": "Crée le dossier dans Experio (nom, ICE, IF vérifiés auprès du registre) et copie le paramétrage d'un dossier modèle si le client l'a demandé.",
+        "expediteur": "Vérifie que l'expéditeur de l'email est un collaborateur à qui ce dossier est confié. Sinon, rien n'est modifié.",
+        "modification": "Modifie l'identité du dossier, uniquement avec les valeurs écrites par le client et après sa confirmation si nécessaire.",
+        "acces": "Crée un collaborateur ou un client dans Experio et lui donne accès au dossier, après confirmation du client.",
+        "archivage": "Archive le dossier après confirmation du client. Rien n'est supprimé, il peut être désarchivé dans Experio.",
+        "listes": "Crée les dossiers listés dans le tableur envoyé par le client, une fois la liste vérifiée et confirmée par lui.",
+        "ecritures": "Importe les écritures (FEC, grand livre, plan comptable…), demande la banque de chaque journal de banque, puis termine le paramétrage du dossier.",
+        "reprise": "Termine le paramétrage des dossiers de la conversation qui attendaient encore qu'Experio traite leurs écritures.",
+        "resume": "Rédige le résumé envoyé au client : ce qui a été fait et les questions à lui poser."
+      },
+      "emails": {
+        "fils": "Relève les fils d'emails qui attendent une réponse de Tarik et les réserve pour cette exécution.",
+        "fil": "Le traitement d'un fil d'emails, de l'accusé de réception à sa clôture.",
+        "accuse": "Envoie un accusé de réception au client pour un nouveau fil.",
+        "tarik": "Tarik lit l'email et ses pièces jointes, travaille dans le dossier et rédige sa réponse.",
+        "refus": "Vérifie si le travail a été refusé parce que l'expéditeur n'a pas accès au dossier. Dans ce cas, rien ne lui est envoyé.",
+        "manager": "Prévient le responsable du cabinet qu'un expéditeur non autorisé a écrit (au plus une fois par jour et par expéditeur).",
+        "reponse": "Envoie la réponse dans le même fil, uniquement à des adresses autorisées.",
+        "suite": "Relance automatique : reprend les factures et dossiers restés en attente d'Experio, puis prépare un seul email qui résume les deux.",
+        "fin": "Clôture le fil : il attend la réponse du client si une question a été posée, sera relancé si des traitements sont en attente, ou est mis de côté en cas d'erreur d'envoi."
+      }
+    }
+  }
 }

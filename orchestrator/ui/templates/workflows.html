@@ -9,6 +9,7 @@
   {% for name in graphs %}
   <a class="card" href="/ui/workflows/{{ name }}">
     <b>{{ name | graph_name }}</b>
+    <span>{{ name | graph_description }}</span>
     <span class="muted">{{ counts[name] }} étapes</span>
   </a>
   {% endfor %}

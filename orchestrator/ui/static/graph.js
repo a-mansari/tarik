@@ -309,6 +309,7 @@
       panel.replaceChildren();
       panel.append(text("p", "eyebrow", group ? "Sous-workflow" : "Étape"));
       panel.append(text("h2", "", node.data("label")));
+      if (node.data("description")) panel.append(text("p", "what", node.data("description")));
       panel.append(text("p", "mono muted", id));
       if (group) {
         const actions = text("div", "panel-actions");

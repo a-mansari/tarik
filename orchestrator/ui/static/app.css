@@ -135,6 +135,7 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .legend .l-none { border-color: var(--line); background: var(--surface); opacity: .5; }
 .side { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow: auto; }
 .eyebrow { font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.what { line-height: 1.45; max-width: 70ch; }
 .panel-steps { list-style: none; padding: 0; margin: .6rem 0 0; display: grid; gap: .6rem; }
 .panel-steps li { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; background: var(--bg); display: grid; gap: .3rem; }
 .panel-steps .head-line { display: flex; gap: .5rem; align-items: center; }

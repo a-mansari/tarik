@@ -11,20 +11,25 @@ COMPILED = {"traitement": traitement.graph, "dossier": dossier.graph, "emails": 
 ENDS = {"__start__": "Début", "__end__": "Fin"}
 
 
-def label(graph, node_id):
-    """A node's plain name: its own graph's word for it, else another graph's (an email follow-up runs Traitement)."""
+def label(graph, node_id, table=LABELS["steps"], fallback=None):
+    """A node's plain name (or, from the descriptions table, what it does): its own graph's words for it, else
+    another graph's (an email follow-up runs Traitement)."""
     name = node_id.rsplit(":", 1)[-1]
     if name in ENDS:
-        return ENDS[name]
-    for scope in (graph, *LABELS["steps"]):
-        if name in LABELS["steps"].get(scope, {}):
-            return LABELS["steps"][scope][name]
-    return name
+        return ENDS[name] if table is LABELS["steps"] else ""
+    for scope in (graph, *table):
+        if name in table.get(scope, {}):
+            return table[scope][name]
+    return name if fallback is None else fallback
+
+
+def description(graph, node_id):
+    return label(graph, node_id, LABELS["descriptions"]["steps"], "")
 
 
 @functools.cache
 def shape(name):
-    """{nodes: [{id, label, parent, kind}], edges: [{id, source, target, conditional}]} for graph ``name``. A nested
+    """{nodes: [{id, label, description, parent, kind}], edges: [{id, source, target, conditional}]} for graph ``name``. A nested
     part's nodes have their part as parent (a group); kind is "end" for a start or an end, "group", or "step"."""
     compiled = agent.make_agent() if name == "agent" else COMPILED[name]
     drawn = compiled.get_graph(xray=True)
@@ -36,8 +41,8 @@ def shape(name):
             groups.setdefault(prefix, prefix.rsplit(":", 1)[0] if ":" in prefix else None)
             prefix = groups[prefix]
         kind = "end" if node_id.rsplit(":", 1)[-1] in ENDS else "step"
-        nodes.append({"id": node_id, "label": label(name, node_id), "parent": parent, "kind": kind})
-    nodes += [{"id": group, "label": label(name, group), "parent": parent, "kind": "group"} for group, parent in groups.items()]
+        nodes.append({"id": node_id, "label": label(name, node_id), "description": description(name, node_id), "parent": parent, "kind": kind})
+    nodes += [{"id": group, "label": label(name, group), "description": description(name, group), "parent": parent, "kind": "group"} for group, parent in groups.items()]
     leaving = {}
     for edge in drawn.edges:
         leaving[edge.source] = leaving.get(edge.source, 0) + 1
@@ -54,4 +59,4 @@ def shape(name):
         if not (edge.conditional and edge.target.endswith(":__end__") and leaving[edge.source] > 1)
         and not (edge.conditional and edge.source.endswith(":__start__") and arriving[edge.target] > 1)
     ]
-    return {"graph": name, "label": LABELS["graphs"].get(name, name), "nodes": nodes, "edges": edges}
+    return {"graph": name, "label": LABELS["graphs"].get(name, name), "description": LABELS["descriptions"]["graphs"].get(name, ""), "nodes": nodes, "edges": edges}

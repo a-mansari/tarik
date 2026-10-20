@@ -1,4 +1,4 @@
-"""Parity check: every tarik-mcp tool the n8n workflows call is called by the graphs, and no other (an "Appel"
+"""Parity check (and every drawn step described): every tarik-mcp tool the n8n workflows call is called by the graphs, and no other (an "Appel"
 input the agents fill is passed on too). Run in the container: python check.py (exit 1 on a gap)."""
 
 import json
@@ -43,9 +43,20 @@ def inputs():
     return gaps
 
 
+def undescribed():
+    """Every step and part the canvas draws has its plain description (content/labels.json)."""
+    from engine import graphs
+    return [
+        f"{name}: no description for {node['id']}"
+        for name in ("agent", *graphs.COMPILED)
+        for node in graphs.shape(name)["nodes"]
+        if node["kind"] != "end" and not node["description"]
+    ]
+
+
 if __name__ == "__main__":
     n8n, ours = n8n_tools(), graph_tools()
-    gaps = inputs()
+    gaps = inputs() + undescribed()
     if n8n - ours:
         gaps.append(f"tools n8n calls, the graphs don't: {sorted(n8n - ours)}")
     if ours - n8n:

@@ -5,6 +5,7 @@
 <p class="crumbs"><a href="/ui/workflows">Workflows</a> › {{ graph | graph_name }}</p>
 <div class="head"><div>
   <h1>{{ graph | graph_name }}</h1>
+  <p class="what">{{ graph | graph_description }}</p>
   <p class="muted">{% if run %}Exécution du {{ run.started | when }}, cabinet {{ run.cabinet }} · <span class="chip {{ run.status }}">{{ run.status | status_name }}</span> · <a href="/ui/runs/{{ run.run_id }}">toutes ses étapes</a>{% else %}Le schéma seul. Choisissez une exécution à droite pour la voir dessus.{% endif %}</p>
 </div></div>
 {% include "canvas.html" %}

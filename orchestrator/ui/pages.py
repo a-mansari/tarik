@@ -20,6 +20,10 @@ def graph_name(graph):
     return LABELS["graphs"].get(graph, graph)
 
 
+def graph_description(graph):
+    return LABELS["descriptions"]["graphs"].get(graph, "")
+
+
 def step_name(graph, node):
     return LABELS["steps"].get(graph, {}).get(node, node)
 
@@ -28,7 +32,7 @@ def status_name(status):
     return LABELS["statuses"].get(status, status)
 
 
-templates.env.filters.update(when=when, graph_name=graph_name, status_name=status_name)
+templates.env.filters.update(when=when, graph_name=graph_name, graph_description=graph_description, status_name=status_name)
 templates.env.globals.update(step_name=step_name)
 
 
