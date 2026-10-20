@@ -4,8 +4,9 @@ Where a message goes comes from the database (route_message): files (the dossier
 gave, then the conversation's new files, from identification to verified drafts, posted only when the client asked
 to; with none, the questions other conversations left on the dossier are asked again and the drafts left waiting,
 held back or stopped are resumed), resume (waiting drafts only), answer (the client's answer, then the sequence
-resumes at its next step), or both. One subgraph per file, one per invoice, each visible node by node; they run one
-after another, so two invoices of one message never race on the same tiers or duplicate check."""
+resumes at its next step), or both. One subgraph per document (a file received, or a draft taken up again), one per
+invoice in four phases, each visible node by node; they run one after another, so two invoices of one message never
+race on the same tiers or duplicate check."""
 
 import operator
 from typing import Annotated, TypedDict
@@ -52,13 +53,25 @@ class Run(Outcomes, total=False):
     message: str  # the run's summary: the workflow's answer
 
 
-class Invoice(Outcomes, total=False):
+class Given(TypedDict, total=False):
+    """What an invoice's run, and each of its phases, is started with (never the outcomes before it)."""
+
     call: dict
     run_id: str
     entry: str  # the step the sequence starts at
     file_id: int
     invoice_id: int
+
+
+class Invoice(Given, Outcomes, total=False):
     last: dict
+
+
+class Done(Outcomes, total=False):
+    """What a phase hands back: its own outcomes, its last one, and the invoice (created in the first phase)."""
+
+    last: dict
+    invoice_id: int
 
 
 def extra(tool, call, run_id):
@@ -94,23 +107,52 @@ def invoice_step(tool):
     return node
 
 
-invoice = StateGraph(Invoice, output_schema=Outcomes)
-for index, tool in enumerate(INVOICE_CHAIN):  # the tools' own order (tarik/invoices/pipeline.py)
-    invoice.add_node(tool, invoice_step(tool))
-    following = INVOICE_CHAIN[index + 1] if index + 1 < len(INVOICE_CHAIN) else END
-    # Each step only when the previous one says ok; a question, stop, wait or error ends the invoice's run.
-    # Its two ways out named, so the drawn graph shows the sequence (LangGraph cannot see inside the lambda).
-    invoice.add_conditional_edges(
-        tool, lambda s, f=following: f if s["last"].get("status") == "ok" else END, list({following, END})
-    )
-invoice.add_conditional_edges(START, lambda s: s["entry"], INVOICE_CHAIN)
+# An invoice's steps in four phases, each folded into one box on the canvas: the same steps, in the same order
+# (INVOICE_CHAIN, the tools' own), only grouped so a person can follow an invoice phase by phase.
+PHASES = {
+    "lecture": ["create_draft_invoice", "wait_until_read", "check_invoice", "correct_invoice"],
+    "classement": ["classify_invoice", "link_tiers", "check_duplicate"],
+    "comptes": [
+        "assign_account",
+        "settle_tva",
+        "check_journal",
+        "settle_withholding",
+        "settle_prepaid",
+        "settle_exercice",
+    ],
+    "comptabilisation": ["configure_cabinet", "hold_posting", "post_invoice"],
+}
+assert [tool for steps in PHASES.values() for tool in steps] == INVOICE_CHAIN, "the phases must hold the chain in order"
+
+
+def ok_then(following):
+    """Each step (and phase) only when the one before says ok; a question, stop, wait or error ends the invoice's run.
+    Its two ways out named, so the drawn graph shows the sequence (LangGraph cannot see inside the lambda)."""
+    return (lambda s: following if s["last"].get("status") == "ok" else END), list({following, END})
+
+
+def phase(name, steps):
+    """One phase: its steps in order, started at the run's entry step when it is one of them, else at its first."""
+    graph = StateGraph(Invoice, input_schema=Given, output_schema=Done)
+    for index, tool in enumerate(steps):
+        graph.add_node(tool, invoice_step(tool))
+        graph.add_conditional_edges(tool, *ok_then(steps[index + 1] if index + 1 < len(steps) else END))
+    graph.add_conditional_edges(START, lambda s: s["entry"] if s["entry"] in steps else steps[0], steps)
+    return graph.compile(name=name)
+
+
+invoice = StateGraph(Invoice, input_schema=Given, output_schema=Outcomes)
+names = list(PHASES)
+for index, name in enumerate(names):
+    invoice.add_node(name, phase(name, PHASES[name]))
+    invoice.add_conditional_edges(name, *ok_then(names[index + 1] if index + 1 < len(names) else END))
+invoice.add_conditional_edges(START, lambda s: next(n for n in names if s["entry"] in PHASES[n]), names)
 INVOICE = invoice.compile(name="facture")
 
 
-class File(Outcomes, total=False):
-    call: dict
-    run_id: str
-    file_id: int
+class File(Given, Outcomes, total=False):
+    """A document: a file just received (file_id), or a draft taken up again (invoice_id, entry)."""
+
     last: dict
 
 
@@ -183,10 +225,13 @@ file.add_node("identification", identify)
 file.add_node("releve", import_statement)
 file.add_node("decoupage", split)
 file.add_node("facture", INVOICE)
-file.add_edge(START, "identification")
+# A new file is identified first; a draft taken up again goes straight to its invoice's steps.
+file.add_conditional_edges(
+    START, lambda s: "facture" if s.get("entry") else "identification", ["identification", "facture"]
+)
 file.add_conditional_edges("identification", after_identify, ["releve", "decoupage", END])
 file.add_conditional_edges("decoupage", drafts, ["facture", END])
-FILE = file.compile(name="fichier")
+FILE = file.compile(name="fichier")  # a document: drawn once, whatever brought it
 
 
 async def aiguillage(state: Run):
@@ -293,7 +338,7 @@ def each_draft(state: Run):
         return "resume"
     return [
         Send(
-            "facture",
+            "fichier",
             {
                 "call": with_dossier(state),
                 "run_id": state["run_id"],
@@ -330,7 +375,7 @@ def resume_at(state: Run):
     if following == "waiting_drafts":
         return "brouillons"
     return Send(
-        "facture",
+        "fichier",
         {
             "call": with_dossier(state),
             "run_id": state["run_id"],
@@ -350,7 +395,6 @@ run.add_node("fichiers", files)
 run.add_node("fichier", FILE)
 run.add_node("questions", questions)
 run.add_node("brouillons", waiting)
-run.add_node("facture", INVOICE)
 run.add_node("reponse", answer)
 run.add_node("resume", summary)
 run.add_edge(START, "debut")
@@ -367,10 +411,9 @@ run.add_conditional_edges(
 )
 run.add_conditional_edges("fichiers", each_file, ["fichier", "questions", "resume"])
 run.add_edge("questions", "brouillons")
-run.add_conditional_edges("brouillons", each_draft, ["facture", "resume"])
-run.add_conditional_edges("reponse", resume_at, ["facture", "brouillons", "resume"])
+run.add_conditional_edges("brouillons", each_draft, ["fichier", "resume"])
+run.add_conditional_edges("reponse", resume_at, ["fichier", "brouillons", "resume"])
 run.add_edge("fichier", "resume")
-run.add_edge("facture", "resume")
 run.add_edge("resume", END)
 # One task at a time: two invoices of one new supplier never both create
 # it (link_tiers), and the second of two identical invoices sees the first (check_duplicate).

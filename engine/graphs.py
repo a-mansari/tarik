@@ -10,6 +10,8 @@ from engine import agent, dossier, emails, traitement
 from engine.content import LABELS
 
 COMPILED = {"traitement": traitement.graph, "dossier": dossier.graph, "emails": emails.graph}
+# How deep each canvas opens nested graphs: Emails' follow-up runs Traitement (its own canvas), drawn as one box.
+XRAY = {"emails": 1}
 ENDS = {"__start__": "Début", "__end__": "Fin"}
 
 
@@ -38,7 +40,7 @@ def shape(name):
     compiled = (
         agent.make_agent(chat=ChatAnthropic(model="drawing", api_key="unused")) if name == "agent" else COMPILED[name]
     )
-    drawn = compiled.get_graph(xray=True)
+    drawn = compiled.get_graph(xray=XRAY.get(name, True))
     nodes, groups = [], {}
     for node_id in drawn.nodes:
         parent = node_id.rsplit(":", 1)[0] if ":" in node_id else None

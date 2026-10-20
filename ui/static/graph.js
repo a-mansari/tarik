@@ -311,10 +311,11 @@
       panel.append(text("h2", "", node.data("label")));
       if (node.data("description")) panel.append(text("p", "what", node.data("description")));
       panel.append(text("p", "mono muted", id));
-      if (group) {
+      // A step that runs another workflow (Emails' follow-up runs Traitement) opens that workflow's own canvas.
+      const whole = labels.subworkflows?.[id.split(":").pop()];
+      if (group || (whole && whole !== graph)) {
         const actions = text("div", "panel-actions");
-        actions.append(button(kind === "subflow" ? `Déplier (${stepCount(id)} étapes)` : "Replier", () => toggle(id)));
-        const whole = labels.subworkflows?.[id.split(":").pop()];
+        if (group) actions.append(button(kind === "subflow" ? `Déplier (${stepCount(id)} étapes)` : "Replier", () => toggle(id)));
         if (whole && whole !== graph) {
           const link = text("a", "panel-button", "Ouvrir le workflow");
           link.href = `/ui/workflows/${whole}`;
