@@ -25,7 +25,8 @@ from tarik.invoices.withholding import settle_withholding
 STEPS = {
     "answer_pending": "reponse",
     "resolve_dossier": "dossier",
-    "check_sender": "expediteur",
+    "check_sender": "acces au dossier",
+    "check_creator": "droit de creer des dossiers",
     "create_dossier": "creation du dossier",
     "update_dossier": "modification du dossier",
     "copy_configuration": "configuration",
@@ -60,6 +61,7 @@ ORDER = list(STEPS)
 INVOICE_CHAIN = ORDER[ORDER.index("create_draft_invoice") :]  # an invoice's own steps, from its draft (Traitement)
 NOTHING = "Rien n'a ete traite."  # a run's summary when it did nothing (the Emails follow-up leaves it out)
 SETUP_STEPS = {
+    "check_creator",
     "create_dossier",
     "update_dossier",
     "copy_configuration",

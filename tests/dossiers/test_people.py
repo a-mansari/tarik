@@ -21,3 +21,26 @@ def test_collaborators_and_experio_staff_give_work_never_client_contacts(monkeyp
     assert people.collaborator("chef@cabinet.ma")["name"] == "Chef"
     assert people.collaborator("jane@experio.ma")["name"] == "Jane"  # staff: Experio's "internal" users
     assert people.collaborator("client@societe.ma") is None
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "who, manager, allowed",
+    [
+        ({"id": 1, "name": "Chef", "employee_type": "employee"}, True, True),  # the cabinet's manager
+        ({"id": 2, "name": "Jane", "employee_type": "internal"}, False, True),  # Experio's staff
+        ({"id": 3, "name": "Sam", "employee_type": "employee"}, False, False),  # a collaborator, not a manager
+        (None, False, False),  # nobody Experio knows
+    ],
+)
+def test_only_managers_and_experio_staff_create_dossiers(monkeypatch, who, manager, allowed):
+    monkeypatch.setattr(people, "sender_of", lambda session_id: "x@cabinet.ma")
+    monkeypatch.setattr(people, "collaborator", lambda address: who)
+    monkeypatch.setattr(people, "odoo_call", lambda model, method, ids: manager)
+    assert (people.check_creator("s")["status"] == "ok") is allowed
+
+
+@pytest.mark.functionality
+def test_the_chat_has_no_sender_to_check(monkeypatch):
+    monkeypatch.setattr(people, "sender_of", lambda session_id: None)
+    assert people.check_creator("s")["status"] == "ok"

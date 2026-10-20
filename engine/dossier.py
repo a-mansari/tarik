@@ -1,6 +1,7 @@
-"""Dossier as a graph: a dossier's creation, configuration and
-entries import; or (mode update, person, archive, dossiers) one change after the sender check; mode resume
-finishes the dossiers left waiting. No time budget: finish_setup gets seconds_left 0 (no limit)."""
+"""Dossier as a graph: a dossier's creation (or a spreadsheet's list of them), by the cabinet's managers and Experio's
+staff only, then its configuration and entries import; or (mode update, person, archive) one change to a dossier
+assigned to the sender; mode resume finishes the dossiers left waiting. No time budget: finish_setup gets
+seconds_left 0 (no limit)."""
 
 import operator
 from typing import Annotated, TypedDict
@@ -81,11 +82,11 @@ def by_mode(state: Run):
     mode = call.get("mode")
     if mode in ("update", "person", "archive"):
         return "expediteur"
-    if mode == "dossiers":
-        return "listes"
     if mode == "resume":
         return "reprise"
-    return "expediteur" if (call.get("dossier_id") or 0) > 0 else "creation"
+    if mode != "dossiers" and (call.get("dossier_id") or 0) > 0:
+        return "expediteur"
+    return "createur"  # a dossier, or a spreadsheet's list of them, to create
 
 
 async def create(state: Run):
@@ -120,6 +121,21 @@ async def create(state: Run):
             )
             update["outcomes"].append(copied)
     return update
+
+
+async def creator(state: Run):
+    """Only the cabinet's managers and Experio's staff create dossiers (check_creator)."""
+    given = state["call"]
+    result = await step(
+        given["cabinet"], state["run_id"], given["session_id"], "check_creator", session_id=given["session_id"]
+    )
+    return {"outcomes": [result]}
+
+
+def after_creator(state: Run):
+    if state["outcomes"][-1].get("status") != "ok":
+        return "resume"
+    return "listes" if state["call"].get("mode") == "dossiers" else "creation"
 
 
 async def sender(state: Run):
@@ -261,6 +277,7 @@ async def resume_setups(state: Run):
 run = StateGraph(Run)
 for name, node in {
     "debut": start,
+    "createur": creator,
     "creation": create,
     "expediteur": sender,
     "modification": update,
@@ -273,7 +290,8 @@ for name, node in {
 }.items():
     run.add_node(name, node)
 run.add_edge(START, "debut")
-run.add_conditional_edges("debut", by_mode, ["creation", "expediteur", "listes", "reprise", "resume"])
+run.add_conditional_edges("debut", by_mode, ["createur", "expediteur", "reprise", "resume"])
+run.add_conditional_edges("createur", after_creator, ["creation", "listes", "resume"])
 run.add_conditional_edges(
     "creation", lambda s: "ecritures" if s["outcomes"][-1].get("status") == "ok" else "resume", ["ecritures", "resume"]
 )

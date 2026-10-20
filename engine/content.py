@@ -106,13 +106,14 @@ def unwrapped(text):
     return "\n".join(out)
 
 
-async def save(pool, path, new, author, note="", create=False):
+async def save(pool, path, new, author, note="", create=False, reshape=False):
     """``new`` as the document's latest version, by ``author``; ValueError (in plain French) when it would break
     what reads it. Nothing is saved when it is the same as the latest. ``create``: a document the stack does not have
-    yet may be made (an import into a new stack)."""
+    yet may be made (an import into a new stack). ``reshape``: its sections may change, for code that adds or
+    removes what they describe (a new step's name); never from the pages."""
     if path not in LATEST and not (create and PATH.fullmatch(path)):
         raise ValueError(f"document inconnu : {path}")
-    checked(path, new)
+    checked(path, new, reshape)
     if new == LATEST.get(path):
         return False
     async with pool.connection() as db:
@@ -188,7 +189,7 @@ def unknown_names(words):
     return sorted(set(re.findall(r"\b[A-Za-z]+(?:_[a-z]+)+\b", words)) - known)
 
 
-def checked(path, new):
+def checked(path, new, reshape=False):
     """ValueError, in plain French, when ``new`` would break what reads the document ``path``. A new document (an
     import into a new stack) has no earlier version to keep the shape of: only its own form is checked."""
     old = LATEST.get(path)
@@ -197,7 +198,7 @@ def checked(path, new):
             parsed = json.loads(new)
         except ValueError:
             raise ValueError("ce n'est plus un JSON valide") from None
-        if old is not None:
+        if old is not None and not reshape:
             same_shape(json.loads(old), parsed)
             if path == "agent.json" and parsed["model"] != json.loads(old)["model"]:
                 raise ValueError("le modèle ne se modifie pas ici")

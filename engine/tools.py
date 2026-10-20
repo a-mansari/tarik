@@ -27,6 +27,7 @@ QUIET_WHEN_OK = {
     "dossier_questions",
     "waiting_setups",
     "check_sender",
+    "check_creator",
     "identify_document",
     "split_invoices",
     "resolve_dossier",

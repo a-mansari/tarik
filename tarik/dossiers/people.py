@@ -59,10 +59,31 @@ def collaborator(address):
         "res.users",
         "search_read",
         [("employee_type", "in", STAFF), "|", ("login", "=ilike", exact), ("email", "=ilike", exact)],
-        fields=["name", "company_ids"],
+        fields=["name", "company_ids", "employee_type"],
         limit=2,
     )
     return found[0] if len(found) == 1 else None  # two users with one address: not a reliable sender
+
+
+@tool
+def check_creator(session_id: str) -> dict:
+    """Before dossiers are created (one, or a spreadsheet's list): the email's sender must be one of the cabinet's
+    managers (Experio's own user_is_manager) or Experio's staff. Any other collaborator is told so, and nothing is
+    created. The chat has no sender to check."""
+    address = sender_of(session_id)
+    if address is None:
+        return routine("Conversation sans expediteur a verifier.")
+    user = collaborator(address)
+    if not user:
+        return stop(f"{address} n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun dossier n'est cree.")
+    if user["employee_type"] == "internal":
+        return routine(f"{user['name']} (equipe Experio) peut creer des dossiers.")
+    if odoo_call("res.users", "user_is_manager", [user["id"]]):
+        return routine(f"{user['name']} (manager du cabinet) peut creer des dossiers.")
+    return stop(
+        f"Seuls les managers du cabinet et l'equipe Experio creent des dossiers ; {user['name']} n'en fait pas "
+        "partie : aucun dossier n'est cree. Demandez a un manager du cabinet."
+    )
 
 
 def attach_user(user_id, dossier_id, profile_id=None, employee_type="employee"):
