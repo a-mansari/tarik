@@ -140,3 +140,6 @@ pre.said { font-family: var(--font); font-size: 1em; }
 @media (max-width: 60rem) { .flow { grid-template-columns: 1fr; } .side { position: static; max-height: none; } }
 
 .page.wide { max-width: none; }
+.panel-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0 .2rem; }
+.panel-button { font: inherit; font-size: .85rem; color: var(--fg); background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 6px; padding: .3rem .7rem; cursor: pointer; text-decoration: none; }
+.panel-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

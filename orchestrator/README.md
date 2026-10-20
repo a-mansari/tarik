@@ -70,7 +70,8 @@ with every run live, step by step.
 3. **Workflows in the UI** — done: each workflow drawn as a canvas, as n8n draws one (steps left to right, a file or
    an invoice as a framed group, conditional paths dashed; pan, zoom, "Au début", "Tout voir"); a run painted over it,
    live while it goes on (each step coloured by its outcome, ×n when it ran for several invoices); a click on a step
-   opens what it did in that run. On each run's page and on each workflow's page with its recent runs. Still to
+   opens what it did in that run. A sub-workflow (a file, an invoice, Traitement inside an email follow-up) shows as
+   one node, as n8n shows one, coloured by the worst outcome inside it; double-click (or "Déplier") opens it in place. On each run's page and on each workflow's page with its recent runs. Still to
    come: each step explained in plain words in the panel.
 4. **Content in the UI, with history**: the agent's instructions and skills, the tools' prompts, cabinets' settings;
    every change kept (who, when), and undone in one click.

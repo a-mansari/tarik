@@ -154,6 +154,7 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=asyncio.S
     configurable = {"cabinet": cabinet, "session_id": session, **({"thread_id": thread} if thread else {})}
     graph = agent.make_agent({"configurable": configurable}) if name == "agent" else GRAPHS[name]
     status, error, output = "done", None, None
+    inner = {}  # a part's path ("facture", "fichier|facture") -> the status of the last step that ran inside it
     async with slots:  # shortcut: one process's runs at once (20); several servers would need a shared queue
         async with pool.connection() as db:
             await db.execute("update runs set status = 'running' where id = %s", (run_id,))
@@ -168,6 +169,10 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=asyncio.S
                     async with pool.connection() as db:
                         for node, update in (data or {}).items():
                             step_status, line = outcome_of(update, node)
+                            own = f"{path}|{node}" if path else node
+                            if own in inner:  # a part ending: it reads as the last step inside it did
+                                step_status = inner[own]
+                            inner[path] = step_status
                             await db.execute(
                                 "insert into steps (run_id, path, node, status, summary, detail) values (%s, %s, %s, %s, %s, %s)",
                                 (run_id, path, node, step_status, line, capped(update)),
