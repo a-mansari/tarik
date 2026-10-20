@@ -462,13 +462,11 @@
     });
     resetButton?.addEventListener("click", async () => {
       if (resetButton.dataset.confirm !== "yes") { // asked here, on the page: the browser's own confirm is not used
-        resetButton.dataset.confirm = "yes";
-        resetButton.textContent = "Confirmer : revenir à l'automatique ?";
-        setTimeout(() => { resetButton.dataset.confirm = ""; resetButton.textContent = "Disposition automatique"; }, 5000);
+        resetButton.dataset.confirm = "yes"; // the icon then says "Confirmer ?" (CSS), for 5 seconds
+        setTimeout(() => { resetButton.dataset.confirm = ""; }, 5000);
         return;
       }
       resetButton.dataset.confirm = "";
-      resetButton.textContent = "Disposition automatique";
       layout = await (await fetch(`/graphs/${graph}/layout`, { method: "DELETE" })).json();
       dirty = false;
       if (saveButton) saveButton.disabled = true;

@@ -270,3 +270,18 @@ details.card > summary .card-title { flex: 1 1 14rem; }
 .save-card h2 { margin: 0; }
 .save-card .field textarea { min-height: 3.5rem; }
 .side-column .side { max-height: calc(100vh - 16rem); overflow: auto; }
+
+/* The canvas's tools as icons, and its legend drawn as the canvas draws (lines, colours, gestures). */
+.canvas-tools .icon-button { display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .4rem; line-height: 0; }
+.canvas-tools .icon-button svg { display: block; }
+.canvas-tools .confirm-text { display: none; line-height: 1.2; font-size: .8rem; }
+.canvas-tools [data-confirm="yes"] { border-color: var(--wait); color: var(--wait); }
+.canvas-tools [data-confirm="yes"] .confirm-text { display: inline; }
+.canvas-tools [data-tip]:hover::after, .canvas-tools [data-tip]:focus-visible::after { line-height: 1.4; }
+.legend > span, .legend .gestures > span { display: inline-flex; align-items: center; gap: .35rem; }
+.legend .gestures { display: inline-flex; flex-wrap: wrap; gap: .4rem .9rem; }
+.legend svg { flex: none; }
+.legend svg.line line { stroke: var(--edge); stroke-width: 2.5; }
+.legend svg.line.dashed line { stroke-dasharray: 5 4; }
+.legend svg.stop { color: var(--bad); }
+.legend .key { font-weight: 400; color: var(--fg); width: 16px; text-align: center; }
