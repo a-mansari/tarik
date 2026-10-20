@@ -35,6 +35,8 @@ async def main(command, email, name=""):
             await accounts.set_role(email, name)
         else:
             await accounts.disable(email)
+    except (ValueError, LookupError) as refused:
+        raise SystemExit(f"Rien n'a change : {refused}") from None
     finally:
         await runs.pool.close()
     print("ok")

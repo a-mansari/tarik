@@ -57,6 +57,15 @@ create table if not exists users (
 -- What the account may do: an admin changes what everyone uses (content, cabinets' settings, canvases' layout) and
 -- starts runs by hand; a member reads everything and writes to Tarik on the Discussion page.
 alter table users add column if not exists role text not null default 'member' check (role in ('admin', 'member'));
+-- An account made from the Comptes page has no password until its person sets one, through its invitation.
+alter table users alter column password drop not null;
+-- A one-time link to set an account's password (a new account's, or a reset): only its token's hash is kept.
+create table if not exists invitations (
+    token text primary key,  -- sha256 of the link's token
+    email text not null references users (email) on delete cascade,
+    expires_at timestamptz not null,
+    used_at timestamptz
+);
 create table if not exists sessions (
     token text primary key,  -- sha256 of the cookie's token
     email text not null references users (email) on delete cascade,

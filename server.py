@@ -41,21 +41,22 @@ from engine import accounts, agent, content, graphs, layouts, mail, prompts, run
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.config import POSTGRES
 from tarik.core.experio import account
-from ui import chat_pages, content_pages, pages, settings_pages
+from ui import accounts_pages, chat_pages, content_pages, pages, settings_pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = make_conninfo(**POSTGRES)  # the tools' own Postgres settings
 
 
-OPEN = ("/ok", "/login", "/ui/static/")
+OPEN = ("/ok", "/login", "/ui/static/", "/invitation/")  # an invitation's page: its one-time link is its key
 COOKIE = "tarik_session"
 
 
 def admin_only(method, path):
-    """Whether this call is an admin's to make: the cabinets' settings (read too: logins, mailboxes, whitelist), a
-    change to the content or to a canvas's layout, a run started by hand. Discussion stays every member's."""
+    """Whether this call is an admin's to make: the cabinets' settings (read too: logins, mailboxes, whitelist), the
+    accounts, a change to the content or to a canvas's layout, a run started by hand. Discussion stays every
+    member's."""
     return (
-        path.startswith("/ui/cabinets")
+        path.startswith(("/ui/cabinets", "/ui/comptes"))
         or (method == "POST" and path.startswith(("/ui/contenu", "/runs/")))
         or (method in ("PUT", "DELETE") and path.startswith("/graphs/"))
     )
@@ -262,6 +263,8 @@ app = Starlette(
         Route("/prompts/{cabinet}/{call_id:int}", prompt),
         Route("/ui/prompts", pages.prompts_page),
         Route("/ui/prompts/{cabinet}/{session_id}", pages.prompt_calls_page),
+        Route("/invitation/{token}", accounts_pages.invitation_page, methods=["GET", "POST"]),
+        Route("/ui/comptes", accounts_pages.accounts_page, methods=["GET", "POST"]),
         Route("/ui/cabinets", settings_pages.cabinets_page),
         Route("/ui/cabinets/{cabinet}", settings_pages.cabinet_page, methods=["GET", "POST"]),
         Route("/ui/contenu", content_pages.contents_page),

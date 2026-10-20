@@ -80,6 +80,42 @@ on conflict (email) do update set name = excluded.name, password = excluded.pass
 -- An account's role changed: its open sessions carry the new one at their next page.
 update users set role = %s where email = %s returning email
 
+-- name: users_listed
+-- Every account, for the Comptes page: whether it has a password yet, its last session.
+select u.email, u.name, u.role, u.active, u.created_at, u.password is not null,
+    (select max(s.expires_at) from sessions s where s.email = u.email)
+from users u order by u.active desc, u.email
+
+-- name: user_invited
+-- A new account, no password yet: its person sets one through its invitation. Nothing for an email already known.
+insert into users (email, name, password, role) values (%s, %s, null, %s) on conflict (email) do nothing returning email
+
+-- name: user_found
+select email, active from users where email = %s
+
+-- name: admins_active
+select email from users where role = 'admin' and active
+
+-- name: invitations_removed
+-- An account's links not used yet, gone: a new link replaces them, a closed account has none.
+delete from invitations where email = %s and used_at is null
+
+-- name: invitation_made
+insert into invitations (token, email, expires_at) values (%s, %s, now() + %s * interval '1 hour')
+
+-- name: invitation_found
+-- The account a link is for, while it can still be used.
+select i.email, u.name from invitations i join users u using (email)
+where i.token = %s and i.expires_at > now() and i.used_at is null
+
+-- name: invitation_used
+-- A link used, once: a second use finds nothing.
+update invitations set used_at = now() where token = %s and expires_at > now() and used_at is null returning email
+
+-- name: user_password_set
+-- The password its person chose, the account open again; its other sessions end (whoever had the old one).
+update users set password = %s, active = true where email = %s
+
 -- name: user_closed
 update users set active = false where email = %s
 

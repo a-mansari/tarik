@@ -399,3 +399,9 @@ a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decorati
 .settings-history .mono { white-space: normal; }
 .settings-history ul { margin: .2rem 0 0; padding-left: 1rem; }
 fieldset.plain { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
+.add-account { display: flex; flex-wrap: wrap; gap: .8rem; align-items: flex-end; margin-top: .6rem; }
+.add-account .field { flex: 1 1 14rem; }
+.accounts .actions { display: flex; flex-wrap: wrap; gap: .4rem; }
+.accounts .actions form { margin: 0; }
+.copy-row { display: flex; gap: .5rem; margin-top: .5rem; }
+.copy-row input { flex: 1; min-width: 0; font: inherit; font-size: .85rem; padding: .4rem .5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
