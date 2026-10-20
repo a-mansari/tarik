@@ -245,6 +245,8 @@ async def aiguillage(state: Run):
         )["route"]
     except Exception:
         route = call.get("mode")
+    if route == "answer" and call.get("comptabiliser") == "oui":
+        route = "both"  # they ask to post: posting happens, whatever question waits (their words may answer it too)
     return {"route": route if route in ("files", "answer", "resume", "both") else "files"}
 
 

@@ -88,3 +88,19 @@ def test_a_message_goes_where_the_database_says_unless_the_routing_failed(monkey
     assert asyncio.run(traitement.aiguillage(state)) == {"route": "both"}
     monkeypatch.setattr(traitement, "run_tool", broken)
     assert asyncio.run(traitement.aiguillage(state)) == {"route": "answer"}  # the tool the agent called
+
+
+@pytest.mark.functionality
+def test_asked_to_post_the_drafts_are_posted_whatever_question_waits(monkeypatch):
+    import asyncio
+
+    from engine import traitement
+
+    async def route(cabinet, tool, **arguments):
+        return {"route": "answer"}
+
+    monkeypatch.setattr(traitement, "run_tool", route)
+    state = {"call": {"cabinet": "c", "session_id": "s", "mode": "files", "comptabiliser": "oui"}}
+    assert asyncio.run(traitement.aiguillage(state)) == {"route": "both"}
+    state["call"]["comptabiliser"] = ""
+    assert asyncio.run(traitement.aiguillage(state)) == {"route": "answer"}
