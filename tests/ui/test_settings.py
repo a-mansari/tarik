@@ -23,7 +23,7 @@ BEFORE = {
     [
         ("DRY_RUN", "oui", "vaut 1"),
         ("ODOO_UID", "-3", "entier positif"),
-        ("ODOO_USER", " ", "vide"),
+        ("ODOO_USER", "", "vide"),
         ("MAIL_MANAGER", "pas une adresse", "adresse"),
         ("SMTP_FROM", "Tarik <pas-une-adresse>", "expéditeur"),
         ("MAIL_ALLOWED_RECIPIENTS", "@cabinet.ma, n'importe qui", "n'importe qui"),
@@ -45,17 +45,17 @@ def test_a_form_changes_only_what_differs_and_a_secret_left_empty_stays():
     assert cabinet_settings.changed(BEFORE, given) == {"MAIL_ALLOWED_RECIPIENTS": "@cabinet.ma ,  a@b.ma"}
 
 
-def test_a_value_is_written_exactly_as_typed_spaces_included():
+def test_a_setting_loses_its_outer_spaces_only_and_a_secret_none():
     before = {"MAIL_ALLOWED_RECIPIENTS": "@experio.ma,@sarnec.com", "SMTP_PASSWORD": "x"}
-    assert cabinet_settings.changed(before, {"MAIL_ALLOWED_RECIPIENTS": "@experio.ma,@sarnec.com"}) == {}
+    assert cabinet_settings.changed(before, {"MAIL_ALLOWED_RECIPIENTS": " @experio.ma,@sarnec.com "}) == {}
     spaced = {"MAIL_ALLOWED_RECIPIENTS": "@experio.ma, @sarnec.com", "SMTP_PASSWORD": " pass word "}
-    assert cabinet_settings.changed(before, spaced) == spaced  # a password's spaces are its own
+    assert cabinet_settings.changed(before, spaced) == spaced  # inside a list, and a password's spaces, are kept
 
 
-@pytest.mark.parametrize(("key", "value"), [("ODOO_UID", " 430"), ("MAIL_MANAGER", "a@b.ma "), ("ODOO_USER", "  ")])
+@pytest.mark.parametrize(("key", "value"), [("ODOO_UID", "4 30"), ("MAIL_MANAGER", "a b@c.ma"), ("ODOO_USER", "  ")])
 def test_a_value_tarik_would_read_otherwise_is_refused_not_tidied(key, value):
     with pytest.raises(ValueError):
-        cabinet_settings.checked(key, value)
+        cabinet_settings.changed({}, {key: value})
 
 
 class Pool:
@@ -106,3 +106,20 @@ def test_a_page_older_than_vault_s_version_changes_nothing(vault):
     with pytest.raises(ValueError, match="rechargez"):
         asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", {"DRY_RUN": "0"}, 3, "a@experio.ma"))
     assert vault == []
+
+
+def test_the_page_renders_a_saved_change_and_never_a_secret():
+    from ui import settings_pages
+
+    data = {**BEFORE, "IMAP_PASSWORD": "mailbox-secret"}
+    page = settings_pages.templates.get_template("cabinet.html").render(
+        request=type("R", (), {"url": type("U", (), {"path": "/ui/cabinets/cabinet_a"})(), "state": None})(),
+        cabinet="cabinet_a",
+        sections=settings_pages.fields(data),
+        version=4,
+        saved=["MAIL_ALLOWED_RECIPIENTS", "DRY_RUN"],
+        names={key: key for key in cabinet_settings.FIELDS},
+        history=[],
+    )
+    assert "Enregistré : MAIL_ALLOWED_RECIPIENTS, DRY_RUN." in page
+    assert "old-password" not in page and "mailbox-secret" not in page

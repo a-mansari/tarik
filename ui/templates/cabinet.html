@@ -12,7 +12,7 @@
 <div class="panel bad" role="alert"><b>Réglages illisibles.</b> Vault ne répond pas, ou le rôle de cette page (tarik-settings) n'est pas installé : <span class="mono">vault/setup.sh</span>.</div>
 {% else %}
 {% if error %}<div class="panel bad" role="alert"><b>Non enregistré :</b> {{ error }}.</div>{% endif %}
-{% if saved is not none %}<div class="panel accent" role="status">{% if saved %}Enregistré : {{ saved | map("extract", names) | join(", ") }}. En service dès maintenant.{% else %}Rien n'a changé.{% endif %}</div>{% endif %}
+{% if saved is not none %}<div class="panel accent" role="status">{% if saved %}Enregistré : {% for key in saved %}{{ names[key] }}{{ ", " if not loop.last }}{% endfor %}. En service dès maintenant.{% else %}Rien n'a changé.{% endif %}</div>{% endif %}
 <div class="flow content-flow">
   <form class="content-form" method="post" id="settings-form" autocomplete="off">
     <input type="hidden" name="version" value="{{ version }}">
@@ -34,6 +34,7 @@
           <input name="{{ f.key }}" value="{{ f.value }}" {% if f.kind == 'integer' %}inputmode="numeric"{% endif %}>
           {% endif %}
           {% if f.description %}<small class="muted">{{ f.description }}</small>{% endif %}
+          <small class="muted trim">{{ "Gardé exactement comme tapé, espaces compris." if f.kind == 'secret' else "Les espaces au début et à la fin sont retirés ; le reste est gardé comme tapé." }}</small>
         </label>
         {% endfor %}
       </div>

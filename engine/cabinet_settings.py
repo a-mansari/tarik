@@ -61,15 +61,13 @@ def shown(data):
 
 
 def checked(key, value):
-    """ValueError, in plain French, when Tarik could not use ``value`` for setting ``key``. Only checked, never
-    rewritten: what is written is exactly what was typed (a space may matter), refused rather than tidied up."""
+    """ValueError, in plain French, when Tarik could not use ``value`` (already trimmed) for setting ``key``. Only
+    checked, never rewritten inside: refused rather than tidied up."""
     kind = FIELDS[key]
     if value == "":
         if key in OPTIONAL:
             return
         raise ValueError(f"{key} ne peut pas être vide")
-    if not value.strip():
-        raise ValueError(f"{key} est vide : rien que des espaces")
     if kind == "flag" and value not in ("0", "1"):
         raise ValueError(f"{key} vaut 1 (simulation) ou 0 (écritures réelles)")
     if kind == "integer" and not (value.isdigit() and int(value) > 0):
@@ -85,14 +83,14 @@ def checked(key, value):
 
 
 def changed(before, given):
-    """What ``given`` (the page's form: {key: text}) changes in the settings ``before``: {key: new value}, each
-    exactly as typed and checked. A secret left empty stays as it is; any other setting is a change when it differs
-    at all, a space included."""
+    """What ``given`` (the page's form: {key: text}) changes in the settings ``before``: {key: new value}. A setting
+    loses the spaces around it (the page says so) and is otherwise kept as typed; a secret is kept exactly, its spaces
+    its own, and left empty stays as it is. Any other difference, a space inside included, is a change."""
     found = {}
     for key, kind in FIELDS.items():
         if key not in given:
             continue
-        value = given[key]
+        value = given[key] if kind == "secret" else given[key].strip()
         if kind == "secret" and value == "":
             continue
         if kind != "secret":
