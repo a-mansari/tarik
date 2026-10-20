@@ -9,7 +9,7 @@ from langchain_anthropic import ChatAnthropic
 from engine import agent, dossier, emails, traitement
 from engine.content import LABELS
 
-COMPILED = {"traitement": traitement.graph, "dossier": dossier.graph, "emails": emails.graph}
+COMPILED = {"traitement": traitement.graph, "dossier": dossier.graph, "emails": emails.graph, "fil": emails.FIL}
 # How deep each canvas opens nested graphs: Emails' follow-up runs Traitement (its own canvas), drawn as one box.
 XRAY = {"emails": 1}
 ENDS = {"__start__": "Début", "__end__": "Fin"}

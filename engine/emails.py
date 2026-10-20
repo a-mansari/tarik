@@ -1,15 +1,16 @@
-"""Emails as a graph: for the cabinet named, each thread waiting for an answer is claimed, acknowledged, answered
+"""Emails as a graph: for the cabinet named, each thread waiting for an answer is claimed, then in a run of its own
+(FIL, "Fil d'emails", one per thread, side by side) acknowledged, answered
 by the cabinet's agent (the agent graph, in the thread's own conversation; reminded of files still untaken), and the
 reply sent to whitelisted addresses. A sender refused (check_sender) gets nothing: the manager is told, the thread
 stays set aside. A follow-up thread runs Traitement then Dossier in mode resume and sends their summaries."""
 
+import asyncio
 import operator
 import time
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send
 
 from engine.tools import ToolFailure, call, within
 from tarik.core.conversation import FILES_NOTE, NO_TEXT, remember_client_message
@@ -51,10 +52,22 @@ async def claim(state: Run):
     return {"threads": result.get("threads", [])}
 
 
-def each_thread(state: Run):
-    return [
-        Send("fil", {"cabinet": state["cabinet"], "thread": thread, "done": []}) for thread in state["threads"]
-    ] or END
+async def each_thread(state: Run):
+    """Each thread claimed, a run of its own ("Fil d'emails", FIL): separate conversations, each from its own sender,
+    are never drawn on one canvas. They run side by side; one failing leaves the others, and is claimed again later."""
+    from engine import runs  # runs imports the graphs, this one among them
+
+    cabinet = state["cabinet"]
+    ran = await asyncio.gather(
+        *(
+            runs.nested(
+                "fil", {"cabinet": cabinet, "thread": thread, "done": []}, cabinet, thread["session_id"], node="fil"
+            )
+            for thread in state["threads"]
+        ),
+        return_exceptions=True,
+    )
+    return {"done": [entry for result in ran if isinstance(result, dict) for entry in result.get("done", [])]}
 
 
 def kind(state: Thread):
@@ -204,8 +217,8 @@ FIL = fil.compile(name="fil")
 
 run = StateGraph(Run)
 run.add_node("fils", claim)
-run.add_node("fil", FIL)
+run.add_node("fil", each_thread)
 run.add_edge(START, "fils")
-run.add_conditional_edges("fils", each_thread, ["fil", END])
+run.add_conditional_edges("fils", lambda s: "fil" if s["threads"] else END, ["fil", END])
 run.add_edge("fil", END)
 graph = run.compile(name="Tarik - Emails")
