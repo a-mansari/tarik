@@ -10,16 +10,16 @@
       { selector: "node", style: {
         "shape": "round-rectangle", "label": "data(display)", "text-wrap": "wrap", "text-max-width": 130,
         "text-valign": "center", "text-halign": "center", "font-family": css("--font"), "font-size": 11,
-        "color": css("--fg"), "background-color": css("--surface"), "border-width": 1.5, "border-color": css("--line"),
+        "color": css("--fg"), "background-color": css("--node-bg"), "border-width": 1.5, "border-color": css("--node-border"),
         "width": 150, "height": 44, "padding": 6,
       } },
       { selector: "node[kind = 'end']", style: {
         "shape": "ellipse", "width": 18, "height": 18, "label": "data(display)", "font-size": 9,
-        "text-valign": "bottom", "text-margin-y": 4, "color": css("--muted"), "background-color": css("--line"), "border-width": 0,
+        "text-valign": "bottom", "text-margin-y": 4, "color": css("--muted"), "background-color": css("--edge"), "border-width": 0,
       } },
       { selector: "node[kind = 'group']", style: {
         "shape": "round-rectangle", "background-color": css("--accent-soft"), "background-opacity": 0.35,
-        "border-style": "dashed", "border-color": css("--line"), "label": "data(display)", "text-valign": "top",
+        "border-style": "dashed", "border-color": css("--accent"), "label": "data(display)", "text-valign": "top",
         "text-halign": "center", "text-margin-y": -4, "font-size": 12, "font-weight": 600, "color": css("--muted"), "padding": 14,
       } },
       { selector: "node[kind = 'subflow']", style: {
@@ -35,12 +35,12 @@
         "border-color": css("--accent"), "events": "no",
       } },
       { selector: "edge", style: {
-        "curve-style": "taxi", "taxi-direction": "rightward", "width": 1.5, "line-color": css("--line"),
-        "target-arrow-shape": "triangle", "target-arrow-color": css("--line"), "arrow-scale": 0.8,
+        "curve-style": "taxi", "taxi-direction": "rightward", "width": 1.6, "line-color": css("--edge"),
+        "target-arrow-shape": "triangle", "target-arrow-color": css("--edge"), "arrow-scale": 0.9,
       } },
       { selector: "edge.conditional", style: { "line-style": "dashed" } },
       // A run over the drawing: what did not run fades, what ran takes its outcome's colour.
-      { selector: ".dim", style: { "opacity": 0.38 } },
+      { selector: ".dim", style: { "opacity": 0.5 } },
       { selector: "node.ran", style: { "border-width": 2.5, "border-color": css("--good"), "background-color": css("--good-bg") } },
       { selector: "node.ran.wait, node.ran.question", style: { "border-color": css("--wait"), "background-color": css("--wait-bg") } },
       { selector: "node.ran.stop, node.ran.error", style: { "border-color": css("--bad"), "background-color": css("--bad-bg") } },

@@ -15,8 +15,13 @@
   --bad: #b02d26;
   --bad-bg: #f7e1df;
   --neutral-bg: #e9edeb;
-  --grid-dot: #a9b5af;
-  --grid-line: #e1e7e4;
+  /* The canvas: four roles, four distinct colours (background, grid, connectors, steps). */
+  --canvas-bg: #eef2f6;
+  --grid-dot: #b9c4cf;
+  --grid-line: #e2e8ee;
+  --edge: #4f6880;
+  --node-bg: #ffffff;
+  --node-border: #8b9aaa;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
   color-scheme: light;
@@ -26,14 +31,16 @@
     --bg: #111614; --surface: #19201d; --fg: #e2e8e5; --muted: #98a59f; --line: #2b3531;
     --accent: #6cc3a2; --accent-soft: #1d2f28;
     --good: #72c98d; --good-bg: #1c3123; --wait: #e3b75a; --wait-bg: #33291a; --bad: #f08a80; --bad-bg: #3a1f1c;
-    --neutral-bg: #252e2a; --grid-dot: #4d5b55; --grid-line: #212a26; color-scheme: dark;
+    --neutral-bg: #252e2a; --canvas-bg: #0f151b; --grid-dot: #2c3843; --grid-line: #151d24;
+    --edge: #8aa1b8; --node-bg: #1f2a35; --node-border: #627385; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #111614; --surface: #19201d; --fg: #e2e8e5; --muted: #98a59f; --line: #2b3531;
   --accent: #6cc3a2; --accent-soft: #1d2f28;
   --good: #72c98d; --good-bg: #1c3123; --wait: #e3b75a; --wait-bg: #33291a; --bad: #f08a80; --bad-bg: #3a1f1c;
-  --neutral-bg: #252e2a; --grid-dot: #4d5b55; --grid-line: #212a26; color-scheme: dark;
+  --neutral-bg: #252e2a; --canvas-bg: #0f151b; --grid-dot: #2c3843; --grid-line: #151d24;
+    --edge: #8aa1b8; --node-bg: #1f2a35; --node-border: #627385; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 400 15px/1.55 var(--font); }
@@ -116,7 +123,7 @@ pre.said { font-family: var(--font); font-size: 1em; }
 /* The workflow canvas, with the panel of the step clicked on its right (below it on a narrow screen). */
 .flow { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: 1rem; align-items: start; }
 .canvas-wrap { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-.canvas { height: max(28rem, 70vh); width: 100%; }
+.canvas { height: max(28rem, 70vh); width: 100%; background-color: var(--canvas-bg); }
 .canvas-tools { position: absolute; top: .5rem; left: .5rem; display: flex; gap: .4rem; z-index: 2; }
 .canvas-tools button { font: inherit; font-size: .8rem; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .25rem .6rem; cursor: pointer; }
 .canvas-tools button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
