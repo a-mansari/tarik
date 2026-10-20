@@ -61,52 +61,45 @@ def shown(data):
 
 
 def checked(key, value):
-    """``value`` for setting ``key`` as it is kept (trimmed); ValueError, in plain French, when Tarik could not use
-    it."""
-    kind, value = FIELDS[key], value.strip()
-    if not value:
+    """ValueError, in plain French, when Tarik could not use ``value`` for setting ``key``. Only checked, never
+    rewritten: what is written is exactly what was typed (a space may matter), refused rather than tidied up."""
+    kind = FIELDS[key]
+    if value == "":
         if key in OPTIONAL:
-            return ""
+            return
         raise ValueError(f"{key} ne peut pas être vide")
+    if not value.strip():
+        raise ValueError(f"{key} est vide : rien que des espaces")
     if kind == "flag" and value not in ("0", "1"):
         raise ValueError(f"{key} vaut 1 (simulation) ou 0 (écritures réelles)")
     if kind == "integer" and not (value.isdigit() and int(value) > 0):
-        raise ValueError(f"{key} est un nombre entier positif (l'identifiant de Tarik dans Experio)")
+        raise ValueError(f"{key} est un nombre entier positif, sans espace (l'identifiant de Tarik dans Experio)")
     if kind == "address" and not ADDRESS.fullmatch(value):
-        raise ValueError(f"{key} n'est pas une adresse email")
+        raise ValueError(f"{key} n'est pas une adresse email (sans espace autour)")
     if kind == "sender" and not ADDRESS.fullmatch(parseaddr(value)[1]):
         raise ValueError(f"{key} n'est pas un expéditeur (« Nom <adresse> » ou une adresse)")
-    if kind == "recipients":
-        entries = [entry.strip() for entry in value.split(",") if entry.strip()]
-        if wrong := [entry for entry in entries if not RECIPIENT.fullmatch(entry)]:
-            raise ValueError(f"{key} : ni adresse ni @domaine : {', '.join(wrong)}")
-        value = ", ".join(entries)
-    return value
+    # The recipients: each entry as Tarik reads it, split at the commas, its spaces around left out.
+    wrong = [e.strip() or "(entrée vide)" for e in value.split(",") if not RECIPIENT.fullmatch(e.strip())]
+    if kind == "recipients" and wrong:
+        raise ValueError(f"{key} : ni adresse ni @domaine : {', '.join(wrong)}")
 
 
 def changed(before, given):
-    """What ``given`` (the page's form: {key: text}) changes in the settings ``before``: {key: new value}. A secret
-    left empty stays as it is; any other setting left as it was is no change."""
+    """What ``given`` (the page's form: {key: text}) changes in the settings ``before``: {key: new value}, each
+    exactly as typed and checked. A secret left empty stays as it is; any other setting is a change when it differs
+    at all, a space included."""
     found = {}
     for key, kind in FIELDS.items():
         if key not in given:
             continue
-        if kind == "secret":
-            if given[key].strip():
-                found[key] = given[key].strip()
+        value = given[key]
+        if kind == "secret" and value == "":
             continue
-        value = checked(key, given[key])
-        if value not in (before.get(key, ""), kept(key, before.get(key, ""))):  # written otherwise: no change
+        if kind != "secret":
+            checked(key, value)
+        if value != before.get(key, ""):
             found[key] = value
     return found
-
-
-def kept(key, value):
-    """``value`` as the page would keep it (checked), or None when it would be refused."""
-    try:
-        return checked(key, value)
-    except ValueError:
-        return None
 
 
 def _vault(method, path, **kwargs):

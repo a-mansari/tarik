@@ -30,8 +30,6 @@
           </select>
           {% elif f.kind == 'secret' %}
           <input type="password" name="{{ f.key }}" autocomplete="new-password" placeholder="{{ 'Défini — laisser vide pour le garder' if f.value else 'Non défini' }}">
-          {% elif f.kind == 'recipients' %}
-          <textarea name="{{ f.key }}" rows="2">{{ f.value }}</textarea>
           {% else %}
           <input name="{{ f.key }}" value="{{ f.value }}" {% if f.kind == 'integer' %}inputmode="numeric"{% endif %}>
           {% endif %}

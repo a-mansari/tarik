@@ -42,12 +42,20 @@ def test_a_form_changes_only_what_differs_and_a_secret_left_empty_stays():
         "MAIL_ALLOWED_RECIPIENTS": "@cabinet.ma ,  a@b.ma",
         "MAIL_MANAGER": "",
     }
-    assert cabinet_settings.changed(BEFORE, given) == {"MAIL_ALLOWED_RECIPIENTS": "@cabinet.ma, a@b.ma"}
+    assert cabinet_settings.changed(BEFORE, given) == {"MAIL_ALLOWED_RECIPIENTS": "@cabinet.ma ,  a@b.ma"}
 
 
-def test_a_setting_only_written_otherwise_is_no_change():
-    before = {"MAIL_ALLOWED_RECIPIENTS": "@experio.ma,@sarnec.com"}
+def test_a_value_is_written_exactly_as_typed_spaces_included():
+    before = {"MAIL_ALLOWED_RECIPIENTS": "@experio.ma,@sarnec.com", "SMTP_PASSWORD": "x"}
     assert cabinet_settings.changed(before, {"MAIL_ALLOWED_RECIPIENTS": "@experio.ma,@sarnec.com"}) == {}
+    spaced = {"MAIL_ALLOWED_RECIPIENTS": "@experio.ma, @sarnec.com", "SMTP_PASSWORD": " pass word "}
+    assert cabinet_settings.changed(before, spaced) == spaced  # a password's spaces are its own
+
+
+@pytest.mark.parametrize(("key", "value"), [("ODOO_UID", " 430"), ("MAIL_MANAGER", "a@b.ma "), ("ODOO_USER", "  ")])
+def test_a_value_tarik_would_read_otherwise_is_refused_not_tidied(key, value):
+    with pytest.raises(ValueError):
+        cabinet_settings.checked(key, value)
 
 
 class Pool:
