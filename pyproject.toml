@@ -1,7 +1,7 @@
 # The repository's one code style: ruff's formatter and linter, lines of 120 at most (tests/style checks both).
 [tool.ruff]
 line-length = 120
-target-version = "py312"
+target-version = "py314"
 extend-exclude = ["ui/static/vendor"]
 
 [tool.ruff.lint]
