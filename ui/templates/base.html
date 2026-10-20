@@ -16,7 +16,8 @@
       <a href="/ui/workflows" {% if request.url.path.startswith('/ui/workflows') %}aria-current="page"{% endif %}>{{ icon("workflows") }}Workflows</a>
       <a href="/ui/prompts" {% if request.url.path.startswith('/ui/prompts') %}aria-current="page"{% endif %}>{{ icon("prompts") }}Prompts</a>
       {% if is_admin(request) %}<a href="/ui/cabinets" {% if request.url.path.startswith('/ui/cabinets') %}aria-current="page"{% endif %}>{{ icon("cabinets") }}Cabinets</a>
-      <a href="/ui/comptes" {% if request.url.path.startswith('/ui/comptes') %}aria-current="page"{% endif %}>{{ icon("accounts") }}Comptes</a>{% endif %}
+      <a href="/ui/comptes" {% if request.url.path.startswith('/ui/comptes') %}aria-current="page"{% endif %}>{{ icon("accounts") }}Comptes</a>
+      <a href="/ui/journal" {% if request.url.path.startswith('/ui/journal') %}aria-current="page"{% endif %}>{{ icon("journal") }}Journal</a>{% endif %}
       <a href="/ui/contenu" {% if request.url.path.startswith('/ui/contenu') %}aria-current="page"{% endif %}>{{ icon("content") }}Contenu</a>
     </nav>
     {% if request.state.user is defined and request.state.user %}

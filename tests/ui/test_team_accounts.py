@@ -102,3 +102,54 @@ def test_the_comptes_page_renders_each_account_and_a_new_link_once():
     )
     assert "http://tarik/invitation/abc" in page and "Invité, sans mot de passe" in page and "Fermé" in page
     assert "Rendre membre" in page and "Rouvrir avec un lien" in page and "(vous)" in page
+
+
+@pytest.mark.security
+def test_the_journal_keeps_who_did_what_latest_first_and_filters_it(monkeypatch):
+    from engine import audit
+
+    async def check():
+        await audit.record("a@experio.ma", "login")
+        await audit.record("a@experio.ma", "account_role", "b@experio.ma", role="admin")
+        await audit.record("b@experio.ma", "layout_saved", "traitement")
+        entries, actors = await audit.listed()
+        assert [e["action"] for e in entries] == ["layout_saved", "account_role", "login"]
+        assert actors == ["a@experio.ma", "b@experio.ma"] and entries[1]["detail"] == {"role": "admin"}
+        assert [e["action"] for e in (await audit.listed(actor="a@experio.ma"))[0]] == ["account_role", "login"]
+        assert [e["target"] for e in (await audit.listed(action="layout_saved"))[0]] == ["traitement"]
+        assert [e["action"] for e in (await audit.listed(before=entries[1]["id"]))[0]] == ["login"]
+
+    against_the_test_store(check, monkeypatch)
+
+
+def test_the_journal_page_renders_each_entry_in_words():
+    from datetime import UTC, datetime
+
+    from ui.pages import templates
+
+    at = datetime(2026, 10, 20, 18, 0, tzinfo=UTC)
+    entries = [
+        {
+            "id": 2,
+            "at": at,
+            "actor": "a@experio.ma",
+            "action": "settings_saved",
+            "target": "experio_cabinet_8",
+            "detail": {"keys": ["DRY_RUN"], "note": "passage en réel"},
+        },
+        {"id": 1, "at": at, "actor": "x@ailleurs.ma", "action": "login_failed", "target": "", "detail": {}},
+    ]
+    user = {"email": "a@experio.ma", "name": "A", "role": "admin"}
+    request = type("R", (), {"url": type("U", (), {"path": "/ui/journal"})(), "state": type("S", (), {"user": user})()})
+    page = templates.get_template("journal.html").render(
+        request=request(),
+        entries=entries,
+        actors=["a@experio.ma"],
+        actions=[],
+        action=None,
+        actor="",
+        older=None,
+        words={"settings_saved": "Réglages modifiés", "login_failed": "Connexion refusée"},
+    )
+    assert "Réglages modifiés" in page and "DRY_RUN" in page and "« passage en réel »" in page
+    assert "Connexion refusée" in page and "x@ailleurs.ma" in page

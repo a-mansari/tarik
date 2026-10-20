@@ -95,3 +95,14 @@ create table if not exists settings_changes (
     created_at timestamptz not null default now()
 );
 create index if not exists settings_changes_cabinet on settings_changes (cabinet, id desc);
+
+-- === Who did what in the UI (engine/audit.py): the Journal page, an admin's ===
+create table if not exists audit (
+    id bigserial primary key,
+    at timestamptz not null default now(),
+    actor text not null,  -- an account's email, "terminal" (users.py), "script" (TARIK_GRAPH_TOKEN), or the email typed
+    action text not null,
+    target text not null default '',
+    detail jsonb not null default '{}'
+);
+create index if not exists audit_at on audit (id desc);

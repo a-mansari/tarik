@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Journal{% endblock %}
+{% block content %}
+<div class="head">
+  <div>
+    <h1>Journal</h1>
+    <p class="muted">Qui a fait quoi dans ces pages : connexions, comptes, contenu, réglages des cabinets, dispositions des schémas, exécutions lancées à la main. Le plus récent d'abord. Aucun mot de passe ni lien n'y figure.</p>
+  </div>
+  <form class="filters inline" method="get" action="/ui/journal">
+    <label>Action
+      <select name="action" onchange="this.form.submit()">
+        <option value="">Toutes</option>
+        {% for name, words in actions %}<option value="{{ name }}" {% if name == action %}selected{% endif %}>{{ words }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Qui
+      <select name="actor" onchange="this.form.submit()">
+        <option value="">Tout le monde</option>
+        {% for name in actors %}<option value="{{ name }}" {% if name == actor %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+    </label>
+  </form>
+</div>
+<div class="table-wrap">
+  <table class="runs journal">
+    <thead><tr><th>Quand</th><th>Qui</th><th>Quoi</th><th>Sur</th><th>Détail</th></tr></thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td class="num">{{ e.at | when }}</td>
+        <td class="mono">{{ e.actor }}</td>
+        <td><span class="chip {{ 'error' if e.action == 'login_failed' else '' }}">{{ words.get(e.action, e.action) }}</span></td>
+        <td class="mono">{% if e.action == 'run_started' and e.detail.run_id %}<a href="/ui/runs/{{ e.detail.run_id }}">{{ e.target | graph_name }}</a>{% elif e.action in ('layout_saved', 'layout_reset') %}{{ e.target | graph_name }}{% else %}{{ e.target }}{% endif %}</td>
+        <td>{% if e.detail['keys'] %}{{ e.detail['keys'] | join(", ") }}{% endif %}{% if e.detail.role %}{{ 'Administrateur' if e.detail.role == 'admin' else 'Membre' }}{% endif %}{% if e.detail.note %} « {{ e.detail.note }} »{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="muted">Rien pour l'instant.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if older %}<p><a class="panel-button" href="/ui/journal?before={{ older }}{% if action %}&action={{ action }}{% endif %}{% if actor %}&actor={{ actor | urlencode }}{% endif %}">Plus ancien</a></p>{% endif %}
+{% endblock %}

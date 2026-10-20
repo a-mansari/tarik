@@ -211,3 +211,18 @@ insert into settings_changes (cabinet, author, note, changes, vault_version) val
 -- name: settings_history
 select author, note, changes, vault_version, created_at from settings_changes where cabinet = %s
 order by id desc limit %s
+
+-- === Who did what in the UI (engine/audit.py) ===
+
+-- name: audit_recorded
+insert into audit (actor, action, target, detail) values (%s, %s, %s, %s)
+
+-- name: audit_listed
+-- The latest entries before an id (paging back), of one action or one actor when asked.
+select id, at, actor, action, target, detail from audit
+where id < %(before)s and (%(action)s::text is null or action = %(action)s)
+    and (%(actor)s::text is null or actor = %(actor)s)
+order by id desc limit %(limit)s
+
+-- name: audit_actors
+select distinct actor from audit order by actor

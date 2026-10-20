@@ -9,7 +9,7 @@ import asyncio
 import getpass
 import sys
 
-from engine import accounts, runs
+from engine import accounts, audit, runs
 from server import DATABASE
 
 
@@ -31,10 +31,13 @@ async def main(command, email, name=""):
     try:
         if command == "add":
             await accounts.save_user(email, name or email, password)
+            await audit.record("terminal", "account_made", email.strip().lower())
         elif command == "role":
             await accounts.set_role(email, name)
+            await audit.record("terminal", "account_role", email.strip().lower(), role=name)
         else:
             await accounts.disable(email)
+            await audit.record("terminal", "account_closed", email.strip().lower())
     except (ValueError, LookupError) as refused:
         raise SystemExit(f"Rien n'a change : {refused}") from None
     finally:

@@ -8,7 +8,7 @@ import re
 import sys
 from pathlib import Path
 
-from engine import agent, chat, content, dossier, graphs, traitement
+from engine import agent, audit, chat, content, dossier, graphs, traitement
 from engine.content import AGENT, LABELS
 from engine.tools import TOOLS
 from tarik.invoices.pipeline import INVOICE_CHAIN
@@ -65,7 +65,10 @@ def unnamed():
     """Every input a workflow is given has a name in plain words (labels.json: inputs), but those never shown."""
     discussion = set(chat.Chat.__annotations__) - set(chat.Steps.__annotations__)  # its inputs, not its outputs
     given = {*traitement.INPUTS, *dossier.INPUTS, *discussion, "sender", "subject", "files"}
-    return [f"input {key}: no name in labels.json" for key in sorted(given - HIDDEN - set(LABELS["inputs"]))]
+    found = [f"input {key}: no name in labels.json" for key in sorted(given - HIDDEN - set(LABELS["inputs"]))]
+    return found + [
+        f"journal action {name}: no words in labels.json" for name in audit.ACTIONS if name not in LABELS["audit"]
+    ]
 
 
 if __name__ == "__main__":

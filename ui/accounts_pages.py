@@ -7,7 +7,7 @@ from urllib.parse import parse_qs
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
-from engine import accounts
+from engine import accounts, audit
 from ui.pages import templates
 
 
@@ -22,17 +22,22 @@ async def accounts_page(request: Request):
     if request.method == "POST":
         form = form_of(await request.body())
         action, email = form.get("action"), form.get("email", "")
+        me = request.state.user["email"]
         try:
             if action == "add":
                 token = await accounts.invite(email, form.get("name", ""), form.get("role", "member"))
                 link, done = token, f"Compte créé pour {email.strip().lower()}."
+                await audit.record(me, "account_invited", email.strip().lower(), role=form.get("role", "member"))
             elif action == "link":
                 link, done = await accounts.new_link(email), f"Nouveau lien pour {email}."
+                await audit.record(me, "account_link", email)
             elif action == "role":
                 await accounts.set_role(email, form.get("role", ""))
+                await audit.record(me, "account_role", email, role=form.get("role", ""))
                 done = f"{email} est maintenant {'administrateur' if form.get('role') == 'admin' else 'membre'}."
             elif action == "close":
                 await accounts.disable(email)
+                await audit.record(me, "account_closed", email)
                 done = f"Compte de {email} fermé."
             else:
                 error = "action inconnue"
@@ -66,7 +71,8 @@ async def invitation_page(request: Request):
             error = "les deux mots de passe diffèrent"
         else:
             try:
-                await accounts.accept(token, form.get("password", ""))
+                email = await accounts.accept(token, form.get("password", ""))
+                await audit.record(email, "password_set", email, via="lien")
                 return RedirectResponse("/login?ready=1", status_code=303)
             except ValueError as refused:
                 error = str(refused)

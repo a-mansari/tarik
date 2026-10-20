@@ -37,11 +37,11 @@ from starlette.responses import JSONResponse, RedirectResponse, StreamingRespons
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from engine import accounts, agent, content, graphs, layouts, mail, prompts, runs
+from engine import accounts, agent, audit, content, graphs, layouts, mail, prompts, runs
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.config import POSTGRES
 from tarik.core.experio import account
-from ui import accounts_pages, chat_pages, content_pages, pages, settings_pages
+from ui import accounts_pages, chat_pages, content_pages, journal_pages, pages, settings_pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = make_conninfo(**POSTGRES)  # the tools' own Postgres settings
@@ -56,7 +56,7 @@ def admin_only(method, path):
     accounts, a change to the content or to a canvas's layout, a run started by hand. Discussion stays every
     member's."""
     return (
-        path.startswith(("/ui/cabinets", "/ui/comptes"))
+        path.startswith(("/ui/cabinets", "/ui/comptes", "/ui/journal"))
         or (method == "POST" and path.startswith(("/ui/contenu", "/runs/")))
         or (method in ("PUT", "DELETE") and path.startswith("/graphs/"))
     )
@@ -112,9 +112,12 @@ async def login(request: Request):
     if not same_origin(request):
         return JSONResponse({"error": "cross-site request refused"}, status_code=403)
     form = parse_qs((await request.body()).decode(), max_num_fields=5)  # a plain form: no multipart library
-    token = await accounts.log_in(form.get("email", [""])[0], form.get("password", [""])[0])
+    email = form.get("email", [""])[0].strip().lower()
+    token = await accounts.log_in(email, form.get("password", [""])[0])
     if token is None:
+        await audit.record(email[:200], "login_failed")
         return pages.login_page(request, target, failed=True)
+    await audit.record(email, "login")
     answer = RedirectResponse(target, status_code=303)
     answer.set_cookie(
         COOKIE,
@@ -128,6 +131,7 @@ async def login(request: Request):
 
 
 async def logout(request: Request):
+    await audit.record(request.state.user["email"], "logout")
     await accounts.log_out(request.cookies.get(COOKIE))
     answer = RedirectResponse("/login", status_code=303)
     answer.delete_cookie(COOKIE)
@@ -144,6 +148,7 @@ async def start(request: Request):
         return JSONResponse({"error": f"unknown graph {name!r}"}, status_code=404)
     payload = await request.json()
     run_id, task = await runs.start(name, payload)
+    await audit.record(request.state.user["email"], "run_started", name, run_id=run_id)
     if payload.get("wait", True):
         await task
         return JSONResponse(await runs.run(run_id))
@@ -195,11 +200,14 @@ async def layout(request: Request):
         return JSONResponse({"error": f"unknown graph {name!r}"}, status_code=404)
     if request.method == "PUT":
         try:
-            return JSONResponse(await layouts.save(name, await request.json()))
+            saved = await layouts.save(name, await request.json())
         except (ValueError, KeyError, TypeError, AttributeError) as error:
             return JSONResponse({"error": f"layout refused: {error}"}, status_code=400)
+        await audit.record(request.state.user["email"], "layout_saved", name)
+        return JSONResponse(saved)
     if request.method == "DELETE":
         await layouts.forget(name)
+        await audit.record(request.state.user["email"], "layout_reset", name)
         return JSONResponse({"nodes": {}, "edges": {}})
     return JSONResponse(await layouts.read(name))
 
@@ -265,6 +273,7 @@ app = Starlette(
         Route("/ui/prompts/{cabinet}/{session_id}", pages.prompt_calls_page),
         Route("/invitation/{token}", accounts_pages.invitation_page, methods=["GET", "POST"]),
         Route("/ui/comptes", accounts_pages.accounts_page, methods=["GET", "POST"]),
+        Route("/ui/journal", journal_pages.journal_page),
         Route("/ui/cabinets", settings_pages.cabinets_page),
         Route("/ui/cabinets/{cabinet}", settings_pages.cabinet_page, methods=["GET", "POST"]),
         Route("/ui/contenu", content_pages.contents_page),

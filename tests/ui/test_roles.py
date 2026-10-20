@@ -20,6 +20,8 @@ import server
         ("PUT", "/graphs/traitement/layout"),
         ("DELETE", "/graphs/traitement/layout"),
         ("POST", "/runs/traitement"),
+        ("GET", "/ui/comptes"),
+        ("GET", "/ui/journal"),
     ],
 )
 def test_what_changes_everyone_s_tarik_is_an_admin_s(method, path):

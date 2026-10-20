@@ -111,6 +111,9 @@ async def save(pool, path, new, author, note="", create=False, reshape=False):
         )
     LATEST[path] = new
     applied(path)
+    from engine import audit  # audit uses the run store, which imports the graphs, which read this content
+
+    await audit.record(author, "content_saved", path, note=note.strip()[:300])
     return True
 
 

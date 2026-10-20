@@ -83,7 +83,8 @@ docker compose up --build -d
 
 The team's pages: http://127.0.0.1:2024/ui/runs (runs), /ui/discussion (writing to Tarik), /ui/workflows
 (workflows), /ui/prompts (what the model was sent), /ui/contenu (what Tarik is told, edited with its history),
-/ui/cabinets (each cabinet's settings), /ui/comptes (the accounts). Each person logs in with their own account, made
+/ui/cabinets (each cabinet's settings), /ui/comptes (the accounts), /ui/journal (who did what: logins, accounts,
+content, settings, layouts, runs started by hand; `engine/audit.py`, never a password or a link). Each person logs in with their own account, made
 by an admin on the Comptes page (a one-time link, 72 h, for the person to choose their password; a new link for a
 forgotten one) or in the container: `python users.py add <email> "<name>"` (the password is asked; `disable` closes
 one). The last admin can be neither made a member nor closed. A new account is a member: it

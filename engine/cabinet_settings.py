@@ -15,6 +15,7 @@ from pathlib import Path
 import httpx
 from psycopg.types.json import Jsonb
 
+from engine import audit
 from tarik.core import cabinets
 from tarik.core.queries import Q
 
@@ -141,6 +142,7 @@ async def save(pool, cabinet, given, seen, author, note=""):
             Q.settings_changed, (cabinet, author, note.strip()[:300], Jsonb(changes), written["data"]["version"])
         )
     await asyncio.to_thread(cabinets.reread_vault)
+    await audit.record(author, "settings_saved", cabinet, keys=list(found), note=note.strip()[:300])
     return list(found)
 
 
