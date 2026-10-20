@@ -78,7 +78,6 @@
     const GRID = 20; // the map's step: nodes and bends snap to it
     let layout = await (await fetch(`/graphs/${graph}/layout`)).json(); // how the team arranged it, shared
     let dirty = false;
-    let bendSign = 0; // which side cytoscape bends a positive distance to, found on the first bent edge
     const saveButton = document.getElementById(container.dataset.save || "");
     const resetButton = document.getElementById(container.dataset.reset || "");
     const note = document.getElementById(container.dataset.note || "");
@@ -163,13 +162,15 @@
       };
     }
 
+    // Placed, then checked against where cytoscape drew the point furthest from the line (a point on the line looks
+    // right either way), and placed again on the other side when it landed on the wrong one.
     function oriented(edge, points, apply, drawn) {
-      if (!bendSign) {
-        apply(relative(edge, points, 1));
-        const first = drawn()?.[0], wanted = points[0];
-        bendSign = first && Math.hypot(first.x - wanted.x, first.y - wanted.y) > 2 ? -1 : 1;
-      }
-      apply(relative(edge, points, bendSign));
+      const s = edge.source().position(), t = edge.target().position(), vx = t.x - s.x, vy = t.y - s.y;
+      const off = (p) => Math.abs((p.x - s.x) * vy - (p.y - s.y) * vx);
+      const far = points.reduce((best, p, index) => (off(p) > off(points[best]) ? index : best), 0);
+      apply(relative(edge, points, 1));
+      const got = drawn()?.[far], wanted = points[far];
+      if (got && Math.hypot(got.x - wanted.x, got.y - wanted.y) > 2) apply(relative(edge, points, -1));
     }
 
     const OVERRIDES = "segment-weights segment-distances control-point-weights control-point-distances edge-distances curve-style source-endpoint target-endpoint";
@@ -186,9 +187,12 @@
         return;
       }
       if (saved.style === "bezier") {
-        const s = edge.source().position(), t = edge.target().position();
-        const reach = Math.max(40, Math.abs(t.x - s.x) / 2);
-        const controls = [{ x: s.x + reach, y: s.y }, { x: t.x - reach, y: t.y }];
+        // From where it leaves (the source's right side) to where it enters (the target's left side): its pull is half
+        // the gap between them, never less than 30, and grows into a loop when the target sits behind the source.
+        const source = edge.source(), target = edge.target(), s = source.position(), t = target.position();
+        const out = s.x + source.width() / 2, into = t.x - target.width() / 2, gap = into - out;
+        const reach = gap > 0 ? Math.max(30, gap / 2) : Math.max(60, -gap / 2 + 40);
+        const controls = [{ x: out + reach, y: s.y }, { x: into - reach, y: t.y }];
         oriented(edge, controls,
           (r) => edge.style({
             "curve-style": "unbundled-bezier", "edge-distances": "node-position", "control-point-weights": r.weights,
@@ -348,6 +352,14 @@
     cy.on("tap", "edge", (event) => { showHandles(event.target); showEdge(event.target); });
     cy.on("tap", (event) => { if (event.target === cy) showHandles(null); });
 
+    // A curve or a bent edge is placed from where its ends are: redrawn as they move, so it adapts while dragging
+    // instead of being stretched until the drop.
+    cy.on("position", "node[kind != 'handle'][kind != 'ghost']", (event) => {
+      event.target.connectedEdges().forEach((edge) => {
+        const saved = layout.edges?.[edge.id()];
+        if (saved && (saved.style === "bezier" || saved.points.length)) drawEdge(edge);
+      });
+    });
     // While a step is dragged, a dashed outline shows where it will snap when dropped.
     cy.on("drag", "node[kind != 'handle'][kind != 'ghost']", (event) => {
       const node = event.target;
