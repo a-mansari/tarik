@@ -47,6 +47,9 @@
       { selector: "node[kind = 'group'].ran", style: { "border-color": css("--accent"), "background-color": css("--accent-soft"), "background-opacity": 0.6 } },
       { selector: "node[kind = 'end'].ran", style: { "background-color": css("--accent") } },
       { selector: "edge.ran", style: { "width": 2.5, "line-color": css("--accent"), "target-arrow-color": css("--accent") } },
+      // A way in or out a part rarely takes (an invoice resumed at a later step, a step ending it): shown when a run took it.
+      { selector: "edge.hidden", style: { "display": "none" } },
+      { selector: "edge.hidden.ran", style: { "display": "element" } },
       { selector: "edge:selected", style: { "width": 3, "line-color": css("--accent"), "target-arrow-color": css("--accent") } },
       { selector: "node:selected", style: { "overlay-color": css("--accent"), "overlay-opacity": 0.12, "border-color": css("--accent"), "border-width": 3 } },
     ];
@@ -93,7 +96,7 @@
         style: [{ selector: "node", style: { width: 162, height: 56 } }, { selector: "node.end", style: { width: 18, height: 18 } }],
         elements: [
           ...shape.nodes.filter((n) => n.kind !== "group").map((n) => ({ data: { id: n.id }, classes: n.kind === "end" ? "end" : "" })),
-          ...shape.edges.filter((e) => known.has(e.source) && known.has(e.target)).map((e) => ({ data: { ...e } })),
+          ...shape.edges.filter((e) => !e.hidden && known.has(e.source) && known.has(e.target)).map((e) => ({ data: { ...e } })),
         ],
       });
       whole.layout({ name: "dagre", rankDir: "LR", nodeSep: 16, rankSep: 40, edgeSep: 8 }).run();
@@ -157,10 +160,16 @@
         const source = shownAs(e.source), target = shownAs(e.target);
         if (source === target) continue; // a path inside a collapsed group
         const id = `${source}->${target}`;
-        if (seen.has(id)) { seen.get(id).conditional &&= e.conditional; seen.get(id).under.push(e.id); continue; }
-        seen.set(id, { id, source, target, conditional: e.conditional, under: [e.id] });
+        if (seen.has(id)) {
+          const shown = seen.get(id);
+          shown.conditional &&= e.conditional;
+          shown.hidden &&= e.hidden; // hidden only when every edge it stands for is
+          shown.under.push(e.id);
+          continue;
+        }
+        seen.set(id, { id, source, target, conditional: e.conditional, hidden: e.hidden, under: [e.id] });
       }
-      cy.add([...seen.values()].map((e) => ({ data: e, classes: e.conditional ? "conditional" : "" })));
+      cy.add([...seen.values()].map((e) => ({ data: e, classes: [e.conditional && "conditional", e.hidden && "hidden"].filter(Boolean).join(" ") })));
       cy.nodes().forEach((node) => node.position({ ...placeOf(node.id()) })); // each at its one place
       const frames = [...opened].filter((g) => shownAs(g) === g).sort((x, y) => x.split(":").length - y.split(":").length);
       cy.add(frames.map((g) => ({ data: { ...groups.get(g), parent: undefined, display: groups.get(g).label, kind: "group" } })));
@@ -296,9 +305,11 @@
       if (went) cy.nodes("[kind = 'end']").filter((end) => end.id() === "__start__" || end.connectedEdges(".ran").length).forEach(reached);
     }
 
-    // The whole graph's edges the run went along: in each run of a part (its lane: one invoice, one email thread), from
-    // its start to each step in the order they ended, to its end. A part's own closing step stands for the part: it is
-    // entered by its start, left from its end. Runs recorded before lanes existed: null, edges lit between steps that ran.
+    // The whole graph's edges the run went along. In each run of a part (its lane: one invoice, one email thread), each
+    // step is reached from the step of the round before with an edge to it (parallel branches each keep their own), or
+    // from the part's start (its first step, or the one it resumed at); a step leading nowhere else goes to the part's
+    // end. A part's own closing step stands for the part: entered by its start, left from its end. Runs recorded
+    // before rounds: the latest earlier step with an edge to it. Before lanes: null, edges lit between steps that ran.
     function taken() {
       if (!sequence.length || sequence.some((s) => s.lane == null)) return null;
       const lanes = new Map();
@@ -306,16 +317,33 @@
         if (!lanes.has(step.lane)) lanes.set(step.lane, []);
         lanes.get(step.lane).push(step);
       }
+      const edges = new Set(shape.edges.map((e) => e.id));
+      const rounds = !sequence.some((s) => s.round == null); // recorded with their rounds: parallel branches apart
       const went = new Set();
       for (const list of lanes.values()) {
         const prefix = list[0].path ? list[0].path.split("|").join(":") + ":" : "";
-        let previous = `${prefix}__start__`;
+        const start = `${prefix}__start__`, end = `${prefix}__end__`;
+        const ends = (step) => {
+          const id = nodeOf(step);
+          return groups.has(id) ? [`${id}:__start__`, `${id}:__end__`] : [id, id]; // a part: entered, left
+        };
+        const before = []; // [step, its way out] in the order they ended
+        const led = new Set(); // steps that led to another
         for (const step of list) {
-          const id = nodeOf(step), part = groups.has(id);
-          went.add(`${previous}->${part ? `${id}:__start__` : id}`);
-          previous = part ? `${id}:__end__` : id;
+          const [into, out] = ends(step);
+          // What led to it: a step of the round before (or, without rounds, the latest step) with an edge to it.
+          const candidates = before.filter(([s]) => !rounds || s.round === step.round - 1).reverse();
+          const from = candidates.find(([, o]) => edges.has(`${o}->${into}`));
+          if (from) {
+            went.add(`${from[1]}->${into}`);
+            led.add(from[0]);
+          } else if (edges.has(`${start}->${into}`)) {
+            went.add(`${start}->${into}`); // where the part began: its first step, or the one it resumed at
+          }
+          before.push([step, out]);
         }
-        if (finished) went.add(`${previous}->${prefix}__end__`);
+        // Each step that led nowhere else ended the part, when the run is over and an edge goes from it to the end.
+        if (finished) for (const [step, out] of before) if (!led.has(step) && edges.has(`${out}->${end}`)) went.add(`${out}->${end}`);
       }
       return went;
     }

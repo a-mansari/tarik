@@ -72,22 +72,28 @@ def shape(name):
     for edge in drawn.edges:
         leaving[edge.source] = leaving.get(edge.source, 0) + 1
     # A step that is not ok ends its invoice or file: drawn, those paths would converge from every step on the part's
-    # end. They are left out where the step has another way on (the legend says it), kept where it is the only one.
+    # end. Where the step has another way on, they are kept hidden (the legend says it): a run that went along one
+    # shows it.
     arriving = {}
     for edge in drawn.edges:
         arriving[edge.target] = arriving.get(edge.target, 0) + 1
     # And a part may start at any of its steps (an invoice resumes where an answer leaves it): only its first entry is
-    # drawn, the step nothing else leads to; the others would fan out from its start.
+    # drawn, the step nothing else leads to; the others would fan out from its start, and are kept hidden the same way.
     edges = [
         {
             "id": f"{edge.source}->{edge.target}",
             "source": edge.source,
             "target": edge.target,
             "conditional": bool(edge.conditional),
+            "hidden": bool(
+                edge.conditional
+                and (
+                    (edge.target.endswith(":__end__") and leaving[edge.source] > 1)
+                    or (edge.source.endswith(":__start__") and arriving[edge.target] > 1)
+                )
+            ),
         }
         for edge in drawn.edges
-        if not (edge.conditional and edge.target.endswith(":__end__") and leaving[edge.source] > 1)
-        and not (edge.conditional and edge.source.endswith(":__start__") and arriving[edge.target] > 1)
     ]
     return {
         "graph": name,

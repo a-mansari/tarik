@@ -57,6 +57,9 @@ create index if not exists steps_run on steps (run_id, id);
 -- Which run of its part a step belongs to: the subgraphs' task ids ("fil:<id>|..."), so two invoices or two email
 -- threads of one run, side by side, each keep their own order of steps (the canvas follows it).
 alter table steps add column if not exists lane text;
+-- Its round in its graph (LangGraph's superstep): a step follows a step of the round before, in its lane. Parallel
+-- branches (an answer and the files at once) each keep their own order.
+alter table steps add column if not exists round integer;
 create table if not exists layouts (
     graph text primary key,
     layout jsonb not null,  -- {nodes: {id: {x, y}}, edges: {id: {points: [{x, y}], style}}}: how the team arranged it
@@ -209,6 +212,7 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
     configurable = {"cabinet": cabinet, "session_id": session, **({"thread_id": thread} if thread else {})}
     status, error, output, failure = "done", None, None, None
     inner = {}  # a part's path ("facture", "fichier|facture") -> the status of the last step that ran inside it
+    rounds = {}  # (namespace, node) -> the round its latest task started in
     running = RUNNING.set(run_id)
     async with (
         slots or contextlib.nullcontext()
@@ -220,10 +224,13 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
             async for namespace, mode, data in graph.astream(
                 given,
                 {"configurable": configurable, "run_id": run_id},
-                stream_mode=["updates", "values"],
+                stream_mode=["updates", "values", "debug"],
                 subgraphs=True,
             ):
-                if mode == "values" and not namespace:
+                if mode == "debug":
+                    if data["type"] == "task":  # a step starting: its round, read when its update comes
+                        rounds[(namespace, data["payload"]["name"])] = data["step"]
+                elif mode == "values" and not namespace:
                     output = data
                 elif mode == "updates":
                     path = "|".join(part.split(":")[0] for part in namespace)
@@ -235,9 +242,18 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
                                 step_status = inner[own]
                             inner[path] = step_status
                             await db.execute(
-                                "insert into steps (run_id, path, lane, node, status, summary, detail) "
-                                "values (%s, %s, %s, %s, %s, %s, %s)",
-                                (run_id, path, "|".join(namespace), node, step_status, line, capped(update)),
+                                "insert into steps (run_id, path, lane, round, node, status, summary, detail) "
+                                "values (%s, %s, %s, %s, %s, %s, %s, %s)",
+                                (
+                                    run_id,
+                                    path,
+                                    "|".join(namespace),
+                                    rounds.get((namespace, node)),
+                                    node,
+                                    step_status,
+                                    line,
+                                    capped(update),
+                                ),
                             )
                     live[run_id].set()
         except Exception as caught:  # the run's own failure: kept for whoever looks, the server goes on
@@ -266,7 +282,8 @@ async def run(run_id):
             return None
         steps = await (
             await db.execute(
-                "select id, at, path, lane, node, status, summary from steps where run_id = %s order by id", (run_id,)
+                "select id, at, path, lane, round, node, status, summary from steps where run_id = %s order by id",
+                (run_id,),
             )
         ).fetchall()
         children = await (
@@ -312,11 +329,12 @@ async def run(run_id):
             "when": when(at),
             "path": path,
             "lane": lane,
+            "round": round_,
             "node": node,
             "status": status,
             "summary": summary,
         }
-        for i, at, path, lane, node, status, summary in steps
+        for i, at, path, lane, round_, node, status, summary in steps
     ]
     return shown
 
@@ -375,7 +393,8 @@ async def steps_after(run_id, after):
     async with pool.connection() as db:
         steps = await (
             await db.execute(
-                "select id, at, path, lane, node, status, summary from steps where run_id = %s and id > %s order by id",
+                "select id, at, path, lane, round, node, status, summary from steps "
+                "where run_id = %s and id > %s order by id",
                 (run_id, after),
             )
         ).fetchall()
@@ -387,11 +406,12 @@ async def steps_after(run_id, after):
             "when": when(at),
             "path": p,
             "lane": lane,
+            "round": round_,
             "node": n,
             "status": s,
             "summary": line,
         }
-        for i, at, p, lane, n, s, line in steps
+        for i, at, p, lane, round_, n, s, line in steps
     ]
     return found, state
 
