@@ -1,11 +1,11 @@
-// The Discussion page: a message and its files sent (files as base64 in JSON), then Tarik's reply waited for (its
-// run polled) and the page shown again with it.
+// The Discussion page: a message and its files sent (files as base64 in JSON), then the conversation asked for again
+// while Tarik works, as n8n's chat shows it: the message at once, each tool as it runs, then the reply.
 (() => {
   const form = document.getElementById("chat-form");
   if (!form) return;
-  const waiting = document.getElementById("waiting");
   const failure = document.getElementById("chat-error");
   const button = form.querySelector("button");
+  let polling = false;
 
   const base64 = (file) => new Promise((done, failed) => {
     const reader = new FileReader();
@@ -14,20 +14,31 @@
     reader.readAsDataURL(file);
   });
 
-  function busy(on, runId) {
+  function busy(on) {
     button.disabled = on;
     form.message.disabled = on;
-    waiting.hidden = !on;
-    if (runId) document.getElementById("waiting-run").href = `/ui/runs/${runId}`;
   }
 
-  async function wait(runId) {
-    busy(true, runId);
-    for (;;) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const found = await fetch(`/runs/${runId}`).then((r) => r.json()).catch(() => null);
-      if (found && !["queued", "running"].includes(found.status)) return location.reload();
-    }
+  // The conversation shown again from the server; true while its message is on its way.
+  async function refresh() {
+    const answer = await fetch(`${location.pathname}?partial=1`).catch(() => null);
+    if (!answer?.ok) return true; // a hiccup: asked again next time
+    const talk = document.getElementById("talk");
+    const near = talk.getBoundingClientRect().bottom <= window.innerHeight + 80; // following the end: kept there
+    talk.outerHTML = await answer.text();
+    const shown = document.getElementById("talk");
+    if (near) shown.scrollIntoView({ block: "end" });
+    return Boolean(shown.dataset.going);
+  }
+
+  async function follow() {
+    if (polling) return;
+    polling = true;
+    busy(true);
+    while (await refresh()) await new Promise((r) => setTimeout(r, 1200));
+    polling = false;
+    busy(false);
+    form.message.focus();
   }
 
   form.addEventListener("submit", async (event) => {
@@ -44,14 +55,8 @@
       });
       const found = await answer.json().catch(() => ({ error: "Réponse illisible du serveur." }));
       if (!answer.ok) throw new Error(found.error || "Message refusé.");
-      const talk = document.getElementById("talk");
-      const shown = document.createElement("li");
-      shown.className = "client";
-      shown.innerHTML = '<span class="who">Client</span><pre class="said"></pre>';
-      shown.querySelector("pre").textContent = form.message.value + (files.length ? `\n📎 ${files.map((f) => f.file_name).join(", ")}` : "");
-      talk.append(shown);
       form.reset();
-      wait(found.run_id);
+      follow();
     } catch (error) {
       busy(false);
       failure.textContent = error.message;
@@ -59,5 +64,13 @@
     }
   });
 
-  if (["queued", "running"].includes(waiting.dataset.status)) wait(waiting.dataset.run);
+  // Enter sends, Shift+Enter goes to a new line, as in n8n's chat.
+  form.message.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  if (document.getElementById("talk").dataset.going) follow();
 })();

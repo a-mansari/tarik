@@ -252,6 +252,7 @@ app = Starlette(
         Route("/ui/discussion", chat_pages.chat_page),
         Route("/ui/discussion/{cabinet}/{session_id}", chat_pages.conversation_page),
         Route("/ui/discussion/{cabinet}/{session_id}", chat_pages.send, methods=["POST"]),
+        Route("/ui/discussion/{cabinet}/{session_id}/fichier", chat_pages.download),
         Route("/ui/workflows", pages.workflows_page),
         Route("/ui/workflows/{graph}", pages.workflow_page),
         Route("/", pages.home),

@@ -120,7 +120,9 @@ with every run live, step by step.
 6. **Chat with file upload** — done: the Discussion page, for the team (logged in), per cabinet. Each message, with
    its files (the email's types, 10 per message, 20 MB each), is a run of the "Discussion" workflow: the files saved
    in the cabinet's schema first, then Tarik answers in the conversation's own thread, reminded of files left
-   untaken as for an email. As n8n's chat, no sender is checked: whoever is logged in writes.
+   untaken as for an email. As in n8n's chat, each tool Tarik calls shows as it runs, then its reply (markdown, its
+   raw HTML never kept), and each file sent can be downloaded again. No sender is checked: whoever is logged in
+   writes.
 
 ## Lessons kept from the first port
 

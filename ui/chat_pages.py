@@ -6,15 +6,20 @@ import base64
 import hashlib
 import re
 import uuid
+from urllib.parse import quote
 
+from markdown_it import MarkdownIt
+from markupsafe import Markup
+from psycopg import sql
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from engine import agent, runs
 from engine.chat import REMINDER
 from engine.tools import call
 from tarik.core.cabinets import CABINETS
 from tarik.core.conversation import FILES_NOTE, NO_TEXT
+from tarik.core.queries import Q
 from tarik.emails.inbox import FILE_TYPES
 from ui.pages import templates
 
@@ -45,15 +50,49 @@ def said(message):
 
 
 async def messages(session):
-    """The conversation as the client reads it: their messages and Tarik's replies, none of its tools' calls."""
+    """The conversation as the client reads it, as n8n's chat shows one: their messages, and each of Tarik's turns
+    with the tools it called (done, failed, or still going) before its reply."""
     saved = await agent.CHECKPOINTER.aget({"configurable": {"thread_id": session, "checkpoint_ns": ""}})
-    shown = []
+    shown, called = [], {}  # tool call id -> its line in the turn
     for message in (saved or {}).get("channel_values", {}).get("messages", []):
-        if message.type == "human" and (entry := said(message)):
-            shown.append(entry)
-        elif message.type == "ai" and not message.tool_calls and message.text.strip():
-            shown.append({"who": "Tarik", "text": message.text})
+        if message.type == "human":
+            if entry := said(message):
+                shown.append(entry)
+        elif message.type == "ai":
+            if not shown or shown[-1]["who"] != "Tarik":
+                shown.append({"who": "Tarik", "tools": [], "text": ""})
+            turn = shown[-1]
+            for tool_call in message.tool_calls:
+                called[tool_call["id"]] = {"name": tool_call["name"], "state": "running"}
+                turn["tools"].append(called[tool_call["id"]])
+            if message.text.strip():
+                turn["text"] = message.text  # its last words in the turn: the reply
+        elif message.type == "tool" and message.tool_call_id in called:
+            called[message.tool_call_id]["state"] = "failed" if message.status == "error" else "done"
     return shown
+
+
+async def talk(cabinet, session):
+    """What the conversation shows: its messages, and the message on its way (its Discussion run still going), its
+    client's words shown at once, before Tarik's memory has them."""
+    shown = await messages(session)
+    latest = next(iter([r for r in await conversations(cabinet) if r["session_id"] == session]), None)
+    going = bool(latest and latest["status"] in ("queued", "running"))
+    if going:
+        given = (await runs.run(latest["run_id"]))["input"] or {}
+        clients = [entry for entry in shown if entry["who"] == "Client"]
+        if not clients or clients[-1]["text"].strip() != (given.get("message") or "").strip():
+            shown.append({"who": "Client", "text": given.get("message", ""), "files": given.get("files", [])})
+    return {"messages": shown, "latest": latest, "going": going}
+
+
+def markdown(text):
+    """Tarik's reply as it means it (bold, lists, tables): its raw HTML never kept, unsafe links never made."""
+    return Markup(MARKDOWN.render(text or ""))
+
+
+MARKDOWN = MarkdownIt("commonmark", {"html": False, "breaks": True}).enable("table")
+templates.env.filters["markdown"] = markdown
 
 
 async def chat_page(request: Request):
@@ -71,21 +110,40 @@ async def chat_page(request: Request):
 
 
 async def conversation_page(request: Request):
-    """One conversation: its messages, the message on its way (a Discussion run still going), and the form."""
+    """One conversation: its messages, the message on its way, and the form; ``?partial=1`` its messages alone, which
+    the page asks for again while Tarik works (its tools showing as they run)."""
     cabinet, session = request.path_params["cabinet"], request.path_params["session_id"]
     if not known(cabinet, session):
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
-    latest = next(iter([r for r in await conversations(cabinet) if r["session_id"] == session]), None)
     context = {
         "cabinet": cabinet,
         "session_id": session,
-        "messages": await messages(session),
-        "latest": latest,
+        **await talk(cabinet, session),
         "accepted": ",".join(FILE_TYPES),
         "max_files": MAX_FILES,
         "max_mb": MAX_FILE // (1024 * 1024),
     }
-    return templates.TemplateResponse(request, "chat_conversation.html", context)
+    template = "chat_talk.html" if request.query_params.get("partial") else "chat_conversation.html"
+    return templates.TemplateResponse(request, template, context)
+
+
+async def download(request: Request):
+    """A file the client sent in the conversation (``?nom=``), as sent: always downloaded, never opened in the page."""
+    cabinet, session = request.path_params["cabinet"], request.path_params["session_id"]
+    name = request.query_params.get("nom", "")
+    if not known(cabinet, session):
+        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+    files = sql.Identifier(cabinet, "tarik_files")
+    async with runs.pool.connection() as db:
+        found = await (await db.execute(sql.SQL(Q.chat_file).format(files=files), (session, name))).fetchone()
+    if not found:
+        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+    file_name, mime_type, data = found
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(file_name)}",
+        "X-Content-Type-Options": "nosniff",
+    }
+    return Response(bytes(data), media_type=mime_type or "application/octet-stream", headers=headers)
 
 
 def digest(file):

@@ -155,3 +155,10 @@ select agent, created_at, session_id, system_hash, tools_hash, message_hashes fr
 
 -- name: prompt_parts_of
 select hash, content from {parts} where hash = any(%s)
+
+-- === The Discussion page (ui/chat_pages.py), in a cabinet's schema ===
+
+-- name: chat_file
+-- A file a client sent in a conversation, as sent: the first saved under that name, never a part cut out of it.
+select file_name, mime_type, data from {files} where session_id = %s and file_name = %s and parent_id is null
+order by id limit 1

@@ -5,7 +5,7 @@ import base64
 import json
 
 import pytest
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from starlette.requests import Request
 
 from engine.chat import REMINDER
@@ -71,3 +71,23 @@ def test_a_message_reads_as_written_with_its_files_and_reminders_left_out():
         "files": ["a.pdf", "b.png"],
     }
     assert chat_pages.said(HumanMessage(f"Voici{FILES_NOTE}a.pdf{REMINDER}")) is None
+
+
+def test_tarik_s_turn_shows_its_tools_as_they_run_then_its_reply(monkeypatch):
+    class Memory:
+        async def aget(self, config):
+            return {"channel_values": {"messages": saved}}
+
+    calls = [{"id": "1", "name": "Experio_find_dossier", "args": {}}, {"id": "2", "name": "Experio_list", "args": {}}]
+    saved = [HumanMessage("Bonjour"), AIMessage("", tool_calls=calls), ToolMessage("ok", tool_call_id="1")]
+    monkeypatch.setattr(chat_pages.agent, "CHECKPOINTER", Memory())
+    turn = asyncio.run(chat_pages.messages("s"))[-1]
+    assert [tool["state"] for tool in turn["tools"]] == ["done", "running"] and not turn["text"]
+    saved += [ToolMessage("non", tool_call_id="2", status="error"), AIMessage("**Fait.**")]
+    turn = asyncio.run(chat_pages.messages("s"))[-1]
+    assert [tool["state"] for tool in turn["tools"]] == ["done", "failed"] and turn["text"] == "**Fait.**"
+
+
+def test_a_reply_s_markdown_is_shown_without_its_html():
+    shown = chat_pages.markdown("**Fait** <img src=x onerror=alert(1)> [x](javascript:alert(1))")
+    assert "<strong>Fait</strong>" in shown and "<img" not in shown and 'href="javascript' not in shown
