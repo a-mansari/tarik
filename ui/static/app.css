@@ -211,7 +211,8 @@ details.card { padding: 0; }
 details.card > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: baseline; gap: .8rem; padding: .8rem 1rem; }
 details.card > summary::-webkit-details-marker { display: none; }
 details.card > summary .card-title { font-weight: 600; }
-details.card > summary .card-title::before { content: "▸"; display: inline-block; width: 1.1em; color: var(--muted); transition: transform .15s; }
+/* The fold arrow turns about its own centre: a square box, the glyph centred in it, the box beside the title. */
+details.card > summary .card-title::before { content: "▸"; display: inline-flex; align-items: center; justify-content: center; width: 1em; height: 1em; margin-right: .35em; line-height: 1; vertical-align: -.1em; transform-origin: 50% 50%; color: var(--muted); transition: transform .15s; }
 details.card[open] > summary .card-title::before { transform: rotate(90deg); }
 details.card[open] > summary { border-bottom: 1px solid var(--line); }
 details.card.changed > summary .muted::after { content: " · modifié, pas encore enregistré"; color: var(--wait, #9a6b00); }
@@ -244,9 +245,21 @@ details.card.touched { border-color: var(--wait, #9a6b00); }
 }
 
 /* A version's change beside the field in service: old (the version, its change marked) -> new (in service). */
-.field-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: .6rem; align-items: start; }
-.field-pair .arrow { align-self: center; padding-top: 1.2rem; font-size: 1.3rem; color: var(--wait, #9a6b00); }
-@media (max-width: 60rem) { .field-pair { grid-template-columns: 1fr; } .field-pair .arrow { justify-self: center; transform: rotate(90deg); } }
+/* One grid for both sides: labels on row 1, boxes on row 2, counts on row 3, so the two boxes and the arrow share one
+   vertical centre whatever their heights (each side's own wrapper steps aside: display: contents). */
+.field-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto auto auto; gap: .3rem .6rem; }
+.field-pair > .field { display: contents; }
+.field-pair > .field:first-child > * { grid-column: 1; }
+.field-pair > .field:last-child > * { grid-column: 3; }
+.field-pair > .field > span { grid-row: 1; align-self: end; }
+.field-pair > .field > :is(.field-diff, textarea, input) { grid-row: 2; align-self: center; }
+.field-pair > .field > .count { grid-row: 3; }
+.field-pair .arrow { grid-column: 2; grid-row: 2; align-self: center; font-size: 1.3rem; line-height: 1; color: var(--wait, #9a6b00); }
+@media (max-width: 60rem) {
+  .field-pair { grid-template-columns: 1fr; grid-template-rows: none; }
+  .field-pair > .field > *, .field-pair .arrow { grid-column: 1; grid-row: auto; }
+  .field-pair .arrow { justify-self: center; transform: rotate(90deg); }
+}
 details.card > summary { flex-wrap: wrap; }
 details.card > summary .card-title { flex: 1 1 14rem; }
 .head [data-tip]::after, .group-head [data-tip]::after { left: auto; right: 0; } /* buttons on the right: tip to the left */
