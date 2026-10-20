@@ -191,8 +191,6 @@ pre.said { font-family: var(--font); font-size: 1em; }
 
 /* Content: a document's form, its history and what a version changed. */
 .content-flow { align-items: start; }
-.content-form { display: grid; gap: .9rem; }
-.content-form h2 { margin: .6rem 0 0; }
 .field { display: grid; gap: .3rem; font-size: .85rem; color: var(--muted); }
 .field textarea, .field input { font: inherit; font-size: .9rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; width: 100%; box-sizing: border-box; }
 .field textarea { resize: vertical; line-height: 1.45; }
@@ -205,3 +203,19 @@ button.primary, .compare button { font: inherit; cursor: pointer; border-radius:
 .diff .add { color: var(--good); }
 .diff .del { color: var(--bad); text-decoration: line-through; }
 @media (max-width: 700px) { .save-bar { grid-template-columns: 1fr; } }
+
+/* Content: each section a card that folds; a card holding an unsaved change says so. */
+.content-form { display: grid; gap: .7rem; }
+.card-tools { display: flex; gap: .5rem; justify-content: flex-end; }
+.card-tools button { font: inherit; font-size: .85rem; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: .3rem .7rem; }
+details.card { padding: 0; }
+details.card > summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: baseline; gap: .8rem; padding: .8rem 1rem; }
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary .card-title { font-weight: 600; }
+details.card > summary .card-title::before { content: "▸"; display: inline-block; width: 1.1em; color: var(--muted); transition: transform .15s; }
+details.card[open] > summary .card-title::before { transform: rotate(90deg); }
+details.card[open] > summary { border-bottom: 1px solid var(--line); }
+details.card.changed > summary .muted::after { content: " · modifié, pas encore enregistré"; color: var(--wait, #9a6b00); }
+.card-body { display: grid; gap: .9rem; padding: 1rem; }
+.save-bar.panel { margin: 0; }
+@media (prefers-reduced-motion: reduce) { details.card > summary .card-title::before { transition: none; } }
