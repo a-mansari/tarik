@@ -19,7 +19,7 @@
 <div class="table-wrap">
   <table class="runs">
     <thead><tr><th>Début</th><th>Type</th><th>Conversation</th><th>État</th><th>Durée</th></tr></thead>
-    <tbody id="runs-rows" data-live="{{ request.url.path }}?partial=1{% if graph %}&graph={{ graph }}{% endif %}">
+    <tbody id="runs-rows" data-cabinet="{{ cabinet or '' }}" data-live="{{ request.url.path }}?partial=1{% if graph %}&graph={{ graph }}{% endif %}">
       {% include "runs_rows.html" %}
     </tbody>
   </table>

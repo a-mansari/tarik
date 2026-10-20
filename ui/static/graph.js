@@ -791,7 +791,7 @@
       wire();
       controls();
       if (["queued", "running"].includes(found.status)) {
-        const events = new EventSource(`/runs/${run}/events`);
+        const events = (window.runEvents ||= new EventSource(`/runs/${run}/events`)); // shared with the steps list
         events.addEventListener("step", (event) => { add(JSON.parse(event.data)); controls(); paint(); });
         events.addEventListener("end", () => { events.close(); finished = true; paint(); });
       }

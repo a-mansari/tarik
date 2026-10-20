@@ -13,6 +13,7 @@ its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) sta
   GET  /graphs/{graph}            a workflow's shape for the canvas: its nodes, groups and edges
   GET|PUT|DELETE /graphs/{graph}/layout   how the team arranged its canvas (node places, edge bends and style)
   /api/cabinets...                the Experio app's API (api.py): cabinets created, changed, closed
+  GET  /ui/live                    the pages' live updates (server-sent events, engine/live.py)
   GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live; the
                                   Discussion page (ui/chat_pages.py), its messages sent with POST
 
@@ -40,7 +41,7 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 import api
-from engine import accounts, agent, audit, content, graphs, layouts, mail, prompts, runs
+from engine import accounts, agent, audit, content, graphs, layouts, live, mail, prompts, runs
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.config import POSTGRES
 from tarik.core.experio import account
@@ -188,8 +189,8 @@ async def events(request: Request):
         return JSONResponse({"error": "unknown run"}, status_code=404)
 
     async def stream():
-        last = 0
-        while True:
+        last, seen = 0, live.versions([("run", run_id)])
+        while True:  # the steps read only when the run changed (engine/live.py), else a sign of life every 25 s
             steps, (status, error) = await runs.steps_after(run_id, last)
             for found in steps:
                 last = found["id"]
@@ -197,7 +198,33 @@ async def events(request: Request):
             if status in ("done", "error"):
                 yield f"event: end\ndata: {json.dumps({'status': status, 'error': error}, ensure_ascii=False)}\n\n"
                 return
-            await runs.changed(run_id)
+            while (now := await live.changed([("run", run_id)], seen)) is None:
+                yield ": still here\n\n"
+            seen = now
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+async def changes(request: Request):
+    """The pages' live updates (server-sent events): a "change" each time something they show changes, a cabinet's
+    runs (?cabinet=) or a conversation (?session=), at most one a second; the page then fetches what it shows. Nothing
+    is read from the database here."""
+    query = request.query_params
+    keys = [("cabinet", query["cabinet"])] if query.get("cabinet") in CABINETS else []
+    keys += [("session", query["session"])] if query.get("session") else []
+    if not keys:
+        return JSONResponse({"error": "nothing to follow"}, status_code=400)
+
+    async def stream():
+        seen = live.versions(keys)
+        while True:
+            now = await live.changed(keys, seen)
+            if now is None:
+                yield ": still here\n\n"
+                continue
+            seen = now
+            yield "event: change\ndata: {}\n\n"
+            await asyncio.sleep(1)  # the changes of the next second, one fetch for them all
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -294,6 +321,7 @@ app = Starlette(
         Route("/invitation/{token}", accounts_pages.invitation_page, methods=["GET", "POST"]),
         Route("/ui/comptes", accounts_pages.accounts_page, methods=["GET", "POST"]),
         Route("/ui/journal", journal_pages.journal_page),
+        Route("/ui/live", changes),
         Route("/ui/cabinet/{cabinet}", pages.choose),
         Route("/ui/cabinets", settings_pages.cabinets_page),
         Route("/ui/cabinets/{cabinet}", settings_pages.cabinet_page, methods=["GET", "POST"]),

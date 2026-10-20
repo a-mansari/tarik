@@ -1,14 +1,31 @@
 // The live parts of the pages: the runs list refreshes itself, a run going on shows each step as it ends, and a
-// step's whole output loads when it is opened.
+// step's whole output loads when it is opened. Each follows the server's changes (engine/live.py) instead of asking
+// again and again: nothing is fetched until something it shows changed, nor while its tab is hidden.
+
+// Follow the changes of ``query`` (cabinet=… or session=…): ``refresh`` runs on each, once for those that came while
+// the tab was hidden, and never twice at once. Returns the stream, to close when there is nothing left to follow.
+window.followChanges = (query, refresh) => {
+  const source = new EventSource(`/ui/live?${query}`);
+  let missed = false, busy = false;
+  const run = async () => {
+    if (document.hidden) { missed = true; return; }
+    if (busy) { missed = true; return; }
+    busy = true;
+    try { await refresh(); } catch {} // the next change tries again
+    busy = false;
+    if (missed) { missed = false; run(); }
+  };
+  source.addEventListener("change", run);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && missed) { missed = false; run(); } });
+  return source;
+};
 
 const rows = document.getElementById("runs-rows");
-if (rows) {
-  setInterval(async () => {
-    try {
-      const answer = await fetch(rows.dataset.live);
-      if (answer.ok) rows.innerHTML = await answer.text();
-    } catch {} // the next refresh tries again
-  }, 4000);
+if (rows && rows.dataset.cabinet) {
+  window.followChanges(`cabinet=${encodeURIComponent(rows.dataset.cabinet)}`, async () => {
+    const answer = await fetch(rows.dataset.live);
+    if (answer.ok) rows.innerHTML = await answer.text();
+  });
 }
 
 const steps = document.getElementById("steps");
@@ -58,7 +75,7 @@ if (steps) {
 
   if (steps.dataset.live) {
     const seen = new Set([...steps.querySelectorAll("li[data-id]")].map((li) => li.dataset.id));
-    const events = new EventSource(`/runs/${run}/events`);
+    const events = (window.runEvents ||= new EventSource(`/runs/${run}/events`)); // one stream, the canvas shares it
     events.addEventListener("step", (event) => {
       const step = JSON.parse(event.data);
       if (seen.has(String(step.id))) return;

@@ -1,11 +1,13 @@
-// The Discussion page: a message and its files sent (files as base64 in JSON), then the conversation asked for again
-// while Tarik works, as n8n's chat shows it: the message at once, each tool as it runs, then the reply.
+// The Discussion page: a message and its files sent (files as base64 in JSON), then the conversation shown again at
+// each change of it while Tarik works (app.js: followChanges), as n8n's chat shows it: the message at once, each tool
+// as it runs, then the reply.
 (() => {
   const form = document.getElementById("chat-form");
   if (!form) return;
   const failure = document.getElementById("chat-error");
   const button = form.querySelector("button");
-  let polling = false;
+  let following = null; // the conversation's changes, followed while Tarik works
+  const session = location.pathname.split("/").pop();
 
   const base64 = (file) => new Promise((done, failed) => {
     const reader = new FileReader();
@@ -33,14 +35,19 @@
     return Boolean(shown.dataset.going);
   }
 
-  async function follow() {
-    if (polling) return;
-    polling = true;
-    busy(true);
-    while (await refresh()) await new Promise((r) => setTimeout(r, 1200));
-    polling = false;
+  function done() {
+    following?.close();
+    following = null;
     busy(false);
     form.message.focus();
+  }
+
+  // Followed before the first look, so that no change between the two is missed.
+  async function follow() {
+    if (following) return;
+    busy(true);
+    following = window.followChanges(`session=${encodeURIComponent(session)}`, async () => { if (!(await refresh())) done(); });
+    if (!(await refresh())) done();
   }
 
   form.addEventListener("submit", async (event) => {

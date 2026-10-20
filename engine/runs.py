@@ -17,7 +17,7 @@ from langchain_core.runnables.config import var_child_runnable_config
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
-from engine import agent, graphs
+from engine import agent, graphs, live
 from engine.content import LABELS
 from engine.settings import DEFAULT_CABINET
 from tarik.core.queries import Q
@@ -28,7 +28,6 @@ DETAIL_LIMIT = 50_000  # characters of a node's update kept: a scan's text or a 
 
 TIME_ZONE = ZoneInfo("Africa/Casablanca")  # the cabinets' time, from the server's own time-zone data
 pool = None  # set by open_store()
-live = {}  # run id -> asyncio.Event, set at each step of a run going on in this process
 
 
 def when(moment):
@@ -122,7 +121,7 @@ async def created(name, given, cabinet, session, thread=None, parent=None, paren
             Q.run_created,
             (run_id, name, cabinet, session, thread, Jsonb(jsonable(given)), parent, parent_node),
         )
-    live[run_id] = asyncio.Event()
+    live.touched(run_id, cabinet, session)
     return run_id
 
 
@@ -219,7 +218,7 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
                                     capped(update),
                                 ),
                             )
-                    live[run_id].set()
+                    live.touched(run_id, cabinet, session)
         except Exception as caught:  # the run's own failure: kept for whoever looks, the server goes on
             status, error, failure = "error", f"{type(caught).__name__}: {caught}", caught
         async with pool.connection() as db:
@@ -228,7 +227,7 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
                 (status, capped(output) if output is not None else None, error, run_id),
             )
     RUNNING.reset(running)
-    live.pop(run_id).set()
+    live.touched(run_id, cabinet, session)
     return output, failure
 
 
@@ -350,17 +349,6 @@ def shown_steps(rows):
         }
         for i, at, path, lane, round_, node, status, summary in rows
     ]
-
-
-async def changed(run_id, seconds=1.0):
-    """Wait for the run's next step in this process, or ``seconds`` (a run of another process is polled)."""
-    event = live.get(run_id)
-    if event is None:
-        await asyncio.sleep(seconds)
-        return
-    event.clear()
-    with contextlib.suppress(TimeoutError):
-        await asyncio.wait_for(event.wait(), seconds)
 
 
 async def step_detail(run_id, step_id):
