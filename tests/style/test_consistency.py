@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-ORCHESTRATOR = Path(__file__).resolve().parents[2]
-CONTENT = ORCHESTRATOR / "content"
+ROOT = Path(__file__).resolve().parents[2]
+CONTENT = ROOT / "content"
 
 
 def ruff(*command):
-    """ruff's ``command`` on all of the orchestrator's Python code, in its style."""
-    found = [sys.executable, "-m", "ruff", *command, "--no-cache", "--config", str(ORCHESTRATOR / "pyproject.toml")]
-    return subprocess.run([*found, str(ORCHESTRATOR)], capture_output=True, text=True)
+    """ruff's ``command`` on all of the repository's Python code, in its style."""
+    found = [sys.executable, "-m", "ruff", *command, "--no-cache", "--config", str(ROOT / "pyproject.toml")]
+    return subprocess.run([*found, str(ROOT)], capture_output=True, text=True)
 
 
 @pytest.mark.style
@@ -27,7 +27,7 @@ def test_no_lint_error():
 @pytest.mark.style
 def test_one_format():
     found = ruff("format", "--check")
-    assert found.returncode == 0, f"run ruff format on orchestrator/: {found.stdout}{found.stderr}"
+    assert found.returncode == 0, f"run ruff format on the repository: {found.stdout}{found.stderr}"
 
 
 @pytest.mark.style
@@ -46,9 +46,9 @@ def test_skills_and_instructions_name_only_the_agents_tools():
 
 @pytest.mark.style
 def test_each_tool_prompt_is_read_by_the_tool_its_file_names():
-    code = ORCHESTRATOR / "tarik"
+    code = ROOT / "tarik"
     loaded = {  # prompt name -> the module loading it
-        name: str(path.relative_to(ORCHESTRATOR))
+        name: str(path.relative_to(ROOT))
         for path in code.rglob("*.py")
         for name in re.findall(r'instruction\("([a-z-]+)"\)', path.read_text())
     }

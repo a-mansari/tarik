@@ -1,8 +1,52 @@
-# Vault, which holds Tarik's settings and secrets (vault/): the one service the orchestrator (orchestrator/, a stack
-# of its own) shares. Its project keeps the name sarnec-n8n: its volume and network are those of the stack it came
-# from. The n8n implementation lives on branch main (run from a worktree of it, e.g. ../sarnec-n8n-main, with
-# docker compose -p sarnec-n8n); it defines this same Vault service.
+# Tarik: the server (the graphs, the agent, the tools, the mail watcher, the UI), its Postgres (runs, conversations,
+# each cabinet's schema) and Vault (Tarik's settings and secrets, vault/; read-only for the server). Its .env (from
+# .env.example, never in git) gives POSTGRES_PASSWORD and ODOO_URL:
+#   docker compose up --build -d
+# The project keeps the name sarnec-n8n, and the database its volume: the names of the stacks they came from. The n8n
+# implementation lives on branch main (run from a worktree of it with docker compose -p sarnec-n8n); it shares this
+# Vault and this network, and its services show here as orphans: never pass --remove-orphans.
+name: sarnec-n8n
+
 services:
+  server:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2024:2024" # server.py, local only
+    environment:
+      VAULT_ADDR: http://vault:8200
+      TARIK_DEFAULT_CABINET: experio_cabinet_8
+      ODOO_URL: ${ODOO_URL}
+      POSTGRES_HOST: db
+      POSTGRES_DB: tarik
+      POSTGRES_USER: tarik
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TARIK_PROMPTS_KEEP_DAYS: "30"
+    volumes: # the code, mounted (a change needs a restart, not a build); never vault/ nor .env
+      - ./server.py:/app/server.py
+      - ./check.py:/app/check.py
+      - ./run.py:/app/run.py
+      - ./engine:/app/engine
+      - ./tarik:/app/tarik
+      - ./ui:/app/ui
+      - ./content:/app/content
+      - ./tests:/app/tests
+      - ./pytest.ini:/app/pytest.ini
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./vault/.local/approle:/run/vault:ro # the AppRole: it may only read secret/tarik/*
+    depends_on: [db, vault]
+    dns: [1.1.1.1, 8.8.8.8]
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tarik
+      POSTGRES_USER: tarik
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
   vault:
     image: hashicorp/vault:1.18.3
     restart: unless-stopped
@@ -18,4 +62,6 @@ services:
       - vault_data:/vault/file
 
 volumes:
+  db_data:
+    name: orchestrator_db_data # its data, from when it was the orchestrator's stack
   vault_data:

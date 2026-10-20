@@ -1,4 +1,4 @@
-"""Tarik's orchestrator: its graphs served over HTTP on permissively licensed parts only (starlette, uvicorn: BSD;
+"""Tarik's server: its graphs served over HTTP on permissively licensed parts only (starlette, uvicorn: BSD;
 langgraph and its Postgres checkpointer: MIT; psycopg: LGPL, unmodified). Every run and each of its steps is kept in
 Postgres (engine/runs.py), the agent's conversations next to them. The tools (tarik/) run in this process, each in
 its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) starts runs for the mailboxes it answers.

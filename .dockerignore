@@ -1,0 +1,3 @@
+# The image takes only requirements.txt; the code is mounted (docker-compose.yml). Never send secrets to a build.
+*
+!requirements.txt
