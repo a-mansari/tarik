@@ -35,6 +35,7 @@ services:
       - ./pytest.ini:/app/pytest.ini
       - ./pyproject.toml:/app/pyproject.toml
       - ./vault/.local/approle:/run/vault:ro # the AppRole: it may only read secret/tarik/*
+      - ./vault/.local/settings-approle:/run/vault-settings:ro # the Cabinets page's: each cabinet's own settings only
     depends_on: [db, vault]
     dns: [1.1.1.1, 8.8.8.8]
 
@@ -60,6 +61,7 @@ services:
       - ./vault/setup.sh:/vault/config/setup.sh:ro
       - ./vault/.local/unseal:/vault/unseal # unseal key and root token: this machine only, never in git
       - ./vault/.local/approle:/vault/approle
+      - ./vault/.local/settings-approle:/vault/settings-approle
       - vault_data:/vault/file
 
 volumes:

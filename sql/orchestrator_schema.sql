@@ -70,3 +70,16 @@ create table if not exists content_versions (
     created_at timestamptz not null default now()
 );
 create index if not exists content_versions_path on content_versions (path, id desc);
+
+-- === Every change made to a cabinet's settings from the Cabinets page (engine/cabinet_settings.py) ===
+-- The values live in Vault only; here who changed which, when and why. A secret's value is never kept, not even here.
+create table if not exists settings_changes (
+    id bigserial primary key,
+    cabinet text not null,
+    author text not null,
+    note text not null default '',
+    changes jsonb not null,  -- [{key, before, after}]: before/after null for a secret
+    vault_version integer not null,
+    created_at timestamptz not null default now()
+);
+create index if not exists settings_changes_cabinet on settings_changes (cabinet, id desc);

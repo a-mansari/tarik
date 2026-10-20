@@ -192,7 +192,7 @@ pre.said { font-family: var(--font); font-size: 1em; }
 /* Content: a document's form, its history and what a version changed. */
 .content-flow { align-items: start; }
 .field { display: grid; gap: .3rem; font-size: .85rem; color: var(--muted); }
-.field textarea, .field input { font: inherit; font-size: .9rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; width: 100%; box-sizing: border-box; }
+.field textarea, .field input, .field select { font: inherit; font-size: .9rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; width: 100%; box-sizing: border-box; }
 .field textarea { resize: vertical; line-height: 1.45; }
 button.primary, .compare button { font: inherit; cursor: pointer; border-radius: 6px; padding: .5rem 1rem; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
 .versions { list-style: none; padding: 0; display: grid; gap: .3rem; font-size: .85rem; }
@@ -395,3 +395,6 @@ a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decorati
 .earlier { margin: .6rem 0; padding: .5rem .75rem; border: 1px dashed var(--line); border-radius: 8px; }
 .earlier > summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
 .earlier .talk { opacity: .85; }
+.settings-history { overflow-wrap: anywhere; }
+.settings-history .mono { white-space: normal; }
+.settings-history ul { margin: .2rem 0 0; padding-left: 1rem; }

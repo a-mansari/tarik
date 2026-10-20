@@ -162,3 +162,12 @@ select hash, content from {parts} where hash = any(%s)
 -- A file a client sent in a conversation, as sent: the first saved under that name, never a part cut out of it.
 select file_name, mime_type, data from {files} where session_id = %s and file_name = %s and parent_id is null
 order by id limit 1
+
+-- === A cabinet's settings, changed from the Cabinets page (engine/cabinet_settings.py) ===
+
+-- name: settings_changed
+insert into settings_changes (cabinet, author, note, changes, vault_version) values (%s, %s, %s, %s, %s)
+
+-- name: settings_history
+select author, note, changes, vault_version, created_at from settings_changes where cabinet = %s
+order by id desc limit %s

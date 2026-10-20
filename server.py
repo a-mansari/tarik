@@ -40,7 +40,7 @@ from engine import accounts, agent, content, graphs, layouts, mail, prompts, run
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.config import POSTGRES
 from tarik.core.experio import account
-from ui import chat_pages, content_pages, pages
+from ui import chat_pages, content_pages, pages, settings_pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = make_conninfo(**POSTGRES)  # the tools' own Postgres settings
@@ -245,6 +245,8 @@ app = Starlette(
         Route("/prompts/{cabinet}/{call_id:int}", prompt),
         Route("/ui/prompts", pages.prompts_page),
         Route("/ui/prompts/{cabinet}/{session_id}", pages.prompt_calls_page),
+        Route("/ui/cabinets", settings_pages.cabinets_page),
+        Route("/ui/cabinets/{cabinet}", settings_pages.cabinet_page, methods=["GET", "POST"]),
         Route("/ui/contenu", content_pages.contents_page),
         Route("/ui/contenu-export", content_pages.export_contents),
         Route("/ui/contenu-import", content_pages.import_contents, methods=["POST"]),

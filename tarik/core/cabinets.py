@@ -117,6 +117,12 @@ def vault_settings(wait=0):
         return _vault_state["values"]
 
 
+def reread_vault():
+    """Every setting read again now (a change made from the Cabinets page): in use from the next call."""
+    with _vault_lock:
+        _refresh_vault(0)
+
+
 # --- The cabinets ---
 
 # A lowercase letter, then up to 62 lowercase letters, digits or underscores: a Postgres schema name and an env

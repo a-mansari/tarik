@@ -31,8 +31,8 @@ of the n8n stack runs in it:
 - **Its mail watcher** (`engine/mail.py`), for the cabinets listed in `MAIL_BY_ORCHESTRATOR` (same Vault path) only:
   a mailbox is answered by one stack, never both.
 
-Shared with the n8n stack: Vault (service `vault` here, read-only for Tarik: an AppRole on `secret/tarik/*`; set up
-by `vault/setup.sh`) and the cabinets' Experio. The n8n implementation (branch `main`) keeps running until a cabinet is switched over.
+Shared with the n8n stack: Vault (service `vault` here, read-only for Tarik: an AppRole on `secret/tarik/*`, and the
+Cabinets page's own, which may only update `secret/tarik/cabinets/*`; both set up by `vault/setup.sh`) and the cabinets' Experio. The n8n implementation (branch `main`) keeps running until a cabinet is switched over.
 
 ## Layout
 
@@ -50,6 +50,7 @@ by `vault/setup.sh`) and the cabinets' Experio. The n8n implementation (branch `
 | `engine/model.py` | MiniMax-M3 with a 1024-token thinking budget, with this stack's own key. |
 | `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the Prompts page. |
 | `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
+| `engine/cabinet_settings.py`, `ui/settings_pages.py` | Each cabinet's own settings, read and changed on the Cabinets page, written to Vault with its own AppRole, each change kept. |
 | `engine/accounts.py`, `users.py` | The team's accounts (scrypt hashes) and sessions; `users.py` makes and closes accounts. |
 | `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
 | `engine/traitement.py`, `dossier.py`, `emails.py`, `chat.py` | The workflows, as graphs (`chat.py`: the Discussion page's, and the asking shared with email threads). |
@@ -113,8 +114,12 @@ with every run live, step by step.
 4. **Login, then content in the UI, with history** — done: each person's account (`users.py`); the agent's
    instructions and tools' descriptions, its skills, the tools' prompts and the pages' words, each as a plain form;
    every change kept (who, when, why), each version's changes shown, any version brought back in one click; a change
-   naming a tool Tarik lacks, emptying a text or reshaping a document is refused. Still to come: cabinets' settings
-   (in Vault, which Tarik only reads).
+   naming a tool Tarik lacks, emptying a text or reshaping a document is refused. Then each cabinet's own settings,
+   on the Cabinets page (`engine/cabinet_settings.py`): its Experio login, its mailbox, who may receive Tarik's emails,
+   simulation or real writes (confirmed first). Vault stays their only home, written with the page's own AppRole
+   (`tarik-settings`: read and update `secret/tarik/cabinets/*` only, never the shared settings nor a new cabinet);
+   a secret is never shown, only replaced; a change is written over the version the page showed only, kept (who,
+   when, why, which settings; never a secret's value: table `settings_changes`) and in use at once.
 5. **Mail** — done: a cabinet switched over (`MAIL_BY_ORCHESTRATOR`, the n8n watcher stopped for it); then the email
    test and `-m llm` again.
 6. **Chat with file upload** — done: the Discussion page, for the team (logged in), per cabinet. Each message, with
