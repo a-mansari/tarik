@@ -6,21 +6,13 @@ stays set aside. A follow-up thread runs Traitement then Dossier in mode resume 
 
 import asyncio
 import operator
-import time
 from typing import Annotated, TypedDict
 
-from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 
-from engine.tools import ToolFailure, call, within
-from tarik.core.conversation import FILES_NOTE, NO_TEXT, remember_client_message
-from tarik.emails.inbox import untaken
+from engine.chat import answered
+from engine.tools import ToolFailure, call
 from tarik.invoices.pipeline import NOTHING
-
-# Files no tool took after the reply mean the files tool did not run (tarik.emails.inbox.untaken): the agent is
-# asked again with a reminder, ASK_TRIES asks at most, none after QUICK seconds; the last reply is sent.
-ASK_TRIES, QUICK = 3, 200
-REMINDER = "\n\nRappel : ces fichiers n'ont pas ete traites. Traitez-les maintenant si rien ne manque."
 
 
 class Run(TypedDict, total=False):
@@ -86,26 +78,10 @@ async def acknowledge(state: Thread):
 
 
 async def ask(state: Thread):
-    """The cabinet's agent, in the thread's own conversation (its session id as thread id), asked again with a
-    reminder while the thread's files stay untaken. Each ask is a run of the agent's own, started from this step."""
-    from engine import runs  # runs imports the graphs, this one among them
-
-    thread, cabinet = state["thread"], state["cabinet"]
-    text = (thread["message"] or NO_TEXT) + (FILES_NOTE + ", ".join(thread["files"]) if thread["files"] else "")
-    session = thread["session_id"]  # the email thread's own session: its conversation (the agent's thread), its files
-    started = time.monotonic()
+    """The cabinet's agent, in the thread's own conversation (its session id as thread id): engine.chat.answered."""
+    thread = state["thread"]
     try:
-        await within(cabinet, remember_client_message, thread["session_id"], thread["message"])
-        for attempt in range(ASK_TRIES):
-            asked = {"messages": [HumanMessage(text + (REMINDER if attempt else ""))]}
-            result = await runs.nested("agent", asked, cabinet, session, thread=session, node="tarik")
-            reply = result["messages"][-1].text
-            if (
-                not thread["files"]
-                or time.monotonic() - started > QUICK
-                or not await within(cabinet, untaken, thread["session_id"])
-            ):
-                break
+        reply = await answered(state["cabinet"], thread["session_id"], thread["message"], thread["files"], "tarik")
         return {"reply": reply}
     except Exception:  # no reply (the model failing): set aside, with why, never asked twice
         return {"error": "Tarik n'a pas pu repondre pour le moment."}

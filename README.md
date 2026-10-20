@@ -52,10 +52,10 @@ by `vault/setup.sh`) and the cabinets' Experio. The n8n implementation (branch `
 | `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
 | `engine/accounts.py`, `users.py` | The team's accounts (scrypt hashes) and sessions; `users.py` makes and closes accounts. |
 | `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
-| `engine/traitement.py`, `dossier.py`, `emails.py` | The workflows, as graphs. |
+| `engine/traitement.py`, `dossier.py`, `emails.py`, `chat.py` | The workflows, as graphs (`chat.py`: the Discussion page's, and the asking shared with email threads). |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
 | `engine/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
-| `ui/` | The team's pages (French): `pages.py`, its templates, a stylesheet, scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |
+| `ui/` | The team's pages (French): `pages.py`, `content_pages.py` (Contenu), `chat_pages.py` (Discussion), their templates, a stylesheet, scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |
 | `tests/` | The tools' and the isolation tests (`python -m pytest`; the real model's with `-m llm`). |
 | `check.py` | Every tool a graph calls exists; every step drawn is described. |
 | `run.py` | Run a graph from a terminal and watch it step by step. |
@@ -115,9 +115,12 @@ with every run live, step by step.
    every change kept (who, when, why), each version's changes shown, any version brought back in one click; a change
    naming a tool Tarik lacks, emptying a text or reshaping a document is refused. Still to come: cabinets' settings
    (in Vault, which Tarik only reads).
-5. **Mail**: a cabinet switched over (`MAIL_BY_ORCHESTRATOR`, the n8n watcher stopped for it); then the email test
-   and `-m llm` again.
-6. **Chat with file upload**, per cabinet, if cabinets need more than email.
+5. **Mail** — done: a cabinet switched over (`MAIL_BY_ORCHESTRATOR`, the n8n watcher stopped for it); then the email
+   test and `-m llm` again.
+6. **Chat with file upload** — done: the Discussion page, for the team (logged in), per cabinet. Each message, with
+   its files (the email's types, 10 per message, 20 MB each), is a run of the "Discussion" workflow: the files saved
+   in the cabinet's schema first, then Tarik answers in the conversation's own thread, reminded of files left
+   untaken as for an email. As n8n's chat, no sender is checked: whoever is logged in writes.
 
 ## Lessons kept from the first port
 

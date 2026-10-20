@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "avatar.html" import avatar %}
+{% block title %}Discussion{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/ui/discussion?cabinet={{ cabinet }}">Discussion</a> › {{ cabinet }}</p>
+<div class="head">
+  <div>
+    <h1>Conversation <span class="mono">{{ session_id }}</span></h1>
+    <p class="muted">Tarik se souvient de cette conversation, pas des autres. Fichiers acceptés : {{ accepted | replace(",", ", ") }} ; {{ max_files }} par message, {{ max_mb }} Mo chacun.</p>
+  </div>
+</div>
+<section class="panel">
+  <ol class="talk" id="talk">
+    {% for entry in messages %}
+    <li class="{{ 'client' if entry.who == 'Client' else 'tarik' }}">
+      <span class="who">{{ avatar('client' if entry.who == 'Client' else 'tarik') }}{{ entry.who }}</span>
+      {% if entry.text %}<pre class="said">{{ entry.text }}</pre>{% endif %}
+      {% if entry.files %}<ul class="files">{% for name in entry.files %}<li>📎 {{ name }}</li>{% endfor %}</ul>{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  <p class="muted" id="waiting" {% if not latest or latest.status not in ('queued', 'running') %}hidden{% endif %}
+     data-run="{{ latest.run_id if latest else '' }}" data-status="{{ latest.status if latest else '' }}">
+    Tarik répond… <a href="/ui/runs/{{ latest.run_id if latest else '' }}" id="waiting-run">suivre l'exécution</a>
+  </p>
+  {% if latest and latest.status == 'error' %}<p class="bad-text" id="failed">Le dernier message a échoué : <a href="/ui/runs/{{ latest.run_id }}">voir l'exécution</a>. Renvoyez-le.</p>{% endif %}
+  <form class="chat-form" id="chat-form" data-send="/ui/discussion/{{ cabinet }}/{{ session_id }}">
+    <textarea name="message" rows="3" maxlength="4000" placeholder="Votre message à Tarik (le dossier, achats ou ventes…)"></textarea>
+    <div class="chat-actions">
+      <input type="file" name="files" multiple accept="{{ accepted }}">
+      <button type="submit" class="primary">Envoyer</button>
+    </div>
+    <p class="bad-text" id="chat-error" hidden></p>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}<script src="{{ asset('chat.js') }}"></script>{% endblock %}

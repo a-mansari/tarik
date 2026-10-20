@@ -12,7 +12,8 @@ its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) sta
   GET  /runs/{run_id}/steps/{id}  one step's whole output
   GET  /graphs/{graph}            a workflow's shape for the canvas: its nodes, groups and edges
   GET|PUT|DELETE /graphs/{graph}/layout   how the team arranged its canvas (node places, edge bends and style)
-  GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live
+  GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live; the
+                                  Discussion page (ui/chat_pages.py), its messages sent with POST
 
 Every call but /ok, /login and the static files needs a session (the login page's cookie: users.py makes the
 accounts) or, for scripts (run.py), TARIK_GRAPH_TOKEN as a bearer token. A change (POST, PUT, DELETE) made with a
@@ -39,7 +40,7 @@ from engine import accounts, agent, content, graphs, layouts, mail, prompts, run
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.config import POSTGRES
 from tarik.core.experio import account
-from ui import content_pages, pages
+from ui import chat_pages, content_pages, pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = make_conninfo(**POSTGRES)  # the tools' own Postgres settings
@@ -248,6 +249,9 @@ app = Starlette(
         Route("/ui/contenu-export", content_pages.export_contents),
         Route("/ui/contenu-import", content_pages.import_contents, methods=["POST"]),
         Route("/ui/contenu/{path:path}", content_pages.content_page, methods=["GET", "POST"]),
+        Route("/ui/discussion", chat_pages.chat_page),
+        Route("/ui/discussion/{cabinet}/{session_id}", chat_pages.conversation_page),
+        Route("/ui/discussion/{cabinet}/{session_id}", chat_pages.send, methods=["POST"]),
         Route("/ui/workflows", pages.workflows_page),
         Route("/ui/workflows/{graph}", pages.workflow_page),
         Route("/", pages.home),

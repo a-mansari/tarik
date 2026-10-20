@@ -315,3 +315,12 @@ table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 
 .avatar-tarik { background: var(--good-bg, #e3f1e7); color: var(--good); }
 .avatar-tool { background: var(--wait-bg, #f6ecd5); color: var(--wait, #9a6b00); }
 .avatar-system { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+
+/* The Discussion page: the conversation, then the message to send with its files. */
+a.primary { display: inline-block; align-self: flex-end; text-decoration: none; border-radius: 6px; padding: .4rem .9rem; background: var(--accent); color: #fff; }
+.talk .files { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .9rem; color: var(--muted); }
+.talk .files li { border: 0; padding: 0; }
+.chat-form { display: grid; gap: .5rem; margin-top: 1rem; }
+.chat-form textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; resize: vertical; width: 100%; box-sizing: border-box; }
+.chat-actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; justify-content: space-between; }
+.chat-actions input[type=file] { min-width: 0; max-width: 100%; }

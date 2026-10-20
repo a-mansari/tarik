@@ -5,13 +5,17 @@ language you write in, in short sentences.
 
 ## Where to reach it
 
-By email, at the cabinet's own Tarik mailbox (a chat page is planned):
+By email, at the cabinet's own Tarik mailbox:
 
 - **Files accepted**: PDF, images, CSV, TXT, XLSX, any size the mail server accepts.
 - **Who may use it**: only the cabinet's whitelisted addresses (`@experio.ma`, `@sarnec.com`, …), as the email's
   From says; for an existing dossier, a collaborator (or one of Experio's own staff) who has that dossier in Experio.
   A colleague replying in your thread gets their own answer.
 - **When it answers**: within seconds of the email arriving (15 minutes at most).
+
+Or, for the team, on the **Discussion** page of Tarik's pages (logged in): pick the cabinet, start a conversation,
+write and attach files (same types as email, 10 per message, 20 MB each). Tarik answers on the page; each message
+links to its run, step by step. No sender check there: whoever is logged in writes.
 
 ## What Tarik can do
 
