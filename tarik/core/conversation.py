@@ -9,6 +9,17 @@ from tarik.core.words import normalized, said
 FILES_NOTE, NO_TEXT = "\n\nFichiers joints : ", "(pas de message)"
 
 
+def handed(message, files):
+    """The client's ``message`` and the names of their ``files`` (list), as one text handed to the agent."""
+    return (message or NO_TEXT) + (FILES_NOTE + ", ".join(files) if files else "")
+
+
+def files_of(message):
+    """The names of the files (list) in a message handed to the agent (see handed)."""
+    files = (message or "").partition(FILES_NOTE)[2]
+    return files.split(", ") if files else []
+
+
 def own_words(message):
     """The client's own text in a message handed to the agent (str): without the files' names, which no
     client wrote ("ICE 001122334455667.pdf" is not an ICE they gave)."""
@@ -51,13 +62,13 @@ def chosen_among(decision, choices):
 
 def instructed(value, client_message):
     """``value``, an instruction the agent read for an invoice (an account, a payment method, a withholding), when
-    the client wrote it themselves in ``client_message`` (its words, whole, or its digits); else "". A model may
+    the client wrote it themselves in ``client_message`` (its words, whole: 612 is not 6125); else "". A model may
     not add an instruction the client did not give."""
     words = normalized(value or "")
     if not words:
         return ""
     message = normalized(own_words(client_message))
-    return value if said(words, message) or (words.isdigit() and said(words, message)) else ""
+    return value if said(words, message) else ""
 
 
 def yes_no(decision):
@@ -80,3 +91,13 @@ def keep_answer(invoice_id, step, answer):
             Q.upsert_answer,
             (invoice_id, step, answer),
         )
+
+
+def kept_yes_no(invoice_id, step, answer):
+    """The client's oui / non to ``step``'s question on ``invoice_id``: (``answer``, else the one kept when it was
+    asked before; yes_no of it). A clear one is kept, so the question is not asked again."""
+    answer = answer or kept_answer(invoice_id, step)
+    told = yes_no(answer)
+    if told is not None:
+        keep_answer(invoice_id, step, answer)
+    return answer, told

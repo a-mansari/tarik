@@ -51,18 +51,24 @@ def list_collaborators() -> str:
     return f"{len(users)} collaborateur(s) :\n" + "\n".join(lines)
 
 
-def collaborator(address):
-    """The active Experio collaborator or staff member (STAFF) with this email (their login), or None: client
-    contacts and unknown addresses don't give Tarik work. Compared whole, case aside: Experio's =ilike would read
-    % and _ in an address as wildcards (jean%@cabinet.ma matching jean.dupont@cabinet.ma)."""
+def users_by_email(address, employee_types, fields, limit):
+    """The res.users of ``employee_types`` whose login or email is ``address`` (at most ``limit``, their ``fields``).
+    Compared whole, case aside: Experio's =ilike would read % and _ in an address as wildcards (jean%@cabinet.ma
+    matching jean.dupont@cabinet.ma)."""
     exact = re.sub(r"([\\%_])", r"\\\1", address)  # a backslash, % or _: escaped with a backslash
-    found = odoo_call(
+    return odoo_call(
         "res.users",
         "search_read",
-        [("employee_type", "in", STAFF), "|", ("login", "=ilike", exact), ("email", "=ilike", exact)],
-        fields=["name", "company_ids", "employee_type"],
-        limit=2,
+        [("employee_type", "in", employee_types), "|", ("login", "=ilike", exact), ("email", "=ilike", exact)],
+        fields=fields,
+        limit=limit,
     )
+
+
+def collaborator(address):
+    """The active Experio collaborator or staff member (STAFF) with this email (their login), or None: client
+    contacts and unknown addresses don't give Tarik work."""
+    found = users_by_email(address, STAFF, ["name", "company_ids", "employee_type"], 2)
     return found[0] if len(found) == 1 else None  # two users with one address: not a reliable sender
 
 

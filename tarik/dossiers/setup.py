@@ -31,10 +31,20 @@ import openpyxl
 from tarik.core.app import ToolError, ok, question, routine, step_tool, stop, tool, wait
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, TEST_MODE
-from tarik.core.experio import dry_run, in_dossier, misplaced_journals, odoo_call, odoo_json, refused, require_dossier
+from tarik.core.experio import (
+    dry_run,
+    in_dossier,
+    misplaced_journals,
+    odoo_call,
+    odoo_json,
+    refused,
+    require_dossier,
+    test_mode_note,
+)
 from tarik.core.queries import Q
 from tarik.core.words import normalized, said
 from tarik.invoices.exercice import open_exercice
+from tarik.invoices.intake import file_row
 
 # The import screen's options; the separator is left empty for Experio to detect it.
 IMPORT_OPTIONS = {
@@ -168,6 +178,17 @@ def sheet_text(data):
     return out.getvalue()
 
 
+def table_text(name, data):
+    """A spreadsheet file's text: an Excel one's (.xlsx, .xlsm) first sheet as CSV, any other as it is."""
+    return sheet_text(bytes(data)) if name.lower().endswith((".xlsx", ".xlsm")) else file_text(bytes(data))
+
+
+def separator_of(text):
+    """The CSV separator of ``text``: the one its first line holds most of."""
+    first = text.split("\n", 1)[0]
+    return max(";,\t|", key=first.count)
+
+
 def entries_kind(text, separator):
     """ "fec" or "grand livre", from the file alone (Experio has two buttons and no
     detector). A FEC follows the journals and
@@ -221,11 +242,10 @@ class Refused(Exception):
 
 def entries_text(file_id, name, mime, data):
     """The file's text (CSV, TXT or an Excel sheet as CSV); Refused for another kind of file."""
-    excel = name.lower().endswith((".xlsx", ".xlsm"))
     if not (name.lower().endswith(ENTRY_FILES) or (mime or "").startswith("text/")):
         raise Refused(f"{name} : envoyez le FEC ou le grand livre en CSV, TXT ou Excel (.xlsx).")
     with refused(f"import_entries {file_id}", f"{name} : fichier Excel illisible.", Refused):
-        return sheet_text(bytes(data)) if excel else file_text(bytes(data))
+        return table_text(name, data)
 
 
 def previewed(file_id, name, text, context, model="experio.history"):
@@ -249,12 +269,6 @@ def columns(preview, target):
         if not fields[i] and guess and guess not in fields:
             fields[i] = guess
     return fields
-
-
-def separator_of(text):
-    """The CSV separator of ``text``: the one its first line holds most of."""
-    first = text.split("\n", 1)[0]
-    return max(";,\t|", key=first.count)
 
 
 KIND_WORDS = {  # what the agent (the client's words) calls a file -> its kind
@@ -353,14 +367,11 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     nothing is imported when its test finds errors."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
-        row = db.execute(Q.file_contents, (file_id,)).fetchone()
-    if not row:
-        raise ToolError(f"Aucun fichier n° {file_id}.")
-    name = row[0]
+        name, mime, data = file_row(db, file_id, "file_name", "mime_type", "data")
     context = in_dossier(dossier_id)
     # Every refusal is a stop with the file taken: a corrected file comes as a new one, this one is not tried again.
     try:
-        text = entries_text(file_id, *row)
+        text = entries_text(file_id, name, mime, data)
         kind = file_kind(kind, text)
         if not kind:  # the file stays: the agent calls again with the client's answer as kind
             return question(
@@ -473,7 +484,7 @@ def set_journal_bank(dossier_id, journal_id, bank_id):
                 values["partner_id"] = tiers[0]["id"]
         if not dry_run():
             odoo_call("exp.journal", "write", [journal_id], values, context=context)
-    done = f"{TEST_MODE}" if dry_run() else ""
+    done = test_mode_note()
     done += f"Dossier {dossier} : journal {journal['name']} a la banque {bank['name']}."
     following = ask_banks(dossier_id)
     if following["status"] == "question":

@@ -43,7 +43,7 @@ def side_of(invoice):
     """The side of ``invoice`` (with id and type), "purchase" or "sale": from its classification when there is one,
     else Experio's type. ToolError for a bank statement or neither side."""
     with cabinet_db() as db:
-        row = db.execute(Q.classification_category, (invoice["id"],)).fetchone()
+        row = db.execute(Q.classification_of_invoice, (invoice["id"],)).fetchone()
     if row and row[0] == "rb":
         raise ToolError(f"Facture {invoice['id']} : c'est un releve bancaire, pas une facture.")
     side = CATEGORY_TO_TYPE[row[0]] if row else invoice["type"]

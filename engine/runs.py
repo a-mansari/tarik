@@ -143,7 +143,7 @@ async def nested(name, given, cabinet, session, thread=None, node=None):
     agent), recorded as a run of its own, that run its parent and ``node`` the step it started from. Its output, or
     its failure raised, as the graph's own call would."""
     if pool is None:  # outside the server (a script, a test): run as is, nothing recorded
-        configurable = {"cabinet": cabinet, "session_id": session, **({"thread_id": thread} if thread else {})}
+        configurable = configurable_of(cabinet, session, thread)
         return await graph_of(name, configurable).ainvoke(given, {"configurable": configurable})
     run_id = await created(name, given, cabinet, session, thread, RUNNING.get(), node)
     # The step's own config travels in the context: left there, the graph would run as a part of the step's run, its
@@ -158,6 +158,11 @@ async def nested(name, given, cabinet, session, thread=None, node=None):
     return output
 
 
+def configurable_of(cabinet, session, thread):
+    """What a run's graph is configured with: its cabinet, its conversation, and the agent's thread when it has one."""
+    return {"cabinet": cabinet, "session_id": session, **({"thread_id": thread} if thread else {})}
+
+
 def graph_of(name, configurable):
     """The graph a run of ``name`` runs: the agent is made for its cabinet and conversation."""
     return agent.make_agent({"configurable": configurable}) if name == "agent" else graphs.COMPILED[name]
@@ -169,7 +174,7 @@ SLOTS = asyncio.Semaphore(20)  # runs going on at once in this process
 async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
     """Run the graph, each step recorded as it ends: (its output, its failure or None). ``slots`` None: a run inside
     another's step, which already holds a slot (waiting for one could wait for itself)."""
-    configurable = {"cabinet": cabinet, "session_id": session, **({"thread_id": thread} if thread else {})}
+    configurable = configurable_of(cabinet, session, thread)
     status, error, output, failure = "done", None, None, None
     inner = {}  # a part's path ("facture", "fichier|facture") -> the status of the last step that ran inside it
     rounds = {}  # (namespace, node) -> the round its latest task started in
@@ -238,12 +243,7 @@ async def run(run_id):
         ).fetchone()
         if not found:
             return None
-        steps = await (
-            await db.execute(
-                Q.run_steps,
-                (run_id,),
-            )
-        ).fetchall()
+        steps = await (await db.execute(Q.steps_after, (run_id, 0))).fetchall()  # every step: their ids start at 1
         children = await (
             await db.execute(
                 Q.run_children,
@@ -280,20 +280,7 @@ async def run(run_id):
     ended = shown["ended"].timestamp() if shown["ended"] else time.time()
     shown["seconds"] = round(ended - shown["started"].timestamp(), 1)
     shown["started"], shown["ended"] = shown["started"].isoformat(), shown["ended"] and shown["ended"].isoformat()
-    shown["steps"] = [
-        {
-            "id": i,
-            "at": at.isoformat(),
-            "when": when(at),
-            "path": path,
-            "lane": lane,
-            "round": round_,
-            "node": node,
-            "status": status,
-            "summary": summary,
-        }
-        for i, at, path, lane, round_, node, status, summary in steps
-    ]
+    shown["steps"] = shown_steps(steps)
     return shown
 
 
@@ -344,21 +331,25 @@ async def steps_after(run_id, after):
             )
         ).fetchall()
         state = await (await db.execute(Q.run_state, (run_id,))).fetchone()
-    found = [
+    return shown_steps(steps), state
+
+
+def shown_steps(rows):
+    """The steps (Q.steps_after's rows) as the API shows them."""
+    return [
         {
             "id": i,
             "at": at.isoformat(),
             "when": when(at),
-            "path": p,
+            "path": path,
             "lane": lane,
             "round": round_,
-            "node": n,
-            "status": s,
-            "summary": line,
+            "node": node,
+            "status": status,
+            "summary": summary,
         }
-        for i, at, p, lane, round_, n, s, line in steps
+        for i, at, path, lane, round_, node, status, summary in rows
     ]
-    return found, state
 
 
 async def changed(run_id, seconds=1.0):

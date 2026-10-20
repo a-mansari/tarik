@@ -2,7 +2,7 @@
 
 import pytest
 
-from tarik.core.conversation import instructed
+from tarik.core.conversation import files_of, handed, instructed, own_words
 from tarik.invoices import accounts, correct
 
 
@@ -13,6 +13,13 @@ def test_an_instruction_counts_only_as_the_client_wrote_it():
     assert instructed("Chèque", message) == "Chèque"  # accents and case aside
     assert instructed("6126", message) == "" and instructed("virement", message) == ""  # the agent's own idea
     assert instructed("612", message) == "" and instructed("", message) == ""  # a part of a number is not it
+
+
+@pytest.mark.security
+def test_the_files_names_handed_with_a_message_are_not_the_clients_words():
+    text = handed("compte 6125", ["ICE 001122334455667.pdf", "b.png"])
+    assert files_of(text) == ["ICE 001122334455667.pdf", "b.png"] and own_words(text) == "compte 6125"
+    assert files_of(handed("", [])) == [] and own_words(handed("", [])) == ""
 
 
 @pytest.mark.functionality

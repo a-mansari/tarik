@@ -5,7 +5,7 @@ import base64
 import json
 import time
 
-from tarik.core.app import CRASHED, ok, question, routine, step_tool, stop, tool, wait
+from tarik.core.app import ok, question, routine, step_tool, stop, tool, wait
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
 from tarik.core.conversation import chosen_among, own_words, yes_no
@@ -134,11 +134,6 @@ def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
     return routine(f"Facture {invoice_id} : a comptabiliser.")
 
 
-def readable(message):
-    """A step's refusal (str) as the client may read it: never a technical text naming tools and their arguments."""
-    return message or CRASHED
-
-
 @tool
 def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict:
     """Record a step's outcome for this run. ``origin``: the step tool that ran, or what asked (dossier_questions:
@@ -146,7 +141,7 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     an outcome at or after that step clears it."""
     step = origin if origin in STEPS else result.get("step") or origin
     status = result.get("status", "error")
-    message = readable(result.get("message") or result.get("error") or str(result))
+    message = result.get("message") or result.get("error") or str(result)
     invoice_id, file_id, dossier_id = result.get("invoice_id"), result.get("file_id"), result.get("dossier_id")
     choices = json.dumps(result["choices"]) if result.get("choices") else None  # {id: name} a question proposed
     row = (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, result.get("routine") is True)
@@ -534,8 +529,9 @@ def nothing_to_post(session_id, dossier_id):
     with cabinet_db() as db:
         made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (ids,))}
         asked = dict(db.execute(Q.pending_of_invoices, (ids,)))
-        rows = db.execute(Q.outcomes_of_invoices, (ids,)).fetchall()
-        messages = {(i, step): message for i, step, message in db.execute(Q.messages_of_invoices, (ids,))}
+        outcomes = db.execute(Q.outcomes_of_invoices, (ids,)).fetchall()
+    rows = [(i, step, status) for i, step, status, _ in outcomes]
+    messages = {(i, step): message for i, step, _, message in outcomes}
     furthest = furthest_outcomes(rows)
     lines = []
     for draft in drafts:

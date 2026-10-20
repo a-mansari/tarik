@@ -123,7 +123,7 @@ def resolve_report(report, stored):
 
 def _letters(value):
     """``value`` as text, only its lowercase unaccented letters and digits: "Sté A-1" -> "stea1"."""
-    return re.sub(r"[^0-9a-z]", "", normalized(str(value or "")))  # anything but a letter or digit
+    return normalized(str(value or "")).replace(" ", "")
 
 
 def _equal(field, stored, read):

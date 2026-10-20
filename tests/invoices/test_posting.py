@@ -2,6 +2,7 @@
 
 import pytest
 
+from tarik.core import experio as experio_calls
 from tarik.invoices import posting
 
 
@@ -25,6 +26,7 @@ def experio(monkeypatch):
             raise RuntimeError("Traceback\nValidationError: Tiers sans compte")
 
     monkeypatch.setattr(posting, "odoo_json", odoo_json)
+    monkeypatch.setattr(experio_calls, "odoo_json", odoo_json)  # its check, shared with configuration
     monkeypatch.setattr(posting, "odoo_call", lambda *a, **k: [{"state": state["after"], "error_msg": "<p>Bloque</p>"}])
     return state
 

@@ -48,15 +48,10 @@ async def call(cabinet, tool, /, **arguments):
     except TypeError as error:  # the arguments don't fit: a workflow's or the model's mistake, never shown as is
         log(f"{cabinet} {tool}: {error}")
         raise ToolFailure(INVALID) from None
-
-    def run():
-        with using(cabinet):
-            return function(**arguments)
-
     slot = SLOTS.setdefault(cabinet, asyncio.Semaphore(PER_CABINET))
     async with slot:
         try:
-            return await asyncio.get_running_loop().run_in_executor(POOL, run)
+            return await within(cabinet, lambda: function(**arguments))
         except ToolError as refusal:
             raise ToolFailure(str(refusal)) from None
         except Exception as error:
@@ -90,6 +85,23 @@ async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a
     return result
 
 
+async def run_step(state, tool, /, **arguments):
+    """step() in the run ``state`` is part of: its call's cabinet and conversation, its run id."""
+    given = state["call"]
+    return await step(given["cabinet"], state["run_id"], given["session_id"], tool, **arguments)
+
+
+def failed(state):
+    """True when the run's last outcome is not ok: the run goes no further than its summary ("resume")."""
+    return state["outcomes"][-1].get("status") != "ok"
+
+
+def ok_or_summary(following):
+    """``following`` when the step before says ok, else the summary ("resume"). Its two ways out named, so the drawn
+    graph shows them (LangGraph cannot see inside the lambda)."""
+    return (lambda s: "resume" if failed(s) else following), [following, "resume"]
+
+
 # Nodes every workflow (Traitement, Dossier) begins and ends with.
 
 
@@ -110,11 +122,7 @@ def started(inputs):
 
 async def sender_checked(state, dossier_id):
     """The email's sender may work on ``dossier_id`` (check_sender): its outcome."""
-    given = state["call"]
-    session = given["session_id"]
-    result = await step(
-        given["cabinet"], state["run_id"], session, "check_sender", session_id=session, dossier_id=dossier_id
-    )
+    result = await run_step(state, "check_sender", session_id=state["call"]["session_id"], dossier_id=dossier_id)
     return {"outcomes": [result]}
 
 

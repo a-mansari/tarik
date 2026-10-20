@@ -16,6 +16,8 @@ from tarik.core.queries import Q
 from tarik.invoices.classify import classify_pages, client_side
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
+# What Q.file_locked selects, in its order.
+FILE_COLUMNS = ("session_id", "file_name", "mime_type", "data", "kind", "invoice_id", "statement_id", "parent_id")
 
 
 def require_kind(name, kind, wanted):
@@ -28,13 +30,14 @@ def require_kind(name, kind, wanted):
         raise ToolError(f"{name} est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")
 
 
-def file_row(db, file_id, query):
-    """The file's columns ``query`` (one of the *_file_locked statements) selects, as a tuple, its row locked until
-    ``db`` commits; ToolError when there is no such file."""
-    row = db.execute(query, (file_id,)).fetchone()
+def file_row(db, file_id, *columns):
+    """The file's ``columns`` (of tarik_files), as a tuple, its row locked until ``db`` commits; ToolError when there
+    is no such file."""
+    row = db.execute(Q.file_locked, (file_id,)).fetchone()
     if not row:
         raise ToolError(f"Aucun fichier n° {file_id}.")
-    return row
+    values = dict(zip(FILE_COLUMNS, row, strict=True))
+    return tuple(values[column] for column in columns)
 
 
 def as_pdf(mime, data):
@@ -49,7 +52,7 @@ def identify_document(file_id: int) -> dict:
     invoice (then split_invoices, create_draft_invoice) or a bank statement
     (then import_bank_statement). Nothing else accepts a file it hasn't seen."""
     with cabinet_db() as db:
-        name, mime, data, kind = file_row(db, file_id, Q.identify_file_locked)
+        name, mime, data, kind = file_row(db, file_id, "file_name", "mime_type", "data", "kind")
         if kind:
             return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
         if mime != "application/pdf" and not mime.startswith("image/"):
@@ -124,7 +127,9 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
     ``invoice_type``: achat, vente or mixte, only as the client wrote it in this
     conversation; otherwise the client is asked first and nothing is made."""
     with cabinet_db() as db:
-        session_id, name, mime, data, invoice_id, kind, parent_id = file_row(db, file_id, Q.split_file_locked)
+        session_id, name, mime, data, invoice_id, kind, parent_id = file_row(
+            db, file_id, "session_id", "file_name", "mime_type", "data", "invoice_id", "kind", "parent_id"
+        )
         require_kind(name, kind, "invoice")
         if not client_side(invoice_type, " ".join(client_messages(session_id, client_message))):
             return question(f"{name} : s'agit-il de factures d'achat ou de vente ? Rien n'a ete cree.")
@@ -175,14 +180,14 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
     it answers with the draft already made."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
-        name, mime, data, existing, kind = file_row(db, file_id, Q.draft_file_locked)
+        name, mime, data, existing, kind = file_row(db, file_id, "file_name", "mime_type", "data", "invoice_id", "kind")
         require_kind(name, kind, "invoice")
         if existing:  # another run made it and works on it: this one leaves it alone
             return stop(
                 f"{name} : facture brouillon n° {existing} deja creee, deja en cours de traitement.",
                 invoice_id=existing,
             )
-        parts = [part for (part,) in db.execute(Q.cut_part_ids_of_file, (file_id,))]
+        parts = [part for part, _ in db.execute(Q.cut_parts_of_file, (file_id,))]
         if parts:
             raise ToolError(
                 f"{name} a ete decoupe : creez les brouillons des fichiers n° {', '.join(map(str, parts))}."
@@ -244,7 +249,9 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
     the answer lists them and the client chooses. Safe to call again."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
-        name, mime, data, kind, existing = file_row(db, file_id, Q.statement_file_locked)
+        name, mime, data, kind, existing = file_row(
+            db, file_id, "file_name", "mime_type", "data", "kind", "statement_id"
+        )
         require_kind(name, kind, "statement")
         if existing:
             return ok(f"{name} : releve deja importe (n° {existing}).", statement_id=existing)

@@ -14,7 +14,7 @@ from langchain.agents.middleware import wrap_model_call
 from langgraph.config import get_config
 from psycopg import sql
 
-from engine.settings import cabinet_of
+from engine.settings import cabinet_of, session_of
 from tarik.core.queries import Q
 
 KEEP_DAYS = int(os.environ.get("TARIK_PROMPTS_KEEP_DAYS") or 30)
@@ -96,10 +96,9 @@ async def save(cabinet, session_id, agent, system, tools, messages):
 async def logged(request, handler):
     """The agent's middleware: each model call's prompt saved (in the background), then the call itself."""
     try:
-        configurable = get_config().get("configurable", {})
-        session = configurable.get("session_id") or configurable.get("thread_id")
-        if session:
-            cabinet = cabinet_of({"configurable": configurable})
+        config = get_config()
+        if session := session_of(config):
+            cabinet = cabinet_of(config)
             system = request.system_message.content if request.system_message else ""
             tools = [{"name": tool.name, "description": tool.description} for tool in request.tools]
             task = asyncio.create_task(

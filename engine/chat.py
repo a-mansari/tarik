@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 
 from engine.tools import within
-from tarik.core.conversation import FILES_NOTE, NO_TEXT, remember_client_message
+from tarik.core.conversation import handed, remember_client_message
 from tarik.emails.inbox import untaken
 
 # Files no tool took after the reply mean the files tool did not run (tarik.emails.inbox.untaken): the agent is
@@ -26,7 +26,7 @@ async def answered(cabinet, session, message, files, node):
     agent's own, started from the step ``node``."""
     from engine import runs  # runs imports the graphs, this one among them
 
-    text = (message or NO_TEXT) + (FILES_NOTE + ", ".join(files) if files else "")
+    text = handed(message, files)
     started = time.monotonic()
     await within(cabinet, remember_client_message, session, message)
     for attempt in range(ASK_TRIES):

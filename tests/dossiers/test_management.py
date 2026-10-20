@@ -74,9 +74,10 @@ def test_the_dossiers_are_created_only_on_the_clients_yes_to_the_list(experio, m
             return self
 
         def fetchone(self):
-            return ("dossiers.csv", "text/csv", b"")
+            return ("s", "dossiers.csv", "text/csv", b"", None, None, None, None)  # Q.file_locked's columns
 
     monkeypatch.setattr(management, "cabinet_db", lambda: Db())
+    monkeypatch.setattr(management, "taken", lambda file_id: None)
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
     asked = management.import_dossiers(7, False, "s")
     assert (

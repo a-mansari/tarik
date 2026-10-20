@@ -25,12 +25,8 @@ select answer from tarik_answers where invoice_id = %s and step = %s
 insert into tarik_answers (invoice_id, step, answer) values (%s, %s, %s)
 on conflict (invoice_id, step) do update set answer = excluded.answer
 
--- name: classification_category
--- === tarik/invoices/classify.py ===
--- The side (category) already decided for an invoice.
-select category from tarik_classifications where invoice_id = %s
-
 -- name: classification_of_invoice
+-- === tarik/invoices/classify.py ===
 -- The category and reason already decided for an invoice.
 select category, reason from tarik_classifications where invoice_id = %s
 
@@ -51,22 +47,12 @@ insert into tarik_checks (invoice_id, readable, extracted, bad_fields) values (%
 on conflict (invoice_id) do update set readable = excluded.readable, extracted = excluded.extracted,
 bad_fields = excluded.bad_fields, checked_at = now()
 
--- name: identify_file_locked
+-- name: file_locked
 -- === tarik/invoices/intake.py ===
--- A file as identify_document reads it, its row locked until the transaction commits.
-select file_name, mime_type, data, kind from tarik_files where id = %s for update
-
--- name: split_file_locked
--- A file as split_invoices reads it, its row locked until the transaction commits.
-select session_id, file_name, mime_type, data, invoice_id, kind, parent_id from tarik_files where id = %s for update
-
--- name: draft_file_locked
--- A file as create_draft_invoice reads it, locked until the draft is recorded: a retry can't create a second one.
-select file_name, mime_type, data, invoice_id, kind from tarik_files where id = %s for update
-
--- name: statement_file_locked
--- A file as import_bank_statement reads it, locked until the statement is recorded: a retry can't import it twice.
-select file_name, mime_type, data, kind, statement_id from tarik_files where id = %s for update
+-- A file as a tool reads it, its row locked until the transaction commits: a retry can't create a second draft nor
+-- import a statement twice.
+select session_id, file_name, mime_type, data, kind, invoice_id, statement_id, parent_id from tarik_files
+where id = %s for update
 
 -- name: set_file_kind
 -- What identify_document found a file to be: invoice or statement.
@@ -80,10 +66,6 @@ values (%s, %s, %s, %s, %s, 'invoice') returning id
 -- name: cut_parts_of_file
 -- The invoices cut out of a file (id, file name), in order.
 select id, file_name from tarik_files where parent_id = %s order by id
-
--- name: cut_part_ids_of_file
--- The ids of the invoices cut out of a file, in order.
-select id from tarik_files where parent_id = %s order by id
 
 -- name: set_file_invoice
 -- The draft invoice made from a file: a second call must not make another.
@@ -107,11 +89,6 @@ step = 'create_dossier' and status = 'ok' and dossier_id is not null
 -- === tarik/dossiers/people.py ===
 -- Who wrote, for an email conversation.
 select client_address from tarik_mail_threads where session_id = %s
-
--- name: file_contents
--- === tarik/dossiers/management.py and tarik/dossiers/setup.py ===
--- A file's name, type and bytes.
-select file_name, mime_type, data from tarik_files where id = %s
 
 -- name: file_taken_as_entries
 -- The file is done with, imported or refused: a corrected file comes as a new one.
@@ -205,6 +182,7 @@ order by created_at
 -- name: new_files_of_session
 -- The files that came since the conversation's last run recorded anything: not yet taken by any step, not cut
 -- parts, not a dossier's entries (those go to the dossier workflow).
+-- Not files_to_process, on purpose: what came since the last run, not all that is left.
 select file_name from tarik_files where session_id = %s and invoice_id is null and statement_id is null
 and parent_id is null and kind is distinct from 'entries' and created_at >
 coalesce((select max(created_at) from tarik_results where session_id = %s), '-infinity')
@@ -253,12 +231,8 @@ select invoice_id from tarik_files where invoice_id = any(%s)
 select invoice_id, question from tarik_pending where invoice_id = any(%s)
 
 -- name: outcomes_of_invoices
--- Every outcome of the invoices, in the order recorded.
-select invoice_id, step, status from tarik_results where invoice_id = any(%s) order by id
-
--- name: messages_of_invoices
--- Every outcome's message of the invoices, in the order recorded.
-select invoice_id, step, message from tarik_results where invoice_id = any(%s) order by id
+-- Every outcome of the invoices, with its message, in the order recorded.
+select invoice_id, step, status, message from tarik_results where invoice_id = any(%s) order by id
 
 -- name: thread_of_linked_message
 -- === tarik/emails/inbox.py ===
@@ -305,7 +279,8 @@ select message_id, references_ids, reply_to from tarik_mail_messages where threa
 order by received_at desc, uid desc limit 1
 
 -- name: untaken_file_names
--- The conversation's files no tool has taken yet, in order.
+-- The conversation's files no tool has taken yet, in order. Unlike files_to_process (on purpose): a file
+-- identify_document has given a kind is taken, even one still to cut.
 select file_name from tarik_files where session_id = %s and parent_id is null and kind is null
 and invoice_id is null and statement_id is null order by id
 
@@ -412,8 +387,3 @@ update tarik_mail_threads set state = %s, claimed_at = null, attempts = 0, reaso
 follow_up_until = case when %s = 'follow_up'
 then coalesce(follow_up_until, now() + make_interval(mins => %s)) end,
 updated_at = now() where thread_id = %s
-
--- name: count_untaken_files
--- How many of the conversation's files no tool has taken yet.
-select count(*) from tarik_files where session_id = %s and parent_id is null and kind is null
-and invoice_id is null and statement_id is null

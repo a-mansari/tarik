@@ -1,5 +1,7 @@
 """Tarik, the cabinet's agent: its instructions and tools' descriptions (content/agent.json), its skills
-(content/skills/), its read tools (tarik/) and the workflow tools (the graphs), on its model (engine/model.py).
+(content/skills/), its read tools (tarik/) and the workflow tools (the graphs), on its model (model(): MiniMax-M3
+with a thinking budget, at the provider's Anthropic-style address, with this stack's own key, Vault
+secret/tarik/orchestrator).
 What every workflow tool is given besides the model's arguments (the conversation, its files, the client's words,
 the cabinet) is filled from the thread and its messages, never by the model."""
 
@@ -10,13 +12,34 @@ import re
 
 from langchain.agents import create_agent
 from langchain.tools import ToolRuntime, tool
+from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 
 from engine import content, prompts
 from engine.content import AGENT
-from engine.model import model
-from engine.settings import cabinet_of
+from engine.settings import cabinet_of, session_of
 from engine.tools import ToolFailure, call
+from tarik.core.cabinets import setting, using
+from tarik.core.model import MODEL_URL
+
+
+def model(cabinet):
+    """The model, for a run of ``cabinet`` (the settings are read within it)."""
+    with using(cabinet):
+        key, url = setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", MODEL_URL)
+    if not key:
+        raise RuntimeError("MODEL_API_KEY is not set in Vault secret/tarik/orchestrator: the agent has no model")
+    return ChatAnthropic(
+        model=AGENT["model"],  # content/agent.json
+        anthropic_api_url=url,
+        api_key=key,
+        max_tokens=65536,  # the thinking included
+        # Without it, the agent makes decisions the client did not (tests/llm, 2026-10-19: 3 % wrong without, 1 % with).
+        thinking={"type": "enabled", "budget_tokens": 1024},
+        timeout=300,
+        max_retries=2,
+    )
+
 
 # What each tool says to the model is content (agent.json), read at each agent's making (described()); the read
 # tools themselves are these, defined below (read_tool).
@@ -72,18 +95,11 @@ def attachments(runtime):
     return files
 
 
-def session_of(runtime):
-    """The conversation's id for the tools: the thread's own id, or the session the email thread was given
-    (configurable.session_id: the server's thread ids must be UUIDs, an email thread's session is not one)."""
-    configurable = runtime.config["configurable"]
-    return configurable.get("session_id") or configurable.get("thread_id", "")
-
-
 def fixed(runtime):
     """What every workflow tool is given besides the model's arguments: the conversation, its files, the client's
     words, the cabinet."""
     return {
-        "session_id": session_of(runtime),
+        "session_id": session_of(runtime.config),
         "attachments": attachments(runtime),
         "client_message": client_message(runtime),
         "cabinet": cabinet_of(runtime.config),

@@ -7,7 +7,7 @@ entries with the dossier's prepaid account and journal.
 """
 
 from tarik.core.app import ok, question, routine, step_tool
-from tarik.core.conversation import keep_answer, kept_answer, yes_no
+from tarik.core.conversation import kept_yes_no
 from tarik.core.experio import (
     experio_notes,
     fill_invoice,
@@ -51,11 +51,10 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
         f"({values['prepaid_start_date']} au {values['prepaid_end_date']}). "
         f"La repartir en {kind} constates d'avance ? oui / non"
     )
-    answer = answer or kept_answer(invoice_id, "settle_prepaid")  # asked before: its answer, not the question again
-    spread = yes_no(answer) if answer else None
+    # Asked before: its answer, not the question again.
+    answer, spread = kept_yes_no(invoice_id, "settle_prepaid", answer)
     if spread is None:
         return question(asked if not answer else f"Reponse non comprise. {asked}")
-    keep_answer(invoice_id, "settle_prepaid", answer)
     if not spread:
         return routine(f"Facture {invoice_id} : pas de repartition.")
     require_draft(invoice_id, invoice)

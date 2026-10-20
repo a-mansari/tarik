@@ -299,6 +299,13 @@ def misplaced_journals(company_id, fields):
     }
 
 
+def blocking(invoice_id, context):
+    """What Experio's own check (the Comptabiliser button's) says blocks posting the invoice ([str], plain text).
+    Its warnings too: Tarik posts only when the check says nothing at all."""
+    messages = odoo_json("exp.invoice", "collect_validation_messages", [invoice_id], context=context) or []
+    return [plain(text) for _level, text in messages]
+
+
 def experio_refusal(error):
     """Experio's own message in ``error``: the last line of its traceback, 300 characters at most."""
     return str(error).strip().splitlines()[-1][:300]

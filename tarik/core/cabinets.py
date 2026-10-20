@@ -54,7 +54,7 @@ _vault_lock = threading.Lock()
 _vault_state = {"token": "", "token_until": 0.0, "values": None, "next_read": 0.0}
 
 
-def _vault_request(method, path, token="", **kwargs):
+def vault_request(method, path, token="", **kwargs):
     """Vault's JSON answer (dict) to ``method`` on ``path``, with ``token`` when given; None for a 404."""
     headers = {"X-Vault-Token": token} if token else {}
     answer = httpx.request(method, VAULT_ADDRESS + path, headers=headers, timeout=10, **kwargs)
@@ -64,15 +64,19 @@ def _vault_request(method, path, token="", **kwargs):
     return answer.json()
 
 
+def vault_token(role, state):
+    """The token of the AppRole whose role_id and secret_id files are in ``role``, kept in ``state`` (its "token" and
+    "token_until"): logged in again when missing, or once 80% of its lease has passed."""
+    if not state["token"] or time.monotonic() > state["token_until"]:
+        ids = {name: Path(role, name).read_text().strip() for name in ("role_id", "secret_id")}
+        auth = vault_request("POST", "/v1/auth/approle/login", json=ids)["auth"]
+        state.update(token=auth["client_token"], token_until=time.monotonic() + 0.8 * auth["lease_duration"])
+    return state["token"]
+
+
 def _vault_read(method, path):
-    """Vault's answer to ``method`` on ``path`` (as _vault_request), logged in first when the token is missing
-    or old."""
-    if not _vault_state["token"] or time.monotonic() > _vault_state["token_until"]:  # logged in with the AppRole's ids
-        ids = {name: Path(VAULT_APPROLE, name).read_text().strip() for name in ("role_id", "secret_id")}
-        auth = _vault_request("POST", "/v1/auth/approle/login", json=ids)["auth"]
-        # The token is kept, renewed once 80% of its lease has passed.
-        _vault_state.update(token=auth["client_token"], token_until=time.monotonic() + 0.8 * auth["lease_duration"])
-    return _vault_request(method, path, _vault_state["token"])
+    """Vault's answer to ``method`` on ``path`` (as vault_request) with tarik-mcp's AppRole token."""
+    return vault_request(method, path, vault_token(VAULT_APPROLE, _vault_state))
 
 
 def read_vault():

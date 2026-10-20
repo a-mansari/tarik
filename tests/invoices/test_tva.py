@@ -2,6 +2,7 @@
 
 import pytest
 
+from tarik.core import conversation
 from tarik.invoices import tva
 
 
@@ -34,9 +35,9 @@ def experio(monkeypatch):
     monkeypatch.setattr(tva, "_tax_lines", lambda invoice_id, context: ["500.0 HT a 20.0 % (TVA 20%)"])
     monkeypatch.setattr(tva, "odoo_call", lambda *a, **k: [{"use_prorata": state["prorata"], "prorata_rate": 80}])
     kept = {}  # the answers kept per invoice and step (tarik_answers)
-    monkeypatch.setattr(tva, "kept_answer", lambda invoice_id, step: kept.get((invoice_id, step), ""))
+    monkeypatch.setattr(conversation, "kept_answer", lambda invoice_id, step: kept.get((invoice_id, step), ""))
     monkeypatch.setattr(
-        tva, "keep_answer", lambda invoice_id, step, answer: kept.__setitem__((invoice_id, step), answer)
+        conversation, "keep_answer", lambda invoice_id, step, answer: kept.__setitem__((invoice_id, step), answer)
     )
     return state
 

@@ -41,6 +41,7 @@ def experio(monkeypatch):
     state = {"journals": [{"id": 11, "name": "BQ1"}, {"id": 12, "name": "BQ2"}], "written": []}
     monkeypatch.setattr(setup, "require_dossier", lambda dossier_id: "Gecafisc")
     monkeypatch.setattr(setup, "dry_run", lambda: False)
+    monkeypatch.setattr(setup, "test_mode_note", lambda: "")
 
     def odoo_call(model, method, *args, **kw):
         if model == "exp.journal" and method == "search_read":

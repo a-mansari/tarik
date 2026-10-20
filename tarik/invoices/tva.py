@@ -8,7 +8,7 @@ Left here: the question on the usual non-recoverable accounts, and the cabinet's
 
 from tarik.core.app import ToolError, ok, question, routine, step_tool
 from tarik.core.config import TEST_MODE
-from tarik.core.conversation import keep_answer, kept_answer, yes_no
+from tarik.core.conversation import kept_yes_no, yes_no
 from tarik.core.experio import (
     account_code,
     dry_run,
@@ -75,12 +75,10 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
     context = invoice_context(invoice)
     changes, notes = {}, []
     if purchase and not invoice["amount_tax_non_recoverable"] and invoice["amount_tva"]:
-        answer = answer or kept_answer(invoice_id, "settle_tva")  # asked before: its answer, not the question again
+        answer, _ = kept_yes_no(invoice_id, "settle_tva", answer)  # asked before: its answer, not the question again
         asked, changes = _non_recoverable(invoice, answer)
         if asked:
             return asked
-        if yes_no(answer) is not None:
-            keep_answer(invoice_id, "settle_tva", answer)
     non_recoverable = invoice["amount_tax_non_recoverable"] or changes.get("amount_tax_non_recoverable")
     with refused(f"settle_tva {invoice_id}", f"Facture {invoice_id} : Experio a refuse la mise a jour de la TVA."):
         if purchase and not non_recoverable and invoice["amount_tva"] and not invoice["tax_prorata"]:

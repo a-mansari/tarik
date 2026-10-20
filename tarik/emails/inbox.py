@@ -467,4 +467,4 @@ def untaken(session_id):
     statement set) by the tools themselves, so files still untaken after the agent's reply mean it never called the
     files tool, or asked the client first."""
     with cabinet_db() as db:
-        return db.execute(Q.count_untaken_files, (session_id,)).fetchone()[0]
+        return len(db.execute(Q.untaken_file_names, (session_id,)).fetchall())

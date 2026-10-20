@@ -61,7 +61,8 @@ def labelled(label):
 # An ICE is told apart by its 15 digits alone.
 IF_WRITTEN: Final = labelled(r"I\.?F\.?")
 LABELLED = {"ice": ICE_WRITTEN, "if_number": IF_WRITTEN, "rc": labelled(r"R\.?C\.?")}
-# "societe" alone is not a type: "l'adresse de ma societe" changes no dossier into a company.
+# "societe" alone is not a type: "l'adresse de ma societe" changes no dossier into a company. (A spreadsheet's Type
+# column is another matter: there it is one, management.TYPE_WORDS.)
 TYPE_WORDS = {
     "person": ("personne physique", "physique"),
     "company": ("personne morale", "morale"),

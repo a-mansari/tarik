@@ -21,9 +21,6 @@ update runs set status = %s, output = %s, error = %s, ended_at = now() where id 
 select id, graph, cabinet, session_id, thread_id, status, input, output, error, started_at, ended_at, parent_id, parent_node
 from runs where id = %s
 
--- name: run_steps
-select id, at, path, lane, round, node, status, summary from steps where run_id = %s order by id
-
 -- name: run_children
 -- The runs started in its steps, oldest first.
 select id, graph, status, started_at, parent_node from runs where parent_id = %s order by started_at
@@ -91,7 +88,7 @@ from users u order by u.active desc, u.email
 insert into users (email, name, password, role) values (%s, %s, null, %s) on conflict (email) do nothing returning email
 
 -- name: user_found
-select email, active from users where email = %s
+select email from users where email = %s
 
 -- name: admins_active
 select email from users where role = 'admin' and active

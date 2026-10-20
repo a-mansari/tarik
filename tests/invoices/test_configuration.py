@@ -2,6 +2,7 @@
 
 import pytest
 
+from tarik.core import experio as experio_calls
 from tarik.invoices import configuration
 
 
@@ -42,6 +43,7 @@ def experio(monkeypatch):
         return [31, 32]
 
     monkeypatch.setattr(configuration, "odoo_json", odoo_json)
+    monkeypatch.setattr(experio_calls, "odoo_json", odoo_json)  # its check, shared with posting
     monkeypatch.setattr(configuration, "odoo_call", odoo_call)
     return state
 
@@ -67,8 +69,15 @@ def test_what_still_blocks_is_named_for_the_cabinet(experio):
     ]
     result = configuration.configure_cabinet(3)
     assert result["message"].endswith(
-        "Reste a parametrer par le cabinet : The configuration of local supplier journal is not defined."
+        "Reste a parametrer par le cabinet : The configuration of local supplier journal is not defined. ; x"
     )
+
+
+@pytest.mark.functionality
+def test_a_warning_still_blocks_posting(experio):
+    experio["after"] = [("warning", "<p>Date d'echeance depassee</p>")]
+    result = configuration.configure_cabinet(3)
+    assert result["message"].endswith("Reste a parametrer par le cabinet : Date d'echeance depassee")
 
 
 @pytest.mark.functionality

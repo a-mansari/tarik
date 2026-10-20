@@ -14,7 +14,7 @@ still blocks: an account or a journal the dossier lacks is the cabinet's to crea
 
 from tarik.core.app import ok, routine, step_tool
 from tarik.core.config import TEST_MODE
-from tarik.core.experio import dry_run, invoice_context, odoo_call, odoo_json, plain, refused, require_invoice
+from tarik.core.experio import blocking, dry_run, invoice_context, odoo_call, odoo_json, refused, require_invoice
 
 TVA_ACCOUNTS = ["|", ("code", "=like", "3455%"), ("code", "=like", "4455%")]
 # Per amount of the invoice: its name, then per side (purchase, sale) the dossier's switch (None: none), its
@@ -52,12 +52,6 @@ AMOUNTS = {
 }
 FOREIGN_IGNORED = {"amount_guarantee_holdback", "amount_prorata", "amount_insurance", "advance_amount"}
 INVOICE_FIELDS = ["state", "company_id", "exercice_id", "type", "is_local_invoice", *AMOUNTS]
-
-
-def blocking(invoice_id, context):
-    """What Experio's own check says is missing or wrong before posting ([str], plain text), warnings aside."""
-    messages = odoo_json("exp.invoice", "collect_validation_messages", [invoice_id], context=context) or []
-    return [plain(text) for level, text in messages if level != "warning"]
 
 
 def tax_count(company_id):

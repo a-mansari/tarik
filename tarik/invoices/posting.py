@@ -11,6 +11,7 @@ import time
 from tarik.core.app import log, ok, routine, step_tool, stop
 from tarik.core.config import POSTED, TEST_MODE
 from tarik.core.experio import (
+    blocking,
     dry_run,
     experio_refusal,
     invoice_context,
@@ -46,10 +47,9 @@ def _blocking(invoice_id, context):
     """What Experio's own check (the Comptabiliser button's) says blocks the invoice ([str], plain text), asked
     again up to RETRIES times while it says something."""
     for attempt in range(RETRIES + 1):
-        messages = odoo_json("exp.invoice", "collect_validation_messages", [invoice_id], context=context) or []
-        blocking = [plain(text) for _level, text in messages]
-        if not blocking or attempt == RETRIES:
-            return blocking
+        found = blocking(invoice_id, context)
+        if not found or attempt == RETRIES:
+            return found
         time.sleep(PAUSE)
 
 
@@ -70,9 +70,9 @@ def post_invoice(invoice_id: int) -> dict:
     context = invoice_context(invoice)
     with refused(f"post_invoice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu verifier la facture."):
         refresh(invoice_id, context)
-        blocking = _blocking(invoice_id, context)
-    if blocking:
-        return stop(f"Facture {invoice_id} : pas comptabilisee, Experio signale : " + " ; ".join(blocking))
+        found = _blocking(invoice_id, context)
+    if found:
+        return stop(f"Facture {invoice_id} : pas comptabilisee, Experio signale : " + " ; ".join(found))
     if dry_run():
         return ok(f"{TEST_MODE}Facture {invoice_id} : rien ne bloque, elle serait comptabilisee.")
     try:

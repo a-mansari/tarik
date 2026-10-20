@@ -15,7 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from engine.tools import call as run_tool
-from engine.tools import sender_checked, started, step, summary
+from engine.tools import failed, ok_or_summary, run_step, sender_checked, started, summary
 from tarik.invoices.pipeline import INVOICE_CHAIN
 
 INPUTS = [
@@ -99,9 +99,7 @@ def invoice_step(tool):
             ids = {"file_id": state["file_id"], "dossier_id": call["dossier_id"]}
         else:
             ids = {"invoice_id": state["invoice_id"]}
-        result = await step(
-            call["cabinet"], state["run_id"], call["session_id"], tool, **ids, **extra(tool, call, state["run_id"])
-        )
+        result = await run_step(state, tool, **ids, **extra(tool, call, state["run_id"]))
         return {"last": result, "invoice_id": result.get("invoice_id", state.get("invoice_id")), "outcomes": [result]}
 
     return node
@@ -157,35 +155,21 @@ class File(Given, Outcomes, total=False):
 
 
 async def identify(state: File):
-    result = await step(
-        state["call"]["cabinet"],
-        state["run_id"],
-        state["call"]["session_id"],
-        "identify_document",
-        file_id=state["file_id"],
-    )
+    result = await run_step(state, "identify_document", file_id=state["file_id"])
     return {"last": result, "outcomes": [result]}
 
 
 async def import_statement(state: File):
-    call = state["call"]
-    result = await step(
-        call["cabinet"],
-        state["run_id"],
-        call["session_id"],
-        "import_bank_statement",
-        file_id=state["file_id"],
-        dossier_id=call["dossier_id"],
+    result = await run_step(
+        state, "import_bank_statement", file_id=state["file_id"], dossier_id=state["call"]["dossier_id"]
     )
     return {"last": result, "outcomes": [result]}
 
 
 async def split(state: File):
     call = state["call"]
-    result = await step(
-        call["cabinet"],
-        state["run_id"],
-        call["session_id"],
+    result = await run_step(
+        state,
         "split_invoices",
         file_id=state["file_id"],
         invoice_type=call.get("invoice_type") or "",
@@ -262,10 +246,7 @@ def with_dossier(state: Run):
 async def dossier_found(state: Run):
     """The dossier the client named, found here (not by the agent: it never sees an id). A name that is no single
     dossier ends the run: the summary asks the client."""
-    call = state["call"]
-    result = await step(
-        call["cabinet"], state["run_id"], call["session_id"], "resolve_dossier", name=call.get("dossier") or ""
-    )
+    result = await run_step(state, "resolve_dossier", name=state["call"].get("dossier") or "")
     return {"dossier_id": result.get("dossier_id", 0), "outcomes": [result]}
 
 
@@ -274,16 +255,13 @@ async def sender(state: Run):
 
 
 async def files(state: Run):
-    call = state["call"]
-    result = await step(
-        call["cabinet"], state["run_id"], call["session_id"], "files_to_process", session_id=call["session_id"]
-    )
+    result = await run_step(state, "files_to_process", session_id=state["call"]["session_id"])
     return {"files": result.get("files", []), "outcomes": [result]}
 
 
 def each_file(state: Run):
     """One file run per new file; none: the dossier's waiting questions, then the drafts left waiting."""
-    if state["outcomes"][-1].get("status") != "ok":
+    if failed(state):
         return "resume"  # the files could not be listed: recorded, nothing more
     if not state["files"]:
         return "questions"
@@ -297,10 +275,8 @@ async def questions(state: Run):
     """The questions other conversations left on this dossier's invoices, asked again here: each recorded as this
     run's question, which makes it this conversation's (record_step), so the summary asks it and the answer finds it."""
     call = state["call"]
-    found = await step(
-        call["cabinet"],
-        state["run_id"],
-        call["session_id"],
+    found = await run_step(
+        state,
         "dossier_questions",
         session_id=call["session_id"],
         dossier_id=state["dossier_id"],
@@ -321,10 +297,8 @@ async def waiting(state: Run):
     """The drafts to take up again. What the client asks (not a follow-up) also resumes the drafts a step stopped,
     and, with "oui", the dossier's drafts held back, from any conversation."""
     call = state["call"]
-    result = await step(
-        call["cabinet"],
-        state["run_id"],
-        call["session_id"],
+    result = await run_step(
+        state,
         "waiting_drafts",
         session_id=call["session_id"],
         held=call.get("comptabiliser") == "oui",
@@ -355,10 +329,8 @@ def each_draft(state: Run):
 
 async def answer(state: Run):
     call = state["call"]
-    result = await step(
-        call["cabinet"],
-        state["run_id"],
-        call["session_id"],
+    result = await run_step(
+        state,
         "answer_pending",
         session_id=call["session_id"],
         answer=call.get("answer") or call.get("client_message") or "",
@@ -401,16 +373,10 @@ run.add_node("reponse", answer)
 run.add_node("resume", summary)
 run.add_edge(START, "debut")
 # A failed save is recorded and goes no further: the files the run would work on are missing.
-run.add_conditional_edges(
-    "debut", lambda s: "aiguillage" if s["outcomes"][-1].get("status") == "ok" else "resume", ["aiguillage", "resume"]
-)
+run.add_conditional_edges("debut", *ok_or_summary("aiguillage"))
 run.add_conditional_edges("aiguillage", by_route, ["dossier", "reponse", "brouillons"])
-run.add_conditional_edges(
-    "dossier", lambda s: "expediteur" if s["outcomes"][-1].get("status") == "ok" else "resume", ["expediteur", "resume"]
-)
-run.add_conditional_edges(
-    "expediteur", lambda s: "fichiers" if s["outcomes"][-1].get("status") == "ok" else "resume", ["fichiers", "resume"]
-)
+run.add_conditional_edges("dossier", *ok_or_summary("expediteur"))
+run.add_conditional_edges("expediteur", *ok_or_summary("fichiers"))
 run.add_conditional_edges("fichiers", each_file, ["fichier", "questions", "resume"])
 run.add_edge("questions", "brouillons")
 run.add_conditional_edges("brouillons", each_draft, ["fichier", "resume"])

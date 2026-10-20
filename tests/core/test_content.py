@@ -2,6 +2,7 @@
 document exactly, and a change that would break what reads it is refused, in plain French."""
 
 import json
+import re
 
 import pytest
 
@@ -13,6 +14,29 @@ def form_of(path):
     """The form's fields as the page shows them, as the browser sends them back."""
     sections = content_pages.sections(path, content.text(path))
     return {f["key"]: [f["value"]] for section in sections for f in section["fields"]}
+
+
+# A line that starts a block of its own: a list item, a heading, a table row, a quote, a fence, a JSON object, or a
+# "field: ..." line. Anything else right after a non-empty line continues its sentence.
+BLOCK = re.compile(r"\s*([-*•]\s|\d+[.)]\s|[A-Z][.)]\s|#|\||>|```|\{|[a-z_]+:\s)")
+
+
+def unwrapped(text):
+    """``text`` with the line breaks a fixed width put inside its sentences removed (they show as broken lines in a
+    form): a line that is not a block of its own joins the one before, unless that one ends a block (``:``, ``}``)."""
+    out, fence = [], False
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            fence = not fence
+            out.append(line)
+            continue
+        previous = out[-1].rstrip() if out else ""
+        if fence or not previous or not stripped or BLOCK.match(line) or previous.endswith(("}", "]", ":")):
+            out.append(line)
+        else:
+            out[-1] = previous + " " + stripped
+    return "\n".join(out)
 
 
 @pytest.mark.functionality
@@ -61,7 +85,7 @@ def test_no_sentence_is_cut_by_a_line_break(path):
     else:
         texts = [content.front_matter(text)[1]]
     for found in texts:
-        assert content.unwrapped(found) == found
+        assert unwrapped(found) == found
 
 
 @pytest.mark.communication

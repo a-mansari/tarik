@@ -71,29 +71,6 @@ def load():
         loaded(db.execute(Q.content_latest).fetchall())
 
 
-# A line that starts a block of its own: a list item, a heading, a table row, a quote, a fence, a JSON object, or a
-# "field: ..." line. Anything else right after a non-empty line continues its sentence.
-BLOCK = re.compile(r"\s*([-*•]\s|\d+[.)]\s|[A-Z][.)]\s|#|\||>|```|\{|[a-z_]+:\s)")
-
-
-def unwrapped(text):
-    """``text`` with the line breaks a fixed width put inside its sentences removed (they show as broken lines in a
-    form): a line that is not a block of its own joins the one before, unless that one ends a block (``:``, ``}``)."""
-    out, fence = [], False
-    for line in text.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            fence = not fence
-            out.append(line)
-            continue
-        previous = out[-1].rstrip() if out else ""
-        if fence or not previous or not stripped or BLOCK.match(line) or previous.endswith(("}", "]", ":")):
-            out.append(line)
-        else:
-            out[-1] = previous + " " + stripped
-    return "\n".join(out)
-
-
 async def save(pool, path, new, author, note="", create=False, reshape=False):
     """``new`` as the document's latest version, by ``author``; ValueError (in plain French) when it would break
     what reads it. Nothing is saved when it is the same as the latest. ``create``: a document the stack does not have

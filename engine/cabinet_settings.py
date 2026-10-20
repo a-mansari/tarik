@@ -8,14 +8,13 @@ settings: table settings_changes) and in use at once. Any other key in the same 
 import asyncio
 import re
 import threading
-import time
 from email.utils import parseaddr
-from pathlib import Path
 
 import httpx
 from psycopg.types.json import Jsonb
 
 from engine import audit
+from engine.accounts import EMAIL
 from tarik.core import cabinets
 from tarik.core.queries import Q
 
@@ -40,12 +39,11 @@ FIELDS = {
 OPTIONAL = {"SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KEY"}  # left empty: Tarik does without
 assert set(FIELDS) == cabinets.CABINET_SETTINGS - {"ACTIVE"}  # every cabinet setting on the page, but the API's own
 
-ADDRESS = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+")
 # As tarik.emails.sending reads the list: an address, an @domain, or a pattern with "*" ("test.*@experio.ma", "*").
 RECIPIENT = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+|@[^@\s,]+\.[^@\s,]+|[^\s,]*\*[^\s,]*")
 
 _lock = threading.Lock()
-_token = {"value": "", "until": 0.0}
+_token = {"token": "", "token_until": 0.0}
 
 
 def latest(cabinet, served_only=True):
@@ -76,9 +74,9 @@ def checked(key, value):
         raise ValueError(f"{key} vaut 1 (simulation) ou 0 (écritures réelles)")
     if kind == "integer" and not (value.isdigit() and int(value) > 0):
         raise ValueError(f"{key} est un nombre entier positif, sans espace (l'identifiant de Tarik dans Experio)")
-    if kind == "address" and not ADDRESS.fullmatch(value):
+    if kind == "address" and not EMAIL.fullmatch(value):
         raise ValueError(f"{key} n'est pas une adresse email (sans espace autour)")
-    if kind == "sender" and not ADDRESS.fullmatch(parseaddr(value)[1]):
+    if kind == "sender" and not EMAIL.fullmatch(parseaddr(value)[1]):
         raise ValueError(f"{key} n'est pas un expéditeur (« Nom <adresse> » ou une adresse)")
     # The recipients, each entry as Tarik reads it: split at the commas, its spaces left out, an empty one skipped.
     wrong = [e.strip() for e in value.split(",") if e.strip() and not RECIPIENT.fullmatch(e.strip())]
@@ -107,12 +105,8 @@ def changed(before, given):
 def _vault(method, path, **kwargs):
     """Vault's answer with the page's own AppRole token, logged in again once 80% of its lease has passed."""
     with _lock:
-        if not _token["value"] or time.monotonic() > _token["until"]:
-            ids = {name: Path(ROLE, name).read_text().strip() for name in ("role_id", "secret_id")}
-            auth = cabinets._vault_request("POST", "/v1/auth/approle/login", json=ids)["auth"]
-            _token.update(value=auth["client_token"], until=time.monotonic() + 0.8 * auth["lease_duration"])
-        token = _token["value"]
-    return cabinets._vault_request(method, path, token, **kwargs)
+        token = cabinets.vault_token(ROLE, _token)
+    return cabinets.vault_request(method, path, token, **kwargs)
 
 
 MOVED = "ces réglages ont changé depuis l'ouverture de la page : rechargez-la et recommencez"

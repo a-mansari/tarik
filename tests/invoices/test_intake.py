@@ -62,11 +62,15 @@ def test_test_mode_creates_no_draft_and_imports_no_statement(monkeypatch):
     monkeypatch.setattr(intake, "require_dossier", lambda dossier_id: "Gecafisc")
     monkeypatch.setattr(intake, "dry_run", lambda: True)
 
-    monkeypatch.setattr(intake, "cabinet_db", lambda: FakeDb(("f.pdf", "application/pdf", b"%PDF", None, "invoice")))
+    monkeypatch.setattr(
+        intake, "cabinet_db", lambda: FakeDb(("s", "f.pdf", "application/pdf", b"%PDF", "invoice", None, None, None))
+    )
     draft = intake.create_draft_invoice(1, 557)
     assert draft["status"] == "stop" and draft["message"].startswith("MODE TEST") and "invoice_id" not in draft
 
-    monkeypatch.setattr(intake, "cabinet_db", lambda: FakeDb(("r.pdf", "application/pdf", b"%PDF", "statement", None)))
+    monkeypatch.setattr(
+        intake, "cabinet_db", lambda: FakeDb(("s", "r.pdf", "application/pdf", b"%PDF", "statement", None, None, None))
+    )
     statement = intake.import_bank_statement(2, 557)
     assert (
         statement["status"] == "ok" and statement["message"].startswith("MODE TEST") and "BMCE" in statement["message"]

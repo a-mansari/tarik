@@ -12,13 +12,13 @@ from tarik.core.app import ToolError, ok, question, step_tool, stop
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import POSTED, TEST_MODE
 from tarik.core.conversation import client_messages, own_words
-from tarik.core.experio import dry_run, odoo_call, odoo_json, refused, require_dossier
-from tarik.core.queries import Q
+from tarik.core.experio import dry_run, experio_refusal, odoo_call, odoo_json, refused, require_dossier
 from tarik.core.words import ICE_WRITTEN, normalized, said
 from tarik.dossiers.identity import FOLDER_TYPES, PLACEHOLDER_IDS, confirmed, having, real_ids
-from tarik.dossiers.people import attach_user
+from tarik.dossiers.people import attach_user, users_by_email
 from tarik.dossiers.search import dossiers
-from tarik.dossiers.setup import file_text, sheet_text
+from tarik.dossiers.setup import separator_of, table_text, taken
+from tarik.invoices.intake import file_row
 
 DECLARATION_MODES = {"monthly": "mensuelle", "quarterly": "trimestrielle", "out_of_field": "hors champ"}
 MODE_WORDS = {
@@ -28,6 +28,7 @@ MODE_WORDS = {
     "trimestriel": "quarterly",
     "hors champ": "out_of_field",
 }
+# A spreadsheet's Type column, where "societe" is a type (a message's words are not: identity.TYPE_WORDS).
 TYPE_WORDS = {
     "personne physique": "person",
     "physique": "person",
@@ -77,9 +78,8 @@ def read_rows(name, mime, data):
     if not (excel or name.lower().endswith((".csv", ".txt")) or (mime or "").startswith("text/")):
         raise ToolError(f"{name} : envoyez la liste des dossiers en Excel (.xlsx) ou en CSV.")
     with refused(f"import_dossiers {name}", f"{name} : fichier illisible.", ToolError):
-        text = sheet_text(bytes(data)) if excel else file_text(bytes(data))
-    first = text.split("\n", 1)[0]
-    table = [row for row in csv.reader(io.StringIO(text), delimiter=max(";,\t", key=first.count)) if any(row)]
+        text = table_text(name, data)
+    table = [row for row in csv.reader(io.StringIO(text), delimiter=separator_of(text)) if any(row)]
     if not table:
         raise ToolError(f"{name} : le fichier est vide.")
     by_header = {normalized(alias): key for key, aliases in COLUMNS.items() for alias in aliases}
@@ -221,11 +221,8 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
     clear yes to that question). Experio checks each ICE and IF against the registry when creating:
     the rows it refuses are listed, the others are created."""
     with cabinet_db() as db:
-        row = db.execute(Q.file_contents, (file_id,)).fetchone()
-    if not row:
-        raise ToolError(f"Aucun fichier n° {file_id}.")
-    name = row[0]
-    rows = read_rows(*row)
+        name, mime, data = file_row(db, file_id, "file_name", "mime_type", "data")
+    rows = read_rows(name, mime, data)
     with refused(f"import_dossiers {file_id}", "Experio n'a pas pu verifier la liste des dossiers."):
         problems = problems_of(rows)
     if problems:
@@ -248,12 +245,11 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
         try:
             dossier_id = odoo_json("res.company", "create", values_of(r))
         except Exception as error:
-            refused_rows.append(f"- Ligne {r['line']} ({r['name']}) : {str(error).strip().splitlines()[-1][:200]}")
+            refused_rows.append(f"- Ligne {r['line']} ({r['name']}) : {experio_refusal(error)}")
             continue
         attach_user(None, dossier_id)
         created.append(r["name"])
-    with cabinet_db() as db:
-        db.execute(Q.file_taken_as_entries, (file_id,))  # done with
+    taken(file_id)
     message = f"{name} : {len(created)} dossier(s) cree(s) sur {len(rows)}."
     if refused_rows:
         message += (
@@ -281,14 +277,7 @@ def profiles(profile_type):
 
 def user_by_email(email, employee_type):
     """The collaborateur or client whose login or email is ``email`` ({id, name, login}), or None."""
-    exact = email.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    found = odoo_call(
-        "res.users",
-        "search_read",
-        [("employee_type", "=", employee_type), "|", ("login", "=ilike", exact), ("email", "=ilike", exact)],
-        fields=["id", "name", "login"],
-        limit=1,
-    )
+    found = users_by_email(email, [employee_type], ["id", "name", "login"], 1)
     return found[0] if found else None
 
 
