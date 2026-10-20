@@ -23,7 +23,8 @@
         {% for f in section.fields %}
         <label class="field">
           <span>{{ f.label }}</span>
-          {% if f.long %}<textarea name="{{ f.key }}" rows="{{ [3, (f.value | length // 90) + f.value.count('\n') + 2] | max if f.value | length < 4000 else 30 }}">{{ f.value }}</textarea>
+          {% if f.long %}<textarea name="{{ f.key }}" rows="3">{{ f.value }}</textarea>
+          <small class="count num" aria-live="off">{{ f.value | length }} caractères</small>
           {% else %}<input name="{{ f.key }}" value="{{ f.value }}">{% endif %}
         </label>
         {% endfor %}
@@ -66,5 +67,19 @@
     document.querySelectorAll("details.card").forEach((card) => { card.open = button.dataset.cards === "open"; });
   }));
   document.querySelectorAll("details.card").forEach((card) => card.addEventListener("input", () => card.classList.add("changed")));
+
+  // Each text area as tall as its text, and its count of characters, kept up as it is typed in. A closed card's
+  // areas have no height to measure: sized when it opens.
+  function fit(area) {
+    area.style.height = "auto";
+    area.style.height = `${area.scrollHeight + 2}px`;
+    area.nextElementSibling.textContent = `${area.value.length.toLocaleString("fr-FR")} caractères`;
+  }
+  const areas = document.querySelectorAll(".content-form textarea");
+  areas.forEach((area) => { area.addEventListener("input", () => fit(area)); fit(area); });
+  document.querySelectorAll("details.card").forEach((card) => card.addEventListener("toggle", () => {
+    if (card.open) card.querySelectorAll("textarea").forEach(fit);
+  }));
+  window.addEventListener("resize", () => areas.forEach((area) => area.offsetParent && fit(area)));
 </script>
 {% endblock %}

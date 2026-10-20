@@ -194,7 +194,7 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .field { display: grid; gap: .3rem; font-size: .85rem; color: var(--muted); }
 .field textarea, .field input { font: inherit; font-size: .9rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; width: 100%; box-sizing: border-box; }
 .field textarea { resize: vertical; line-height: 1.45; }
-.save-bar { position: sticky; bottom: 0; background: var(--surface); border-top: 1px solid var(--line); padding: .8rem 0 .2rem; display: grid; grid-template-columns: 1fr auto; gap: .8rem; align-items: end; }
+.save-bar { position: sticky; bottom: 0; z-index: 1; background: var(--surface); padding: 1rem 1.15rem; display: grid; grid-template-columns: 1fr auto; gap: .8rem; align-items: end; }
 button.primary, .compare button { font: inherit; cursor: pointer; border-radius: 6px; padding: .5rem 1rem; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
 .versions { list-style: none; padding: 0; display: grid; gap: .3rem; font-size: .85rem; }
 .versions a { display: grid; gap: .1rem; padding: .4rem .5rem; border-radius: 6px; color: var(--fg); text-decoration: none; }
@@ -217,5 +217,7 @@ details.card[open] > summary .card-title::before { transform: rotate(90deg); }
 details.card[open] > summary { border-bottom: 1px solid var(--line); }
 details.card.changed > summary .muted::after { content: " · modifié, pas encore enregistré"; color: var(--wait, #9a6b00); }
 .card-body { display: grid; gap: .9rem; padding: 1rem; }
-.save-bar.panel { margin: 0; }
+.save-bar.panel { margin: 0; box-shadow: 0 -6px 12px -10px rgba(0, 0, 0, .35); }
+.field textarea { overflow: hidden; min-height: 4.5rem; }
+.field .count { justify-self: end; font-size: .75rem; color: var(--muted); margin-top: -.15rem; }
 @media (prefers-reduced-motion: reduce) { details.card > summary .card-title::before { transition: none; } }
