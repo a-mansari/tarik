@@ -409,7 +409,6 @@ fieldset.plain { border: 0; margin: 0; padding: 0; min-width: 0; display: conten
 /* The frame: the sidebar (the cabinet picked and its pages, then what all cabinets share), the page beside it. */
 .frame { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); min-height: calc(100vh - 3.2rem); }
 .frame.alone { display: block; }
-.bar { justify-content: space-between; }
 .sidebar { background: var(--surface); border-right: 1px solid var(--line); padding: 1rem .75rem; display: grid; align-content: start; gap: 1.4rem; position: sticky; top: 0; max-height: 100vh; overflow-y: auto; box-sizing: border-box; }
 .sidebar h2 { font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 .45rem .45rem; }
 .sidebar nav { display: grid; gap: .1rem; }
@@ -428,3 +427,4 @@ fieldset.plain { border: 0; margin: 0; padding: 0; min-width: 0; display: conten
   .sidebar { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 30rem) { .sidebar { grid-template-columns: 1fr; } }
+.frame > .page { align-content: start; width: 100%; box-sizing: border-box; }

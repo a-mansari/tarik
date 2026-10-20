@@ -8,39 +8,40 @@
   <link rel="stylesheet" href="{{ asset('app.css') }}">
 </head>
 <body>
+  {% set signed = request.state.user is defined and request.state.user %}
+  {% macro nav_link(href, name, words) %}<a href="{{ href }}" {% if request.url.path.startswith(href) %}aria-current="page"{% endif %}>{{ icon(name) }}{{ words }}</a>{% endmacro %}
   <header class="bar">
     <a class="brand" href="/ui/runs">Tarik</a>
-    {% if request.state.user is defined and request.state.user %}
+    {% if signed %}
+    {# The pages of the cabinet picked in the sidebar: what differs from one cabinet to the next. #}
+    <nav aria-label="Pages du cabinet">
+      {{ nav_link("/ui/runs", "runs", "Exécutions") }}
+      {{ nav_link("/ui/discussion", "chat", "Discussion") }}
+      {{ nav_link("/ui/prompts", "prompts", "Prompts") }}
+      {% if is_admin(request) %}{{ nav_link("/ui/cabinets", "cabinets", "Réglages") }}{% endif %}
+    </nav>
     <form class="who" method="post" action="/logout"><span>{{ request.state.user.name }}</span><button type="submit">Se déconnecter</button></form>
     {% endif %}
   </header>
-  {% set signed = request.state.user is defined and request.state.user %}
   <div class="frame{% if not signed %} alone{% endif %}">
   {% if signed %}
-  {% macro nav_link(href, name, words) %}<a href="{{ href }}" {% if request.url.path.startswith(href) %}aria-current="page"{% endif %}>{{ icon(name) }}{{ words }}</a>{% endmacro %}
   <aside class="sidebar" aria-label="Navigation">
     <section>
-      <h2>Cabinet</h2>
-      <ul class="cabinets">
-        {% for c in sidebar(request) %}
-        <li><a href="/ui/cabinet/{{ c.name }}?next={{ c.next }}" {% if c.chosen %}aria-current="true"{% endif %}>{{ cabinet_label(c.name) }}</a></li>
-        {% else %}<li class="muted">Aucun cabinet.</li>{% endfor %}
-      </ul>
-      <nav>
-        {{ nav_link("/ui/runs", "runs", "Exécutions") }}
-        {{ nav_link("/ui/discussion", "chat", "Discussion") }}
-        {{ nav_link("/ui/prompts", "prompts", "Prompts") }}
-        {% if is_admin(request) %}{{ nav_link("/ui/cabinets", "cabinets", "Réglages") }}{% endif %}
-      </nav>
-    </section>
-    <section>
-      <h2>Tous les cabinets</h2>
+      <h2>Général</h2>
       <nav>
         {{ nav_link("/ui/workflows", "workflows", "Workflows") }}
         {{ nav_link("/ui/contenu", "content", "Contenu de Tarik") }}
         {% if is_admin(request) %}{{ nav_link("/ui/comptes", "accounts", "Comptes") }}
         {{ nav_link("/ui/journal", "journal", "Journal") }}{% endif %}
       </nav>
+    </section>
+    <section>
+      <h2>Cabinets</h2>
+      <ul class="cabinets">
+        {% for c in sidebar(request) %}
+        <li><a href="/ui/cabinet/{{ c.name }}?next={{ c.next }}" {% if c.chosen %}aria-current="true"{% endif %}>{{ cabinet_label(c.name) }}</a></li>
+        {% else %}<li class="muted">Aucun cabinet.</li>{% endfor %}
+      </ul>
     </section>
   </aside>
   {% endif %}
