@@ -230,8 +230,8 @@ details.card.changed > summary .muted::after { content: " · modifié, pas encor
 .group-head { display: flex; justify-content: space-between; align-items: center; gap: .8rem; flex-wrap: wrap; }
 .group-head h2 { margin: 0; }
 details.card.touched { border-color: var(--wait, #9a6b00); }
-.field-diff { margin: -.4rem 0 .4rem; padding: .6rem .7rem; border-radius: 6px; background: var(--bg); border-left: 3px solid var(--wait, #9a6b00); display: grid; gap: .3rem; }
-.field-diff .diff { margin: 0; font-size: .85rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: none; background: none; padding: 0; }
+.field-diff { padding: .5rem .6rem; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); border-left: 3px solid var(--wait, #9a6b00); }
+.field-diff .diff { margin: 0; font-size: .9rem; line-height: 1.45; color: var(--fg); white-space: pre-wrap; word-break: break-word; max-height: none; background: none; padding: 0; }
 .field-diff ins { background: var(--good-bg, #e3f2e7); color: var(--good); text-decoration: none; border-radius: 3px; padding: 0 .1rem; }
 .field-diff del { background: var(--bad-bg, #f7e1df); color: var(--bad); border-radius: 3px; padding: 0 .1rem; }
 .compare-banner { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; border-color: var(--wait, #9a6b00); }
@@ -247,10 +247,8 @@ details.card.touched { border-color: var(--wait, #9a6b00); }
 }
 
 /* A version's change beside the field in service: old (the version, its change marked) -> new (in service). */
-.field-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: .6rem; align-items: stretch; }
-.field-pair .field-diff { margin: 0; align-content: start; }
-.field-pair .arrow { align-self: center; font-size: 1.3rem; color: var(--wait, #9a6b00); }
-.field-diff .count { justify-self: end; }
+.field-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: .6rem; align-items: start; }
+.field-pair .arrow { align-self: center; padding-top: 1.2rem; font-size: 1.3rem; color: var(--wait, #9a6b00); }
 @media (max-width: 60rem) { .field-pair { grid-template-columns: 1fr; } .field-pair .arrow { justify-self: center; transform: rotate(90deg); } }
 details.card > summary { flex-wrap: wrap; }
 details.card > summary .card-title { flex: 1 1 14rem; }

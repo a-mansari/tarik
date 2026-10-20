@@ -47,9 +47,9 @@
         {% set change = compare.fields[f.key] if compare and f.key in compare.fields else None %}
         {% if change %}<div class="field-pair">
         {# The version's change (old) beside the text in service (new), an arrow from one to the other. #}
-        <div class="field-diff">
-          <span class="eyebrow">{{ f.label }} : changé en version {{ compare.id }}</span>
-          <p class="diff">{% for kind, part in change.parts %}{% if kind == '+' %}<ins>{{ part }}</ins>{% elif kind == '-' %}<del>{{ part }}</del>{% else %}{{ part }}{% endif %}{% endfor %}</p>
+        <div class="field">
+          <span>{{ f.label }} : changé en version {{ compare.id }}</span>
+          <div class="field-diff"><p class="diff">{% for kind, part in change.parts %}{% if kind == '+' %}<ins>{{ part }}</ins>{% elif kind == '-' %}<del>{{ part }}</del>{% else %}{{ part }}{% endif %}{% endfor %}</p></div>
           <small class="count num">{{ change.before }} → {{ change.after }} caractères</small>
         </div>
         <span class="arrow" aria-hidden="true">→</span>
