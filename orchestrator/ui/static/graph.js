@@ -187,16 +187,27 @@
         return;
       }
       if (saved.style === "bezier") {
-        // From where it leaves (the source's right side) to where it enters (the target's left side): its pull is half
-        // the gap between them, never less than 30, and grows into a loop when the target sits behind the source.
+        // Out of the side of the source that faces the target, into the side of the target that faces the source:
+        // left/right when the cards are further apart sideways, top/bottom when further apart up and down. Its pull is
+        // half the gap between the two sides, never less than 30, so the S stretches and flattens with the distance.
         const source = edge.source(), target = edge.target(), s = source.position(), t = target.position();
-        const out = s.x + source.width() / 2, into = t.x - target.width() / 2, gap = into - out;
-        const reach = gap > 0 ? Math.max(30, gap / 2) : Math.max(60, -gap / 2 + 40);
-        const controls = [{ x: out + reach, y: s.y }, { x: into - reach, y: t.y }];
+        const sideways = Math.abs(t.x - s.x) - (source.width() + target.width()) / 2;
+        const upright = Math.abs(t.y - s.y) - (source.height() + target.height()) / 2;
+        const across = sideways >= upright;
+        const dir = across ? Math.sign(t.x - s.x) || 1 : Math.sign(t.y - s.y) || 1;
+        const reach = Math.max(30, (across ? sideways : upright) / 2);
+        const out = across ? { x: s.x + dir * source.width() / 2, y: s.y } : { x: s.x, y: s.y + dir * source.height() / 2 };
+        const into = across ? { x: t.x - dir * target.width() / 2, y: t.y } : { x: t.x, y: t.y - dir * target.height() / 2 };
+        const controls = across
+          ? [{ x: out.x + dir * reach, y: out.y }, { x: into.x - dir * reach, y: into.y }]
+          : [{ x: out.x, y: out.y + dir * reach }, { x: into.x, y: into.y - dir * reach }];
+        // cytoscape's angles: 0deg up, 90deg right, 180deg down, 270deg left.
+        const exit = across ? (dir > 0 ? "90deg" : "270deg") : (dir > 0 ? "180deg" : "0deg");
+        const entry = across ? (dir > 0 ? "270deg" : "90deg") : (dir > 0 ? "0deg" : "180deg");
         oriented(edge, controls,
           (r) => edge.style({
             "curve-style": "unbundled-bezier", "edge-distances": "node-position", "control-point-weights": r.weights,
-            "control-point-distances": r.distances, "source-endpoint": "90deg", "target-endpoint": "270deg", // right side out, left side in
+            "control-point-distances": r.distances, "source-endpoint": exit, "target-endpoint": entry,
           }),
           () => edge.controlPoints());
         return;
