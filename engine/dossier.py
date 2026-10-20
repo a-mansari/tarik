@@ -70,7 +70,7 @@ def ids(call):
 
 
 async def start(state: Run, config):
-    begun = await started(state, config, INPUTS)
+    begun = await started(INPUTS)(state, config)
     return {**begun, "target": begun["call"].get("dossier_id") or 0}
 
 

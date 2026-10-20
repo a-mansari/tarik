@@ -53,8 +53,7 @@ create table if not exists layouts (
     updated_at timestamptz not null default now()
 );
 """
-GRAPHS = graphs.COMPILED  # the agent: made per run
-NAMES = sorted([*GRAPHS, "agent"])
+NAMES = sorted([*graphs.COMPILED, "agent"])  # the agent: made per run
 DETAIL_LIMIT = 50_000  # characters of a node's update kept: a scan's text or a long history is cut, never the run
 
 TIME_ZONE = ZoneInfo("Africa/Casablanca")  # the cabinets' time, from the server's own time-zone data
@@ -167,7 +166,7 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
         async with pool.connection() as db:
             await db.execute("update runs set status = 'running' where id = %s", (run_id,))
         try:  # the agent made here too: no model configured fails the run, never leaves it queued
-            graph = agent.make_agent({"configurable": configurable}) if name == "agent" else GRAPHS[name]
+            graph = agent.make_agent({"configurable": configurable}) if name == "agent" else graphs.COMPILED[name]
             async for namespace, mode, data in graph.astream(
                 given,
                 {"configurable": configurable, "run_id": run_id},

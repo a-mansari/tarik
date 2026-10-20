@@ -92,14 +92,19 @@ async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a
 # Nodes every workflow (Traitement, Dossier) begins and ends with.
 
 
-async def started(state, config, inputs):
-    """A run's first node: its inputs kept, its id (the summary's key), the conversation's attachments saved once."""
-    given = {key: state["call"].get(key) for key in inputs}
-    run_id = str(config.get("run_id") or uuid.uuid4())
-    session = given["session_id"]
-    files = given.get("attachments") or []
-    result = await step(given["cabinet"], run_id, session, "save_files", session_id=session, files=files)
-    return {"call": given, "run_id": run_id, "outcomes": [result]}
+def started(inputs):
+    """A run's first node, for a workflow taking ``inputs``: they are kept, the run gets its id (the summary's key),
+    and the conversation's attachments are saved once each."""
+
+    async def start(state, config):
+        given = {key: state["call"].get(key) for key in inputs}
+        run_id = str(config.get("run_id") or uuid.uuid4())
+        session = given["session_id"]
+        files = given.get("attachments") or []
+        result = await step(given["cabinet"], run_id, session, "save_files", session_id=session, files=files)
+        return {"call": given, "run_id": run_id, "outcomes": [result]}
+
+    return start
 
 
 async def sender_checked(state, dossier_id):

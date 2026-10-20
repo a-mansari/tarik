@@ -15,10 +15,18 @@ from langgraph.config import get_config
 from psycopg import sql
 
 from engine.settings import cabinet_of
-from tarik.core.cabinets import CABINETS
 
 KEEP_DAYS = int(os.environ.get("TARIK_PROMPTS_KEEP_DAYS") or 30)
 AGENT = "Tarik - {}"
+
+
+def runs():
+    """engine.runs, for its pool: imported at use, since runs imports the agent, which imports this module."""
+    from engine import runs as module
+
+    return module
+
+
 PENDING = set()  # the saves under way (a task nobody holds may be collected before it ends)
 
 
@@ -50,7 +58,6 @@ def message(entry):
 
 
 async def save(cabinet, session_id, agent, system, tools, messages):
-    from engine.runs import pool  # set once the server runs; runs imports the graphs that import this module
 
     try:
         system_part, tools_part, *message_parts = [part(value) for value in (system, tools, *messages)]
@@ -59,7 +66,7 @@ async def save(cabinet, session_id, agent, system, tools, messages):
             sql.Identifier(cabinet, "tarik_prompt_calls"),
             sql.Identifier(cabinet, "tarik_prompt_parts"),
         )
-        async with pool.connection() as db:
+        async with runs().pool.connection() as db:
             await db.execute(
                 sql.SQL(
                     "with new_parts as (insert into {} (hash, content) select hash, content::jsonb "
@@ -114,18 +121,13 @@ async def logged(request, handler):
     return await handler(request)
 
 
-# The UI's reads. A cabinet is one this stack serves; never a name taken from the request as is.
-
-
-async def cabinets():
-    return sorted(CABINETS)
+# The UI's reads, for a cabinet this stack serves (CABINETS): never a name taken from the request as is.
 
 
 async def conversations(cabinet, limit=100):
     """The cabinet's conversations with model calls, latest first: {session_id, calls, agents, last}."""
-    from engine.runs import pool
 
-    async with pool.connection() as db:
+    async with runs().pool.connection() as db:
         rows = await (
             await db.execute(
                 sql.SQL(
@@ -140,9 +142,8 @@ async def conversations(cabinet, limit=100):
 
 async def calls(cabinet, session_id, since=None, until=None):
     """A conversation's model calls, in order (optionally those of one run's time): {id, agent, at, messages}."""
-    from engine.runs import pool
 
-    async with pool.connection() as db:
+    async with runs().pool.connection() as db:
         rows = await (
             await db.execute(
                 sql.SQL(
@@ -158,10 +159,9 @@ async def calls(cabinet, session_id, since=None, until=None):
 
 async def prompt(cabinet, call_id):
     """One call's whole prompt: {agent, at, session_id, system, tools, messages}, or None."""
-    from engine.runs import pool
 
     calls_table, parts = sql.Identifier(cabinet, "tarik_prompt_calls"), sql.Identifier(cabinet, "tarik_prompt_parts")
-    async with pool.connection() as db:
+    async with runs().pool.connection() as db:
         row = await (
             await db.execute(
                 sql.SQL(

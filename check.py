@@ -6,8 +6,10 @@ import ast
 import sys
 from pathlib import Path
 
-from engine import agent, graphs, traitement
+from engine import graphs
+from engine.content import AGENT
 from engine.tools import TOOLS
+from tarik.invoices.pipeline import INVOICE_CHAIN
 
 ENGINE = Path(__file__).parent / "engine"
 TOOL_ARGUMENT = {"step": 3, "call": 1, "run_tool": 1}  # where each caller takes the tool's name
@@ -15,8 +17,8 @@ TOOL_ARGUMENT = {"step": 3, "call": 1, "run_tool": 1}  # where each caller takes
 
 def called():
     """{tool: where} for every tool named in the graphs' calls (step, call, run_tool) and the agent's read tools."""
-    found = dict.fromkeys(traitement.CHAIN, "traitement.CHAIN")
-    found |= dict.fromkeys(agent.READ_TOOLS, "content/agent.json read_tools")
+    found = dict.fromkeys(INVOICE_CHAIN, "pipeline.INVOICE_CHAIN")
+    found |= dict.fromkeys(AGENT["read_tools"], "content/agent.json read_tools")
     for path in ENGINE.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in TOOL_ARGUMENT:

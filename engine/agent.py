@@ -18,9 +18,6 @@ from engine.model import model
 from engine.settings import cabinet_of
 from engine.tools import ToolFailure, call
 
-READ_TOOLS = list(AGENT["read_tools"])  # their names; what they say is read at each agent's making (described)
-DESCRIPTIONS = AGENT["tools"]  # the first descriptions, for the tools' definitions below
-
 
 def skills():
     """The skills (name, description, instructions), their latest versions (content/skills/, edited in the UI)."""
@@ -156,7 +153,7 @@ async def run_workflow(graph, runtime, call_inputs):
     return result["message"]
 
 
-@tool("Experio_traiter_fichiers", description=DESCRIPTIONS["Experio_traiter_fichiers"])
+@tool("Experio_traiter_fichiers", description=AGENT["tools"]["Experio_traiter_fichiers"])
 async def traiter_fichiers(
     runtime: ToolRuntime,
     dossier: str = "",
@@ -184,13 +181,13 @@ async def traiter_fichiers(
     return await run_workflow(traitement.graph, runtime, inputs)
 
 
-@tool("Experio_repondre", description=DESCRIPTIONS["Experio_repondre"])
+@tool("Experio_repondre", description=AGENT["tools"]["Experio_repondre"])
 async def repondre(runtime: ToolRuntime, decision: str = "", about: str = "") -> str:
     inputs = {"mode": "answer", "answer": client_message(runtime), "decision": decision, "about": about}
     return await run_workflow(traitement.graph, runtime, inputs)
 
 
-@tool("Experio_parametrer_dossier", description=DESCRIPTIONS["Experio_parametrer_dossier"])
+@tool("Experio_parametrer_dossier", description=AGENT["tools"]["Experio_parametrer_dossier"])
 async def parametrer_dossier(
     dossier_id: int,
     runtime: ToolRuntime,
@@ -220,7 +217,7 @@ async def parametrer_dossier(
     return await run_workflow(dossier.graph, runtime, inputs)
 
 
-@tool("Experio_modifier_dossier", description=DESCRIPTIONS["Experio_modifier_dossier"])
+@tool("Experio_modifier_dossier", description=AGENT["tools"]["Experio_modifier_dossier"])
 async def modifier_dossier(
     dossier_id: int,
     runtime: ToolRuntime,
@@ -262,7 +259,7 @@ async def modifier_dossier(
     return await run_workflow(dossier.graph, runtime, inputs)
 
 
-@tool("Experio_creer_acces", description=DESCRIPTIONS["Experio_creer_acces"])
+@tool("Experio_creer_acces", description=AGENT["tools"]["Experio_creer_acces"])
 async def creer_acces(
     dossier_id: int,
     person_kind: str,
@@ -286,14 +283,14 @@ async def creer_acces(
     return await run_workflow(dossier.graph, runtime, inputs)
 
 
-@tool("Experio_archiver_dossier", description=DESCRIPTIONS["Experio_archiver_dossier"])
+@tool("Experio_archiver_dossier", description=AGENT["tools"]["Experio_archiver_dossier"])
 async def archiver_dossier(dossier_id: int, runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
         dossier.graph, runtime, {"mode": "archive", "dossier_id": dossier_id, "client_confirmed": client_confirmed}
     )
 
 
-@tool("Experio_importer_dossiers", description=DESCRIPTIONS["Experio_importer_dossiers"])
+@tool("Experio_importer_dossiers", description=AGENT["tools"]["Experio_importer_dossiers"])
 async def importer_dossiers(runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
         dossier.graph, runtime, {"mode": "dossiers", "dossier_id": 0, "client_confirmed": client_confirmed}
@@ -315,7 +312,7 @@ def system_prompt():
     return f"{rules}\n\n{AGENT['instructions']}\n\nCOMPÉTENCES (load_skill avec le nom exact) :\n{listed}"
 
 
-TOOLS = [read_tool(name) for name in READ_TOOLS] + [
+TOOLS = [read_tool(name) for name in AGENT["read_tools"]] + [
     traiter_fichiers,
     repondre,
     parametrer_dossier,

@@ -11,10 +11,10 @@ from starlette.templating import Jinja2Templates
 from engine import graphs, prompts, runs
 from engine.agent import text_of
 from engine.content import LABELS
+from tarik.core.cabinets import CABINETS
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
-when = runs.when
 
 
 def graph_name(graph):
@@ -30,7 +30,7 @@ def status_name(status):
 
 
 templates.env.filters.update(
-    when=when, graph_name=graph_name, graph_description=graph_description, status_name=status_name
+    when=runs.when, graph_name=graph_name, graph_description=graph_description, status_name=status_name
 )
 templates.env.globals.update(step_name=graphs.label)  # a follow-up's Traitement steps too
 
@@ -114,7 +114,7 @@ async def run_page(request: Request):
         "labels": LABELS,
         # The model calls of this run: its conversation's, while it ran.
         "prompts": await prompts.calls(found["cabinet"], found["session_id"], found["started"], found["ended"])
-        if found["graph"] == "agent" and found["cabinet"] in await prompts.cabinets()
+        if found["graph"] == "agent" and found["cabinet"] in CABINETS
         else [],
     }
     return templates.TemplateResponse(request, "run.html", context)
@@ -122,7 +122,7 @@ async def run_page(request: Request):
 
 async def prompts_page(request: Request):
     """The conversations whose model calls were saved, one cabinet at a time."""
-    known = await prompts.cabinets()
+    known = sorted(CABINETS)
     cabinet = request.query_params.get("cabinet")
     cabinet = cabinet if cabinet in known else (known[0] if known else None)
     found = await prompts.conversations(cabinet) if cabinet else []
@@ -134,7 +134,7 @@ async def prompts_page(request: Request):
 async def prompt_calls_page(request: Request):
     """A conversation's model calls, each opened to read its whole prompt."""
     cabinet, session = request.path_params["cabinet"], request.path_params["session_id"]
-    if cabinet not in await prompts.cabinets():
+    if cabinet not in CABINETS:
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
     found = await prompts.calls(cabinet, session)
     if not found:

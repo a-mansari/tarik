@@ -188,11 +188,7 @@ async def layout(request: Request):
 async def prompt(request: Request):
     """One model call's whole prompt (the UI opens it when asked: it holds the clients' words)."""
     cabinet = request.path_params["cabinet"]
-    found = (
-        await prompts.prompt(cabinet, int(request.path_params["call_id"]))
-        if cabinet in await prompts.cabinets()
-        else None
-    )
+    found = await prompts.prompt(cabinet, int(request.path_params["call_id"])) if cabinet in CABINETS else None
     if found is None:
         return JSONResponse({"error": "unknown call"}, status_code=404)
     return JSONResponse({**found, "at": runs.when(found["at"])})

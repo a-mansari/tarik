@@ -17,8 +17,6 @@ from engine.tools import call as run_tool
 from engine.tools import sender_checked, started, step, summary
 from tarik.invoices.pipeline import INVOICE_CHAIN
 
-# The sequence of an invoice, in order: the tools' own (tarik/invoices/pipeline.py).
-CHAIN = INVOICE_CHAIN
 INPUTS = [
     "mode",
     "session_id",
@@ -97,15 +95,15 @@ def invoice_step(tool):
 
 
 invoice = StateGraph(Invoice, output_schema=Outcomes)
-for index, tool in enumerate(CHAIN):
+for index, tool in enumerate(INVOICE_CHAIN):  # the tools' own order (tarik/invoices/pipeline.py)
     invoice.add_node(tool, invoice_step(tool))
-    following = CHAIN[index + 1] if index + 1 < len(CHAIN) else END
+    following = INVOICE_CHAIN[index + 1] if index + 1 < len(INVOICE_CHAIN) else END
     # Each step only when the previous one says ok; a question, stop, wait or error ends the invoice's run.
     # Its two ways out named, so the drawn graph shows the sequence (LangGraph cannot see inside the lambda).
     invoice.add_conditional_edges(
         tool, lambda s, f=following: f if s["last"].get("status") == "ok" else END, list({following, END})
     )
-invoice.add_conditional_edges(START, lambda s: s["entry"], CHAIN)
+invoice.add_conditional_edges(START, lambda s: s["entry"], INVOICE_CHAIN)
 INVOICE = invoice.compile(name="facture")
 
 
@@ -189,10 +187,6 @@ file.add_edge(START, "identification")
 file.add_conditional_edges("identification", after_identify, ["releve", "decoupage", END])
 file.add_conditional_edges("decoupage", drafts, ["facture", END])
 FILE = file.compile(name="fichier")
-
-
-async def start(state: Run, config):
-    return await started(state, config, INPUTS)
 
 
 async def aiguillage(state: Run):
@@ -348,7 +342,7 @@ def resume_at(state: Run):
 
 
 run = StateGraph(Run)
-run.add_node("debut", start)
+run.add_node("debut", started(INPUTS))
 run.add_node("aiguillage", aiguillage)
 run.add_node("dossier", dossier_found)
 run.add_node("expediteur", sender)
