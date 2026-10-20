@@ -272,13 +272,17 @@
         node.data("display", times > 1 ? `${base}\n×${times}` : base);
         node.ancestors().removeClass("dim").addClass("ran");
       }
+      // The starts and ends of what ran: the run's start always, any other once a step (or an end) next to it ran. An
+      // opened sub-workflow's start and end sit between steps: marked before the edges, until none is left to mark.
+      for (let marked = true; marked; ) {
+        marked = false;
+        cy.nodes("[kind = 'end']").not(".ran").forEach((end) => {
+          const touched = end.connectedEdges().some((edge) => edge.source().hasClass("ran") || edge.target().hasClass("ran"));
+          if (touched || end.id() === "__start__") { end.removeClass("dim").addClass("ran"); marked = true; }
+        });
+      }
       cy.edges().forEach((edge) => {
         if (edge.source().hasClass("ran") && edge.target().hasClass("ran")) edge.removeClass("dim").addClass("ran");
-      });
-      // The start and the end of what ran: the start always, the end once a step leading to it ran.
-      cy.nodes("[kind = 'end']").forEach((end) => {
-        const touched = end.connectedEdges().some((edge) => edge.source().hasClass("ran") || edge.target().hasClass("ran"));
-        if (touched || end.id() === "__start__") end.removeClass("dim").addClass("ran");
       });
     }
 

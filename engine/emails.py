@@ -3,7 +3,6 @@ by the cabinet's agent (the agent graph, in the thread's own conversation; remin
 reply sent to whitelisted addresses. A sender refused (check_sender) gets nothing: the manager is told, the thread
 stays set aside. A follow-up thread runs Traitement then Dossier in mode resume and sends their summaries."""
 
-import contextlib
 import operator
 import time
 from typing import Annotated, TypedDict
@@ -30,13 +29,22 @@ class Run(TypedDict, total=False):
     done: Annotated[list, operator.add]
 
 
-class Thread(TypedDict, total=False):
-    cabinet: str
-    thread: dict
+class Steps(TypedDict, total=False):
+    """What a thread's steps say, each in its own key: kept in a run's step-by-step record (a graph's output keys
+    are what its steps show), and none of it the Emails run's, but done."""
+
+    acknowledged: str
     reply: str
     error: str
     refusal: dict
+    manager: str
+    sent: str
     done: Annotated[list, operator.add]
+
+
+class Thread(Steps, total=False):
+    cabinet: str  # not an output: threads run side by side, each would write it at once
+    thread: dict
 
 
 async def claim(state: Run):
@@ -55,9 +63,14 @@ def kind(state: Thread):
 
 
 async def acknowledge(state: Thread):
-    with contextlib.suppress(Exception):  # not sent (whitelist, SMTP): the agent answers all the same
-        await call(state["cabinet"], "acknowledge_thread", thread_id=state["thread"]["thread_id"])
-    return {}
+    try:
+        return {
+            "acknowledged": said(
+                await call(state["cabinet"], "acknowledge_thread", thread_id=state["thread"]["thread_id"])
+            )
+        }
+    except Exception as error:  # not sent (whitelist, SMTP): the agent answers all the same
+        return {"acknowledged": f"Pas envoye : {failure_text(error)}"}
 
 
 async def ask(state: Thread):
@@ -95,11 +108,18 @@ async def refusal(state: Thread):
 
 async def notify(state: Thread):
     found = state["refusal"]
-    with contextlib.suppress(Exception):  # no manager set, or the email not sent: the sender still gets nothing
-        await call(
+    try:
+        told = await call(
             state["cabinet"], "notify_manager", sender=found["sender"], subject=found["subject"], reason=found["reason"]
         )
-    return {}
+        return {"manager": said(told)}
+    except Exception as error:  # no manager set, or the email not sent: the sender still gets nothing
+        return {"manager": f"Pas prevenu : {failure_text(error)}"}
+
+
+def said(result):
+    """A tool's answer in one line: its message, or its text."""
+    return result.get("message", str(result)) if isinstance(result, dict) else str(result)
 
 
 def failure_text(error):
@@ -121,7 +141,7 @@ async def send(state: Thread):
         )
     except Exception as error:
         return {"error": failure_text(error)}
-    return {}
+    return {"sent": f"Envoye a {thread['to']}."}
 
 
 async def follow_up(state: Thread):
@@ -153,7 +173,7 @@ async def finish(state: Thread):
     return {"done": [{"thread_id": thread["thread_id"], "sent": sent, "reason": state.get("error", "")}]}
 
 
-fil = StateGraph(Thread, output_schema=Run)
+fil = StateGraph(Thread, output_schema=Steps)
 for name, node in {
     "accuse": acknowledge,
     "tarik": ask,

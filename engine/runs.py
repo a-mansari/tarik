@@ -313,7 +313,9 @@ async def step_detail(run_id, step_id):
         found = await (
             await db.execute("select detail from steps where run_id = %s and id = %s", (run_id, step_id))
         ).fetchone()
-    return found[0] if found else None
+    if not found:
+        return None
+    return found[0] if found[0] is not None else {"etape": "Cette étape n'a rien renvoyé."}
 
 
 async def cabinets():
