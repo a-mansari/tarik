@@ -22,7 +22,7 @@ from tarik.core.experio import (
     require_invoice,
     test_mode_note,
 )
-from tarik.core.model import ask_model
+from tarik.core.model import ask_model, tool_prompt
 from tarik.core.words import as_number
 
 QUESTIONS = {
@@ -37,11 +37,6 @@ QUESTIONS = {
 
 # The client's answer is read by the model, then checked here against the only values Experio takes:
 # free text ("a la charge de la societe, contrat 2025", "sans, facture du 15/03") defeats any pattern.
-ANSWER_PROMPT = (
-    "You read a client's answer to a question about the withholding tax (retenue a la source) of "
-    "one Moroccan invoice. Report only what the answer itself says. Numbers that are dates, contract or invoice "
-    "numbers are not rates. When the answer does not clearly answer the question, say so with null."
-)
 FOREIGN_SHAPE = (
     'Answer with only a JSON object: {"rule": "none"|"supplier"|"society"|null, "abroad": true|false}. '
     "rule: none = sans retenue (1), supplier = a la charge du fournisseur (2), society = a la charge de la "
@@ -59,7 +54,7 @@ IS_IR_RATES, TVA_RATES = {5, 10, 15, 20, 30}, {0, 75, 100}
 def read_answer(kind, reply):
     """The model's reading (dict) of the client's ``reply`` to QUESTIONS[kind] (kind: foreign or local)."""
     return ask_model(
-        ANSWER_PROMPT,
+        tool_prompt("read-withholding-answer"),
         [],
         f"Question: {QUESTIONS[kind]}\nClient's answer: {reply}\n\n"
         + (FOREIGN_SHAPE if kind == "foreign" else LOCAL_SHAPE),
