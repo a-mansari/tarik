@@ -76,5 +76,9 @@
     "question": "Question",
     "stop": "Arrêt",
     "wait": "En attente"
-  }
+  },
+  "waiting_steps": [
+    "hold_posting"
+  ],
+  "_waiting_steps": "Steps whose stop means 'waiting for the client' (an invoice verified and kept as a draft until the client says to post): shown as waiting, not as stopped."
 }

@@ -14,9 +14,6 @@ if (rows) {
 const steps = document.getElementById("steps");
 const labels = JSON.parse(document.getElementById("labels")?.textContent || "{}");
 
-function when(iso) {
-  return new Date(iso).toLocaleString("fr-FR", { timeZone: "Africa/Casablanca", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(",", "");
-}
 
 function text(tag, className, value) {
   const node = document.createElement(tag);
@@ -33,7 +30,7 @@ function stepItem(step, graph) {
   const details = document.createElement("details");
   details.dataset.step = step.id;
   const summary = document.createElement("summary");
-  summary.append(text("span", "time num", when(step.at)));
+  summary.append(text("span", "time num", step.when));
   summary.append(text("span", "name", labels.steps?.[graph]?.[step.node] || step.node));
   if (step.status) summary.append(text("span", `chip ${step.status}`, labels.statuses?.[step.status] || step.status));
   summary.append(text("span", "line", step.summary));

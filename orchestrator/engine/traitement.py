@@ -101,7 +101,8 @@ for index, tool in enumerate(CHAIN):
     invoice.add_node(tool, invoice_step(tool))
     following = CHAIN[index + 1] if index + 1 < len(CHAIN) else END
     # Each step only when the previous one says ok; a question, stop, wait or error ends the invoice's run.
-    invoice.add_conditional_edges(tool, lambda s, f=following: f if s["last"].get("status") == "ok" else END)
+    # Its two ways out named, so the drawn graph shows the sequence (LangGraph cannot see inside the lambda).
+    invoice.add_conditional_edges(tool, lambda s, f=following: f if s["last"].get("status") == "ok" else END, list({following, END}))
 invoice.add_conditional_edges(START, lambda s: s["entry"], CHAIN)
 INVOICE = invoice.compile(name="facture")
 

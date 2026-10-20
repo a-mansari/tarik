@@ -9,12 +9,14 @@ import re
 import time
 import uuid
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import BaseMessage
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
 from engine import agent, dossier, emails, traitement
+from engine.content import LABELS
 from engine.settings import DEFAULT_CABINET
 
 SCHEMA = "orchestrator"
@@ -50,8 +52,16 @@ GRAPHS = {"traitement": traitement.graph, "dossier": dossier.graph, "emails": em
 NAMES = sorted([*GRAPHS, "agent"])
 DETAIL_LIMIT = 50_000  # characters of a node's update kept: a scan's text or a long history is cut, never the run
 
+TIME_ZONE = ZoneInfo("Africa/Casablanca")  # the cabinets' time, from the server's own time-zone data
 pool = None  # set by open_store()
 live = {}  # run id -> asyncio.Event, set at each step of a run going on in this process
+
+
+def when(moment):
+    """A time as the team reads it, 20/10 10:33:22 in Casablanca: formatted here only, so every page agrees."""
+    if isinstance(moment, str):
+        moment = datetime.fromisoformat(moment)
+    return moment.astimezone(TIME_ZONE).strftime("%d/%m %H:%M:%S") if moment else ""
 
 
 def jsonable(value):
@@ -82,8 +92,16 @@ def readable(text):
     return text
 
 
-def outcome_of(update):
-    """A node's update in short: its step's status and the one line a person reads."""
+def outcome_of(update, node=""):
+    """A node's update in short: its step's status as the team reads it and the one line a person reads. A stop that
+    means waiting for the client (content/labels.json, waiting_steps) reads as waiting; the detail keeps it as is."""
+    status, line = raw_outcome(update)
+    if status == "stop" and node in LABELS.get("waiting_steps", []):
+        status = "wait"
+    return status, line
+
+
+def raw_outcome(update):
     if not isinstance(update, dict):
         return "", ""
     last = update.get("last") or ((update.get("outcomes") or [None])[-1])
@@ -149,7 +167,7 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=asyncio.S
                     path = "|".join(part.split(":")[0] for part in namespace)
                     async with pool.connection() as db:
                         for node, update in (data or {}).items():
-                            step_status, line = outcome_of(update)
+                            step_status, line = outcome_of(update, node)
                             await db.execute(
                                 "insert into steps (run_id, path, node, status, summary, detail) values (%s, %s, %s, %s, %s, %s)",
                                 (run_id, path, node, step_status, line, capped(update)),
@@ -184,7 +202,7 @@ async def run(run_id):
     shown["seconds"] = round(ended - shown["started"].timestamp(), 1)
     shown["started"], shown["ended"] = shown["started"].isoformat(), shown["ended"] and shown["ended"].isoformat()
     shown["steps"] = [
-        {"id": i, "at": at.isoformat(), "path": path, "node": node, "status": status, "summary": summary}
+        {"id": i, "at": at.isoformat(), "when": when(at), "path": path, "node": node, "status": status, "summary": summary}
         for i, at, path, node, status, summary in steps
     ]
     return shown
@@ -223,7 +241,10 @@ async def steps_after(run_id, after):
             "select id, at, path, node, status, summary from steps where run_id = %s and id > %s order by id", (run_id, after)
         )).fetchall()
         state = await (await db.execute("select status, error from runs where id = %s", (run_id,))).fetchone()
-    found = [{"id": i, "at": at.isoformat(), "path": p, "node": n, "status": s, "summary": line} for i, at, p, n, s, line in steps]
+    found = [
+        {"id": i, "at": at.isoformat(), "when": when(at), "path": p, "node": n, "status": s, "summary": line}
+        for i, at, p, n, s, line in steps
+    ]
     return found, state
 
 

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ run.graph | graph_name }}{% endblock %}
+{% block page_class %} wide{% endblock %}
 {% block content %}
 <p class="crumbs"><a href="/ui/runs">Exécutions</a> › {{ run.graph | graph_name }}</p>
 <div class="head">
@@ -14,6 +15,8 @@
 </div>
 
 {% if run.error %}<div class="panel bad"><b>L'exécution a échoué.</b> {{ run.error }}</div>{% endif %}
+
+{% with graph = run.graph, run_id = run.run_id %}{% include "canvas.html" %}{% endwith %}
 
 <section class="panel">
   <h2>Ce qui a été demandé</h2>
@@ -68,3 +71,4 @@
 </section>
 <script id="labels" type="application/json">{{ labels | tojson }}</script>
 {% endblock %}
+{% block scripts %}{% include "canvas_scripts.html" %}{% endblock %}

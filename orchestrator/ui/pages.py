@@ -2,25 +2,18 @@
 rendered (Jinja2), no build step; the words come from content/labels.json."""
 
 import json
-from datetime import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 from starlette.templating import Jinja2Templates
 
-from engine import runs
+from engine import graphs, runs
 from engine.content import LABELS
 
 HERE = Path(__file__).parent
-TIME_ZONE = ZoneInfo("Africa/Casablanca")  # the cabinets' time
 templates = Jinja2Templates(directory=HERE / "templates")
-
-
-def when(iso):
-    """A run's or a step's time as the team reads it: 20/10 10:33:22, Casablanca time."""
-    return datetime.fromisoformat(iso).astimezone(TIME_ZONE).strftime("%d/%m %H:%M:%S") if iso else ""
+when = runs.when
 
 
 def graph_name(graph):
@@ -107,3 +100,24 @@ async def run_page(request: Request):
         "labels": LABELS,
     }
     return templates.TemplateResponse(request, "run.html", context)
+
+
+async def workflows_page(request: Request):
+    counts = {name: sum(node["kind"] == "step" for node in graphs.shape(name)["nodes"]) for name in runs.NAMES}
+    return templates.TemplateResponse(request, "workflows.html", {"graphs": runs.NAMES, "counts": counts})
+
+
+async def workflow_page(request: Request):
+    graph = request.path_params["graph"]
+    if graph not in runs.NAMES:
+        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+    run_id = request.query_params.get("run")
+    found = await runs.run(run_id) if run_id else None
+    context = {
+        "graph": graph,
+        "run": found,
+        "run_id": found["run_id"] if found else None,
+        "runs": await runs.recent(graph=graph, limit=30),
+        "labels": LABELS,
+    }
+    return templates.TemplateResponse(request, "workflow.html", context)

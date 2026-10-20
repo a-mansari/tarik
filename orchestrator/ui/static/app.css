@@ -110,3 +110,33 @@ pre.said { font-family: var(--font); font-size: 1em; }
   .pairs { grid-template-columns: 1fr; }
   .pairs dt { margin-top: .4rem; }
 }
+
+/* The workflow canvas, with the panel of the step clicked on its right (below it on a narrow screen). */
+.flow { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; gap: 1rem; align-items: start; }
+.canvas-wrap { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.canvas { height: max(28rem, 70vh); width: 100%; }
+.canvas-tools { position: absolute; top: .5rem; left: .5rem; display: flex; gap: .4rem; z-index: 2; }
+.canvas-tools button { font: inherit; font-size: .8rem; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .25rem .6rem; cursor: pointer; }
+.canvas-tools button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.legend { display: flex; flex-wrap: wrap; gap: .4rem .9rem; font-size: .8rem; color: var(--muted); padding: .5rem .75rem; border-top: 1px solid var(--line); }
+.legend i { display: inline-block; width: .75rem; height: .75rem; border-radius: 3px; margin-right: .3rem; vertical-align: -1px; border: 2px solid; }
+.legend .l-ok { border-color: var(--good); background: var(--good-bg); }
+.legend .l-wait { border-color: var(--wait); background: var(--wait-bg); }
+.legend .l-bad { border-color: var(--bad); background: var(--bad-bg); }
+.legend .l-none { border-color: var(--line); background: var(--surface); opacity: .5; }
+.side { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow: auto; }
+.eyebrow { font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.panel-steps { list-style: none; padding: 0; margin: .6rem 0 0; display: grid; gap: .6rem; }
+.panel-steps li { border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; background: var(--bg); display: grid; gap: .3rem; }
+.panel-steps .head-line { display: flex; gap: .5rem; align-items: center; }
+.panel-steps details summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
+.panel-steps pre.detail { max-height: 22rem; overflow: auto; font-size: .75rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 1rem; }
+.cards a.card { display: grid; gap: .3rem; text-decoration: none; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 1rem; }
+.cards a.card:hover { border-color: var(--accent); }
+.runs-side { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
+.runs-side a { display: flex; justify-content: space-between; gap: .5rem; padding: .4rem .5rem; border-radius: 6px; text-decoration: none; color: var(--fg); }
+.runs-side a[aria-current="true"], .runs-side a:hover { background: var(--accent-soft); }
+@media (max-width: 60rem) { .flow { grid-template-columns: 1fr; } .side { position: static; max-height: none; } }
+
+.page.wide { max-width: none; }

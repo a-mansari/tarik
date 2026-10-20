@@ -29,7 +29,8 @@ n8n keeps running untouched until a cabinet is switched over.
 | `engine/tools.py` | One tarik-mcp call; a step's outcome recorded for the run's summary; retried after a dropped connection only when nothing can be written twice. |
 | `content/agent.json` | What the agent is told: kept out of the code so the UI can show and edit it. |
 | `content/labels.json` | The UI's plain words for each workflow, step and status. |
-| `ui/` | The team's pages (French): `pages.py`, its templates, one stylesheet and one script, no build step. |
+| `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
+| `ui/` | The team's pages (French): `pages.py`, its templates, a stylesheet, two scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |
 | `check.py` | Parity with the n8n workflows: same tools, same inputs. |
 | `run.py` | Run a graph from a terminal and watch it step by step. |
 
@@ -49,7 +50,7 @@ docker compose -f orchestrator/docker-compose.yml --env-file .env up --build -d
 | `GET /runs/<run_id>` | A run: status, input, output or error, and its steps. |
 | `GET /runs/<run_id>/events` | Its steps as each one ends (server-sent events). |
 
-The team's pages: http://127.0.0.1:2024/ui/runs.
+The team's pages: http://127.0.0.1:2024/ui/runs (runs) and http://127.0.0.1:2024/ui/workflows (workflows).
 
 Graphs: `agent`, `traitement`, `dossier`, `emails`. `TARIK_GRAPH_TOKEN` set: every call but `/ok` needs it as a
 bearer token. In the container: `python run.py <graph> '<input json>' [--thread name]`, `python check.py`.
@@ -66,7 +67,11 @@ with every run live, step by step.
    in plain words (what was asked, what the client reads, each step's outcome, its whole output on demand), and for
    the agent the conversation with its thinking and the tools it used. Still to come: the exact prompt sent to the
    model at each call, and the inputs' names in plain words.
-3. **Workflows in the UI**: each graph as a diagram, each step with what it does in plain words.
+3. **Workflows in the UI** — done: each workflow drawn as a canvas, as n8n draws one (steps left to right, a file or
+   an invoice as a framed group, conditional paths dashed; pan, zoom, "Au début", "Tout voir"); a run painted over it,
+   live while it goes on (each step coloured by its outcome, ×n when it ran for several invoices); a click on a step
+   opens what it did in that run. On each run's page and on each workflow's page with its recent runs. Still to
+   come: each step explained in plain words in the panel.
 4. **Content in the UI, with history**: the agent's instructions and skills, the tools' prompts, cabinets' settings;
    every change kept (who, when), and undone in one click.
 5. **Mail**: the watcher wakes this stack for a cabinet switched to it; then the email test and `-m llm` again.

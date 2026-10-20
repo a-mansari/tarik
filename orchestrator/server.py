@@ -9,6 +9,7 @@ Postgres (engine/runs.py), the agent's conversations next to them.
   GET  /runs/{run_id}             a run: its status, input, output or error, and its steps
   GET  /runs/{run_id}/events      its steps as they end (server-sent events), from the first one
   GET  /runs/{run_id}/steps/{id}  one step's whole output
+  GET  /graphs/{graph}            a workflow's shape for the canvas: its nodes, groups and edges
   GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live
 
 With TARIK_GRAPH_TOKEN set, every API call but /ok needs it as a bearer token.
@@ -27,7 +28,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from engine import agent, runs
+from engine import agent, graphs, runs
 from ui import pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
@@ -98,6 +99,13 @@ async def events(request: Request):
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
+async def graph_shape(request: Request):
+    name = request.path_params["graph"]
+    if name not in runs.NAMES:
+        return JSONResponse({"error": f"unknown graph {name!r}"}, status_code=404)
+    return JSONResponse(graphs.shape(name))
+
+
 async def step(request: Request):
     found = await runs.step_detail(request.path_params["run_id"], int(request.path_params["step_id"]))
     return JSONResponse(found) if found is not None else JSONResponse({"error": "unknown step"}, status_code=404)
@@ -122,6 +130,9 @@ app = Starlette(
         Route("/runs/{run_id}", one),
         Route("/runs/{run_id}/events", events),
         Route("/runs/{run_id}/steps/{step_id}", step),
+        Route("/graphs/{graph}", graph_shape),
+        Route("/ui/workflows", pages.workflows_page),
+        Route("/ui/workflows/{graph}", pages.workflow_page),
         Route("/", pages.home),
         Route("/ui", pages.home),
         Route("/ui/runs", pages.runs_page),

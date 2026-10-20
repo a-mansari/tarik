@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ graph | graph_name }}{% endblock %}
+{% block page_class %} wide{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/ui/workflows">Workflows</a> › {{ graph | graph_name }}</p>
+<div class="head"><div>
+  <h1>{{ graph | graph_name }}</h1>
+  <p class="muted">{% if run %}Exécution du {{ run.started | when }}, cabinet {{ run.cabinet }} · <span class="chip {{ run.status }}">{{ run.status | status_name }}</span> · <a href="/ui/runs/{{ run.run_id }}">toutes ses étapes</a>{% else %}Le schéma seul. Choisissez une exécution à droite pour la voir dessus.{% endif %}</p>
+</div></div>
+{% include "canvas.html" %}
+<section class="panel">
+  <h2>Exécutions récentes</h2>
+  <ul class="runs-side">
+    <li><a href="/ui/workflows/{{ graph }}" {% if not run %}aria-current="true"{% endif %}><span>Le schéma seul</span></a></li>
+    {% for item in runs %}
+    <li><a href="/ui/workflows/{{ graph }}?run={{ item.run_id }}" {% if run and item.run_id == run.run_id %}aria-current="true"{% endif %}>
+      <span class="num">{{ item.started | when }} · {{ item.cabinet }} · <span class="mono">{{ item.session_id }}</span></span>
+      <span class="chip {{ item.status }}">{{ item.status | status_name }}</span>
+    </a></li>
+    {% else %}
+    <li class="muted">Pas encore d'exécution.</li>
+    {% endfor %}
+  </ul>
+</section>
+<script id="labels" type="application/json">{{ labels | tojson }}</script>
+{% endblock %}
+{% block scripts %}{% include "canvas_scripts.html" %}{% endblock %}
