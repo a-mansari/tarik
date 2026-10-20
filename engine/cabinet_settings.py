@@ -38,7 +38,7 @@ FIELDS = {
     "MAIL_ALLOWED_RECIPIENTS": "recipients",
 }
 OPTIONAL = {"SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KEY"}  # left empty: Tarik does without
-assert set(FIELDS) == cabinets.CABINET_SETTINGS  # every cabinet setting on the page, none other
+assert set(FIELDS) == cabinets.CABINET_SETTINGS - {"ACTIVE"}  # every cabinet setting on the page, but the API's own
 
 ADDRESS = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+")
 # As tarik.emails.sending reads the list: an address, an @domain, or a pattern with "*" ("test.*@experio.ma", "*").
@@ -48,12 +48,15 @@ _lock = threading.Lock()
 _token = {"value": "", "until": 0.0}
 
 
-def latest(cabinet):
-    """The cabinet's settings as Vault holds them now, and their version: (data, version)."""
-    if cabinet not in cabinets.CABINETS:
-        raise ValueError("cabinet inconnu")
-    found = _vault("GET", f"/v1/secret/data/tarik/cabinets/{cabinet}")["data"]
-    return found["data"], found["metadata"]["version"]
+def latest(cabinet, served_only=True):
+    """The cabinet's settings as Vault holds them now, and their version: (data, version). ``served_only`` False: a
+    deactivated cabinet too (the Experio API). LookupError when Vault has no such cabinet."""
+    if cabinet not in cabinets.CABINETS and (served_only or not cabinets.NAME.fullmatch(cabinet)):
+        raise LookupError("cabinet inconnu")
+    found = _vault("GET", f"/v1/secret/data/tarik/cabinets/{cabinet}")
+    if not found or not found["data"] or found["data"]["data"] is None:
+        raise LookupError("cabinet inconnu")
+    return found["data"]["data"], found["data"]["metadata"]["version"]
 
 
 def shown(data):
@@ -115,14 +118,17 @@ def _vault(method, path, **kwargs):
 MOVED = "ces réglages ont changé depuis l'ouverture de la page : rechargez-la et recommencez"
 
 
-async def save(pool, cabinet, given, seen, author, note=""):
+async def save(pool, cabinet, given, seen, author, note="", active=None):
     """The cabinet's settings changed as ``given`` says (see changed), by ``author``, from the page that showed
-    version ``seen``: refused (ValueError) when Vault holds a newer one, never overwritten. Written to Vault, recorded,
-    in use at once. The keys changed (a list); nothing is written when nothing changes."""
-    data, version = await asyncio.to_thread(latest, cabinet)
-    if version != seen:
+    version ``seen``: refused (ValueError) when Vault holds a newer one, never overwritten (``seen`` None: the Experio
+    API, over the latest). ``active`` True or False: the cabinet reactivated or deactivated with it (ACTIVE). Written
+    to Vault, recorded, in use at once. The keys changed (a list); nothing is written when nothing changes."""
+    data, version = await asyncio.to_thread(latest, cabinet, seen is not None)
+    if seen is not None and version != seen:
         raise ValueError(MOVED)
     found = changed(data, given)
+    if active is not None and cabinets.active(data) != active:
+        found["ACTIVE"] = "1" if active else "0"
     if not found:
         return []
     path = f"/v1/secret/data/tarik/cabinets/{cabinet}"
@@ -144,6 +150,36 @@ async def save(pool, cabinet, given, seen, author, note=""):
     await asyncio.to_thread(cabinets.reread_vault)
     await audit.record(author, "settings_saved", cabinet, keys=list(found), note=note.strip()[:300])
     return list(found)
+
+
+def complete(given):
+    """A new cabinet's settings from ``given``, each checked as typed (a secret as is): every one Tarik needs present,
+    DRY_RUN 1 (simulation) unless given. ValueError (in plain French) otherwise; unknown keys are refused too."""
+    if unknown := sorted(set(given) - set(FIELDS)):
+        raise ValueError(f"réglages inconnus : {', '.join(unknown)}")
+    found = changed({}, {"DRY_RUN": "1", **given})
+    if missing := [key for key in FIELDS if key not in OPTIONAL and not found.get(key)]:
+        raise ValueError(f"réglages manquants : {', '.join(missing)}")
+    return found
+
+
+async def create(pool, cabinet, given, author):
+    """A new cabinet in Vault, its settings ``given`` (see complete), recorded: refused (ValueError) when Vault has it
+    already, written only if absent (cas 0). The keys set."""
+    if not cabinets.NAME.fullmatch(cabinet) or cabinet == "public" or cabinet.startswith("pg_"):
+        raise ValueError("nom de cabinet : la base Experio exacte, en minuscules (lettres, chiffres, _)")
+    data = complete(given)
+    try:
+        written = await asyncio.to_thread(
+            _vault, "POST", f"/v1/secret/data/tarik/cabinets/{cabinet}", json={"options": {"cas": 0}, "data": data}
+        )
+    except httpx.HTTPStatusError as error:
+        raise ValueError("ce cabinet existe déjà") from error
+    secret = {key for key, kind in FIELDS.items() if kind == "secret"}
+    changes = [{"key": key, "before": None, "after": None if key in secret else value} for key, value in data.items()]
+    async with pool.connection() as db:
+        await db.execute(Q.settings_changed, (cabinet, author, "Créé", Jsonb(changes), written["data"]["version"]))
+    return list(data)
 
 
 async def history(pool, cabinet, limit=30):

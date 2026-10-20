@@ -1,7 +1,8 @@
 """Read each Tarik mailbox (a cabinet's own IMAP_USER) the moment an email arrives, and every 15 minutes in
 case one was missed: store the new emails in their threads, tell the cabinet's manager of refused senders,
 and start an Emails run when a thread waits for an answer. Each run names its cabinet, and works in that cabinet
-only. Started with the server (a new mailbox needs a restart), for every cabinet with its own mailbox.
+only. Started with the server for every cabinet with its own mailbox, and for a cabinet the Experio API creates or
+reactivates (start_one); a deactivated one is no longer served at once, its threads end at their next wake-up.
 
 Per cabinet, one IMAP IDLE connection to its Tarik folder (read-only, pinned certificate, as
 read_mailbox connects): the server tells it when the folder gets a new email, and it reads it. The
@@ -18,6 +19,7 @@ from tarik.core.cabinets import CABINETS, setting, using
 from tarik.emails.inbox import connect, notify_manager, read_mailbox, threads_waiting
 
 RENEW_SECONDS = 25 * 60
+RUNNING = set()  # (cabinet, job name) of each watch and tick thread alive
 TICK_SECONDS = 15 * 60
 LOOP = None  # the server's event loop, where the runs start (set by start())
 
@@ -53,6 +55,8 @@ def wake_tarik(cabinet, why):
 def serve(cabinet, why):
     """Store the cabinet's new emails, tell its manager of the refused senders, and wake the workflow when a thread
     waits. Whatever fails is logged: the next wake-up or tick tries again."""
+    if cabinet not in CABINETS:  # deactivated meanwhile: nothing read, nothing answered
+        return
     try:
         alerts = read_mailbox()
     except Exception as error:
@@ -75,12 +79,12 @@ def serve(cabinet, why):
 def watch(cabinet):
     """IDLE on the cabinet's mailbox: Tarik is woken the moment an email arrives."""
     with using(cabinet):
-        while True:
+        while cabinet in CABINETS:
             try:
                 with connect() as box:
                     count = int(box.untagged_responses.get("EXISTS", [b"0"])[-1])
                     log(f"{cabinet}: watching ({count} emails)")
-                    while True:
+                    while cabinet in CABINETS:
                         arrived, count = wait_for_mail(box, count, RENEW_SECONDS)
                         if arrived:
                             serve(cabinet, "new email")
@@ -93,7 +97,7 @@ def tick(cabinet):
     """Every 15 minutes, whatever IDLE saw: an email it missed (connection down, server quirk), or a thread whose
     run failed, waits no longer."""
     with using(cabinet):
-        while True:
+        while cabinet in CABINETS:
             time.sleep(TICK_SECONDS)
             serve(cabinet, "")
 
@@ -115,5 +119,25 @@ def start(loop):
     watched = mailboxes()
     log(f"mailboxes: {', '.join(watched) or 'none'}")
     for cabinet in watched:
-        for job in (watch, tick):
-            threading.Thread(target=job, args=(cabinet,), daemon=True).start()
+        start_one(cabinet)
+
+
+def start_one(cabinet):
+    """Watch one cabinet's mailbox: each of its threads not alive started (one still ending after a deactivation
+    carries on); whether it has a mailbox to watch."""
+    with using(cabinet):
+        if not setting("IMAP_USER", ""):
+            return False
+    for job in (watch, tick):
+        if (cabinet, job.__name__) not in RUNNING:
+            RUNNING.add((cabinet, job.__name__))
+            threading.Thread(target=alive, args=(job, cabinet), daemon=True).start()
+    return True
+
+
+def alive(job, cabinet):
+    """``job`` for ``cabinet``, known to be running until it ends."""
+    try:
+        job(cabinet)
+    finally:
+        RUNNING.discard((cabinet, job.__name__))

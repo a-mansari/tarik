@@ -51,6 +51,8 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 | `engine/model.py` | MiniMax-M3 with a 1024-token thinking budget, with this stack's own key. |
 | `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the Prompts page. |
 | `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
+| `api.py` | The Experio app's API: cabinets created, changed or deactivated, served at once (guide: `docs/experio-api.md`). |
+| `docs/tests.md` | Every test by category, and how to add a client situation to the live model tests. |
 | `engine/cabinet_settings.py`, `ui/settings_pages.py` | Each cabinet's own settings, read and changed on the Cabinets page, written to Vault with its own AppRole, each change kept. |
 | `engine/accounts.py`, `users.py` | The team's accounts (scrypt hashes), their role (admin or member) and sessions; made on the Comptes page (`ui/accounts_pages.py`, a one-time link to set the password) or by `users.py`. |
 | `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |

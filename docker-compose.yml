@@ -23,6 +23,7 @@ services:
       TARIK_PROMPTS_KEEP_DAYS: "30"
     volumes: # the code, mounted (a change needs a restart, not a build); never vault/ nor .env
       - ./server.py:/app/server.py
+      - ./api.py:/app/api.py
       - ./check.py:/app/check.py
       - ./users.py:/app/users.py
       - ./run.py:/app/run.py

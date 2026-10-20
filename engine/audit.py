@@ -26,6 +26,9 @@ ACTIONS = (
     "layout_saved",
     "layout_reset",
     "run_started",
+    "cabinet_created",
+    "cabinet_reactivated",
+    "cabinet_closed",
 )
 
 

@@ -142,7 +142,34 @@ def cabinet_names(value):
     return frozenset(names)
 
 
-CABINETS: Final = cabinet_names(",".join(vault_settings(wait=60)[1]) if VAULT_ENABLED else os.getenv("TARIK_CABINETS"))
+def active(own):
+    """Whether a cabinet's own settings let Tarik serve it: ACTIVE "0" is a cabinet deactivated (the Experio API's
+    delete), its settings and data kept."""
+    return own.get("ACTIVE", "1") != "0"
+
+
+def served():
+    """The cabinets to serve now: Vault's cabinet paths, but the deactivated ones (the tests: TARIK_CABINETS)."""
+    if not VAULT_ENABLED:
+        return cabinet_names(os.getenv("TARIK_CABINETS"))
+    return cabinet_names(",".join(name for name, own in vault_settings(wait=60)[1].items() if active(own)))
+
+
+# The cabinets served, one set changed in place (reload_cabinets) so that every module that imported it sees a
+# cabinet created, reactivated or deactivated through the Experio API at once.
+CABINETS: Final = set(served())
+
+
+def reload_cabinets():
+    """Vault read again and CABINETS made what it now says: (the cabinets added, those removed)."""
+    reread_vault()
+    now = served()
+    added, removed = now - CABINETS, CABINETS - now
+    CABINETS.difference_update(removed)
+    CABINETS.update(added)
+    return added, removed
+
+
 _current = contextvars.ContextVar("cabinet")
 
 
@@ -181,6 +208,7 @@ CABINET_SETTINGS = frozenset(
         "SMTP_FROM",
         "MAIL_MANAGER",
         "MAIL_ALLOWED_RECIPIENTS",
+        "ACTIVE",  # "0": deactivated by the Experio API (missing: served)
     ]
 )
 # The same for every cabinet: Vault secret/tarik/shared (the tests: env <KEY>).
@@ -194,6 +222,7 @@ SHARED_SETTINGS = frozenset(
         "MAIL_CERT_SHA256",
         "MODEL_API_KEY",  # secret/tarik/orchestrator
         "MODEL_API_URL",  # secret/tarik/orchestrator, optional (the provider's Anthropic-style address)
+        "EXPERIO_API_KEY",  # secret/tarik/orchestrator: what the Experio app shows to create, change or close cabinets
     ]
 )
 
@@ -253,7 +282,12 @@ def cabinet_db():
 def create_schemas():
     """Each cabinet's schema and tables, created if missing (sql/cabinet_schema.sql is idempotent)."""
     for name in sorted(CABINETS):
-        with psycopg.connect(**POSTGRES) as admin:
-            admin.execute(sql.SQL(Q.create_cabinet_schema).format(name=sql.Identifier(name)))
-        with using(name), cabinet_db() as conn:
-            conn.execute(Q.cabinet_schema)
+        create_schema(name)
+
+
+def create_schema(name):
+    """Cabinet ``name``'s schema and tables, created if missing."""
+    with psycopg.connect(**POSTGRES) as admin:
+        admin.execute(sql.SQL(Q.create_cabinet_schema).format(name=sql.Identifier(name)))
+    with using(name), cabinet_db() as conn:
+        conn.execute(Q.cabinet_schema)

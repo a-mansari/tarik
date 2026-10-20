@@ -12,6 +12,7 @@ its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) sta
   GET  /runs/{run_id}/steps/{id}  one step's whole output
   GET  /graphs/{graph}            a workflow's shape for the canvas: its nodes, groups and edges
   GET|PUT|DELETE /graphs/{graph}/layout   how the team arranged its canvas (node places, edge bends and style)
+  /api/cabinets...                the Experio app's API (api.py): cabinets created, changed, closed
   GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live; the
                                   Discussion page (ui/chat_pages.py), its messages sent with POST
 
@@ -37,6 +38,7 @@ from starlette.responses import JSONResponse, RedirectResponse, StreamingRespons
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+import api
 from engine import accounts, agent, audit, content, graphs, layouts, mail, prompts, runs
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.config import POSTGRES
@@ -73,6 +75,13 @@ class Guard:
             return await self.app(scope, receive, send)
         request = Request(scope)
         scope.setdefault("state", {})
+        if scope["path"].startswith("/api/"):  # the Experio app's: its key only, never a session nor the scripts' token
+            if not experio_key_shown(request):
+                return await JSONResponse({"error": "clé de l'API Experio absente ou fausse"}, status_code=401)(
+                    scope, receive, send
+                )
+            scope["state"]["user"] = {"email": api.ACTOR, "name": "Experio", "role": "api"}
+            return await self.app(scope, receive, send)
         if TOKEN and hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {TOKEN}"):
             scope["state"]["user"] = {"email": "script", "name": "Script", "role": "admin"}
             return await self.app(scope, receive, send)
@@ -93,6 +102,12 @@ class Guard:
                 answer = JSONResponse({"error": "réservé aux administrateurs"}, status_code=403)
             return await answer(scope, receive, send)
         return await self.app(scope, receive, send)
+
+
+def experio_key_shown(request):
+    """The request shows the Experio app's key (Vault: EXPERIO_API_KEY) as its Bearer token. No key set: refused."""
+    key = vault_settings()[0].get("EXPERIO_API_KEY", "") if VAULT_ENABLED else os.getenv("EXPERIO_API_KEY", "")
+    return bool(key) and hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {key}")
 
 
 def same_origin(request):
@@ -259,6 +274,9 @@ async def lifespan(app):
 app = Starlette(
     routes=[
         Route("/ok", ok),
+        Route("/api/cabinets", api.listing),
+        Route("/api/cabinets", api.create, methods=["POST"]),
+        Route("/api/cabinets/{name}", api.one, methods=["GET", "PATCH", "DELETE"]),
         Route("/login", login, methods=["GET", "POST"]),
         Route("/logout", logout, methods=["POST"]),
         Route("/runs", listing),
