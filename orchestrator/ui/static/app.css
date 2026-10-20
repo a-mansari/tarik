@@ -15,6 +15,8 @@
   --bad: #b02d26;
   --bad-bg: #f7e1df;
   --neutral-bg: #e9edeb;
+  --grid-dot: #a9b5af;
+  --grid-line: #e1e7e4;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Menlo, Consolas, monospace;
   color-scheme: light;
@@ -24,14 +26,14 @@
     --bg: #111614; --surface: #19201d; --fg: #e2e8e5; --muted: #98a59f; --line: #2b3531;
     --accent: #6cc3a2; --accent-soft: #1d2f28;
     --good: #72c98d; --good-bg: #1c3123; --wait: #e3b75a; --wait-bg: #33291a; --bad: #f08a80; --bad-bg: #3a1f1c;
-    --neutral-bg: #252e2a; color-scheme: dark;
+    --neutral-bg: #252e2a; --grid-dot: #4d5b55; --grid-line: #212a26; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #111614; --surface: #19201d; --fg: #e2e8e5; --muted: #98a59f; --line: #2b3531;
   --accent: #6cc3a2; --accent-soft: #1d2f28;
   --good: #72c98d; --good-bg: #1c3123; --wait: #e3b75a; --wait-bg: #33291a; --bad: #f08a80; --bad-bg: #3a1f1c;
-  --neutral-bg: #252e2a; color-scheme: dark;
+  --neutral-bg: #252e2a; --grid-dot: #4d5b55; --grid-line: #212a26; color-scheme: dark;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 400 15px/1.55 var(--font); }
@@ -144,8 +146,15 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .panel-button { font: inherit; font-size: .85rem; color: var(--fg); background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 6px; padding: .3rem .7rem; cursor: pointer; text-decoration: none; }
 .panel-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* The map's grid under the canvas: dots every 20 px, scaled and moved with the canvas by graph.js. */
-.canvas { background-image: radial-gradient(circle, var(--line) 1px, transparent 1.2px); background-size: 20px 20px; }
+/* The map's grid under the canvas: a dot on every snap point (20 px) and a fainter line every 5, scaled and moved with
+   the canvas by graph.js. Each dot sits at its tile's corner, so it marks exactly where a node's centre snaps. */
+.canvas {
+  background-image:
+    radial-gradient(circle at 1px 1px, var(--grid-dot) 1.4px, transparent 1.6px),
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 20px 20px, 100px 100px, 100px 100px;
+}
 .canvas-tools { flex-wrap: wrap; align-items: center; right: .5rem; }
 .canvas-tools button:disabled { opacity: .5; cursor: default; }
 .canvas-note { font-size: .8rem; color: var(--muted); background: var(--surface); padding: .15rem .4rem; border-radius: 4px; }

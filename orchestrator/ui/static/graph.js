@@ -30,6 +30,10 @@
         "shape": "ellipse", "width": 12, "height": 12, "label": "", "background-color": css("--accent"),
         "border-width": 2, "border-color": css("--surface"),
       } },
+      { selector: "node[kind = 'ghost']", style: {
+        "shape": "round-rectangle", "label": "", "background-opacity": 0, "border-width": 2, "border-style": "dashed",
+        "border-color": css("--accent"), "events": "no",
+      } },
       { selector: "edge", style: {
         "curve-style": "taxi", "taxi-direction": "rightward", "width": 1.5, "line-color": css("--line"),
         "target-arrow-shape": "triangle", "target-arrow-color": css("--line"), "arrow-scale": 0.8,
@@ -88,9 +92,10 @@
 
     // The grid drawn under the canvas, following its pan and zoom.
     function grid() {
-      const size = GRID * cy.zoom(), pan = cy.pan();
-      container.style.backgroundSize = `${size}px ${size}px`;
-      container.style.backgroundPosition = `${pan.x % size}px ${pan.y % size}px`;
+      const size = GRID * cy.zoom(), major = size * 5, pan = cy.pan();
+      const at = (step) => `${((pan.x % step) + step) % step}px ${((pan.y % step) + step) % step}px`;
+      container.style.backgroundSize = `${size}px ${size}px, ${major}px ${major}px, ${major}px ${major}px`;
+      container.style.backgroundPosition = `${at(size)}, ${at(major)}, ${at(major)}`;
     }
     cy.on("viewport", grid);
 
@@ -122,6 +127,10 @@
       cy.add([...seen.values()].map((e) => ({ data: e, classes: e.conditional ? "conditional" : "" })));
       // Laid out flat (dagre lays groups out badly), then each opened group framed around its steps.
       cy.layout({ name: "dagre", rankDir: "LR", nodeSep: 16, rankSep: 40, edgeSep: 8, padding: 30 }).run();
+      cy.nodes().forEach((node) => { // on the grid from the start, as if each had been dropped there
+        const p = node.position();
+        node.position({ x: snap(p.x), y: snap(p.y) });
+      });
       const frames = [...opened].filter((g) => shownAs(g) === g).sort((x, y) => x.split(":").length - y.split(":").length);
       cy.add(frames.map((g) => ({ data: { ...groups.get(g), parent: undefined, display: groups.get(g).label, kind: "group" } })));
       for (const g of frames) {
@@ -194,7 +203,7 @@
 
     function paint() {
       if (!run) return;
-      cy.elements().not("[kind = 'handle']").addClass("dim").removeClass("ran ok question wait stop error");
+      cy.elements().not("[kind = 'handle'], [kind = 'ghost']").addClass("dim").removeClass("ran ok question wait stop error");
       const byShown = new Map(); // node on screen -> the steps that ran in it (inside it, for a collapsed group)
       for (const [id, list] of steps) {
         const shown = shownAs(id);
@@ -317,8 +326,19 @@
     cy.on("tap", "edge", (event) => { showHandles(event.target); showEdge(event.target); });
     cy.on("tap", (event) => { if (event.target === cy) showHandles(null); });
 
+    // While a step is dragged, a dashed outline shows where it will snap when dropped.
+    cy.on("drag", "node[kind != 'handle'][kind != 'ghost']", (event) => {
+      const node = event.target;
+      if (node.isParent()) return;
+      const p = node.position(), placed = { x: snap(p.x), y: snap(p.y) };
+      let ghost = cy.getElementById("ghost");
+      if (!ghost.length) ghost = cy.add({ data: { id: "ghost", kind: "ghost" }, position: placed, grabbable: false, selectable: false });
+      ghost.position(placed);
+      ghost.style({ width: node.width(), height: node.height() });
+    });
     // A node dropped snaps to the grid (a group's frame with all its steps), and its place is kept for saving.
-    cy.on("dragfree", "node[kind != 'handle']", (event) => {
+    cy.on("dragfree", "node[kind != 'handle'][kind != 'ghost']", (event) => {
+      cy.remove("#ghost");
       const moved = event.target.isParent() ? event.target.descendants().not(":parent") : event.target;
       moved.forEach((node) => {
         const p = node.position(), placed = { x: snap(p.x), y: snap(p.y) };
