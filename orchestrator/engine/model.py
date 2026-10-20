@@ -53,7 +53,7 @@ def model():
     return kind(
         model=AGENT["model"],  # content/agent.json
         **reach,
-        max_tokens=16384,  # the thinking included
+        max_tokens=65536,  # the thinking included; n8n's default for minimax/ models (provider-quirks.js)
         # As n8n sends it (its reasoning setting gives M3 a 1024-token budget): without it, the agent makes decisions the
         # client did not (mcp/tests/llm, 2026-10-19: 3 % wrong without, 1 % with).
         thinking={"type": "enabled", "budget_tokens": 1024},

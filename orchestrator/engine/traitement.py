@@ -4,7 +4,7 @@ Where a message goes comes from the database (route_message), as in the workflow
 the name the client gave, then the conversation's new files, from identification to verified drafts, posted only
 when the client asked to; with none, the questions other conversations left on the dossier are asked again and
 the drafts left waiting, held back or stopped are resumed), resume (waiting drafts only), answer (the client's
-answer, then the sequence resumes at its next step), or both. One subgraph per file, one per invoice: invoices run side by side, each visible node by node. No time
+answer, then the sequence resumes at its next step), or both. One subgraph per file, one per invoice: invoices run one after another (as n8n runs its items), each visible node by node. No time
 budget: nothing stops a run after 300 s here, so the n8n "Hors delai" branches have no counterpart."""
 
 import operator
@@ -208,6 +208,8 @@ async def files(state: Run):
 
 def each_file(state: Run):
     """One file run per new file; none: the dossier's waiting questions, then the drafts left waiting."""
+    if state["outcomes"][-1].get("status") != "ok":
+        return "resume"  # the files could not be listed: recorded, nothing more (n8n)
     if not state["files"]:
         return "questions"
     return [Send("fichier", {"call": with_dossier(state), "run_id": state["run_id"], "file_id": file_id, "outcomes": []}) for file_id in state["files"]]
@@ -217,7 +219,7 @@ async def questions(state: Run):
     """The questions other conversations left on this dossier's invoices, asked again here: each recorded as this
     run's question, which makes it this conversation's (record_step), so the summary asks it and the answer finds it."""
     call = state["call"]
-    found = await mcp_call(call["cabinet"], "dossier_questions", session_id=call["session_id"], dossier_id=state["dossier_id"])
+    found = await step(call["cabinet"], state["run_id"], call["session_id"], "dossier_questions", session_id=call["session_id"], dossier_id=state["dossier_id"])
     for question in found.get("questions", []):
         await mcp_call(call["cabinet"], "record_step", run_id=state["run_id"], session_id=call["session_id"], origin="dossier_questions", result={"status": "question", **question})
     return {}
@@ -246,7 +248,7 @@ async def answer(state: Run):
     call = state["call"]
     result = await step(
         call["cabinet"], state["run_id"], call["session_id"], "answer_pending",
-        session_id=call["session_id"], answer=call.get("answer") or "", decision=str(call.get("decision") or ""), about=str(call.get("about") or ""),
+        session_id=call["session_id"], answer=call.get("answer") or call.get("client_message") or "", decision=str(call.get("decision") or ""), about=str(call.get("about") or ""),
     )
     return {"outcomes": [result]}
 
@@ -281,15 +283,18 @@ run.add_node("facture", INVOICE)
 run.add_node("reponse", answer)
 run.add_node("resume", summary)
 run.add_edge(START, "debut")
-run.add_edge("debut", "aiguillage")
+# A failed save is recorded and goes no further, as in n8n (its error output only records).
+run.add_conditional_edges("debut", lambda s: "aiguillage" if s["outcomes"][-1].get("status") == "ok" else "resume", ["aiguillage", "resume"])
 run.add_conditional_edges("aiguillage", by_route, ["dossier", "reponse", "brouillons"])
 run.add_conditional_edges("dossier", lambda s: "expediteur" if s["outcomes"][-1].get("status") == "ok" else "resume", ["expediteur", "resume"])
 run.add_conditional_edges("expediteur", lambda s: "fichiers" if s["outcomes"][-1].get("status") == "ok" else "resume", ["fichiers", "resume"])
-run.add_conditional_edges("fichiers", each_file, ["fichier", "questions"])
+run.add_conditional_edges("fichiers", each_file, ["fichier", "questions", "resume"])
 run.add_edge("questions", "brouillons")
 run.add_conditional_edges("brouillons", each_draft, ["facture", "resume"])
 run.add_conditional_edges("reponse", resume_at, ["facture", "brouillons", "resume"])
 run.add_edge("fichier", "resume")
 run.add_edge("facture", "resume")
 run.add_edge("resume", END)
-graph = run.compile(name="Tarik - Traitement")
+# One task at a time, as n8n runs its items one after another: two invoices of one new supplier never both create
+# it (link_tiers), and the second of two identical invoices sees the first (check_duplicate).
+graph = run.compile(name="Tarik - Traitement").with_config(max_concurrency=1)

@@ -95,15 +95,14 @@ def read_tool(tool_name):
         return await reading(runtime, tool_name)
 
     async def find_dossier(name: str, runtime: ToolRuntime) -> str:
-        """name: the name the client gave."""
         return await reading(runtime, tool_name, name=name)
 
-    async def list_invoices(dossier_id: int, runtime: ToolRuntime, status: str = "") -> str:
-        """dossier_id: from Experio_find_dossier; status: en cours, brouillon, comptabilisee, payee, or empty."""
-        return await reading(runtime, tool_name, dossier_id=dossier_id, status=status)
+    async def list_invoices(dossier_id: int, runtime: ToolRuntime, status: str = "", limit: int = 20) -> str:
+        return await reading(runtime, tool_name, dossier_id=dossier_id, status=status, limit=limit)
 
     function = locals()[tool_name]
-    return tool(f"Experio_{tool_name}", description=function.__doc__ or tool_name)(function)
+    # Described as n8n shows it: the tool's own docstring in tarik-mcp, kept in content/agent.json.
+    return tool(f"Experio_{tool_name}", description=READ_TOOLS[tool_name])(function)
 
 
 # What n8n's agents do with an MCP tool's output (@n8n/agents, sdk/untrusted-content.js): the system prompt says

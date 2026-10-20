@@ -13,7 +13,7 @@ TIMEOUT = 700.0  # seconds: over ask_agent's 600 s and wait_until_read's 180 s
 
 
 # Steps the n8n workflows record only when they fail or refuse (their ok answer is plumbing, not an outcome).
-QUIET_WHEN_OK = {"save_files", "files_to_process", "waiting_drafts", "waiting_setups", "check_sender", "identify_document", "split_invoices", "resolve_dossier"}
+QUIET_WHEN_OK = {"save_files", "files_to_process", "waiting_drafts", "dossier_questions", "waiting_setups", "check_sender", "identify_document", "split_invoices", "resolve_dossier"}
 
 
 class ToolFailure(Exception):
@@ -27,6 +27,7 @@ REPEATABLE = {
     "experio_connection", "list_dossiers", "find_dossier", "list_invoices", "list_collaborators", "route_message",
     "resolve_dossier", "files_to_process", "waiting_drafts", "waiting_setups", "dossier_questions", "run_summary",
     "record_step", "save_files", "check_sender", "claim_threads",
+    "finish_thread",  # n8n retries it (3 tries, 5 s apart): left unfinished, its reply would be sent twice
 }
 ATTEMPTS, PAUSE = 3, 1.0  # seconds, doubled each time
 
@@ -62,9 +63,10 @@ async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a
     {status: error}) recorded for the run's summary (record_step). The ids it was given stay on a failure."""
     try:
         result = await call(cabinet, tool, **arguments)
-    except ToolFailure as failure:
+    except Exception as failure:  # refused, or the connection lost for good: recorded as n8n's error output does
         ids = {key: arguments[key] for key in ("invoice_id", "file_id", "dossier_id") if key in arguments}
-        result = {"status": "error", "message": str(failure), **ids}
+        message = str(failure) if isinstance(failure, ToolFailure) else f"{tool} : connexion perdue ({type(failure).__name__})."
+        result = {"status": "error", "message": message, **ids}
     if not (tool in QUIET_WHEN_OK and result.get("status") == "ok"):
         # An answer's outcome is the step it answers (answer_pending says which), as n8n records it from its router:
         # recorded under answer_pending, a question asked again could never be answered.

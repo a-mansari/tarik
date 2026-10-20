@@ -40,6 +40,8 @@ async def start(state: Run, config):
 
 def by_mode(state: Run):
     call = state["call"]
+    if state["outcomes"][-1].get("status") != "ok":
+        return "resume"  # a failed save is recorded and goes no further, as in n8n
     mode = call.get("mode")
     if mode in ("update", "person", "archive"):
         return "expediteur"
@@ -168,7 +170,7 @@ for name, node in {
 }.items():
     run.add_node(name, node)
 run.add_edge(START, "debut")
-run.add_conditional_edges("debut", by_mode, ["creation", "expediteur", "listes", "reprise"])
+run.add_conditional_edges("debut", by_mode, ["creation", "expediteur", "listes", "reprise", "resume"])
 run.add_conditional_edges("creation", lambda s: "ecritures" if s["outcomes"][-1].get("status") == "ok" else "resume", ["ecritures", "resume"])
 run.add_conditional_edges("expediteur", after_sender, ["modification", "acces", "archivage", "ecritures", "resume"])
 for name in ("modification", "acces", "archivage", "listes", "ecritures", "reprise"):
