@@ -47,3 +47,18 @@ def test_a_field_changed_changes_that_field_only():
 def test_a_change_that_would_break_its_reader_is_refused(path, change, refused):
     with pytest.raises(ValueError, match=refused):
         content.checked(path, change(content.text(path)))
+
+
+@pytest.mark.style
+@pytest.mark.parametrize("path", content.documents())
+def test_no_sentence_is_cut_by_a_line_break(path):
+    """Text pasted from a file wrapped at a fixed width shows as broken lines in the form: each sentence on one line."""
+    text = content.text(path)
+    if path.endswith(".json"):
+        data = json.loads(text)
+        texts = [v for group in ("tools", "read_tools") for v in data.get(group, {}).values()]
+        texts += [data["instructions"]] if "instructions" in data else []
+    else:
+        texts = [content.front_matter(text)[1]]
+    for found in texts:
+        assert content.unwrapped(found) == found

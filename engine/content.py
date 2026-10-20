@@ -66,22 +66,50 @@ def applied(path):
 
 
 async def setup(pool):
-    """The versions' table, each document's first version taken from content/ when it has none, and the latest of
-    each put to use."""
+    """The versions' table, and each document's latest version put to use. A document's version in content/ becomes
+    a new version when it differs from the latest and the team has not changed that document since the last one from
+    the repository (an update shipped with the code); a team's change is never overwritten."""
     async with pool.connection() as db:
         await db.execute(TABLE)
         for path in documents():
             found = await (
-                await db.execute("select text from content_versions where path = %s order by id desc limit 1", (path,))
-            ).fetchone()
-            if found is None:
-                first = (CONTENT / path).read_text()
                 await db.execute(
-                    "insert into content_versions (path, text, author) values (%s, %s, %s)", (path, first, FIRST)
+                    "select text, author from content_versions where path = %s order by id desc limit 1", (path,)
                 )
-                found = (first,)
+            ).fetchone()
+            shipped = (CONTENT / path).read_text()
+            if found is None or (found[1] == FIRST and found[0] != shipped):
+                note = "" if found is None else "Mise à jour livrée avec le code"
+                await db.execute(
+                    "insert into content_versions (path, text, author, note) values (%s, %s, %s, %s)",
+                    (path, shipped, FIRST, note),
+                )
+                found = (shipped, FIRST)
             LATEST[path] = found[0]
             applied(path)
+
+
+# A line that starts a block of its own: a list item, a heading, a table row, a quote, a fence, a JSON object, or a
+# "field: ..." line. Anything else right after a non-empty line continues its sentence.
+BLOCK = re.compile(r"\s*([-*•]\s|\d+[.)]\s|[A-Z][.)]\s|#|\||>|```|\{|[a-z_]+:\s)")
+
+
+def unwrapped(text):
+    """``text`` with the line breaks a fixed width put inside its sentences removed (they show as broken lines in a
+    form): a line that is not a block of its own joins the one before, unless that one ends a block (``:``, ``}``)."""
+    out, fence = [], False
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            fence = not fence
+            out.append(line)
+            continue
+        previous = out[-1].rstrip() if out else ""
+        if fence or not previous or not stripped or BLOCK.match(line) or previous.endswith(("}", "]", ":")):
+            out.append(line)
+        else:
+            out[-1] = previous + " " + stripped
+    return "\n".join(out)
 
 
 async def save(pool, path, new, author, note=""):
