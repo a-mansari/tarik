@@ -1,12 +1,16 @@
 """The tests set their settings in the environment: Vault is left out, but by the tests of the real model
 (tests/llm), which read its key from it. Their data lives in the test database
 (testdb.py), never the cabinets' own; db_cabinet is a throwaway cabinet there, shared by the whole run and
-emptied before and after each test."""
+emptied before and after each test. The content (instructions, skills, tools' prompts) is the stack's own, read
+from its Postgres once: the tools and the content checks test what is in use."""
 
 import pytest
 
+from engine import content
 from tarik.core import cabinets
 from tests import testdb
+
+content.load()
 
 DB_CABINET = testdb.schema("db")
 

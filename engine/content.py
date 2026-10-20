@@ -3,18 +3,21 @@ definition (agent.json: model, instructions, tools' descriptions, read tools), i
 prompts to the model (tools/*.md) and the UI's plain words (labels.json: names and descriptions of each workflow,
 step and status).
 
-content/ holds each one's first version. Every change made in the UI is a new version, kept with who made it, when
-and why (table content_versions, schema orchestrator); the latest is the one in use, read at each use, so a change
-applies to the next run without a restart. Going back is one more version, equal to an older one: nothing is lost.
-A change that would break what reads it is refused (checked()): content, not logic."""
+Postgres is their only home (table content_versions, schema orchestrator): every change made in the UI is a new
+version, kept with who made it, when and why; the latest is the one in use, read at each use, so a change applies to
+the next run without a restart. Going back is one more version, equal to an older one: nothing is lost. Moving
+content between stacks, or filling a new one, is an export and an import (the Contenu page). A change that would
+break what reads it is refused (checked()): content, not logic."""
 
 import json
 import re
 
-import tarik.core.model
-from tarik.core.model import CONTENT, front_matter
+import psycopg
 
-FIRST = "Version du dépôt"  # who wrote the versions taken from content/
+import tarik.core.model
+from tarik.core.config import POSTGRES
+from tarik.core.model import front_matter
+
 TABLE = """
 create table if not exists content_versions (
     id bigserial primary key,
@@ -26,28 +29,25 @@ create table if not exists content_versions (
 );
 create index if not exists content_versions_path on content_versions (path, id desc);
 """
+LATEST_ROWS = "select distinct on (path) path, text from content_versions order by path, id desc"
+PATH = re.compile(r"(agent|labels)\.json|(skills|tools)/[a-z0-9-]+\.md")  # the documents there can be
 LATEST = {}  # path: its latest text (this process serves every edit, so this is always current)
 
 
 def documents():
-    """Every editable document's path, relative to content/."""
-    return sorted(
-        str(path.relative_to(CONTENT))
-        for pattern in ("*.json", "skills/*.md", "tools/*.md")
-        for path in CONTENT.glob(pattern)
-    )
+    """Every document's path (agent.json, skills/<name>.md...)."""
+    return sorted(LATEST)
 
 
 def text(path):
-    """A document's latest text."""
+    """A document's latest text; LookupError when the stack has none (import the content first)."""
     if path not in LATEST:
-        LATEST[path] = (CONTENT / path).read_text()  # before the store is open (tests, scripts)
+        raise LookupError(f"contenu absent : {path} (importez le contenu, page Contenu)")
     return LATEST[path]
 
 
-# The two JSON documents, as dicts read everywhere; changed in place by a new version, so every reader sees it.
-AGENT = json.loads(text("agent.json"))
-LABELS = json.loads(text("labels.json"))
+# The two JSON documents, as dicts read everywhere; filled and changed in place by each latest version.
+AGENT, LABELS = {}, {}
 tarik.core.model.SOURCE = text  # the tools read their prompts and the model's name from here
 
 
@@ -64,28 +64,23 @@ def applied(path):
         graphs.shape.cache_clear()
 
 
+def loaded(rows):
+    for path, found in rows:
+        LATEST[path] = found
+        applied(path)
+
+
 async def setup(pool):
-    """The versions' table, and each document's latest version put to use. A document's version in content/ becomes
-    a new version when it differs from the latest and the team has not changed that document since the last one from
-    the repository (an update shipped with the code); a team's change is never overwritten."""
+    """The versions' table, and each document's latest version put to use."""
     async with pool.connection() as db:
         await db.execute(TABLE)
-        for path in documents():
-            found = await (
-                await db.execute(
-                    "select text, author from content_versions where path = %s order by id desc limit 1", (path,)
-                )
-            ).fetchone()
-            shipped = (CONTENT / path).read_text()
-            if found is None or (found[1] == FIRST and found[0] != shipped):
-                note = "" if found is None else "Mise à jour livrée avec le code"
-                await db.execute(
-                    "insert into content_versions (path, text, author, note) values (%s, %s, %s, %s)",
-                    (path, shipped, FIRST, note),
-                )
-                found = (shipped, FIRST)
-            LATEST[path] = found[0]
-            applied(path)
+        loaded(await (await db.execute(LATEST_ROWS)).fetchall())
+
+
+def load():
+    """The latest versions read once, outside the server (check.py, the tests), from the stack's Postgres."""
+    with psycopg.connect(**POSTGRES, options="-c search_path=orchestrator") as db:
+        loaded(db.execute(LATEST_ROWS).fetchall())
 
 
 # A line that starts a block of its own: a list item, a heading, a table row, a quote, a fence, a JSON object, or a
@@ -111,13 +106,14 @@ def unwrapped(text):
     return "\n".join(out)
 
 
-async def save(pool, path, new, author, note=""):
+async def save(pool, path, new, author, note="", create=False):
     """``new`` as the document's latest version, by ``author``; ValueError (in plain French) when it would break
-    what reads it. Nothing is saved when it is the same as the latest."""
-    if path not in documents():
-        raise ValueError("document inconnu")
+    what reads it. Nothing is saved when it is the same as the latest. ``create``: a document the stack does not have
+    yet may be made (an import into a new stack)."""
+    if path not in LATEST and not (create and PATH.fullmatch(path)):
+        raise ValueError(f"document inconnu : {path}")
     checked(path, new)
-    if new == text(path):
+    if new == LATEST.get(path):
         return False
     async with pool.connection() as db:
         await db.execute(
@@ -193,23 +189,27 @@ def unknown_names(words):
 
 
 def checked(path, new):
-    """ValueError, in plain French, when ``new`` would break what reads the document ``path``."""
-    old = text(path)
+    """ValueError, in plain French, when ``new`` would break what reads the document ``path``. A new document (an
+    import into a new stack) has no earlier version to keep the shape of: only its own form is checked."""
+    old = LATEST.get(path)
     if path.endswith(".json"):
         try:
             parsed = json.loads(new)
         except ValueError:
             raise ValueError("ce n'est plus un JSON valide") from None
-        same_shape(json.loads(old), parsed)
-        if path == "agent.json" and parsed["model"] != json.loads(old)["model"]:
-            raise ValueError("le modèle ne se modifie pas ici")
+        if old is not None:
+            same_shape(json.loads(old), parsed)
+            if path == "agent.json" and parsed["model"] != json.loads(old)["model"]:
+                raise ValueError("le modèle ne se modifie pas ici")
+        elif path == "agent.json" and not {"model", "instructions", "tools", "read_tools"} <= set(parsed):
+            raise ValueError("il manque des rubriques (model, instructions, tools, read_tools)")
         if path == "agent.json":
             words = parsed["instructions"] + " " + " ".join(parsed["tools"].values())
             if wrong := unknown_names(words):
                 raise ValueError(f"nomme des outils ou champs que Tarik n'a pas : {', '.join(wrong)}")
         return
     meta, body = front_matter(new)
-    old_meta, _ = front_matter(old)
+    old_meta = front_matter(old)[0] if old is not None else meta
     if not body.strip():
         raise ValueError("le texte est vide")
     if set(meta) != set(old_meta) or any(meta[key] != old_meta[key] for key in old_meta if key != "description"):

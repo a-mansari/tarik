@@ -30,7 +30,6 @@ services:
       - ./engine:/app/engine
       - ./tarik:/app/tarik
       - ./ui:/app/ui
-      - ./content:/app/content
       - ./tests:/app/tests
       - ./pytest.ini:/app/pytest.ini
       - ./pyproject.toml:/app/pyproject.toml

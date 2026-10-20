@@ -1,5 +1,6 @@
 """The code and the content kept consistent: one style (ruff's linter and formatter, as pyproject.toml sets them),
-the skills and instructions naming only the agent's tools, and each tool prompt read by the tool it names."""
+the skills and instructions naming only the agent's tools, and each tool prompt read by the tool it names (the
+stack's content, from its Postgres: tests/conftest.py)."""
 
 import re
 import subprocess
@@ -8,8 +9,9 @@ from pathlib import Path
 
 import pytest
 
+from engine import content
+
 ROOT = Path(__file__).resolve().parents[2]
-CONTENT = ROOT / "content"
 
 
 def ruff(*command):
@@ -37,7 +39,7 @@ def test_skills_and_instructions_name_only_the_agents_tools():
     from engine import agent
 
     known = {name for tool in agent.TOOLS for name in (tool.name, *tool.args)}
-    texts = {path.name: path.read_text() for path in (CONTENT / "skills").glob("*.md")}
+    texts = {path: content.text(path) for path in content.documents() if path.startswith("skills/")}
     texts["instructions"] = agent.AGENT["instructions"] + " " + " ".join(agent.AGENT["tools"].values())
     names = r"\b[A-Za-z]+(?:_[a-z]+)+\b"
     wrong = {name: sorted(set(re.findall(names, text)) - known) for name, text in texts.items()}
@@ -52,7 +54,11 @@ def test_each_tool_prompt_is_read_by_the_tool_its_file_names():
         for path in code.rglob("*.py")
         for name in re.findall(r'tool_prompt\("([a-z-]+)"\)', path.read_text())
     }
-    files = {path.stem: path.read_text() for path in (CONTENT / "tools").glob("*.md")}
+    files = {
+        path.removeprefix("tools/").removesuffix(".md"): content.text(path)
+        for path in content.documents()
+        if path.startswith("tools/")
+    }
     assert sorted(loaded) == sorted(files), "a prompt file no tool reads, or a tool reading a missing one"
     for name, text in files.items():
         assert f"({loaded[name]})" in text.split("\n---\n", 1)[0], f"{name}.md: used_by names another file"

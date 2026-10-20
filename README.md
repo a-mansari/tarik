@@ -22,8 +22,10 @@ of the n8n stack runs in it:
 - **Its tools** (`tarik/`): every Experio step, mail and file, forked from tarik-mcp (branch `main`) and called in-process (no MCP
   hop), each call inside its cabinet (`using(cabinet)`): a run names its cabinet once, never the model. Free of n8n's
   workarounds: no 5-minute tool cap to dodge, steps recorded as they end.
-- **Its content** (`content/`): the agent's instructions and tools' descriptions, the skills, the tools' prompts, the
-  UI's words; `docs/using-tarik.md` for the cabinets.
+- **Its content**, in its Postgres only (table `content_versions`): the agent's instructions and tools' descriptions,
+  the skills, the tools' prompts, the UI's words. Edited on the Contenu page, with its history; exported and imported
+  there (all of it, a group, or one section) to keep it or to fill another stack. No file holds it: back up the
+  database, or keep an export. `docs/using-tarik.md` is for the cabinets.
 - **Its Postgres** (service `db`): runs, conversations, layouts (schema `orchestrator`) and each cabinet's schema.
 - **Its model key**: Vault `secret/tarik/orchestrator` (`MODEL_API_KEY`, `MODEL_API_URL` optional).
 - **Its mail watcher** (`engine/mail.py`), for the cabinets listed in `MAIL_BY_ORCHESTRATOR` (same Vault path) only:
@@ -43,14 +45,13 @@ by `vault/setup.sh`) and the cabinets' Experio. The n8n implementation (branch `
 | `tarik/` | The tools (`TOOLS`, registered by `@tool` / `@step_tool`), Experio, mail, the vision model, `cabinet.sql`. |
 | `engine/tools.py` | One tool call: in a worker thread, in its cabinet, at most 10 at once per cabinet; a refusal's text kept for the client, a crash logged and told plainly; a step's outcome recorded for the run's summary. |
 | `engine/runs.py` | Every run and each of its steps, in Postgres (schema `orchestrator`); the agent's conversations next to them. |
-| `engine/agent.py` | The agent: instructions and tools' descriptions from `content/agent.json`, skills from `content/skills/`, tool output from Experio tagged as untrusted data. |
+| `engine/agent.py` | The agent: instructions and tools' descriptions from the content's `agent.json`, its skills (`skills/*.md`), tool output from Experio tagged as untrusted data. |
 | `engine/model.py` | MiniMax-M3 with a 1024-token thinking budget, with this stack's own key. |
 | `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the Prompts page. |
-| `engine/content.py` | What the team edits: every version of each content document (who, when, why), the latest in use at the next run; a change that would break its reader is refused. |
+| `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
 | `engine/accounts.py`, `users.py` | The team's accounts (scrypt hashes) and sessions; `users.py` makes and closes accounts. |
 | `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
 | `engine/traitement.py`, `dossier.py`, `emails.py` | The workflows, as graphs. |
-| `content/` | The first version of what the agent is told and the UI's plain words (`labels.json`: names and descriptions of each step); later versions live in Postgres. |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
 | `engine/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
 | `ui/` | The team's pages (French): `pages.py`, its templates, a stylesheet, scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |

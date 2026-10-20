@@ -4,10 +4,12 @@ plain form, its history (who, when, why), what each version changed, and going b
 import contextlib
 import difflib
 import json
+import re
+from datetime import UTC, datetime
 from urllib.parse import parse_qs, quote
 
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from engine import content, runs
 from ui.pages import graph_name, templates
@@ -39,15 +41,18 @@ def what(path):
     return f"Ce que le modèle reçoit quand l'outil {meta.get('used_by', '').split(' ')[0]} lit un document."
 
 
+GROUPS = {  # key: (name, which documents)
+    "tarik": ("Tarik", lambda p: p == "agent.json"),
+    "competences": ("Compétences", lambda p: p.startswith("skills/")),
+    "consignes": ("Consignes de lecture des documents", lambda p: p.startswith("tools/")),
+    "pages": ("Pages", lambda p: p == "labels.json"),
+}
+
+
 def groups():
-    """The documents by kind, for the list page."""
+    """The documents by kind, for the list page: [(key, name, paths)]."""
     paths = content.documents()
-    return [
-        ("Tarik", [p for p in paths if p == "agent.json"]),
-        ("Compétences", [p for p in paths if p.startswith("skills/")]),
-        ("Consignes de lecture des documents", [p for p in paths if p.startswith("tools/")]),
-        ("Pages", [p for p in paths if p == "labels.json"]),
-    ]
+    return [(key, name, [p for p in paths if belongs(p)]) for key, (name, belongs) in GROUPS.items()]
 
 
 def field(key, label, value, long=True, hint=""):
@@ -133,20 +138,116 @@ def rebuilt(path, form):
     return "---\n" + "\n".join(f"{key}: {value}" for key, value in meta.items()) + "\n---\n" + body + end
 
 
+CONTEXT = 12  # words kept around each change
+
+
 def diff(before, after):
-    """[(kind, line)] of what changed, kind "+", "-" or " " (a few lines around each change)."""
+    """What changed between two texts, word by word: [(kind, text)], kind "+" (added), "-" (removed), " " (kept, cut
+    to CONTEXT words around each change, "…" where cut)."""
+    old, new = re.split(r"(\s+)", before), re.split(r"(\s+)", after)
+    found = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            kept = old[i1:i2]
+            if len(kept) > 4 * CONTEXT:  # long unchanged stretch: its ends only (tokens alternate word, space)
+                head = "".join(kept[: 2 * CONTEXT]) if found else ""
+                tail = "".join(kept[-2 * CONTEXT :]) if i2 < len(old) else ""
+                found.append((" ", f"{head} … {tail}" if head or tail else ""))
+            else:
+                found.append((" ", "".join(kept)))
+            continue
+        if i2 > i1:
+            found.append(("-", "".join(old[i1:i2])))
+        if j2 > j1:
+            found.append(("+", "".join(new[j1:j2])))
+    return found
+
+
+def changes(path, before, after):
+    """{field key: diff} of each field one version changed, against the version before it (None: the first)."""
     if before is None:
-        return [(" ", "Première version.")]
-    lines = difflib.unified_diff(before.splitlines(), after.splitlines(), lineterm="", n=2)
-    return [(line[:1], line[1:]) for line in list(lines)[2:] if not line.startswith("@@")] or [
-        (" ", "Aucun changement.")
-    ]
+        return {}
+    old = {f["key"]: f["value"] for section in sections(path, before) for f in section["fields"]}
+    return {
+        f["key"]: diff(old.get(f["key"], ""), f["value"])
+        for section in sections(path, after)
+        for f in section["fields"]
+        if old.get(f["key"], "") != f["value"]
+    }
+
+
+# --- Export and import: a whole group of documents, or one card's fields ---
+
+BUNDLE, SECTION = "tarik-contenu", "tarik-contenu-section"
+
+
+def download(data, name):
+    body = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    return Response(
+        body, media_type="application/json", headers={"content-disposition": f'attachment; filename="{name}"'}
+    )
+
+
+async def export_contents(request: Request):
+    """Every document's latest version as one file, or only a group's (?group=): to keep, or to fill another stack."""
+    key = request.query_params.get("group")
+    belongs = GROUPS[key][1] if key in GROUPS else (lambda path: True)
+    documents = {path: content.text(path) for path in content.documents() if belongs(path)}
+    data = {"format": BUNDLE, "exported_at": datetime.now(UTC).isoformat(timespec="seconds"), "documents": documents}
+    return download(data, f"tarik-contenu{'-' + key if key in GROUPS else ''}-{datetime.now(UTC):%Y%m%d}.json")
+
+
+async def import_contents(request: Request):
+    """An export's documents, each as a new version (made when the stack lacks it). Every document is checked before
+    any is saved: one refused, none saved. {saved: [...], unchanged: [...]} or {error}."""
+    try:
+        data = json.loads(await request.body())
+        documents, name = data["documents"], str(data.get("file") or "un export")[:80]
+        if data.get("format") != BUNDLE or not isinstance(documents, dict):
+            raise ValueError("ce fichier n'est pas un export du contenu de Tarik")
+        for path, text in documents.items():
+            if not isinstance(text, str) or not content.PATH.fullmatch(path):
+                raise ValueError(f"document inconnu : {path}")
+            try:
+                content.checked(path, text)
+            except ValueError as refusal:
+                raise ValueError(f"{path} : {refusal}") from None
+    except (ValueError, KeyError, TypeError) as refusal:
+        return JSONResponse({"error": str(refusal)}, status_code=400)
+    saved, unchanged = [], []
+    for path, text in sorted(documents.items()):
+        made = await content.save(runs.pool, path, text, author_of(request), f"Importé de {name}", create=True)
+        (saved if made else unchanged).append(path)
+    return JSONResponse({"saved": saved, "unchanged": unchanged})
+
+
+def author_of(request):
+    user = request.state.user
+    return f"{user['name']} <{user['email']}>"
+
+
+async def import_section(request, path):
+    """One card's fields from its export, over the document's latest version: a new version, or {error}."""
+    try:
+        data = json.loads(await request.body())
+        if data.get("format") != SECTION or data.get("document") != path or not isinstance(data.get("fields"), dict):
+            raise ValueError("ce fichier n'est pas l'export d'une section de ce document")
+        form = {f["key"]: [f["value"]] for section in sections(path, content.text(path)) for f in section["fields"]}
+        unknown = [key for key in data["fields"] if key not in form]
+        if unknown:
+            raise ValueError(f"champs inconnus : {', '.join(unknown)}")
+        form |= {key: [str(value)] for key, value in data["fields"].items()}
+        note = f"Importé : {data.get('section') or 'une section'} ({str(data.get('file') or 'un export')[:80]})"
+        made = await content.save(runs.pool, path, rebuilt(path, form), author_of(request), note)
+    except (ValueError, KeyError, TypeError) as refusal:
+        return JSONResponse({"error": str(refusal)}, status_code=400)
+    return JSONResponse({"saved": made})
 
 
 async def contents_page(request: Request):
-    changes = await content.last_changes(runs.pool)
-    listed = [(name, [(path, title(path), changes.get(path)) for path in paths]) for name, paths in groups()]
-    return templates.TemplateResponse(request, "contents.html", {"groups": listed})
+    changes_ = await content.last_changes(runs.pool)
+    listed = [(key, name, [(path, title(path), changes_.get(path)) for path in paths]) for key, name, paths in groups()]
+    return templates.TemplateResponse(request, "contents.html", {"groups": listed, "empty": not content.documents()})
 
 
 async def content_page(request: Request):
@@ -154,9 +255,19 @@ async def content_page(request: Request):
     path = request.path_params["path"]
     if path not in content.documents():
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
-    user = request.state.user
-    author = f"{user['name']} <{user['email']}>"
+    author = author_of(request)
     error, text = None, content.text(path)
+    exported = request.query_params.get("export")
+    if exported is not None and exported.isdigit():  # one card's fields, as a file
+        cards = sections(path, text)
+        if int(exported) < len(cards):
+            card = cards[int(exported)]
+            fields = {f["key"]: f["value"] for f in card["fields"]}
+            data = {"format": SECTION, "document": path, "section": card["title"] or title(path), "fields": fields}
+            name = f"{path.replace('/', '-').rsplit('.', 1)[0]}-{int(exported) + 1}.json"
+            return download(data, name)
+    if request.method == "POST" and request.headers.get("content-type", "").startswith("application/json"):
+        return await import_section(request, path)
     if request.method == "POST":
         form = parse_qs((await request.body()).decode(), keep_blank_values=True, max_num_fields=500)
         note = form.pop("note", [""])[0]
@@ -182,7 +293,7 @@ async def content_page(request: Request):
     if shown and shown.isdigit():
         after, before = await content.version(runs.pool, path, int(shown))
         if after is not None:
-            compare = {"id": int(shown), "lines": diff(before, after)}
+            compare = {"id": int(shown), "first": before is None, "fields": changes(path, before, after)}
     context = {
         "path": path,
         "title": title(path),

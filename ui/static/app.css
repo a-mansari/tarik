@@ -221,3 +221,17 @@ details.card.changed > summary .muted::after { content: " · modifié, pas encor
 .field textarea { overflow: hidden; min-height: 4.5rem; }
 .field .count { justify-self: end; font-size: .75rem; color: var(--muted); margin-top: -.15rem; }
 @media (prefers-reduced-motion: reduce) { details.card > summary .card-title::before { transition: none; } }
+
+/* Content: export and import, and what a version changed, shown in the section it changed. */
+.card-meta { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; justify-content: flex-end; }
+.card-action { font: inherit; font-size: .8rem; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: .2rem .55rem; text-decoration: none; }
+.card-action:hover { border-color: var(--accent); }
+.group-head { display: flex; justify-content: space-between; align-items: center; gap: .8rem; flex-wrap: wrap; }
+.group-head h2 { margin: 0; }
+details.card.touched { border-color: var(--wait, #9a6b00); }
+.field-diff { margin: -.4rem 0 .4rem; padding: .6rem .7rem; border-radius: 6px; background: var(--bg); border-left: 3px solid var(--wait, #9a6b00); display: grid; gap: .3rem; }
+.field-diff .diff { margin: 0; font-size: .85rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: none; background: none; padding: 0; }
+.field-diff ins { background: var(--good-bg, #e3f2e7); color: var(--good); text-decoration: none; border-radius: 3px; padding: 0 .1rem; }
+.field-diff del { background: var(--bad-bg, #f7e1df); color: var(--bad); border-radius: 3px; padding: 0 .1rem; }
+.compare-banner { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; border-color: var(--wait, #9a6b00); }
+.compare-banner p { margin: 0; }

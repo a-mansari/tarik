@@ -246,6 +246,8 @@ app = Starlette(
         Route("/ui/prompts", pages.prompts_page),
         Route("/ui/prompts/{cabinet}/{session_id}", pages.prompt_calls_page),
         Route("/ui/contenu", content_pages.contents_page),
+        Route("/ui/contenu-export", content_pages.export_contents),
+        Route("/ui/contenu-import", content_pages.import_contents, methods=["POST"]),
         Route("/ui/contenu/{path:path}", content_pages.content_page, methods=["GET", "POST"]),
         Route("/ui/workflows", pages.workflows_page),
         Route("/ui/workflows/{graph}", pages.workflow_page),

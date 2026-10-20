@@ -62,3 +62,35 @@ def test_no_sentence_is_cut_by_a_line_break(path):
         texts = [content.front_matter(text)[1]]
     for found in texts:
         assert content.unwrapped(found) == found
+
+
+@pytest.mark.communication
+def test_a_versions_change_is_shown_word_by_word_with_little_around_it():
+    before = " ".join(f"mot{i}" for i in range(100)) + " le compte est 6145 puis la suite " + " ".join("x" * 40)
+    after = before.replace("6145", "6125")
+    found = content_pages.diff(before, after)
+    assert ("-", "6145") in found and ("+", "6125") in found
+    assert sum(len(part) for _, part in found) < len(before) / 2  # the long unchanged stretches are cut
+
+
+@pytest.mark.functionality
+def test_only_the_fields_a_version_changed_are_compared():
+    form = form_of("labels.json")
+    form["steps|traitement|post_invoice"] = ["Comptabilisation dans Experio"]
+    after = content_pages.rebuilt("labels.json", form)
+    found = content_pages.changes("labels.json", content.text("labels.json"), after)
+    assert list(found) == ["steps|traitement|post_invoice"]
+    assert content_pages.changes("labels.json", None, after) == {}  # the first version: nothing to compare
+
+
+@pytest.mark.security
+def test_a_new_document_from_an_import_is_checked_on_its_own():
+    kept = content.LATEST.pop("agent.json")  # as in a new stack, without one yet
+    try:
+        with pytest.raises(ValueError, match="manque"):
+            content.checked("agent.json", '{"instructions": "x"}')
+        content.checked("agent.json", kept)  # a whole agent.json is taken
+    finally:
+        content.LATEST["agent.json"] = kept
+    assert content.PATH.fullmatch("tools/read-new-answer.md")
+    assert not content.PATH.fullmatch("../secrets.md") and not content.PATH.fullmatch("tools/x.py")

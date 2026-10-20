@@ -5,7 +5,6 @@ import base64
 import io
 import json
 import re
-from pathlib import Path
 
 import pypdfium2
 from PIL import Image
@@ -15,17 +14,16 @@ from tarik.core.cabinets import setting
 from tarik.core.config import MAX_PAGES, MODEL_TIMEOUT, SCALE
 from tarik.core.experio import HTTP
 
-CONTENT = Path(__file__).resolve().parents[2] / "content"
-
-
-# Where the content is read: the files by default; the server reads its latest version, edited in the UI
-# (engine/content.py sets it). Read at each use, so an edit applies to the next call.
+# Where the content is read: its latest version, edited in the UI (engine/content.py sets it). Read at each use, so
+# an edit applies to the next call.
 SOURCE = None
 
 
 def content(path):
-    """content/<path>'s text: its latest version."""
-    return SOURCE(path) if SOURCE else (CONTENT / path).read_text()
+    """A content document's text (tools/<name>.md, agent.json): its latest version."""
+    if SOURCE is None:
+        raise RuntimeError("content not loaded (engine.content)")
+    return SOURCE(path)
 
 
 def front_matter(text):
@@ -38,7 +36,7 @@ def front_matter(text):
 
 
 def tool_prompt(name):
-    """The prompt content/tools/<name>.md holds, after its front matter (used_by: the tool reading it)."""
+    """The prompt tools/<name>.md holds, after its front matter (used_by: the tool reading it)."""
     return front_matter(content(f"tools/{name}.md"))[1]
 
 
@@ -64,7 +62,7 @@ MODEL_URL = "https://api.minimax.io/anthropic"  # the provider's Anthropic-style
 
 
 def model_name():
-    """The model every tool uses: the agent's own (content/agent.json)."""
+    """The model every tool uses: the agent's own (agent.json)."""
     return json.loads(content("agent.json"))["model"]
 
 

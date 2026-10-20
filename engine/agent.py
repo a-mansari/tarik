@@ -18,6 +18,11 @@ from engine.model import model
 from engine.settings import cabinet_of
 from engine.tools import ToolFailure, call
 
+# What each tool says to the model is content (agent.json), read at each agent's making (described()); the read
+# tools themselves are these, defined below (read_tool).
+DESCRIBED_LATER = "(décrit dans agent.json)"
+READ_TOOLS = ("experio_connection", "list_dossiers", "find_dossier", "list_invoices", "list_collaborators")
+
 
 def skills():
     """The skills (name, description, instructions), their latest versions (content/skills/, edited in the UI)."""
@@ -114,7 +119,7 @@ def read_tool(tool_name):
 
     function = locals()[tool_name]
     # Described by the tool's own docstring (tarik/), kept in content/agent.json to be edited.
-    return tool(f"Experio_{tool_name}", description=AGENT["read_tools"][tool_name])(function)
+    return tool(f"Experio_{tool_name}", description=DESCRIBED_LATER)(function)
 
 
 # n8n's guard against prompt injection, rebuilt (@n8n/agents, sdk/untrusted-content.js): the system prompt says
@@ -153,7 +158,7 @@ async def run_workflow(graph, runtime, call_inputs):
     return result["message"]
 
 
-@tool("Experio_traiter_fichiers", description=AGENT["tools"]["Experio_traiter_fichiers"])
+@tool("Experio_traiter_fichiers", description=DESCRIBED_LATER)
 async def traiter_fichiers(
     runtime: ToolRuntime,
     dossier: str = "",
@@ -181,13 +186,13 @@ async def traiter_fichiers(
     return await run_workflow(traitement.graph, runtime, inputs)
 
 
-@tool("Experio_repondre", description=AGENT["tools"]["Experio_repondre"])
+@tool("Experio_repondre", description=DESCRIBED_LATER)
 async def repondre(runtime: ToolRuntime, decision: str = "", about: str = "") -> str:
     inputs = {"mode": "answer", "answer": client_message(runtime), "decision": decision, "about": about}
     return await run_workflow(traitement.graph, runtime, inputs)
 
 
-@tool("Experio_parametrer_dossier", description=AGENT["tools"]["Experio_parametrer_dossier"])
+@tool("Experio_parametrer_dossier", description=DESCRIBED_LATER)
 async def parametrer_dossier(
     dossier_id: int,
     runtime: ToolRuntime,
@@ -217,7 +222,7 @@ async def parametrer_dossier(
     return await run_workflow(dossier.graph, runtime, inputs)
 
 
-@tool("Experio_modifier_dossier", description=AGENT["tools"]["Experio_modifier_dossier"])
+@tool("Experio_modifier_dossier", description=DESCRIBED_LATER)
 async def modifier_dossier(
     dossier_id: int,
     runtime: ToolRuntime,
@@ -259,7 +264,7 @@ async def modifier_dossier(
     return await run_workflow(dossier.graph, runtime, inputs)
 
 
-@tool("Experio_creer_acces", description=AGENT["tools"]["Experio_creer_acces"])
+@tool("Experio_creer_acces", description=DESCRIBED_LATER)
 async def creer_acces(
     dossier_id: int,
     person_kind: str,
@@ -283,14 +288,14 @@ async def creer_acces(
     return await run_workflow(dossier.graph, runtime, inputs)
 
 
-@tool("Experio_archiver_dossier", description=AGENT["tools"]["Experio_archiver_dossier"])
+@tool("Experio_archiver_dossier", description=DESCRIBED_LATER)
 async def archiver_dossier(dossier_id: int, runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
         dossier.graph, runtime, {"mode": "archive", "dossier_id": dossier_id, "client_confirmed": client_confirmed}
     )
 
 
-@tool("Experio_importer_dossiers", description=AGENT["tools"]["Experio_importer_dossiers"])
+@tool("Experio_importer_dossiers", description=DESCRIBED_LATER)
 async def importer_dossiers(runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
         dossier.graph, runtime, {"mode": "dossiers", "dossier_id": 0, "client_confirmed": client_confirmed}
@@ -312,7 +317,7 @@ def system_prompt():
     return f"{rules}\n\n{AGENT['instructions']}\n\nCOMPÉTENCES (load_skill avec le nom exact) :\n{listed}"
 
 
-TOOLS = [read_tool(name) for name in AGENT["read_tools"]] + [
+TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     traiter_fichiers,
     repondre,
     parametrer_dossier,

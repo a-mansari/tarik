@@ -1,18 +1,37 @@
 {% extends "base.html" %}
 {% block title %}Contenu{% endblock %}
 {% block content %}
-<div class="head"><div>
-  <h1>Contenu</h1>
-  <p class="muted">Ce que Tarik dit et ce qu'on lui dit, modifiable sans toucher au code. Chaque modification est gardée (qui, quand, pourquoi) et peut être annulée en un clic. Elle s'applique au message suivant.</p>
-</div></div>
-{% for name, documents in groups %}
+<div class="head">
+  <div>
+    <h1>Contenu</h1>
+    <p class="muted">Ce que Tarik dit et ce qu'on lui dit, modifiable sans toucher au code. Chaque modification est gardée (qui, quand, pourquoi) et peut être annulée en un clic. Elle s'applique au message suivant. Le contenu vit dans la base de données : exportez-le pour le garder ou le copier vers une autre installation.</p>
+  </div>
+  <div class="panel-actions">
+    <a class="panel-button" href="/ui/contenu-export" download>Exporter tout</a>
+    <button type="button" class="panel-button" data-import="/ui/contenu-import">Importer un export</button>
+  </div>
+</div>
+<div class="panel" id="import-status" role="status" hidden></div>
+{% if empty %}
+<div class="panel bad" role="alert"><b>Aucun contenu.</b> Tarik ne peut pas répondre sans ses instructions : importez un export du contenu (bouton « Importer un export »).</div>
+{% endif %}
+{% for key, name, documents in groups %}
 <section class="panel">
-  <h2>{{ name }}</h2>
+  <div class="group-head">
+    <h2>{{ name }}</h2>
+    <span class="panel-actions">
+      <a class="card-action" href="/ui/contenu-export?group={{ key }}" download>Exporter</a>
+      <button type="button" class="card-action" data-import="/ui/contenu-import">Importer</button>
+    </span>
+  </div>
   <ul class="runs-side">
     {% for path, label, change in documents %}
     <li><a href="/ui/contenu/{{ path }}"><span>{{ label }}</span><span class="muted">{% if change %}{{ change.author.split(' <')[0] }} · {{ change.at | when }}{% endif %}</span></a></li>
+    {% else %}
+    <li class="muted">Aucun document.</li>
     {% endfor %}
   </ul>
 </section>
 {% endfor %}
 {% endblock %}
+{% block scripts %}<script src="/ui/static/import.js"></script>{% endblock %}
