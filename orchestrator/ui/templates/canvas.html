@@ -1,15 +1,20 @@
 {# The canvas of a workflow (graph), with one run over it when run is set, and the panel of the step clicked. #}
 <div class="flow">
   <div class="canvas-wrap">
-    <div class="canvas-tools"><button type="button" id="home">Au début</button><button type="button" id="fit">Tout voir</button></div>
-    <div class="canvas" data-graph="{{ graph }}" data-run="{{ run_id or '' }}" data-panel="node-panel" data-fit="fit" data-home="home" role="img" aria-label="Schéma du workflow {{ graph | graph_name }}"></div>
+    <div class="canvas-tools">
+      <button type="button" id="home">Au début</button><button type="button" id="fit">Tout voir</button>
+      <button type="button" id="save-layout" disabled>Enregistrer la disposition</button>
+      <button type="button" id="reset-layout">Disposition automatique</button>
+      <span class="canvas-note" id="layout-note" role="status"></span>
+    </div>
+    <div class="canvas" data-graph="{{ graph }}" data-run="{{ run_id or '' }}" data-panel="node-panel" data-fit="fit" data-home="home" data-save="save-layout" data-reset="reset-layout" data-note="layout-note" role="img" aria-label="Schéma du workflow {{ graph | graph_name }}"></div>
     <div class="legend">
       {% if run_id %}
       <span><i class="l-ok"></i>Exécutée</span><span><i class="l-wait"></i>Attend quelqu'un</span><span><i class="l-bad"></i>Arrêtée ou en erreur</span><span><i class="l-none"></i>Pas exécutée</span>
       {% else %}
       <span>Trait plein : toujours suivi · pointillés : selon le cas · une étape qui n'est pas OK arrête sa facture ou son fichier · après une réponse du client, une facture reprend à l'étape concernée</span>
       {% endif %}
-      <span>Cliquez sur une étape pour la voir · double-cliquez sur un sous-workflow (▸) pour le déplier · molette pour zoomer · glisser pour déplacer</span>
+      <span>Cliquez sur une étape ou une liaison pour la voir · double-cliquez sur un sous-workflow (▸) pour le déplier · faites glisser les étapes pour les ranger sur la grille · molette pour zoomer</span>
     </div>
   </div>
   <aside class="side panel" id="node-panel">

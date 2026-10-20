@@ -10,6 +10,7 @@ Postgres (engine/runs.py), the agent's conversations next to them.
   GET  /runs/{run_id}/events      its steps as they end (server-sent events), from the first one
   GET  /runs/{run_id}/steps/{id}  one step's whole output
   GET  /graphs/{graph}            a workflow's shape for the canvas: its nodes, groups and edges
+  GET|PUT|DELETE /graphs/{graph}/layout   how the team arranged its canvas (node places, edge bends and style)
   GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live
 
 With TARIK_GRAPH_TOKEN set, every API call but /ok needs it as a bearer token.
@@ -28,7 +29,7 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from engine import agent, graphs, runs
+from engine import agent, graphs, layouts, runs
 from ui import pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
@@ -106,6 +107,22 @@ async def graph_shape(request: Request):
     return JSONResponse(graphs.shape(name))
 
 
+async def layout(request: Request):
+    """A workflow's saved arrangement: read (GET), saved (PUT), or forgotten for the automatic one (DELETE)."""
+    name = request.path_params["graph"]
+    if name not in runs.NAMES:
+        return JSONResponse({"error": f"unknown graph {name!r}"}, status_code=404)
+    if request.method == "PUT":
+        try:
+            return JSONResponse(await layouts.save(name, await request.json()))
+        except (ValueError, KeyError, TypeError, AttributeError) as error:
+            return JSONResponse({"error": f"layout refused: {error}"}, status_code=400)
+    if request.method == "DELETE":
+        await layouts.forget(name)
+        return JSONResponse({"nodes": {}, "edges": {}})
+    return JSONResponse(await layouts.read(name))
+
+
 async def step(request: Request):
     found = await runs.step_detail(request.path_params["run_id"], int(request.path_params["step_id"]))
     return JSONResponse(found) if found is not None else JSONResponse({"error": "unknown step"}, status_code=404)
@@ -131,6 +148,7 @@ app = Starlette(
         Route("/runs/{run_id}/events", events),
         Route("/runs/{run_id}/steps/{step_id}", step),
         Route("/graphs/{graph}", graph_shape),
+        Route("/graphs/{graph}/layout", layout, methods=["GET", "PUT", "DELETE"]),
         Route("/ui/workflows", pages.workflows_page),
         Route("/ui/workflows/{graph}", pages.workflow_page),
         Route("/", pages.home),

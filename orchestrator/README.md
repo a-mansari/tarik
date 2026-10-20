@@ -30,6 +30,7 @@ n8n keeps running untouched until a cabinet is switched over.
 | `content/agent.json` | What the agent is told: kept out of the code so the UI can show and edit it. |
 | `content/labels.json` | The UI's plain words for each workflow, step and status. |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
+| `engine/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
 | `ui/` | The team's pages (French): `pages.py`, its templates, a stylesheet, two scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |
 | `check.py` | Parity with the n8n workflows: same tools, same inputs. |
 | `run.py` | Run a graph from a terminal and watch it step by step. |
@@ -49,6 +50,8 @@ docker compose -f orchestrator/docker-compose.yml --env-file .env up --build -d
 | `GET /runs` | The latest runs (`?cabinet=`, `?graph=`, `?limit=`). |
 | `GET /runs/<run_id>` | A run: status, input, output or error, and its steps. |
 | `GET /runs/<run_id>/events` | Its steps as each one ends (server-sent events). |
+| `GET /graphs/<graph>` | A workflow's shape for the canvas. |
+| `GET` / `PUT` / `DELETE /graphs/<graph>/layout` | How the team arranged its canvas: read, saved, or forgotten. |
 
 The team's pages: http://127.0.0.1:2024/ui/runs (runs) and http://127.0.0.1:2024/ui/workflows (workflows).
 
@@ -71,7 +74,11 @@ with every run live, step by step.
    an invoice as a framed group, conditional paths dashed; pan, zoom, "Au début", "Tout voir"); a run painted over it,
    live while it goes on (each step coloured by its outcome, ×n when it ran for several invoices); a click on a step
    opens what it did in that run. A sub-workflow (a file, an invoice, Traitement inside an email follow-up) shows as
-   one node, as n8n shows one, coloured by the worst outcome inside it; double-click (or "Déplier") opens it in place. On each run's page and on each workflow's page with its recent runs. Still to
+   one node, as n8n shows one, coloured by the worst outcome inside it; double-click (or "Déplier") opens it in place.
+   The canvas is a map on a 20 px grid: steps dragged snap to it, an edge takes bend points (dragged, snapped,
+   removed with a double-click) and a route style (right angles, straight, curved), and "Enregistrer la disposition"
+   keeps the arrangement in Postgres (table `layouts`, one per workflow, shared by the team); "Disposition
+   automatique" forgets it. On each run's page and on each workflow's page with its recent runs. Still to
    come: each step explained in plain words in the panel.
 4. **Content in the UI, with history**: the agent's instructions and skills, the tools' prompts, cabinets' settings;
    every change kept (who, when), and undone in one click.

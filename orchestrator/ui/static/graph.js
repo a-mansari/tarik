@@ -26,6 +26,10 @@
         "shape": "round-rectangle", "width": 170, "height": 58, "border-width": 2, "border-style": "double",
         "border-color": css("--accent"), "background-color": css("--accent-soft"), "font-weight": 600,
       } },
+      { selector: "node[kind = 'handle']", style: {
+        "shape": "ellipse", "width": 12, "height": 12, "label": "", "background-color": css("--accent"),
+        "border-width": 2, "border-color": css("--surface"),
+      } },
       { selector: "edge", style: {
         "curve-style": "taxi", "taxi-direction": "rightward", "width": 1.5, "line-color": css("--line"),
         "target-arrow-shape": "triangle", "target-arrow-color": css("--line"), "arrow-scale": 0.8,
@@ -39,6 +43,7 @@
       { selector: "node[kind = 'group'].ran", style: { "border-color": css("--accent"), "background-color": css("--accent-soft"), "background-opacity": 0.6 } },
       { selector: "node[kind = 'end'].ran", style: { "background-color": css("--accent") } },
       { selector: "edge.ran", style: { "width": 2.5, "line-color": css("--accent"), "target-arrow-color": css("--accent") } },
+      { selector: "edge:selected", style: { "width": 3, "line-color": css("--accent"), "target-arrow-color": css("--accent") } },
       { selector: "node:selected", style: { "overlay-color": css("--accent"), "overlay-opacity": 0.12, "border-color": css("--accent"), "border-width": 3 } },
     ];
   }
@@ -66,6 +71,28 @@
     const opened = new Set(); // groups shown whole; every other group is one node, as n8n shows a sub-workflow
     const steps = new Map(); // node id (as in the whole graph) -> the run's steps at that node
     const cy = cytoscape({ container, style: styles(), wheelSensitivity: 0.25, minZoom: 0.1, maxZoom: 2.5 });
+    const GRID = 20; // the map's step: nodes and bends snap to it
+    let layout = await (await fetch(`/graphs/${graph}/layout`)).json(); // how the team arranged it, shared
+    let dirty = false;
+    let bendSign = 0; // which side cytoscape bends a positive distance to, found on the first bent edge
+    const saveButton = document.getElementById(container.dataset.save || "");
+    const resetButton = document.getElementById(container.dataset.reset || "");
+    const note = document.getElementById(container.dataset.note || "");
+
+    function changed() {
+      dirty = true;
+      if (saveButton) saveButton.disabled = false;
+      if (note) note.textContent = "Disposition modifiée, pas encore enregistrée.";
+    }
+    const snap = (value) => Math.round(value / GRID) * GRID;
+
+    // The grid drawn under the canvas, following its pan and zoom.
+    function grid() {
+      const size = GRID * cy.zoom(), pan = cy.pan();
+      container.style.backgroundSize = `${size}px ${size}px`;
+      container.style.backgroundPosition = `${pan.x % size}px ${pan.y % size}px`;
+    }
+    cy.on("viewport", grid);
 
     // Where a node of the whole graph shows: itself, or the outermost collapsed group around it.
     function shownAs(id) {
@@ -105,7 +132,55 @@
         const parent = parentOf.get(n.id);
         if (parent && frames.includes(parent)) cy.getElementById(n.id).move({ parent });
       }
+      // Where the team put things wins over the automatic layout; the rest stays where dagre put it.
+      cy.nodes().forEach((node) => {
+        const saved = layout.nodes?.[node.id()];
+        if (saved && !node.isParent()) node.position({ x: saved.x, y: saved.y });
+      });
+      cy.edges().forEach(drawEdge);
       paint();
+      grid();
+    }
+
+    // An edge as arranged: its style (right angles, straight, curved), and through its bend points when it has some.
+    function drawEdge(edge) {
+      const saved = layout.edges?.[edge.id()] || { points: [], style: "taxi" };
+      if (!saved.points.length) {
+        edge.removeStyle("segment-weights segment-distances edge-distances");
+        edge.style("curve-style", saved.style || "taxi");
+        return;
+      }
+      const place = (sign) => {
+        const s = edge.source().position(), t = edge.target().position();
+        const vx = t.x - s.x, vy = t.y - s.y, length2 = vx * vx + vy * vy || 1, length = Math.sqrt(length2);
+        const weights = [], distances = [];
+        for (const p of saved.points) {
+          const px = p.x - s.x, py = p.y - s.y;
+          weights.push((px * vx + py * vy) / length2);
+          distances.push(sign * (px * vy - py * vx) / length);
+        }
+        edge.style({ "curve-style": "segments", "edge-distances": "node-position", "segment-weights": weights.join(" "), "segment-distances": distances.join(" ") });
+      };
+      if (!bendSign) { // which way is "positive": checked once against where cytoscape actually draws the bend
+        place(1);
+        const drawn = edge.segmentPoints()?.[0], wanted = saved.points[0];
+        bendSign = drawn && Math.hypot(drawn.x - wanted.x, drawn.y - wanted.y) > 2 ? -1 : 1;
+      }
+      place(bendSign);
+    }
+
+    function edgeLayout(edge) {
+      layout.edges ||= {};
+      return (layout.edges[edge.id()] ||= { points: [], style: "taxi" });
+    }
+
+    // The selected edge's bend points, as small handles to drag; double-click one to remove it.
+    function showHandles(edge) {
+      cy.remove("[kind = 'handle']");
+      if (!edge) return;
+      edgeLayout(edge).points.forEach((p, index) => {
+        cy.add({ data: { id: `handle:${index}`, kind: "handle", edge: edge.id(), index }, position: { x: p.x, y: p.y } });
+      });
     }
 
     // Opened as n8n opens a long workflow: readable, its start on the left; "Tout voir" fits it whole.
@@ -119,7 +194,7 @@
 
     function paint() {
       if (!run) return;
-      cy.elements().addClass("dim").removeClass("ran ok question wait stop error");
+      cy.elements().not("[kind = 'handle']").addClass("dim").removeClass("ran ok question wait stop error");
       const byShown = new Map(); // node on screen -> the steps that ran in it (inside it, for a collapsed group)
       for (const [id, list] of steps) {
         const shown = shownAs(id);
@@ -238,7 +313,104 @@
       panel.append(ol);
     }
 
-    cy.on("tap", "node", (event) => show(event.target));
+    cy.on("tap", "node[kind != 'handle']", (event) => { showHandles(null); show(event.target); });
+    cy.on("tap", "edge", (event) => { showHandles(event.target); showEdge(event.target); });
+    cy.on("tap", (event) => { if (event.target === cy) showHandles(null); });
+
+    // A node dropped snaps to the grid (a group's frame with all its steps), and its place is kept for saving.
+    cy.on("dragfree", "node[kind != 'handle']", (event) => {
+      const moved = event.target.isParent() ? event.target.descendants().not(":parent") : event.target;
+      moved.forEach((node) => {
+        const p = node.position(), placed = { x: snap(p.x), y: snap(p.y) };
+        node.position(placed);
+        layout.nodes ||= {};
+        layout.nodes[node.id()] = placed;
+      });
+      moved.connectedEdges().forEach(drawEdge);
+      changed();
+    });
+    // A bend handle dragged: the edge follows it live, then it snaps to the grid.
+    cy.on("drag", "node[kind = 'handle']", (event) => {
+      const handle = event.target, edge = cy.getElementById(handle.data("edge"));
+      edgeLayout(edge).points[handle.data("index")] = { ...handle.position() };
+      drawEdge(edge);
+    });
+    cy.on("dragfree", "node[kind = 'handle']", (event) => {
+      const handle = event.target, edge = cy.getElementById(handle.data("edge")), p = handle.position();
+      const placed = { x: snap(p.x), y: snap(p.y) };
+      handle.position(placed);
+      edgeLayout(edge).points[handle.data("index")] = placed;
+      drawEdge(edge);
+      changed();
+    });
+    cy.on("dbltap", "node[kind = 'handle']", (event) => {
+      const edge = cy.getElementById(event.target.data("edge"));
+      edgeLayout(edge).points.splice(event.target.data("index"), 1);
+      drawEdge(edge);
+      showHandles(edge);
+      showEdge(edge);
+      changed();
+    });
+
+    function showEdge(edge) {
+      if (!panel) return;
+      const saved = edgeLayout(edge);
+      panel.replaceChildren();
+      panel.append(text("p", "eyebrow", "Liaison"));
+      panel.append(text("h2", "", `${edge.source().data("label")} → ${edge.target().data("label")}`));
+      panel.append(text("p", "muted", edge.hasClass("conditional") ? "Suivie selon le cas." : "Toujours suivie."));
+      const routes = text("div", "panel-actions");
+      for (const [style, name] of [["taxi", "Angles droits"], ["straight", "Droite"], ["bezier", "Courbe"]]) {
+        const b = button(name, () => { saved.style = style; drawEdge(edge); showEdge(edge); changed(); });
+        b.setAttribute("aria-pressed", String(saved.style === style && !saved.points.length));
+        routes.append(b);
+      }
+      panel.append(text("p", "", "Tracé"), routes);
+      const bends = text("div", "panel-actions");
+      bends.append(button("Ajouter un point de passage", () => {
+        const points = saved.points, s = edge.source().position(), t = edge.target().position();
+        const from = points.length ? points[points.length - 1] : s; // halfway between the last point and the target
+        points.push({ x: snap((from.x + t.x) / 2), y: snap((from.y + t.y) / 2) });
+        drawEdge(edge); showHandles(edge); showEdge(edge); changed();
+      }));
+      if (saved.points.length) {
+        bends.append(button("Retirer les points", () => { saved.points = []; drawEdge(edge); showHandles(edge); showEdge(edge); changed(); }));
+      }
+      panel.append(text("p", "", `Points de passage : ${saved.points.length}`), bends);
+      panel.append(text("p", "muted", "Faites glisser un point pour déplacer la liaison ; double-cliquez dessus pour le retirer."));
+    }
+
+    saveButton?.addEventListener("click", async () => {
+      saveButton.disabled = true;
+      try {
+        const answer = await fetch(`/graphs/${graph}/layout`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(layout) });
+        if (!answer.ok) throw new Error((await answer.json()).error);
+        layout = await answer.json();
+        dirty = false;
+        if (note) note.textContent = "Disposition enregistrée pour toute l'équipe.";
+      } catch (error) {
+        saveButton.disabled = false;
+        if (note) note.textContent = `La disposition n'a pas pu être enregistrée (${error.message}). Réessayez.`;
+      }
+    });
+    resetButton?.addEventListener("click", async () => {
+      if (resetButton.dataset.confirm !== "yes") { // asked here, on the page: the browser's own confirm is not used
+        resetButton.dataset.confirm = "yes";
+        resetButton.textContent = "Confirmer : revenir à l'automatique ?";
+        setTimeout(() => { resetButton.dataset.confirm = ""; resetButton.textContent = "Disposition automatique"; }, 5000);
+        return;
+      }
+      resetButton.dataset.confirm = "";
+      resetButton.textContent = "Disposition automatique";
+      layout = await (await fetch(`/graphs/${graph}/layout`, { method: "DELETE" })).json();
+      dirty = false;
+      if (saveButton) saveButton.disabled = true;
+      if (note) note.textContent = "Disposition automatique rétablie.";
+      build();
+      home();
+    });
+    addEventListener("beforeunload", (event) => { if (dirty) event.preventDefault(); });
+
     cy.on("dbltap", "node", (event) => {
       const kind = event.target.data("kind");
       if (kind === "subflow" || kind === "group") toggle(event.target.id());

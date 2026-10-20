@@ -143,3 +143,11 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .panel-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0 .2rem; }
 .panel-button { font: inherit; font-size: .85rem; color: var(--fg); background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 6px; padding: .3rem .7rem; cursor: pointer; text-decoration: none; }
 .panel-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The map's grid under the canvas: dots every 20 px, scaled and moved with the canvas by graph.js. */
+.canvas { background-image: radial-gradient(circle, var(--line) 1px, transparent 1.2px); background-size: 20px 20px; }
+.canvas-tools { flex-wrap: wrap; align-items: center; right: .5rem; }
+.canvas-tools button:disabled { opacity: .5; cursor: default; }
+.canvas-note { font-size: .8rem; color: var(--muted); background: var(--surface); padding: .15rem .4rem; border-radius: 4px; }
+.canvas-note:empty { display: none; }
+.panel-button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }

@@ -47,6 +47,11 @@ create table if not exists steps (
     detail jsonb  -- the node's whole update
 );
 create index if not exists steps_run on steps (run_id, id);
+create table if not exists layouts (
+    graph text primary key,
+    layout jsonb not null,  -- {nodes: {id: {x, y}}, edges: {id: {points: [{x, y}], style}}}: how the team arranged it
+    updated_at timestamptz not null default now()
+);
 """
 GRAPHS = {"traitement": traitement.graph, "dossier": dossier.graph, "emails": emails.graph}  # the agent: made per run
 NAMES = sorted([*GRAPHS, "agent"])
