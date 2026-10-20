@@ -291,7 +291,12 @@ table.runs tr.child td { background: var(--bg); }
 table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 1.2rem); }
 .under { color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.run-links { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; margin: .2rem 0 0; font-size: .9rem; }
+.run-links { display: flex; flex-wrap: wrap; gap: .5rem; margin: .6rem 0 0; }
+.run-link { display: inline-flex; align-items: center; gap: .6rem; padding: .45rem .75rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--fg); text-decoration: none; font-size: .9rem; min-width: 0; }
+.run-link:hover { border-color: var(--accent); }
+.run-link > .icon { color: var(--accent); }
+.run-link > span:not(.chip) { display: grid; line-height: 1.25; min-width: 0; }
+.run-link small { color: var(--muted); font-size: .75rem; }
 
 /* A run's canvas: one instance alone, the run replayed moment by moment, and the moment's steps. */
 .run-tools { display: flex; flex-wrap: wrap; gap: .6rem 1.2rem; align-items: center; margin: 0 0 .5rem; font-size: .9rem; }
@@ -370,10 +375,12 @@ a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decorati
 .filters.inline select, .filters.inline a.primary { height: 2.25rem; box-sizing: border-box; font-size: .9rem; }
 
 /* The Discussion page's messages as bubbles: the client's on the left, Tarik's on the right, each 80 % at most. */
-#talk .talk { display: flex; flex-direction: column; gap: .6rem; }
-#talk .talk > li { max-width: 80%; width: fit-content; min-width: 12rem; box-sizing: border-box; border-radius: 14px; }
-#talk .talk > li.client { align-self: flex-start; border-bottom-left-radius: 4px; }
-#talk .talk > li.tarik { align-self: flex-end; border-bottom-right-radius: 4px; }
+.talk.bubbles { display: flex; flex-direction: column; gap: .6rem; }
+.talk.bubbles > li { max-width: 80%; width: fit-content; min-width: 12rem; box-sizing: border-box; border-radius: 14px; }
+.talk.bubbles > li.client { align-self: flex-start; border-bottom-left-radius: 4px; }
+.talk.bubbles > li:is(.tarik, .tool) { align-self: flex-end; border-bottom-right-radius: 4px; }
+.talk.bubbles > li.tool { min-width: 16rem; }
+.talk.bubbles pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .talk .files li { gap: .4rem; }
 .talk a.download { display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; padding: 0; border-radius: 6px; color: var(--muted); }
 .talk a.download:hover { color: var(--accent); }
@@ -384,4 +391,5 @@ a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decorati
 .chat-actions .attach input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .chosen { flex: 1; display: flex; flex-wrap: wrap; gap: .3rem; list-style: none; margin: 0; padding: 0; font-size: .8rem; min-width: 0; }
 .chosen li { padding: .1rem .5rem; border-radius: 999px; background: var(--accent-soft); color: var(--fg); overflow-wrap: anywhere; }
-@media (max-width: 600px) { #talk .talk > li { max-width: 92%; } }
+@media (max-width: 600px) { .talk.bubbles > li { max-width: 92%; } }
+.talk .calls li { border: 0; border-radius: 0; padding: 0; background: none; }

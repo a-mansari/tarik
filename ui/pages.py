@@ -4,6 +4,8 @@ rendered (Jinja2), no build step; the words come from content/labels.json."""
 import json
 from pathlib import Path
 
+from markdown_it import MarkdownIt
+from markupsafe import Markup
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 from starlette.templating import Jinja2Templates
@@ -29,8 +31,20 @@ def status_name(status):
     return LABELS["statuses"].get(status, status)
 
 
+def markdown(text):
+    """Tarik's reply as it means it (bold, lists, tables): its raw HTML never kept, unsafe links never made (what
+    Experio holds, and so what Tarik says, was typed by clients)."""
+    return Markup(MARKDOWN.render(text or ""))
+
+
+MARKDOWN = MarkdownIt("commonmark", {"html": False, "breaks": True}).enable("table")
+
 templates.env.filters.update(
-    when=runs.when, graph_name=graph_name, graph_description=graph_description, status_name=status_name
+    markdown=markdown,
+    when=runs.when,
+    graph_name=graph_name,
+    graph_description=graph_description,
+    status_name=status_name,
 )
 templates.env.globals.update(step_name=graphs.label)
 

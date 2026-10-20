@@ -3,7 +3,7 @@
 {% macro typing() %}<p class="typing"><span class="dots" aria-label="Tarik répond"><i></i><i></i><i></i></span>
   <a class="muted" href="/ui/runs/{{ latest.run_id }}">suivre l'exécution</a></p>{% endmacro %}
 <div id="talk" data-going="{{ 'yes' if going else '' }}" data-run="{{ latest.run_id if latest else '' }}">
-  <ol class="talk">
+  <ol class="talk bubbles">
     {% for entry in messages %}
     {% if entry.who == 'Client' %}
     <li class="client">

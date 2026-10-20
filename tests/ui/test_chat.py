@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from engine.chat import REMINDER
 from tarik.core.conversation import FILES_NOTE
-from ui import chat_pages
+from ui import chat_pages, pages
 
 SESSION = "chat-" + "0" * 32
 
@@ -89,5 +89,5 @@ def test_tarik_s_turn_shows_its_tools_as_they_run_then_its_reply(monkeypatch):
 
 
 def test_a_reply_s_markdown_is_shown_without_its_html():
-    shown = chat_pages.markdown("**Fait** <img src=x onerror=alert(1)> [x](javascript:alert(1))")
+    shown = pages.markdown("**Fait** <img src=x onerror=alert(1)> [x](javascript:alert(1))")
     assert "<strong>Fait</strong>" in shown and "<img" not in shown and 'href="javascript' not in shown

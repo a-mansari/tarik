@@ -8,8 +8,6 @@ import re
 import uuid
 from urllib.parse import quote
 
-from markdown_it import MarkdownIt
-from markupsafe import Markup
 from psycopg import sql
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -84,15 +82,6 @@ async def talk(cabinet, session):
         if not clients or clients[-1]["text"].strip() != (given.get("message") or "").strip():
             shown.append({"who": "Client", "text": given.get("message", ""), "files": given.get("files", [])})
     return {"messages": shown, "latest": latest, "going": going}
-
-
-def markdown(text):
-    """Tarik's reply as it means it (bold, lists, tables): its raw HTML never kept, unsafe links never made."""
-    return Markup(MARKDOWN.render(text or ""))
-
-
-MARKDOWN = MarkdownIt("commonmark", {"html": False, "breaks": True}).enable("table")
-templates.env.filters["markdown"] = markdown
 
 
 async def chat_page(request: Request):

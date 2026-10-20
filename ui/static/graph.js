@@ -456,11 +456,12 @@
         option.selected = i.lane === focus;
         return option;
       }));
+      // One position per moment, then one more at the end: the whole run, landed on its end.
       const count = moments(focus ? focused(focus) : sequence).length;
-      range.max = Math.max(count - 1, 0);
-      range.value = moment == null ? range.max : Math.min(moment, range.max);
+      range.max = count;
+      range.value = moment == null ? count : Math.min(moment, count - 1);
       document.getElementById("moment-label").textContent =
-        moment == null ? `Toute l'exécution (${count} moments)` : `Moment ${Number(range.value) + 1} / ${count}`;
+        moment == null ? `Toute l'exécution (${count} moment${count > 1 ? "s" : ""})` : `Moment ${Number(range.value) + 1} / ${count}`;
       document.getElementById("moment-all").disabled = moment == null;
     }
 
@@ -469,11 +470,12 @@
       if (!select || !range) return;
       const go = (to) => { moment = to; controls(); paint(); };
       select.addEventListener("change", () => { focus = select.value; moment = null; controls(); paint(); });
-      range.addEventListener("input", () => go(Number(range.value)));
-      document.getElementById("moment-prev").addEventListener("click", () => go(Math.max((moment ?? Number(range.max) + 1) - 1, 0)));
+      const end = () => Number(range.max); // the last position: the whole run
+      range.addEventListener("input", () => go(Number(range.value) >= end() ? null : Number(range.value)));
+      document.getElementById("moment-prev").addEventListener("click", () => go(Math.max((moment ?? end()) - 1, 0)));
       document.getElementById("moment-next").addEventListener("click", () => {
-        const next = (moment ?? -1) + 1;
-        go(next > Number(range.max) ? null : next);
+        const next = moment == null ? 0 : moment + 1; // from the end: the replay starts again
+        go(next >= end() ? null : next);
       });
       document.getElementById("moment-all").addEventListener("click", () => go(null));
     }

@@ -10,10 +10,17 @@
     <h1>{{ run.graph | graph_name }}</h1>
     <p class="muted">Cabinet <b>{{ run.cabinet }}</b> · conversation <span class="mono">{{ run.session_id }}</span> · début {{ run.started | when }}</p>
     {% if run.parent_id or run.children %}
-    <p class="run-links">
-      {% if run.parent_id %}<span>Lancée par <a href="/ui/runs/{{ run.parent_id }}">{{ run.parent_graph | graph_name }}</a>{% if run.parent_node %}, étape « {{ step_name(run.parent_graph, run.parent_node) }} »{% endif %}</span>{% endif %}
-      {% for child in run.children %}<span>A lancé <a href="/ui/runs/{{ child.run_id }}">{{ child.graph | graph_name }}</a> ({{ child.when }}, <span class="chip {{ child.status }}">{{ child.status | status_name }}</span>)</span>{% endfor %}
-    </p>
+    <div class="run-links">
+      {% if run.parent_id %}
+      <a class="run-link" href="/ui/runs/{{ run.parent_id }}">{{ icon('up') }}
+        <span><small>Lancée par</small><b>{{ run.parent_graph | graph_name }}</b>{% if run.parent_node %}<small>étape « {{ step_name(run.parent_graph, run.parent_node) }} »</small>{% endif %}</span></a>
+      {% endif %}
+      {% for child in run.children %}
+      <a class="run-link" href="/ui/runs/{{ child.run_id }}">{{ icon('down') }}
+        <span><small>A lancé</small><b>{{ child.graph | graph_name }}</b><small>{{ child.when }}</small></span>
+        <span class="chip {{ child.status }}">{{ child.status | status_name }}</span></a>
+      {% endfor %}
+    </div>
     {% endif %}
   </div>
   <div class="state">
@@ -43,13 +50,13 @@
 {% if conversation %}
 <section class="panel">
   <h2>La conversation</h2>
-  <ol class="talk">
+  <ol class="talk bubbles">
     {% for entry in conversation %}
     <li class="{% if entry.who == 'Client' %}client{% elif entry.tool %}tool{% else %}tarik{% endif %}">
       <span class="who">{{ avatar('client' if entry.who == 'Client' else 'tool' if entry.tool else 'tarik') }}{{ entry.who }}</span>
       {% if entry.thinking %}<details class="thinking"><summary>Sa réflexion</summary><pre>{{ entry.thinking }}</pre></details>{% endif %}
       {% if entry.calls %}<ul class="calls">{% for call in entry.calls %}<li>Utilise <b>{{ call.name }}</b> <span class="mono">{{ call.args }}</span></li>{% endfor %}</ul>{% endif %}
-      {% if entry.text %}{% if entry.tool %}<details><summary>Réponse de l'outil</summary><pre>{{ entry.text }}</pre></details>{% else %}<pre class="said">{{ entry.text }}</pre>{% endif %}{% endif %}
+      {% if entry.text %}{% if entry.tool %}<details><summary>Réponse de l'outil</summary><pre>{{ entry.text }}</pre></details>{% elif entry.who == 'Client' %}<pre class="said">{{ entry.text }}</pre>{% else %}<div class="reply">{{ entry.text | markdown }}</div>{% endif %}{% endif %}
     </li>
     {% endfor %}
   </ol>
