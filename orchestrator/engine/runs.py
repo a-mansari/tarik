@@ -3,9 +3,12 @@ ended. The UI reads runs from here, live ones included; the agent's conversation
 checkpointer's tables, same schema)."""
 
 import asyncio
+import contextlib
 import json
+import re
 import time
 import uuid
+from datetime import UTC, datetime
 
 from langchain_core.messages import BaseMessage
 from psycopg.types.json import Jsonb
@@ -67,6 +70,18 @@ def capped(value):
     return Jsonb(jsonable(value)) if len(text) <= DETAIL_LIMIT else Jsonb({"cut": text[:DETAIL_LIMIT]})
 
 
+UNTRUSTED_TAGS = re.compile(r"</?untrusted_data[^>]*>")
+
+
+def readable(text):
+    """A tool's answer as a person reads it: without the untrusted-data wrapper the model sees, and its message alone
+    when it answered in JSON. Only for display: the step's detail keeps the answer as the model got it."""
+    text = UNTRUSTED_TAGS.sub("", str(text)).strip()
+    with contextlib.suppress(ValueError, TypeError, AttributeError):
+        text = json.loads(text).get("message") or text
+    return text
+
+
 def outcome_of(update):
     """A node's update in short: its step's status and the one line a person reads."""
     if not isinstance(update, dict):
@@ -77,10 +92,15 @@ def outcome_of(update):
     if update.get("message"):  # a run's summary
         line = update["message"]
     messages = update.get("messages") or []
-    if messages and not line:  # the agent: what it said, or the tools it called
+    if messages and not line:  # the agent: the tools it calls, what it says, or what a tool answered
         message = messages[-1]
         calls = getattr(message, "tool_calls", None)
-        line = ", ".join(call["name"] for call in calls) if calls else str(getattr(message, "text", "") or "")
+        if calls:
+            line = "Utilise " + ", ".join(call["name"] for call in calls)
+        elif getattr(message, "type", "") == "tool":
+            line = readable(message.text if isinstance(message.text, str) else message.text())
+        else:
+            line = str(getattr(message, "text", "") or "")
     return status, " ".join(str(line).split())[:300]
 
 
@@ -185,7 +205,13 @@ async def recent(cabinet=None, graph=None, limit=50):
         )).fetchall()
     keys = ("run_id", "graph", "cabinet", "session_id", "status", "error", "started", "ended")
     return [
-        {**dict(zip(keys, row, strict=True)), "run_id": str(row[0]), "started": row[6].isoformat(), "ended": row[7] and row[7].isoformat()}
+        {
+            **dict(zip(keys, row, strict=True)),
+            "run_id": str(row[0]),
+            "started": row[6].isoformat(),
+            "ended": row[7] and row[7].isoformat(),
+            "seconds": round((row[7] or datetime.now(UTC)).timestamp() - row[6].timestamp(), 1),
+        }
         for row in rows
     ]
 
@@ -212,3 +238,16 @@ async def changed(run_id, seconds=1.0):
         await asyncio.wait_for(event.wait(), seconds)
     except TimeoutError:
         pass
+
+
+async def step_detail(run_id, step_id):
+    """One step's whole update (its node's output), None when unknown."""
+    async with pool.connection() as db:
+        found = await (await db.execute("select detail from steps where run_id = %s and id = %s", (run_id, step_id))).fetchone()
+    return found[0] if found else None
+
+
+async def cabinets():
+    """The cabinets that have runs, for the runs list's filter."""
+    async with pool.connection() as db:
+        return [row[0] for row in await (await db.execute("select distinct cabinet from runs order by 1")).fetchall()]

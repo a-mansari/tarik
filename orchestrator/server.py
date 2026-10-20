@@ -8,8 +8,12 @@ Postgres (engine/runs.py), the agent's conversations next to them.
   GET  /runs                      the latest runs (?cabinet=, ?graph=, ?limit=)
   GET  /runs/{run_id}             a run: its status, input, output or error, and its steps
   GET  /runs/{run_id}/events      its steps as they end (server-sent events), from the first one
+  GET  /runs/{run_id}/steps/{id}  one step's whole output
+  GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live
 
-With TARIK_GRAPH_TOKEN set, every call but /ok needs it as a bearer token."""
+With TARIK_GRAPH_TOKEN set, every API call but /ok needs it as a bearer token.
+shortcut: the pages have no login yet: the server listens on the host only (127.0.0.1); a login comes before it is
+reachable from anywhere else."""
 
 import contextlib
 import json
@@ -20,9 +24,11 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
-from starlette.routing import Route
+from starlette.routing import Mount, Route
+from starlette.staticfiles import StaticFiles
 
 from engine import agent, runs
+from ui import pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = (
@@ -92,6 +98,11 @@ async def events(request: Request):
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
+async def step(request: Request):
+    found = await runs.step_detail(request.path_params["run_id"], int(request.path_params["step_id"]))
+    return JSONResponse(found) if found is not None else JSONResponse({"error": "unknown step"}, status_code=404)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app):
     """The run store and the agent's memory, in Postgres, for the server's whole life."""
@@ -110,6 +121,12 @@ app = Starlette(
         Route("/runs/{graph}", start, methods=["POST"]),
         Route("/runs/{run_id}", one),
         Route("/runs/{run_id}/events", events),
+        Route("/runs/{run_id}/steps/{step_id}", step),
+        Route("/", pages.home),
+        Route("/ui", pages.home),
+        Route("/ui/runs", pages.runs_page),
+        Route("/ui/runs/{run_id}", pages.run_page),
+        Mount("/ui/static", StaticFiles(directory=pages.HERE / "static"), name="static"),
     ],
     lifespan=lifespan,
 )

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Tarik{% endblock %} · Tarik</title>
+  <link rel="stylesheet" href="/ui/static/app.css">
+</head>
+<body>
+  <header class="bar">
+    <a class="brand" href="/ui/runs">Tarik</a>
+    <nav>
+      <a href="/ui/runs" {% if request.url.path.startswith('/ui/runs') %}aria-current="page"{% endif %}>Exécutions</a>
+    </nav>
+  </header>
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+  <script src="/ui/static/app.js"></script>
+</body>
+</html>

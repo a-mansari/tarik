@@ -1,0 +1,80 @@
+{
+  "_": "How the UI names each workflow, each step and each status, in plain words. Content, not logic: editable without touching the code.",
+  "graphs": {
+    "agent": "Conversation avec Tarik",
+    "traitement": "Traitement des documents",
+    "dossier": "Dossier",
+    "emails": "Emails"
+  },
+  "steps": {
+    "agent": {
+      "model": "Tarik",
+      "tools": "Réponse de l'outil"
+    },
+    "traitement": {
+      "debut": "Pièces jointes enregistrées",
+      "aiguillage": "Aiguillage du message",
+      "dossier": "Dossier retrouvé",
+      "expediteur": "Expéditeur vérifié",
+      "fichiers": "Fichiers du message",
+      "fichier": "Fichier",
+      "identification": "Identification du document",
+      "releve": "Import du relevé bancaire",
+      "decoupage": "Découpage en factures",
+      "facture": "Facture",
+      "questions": "Questions en attente sur le dossier",
+      "brouillons": "Brouillons à reprendre",
+      "reponse": "Réponse du client",
+      "resume": "Résumé envoyé",
+      "create_draft_invoice": "Brouillon créé",
+      "wait_until_read": "Lecture par Experio",
+      "check_invoice": "Vérification",
+      "correct_invoice": "Correction",
+      "classify_invoice": "Achat ou vente",
+      "link_tiers": "Tiers",
+      "check_duplicate": "Doublon",
+      "assign_account": "Compte",
+      "settle_tva": "TVA",
+      "check_journal": "Journal",
+      "settle_withholding": "Retenue à la source",
+      "settle_prepaid": "Charges constatées d'avance",
+      "settle_exercice": "Exercice",
+      "configure_cabinet": "Paramétrage du dossier",
+      "hold_posting": "En attente de comptabilisation",
+      "post_invoice": "Comptabilisation"
+    },
+    "dossier": {
+      "debut": "Début",
+      "creation": "Création du dossier",
+      "expediteur": "Expéditeur vérifié",
+      "modification": "Modification du dossier",
+      "acces": "Accès créé",
+      "archivage": "Archivage",
+      "listes": "Liste de dossiers",
+      "ecritures": "Écritures et paramétrage",
+      "reprise": "Reprise de l'intégration",
+      "resume": "Résumé envoyé"
+    },
+    "emails": {
+      "fils": "Emails à traiter",
+      "fil": "Fil d'emails",
+      "accuse": "Accusé de réception",
+      "tarik": "Réponse de Tarik",
+      "refus": "Contrôle de l'expéditeur",
+      "manager": "Alerte au responsable",
+      "reponse": "Envoi de la réponse",
+      "suite": "Suite du traitement",
+      "fin": "Fil clôturé"
+    }
+  },
+  "statuses": {
+    "queued": "En file",
+    "running": "En cours",
+    "done": "Terminé",
+    "error": "Erreur",
+    "ok": "OK",
+    "question": "Question",
+    "stop": "Arrêt",
+    "wait": "En attente"
+  }
+}

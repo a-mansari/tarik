@@ -28,6 +28,8 @@ n8n keeps running untouched until a cabinet is switched over.
 | `engine/traitement.py`, `dossier.py`, `emails.py` | The workflows, as graphs. |
 | `engine/tools.py` | One tarik-mcp call; a step's outcome recorded for the run's summary; retried after a dropped connection only when nothing can be written twice. |
 | `content/agent.json` | What the agent is told: kept out of the code so the UI can show and edit it. |
+| `content/labels.json` | The UI's plain words for each workflow, step and status. |
+| `ui/` | The team's pages (French): `pages.py`, its templates, one stylesheet and one script, no build step. |
 | `check.py` | Parity with the n8n workflows: same tools, same inputs. |
 | `run.py` | Run a graph from a terminal and watch it step by step. |
 
@@ -47,6 +49,8 @@ docker compose -f orchestrator/docker-compose.yml --env-file .env up --build -d
 | `GET /runs/<run_id>` | A run: status, input, output or error, and its steps. |
 | `GET /runs/<run_id>/events` | Its steps as each one ends (server-sent events). |
 
+The team's pages: http://127.0.0.1:2024/ui/runs.
+
 Graphs: `agent`, `traitement`, `dossier`, `emails`. `TARIK_GRAPH_TOKEN` set: every call but `/ok` needs it as a
 bearer token. In the container: `python run.py <graph> '<input json>' [--thread name]`, `python check.py`.
 
@@ -58,8 +62,10 @@ with every run live, step by step.
 
 1. **Engine and server** — done: the four graphs, the agent with its memory in Postgres, runs and steps kept and
    streamed live, parity with n8n (`check.py`).
-2. **Runs in the UI**: the runs of each cabinet, each run step by step as it happens (what was asked, what each step
-   did, the questions asked), the prompts sent to the model, the conversations.
+2. **Runs in the UI** — done: the runs of each cabinet (refreshed on their own), each run step by step as it happens,
+   in plain words (what was asked, what the client reads, each step's outcome, its whole output on demand), and for
+   the agent the conversation with its thinking and the tools it used. Still to come: the exact prompt sent to the
+   model at each call, and the inputs' names in plain words.
 3. **Workflows in the UI**: each graph as a diagram, each step with what it does in plain words.
 4. **Content in the UI, with history**: the agent's instructions and skills, the tools' prompts, cabinets' settings;
    every change kept (who, when), and undone in one click.
