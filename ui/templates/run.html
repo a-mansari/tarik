@@ -47,11 +47,9 @@
 </section>
 {% endif %}
 
-{% if conversation %}
-<section class="panel">
-  <h2>La conversation</h2>
+{% macro bubbles(entries) %}
   <ol class="talk bubbles">
-    {% for entry in conversation %}
+    {% for entry in entries %}
     <li class="{% if entry.who == 'Client' %}client{% elif entry.tool %}tool{% else %}tarik{% endif %}">
       <span class="who">{{ avatar('client' if entry.who == 'Client' else 'tool' if entry.tool else 'tarik') }}{{ entry.who }}</span>
       {% if entry.thinking %}<details class="thinking"><summary>Sa réflexion</summary><pre>{{ entry.thinking }}</pre></details>{% endif %}
@@ -60,6 +58,19 @@
     </li>
     {% endfor %}
   </ol>
+{% endmacro %}
+{% if conversation %}
+<section class="panel">
+  <h2>La conversation</h2>
+  {% if earlier %}
+  {% set asks = earlier | selectattr("who", "equalto", "Client") | list | length %}
+  <details class="earlier">
+    <summary>Plus tôt dans la conversation : {{ asks }} message{{ 's' if asks > 1 }} du client, répondu{{ 's' if asks > 1 }} par d'autres exécutions</summary>
+    {{ bubbles(earlier) }}
+  </details>
+  <p class="muted">Cette exécution répond au dernier message ; ses appels et ses étapes, ci-dessous, sont les siens.</p>
+  {% endif %}
+  {{ bubbles(conversation) }}
 </section>
 {% endif %}
 

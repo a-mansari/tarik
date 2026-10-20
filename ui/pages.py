@@ -92,6 +92,14 @@ def conversation(messages):
     return shown
 
 
+def ran_here(shown):
+    """A conversation split where this run began: an agent run is one message answered, in a conversation that may
+    have had others before (other runs, their steps and calls on their own pages). Its part begins at the last
+    client message."""
+    starts = max((i for i, entry in enumerate(shown) if entry["who"] == "Client"), default=0)
+    return {"earlier": shown[:starts], "conversation": shown[starts:]}
+
+
 def asked(run):
     """What the run was asked, in short: the client's message, or the workflow's own inputs that were given."""
     given = run["input"] or {}
@@ -132,7 +140,7 @@ async def run_page(request: Request):
         "run": found,
         "asked": asked(found),
         "summary": output.get("message") if found["graph"] != "agent" else None,
-        "conversation": conversation(output.get("messages")) if found["graph"] == "agent" else [],
+        **ran_here(conversation(output.get("messages")) if found["graph"] == "agent" else []),
         "labels": LABELS,
         # The model calls of this run: its conversation's, while it ran.
         "prompts": await prompts.calls(found["cabinet"], found["session_id"], found["started"], found["ended"])
