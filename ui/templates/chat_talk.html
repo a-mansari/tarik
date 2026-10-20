@@ -15,11 +15,15 @@
     {% else %}
     <li class="tarik">
       <span class="who">{{ avatar('tarik') }}Tarik</span>
-      {% if entry.tools %}<ul class="used">{% for tool in entry.tools %}
+      {% if entry.tools %}{% set running = entry.tools | selectattr("state", "equalto", "running") | list %}
+      <details class="used" data-turn="{{ loop.index }}">
+        <summary>{% if running %}<span class="spin" aria-hidden="true"></span> <span class="mono">{{ running[-1].name }}</span> en cours…{% else %}{{ entry.tools | length }} outil{{ 's' if entry.tools | length > 1 }} utilisé{{ 's' if entry.tools | length > 1 }}{% endif %}</summary>
+        <ul>{% for tool in entry.tools %}
         <li class="{{ tool.state }}"><span class="mark" aria-hidden="true">{{ '✓' if tool.state == 'done' else '✕' if tool.state == 'failed' else '' }}</span>
           <span class="mono">{{ tool.name }}</span>
           <span class="muted">{{ 'terminé' if tool.state == 'done' else 'en échec' if tool.state == 'failed' else 'en cours…' }}</span></li>
-      {% endfor %}</ul>{% endif %}
+        {% endfor %}</ul>
+      </details>{% endif %}
       {% if entry.text %}<div class="reply">{{ entry.text | markdown }}</div>{% endif %}
       {% if going and loop.last %}{{ typing() }}{% endif %}
     </li>

@@ -327,7 +327,10 @@ a.primary { display: inline-block; align-self: flex-end; text-decoration: none; 
 .talk .files li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .talk a.download { font-size: .8rem; border: 1px solid var(--line); border-radius: 6px; padding: .05rem .5rem; text-decoration: none; color: var(--fg); }
 .talk a.download:hover { border-color: var(--accent); }
-.talk .used { list-style: none; margin: .35rem 0; padding: 0; display: grid; gap: .25rem; font-size: .85rem; }
+.talk .used { margin: .35rem 0; font-size: .85rem; }
+.talk .used summary { cursor: pointer; color: var(--muted); display: flex; align-items: center; gap: .35rem; }
+.talk .used ul { list-style: none; margin: .3rem 0 0; padding: 0; display: grid; gap: .25rem; }
+.talk .used .spin { display: inline-block; width: .7rem; height: .7rem; border: 2px solid var(--wait); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
 .talk .used li { border: 1px solid var(--line); border-radius: 6px; padding: .2rem .5rem; display: flex; gap: .45rem; align-items: center; background: var(--bg); }
 .talk .used .mark { width: 1rem; text-align: center; font-weight: 700; }
 .talk .used .done .mark { color: var(--good); }
@@ -344,5 +347,9 @@ a.primary { display: inline-block; align-self: flex-end; text-decoration: none; 
 .dots i:nth-child(3) { animation-delay: .4s; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .talk .used .running .mark, .dots i { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .talk .used .running .mark, .talk .used .spin, .dots i { animation: none; } }
 .talk .reply li { border: 0; border-radius: 0; padding: 0; background: none; margin: .2rem 0; }
+.talk .used summary { list-style: none; }
+.talk .used summary::-webkit-details-marker { display: none; }
+.talk .used summary::before { content: "▸"; }
+.talk .used[open] summary::before { content: "▾"; }

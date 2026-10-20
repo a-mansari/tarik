@@ -25,8 +25,10 @@
     if (!answer?.ok) return true; // a hiccup: asked again next time
     const talk = document.getElementById("talk");
     const near = talk.getBoundingClientRect().bottom <= window.innerHeight + 80; // following the end: kept there
+    const opened = [...talk.querySelectorAll("details.used[open]")].map((d) => d.dataset.turn); // kept open
     talk.outerHTML = await answer.text();
     const shown = document.getElementById("talk");
+    for (const turn of opened) shown.querySelector(`details.used[data-turn="${turn}"]`)?.setAttribute("open", "");
     if (near) shown.scrollIntoView({ block: "end" });
     return Boolean(shown.dataset.going);
   }
