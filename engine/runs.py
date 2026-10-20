@@ -47,6 +47,9 @@ create table if not exists steps (
     detail jsonb  -- the node's whole update
 );
 create index if not exists steps_run on steps (run_id, id);
+-- Which run of its part a step belongs to: the subgraphs' task ids ("fil:<id>|..."), so two invoices or two email
+-- threads of one run, side by side, each keep their own order of steps (the canvas follows it).
+alter table steps add column if not exists lane text;
 create table if not exists layouts (
     graph text primary key,
     layout jsonb not null,  -- {nodes: {id: {x, y}}, edges: {id: {points: [{x, y}], style}}}: how the team arranged it
@@ -185,9 +188,9 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
                                 step_status = inner[own]
                             inner[path] = step_status
                             await db.execute(
-                                "insert into steps (run_id, path, node, status, summary, detail) "
-                                "values (%s, %s, %s, %s, %s, %s)",
-                                (run_id, path, node, step_status, line, capped(update)),
+                                "insert into steps (run_id, path, lane, node, status, summary, detail) "
+                                "values (%s, %s, %s, %s, %s, %s, %s)",
+                                (run_id, path, "|".join(namespace), node, step_status, line, capped(update)),
                             )
                     live[run_id].set()
         except Exception as failure:  # the run's own failure: kept for whoever looks, the server goes on
@@ -214,7 +217,7 @@ async def run(run_id):
             return None
         steps = await (
             await db.execute(
-                "select id, at, path, node, status, summary from steps where run_id = %s order by id", (run_id,)
+                "select id, at, path, lane, node, status, summary from steps where run_id = %s order by id", (run_id,)
             )
         ).fetchall()
     keys = (
@@ -241,11 +244,12 @@ async def run(run_id):
             "at": at.isoformat(),
             "when": when(at),
             "path": path,
+            "lane": lane,
             "node": node,
             "status": status,
             "summary": summary,
         }
-        for i, at, path, node, status, summary in steps
+        for i, at, path, lane, node, status, summary in steps
     ]
     return shown
 
@@ -284,14 +288,23 @@ async def steps_after(run_id, after):
     async with pool.connection() as db:
         steps = await (
             await db.execute(
-                "select id, at, path, node, status, summary from steps where run_id = %s and id > %s order by id",
+                "select id, at, path, lane, node, status, summary from steps where run_id = %s and id > %s order by id",
                 (run_id, after),
             )
         ).fetchall()
         state = await (await db.execute("select status, error from runs where id = %s", (run_id,))).fetchone()
     found = [
-        {"id": i, "at": at.isoformat(), "when": when(at), "path": p, "node": n, "status": s, "summary": line}
-        for i, at, p, n, s, line in steps
+        {
+            "id": i,
+            "at": at.isoformat(),
+            "when": when(at),
+            "path": p,
+            "lane": lane,
+            "node": n,
+            "status": s,
+            "summary": line,
+        }
+        for i, at, p, lane, n, s, line in steps
     ]
     return found, state
 

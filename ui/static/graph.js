@@ -74,6 +74,8 @@
     const parentOf = new Map(shape.nodes.map((n) => [n.id, n.parent || null]));
     const opened = new Set(); // groups shown whole; every other group is one node, as n8n shows a sub-workflow
     const steps = new Map(); // node id (as in the whole graph) -> the run's steps at that node
+    const sequence = []; // every step of the run, in the order it ended
+    let finished = false; // the run has ended: each part's last step went on to its end
     const cy = cytoscape({ container, style: styles(), wheelSensitivity: 0.25, minZoom: 0.1, maxZoom: 2.5 });
     const GRID = 20; // the map's step: nodes and bends snap to it
     const inside = (id, group) => id.startsWith(group + ":");
@@ -154,8 +156,8 @@
         const source = shownAs(e.source), target = shownAs(e.target);
         if (source === target) continue; // a path inside a collapsed group
         const id = `${source}->${target}`;
-        if (seen.has(id)) { seen.get(id).conditional &&= e.conditional; continue; }
-        seen.set(id, { id, source, target, conditional: e.conditional });
+        if (seen.has(id)) { seen.get(id).conditional &&= e.conditional; seen.get(id).under.push(e.id); continue; }
+        seen.set(id, { id, source, target, conditional: e.conditional, under: [e.id] });
       }
       cy.add([...seen.values()].map((e) => ({ data: e, classes: e.conditional ? "conditional" : "" })));
       cy.nodes().forEach((node) => node.position({ ...placeOf(node.id()) })); // each at its one place
@@ -272,21 +274,53 @@
         node.data("display", times > 1 ? `${base}\n×${times}` : base);
         node.ancestors().removeClass("dim").addClass("ran");
       }
-      // The starts and ends of what ran: the run's start always, any other once a step (or an end) next to it ran. An
-      // opened sub-workflow's start and end sit between steps: marked before the edges, until none is left to mark.
-      for (let marked = true; marked; ) {
-        marked = false;
-        cy.nodes("[kind = 'end']").not(".ran").forEach((end) => {
-          const touched = end.connectedEdges().some((edge) => edge.source().hasClass("ran") || edge.target().hasClass("ran"));
-          if (touched || end.id() === "__start__") { end.removeClass("dim").addClass("ran"); marked = true; }
-        });
+      const went = taken();
+      const reached = (end) => end.removeClass("dim").addClass("ran");
+      if (!went) {
+        // Without lanes: the run's start always, any other start or end once a step (or an end) next to it ran,
+        // marked before the edges (an opened part's start and end sit between steps), until none is left to mark.
+        for (let marked = true; marked; ) {
+          marked = false;
+          cy.nodes("[kind = 'end']").not(".ran").forEach((end) => {
+            const touched = end.connectedEdges().some((edge) => edge.source().hasClass("ran") || edge.target().hasClass("ran"));
+            if (touched || end.id() === "__start__") { reached(end); marked = true; }
+          });
+        }
       }
       cy.edges().forEach((edge) => {
-        if (edge.source().hasClass("ran") && edge.target().hasClass("ran")) edge.removeClass("dim").addClass("ran");
+        const along = went ? edge.data("under").some((id) => went.has(id)) : edge.source().hasClass("ran") && edge.target().hasClass("ran");
+        if (along) edge.removeClass("dim").addClass("ran");
       });
+      // With lanes: a start or an end is reached when the run went along an edge to or from it.
+      if (went) cy.nodes("[kind = 'end']").filter((end) => end.id() === "__start__" || end.connectedEdges(".ran").length).forEach(reached);
+    }
+
+    // The whole graph's edges the run went along: in each run of a part (its lane: one invoice, one email thread), from
+    // its start to each step in the order they ended, to its end. A part's own closing step stands for the part: it is
+    // entered by its start, left from its end. Runs recorded before lanes existed: null, edges lit between steps that ran.
+    function taken() {
+      if (!sequence.length || sequence.some((s) => s.lane == null)) return null;
+      const lanes = new Map();
+      for (const step of sequence) {
+        if (!lanes.has(step.lane)) lanes.set(step.lane, []);
+        lanes.get(step.lane).push(step);
+      }
+      const went = new Set();
+      for (const list of lanes.values()) {
+        const prefix = list[0].path ? list[0].path.split("|").join(":") + ":" : "";
+        let previous = `${prefix}__start__`;
+        for (const step of list) {
+          const id = nodeOf(step), part = groups.has(id);
+          went.add(`${previous}->${part ? `${id}:__start__` : id}`);
+          previous = part ? `${id}:__end__` : id;
+        }
+        if (finished) went.add(`${previous}->${prefix}__end__`);
+      }
+      return went;
     }
 
     function add(step) {
+      if (!sequence.some((s) => s.id === step.id)) sequence.push(step);
       const id = nodeOf(step);
       if (groups.has(id)) return; // a part's own closing step: its inner steps already tell what it did
       if (!steps.has(id)) steps.set(id, []);
@@ -520,11 +554,12 @@
 
     if (run) {
       const found = await (await fetch(`/runs/${run}`)).json();
+      finished = !["queued", "running"].includes(found.status);
       (found.steps || []).forEach(add);
       if (["queued", "running"].includes(found.status)) {
         const events = new EventSource(`/runs/${run}/events`);
         events.addEventListener("step", (event) => { add(JSON.parse(event.data)); paint(); });
-        events.addEventListener("end", () => events.close());
+        events.addEventListener("end", () => { events.close(); finished = true; paint(); });
       }
     }
     build();
