@@ -74,7 +74,10 @@
           "id": "MiniMaxNative001",
           "name": "MiniMax"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 1000
     },
     {
       "id": "ea547a77-5f84-5bc8-9686-0272b48bacd5",

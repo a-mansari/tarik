@@ -47,6 +47,10 @@ flow.node(
         },
     },
     credentials={"minimaxApi": {"id": "MiniMaxNative001", "name": "MiniMax"}},
+    # A dropped connection (read ETIMEDOUT) is tried once more; the provider's error statuses are not (neverError).
+    retryOnFail=True,
+    maxTries=2,
+    waitBetweenTries=1000,
 )
 flow.node(
     "Reponse",
