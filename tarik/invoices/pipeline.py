@@ -24,6 +24,7 @@ from tarik.invoices.withholding import settle_withholding
 # The sequence, in order: step tool -> what the client reads it as.
 STEPS = {
     "answer_pending": "reponse",
+    "waiting_drafts": "comptabilisation demandee",
     "resolve_dossier": "dossier",
     "check_sender": "acces au dossier",
     "check_creator": "droit de creer des dossiers",
@@ -497,7 +498,9 @@ def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, sto
     except what the client asks for. ``held``: the drafts they asked to leave unposted (they now ask to post).
     ``stopped``: the drafts a fixable setting stopped (FIXABLE_STOPS: the cabinet has fixed it since, they ask to
     resume). Both also reach the dossier ``dossier_id``'s drafts from any conversation, since the client may ask in
-    a new email thread; never an automatic follow-up's. A draft deleted or posted in Experio since is left alone."""
+    a new email thread; never an automatic follow-up's. A draft deleted or posted in Experio since is left alone.
+    Experio decides what is a draft: with ``held`` and a dossier, a draft Tarik posted that was put back to draft in
+    Experio since is posted again. When they ask to post and nothing is to be, the answer says why (a stop)."""
     with cabinet_db() as db:
         rows = db.execute(
             "select invoice_id, step, status from tarik_results where session_id = %s and invoice_id is not null "
@@ -514,9 +517,14 @@ def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, sto
                 "select invoice_id, step, status from tarik_results where invoice_id in "
                 "(select invoice_id from tarik_results where status = 'stop' and invoice_id is not null) order by id"
             ).fetchall()
-        kept = []
+        kept, reposted = [], []
         if held:
             kept = db.execute("select invoice_id, session_id from tarik_held where not released").fetchall()
+        if held and dossier_id:
+            reposted = db.execute(
+                "select invoice_id, step, status from tarik_results where invoice_id in "
+                "(select invoice_id from tarik_results where step = 'post_invoice' and status = 'ok') order by id"
+            ).fetchall()
     mine = furthest_outcomes(rows)
     waiting = [i for i, (step, status) in mine.items() if resumable(step, status, stopped)]
     # shortcut: a draft of a run still going also has no outcome yet; one conversation runs one at a time
@@ -526,10 +534,56 @@ def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, sto
         waiting += [i for i, (step, status) in found if resumable(step, status, True)]
     # The conversation's own held drafts, and the dossier's from any other.
     waiting += [invoice_id for invoice_id, owner in kept if owner == session_id or dossier_id]
+    # Posted by Tarik: still a draft in Experio only when someone put it back (the domain below keeps the drafts).
+    waiting += [i for i, outcome in furthest_outcomes(reposted).items() if outcome == ("post_invoice", "ok")]
     if waiting:
         domain = [("id", "in", sorted(set(waiting))), ("state", "in", ["pending", "draft"])]
         # What came from any conversation is limited to this dossier's.
         if dossier_id and (held or stopped):
             domain.append(("company_id", "in", [dossier_id]))
         waiting = sorted(odoo_call("exp.invoice", "search", domain))
+    if held and not waiting:
+        return stop(nothing_to_post(session_id, dossier_id), invoices=[])
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
+
+
+def nothing_to_post(session_id, dossier_id):
+    """Why nothing is posted when the client asks to post: each draft of the dossier and what keeps it from being
+    posted (a question waiting for them, a draft Tarik did not import, where Tarik's sequence stopped it)."""
+    if not dossier_id:
+        return "Aucune facture laissee en brouillon dans cette conversation : rien a comptabiliser."
+    drafts = odoo_call(
+        "exp.invoice",
+        "search_read",
+        [("company_id", "=", dossier_id), ("state", "in", ["pending", "draft"])],
+        fields=["invoice_number"],
+        order="id",
+    )
+    if not drafts:
+        return "Aucun brouillon dans ce dossier : rien a comptabiliser."
+    ids = [draft["id"] for draft in drafts]
+    with cabinet_db() as db:
+        made = {i for (i,) in db.execute("select invoice_id from tarik_files where invoice_id = any(%s)", (ids,))}
+        asked = dict(db.execute("select invoice_id, question from tarik_pending where invoice_id = any(%s)", (ids,)))
+        rows = db.execute(
+            "select invoice_id, step, status from tarik_results where invoice_id = any(%s) order by id", (ids,)
+        ).fetchall()
+        messages = {
+            (i, step): message
+            for i, step, message in db.execute(
+                "select invoice_id, step, message from tarik_results where invoice_id = any(%s) order by id", (ids,)
+            )
+        }
+    furthest = furthest_outcomes(rows)
+    lines = []
+    for draft in drafts:
+        name = f"facture {draft['id']} ({draft['invoice_number'] or 'sans numero'})"
+        if draft["id"] in asked:
+            lines.append(f"- {name} : attend votre reponse a sa question : {asked[draft['id']]}")
+        elif draft["id"] not in made:
+            lines.append(f"- {name} : pas importee par Tarik, a comptabiliser dans Experio")
+        elif draft["id"] in furthest:
+            lines.append(f"- {name} : {messages[(draft['id'], furthest[draft['id']][0])]}")
+        else:
+            lines.append(f"- {name} : encore en cours de traitement")
+    return "Rien n'a ete comptabilise. Les brouillons du dossier :\n" + "\n".join(lines)

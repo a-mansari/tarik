@@ -243,6 +243,8 @@ def test_an_invoice_stays_a_verified_draft_until_the_client_says_to_post_it(db_c
     searched = []
 
     def search(model, method, domain, **kw):
+        if method == "search_read":  # the dossier's drafts, when nothing is to be posted: none left
+            return []
         searched.append(domain)
         return domain[0][2]  # all still drafts
 
@@ -258,7 +260,8 @@ def test_an_invoice_stays_a_verified_draft_until_the_client_says_to_post_it(db_c
     assert ("company_id", "in", [5]) in searched[-1]
     assert pipeline.hold_posting(7, "s", "oui")["status"] == "ok"
     assert pipeline.hold_posting(7, "s")["status"] == "ok"  # kept for the runs resumed after a question
-    assert pipeline.waiting_drafts("other", held=True, dossier_id=5)["invoices"] == []  # nothing left to post
+    nothing = pipeline.waiting_drafts("other", held=True, dossier_id=5)
+    assert nothing["invoices"] == [] and nothing["status"] == "stop"  # nothing left to post, and they are told
     assert pipeline.hold_posting(7, "s", "non")["status"] == "stop"  # taken back
 
 
@@ -310,3 +313,38 @@ def test_a_dossiers_waiting_questions_are_reached_from_a_new_conversation(db_cab
     pipeline.record_step("r", "new", "dossier_questions", {"status": "question", "message": "Q ?", **found[0]})
     assert sorted(item["invoice_id"] for item in pipeline.waiting_on("new")) == [1, 2]
     assert pipeline.waiting_on("old") == []
+
+
+@pytest.mark.functionality
+def test_a_draft_tarik_posted_and_experio_shows_as_draft_again_is_posted_again(db_cabinet, monkeypatch):
+    """Experio decides what is a draft: an invoice Tarik posted, put back to draft in Experio since, is posted when
+    the client asks, from any conversation, for its dossier only."""
+    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain, **kw: domain[0][2])  # all drafts
+    for step in ("hold_posting", "post_invoice"):
+        pipeline.record_step("r", "earlier", step, {"status": "ok", "message": "m", "invoice_id": 9})
+    assert pipeline.waiting_drafts("new", held=True, dossier_id=5)["invoices"] == [9]
+    assert pipeline.waiting_drafts("new", held=True)["invoices"] == []  # without a dossier: never another's
+
+
+@pytest.mark.communication
+def test_when_nothing_is_to_be_posted_the_client_is_told_why(db_cabinet, monkeypatch):
+    drafts = [{"id": 1, "invoice_number": "F-1"}, {"id": 2, "invoice_number": "F-2"}, {"id": 3, "invoice_number": None}]
+
+    def odoo_call(model, method, domain, **kw):
+        return drafts if method == "search_read" else []
+
+    monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
+            "('s', 'a.pdf', 'application/pdf', '', 1), ('s', 'b.pdf', 'application/pdf', '', 2)"
+        )
+    waits(1, "assign_account", "quel compte ?")
+    pipeline.record_step(
+        "r", "s", "check_duplicate", {"status": "stop", "message": "Facture 2 : doublon.", "invoice_id": 2}
+    )
+    told = pipeline.waiting_drafts("s", held=True, dossier_id=5)
+    assert told["status"] == "stop" and told["invoices"] == []
+    assert "facture 1 (F-1) : attend votre reponse a sa question : quel compte ?" in told["message"]
+    assert "facture 2 (F-2) : Facture 2 : doublon." in told["message"]
+    assert "facture 3 (sans numero) : pas importee par Tarik" in told["message"]
