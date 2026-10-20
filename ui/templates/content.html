@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_class %} wide{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/ui/contenu">Contenu</a> › {{ title }}</p>
+<div class="head"><div>
+  <h1>{{ title }}</h1>
+  <p class="what">{{ what }}</p>
+  {% if model %}<p class="muted">Modèle : <b>{{ model }}</b> (se change dans le code, pas ici).</p>{% endif %}
+</div></div>
+{% if error %}<div class="panel bad" role="alert"><b>Non enregistré :</b> {{ error }}. Corrigez puis enregistrez à nouveau.</div>{% endif %}
+{% if saved == '1' %}<div class="panel accent" role="status">Enregistré. Tarik l'utilise dès le message suivant.</div>{% elif saved == '0' %}<div class="panel" role="status">Rien n'a changé : aucune nouvelle version.</div>{% endif %}
+<div class="flow content-flow">
+  <form class="panel content-form" method="post" id="content-form">
+    {% for section in sections %}
+    {% if section.title %}<h2>{{ section.title }}</h2>{% endif %}
+    {% for f in section.fields %}
+    <label class="field">
+      <span>{{ f.label }}</span>
+      {% if f.long %}<textarea name="{{ f.key }}" rows="{{ [3, (f.value | length // 90) + f.value.count('\n') + 2] | max if f.value | length < 4000 else 30 }}">{{ f.value }}</textarea>
+      {% else %}<input name="{{ f.key }}" value="{{ f.value }}">{% endif %}
+    </label>
+    {% endfor %}
+    {% endfor %}
+    <div class="save-bar">
+      <label class="field"><span>Pourquoi ce changement (gardé dans l'historique)</span><input name="note" maxlength="300" placeholder="ex. : demander l'exercice avant le compte"></label>
+      <button type="submit" class="primary">Enregistrer</button>
+    </div>
+  </form>
+  <aside class="side panel">
+    <h2>Historique</h2>
+    {% if compare %}
+    <div class="compare">
+      <p class="eyebrow">Ce que la version {{ compare.id }} a changé</p>
+      <pre class="diff">{% for kind, line in compare.lines %}<span class="{{ {'+': 'add', '-': 'del'}.get(kind, '') }}">{{ kind if kind != ' ' else ' ' }} {{ line }}</span>
+{% endfor %}</pre>
+      {% if versions and compare.id != versions[0].id %}
+      <form method="post"><input type="hidden" name="action" value="restore"><input type="hidden" name="version" value="{{ compare.id }}">
+        <button type="submit">Revenir à cette version</button></form>
+      {% endif %}
+    </div>
+    {% endif %}
+    <ol class="versions">
+      {% for v in versions %}
+      <li{% if compare and compare.id == v.id %} aria-current="true"{% endif %}><a href="?version={{ v.id }}">
+        <span class="num">{{ v.at | when }}</span> <b>{{ v.author.split(' <')[0] }}</b>{% if loop.first %} <span class="chip ok">en service</span>{% endif %}
+        {% if v.note %}<span class="muted">{{ v.note }}</span>{% endif %}
+      </a></li>
+      {% endfor %}
+    </ol>
+  </aside>
+</div>
+{% endblock %}

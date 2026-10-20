@@ -46,9 +46,11 @@ by `vault/setup.sh`) and the cabinets' Experio. The n8n implementation (branch `
 | `engine/agent.py` | The agent: instructions and tools' descriptions from `content/agent.json`, skills from `content/skills/`, tool output from Experio tagged as untrusted data. |
 | `engine/model.py` | MiniMax-M3 with a 1024-token thinking budget, with this stack's own key. |
 | `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the Prompts page. |
+| `engine/content.py` | What the team edits: every version of each content document (who, when, why), the latest in use at the next run; a change that would break its reader is refused. |
+| `engine/accounts.py`, `users.py` | The team's accounts (scrypt hashes) and sessions; `users.py` makes and closes accounts. |
 | `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
 | `engine/traitement.py`, `dossier.py`, `emails.py` | The workflows, as graphs. |
-| `content/` | What the agent is told and the UI's plain words (`labels.json`: names and descriptions of each step). |
+| `content/` | The first version of what the agent is told and the UI's plain words (`labels.json`: names and descriptions of each step); later versions live in Postgres. |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
 | `engine/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
 | `ui/` | The team's pages (French): `pages.py`, its templates, a stylesheet, scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |
@@ -76,10 +78,12 @@ docker compose up --build -d
 | `GET` / `PUT` / `DELETE /graphs/<graph>/layout` | How the team arranged its canvas: read, saved, or forgotten. |
 
 The team's pages: http://127.0.0.1:2024/ui/runs (runs), /ui/workflows (workflows), /ui/prompts (what the model
-was sent).
+was sent), /ui/contenu (what Tarik is told, edited with its history). Each person logs in with their own account,
+made in the container: `python users.py add <email> "<name>"` (the password is asked; `disable` closes one).
 
-Graphs: `agent`, `traitement`, `dossier`, `emails`. `TARIK_GRAPH_TOKEN` set: every call but `/ok` needs it as a
-bearer token. In the container: `python run.py <graph> '<input json>' [--thread name]`, `python check.py`,
+Every call but `/ok` and the login page needs a session, or for scripts `TARIK_GRAPH_TOKEN` as a bearer token. A
+change made with a session must come from the pages themselves (Origin checked). Graphs: `agent`, `traitement`,
+`dossier`, `emails`. In the container: `python run.py <graph> '<input json>' [--thread name]`, `python check.py`,
 `python -m pytest`.
 
 ## Plan
@@ -104,8 +108,11 @@ with every run live, step by step.
    keeps the arrangement in Postgres (table `layouts`, one per workflow, shared by the team); "Disposition
    automatique" forgets it. On each run's page and on each workflow's page with its recent runs. Each step explained
    in plain words in its panel.
-4. **Content in the UI, with history**: the agent's instructions and skills, the tools' prompts, cabinets' settings;
-   every change kept (who, when), and undone in one click.
+4. **Login, then content in the UI, with history** — done: each person's account (`users.py`); the agent's
+   instructions and tools' descriptions, its skills, the tools' prompts and the pages' words, each as a plain form;
+   every change kept (who, when, why), each version's changes shown, any version brought back in one click; a change
+   naming a tool Tarik lacks, emptying a text or reshaping a document is refused. Still to come: cabinets' settings
+   (in Vault, which Tarik only reads).
 5. **Mail**: a cabinet switched over (`MAIL_BY_ORCHESTRATOR`, the n8n watcher stopped for it); then the email test
    and `-m llm` again.
 6. **Chat with file upload**, per cabinet, if cabinets need more than email.

@@ -38,7 +38,7 @@ def test_skills_and_instructions_name_only_the_agents_tools():
 
     known = {name for tool in agent.TOOLS for name in (tool.name, *tool.args)}
     texts = {path.name: path.read_text() for path in (CONTENT / "skills").glob("*.md")}
-    texts["instructions"] = agent.AGENT["instructions"] + " " + " ".join(agent.DESCRIPTIONS.values())
+    texts["instructions"] = agent.AGENT["instructions"] + " " + " ".join(agent.AGENT["tools"].values())
     names = r"\b[A-Za-z]+(?:_[a-z]+)+\b"
     wrong = {name: sorted(set(re.findall(names, text)) - known) for name, text in texts.items()}
     assert not {name: found for name, found in wrong.items() if found}
@@ -50,7 +50,7 @@ def test_each_tool_prompt_is_read_by_the_tool_its_file_names():
     loaded = {  # prompt name -> the module loading it
         name: str(path.relative_to(ROOT))
         for path in code.rglob("*.py")
-        for name in re.findall(r'instruction\("([a-z-]+)"\)', path.read_text())
+        for name in re.findall(r'tool_prompt\("([a-z-]+)"\)', path.read_text())
     }
     files = {path.stem: path.read_text() for path in (CONTENT / "tools").glob("*.md")}
     assert sorted(loaded) == sorted(files), "a prompt file no tool reads, or a tool reading a missing one"

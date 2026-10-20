@@ -14,10 +14,8 @@ from tarik.core.experio import (
     still_reading,
     test_mode_note,
 )
-from tarik.core.model import ask_model, instruction, scan_pages
+from tarik.core.model import ask_model, scan_pages, tool_prompt
 from tarik.core.words import normalized
-
-CLASSIFY_PROMPT = instruction("classify-document")
 
 CATEGORY_TO_TYPE = {"achat": "purchase", "vente": "sale"}
 # How a client says which side their invoices are on (matched on normalized words).
@@ -29,7 +27,7 @@ def classify_pages(pages, what):
     """The model's (category, reason) for a document's ``pages``: achat, vente or rb (bank statement). ``what``
     names the step in logs and errors."""
     result = ask_model(
-        CLASSIFY_PROMPT,
+        tool_prompt("classify-document"),
         pages,
         'Answer with only a JSON object: {"category": "achat"|"vente"|"rb", "reason": "one French sentence"}',
         what,

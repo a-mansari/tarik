@@ -15,13 +15,21 @@ from tarik.core.config import MAX_PAGES, MODEL_TIMEOUT, SCALE
 from tarik.core.experio import HTTP
 
 CONTENT = Path(__file__).resolve().parents[2] / "content"
-INSTRUCTIONS = CONTENT / "tools"  # the prompts the tools read
-AGENT = CONTENT / "agent.json"
 
 
-def instruction(name):
+# Where the content is read: the files by default; the server reads its latest version, edited in the UI
+# (engine/content.py sets it). Read at each use, so an edit applies to the next call.
+SOURCE = None
+
+
+def content(path):
+    """content/<path>'s text: its latest version."""
+    return SOURCE(path) if SOURCE else (CONTENT / path).read_text()
+
+
+def tool_prompt(name):
     """The prompt content/tools/<name>.md holds, after its front matter (used_by: the tool reading it)."""
-    return (INSTRUCTIONS / f"{name}.md").read_text().split("\n---\n", 1)[1]
+    return content(f"tools/{name}.md").split("\n---\n", 1)[1]
 
 
 def json_answer(text, keys=()):
@@ -47,7 +55,7 @@ MODEL_URL = "https://api.minimax.io/anthropic"  # the provider's Anthropic-style
 
 def model_name():
     """The model every tool uses: the agent's own (content/agent.json)."""
-    return json.loads(AGENT.read_text())["model"]
+    return json.loads(content("agent.json"))["model"]
 
 
 def ask_model(system, pages, instruction, what, think=True, keys=()):

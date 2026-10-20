@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Contenu{% endblock %}
+{% block content %}
+<div class="head"><div>
+  <h1>Contenu</h1>
+  <p class="muted">Ce que Tarik dit et ce qu'on lui dit, modifiable sans toucher au code. Chaque modification est gardée (qui, quand, pourquoi) et peut être annulée en un clic. Elle s'applique au message suivant.</p>
+</div></div>
+{% for name, documents in groups %}
+<section class="panel">
+  <h2>{{ name }}</h2>
+  <ul class="runs-side">
+    {% for path, label, change in documents %}
+    <li><a href="/ui/contenu/{{ path }}"><span>{{ label }}</span><span class="muted">{% if change %}{{ change.author.split(' <')[0] }} · {{ change.at | when }}{% endif %}</span></a></li>
+    {% endfor %}
+  </ul>
+</section>
+{% endfor %}
+{% endblock %}

@@ -13,12 +13,13 @@ COMPILED = {"traitement": traitement.graph, "dossier": dossier.graph, "emails": 
 ENDS = {"__start__": "Début", "__end__": "Fin"}
 
 
-def label(graph, node_id, table=LABELS["steps"], fallback=None):
+def label(graph, node_id, table=None, fallback=None):
     """A node's plain name (or, from the descriptions table, what it does): its own graph's words for it, else
     another graph's (an email follow-up runs Traitement)."""
     name = node_id.rsplit(":", 1)[-1]
     if name in ENDS:
-        return ENDS[name] if table is LABELS["steps"] else ""
+        return ENDS[name] if table is None else ""
+    table = LABELS["steps"] if table is None else table
     for scope in (graph, *table):
         if name in table.get(scope, {}):
             return table[scope][name]

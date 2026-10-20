@@ -25,12 +25,11 @@ from tarik.core.experio import (
     require_invoice,
     test_mode_note,
 )
-from tarik.core.model import ask_model, instruction
+from tarik.core.model import ask_model, tool_prompt
 from tarik.invoices.check import stored_check
 from tarik.invoices.classify import side_of
 from tarik.invoices.journal import JOURNAL_FIELDS, check_journal, journal_stop
 
-ACCOUNT_PROMPT = instruction("choose-account")
 CLASS = {"purchase": "6", "sale": "7"}
 
 
@@ -116,7 +115,7 @@ def _model_choice(invoice, kind, designation):
         + '\n\nAnswer with only a JSON object: {"code": "<a code from the list above>" or null, '
         '"reason": "one short French sentence"}'
     )
-    answer = ask_model(ACCOUNT_PROMPT, [], instruction, "Choix du compte")
+    answer = ask_model(tool_prompt("choose-account"), [], instruction, "Choix du compte")
     code = str(answer["code"]) if answer.get("code") is not None else None
     if code not in by_code:
         if code:
@@ -168,7 +167,7 @@ def assign_account(invoice_id: int, answer: str = "", client_message: str = "") 
 
 def resolve_account(accounts, answer):
     """The account the client means, from their own words: a code (or its start), or a label.
-    One match, or several sharing one label (take the lowest code, ACCOUNT_PROMPT's rule) -> that
+    One match, or several sharing one label (take the lowest code, choose-account.md's rule) -> that
     account; otherwise None. A short code is the account it names, padded with zeros (CGNC):
     "6145" is 61450000, not 61451000. ``accounts``: [{id, code, name}] sorted by code."""
     words = answer.strip()

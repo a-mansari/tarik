@@ -177,3 +177,8 @@ async def workflow_page(request: Request):
         "labels": LABELS,
     }
     return templates.TemplateResponse(request, "workflow.html", context)
+
+
+def login_page(request: Request, target, failed=False):
+    context = {"next": target, "failed": failed}
+    return templates.TemplateResponse(request, "login.html", context, status_code=401 if failed else 200)

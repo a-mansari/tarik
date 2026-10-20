@@ -11,7 +11,7 @@ from tarik.core.cabinets import cabinet_db
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import client_messages
 from tarik.core.experio import dry_run, in_dossier, odoo_call, refused, require_dossier
-from tarik.core.model import ask_model, instruction, pdf_pages, to_pdf
+from tarik.core.model import ask_model, pdf_pages, to_pdf, tool_prompt
 from tarik.invoices.classify import classify_pages, client_side
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
@@ -65,13 +65,10 @@ def identify_document(file_id: int) -> dict:
     return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
 
 
-PAGES_PROMPT = instruction("split-pdf")
-
-
 def invoice_starts(pages):
     """1-based pages that begin an invoice, as MiniMax-M3 sees them. ``pages``: PNG bytes, in order."""
     shape = f'{len(pages)} pages, in order. Answer with only a JSON object: {{"starts": [1, ...]}}'
-    starts = ask_model(PAGES_PROMPT, pages, shape, "Decoupage du PDF").get("starts")
+    starts = ask_model(tool_prompt("split-pdf"), pages, shape, "Decoupage du PDF").get("starts")
     if not isinstance(starts, list) or not all(isinstance(n, int) for n in starts):
         log(f"invoice_starts: starts must be page numbers: {starts}")
         raise ToolError("Decoupage du PDF : echec, reessayez plus tard.")

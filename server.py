@@ -14,27 +14,30 @@ its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) sta
   GET|PUT|DELETE /graphs/{graph}/layout   how the team arranged its canvas (node places, edge bends and style)
   GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live
 
-With TARIK_GRAPH_TOKEN set, every API call but /ok needs it as a bearer token.
-shortcut: the pages have no login yet: the server listens on the host only (127.0.0.1); a login comes before it is
-reachable from anywhere else."""
+Every call but /ok, /login and the static files needs a session (the login page's cookie: users.py makes the
+accounts) or, for scripts (run.py), TARIK_GRAPH_TOKEN as a bearer token. A change (POST, PUT, DELETE) made with a
+session must come from these pages themselves (its Origin or Referer): another site cannot make it in someone's name."""
 
 import asyncio
 import contextlib
+import hmac
 import json
 import os
+from urllib.parse import parse_qs, quote
 
 import uvicorn
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, StreamingResponse
+from starlette.responses import JSONResponse, RedirectResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from engine import agent, graphs, layouts, mail, prompts, runs
+from engine import accounts, agent, content, graphs, layouts, mail, prompts, runs
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.experio import account
-from ui import pages
+from ui import content_pages, pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = (
@@ -43,10 +46,74 @@ DATABASE = (
 )
 
 
-def refused(request):
-    if TOKEN and request.headers.get("authorization") != f"Bearer {TOKEN}":
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    return None
+OPEN = ("/ok", "/login", "/ui/static/")
+COOKIE = "tarik_session"
+
+
+class Guard:
+    """Every call needs a session or the scripts' token; the person behind a session goes in request.state.user."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope["path"].startswith(OPEN):
+            return await self.app(scope, receive, send)
+        request = Request(scope)
+        scope.setdefault("state", {})
+        if TOKEN and hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {TOKEN}"):
+            scope["state"]["user"] = {"email": "script", "name": "Script"}
+            return await self.app(scope, receive, send)
+        user = await accounts.user_of(request.cookies.get(COOKIE))
+        if user is None:
+            if request.method == "GET" and (scope["path"].startswith("/ui") or scope["path"] == "/"):
+                answer = RedirectResponse(f"/login?next={quote(request.url.path)}", status_code=303)
+            else:
+                answer = JSONResponse({"error": "unauthorized"}, status_code=401)
+            return await answer(scope, receive, send)
+        if request.method not in ("GET", "HEAD") and not same_origin(request):
+            return await JSONResponse({"error": "cross-site request refused"}, status_code=403)(scope, receive, send)
+        scope["state"]["user"] = user
+        return await self.app(scope, receive, send)
+
+
+def same_origin(request):
+    """The request comes from these pages: its Origin (or else Referer) is this server's own address."""
+    source = request.headers.get("origin") or request.headers.get("referer") or ""
+    own = f"{request.url.scheme}://{request.headers.get('host', '')}"
+    return source == own or source.startswith(own + "/")
+
+
+async def login(request: Request):
+    """The login page (GET), and logging in (POST): a session cookie, then back to the page asked for."""
+    target = request.query_params.get("next") or "/ui/runs"
+    if not target.startswith("/") or target.startswith("//"):
+        target = "/ui/runs"  # never sent to another site
+    if request.method == "GET":
+        return pages.login_page(request, target)
+    if not same_origin(request):
+        return JSONResponse({"error": "cross-site request refused"}, status_code=403)
+    form = parse_qs((await request.body()).decode(), max_num_fields=5)  # a plain form: no multipart library
+    token = await accounts.log_in(form.get("email", [""])[0], form.get("password", [""])[0])
+    if token is None:
+        return pages.login_page(request, target, failed=True)
+    answer = RedirectResponse(target, status_code=303)
+    answer.set_cookie(
+        COOKIE,
+        token,
+        max_age=accounts.SESSION_HOURS * 3600,
+        httponly=True,
+        samesite="lax",
+        secure=request.url.scheme == "https",
+    )
+    return answer
+
+
+async def logout(request: Request):
+    await accounts.log_out(request.cookies.get(COOKIE))
+    answer = RedirectResponse("/login", status_code=303)
+    answer.delete_cookie(COOKIE)
+    return answer
 
 
 async def ok(request: Request):
@@ -54,8 +121,6 @@ async def ok(request: Request):
 
 
 async def start(request: Request):
-    if failed := refused(request):
-        return failed
     name = request.path_params["graph"]
     if name not in runs.NAMES:
         return JSONResponse({"error": f"unknown graph {name!r}"}, status_code=404)
@@ -68,23 +133,17 @@ async def start(request: Request):
 
 
 async def listing(request: Request):
-    if failed := refused(request):
-        return failed
     query = request.query_params
     found = await runs.recent(query.get("cabinet"), query.get("graph"), int(query.get("limit", 50)))
     return JSONResponse(found)
 
 
 async def one(request: Request):
-    if failed := refused(request):
-        return failed
     found = await runs.run(request.path_params["run_id"])
     return JSONResponse(found) if found else JSONResponse({"error": "unknown run"}, status_code=404)
 
 
 async def events(request: Request):
-    if failed := refused(request):
-        return failed
     run_id = request.path_params["run_id"]
     if not await runs.run(run_id):
         return JSONResponse({"error": "unknown run"}, status_code=404)
@@ -166,6 +225,8 @@ async def lifespan(app):
     server's whole life."""
     check_cabinets()
     await runs.open_store(DATABASE)
+    await accounts.setup()
+    await content.setup(runs.pool)
     mail.start(asyncio.get_running_loop())
     async with AsyncPostgresSaver.from_conn_string(f"{DATABASE} options='-c search_path={runs.SCHEMA}'") as saver:
         await saver.setup()
@@ -177,6 +238,8 @@ async def lifespan(app):
 app = Starlette(
     routes=[
         Route("/ok", ok),
+        Route("/login", login, methods=["GET", "POST"]),
+        Route("/logout", logout, methods=["POST"]),
         Route("/runs", listing),
         Route("/runs/{graph}", start, methods=["POST"]),
         Route("/runs/{run_id}", one),
@@ -187,6 +250,8 @@ app = Starlette(
         Route("/prompts/{cabinet}/{call_id:int}", prompt),
         Route("/ui/prompts", pages.prompts_page),
         Route("/ui/prompts/{cabinet}/{session_id}", pages.prompt_calls_page),
+        Route("/ui/contenu", content_pages.contents_page),
+        Route("/ui/contenu/{path:path}", content_pages.content_page, methods=["GET", "POST"]),
         Route("/ui/workflows", pages.workflows_page),
         Route("/ui/workflows/{graph}", pages.workflow_page),
         Route("/", pages.home),
@@ -195,6 +260,7 @@ app = Starlette(
         Route("/ui/runs/{run_id}", pages.run_page),
         Mount("/ui/static", StaticFiles(directory=pages.HERE / "static"), name="static"),
     ],
+    middleware=[Middleware(Guard)],
     lifespan=lifespan,
 )
 

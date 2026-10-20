@@ -9,12 +9,8 @@ from tarik.core.app import ToolError, log, ok, routine, step_tool, stop
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import MIN_SIMILARITY
 from tarik.core.experio import has_scan, odoo_call, require_invoice, still_reading
-from tarik.core.model import ask_model, instruction, scan_pages
+from tarik.core.model import ask_model, scan_pages, tool_prompt
 from tarik.core.words import as_number, normalized, similarity, without_if
-
-OCR_PROMPT = instruction("check-invoice")
-
-OCR_SHAPE = instruction("check-invoice-answer")
 
 # The invoice header fields Experio captured (correct_invoice may write them back), then the tiers' name and ICE.
 CAPTURED: Final = (
@@ -62,7 +58,7 @@ def resolve_date(raw, language):
 
 
 def _check_shape(report):
-    """ValueError unless the model's ``report`` (dict) has the shape OCR_SHAPE asks for."""
+    """ValueError unless the model's ``report`` (dict) has the shape check-invoice-answer.md asks for."""
     extracted = report.get("extracted")
     if (
         not isinstance(report.get("readable"), bool)
@@ -178,12 +174,12 @@ def _read_scan(invoice_id, pages, stored):
     """The model's resolved report on the scan's ``pages`` against ``stored``. Asked twice when it says "unreadable",
     answers out of shape or gives no single whole answer: MiniMax-M3 sometimes does on a page it reads fine the
     next time."""
-    system = f"{OCR_PROMPT}\nToday's date is {date.today()}."
+    system = tool_prompt("check-invoice") + f"\nToday's date is {date.today()}."
     captured = "Values captured in Experio:\n" + json.dumps(stored, default=str, ensure_ascii=False, indent=2)
     unclear = ""
     for attempt in range(2):
         # No thinking: measured on real scans, it read no better and took up to 170 s instead of 11.
-        prompt = captured + "\n\n" + OCR_SHAPE + unclear
+        prompt = captured + "\n\n" + tool_prompt("check-invoice-answer") + unclear
         try:  # a reply with no single whole answer in it (notes around it, two answers) is asked again
             answer = ask_model(system, pages, prompt, "Verification de la facture", think=False, keys=REPORT_KEYS)
         except ToolError:

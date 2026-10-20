@@ -178,3 +178,30 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .prompt li.system { background: var(--bg); }
 .prompt pre { white-space: pre-wrap; word-break: break-word; margin: .3rem 0 0; font-size: .85rem; }
 .prompt .tools-list { margin: .3rem 0 0; padding-left: 1.1rem; font-size: .85rem; }
+
+/* Login, and who is logged in. */
+.login { max-width: 26rem; margin: 3rem auto; display: grid; gap: .8rem; }
+.login form { display: grid; gap: .8rem; }
+.login label { display: grid; gap: .3rem; font-size: .9rem; color: var(--muted); }
+.login input { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; }
+.login button, .who button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: .4rem .8rem; }
+.login button { background: var(--accent); border-color: var(--accent); color: #fff; }
+.bad-text { color: var(--bad, #b42318); }
+.who { margin-left: auto; display: flex; align-items: center; gap: .6rem; font-size: .85rem; color: var(--muted); }
+
+/* Content: a document's form, its history and what a version changed. */
+.content-flow { align-items: start; }
+.content-form { display: grid; gap: .9rem; }
+.content-form h2 { margin: .6rem 0 0; }
+.field { display: grid; gap: .3rem; font-size: .85rem; color: var(--muted); }
+.field textarea, .field input { font: inherit; font-size: .9rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; width: 100%; box-sizing: border-box; }
+.field textarea { resize: vertical; line-height: 1.45; }
+.save-bar { position: sticky; bottom: 0; background: var(--surface); border-top: 1px solid var(--line); padding: .8rem 0 .2rem; display: grid; grid-template-columns: 1fr auto; gap: .8rem; align-items: end; }
+button.primary, .compare button { font: inherit; cursor: pointer; border-radius: 6px; padding: .5rem 1rem; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+.versions { list-style: none; padding: 0; display: grid; gap: .3rem; font-size: .85rem; }
+.versions a { display: grid; gap: .1rem; padding: .4rem .5rem; border-radius: 6px; color: var(--fg); text-decoration: none; }
+.versions li[aria-current] a, .versions a:hover { background: var(--bg); }
+.diff { white-space: pre-wrap; word-break: break-word; font-size: .78rem; max-height: 22rem; overflow: auto; background: var(--bg); padding: .5rem; border-radius: 6px; }
+.diff .add { color: var(--good); }
+.diff .del { color: var(--bad); text-decoration: line-through; }
+@media (max-width: 700px) { .save-bar { grid-template-columns: 1fr; } }

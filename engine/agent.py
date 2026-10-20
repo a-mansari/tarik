@@ -12,23 +12,23 @@ from langchain.agents import create_agent
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import HumanMessage
 
-from engine import dossier, prompts, traitement
+from engine import content, dossier, prompts, traitement
 from engine.content import AGENT
 from engine.model import model
-from engine.settings import SKILLS, cabinet_of
+from engine.settings import cabinet_of
 from engine.tools import ToolFailure, call
 
-READ_TOOLS = AGENT["read_tools"]
-DESCRIPTIONS = AGENT["tools"]
+READ_TOOLS = list(AGENT["read_tools"])  # their names; what they say is read at each agent's making (described)
+DESCRIPTIONS = AGENT["tools"]  # the first descriptions, for the tools' definitions below
 
 
 def skills():
-    """The skills (name, description, instructions), as build_tarik_agents.skill_files reads them."""
+    """The skills (name, description, instructions), their latest versions (content/skills/, edited in the UI)."""
     found = []
-    for path in sorted(SKILLS.glob("*.md")):
-        _, front, body = path.read_text().split("---", 2)
-        meta = {k.strip(): v.strip() for k, _, v in (line.partition(":") for line in front.strip().splitlines())}
-        found.append((meta["name"], meta["description"], body.strip()))
+    for path in content.documents():
+        if path.startswith("skills/"):
+            meta, body = content.front_matter(content.text(path))
+            found.append((meta["name"], meta["description"], body.strip()))
     return found
 
 
@@ -113,7 +113,7 @@ def read_tool(tool_name):
 
     function = locals()[tool_name]
     # Described by the tool's own docstring (tarik/), kept in content/agent.json to be edited.
-    return tool(f"Experio_{tool_name}", description=READ_TOOLS[tool_name])(function)
+    return tool(f"Experio_{tool_name}", description=AGENT["read_tools"][tool_name])(function)
 
 
 # n8n's guard against prompt injection, rebuilt (@n8n/agents, sdk/untrusted-content.js): the system prompt says
@@ -326,12 +326,19 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
 CHECKPOINTER = None  # the conversations' memory, set by server.py (Postgres); None: the caller's own, if any
 
 
+def described():
+    """The tools, each with its latest description (content/agent.json, edited in the UI)."""
+    read = {f"Experio_{name}": text for name, text in AGENT["read_tools"].items()}
+    latest = {**read, **AGENT["tools"]}
+    return [found.model_copy(update={"description": latest.get(found.name, found.description)}) for found in TOOLS]
+
+
 def make_agent(config=None, chat=None):
     """The cabinet's Tarik (config.configurable.cabinet, else the default one). One thread per conversation.
     ``chat``: another model, to draw the graph without one configured."""
     return create_agent(
         chat or model(cabinet_of(config)),
-        TOOLS,
+        described(),
         system_prompt=system_prompt(),
         name=f"Tarik - {cabinet_of(config)}",
         checkpointer=CHECKPOINTER,

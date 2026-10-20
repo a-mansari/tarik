@@ -2,11 +2,8 @@
 orchestrator's own, each cabinet's) is read through tarik.core.cabinets.setting, within a cabinet."""
 
 import os
-from pathlib import Path
 
 DEFAULT_CABINET = os.getenv("TARIK_DEFAULT_CABINET", "experio_cabinet_8")
-CONTENT = Path(__file__).resolve().parents[1] / "content"
-SKILLS = CONTENT / "skills"
 
 
 def cabinet_of(config):
