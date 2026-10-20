@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% from "icons.html" import crumbs, icon %}
 {% from "avatar.html" import avatar %}
 {% block title %}{{ run.graph | graph_name }}{% endblock %}
 {% block page_class %} wide{% endblock %}
 {% block content %}
-<p class="crumbs"><a href="/ui/runs">Exécutions</a> › {{ run.graph | graph_name }}</p>
+{{ crumbs("/ui/runs", "Exécutions", "runs", run.graph | graph_name) }}
 <div class="head">
   <div>
     <h1>{{ run.graph | graph_name }}</h1>

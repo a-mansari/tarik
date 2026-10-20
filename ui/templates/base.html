@@ -1,3 +1,4 @@
+{% from "icons.html" import icon %}
 <!doctype html>
 <html lang="fr">
 <head>
@@ -10,11 +11,11 @@
   <header class="bar">
     <a class="brand" href="/ui/runs">Tarik</a>
     <nav>
-      <a href="/ui/runs" {% if request.url.path.startswith('/ui/runs') %}aria-current="page"{% endif %}>Exécutions</a>
-      <a href="/ui/discussion" {% if request.url.path.startswith('/ui/discussion') %}aria-current="page"{% endif %}>Discussion</a>
-      <a href="/ui/workflows" {% if request.url.path.startswith('/ui/workflows') %}aria-current="page"{% endif %}>Workflows</a>
-      <a href="/ui/prompts" {% if request.url.path.startswith('/ui/prompts') %}aria-current="page"{% endif %}>Prompts</a>
-      <a href="/ui/contenu" {% if request.url.path.startswith('/ui/contenu') %}aria-current="page"{% endif %}>Contenu</a>
+      <a href="/ui/runs" {% if request.url.path.startswith('/ui/runs') %}aria-current="page"{% endif %}>{{ icon("runs") }}Exécutions</a>
+      <a href="/ui/discussion" {% if request.url.path.startswith('/ui/discussion') %}aria-current="page"{% endif %}>{{ icon("chat") }}Discussion</a>
+      <a href="/ui/workflows" {% if request.url.path.startswith('/ui/workflows') %}aria-current="page"{% endif %}>{{ icon("workflows") }}Workflows</a>
+      <a href="/ui/prompts" {% if request.url.path.startswith('/ui/prompts') %}aria-current="page"{% endif %}>{{ icon("prompts") }}Prompts</a>
+      <a href="/ui/contenu" {% if request.url.path.startswith('/ui/contenu') %}aria-current="page"{% endif %}>{{ icon("content") }}Contenu</a>
     </nav>
     {% if request.state.user is defined and request.state.user %}
     <form class="who" method="post" action="/logout"><span>{{ request.state.user.name }}</span><button type="submit">Se déconnecter</button></form>

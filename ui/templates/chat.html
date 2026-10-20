@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "icons.html" import icon %}
 {% block title %}Discussion{% endblock %}
 {% block content %}
 <div class="head">
@@ -6,13 +7,13 @@
     <h1>Discussion</h1>
     <p class="muted">Écrire à Tarik comme un client du cabinet, avec ses factures ou relevés joints. Chaque message est une exécution, à suivre étape par étape.</p>
   </div>
-  <form class="filters" method="get" action="/ui/discussion">
+  <form class="filters inline" method="get" action="/ui/discussion">
     <label>Cabinet
       <select name="cabinet" onchange="this.form.submit()">
         {% for name in cabinets %}<option value="{{ name }}" {% if name == cabinet %}selected{% endif %}>{{ name }}</option>{% endfor %}
       </select>
     </label>
-    {% if cabinet %}<a class="primary" href="/ui/discussion/{{ cabinet }}/{{ new }}">Nouvelle conversation</a>{% endif %}
+    {% if cabinet %}<a class="primary" href="/ui/discussion/{{ cabinet }}/{{ new }}">{{ icon("plus") }}Nouvelle conversation</a>{% endif %}
   </form>
 </div>
 <div class="table-wrap">

@@ -1,7 +1,8 @@
 {% extends "base.html" %}
+{% from "icons.html" import crumbs, icon %}
 {% block title %}Discussion{% endblock %}
 {% block content %}
-<p class="crumbs"><a href="/ui/discussion?cabinet={{ cabinet }}">Discussion</a> › {{ cabinet }}</p>
+{{ crumbs("/ui/discussion?cabinet=" ~ cabinet, "Discussion", "chat", cabinet) }}
 <div class="head">
   <div>
     <h1>Conversation <span class="mono">{{ session_id }}</span></h1>
@@ -13,7 +14,9 @@
   <form class="chat-form" id="chat-form" data-send="/ui/discussion/{{ cabinet }}/{{ session_id }}">
     <textarea name="message" rows="3" maxlength="4000" placeholder="Votre message à Tarik (le dossier, achats ou ventes…)"></textarea>
     <div class="chat-actions">
-      <input type="file" name="files" multiple accept="{{ accepted }}">
+      <label class="attach">{{ icon('attach') }}<span>Joindre des fichiers</span>
+        <input type="file" name="files" multiple accept="{{ accepted }}"></label>
+      <ul class="chosen" id="chosen" aria-live="polite"></ul>
       <button type="submit" class="primary">Envoyer</button>
     </div>
     <p class="bad-text" id="chat-error" hidden></p>

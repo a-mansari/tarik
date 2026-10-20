@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% from "icons.html" import crumbs, icon %}
 {% block title %}{{ title }}{% endblock %}
 {% block page_class %} wide{% endblock %}
 {% block content %}
-<p class="crumbs"><a href="/ui/contenu">Contenu</a> › {{ title }}</p>
+{{ crumbs("/ui/contenu", "Contenu", "content", title) }}
 <div class="head"><div>
   <h1>{{ title }}</h1>
   <p class="what">{{ what }}</p>

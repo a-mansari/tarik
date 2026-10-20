@@ -66,6 +66,18 @@
     }
   });
 
+  // The files chosen, by name, under the button that chose them.
+  const chosen = document.getElementById("chosen");
+  function showChosen() {
+    chosen.replaceChildren(...[...form.files.files].map((file) => {
+      const item = document.createElement("li");
+      item.textContent = file.name;
+      return item;
+    }));
+  }
+  form.files.addEventListener("change", showChosen);
+  form.addEventListener("reset", () => setTimeout(showChosen));
+
   // Enter sends, Shift+Enter goes to a new line, as in n8n's chat.
   form.message.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {

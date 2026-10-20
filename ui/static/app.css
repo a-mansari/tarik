@@ -317,7 +317,7 @@ table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 
 .avatar-system { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
 
 /* The Discussion page: the conversation, then the message to send with its files. */
-a.primary { display: inline-block; align-self: flex-end; text-decoration: none; border-radius: 6px; padding: .4rem .9rem; background: var(--accent); color: #fff; }
+a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none; border-radius: 6px; padding: 0 .9rem; background: var(--accent); color: #fff; }
 .talk .files { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .9rem; color: var(--muted); }
 .talk .files li { border: 0; padding: 0; }
 .chat-form { display: grid; gap: .5rem; margin-top: 1rem; }
@@ -325,7 +325,6 @@ a.primary { display: inline-block; align-self: flex-end; text-decoration: none; 
 .chat-actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; justify-content: space-between; }
 .chat-actions input[type=file] { min-width: 0; max-width: 100%; }
 .talk .files li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
-.talk a.download { font-size: .8rem; border: 1px solid var(--line); border-radius: 6px; padding: .05rem .5rem; text-decoration: none; color: var(--fg); }
 .talk a.download:hover { border-color: var(--accent); }
 .talk .used { margin: .35rem 0; font-size: .85rem; }
 .talk .used summary { cursor: pointer; color: var(--muted); display: flex; align-items: center; gap: .35rem; }
@@ -353,3 +352,36 @@ a.primary { display: inline-block; align-self: flex-end; text-decoration: none; 
 .talk .used summary::-webkit-details-marker { display: none; }
 .talk .used summary::before { content: "▸"; }
 .talk .used[open] summary::before { content: "▾"; }
+
+/* Icons beside the bar's pages, and the path back to a page's list. */
+.icon { flex: none; vertical-align: -.15em; }
+.bar nav a { display: inline-flex; align-items: center; gap: .4rem; }
+.bar nav a .icon { opacity: .8; }
+.bar nav a[aria-current="page"] .icon { opacity: 1; color: var(--accent); }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin: 0 0 .6rem; font-size: .85rem; }
+.crumbs > .icon { color: var(--muted); opacity: .7; }
+.crumbs a { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .6rem; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--muted); text-decoration: none; }
+.crumbs a:hover { color: var(--fg); border-color: var(--accent); }
+.crumbs [aria-current] { color: var(--fg); font-weight: 600; overflow-wrap: anywhere; }
+
+/* The Discussions page's filter: the cabinet beside its name, the new conversation button as tall as it. */
+.filters.inline { align-items: center; }
+.filters.inline label { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+.filters.inline select, .filters.inline a.primary { height: 2.25rem; box-sizing: border-box; font-size: .9rem; }
+
+/* The Discussion page's messages as bubbles: the client's on the left, Tarik's on the right, each 80 % at most. */
+#talk .talk { display: flex; flex-direction: column; gap: .6rem; }
+#talk .talk > li { max-width: 80%; width: fit-content; min-width: 12rem; box-sizing: border-box; border-radius: 14px; }
+#talk .talk > li.client { align-self: flex-start; border-bottom-left-radius: 4px; }
+#talk .talk > li.tarik { align-self: flex-end; border-bottom-right-radius: 4px; }
+.talk .files li { gap: .4rem; }
+.talk a.download { display: inline-flex; align-items: center; justify-content: center; width: 1.6rem; height: 1.6rem; padding: 0; border-radius: 6px; color: var(--muted); }
+.talk a.download:hover { color: var(--accent); }
+
+/* Files to send: a button with a paperclip, the chosen files listed beside it. */
+.chat-actions .attach { position: relative; display: inline-flex; align-items: center; gap: .45rem; cursor: pointer; padding: .45rem .9rem; border: 1px dashed var(--line); border-radius: 6px; color: var(--muted); font-size: .9rem; }
+.chat-actions .attach:hover, .chat-actions .attach:focus-within { border-color: var(--accent); color: var(--fg); }
+.chat-actions .attach input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.chosen { flex: 1; display: flex; flex-wrap: wrap; gap: .3rem; list-style: none; margin: 0; padding: 0; font-size: .8rem; min-width: 0; }
+.chosen li { padding: .1rem .5rem; border-radius: 999px; background: var(--accent-soft); color: var(--fg); overflow-wrap: anywhere; }
+@media (max-width: 600px) { #talk .talk > li { max-width: 92%; } }

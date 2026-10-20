@@ -1,4 +1,5 @@
 {% from "avatar.html" import avatar %}
+{% from "icons.html" import icon %}
 {% macro typing() %}<p class="typing"><span class="dots" aria-label="Tarik répond"><i></i><i></i><i></i></span>
   <a class="muted" href="/ui/runs/{{ latest.run_id }}">suivre l'exécution</a></p>{% endmacro %}
 <div id="talk" data-going="{{ 'yes' if going else '' }}" data-run="{{ latest.run_id if latest else '' }}">
@@ -9,7 +10,7 @@
       <span class="who">{{ avatar('client') }}Client</span>
       {% if entry.text %}<pre class="said">{{ entry.text }}</pre>{% endif %}
       {% if entry.files %}<ul class="files">{% for name in entry.files %}
-        <li><span>📎 {{ name }}</span> <a class="download" href="/ui/discussion/{{ cabinet }}/{{ session_id }}/fichier?nom={{ name | urlencode }}" download title="Télécharger {{ name }}">Télécharger</a></li>
+        <li>{{ icon('file', 14) }}<span>{{ name }}</span><a class="download" href="/ui/discussion/{{ cabinet }}/{{ session_id }}/fichier?nom={{ name | urlencode }}" download title="Télécharger {{ name }}" aria-label="Télécharger {{ name }}">{{ icon('download', 14) }}</a></li>
       {% endfor %}</ul>{% endif %}
     </li>
     {% else %}

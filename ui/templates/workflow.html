@@ -1,8 +1,9 @@
 {% extends "base.html" %}
+{% from "icons.html" import crumbs, icon %}
 {% block title %}{{ graph | graph_name }}{% endblock %}
 {% block page_class %} wide{% endblock %}
 {% block content %}
-<p class="crumbs"><a href="/ui/workflows">Workflows</a> › {{ graph | graph_name }}</p>
+{{ crumbs("/ui/workflows", "Workflows", "workflows", graph | graph_name) }}
 <div class="head"><div>
   <h1>{{ graph | graph_name }}</h1>
   <p class="what">{{ graph | graph_description }}</p>
