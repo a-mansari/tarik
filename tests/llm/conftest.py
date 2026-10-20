@@ -22,11 +22,15 @@ THINKING = os.getenv("THINKING") != "off"
 
 
 def agent():
-    """The agent's system prompt, its skills by name, and its tools as the model API takes them."""
+    """The agent's system prompt without its list of skills (the one a case needs is in it, loaded), its skills by
+    name, and its tools with their latest descriptions, load_skill aside: as the agent has them once the skill is
+    loaded, so the first tool called is the decision measured."""
     from engine import agent as tarik
 
     skills = {name: instructions for name, _, instructions in tarik.skills()}
-    return tarik.system_prompt(), skills, [convert_to_anthropic_tool(tool) for tool in tarik.TOOLS]
+    rules = f"<built_in_rules>\n- {tarik.UNTRUSTED_RULE}\n</built_in_rules>"
+    tools = [convert_to_anthropic_tool(tool) for tool in tarik.described() if tool.name != "load_skill"]
+    return f"{rules}\n\n{tarik.AGENT['instructions']}", skills, tools
 
 
 @pytest.fixture(scope="session")
