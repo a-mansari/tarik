@@ -36,7 +36,7 @@ templates.env.globals.update(step_name=graphs.label)
 
 
 def asset(path):
-    """A static file's address, with its version (its last change): a browser never keeps an old copy of a changed one."""
+    """A static file's address with its version (its last change): no browser keeps an old copy of a changed one."""
     return f"/ui/static/{path}?v={int((HERE / 'static' / path).stat().st_mtime)}"
 
 
