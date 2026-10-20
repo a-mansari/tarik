@@ -47,6 +47,8 @@
       { selector: "node[kind = 'group'].ran", style: { "border-color": css("--accent"), "background-color": css("--accent-soft"), "background-opacity": 0.6 } },
       { selector: "node[kind = 'end'].ran", style: { "background-color": css("--accent") } },
       { selector: "edge.ran", style: { "width": 2.5, "line-color": css("--accent"), "target-arrow-color": css("--accent") } },
+      { selector: "node.now", style: { "border-width": 4, "border-color": css("--accent"), "underlay-color": css("--accent"), "underlay-opacity": 0.18, "underlay-padding": 8 } },
+      { selector: "edge.now", style: { "width": 4 } },
       // A way in or out a part rarely takes (an invoice resumed at a later step, a step ending it): shown when a run took it.
       { selector: "edge.hidden", style: { "display": "none" } },
       { selector: "edge.hidden.ran", style: { "display": "element" } },
@@ -263,7 +265,15 @@
 
     function paint() {
       if (!run) return;
-      cy.elements().not("[kind = 'handle'], [kind = 'ghost']").addClass("dim").removeClass("ran ok question wait stop error");
+      const { list, now, ended } = shown();
+      steps.clear();
+      for (const step of list) {
+        const id = nodeOf(step);
+        if (groups.has(id)) continue; // a part's own closing step: its inner steps already tell what it did
+        if (!steps.has(id)) steps.set(id, []);
+        steps.get(id).push(step);
+      }
+      cy.elements().not("[kind = 'handle'], [kind = 'ghost']").addClass("dim").removeClass("ran ok question wait stop error now");
       const byShown = new Map(); // node on screen -> the steps that ran in it (inside it, for a collapsed group)
       for (const [id, list] of steps) {
         const shown = shownAs(id);
@@ -284,7 +294,7 @@
         node.data("display", times > 1 ? `${base}\n×${times}` : base);
         node.ancestors().removeClass("dim").addClass("ran");
       }
-      const went = taken();
+      const went = taken(list, ended);
       const reached = (end) => end.removeClass("dim").addClass("ran");
       if (!went) {
         // Without lanes: the run's start always, any other start or end once a step (or an end) next to it ran,
@@ -303,6 +313,155 @@
       });
       // With lanes: a start or an end is reached when the run went along an edge to or from it.
       if (went) cy.nodes("[kind = 'end']").filter((end) => end.id() === "__start__" || end.connectedEdges(".ran").length).forEach(reached);
+      // The moment replayed: its steps stand out, and the edges into them.
+      const current = new Set(now.map((step) => shownAs(nodeOf(step))));
+      cy.nodes().filter((node) => current.has(node.id())).addClass("now");
+      cy.edges(".ran").filter((edge) => current.has(edge.target().id())).addClass("now");
+      tell(now);
+    }
+
+    // --- One instance, one moment: what the run's canvas shows ---
+
+    let focus = ""; // the lane shown alone ("": all of them)
+    let moment = null; // the moment replayed up to (null: the whole run)
+
+    function shown() {
+      const list = focus ? focused(focus) : sequence;
+      if (moment == null) return { list, now: [], ended: finished };
+      const all = moments(list), upto = Math.min(moment, all.length - 1);
+      return { list: all.slice(0, upto + 1).flat(), now: all[upto] || [], ended: false };
+    }
+
+    // The run's moments, in the order they ended: the steps of one round of one lane each (parallel steps of a round
+    // together); without rounds, one step each.
+    function moments(list) {
+      const by = new Map();
+      for (const step of list) {
+        const key = step.round == null ? `#${step.id}` : `${step.lane}@${step.round}`;
+        if (!by.has(key)) by.set(key, []);
+        by.get(key).push(step);
+      }
+      // A part's closing step (the part ending, recorded in the part around it) tells nothing new: it goes with the
+      // moment before, so each moment shows a step that ran.
+      const merged = [];
+      for (const group of [...by.values()].sort((a, b) => a[0].id - b[0].id)) {
+        if (merged.length && group.every((step) => groups.has(nodeOf(step)))) merged[merged.length - 1].push(...group);
+        else merged.push(group);
+      }
+      return merged;
+    }
+
+    // The parts run several times (two invoices, two email threads): each run of one is an instance to show alone.
+    function instances() {
+      const byPath = new Map(); // path -> parent lane -> its lanes
+      for (const step of sequence) {
+        if (!step.path || step.lane == null) continue;
+        const parent = step.lane.split("|").slice(0, -1).join("|");
+        if (!byPath.has(step.path)) byPath.set(step.path, new Map());
+        const under = byPath.get(step.path);
+        if (!under.has(parent)) under.set(parent, new Set());
+        under.get(parent).add(step.lane);
+      }
+      const found = [];
+      for (const [path, under] of byPath) {
+        if (![...under.values()].some((lanes) => lanes.size > 1)) continue; // never repeated: nothing to tell apart
+        const part = groups.get(path.split("|").join(":"));
+        let index = 0;
+        for (const lanes of under.values()) {
+          for (const lane of lanes) {
+            index += 1; // its rank among its part's runs, for one with nothing to be named by
+            const mine = sequence.filter((step) => step.lane === lane || step.lane.startsWith(`${lane}|`));
+            // Named from its own steps (not the parts inside it): a file by its name, an invoice by its number, a
+            // thread by its address; else its kind and rank.
+            const words = mine.filter((step) => step.lane === lane).map((step) => step.summary || "").join(" ");
+            const label = part?.label || path;
+            const found_ = words.match(/[\w-]+\.(pdf|png|jpe?g|xlsx?|csv|txt)/i)?.[0] || words.match(/Facture (\d+)/)?.[0]
+              || words.match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/)?.[0] || String(index);
+            const name = found_.toLowerCase().startsWith(label.toLowerCase()) ? found_ : `${label} — ${found_}`;
+            const status = worst(mine.map((step) => step.status || "ok"));
+            found.push({ lane, depth: path.split("|").length, label, name, status, first: mine[0]?.id || 0 });
+          }
+        }
+      }
+      return found.sort((a, b) => a.depth - b.depth || a.first - b.first);
+    }
+
+    // One instance's steps, and the way to it and on from it in the parts around it: in each, the steps that led to the
+    // instance's part, and those that followed it.
+    function focused(lane) {
+      const went = taken(sequence) || { from: new Map() };
+      const keep = new Set(sequence.filter((step) => step.lane === lane || step.lane.startsWith(`${lane}|`)).map((s) => s.id));
+      for (let child = lane; child.includes(":"); ) {
+        const parent = child.includes("|") ? child.slice(0, child.lastIndexOf("|")) : "";
+        const node = child.slice(child.lastIndexOf("|") + 1).split(":")[0];
+        // Its closing step in the parent: the parent's steps for that part, matched in the order their lanes ended.
+        const lanes = [...new Set(sequence.filter((s) => s.lane.startsWith(parent ? `${parent}|${node}:` : `${node}:`)
+          && s.lane.split("|").length === child.split("|").length).map((s) => s.lane))];
+        const lastOf = (l) => Math.max(...sequence.filter((s) => s.lane === l || s.lane.startsWith(`${l}|`)).map((s) => s.id));
+        lanes.sort((a, b) => lastOf(a) - lastOf(b));
+        const closings = sequence.filter((s) => s.lane === parent && s.node === node);
+        const closing = closings[lanes.indexOf(child)];
+        if (closing) {
+          for (let id = closing.id; id != null; id = went.from.get(id)) keep.add(id); // what led to it
+          const after = [closing.id]; // and what followed it
+          while (after.length) {
+            const id = after.pop();
+            for (const [next, from] of went.from) if (from === id && !keep.has(next)) { keep.add(next); after.push(next); }
+          }
+        }
+        child = parent;
+      }
+      return sequence.filter((step) => keep.has(step.id));
+    }
+
+    // The moment's steps, listed under the canvas.
+    function tell(now) {
+      const box = document.getElementById("moment-steps");
+      if (!box) return;
+      box.replaceChildren();
+      for (const step of now.filter((s) => !groups.has(nodeOf(s)))) {
+        const li = document.createElement("li");
+        li.append(text("span", "num muted", step.when));
+        li.append(text("b", "", labels.steps?.[graph]?.[step.node] || labels.steps?.traitement?.[step.node] || step.node));
+        if (step.status) li.append(text("span", `chip ${step.status}`, labels.statuses?.[step.status] || step.status));
+        if (step.summary) li.append(text("span", "", step.summary));
+        box.append(li);
+      }
+    }
+
+    function controls() {
+      const select = document.getElementById("focus"), range = document.getElementById("moment");
+      if (!select || !range) return;
+      const found = instances();
+      select.closest("label").hidden = !found.length;
+      const all = text("option", "", "Tout");
+      all.value = "";
+      select.replaceChildren(all, ...found.map((i) => {
+        const option = text("option", "", `${"  ".repeat(i.depth - 1)}${i.name} · ${labels.statuses?.[i.status] || i.status}`);
+        option.value = i.lane;
+        option.selected = i.lane === focus;
+        return option;
+      }));
+      const count = moments(focus ? focused(focus) : sequence).length;
+      range.max = Math.max(count - 1, 0);
+      range.value = moment == null ? range.max : Math.min(moment, range.max);
+      document.getElementById("moment-label").textContent =
+        moment == null ? `Toute l'exécution (${count} moments)` : `Moment ${Number(range.value) + 1} / ${count}`;
+      document.getElementById("moment-all").disabled = moment == null;
+    }
+
+    function wire() {
+      const select = document.getElementById("focus"), range = document.getElementById("moment");
+      if (!select || !range) return;
+      const go = (to) => { moment = to; controls(); paint(); };
+      select.addEventListener("change", () => { focus = select.value; moment = null; controls(); paint(); });
+      range.addEventListener("input", () => go(Number(range.value)));
+      document.getElementById("moment-prev").addEventListener("click", () => go(Math.max((moment ?? Number(range.max) + 1) - 1, 0)));
+      document.getElementById("moment-next").addEventListener("click", () => {
+        const next = (moment ?? -1) + 1;
+        go(next > Number(range.max) ? null : next);
+      });
+      document.getElementById("moment-all").addEventListener("click", () => go(null));
     }
 
     // The whole graph's edges the run went along. In each run of a part (its lane: one invoice, one email thread), each
@@ -310,16 +469,17 @@
     // from the part's start (its first step, or the one it resumed at); a step leading nowhere else goes to the part's
     // end. A part's own closing step stands for the part: entered by its start, left from its end. Runs recorded
     // before rounds: the latest earlier step with an edge to it. Before lanes: null, edges lit between steps that ran.
-    function taken() {
-      if (!sequence.length || sequence.some((s) => s.lane == null)) return null;
+    function taken(list = sequence, ended = finished) {
+      if (!list.length || list.some((s) => s.lane == null)) return null;
       const lanes = new Map();
-      for (const step of sequence) {
+      for (const step of list) {
         if (!lanes.has(step.lane)) lanes.set(step.lane, []);
         lanes.get(step.lane).push(step);
       }
       const edges = new Set(shape.edges.map((e) => e.id));
-      const rounds = !sequence.some((s) => s.round == null); // recorded with their rounds: parallel branches apart
+      const rounds = !list.some((s) => s.round == null); // recorded with their rounds: parallel branches apart
       const went = new Set();
+      went.from = new Map(); // step id -> the step that led to it (null: the part's start)
       for (const list of lanes.values()) {
         const prefix = list[0].path ? list[0].path.split("|").join(":") + ":" : "";
         const start = `${prefix}__start__`, end = `${prefix}__end__`;
@@ -337,24 +497,21 @@
           if (from) {
             went.add(`${from[1]}->${into}`);
             led.add(from[0]);
+            went.from.set(step.id, from[0].id);
           } else if (edges.has(`${start}->${into}`)) {
             went.add(`${start}->${into}`); // where the part began: its first step, or the one it resumed at
+            went.from.set(step.id, null);
           }
           before.push([step, out]);
         }
         // Each step that led nowhere else ended the part, when the run is over and an edge goes from it to the end.
-        if (finished) for (const [step, out] of before) if (!led.has(step) && edges.has(`${out}->${end}`)) went.add(`${out}->${end}`);
+        if (ended) for (const [step, out] of before) if (!led.has(step) && edges.has(`${out}->${end}`)) went.add(`${out}->${end}`);
       }
       return went;
     }
 
     function add(step) {
       if (!sequence.some((s) => s.id === step.id)) sequence.push(step);
-      const id = nodeOf(step);
-      if (groups.has(id)) return; // a part's own closing step: its inner steps already tell what it did
-      if (!steps.has(id)) steps.set(id, []);
-      const list = steps.get(id);
-      if (!list.some((s) => s.id === step.id)) list.push(step);
     }
 
     function toggle(group) {
@@ -597,9 +754,11 @@
       children = found.children || [];
       finished = !["queued", "running"].includes(found.status);
       (found.steps || []).forEach(add);
+      wire();
+      controls();
       if (["queued", "running"].includes(found.status)) {
         const events = new EventSource(`/runs/${run}/events`);
-        events.addEventListener("step", (event) => { add(JSON.parse(event.data)); paint(); });
+        events.addEventListener("step", (event) => { add(JSON.parse(event.data)); controls(); paint(); });
         events.addEventListener("end", () => { events.close(); finished = true; paint(); });
       }
     }

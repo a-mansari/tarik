@@ -292,3 +292,14 @@ table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 
 .under { color: var(--muted); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .run-links { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; margin: .2rem 0 0; font-size: .9rem; }
+
+/* A run's canvas: one instance alone, the run replayed moment by moment, and the moment's steps. */
+.run-tools { display: flex; flex-wrap: wrap; gap: .6rem 1.2rem; align-items: center; margin: 0 0 .5rem; font-size: .9rem; }
+.run-tools select { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .3rem .5rem; margin-left: .3rem; max-width: 22rem; }
+.replay { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+.replay button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: .25rem .6rem; }
+.replay button:disabled { opacity: .5; cursor: default; }
+.replay input[type=range] { width: min(16rem, 40vw); accent-color: var(--accent); }
+.moment-steps { list-style: none; padding: 0; margin: .5rem 0 0; display: grid; gap: .3rem; font-size: .88rem; }
+.moment-steps:empty { display: none; }
+.moment-steps li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline; padding: .35rem .6rem; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 6px 6px 0; }

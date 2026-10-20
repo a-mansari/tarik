@@ -1,4 +1,17 @@
 {# The canvas of a workflow (graph), with one run over it when run is set, and the panel of the step clicked. #}
+  {% if run_id %}
+  {# A run's canvas: one of its instances alone (an invoice, an email thread), and the run replayed moment by moment. #}
+  <div class="run-tools">
+    <label class="focus" hidden>Afficher <select id="focus" aria-label="Afficher une seule instance"></select></label>
+    <div class="replay" role="group" aria-label="Rejouer l'exécution">
+      <button type="button" id="moment-prev" aria-label="Moment précédent">◀</button>
+      <input type="range" id="moment" min="0" max="0" value="0" aria-label="Moment rejoué">
+      <button type="button" id="moment-next" aria-label="Moment suivant">▶</button>
+      <button type="button" id="moment-all">Tout</button>
+      <span id="moment-label" class="muted" role="status"></span>
+    </div>
+  </div>
+  {% endif %}
 <div class="flow">
   <div class="canvas-wrap">
     {# Icons (stroke, currentColor), each button named for screen readers (aria-label) and on hover (data-tip). #}
@@ -21,6 +34,7 @@
       <span class="canvas-note" id="layout-note" role="status"></span>
     </div>
     <div class="canvas" data-graph="{{ graph }}" data-run="{{ run_id or '' }}" data-panel="node-panel" data-fit="fit" data-home="home" data-save="save-layout" data-undo="undo-layout" data-reset="reset-layout" data-note="layout-note" role="img" aria-label="Schéma du workflow {{ graph | graph_name }}"></div>
+    {% if run_id %}<ol class="moment-steps" id="moment-steps" aria-live="polite"></ol>{% endif %}
     {# What the lines, colours and gestures mean, each shown as it looks on the canvas. #}
     <div class="legend">
       {% if run_id %}

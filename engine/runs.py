@@ -136,6 +136,11 @@ def raw_outcome(update):
             line = readable(message.text if isinstance(message.text, str) else message.text())
         else:
             line = str(getattr(message, "text", "") or "")
+    if not line:  # an email thread's step: what it says (emails.Steps), in the order a person reads it
+        refusal = update.get("refusal") or {}
+        said = [update.get(key) for key in ("error", "sent", "manager", "acknowledged", "reply")]
+        line = next((text for text in [*said, refusal.get("message")] if isinstance(text, str) and text), "")
+        status = status or ("error" if update.get("error") else "stop" if refusal.get("refused") else "")
     return status, " ".join(str(line).split())[:300]
 
 
