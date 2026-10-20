@@ -100,16 +100,40 @@ def ran_here(shown):
     return {"earlier": shown[:starts], "conversation": shown[starts:]}
 
 
+HIDDEN = {"attachments", "cabinet", "session_id", "call", "done"}  # shown elsewhere, too long to read, or inner
+
+
 def asked(run):
-    """What the run was asked, in short: the client's message, or the workflow's own inputs that were given."""
+    """What the run was asked, as the team reads it: {name: value}, each input under its name in plain words
+    (labels.json: inputs) and a coded value in words (input_values); an email thread as its sender, subject, message
+    and files. Inputs left empty are left out."""
     given = run["input"] or {}
     if run["graph"] == "agent":
         messages = given.get("messages") or []
-        return {"Message": text_of(messages[-1].get("content")) if messages else ""}
-    call = given.get("call") or {}
-    hidden = {"attachments", "cabinet", "session_id"}  # shown elsewhere, or too long to read
-    found = {key: value for key, value in call.items() if value not in ("", None, 0, False) and key not in hidden}
-    return found or {key: value for key, value in given.items() if key != "call"}
+        return {LABELS["inputs"].get("message", "Message"): text_of(messages[-1].get("content")) if messages else ""}
+    found = given.get("call") or given
+    if isinstance(found.get("thread"), dict):
+        thread = found["thread"]
+        found = {
+            "sender": thread.get("to"),
+            "subject": thread.get("subject"),
+            "message": thread.get("message"),
+            "files": thread.get("files"),
+        }
+    return {
+        LABELS["inputs"].get(key, key): shown_value(key, value)
+        for key, value in found.items()
+        if key not in HIDDEN and value not in ("", None, 0, False, [])
+    }
+
+
+def shown_value(key, value):
+    """An input's value as the team reads it: yes or no, a list's items, a coded value's words."""
+    if isinstance(value, bool):
+        return "Oui" if value else "Non"
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+    return LABELS["input_values"].get(key, {}).get(str(value), value)
 
 
 async def home(request: Request):

@@ -100,7 +100,8 @@ with every run live, step by step.
 2. **Runs in the UI** — done: the runs of each cabinet (refreshed on their own), each run step by step as it happens,
    in plain words (what was asked, what the client reads, each step's outcome, its whole output on demand), and for
    the agent the conversation with its thinking and the tools it used; the exact prompt of each model call (Prompts).
-   Still to come: the inputs' names in plain words.
+   What a run was asked reads in plain words too: each input under its name, a coded value in words (labels.json:
+   inputs, input_values; `check.py` fails on an input without its name), an email thread as its sender and subject.
 3. **Workflows in the UI** — done: each workflow drawn as a canvas, as n8n draws one (steps left to right, a file or
    an invoice as a framed group, conditional paths dashed; pan, zoom, "Au début", "Tout voir"); a run painted over it,
    live while it goes on (each step coloured by its outcome, ×n when it ran for several invoices); a click on a step

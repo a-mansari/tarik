@@ -1,16 +1,18 @@
 """Checks the graphs and the content against each other: every tool a graph or the agent calls exists (tarik/), the
-stack's content has every document the code reads (each tool's prompt, each tool's description), and every step the
-canvas draws has its plain description (labels.json). Run in the container: python check.py (exit 1 on a gap)."""
+stack's content has every document the code reads (each tool's prompt, each tool's description), every step the
+canvas draws has its plain description, and every input a workflow is given its name (labels.json). Run in the
+container: python check.py (exit 1 on a gap)."""
 
 import ast
 import re
 import sys
 from pathlib import Path
 
-from engine import agent, content, graphs
-from engine.content import AGENT
+from engine import agent, chat, content, dossier, graphs, traitement
+from engine.content import AGENT, LABELS
 from engine.tools import TOOLS
 from tarik.invoices.pipeline import INVOICE_CHAIN
+from ui.pages import HIDDEN
 
 ENGINE = Path(__file__).parent / "engine"
 TOOL_ARGUMENT = {"step": 3, "call": 1, "run_tool": 1}  # where each caller takes the tool's name
@@ -59,12 +61,20 @@ def undescribed():
     ]
 
 
+def unnamed():
+    """Every input a workflow is given has a name in plain words (labels.json: inputs), but those never shown."""
+    discussion = set(chat.Chat.__annotations__) - set(chat.Steps.__annotations__)  # its inputs, not its outputs
+    given = {*traitement.INPUTS, *dossier.INPUTS, *discussion, "sender", "subject", "files"}
+    return [f"input {key}: no name in labels.json" for key in sorted(given - HIDDEN - set(LABELS["inputs"]))]
+
+
 if __name__ == "__main__":
     content.load()
     gaps = [f"{where}: no tool {name}" for name, where in called().items() if name not in TOOLS]
-    gaps += missing_content() + undescribed()
+    gaps += missing_content() + undescribed() + unnamed()
     print(
         "\n".join(gaps)
-        or f"ok: {len(called())} tools called, all exist; the content has all it needs; every step described"
+        or f"ok: {len(called())} tools called, all exist; the content has all it needs; every step described, "
+        "every input named"
     )
     sys.exit(1 if gaps else 0)
