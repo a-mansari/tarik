@@ -4,7 +4,7 @@ the bank account chosen, and which waiting question the reply answers. Each kind
 be right on average (MIN_RIGHT) and almost never decide what the client did not (MAX_WRONG; never for a
 confirmation): an unclear reply must leave the decision empty, so the client is asked again.
 
-Slow and billed: python3 mcp/tests/run.py -m llm -s (-s shows the cases missed and the scores)."""
+Slow and billed: python -m pytest -m llm -s (-s shows the cases missed and the scores)."""
 
 import pytest
 

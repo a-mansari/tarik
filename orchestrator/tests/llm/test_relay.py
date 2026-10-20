@@ -4,7 +4,7 @@ the client every question, stop and problem, what changed and each invoice poste
 the model often rewrites rather than copies); the shorter summary must do at least as well, and both replies are
 measured: copied word for word or not, length, seconds, tokens.
 
-Slow and billed: python3 mcp/tests/run.py -m llm -s."""
+Slow and billed: python -m pytest -m llm -s."""
 
 from concurrent.futures import ThreadPoolExecutor
 

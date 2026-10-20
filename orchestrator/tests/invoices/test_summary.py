@@ -8,7 +8,10 @@ from tests import runs
 
 @pytest.mark.communication
 def test_the_same_failure_on_two_invoices_names_each_one(db_cabinet):
-    for invoice_id in (11, 12):  # what n8n records for a failed step: its error, with the invoice it was given
+    for invoice_id in (
+        11,
+        12,
+    ):  # what engine.tools.step records for a failed step: its error, with the invoice it was given
         record_step(
             "r",
             "s",

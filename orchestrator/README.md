@@ -13,18 +13,18 @@ psycopg (LGPL, as an unmodified library). Check the licence of every new depende
 From n8n it takes only ideas (its canvas, runs step by step, sub-workflows, the prompt log, untrusted data); nothing
 of the n8n stack runs in it:
 
-- **Its tools** (`tarik/`): every Experio step, mail and file, forked from tarik-mcp and called in-process (no MCP
+- **Its tools** (`tarik/`): every Experio step, mail and file, forked from tarik-mcp (branch `main`) and called in-process (no MCP
   hop), each call inside its cabinet (`using(cabinet)`): a run names its cabinet once, never the model. Free of n8n's
   workarounds: no 5-minute tool cap to dodge, steps recorded as they end.
 - **Its content** (`content/`): the agent's instructions and tools' descriptions, the skills, the tools' prompts, the
-  UI's words; the n8n stack keeps its own copy in `instructions/`.
+  UI's words; `docs/using-tarik.md` for the cabinets.
 - **Its Postgres** (service `db`): runs, conversations, layouts (schema `orchestrator`) and each cabinet's schema.
 - **Its model key**: Vault `secret/tarik/orchestrator` (`MODEL_API_KEY`, `MODEL_API_URL` optional).
 - **Its mail watcher** (`engine/mail.py`), for the cabinets listed in `MAIL_BY_ORCHESTRATOR` (same Vault path) only:
   a mailbox is answered by one stack, never both.
 
 Shared with the n8n stack: Vault (read-only AppRole on `secret/tarik/*`, reached on its Docker network) and the
-cabinets' Experio. n8n keeps running untouched until a cabinet is switched over.
+cabinets' Experio. The n8n implementation (branch `main`) keeps running until a cabinet is switched over.
 
 ## Layout
 
@@ -49,7 +49,8 @@ cabinets' Experio. n8n keeps running untouched until a cabinet is switched over.
 
 ## Run it
 
-From this folder (its `.env`, never in git, gives `POSTGRES_PASSWORD` and `ODOO_URL`):
+From this folder (its `.env`, never in git, from `.env.example`, gives `POSTGRES_PASSWORD` and `ODOO_URL`; Vault
+up first, from the repository's root):
 
 ```bash
 docker compose up --build -d

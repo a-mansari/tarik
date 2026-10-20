@@ -1,5 +1,5 @@
 """A realistic "Tarik - Traitement" run for the summary's tests: one PDF of ten invoices processed, each step's
-outcome as its tool words it and marks it (routine or not), recorded as n8n records them (record_step)."""
+outcome as its tool words it and marks it (routine or not), recorded by record_step."""
 
 # ruff: noqa: E501 -- its messages are the tools' own, one string each, as they reach the summary.
 
@@ -88,8 +88,8 @@ def outcomes():
 
 
 def record(run_id, routine=True):
-    """Record the run under ``run_id``, as n8n would (each invoice's steps in reverse: n8n records a step after the
-    ones it led to); with ``routine`` False, as before outcomes were marked: every one shown."""
+    """Record the run under ``run_id``, each invoice's steps in reverse (the summary must not depend on the order
+    outcomes were recorded in); with ``routine`` False, as before outcomes were marked: every one shown."""
     for key, steps in outcomes().items():
         for step, status, message, unread in reversed(steps):
             ids = {"invoice_id": key} if key > 0 else {"file_id": -key}
