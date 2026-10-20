@@ -67,3 +67,22 @@ def yes_no(decision):
     """The agent's ``decision`` on a oui / non question, read from the client's answer: True for exactly "oui",
     False for exactly "non", None for anything else (the client was unclear: the question is asked again)."""
     return {"oui": True, "non": False}.get(normalized(decision or ""))
+
+
+def kept_answer(invoice_id, step):
+    """The client's answer kept for ``step``'s question on ``invoice_id`` ("" when none)."""
+    with cabinet_db() as db:
+        row = db.execute(
+            "select answer from tarik_answers where invoice_id = %s and step = %s", (invoice_id, step)
+        ).fetchone()
+    return row[0] if row else ""
+
+
+def keep_answer(invoice_id, step, answer):
+    """The client's understood answer to ``step``'s question on ``invoice_id``, kept for the runs taking it up again."""
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_answers (invoice_id, step, answer) values (%s, %s, %s) "
+            "on conflict (invoice_id, step) do update set answer = excluded.answer",
+            (invoice_id, step, answer),
+        )

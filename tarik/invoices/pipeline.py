@@ -305,13 +305,25 @@ def dossier_questions(session_id: str, dossier_id: int) -> dict:
     """The invoice questions other conversations left waiting on the dossier ``dossier_id``'s drafts, for the client
     who asks about that dossier in a new conversation (the workflow records each one as this run's question:
     record_step then keeps it as this conversation's pending question, so their answer finds it). Never the
-    conversation's own; a draft deleted or posted since, or of another dossier, is left out. Each: {invoice_id,
+    conversation's own, and none while one of its own questions or held drafts waits; a draft deleted or posted
+    since, or of another dossier, is left out. Each: {invoice_id,
     step (the one it waits at), message, choices}."""
     with cabinet_db() as db:
-        rows = db.execute(
-            "select invoice_id, step, question, choices from tarik_pending where session_id <> %s order by created_at",
-            (session_id,),
-        ).fetchall()
+        # This conversation's own question or held draft first: another's question would take the reply meant for it.
+        busy = db.execute(
+            "select 1 from tarik_pending where session_id = %s union all "
+            "select 1 from tarik_held where session_id = %s and not released limit 1",
+            (session_id, session_id),
+        ).fetchone()
+        rows = (
+            []
+            if busy
+            else db.execute(
+                "select invoice_id, step, question, choices from tarik_pending where session_id <> %s "
+                "order by created_at",
+                (session_id,),
+            ).fetchall()
+        )
     ids = [invoice_id for invoice_id, *_ in rows]
     here = (
         set(
@@ -532,10 +544,14 @@ def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, sto
     if dossier_id and stopped:
         found = furthest_outcomes(elsewhere).items()
         waiting += [i for i, (step, status) in found if resumable(step, status, True)]
-    # The conversation's own held drafts, and the dossier's from any other.
-    waiting += [invoice_id for invoice_id, owner in kept if owner == session_id or dossier_id]
-    # Posted by Tarik: still a draft in Experio only when someone put it back (the domain below keeps the drafts).
-    waiting += [i for i, outcome in furthest_outcomes(reposted).items() if outcome == ("post_invoice", "ok")]
+    # The conversation's own held drafts; the dossier's from other conversations only when it has none ("postez-la"
+    # in a thread is about that thread's invoice, never every invoice held in the dossier).
+    own = [invoice_id for invoice_id, owner in kept if owner == session_id]
+    waiting += own
+    if not own and dossier_id:
+        waiting += [invoice_id for invoice_id, owner in kept if owner != session_id]
+        # Posted by Tarik, still a draft in Experio only when someone put it back (the domain below keeps the drafts).
+        waiting += [i for i, outcome in furthest_outcomes(reposted).items() if outcome == ("post_invoice", "ok")]
     if waiting:
         domain = [("id", "in", sorted(set(waiting))), ("state", "in", ["pending", "draft"])]
         # What came from any conversation is limited to this dossier's.

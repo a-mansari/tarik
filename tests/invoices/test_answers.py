@@ -300,19 +300,21 @@ def test_a_dossiers_waiting_questions_are_reached_from_a_new_conversation(db_cab
 
     monkeypatch.setattr(pipeline, "odoo_call", search)
     with cabinet_db() as db:
-        for invoice_id, session in [(1, "old"), (2, "new"), (3, "old")]:
+        for invoice_id, session in [(1, "old"), (2, "other"), (3, "old")]:
             db.execute(
                 "insert into tarik_pending (invoice_id, session_id, step, question) "
                 "values (%s, %s, 'settle_tva', 'Q ?')",
                 (invoice_id, session),
             )
     found = pipeline.dossier_questions("new", 5)["questions"]
-    assert [q["invoice_id"] for q in found] == [1]  # not its own (2), not a posted one (3)
+    assert [q["invoice_id"] for q in found] == [1, 2]  # not a posted one (3)
     assert ("company_id", "=", 5) in asked[-1] and pipeline.dossier_questions("new", 0)["questions"] == []
     # Recorded as this run's question, it becomes this conversation's: its answer finds it.
     pipeline.record_step("r", "new", "dossier_questions", {"status": "question", "message": "Q ?", **found[0]})
-    assert sorted(item["invoice_id"] for item in pipeline.waiting_on("new")) == [1, 2]
+    assert [item["invoice_id"] for item in pipeline.waiting_on("new")] == [1]
     assert pipeline.waiting_on("old") == []
+    # While one of its own waits, no other conversation's question is brought in: it would take the reply.
+    assert pipeline.dossier_questions("new", 5)["questions"] == []
 
 
 @pytest.mark.functionality
@@ -348,3 +350,14 @@ def test_when_nothing_is_to_be_posted_the_client_is_told_why(db_cabinet, monkeyp
     assert "facture 1 (F-1) : attend votre reponse a sa question : quel compte ?" in told["message"]
     assert "facture 2 (F-2) : Facture 2 : doublon." in told["message"]
     assert "facture 3 (sans numero) : pas importee par Tarik" in told["message"]
+
+
+@pytest.mark.functionality
+def test_posting_takes_the_conversations_own_held_drafts_first(db_cabinet, monkeypatch):
+    """ "Comptabilisez-la" in a thread is about that thread's invoice: the dossier's drafts held in other
+    conversations are taken only when this one holds none."""
+    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain, **kw: domain[0][2])  # all drafts
+    pipeline.hold_posting(7, "this")
+    pipeline.hold_posting(8, "another")
+    assert pipeline.waiting_drafts("this", held=True, dossier_id=5)["invoices"] == [7]
+    assert pipeline.waiting_drafts("new", held=True, dossier_id=5)["invoices"] == [7, 8]

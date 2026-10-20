@@ -79,6 +79,15 @@ create table if not exists tarik_held (
 );
 alter table tarik_held add column if not exists released boolean not null default false;
 
+-- The client's oui / non answer to a step's question on an invoice (non-recoverable TVA, prepaid spread): a "non"
+-- changes nothing in Experio, so without it here an invoice taken up again would be asked again.
+create table if not exists tarik_answers (
+    invoice_id integer not null,
+    step text not null,
+    answer text not null,
+    primary key (invoice_id, step)
+);
+
 -- Tarik's mailbox, read over IMAP without changing it: where the reading stopped, each email
 -- thread (one conversation, its own session), and each email received in it.
 create table if not exists tarik_mail_state (

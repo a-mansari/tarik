@@ -33,6 +33,11 @@ def experio(monkeypatch):
     monkeypatch.setattr(tva, "test_mode_note", lambda: "")
     monkeypatch.setattr(tva, "_tax_lines", lambda invoice_id, context: ["500.0 HT a 20.0 % (TVA 20%)"])
     monkeypatch.setattr(tva, "odoo_call", lambda *a, **k: [{"use_prorata": state["prorata"], "prorata_rate": 80}])
+    kept = {}  # the answers kept per invoice and step (tarik_answers)
+    monkeypatch.setattr(tva, "kept_answer", lambda invoice_id, step: kept.get((invoice_id, step), ""))
+    monkeypatch.setattr(
+        tva, "keep_answer", lambda invoice_id, step, answer: kept.__setitem__((invoice_id, step), answer)
+    )
     return state
 
 
@@ -55,3 +60,11 @@ def test_the_cabinets_prorata_applies_to_recoverable_tva(experio):
     assert experio["written"] == [{"tax_prorata": True}]
     experio["invoice"]["type"] = "sale"
     assert tva.settle_tva(3)["routine"]  # a sale: nothing to settle, nothing to tell
+
+
+@pytest.mark.functionality
+def test_an_answer_is_kept_for_the_invoice_taken_up_again(experio):
+    """A "non" changes nothing in Experio: kept, so the invoice resumed later is not asked again."""
+    assert tva.settle_tva(3)["status"] == "question"
+    assert tva.settle_tva(3, "non")["message"].startswith("Facture 3 : TVA recuperable")
+    assert tva.settle_tva(3)["message"].startswith("Facture 3 : TVA recuperable")  # taken up again: no question
