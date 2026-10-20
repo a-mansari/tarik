@@ -174,27 +174,16 @@
       grid();
     }
 
-    // An edge as arranged: its style (right angles, straight, curved), and through its bend points when it has some.
     // A list of points as cytoscape places them: each as its share along the source→target line and its distance from
-    // it. Which side a positive distance bends to is checked once against where cytoscape actually draws it.
-    function relative(edge, points, sign) {
+    // it, positive to the left of that line (cytoscape's vectorNormInverse, the same whichever way it pairs the two
+    // steps). Worked out from the positions alone: nothing waits for cytoscape to have drawn the edge once.
+    function relative(edge, points) {
       const s = edge.source().position(), t = edge.target().position();
       const vx = t.x - s.x, vy = t.y - s.y, length2 = vx * vx + vy * vy || 1, length = Math.sqrt(length2);
       return {
         weights: points.map((p) => ((p.x - s.x) * vx + (p.y - s.y) * vy) / length2).join(" "),
-        distances: points.map((p) => sign * ((p.x - s.x) * vy - (p.y - s.y) * vx) / length).join(" "),
+        distances: points.map((p) => ((p.y - s.y) * vx - (p.x - s.x) * vy) / length).join(" "),
       };
-    }
-
-    // Placed, then checked against where cytoscape drew the point furthest from the line (a point on the line looks
-    // right either way), and placed again on the other side when it landed on the wrong one.
-    function oriented(edge, points, apply, drawn) {
-      const s = edge.source().position(), t = edge.target().position(), vx = t.x - s.x, vy = t.y - s.y;
-      const off = (p) => Math.abs((p.x - s.x) * vy - (p.y - s.y) * vx);
-      const far = points.reduce((best, p, index) => (off(p) > off(points[best]) ? index : best), 0);
-      apply(relative(edge, points, 1));
-      const got = drawn()?.[far], wanted = points[far];
-      if (got && Math.hypot(got.x - wanted.x, got.y - wanted.y) > 2) apply(relative(edge, points, -1));
     }
 
     const OVERRIDES = "segment-weights segment-distances control-point-weights control-point-distances edge-distances curve-style source-endpoint target-endpoint";
@@ -205,9 +194,8 @@
       const saved = layout.edges?.[edge.id()] || { points: [], style: "straight" };
       edge.removeStyle(OVERRIDES);
       if (saved.points.length) {
-        oriented(edge, saved.points,
-          (r) => edge.style({ "curve-style": "segments", "edge-distances": "node-position", "segment-weights": r.weights, "segment-distances": r.distances }),
-          () => edge.segmentPoints());
+        const r = relative(edge, saved.points);
+        edge.style({ "curve-style": "segments", "edge-distances": "node-position", "segment-weights": r.weights, "segment-distances": r.distances });
         return;
       }
       if (saved.style === "bezier") {
@@ -228,12 +216,11 @@
         // cytoscape's angles: 0deg up, 90deg right, 180deg down, 270deg left.
         const exit = across ? (dir > 0 ? "90deg" : "270deg") : (dir > 0 ? "180deg" : "0deg");
         const entry = across ? (dir > 0 ? "270deg" : "90deg") : (dir > 0 ? "0deg" : "180deg");
-        oriented(edge, controls,
-          (r) => edge.style({
-            "curve-style": "unbundled-bezier", "edge-distances": "node-position", "control-point-weights": r.weights,
-            "control-point-distances": r.distances, "source-endpoint": exit, "target-endpoint": entry,
-          }),
-          () => edge.controlPoints());
+        const r = relative(edge, controls);
+        edge.style({
+          "curve-style": "unbundled-bezier", "edge-distances": "node-position", "control-point-weights": r.weights,
+          "control-point-distances": r.distances, "source-endpoint": exit, "target-endpoint": entry,
+        });
         return;
       }
       edge.style("curve-style", saved.style || "straight");
