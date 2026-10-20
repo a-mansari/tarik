@@ -11,21 +11,29 @@ from engine import accounts, runs
 from server import DATABASE
 
 
+def asked_password():
+    """The new password, typed twice, checked before anything is opened."""
+    password = getpass.getpass("Mot de passe (12 caracteres au moins) : ")
+    if len(password) < 12:
+        raise SystemExit(f"Mot de passe trop court : {len(password)} caracteres, 12 au moins. Rien n'a change.")
+    if password != getpass.getpass("Encore : "):
+        raise SystemExit("Les deux mots de passe different. Rien n'a change.")
+    return password
+
+
 async def main(command, email, name=""):
-    await runs.open_store(DATABASE)
-    await accounts.setup()
-    if command == "add":
-        password = getpass.getpass("Mot de passe : ")
-        if len(password) < 12:
-            raise SystemExit("12 caracteres au moins")
-        if password != getpass.getpass("Encore : "):
-            raise SystemExit("les deux mots de passe different")
-        await accounts.save_user(email, name or email, password)
-    elif command == "disable":
-        await accounts.disable(email)
-    else:
+    if command not in ("add", "disable"):
         raise SystemExit(__doc__)
-    await runs.pool.close()
+    password = asked_password() if command == "add" else None
+    await runs.open_store(DATABASE)
+    try:
+        await accounts.setup()
+        if command == "add":
+            await accounts.save_user(email, name or email, password)
+        else:
+            await accounts.disable(email)
+    finally:
+        await runs.pool.close()
     print("ok")
 
 
