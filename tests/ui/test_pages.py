@@ -28,3 +28,51 @@ def test_an_email_thread_reads_as_its_sender_subject_and_message():
     shown = asked({"graph": "fil", "input": {"cabinet": "c", "thread": thread, "done": []}})
     expected = {"De": "client@cabinet.ma", "Sujet": "Factures", "Message": "Voici", "Fichiers joints": "a.pdf, b.pdf"}
     assert shown == expected
+
+
+def picked(cookie, path="/ui/runs"):
+    return type(
+        "R", (), {"cookies": {"tarik_cabinet": cookie} if cookie else {}, "url": type("U", (), {"path": path})}
+    )()
+
+
+def test_the_pages_show_the_cabinet_picked_else_the_first(monkeypatch):
+    from ui import pages
+
+    monkeypatch.setattr(pages, "CABINETS", {"cab_b", "cab_a"})
+    monkeypatch.setattr(pages, "display_name", lambda cabinet: {"cab_a": "Cabinet A"}.get(cabinet, ""))
+    assert pages.chosen(picked("cab_b")) == "cab_b"
+    assert pages.chosen(picked("cab_gone")) == "cab_a" and pages.chosen(picked(None)) == "cab_a"
+    shown = pages.sidebar(picked("cab_b", "/ui/discussion/cab_b/chat-1"))
+    assert [(c["name"], c["display"], c["chosen"]) for c in shown] == [
+        ("cab_a", "Cabinet A", False),
+        ("cab_b", "", True),
+    ]
+    assert shown[0]["next"] == "/ui/discussion"  # another cabinet's conversation: back to the list, never the old one
+    assert pages.sidebar(picked("cab_a", "/ui/workflows/traitement"))[0]["next"] == "/ui/workflows/traitement"
+
+
+def test_picking_a_cabinet_keeps_it_and_goes_back_on_this_site_only(monkeypatch):
+    import asyncio
+
+    from starlette.requests import Request
+
+    from ui import pages
+
+    monkeypatch.setattr(pages, "CABINETS", {"cab_a"})
+
+    def pick(cabinet, target):
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": f"/ui/cabinet/{cabinet}",
+            "headers": [],
+            "query_string": f"next={target}".encode(),
+            "path_params": {"cabinet": cabinet},
+        }
+        return asyncio.run(pages.choose(Request(scope)))
+
+    answer = pick("cab_a", "/ui/prompts")
+    assert answer.headers["location"] == "/ui/prompts" and "tarik_cabinet=cab_a" in answer.headers["set-cookie"]
+    assert pick("cab_a", "//evil.example").headers["location"] == "/ui/runs"
+    assert "set-cookie" not in pick("cab_unknown", "/ui/runs").headers

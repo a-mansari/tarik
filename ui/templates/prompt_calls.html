@@ -2,7 +2,7 @@
 {% from "icons.html" import crumbs, icon %}
 {% block title %}Prompts{% endblock %}
 {% block content %}
-{{ crumbs("/ui/prompts?cabinet=" ~ cabinet, "Prompts", "prompts", cabinet) }}
+{{ crumbs("/ui/prompts", "Prompts", "prompts", display_name(cabinet) or cabinet) }}
 <div class="head"><div>
   <h1>Conversation <span class="mono">{{ session_id }}</span></h1>
   <p class="muted">{{ calls | length }} appel(s) du modèle, dans l'ordre. Ouvrez-en un pour voir exactement ce que Tarik a reçu : ses instructions, ses outils, puis chaque message.</p>

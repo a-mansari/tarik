@@ -1,18 +1,12 @@
 {% extends "base.html" %}
+{% from "icons.html" import cabinet as cabinet_label %}
 {% block title %}Prompts{% endblock %}
 {% block content %}
 <div class="head">
   <div>
-    <h1>Prompts</h1>
+    <h1>Prompts{% if cabinet %} · {{ cabinet_label(cabinet) }}{% endif %}</h1>
     <p class="muted">Ce que Tarik a reçu à chaque appel du modèle : ses instructions, ses outils et toute la conversation. Gardés 30 jours. Ils contiennent les mots des clients : à ne pas partager.</p>
   </div>
-  <form class="filters" method="get" action="/ui/prompts">
-    <label>Cabinet
-      <select name="cabinet" onchange="this.form.submit()">
-        {% for name in cabinets %}<option value="{{ name }}" {% if name == cabinet %}selected{% endif %}>{{ name }}</option>{% endfor %}
-      </select>
-    </label>
-  </form>
 </div>
 <div class="table-wrap">
   <table class="runs">

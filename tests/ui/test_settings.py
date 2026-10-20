@@ -118,7 +118,9 @@ def test_the_page_renders_a_saved_change_and_never_a_secret():
 
     data = {**BEFORE, "IMAP_PASSWORD": "mailbox-secret"}
     page = settings_pages.templates.get_template("cabinet.html").render(
-        request=type("R", (), {"url": type("U", (), {"path": "/ui/cabinets/cabinet_a"})(), "state": None})(),
+        request=type(
+            "R", (), {"cookies": {}, "url": type("U", (), {"path": "/ui/cabinets/cabinet_a"})(), "state": None}
+        )(),
         cabinet="cabinet_a",
         sections=settings_pages.fields(data),
         version=4,

@@ -16,10 +16,10 @@ from engine import agent, runs
 from engine.chat import REMINDER
 from engine.tools import call
 from tarik.core.cabinets import CABINETS
-from tarik.core.conversation import FILES_NOTE, NO_TEXT
+from tarik.core.conversation import files_of, own_words
 from tarik.core.queries import Q
 from tarik.emails.inbox import FILE_TYPES
-from ui.pages import templates
+from ui.pages import chosen, templates
 
 SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations only: never an email thread's
 MAX_FILES, MAX_FILE, MAX_TEXT = 10, 20 * 1024 * 1024, 4000  # files per message, bytes per file, characters
@@ -42,9 +42,7 @@ def said(message):
     text = agent.text_of(message.content)
     if text.endswith(REMINDER):
         return None
-    words, _, files = text.partition(FILES_NOTE)
-    shown = "" if words.strip() == NO_TEXT else words
-    return {"who": "Client", "text": shown, "files": files.split(", ") if files else []}
+    return {"who": "Client", "text": own_words(text), "files": files_of(text)}
 
 
 async def messages(session):
@@ -85,12 +83,9 @@ async def talk(cabinet, session):
 
 
 async def chat_page(request: Request):
-    """A cabinet's conversations, and a new one to start."""
-    cabinets = sorted(CABINETS)
-    cabinet = request.query_params.get("cabinet")
-    cabinet = cabinet if cabinet in CABINETS else (cabinets[0] if cabinets else None)
+    """The conversations of the cabinet picked in the sidebar, and a new one to start."""
+    cabinet = chosen(request)
     context = {
-        "cabinets": cabinets,
         "cabinet": cabinet,
         "conversations": await conversations(cabinet) if cabinet else [],
         "new": f"chat-{uuid.uuid4().hex}",

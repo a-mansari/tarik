@@ -1,11 +1,10 @@
 {% extends "base.html" %}
-{% from "icons.html" import crumbs, icon %}
-{% block title %}{{ cabinet }}{% endblock %}
+{% from "icons.html" import icon, cabinet as cabinet_label %}
+{% block title %}Réglages{% endblock %}
 {% block page_class %} wide{% endblock %}
 {% block content %}
-{{ crumbs("/ui/cabinets", "Cabinets", "cabinets", cabinet) }}
 <div class="head"><div>
-  <h1>Réglages de <span class="mono">{{ cabinet }}</span></h1>
+  <h1>Réglages · {{ cabinet_label(cabinet) }}{% if dry_run is defined and dry_run is not none %} <span class="chip {{ '' if dry_run else 'wait' }}">{{ 'Simulation' if dry_run else 'Écritures réelles' }}</span>{% endif %}</h1>
   <p class="what">Ce que Tarik utilise pour ce cabinet. Un mot de passe ou une clé n'est jamais affiché : il se remplace seulement. Un changement s'applique dès le message suivant.</p>
 </div></div>
 {% if unreachable %}

@@ -47,8 +47,7 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 | `tarik/` | The tools (`TOOLS`, registered by `@tool` / `@step_tool`), Experio, mail, the vision model. |
 | `engine/tools.py` | One tool call: in a worker thread, in its cabinet, at most 10 at once per cabinet; a refusal's text kept for the client, a crash logged and told plainly; a step's outcome recorded for the run's summary. |
 | `engine/runs.py` | Every run and each of its steps, in Postgres (schema `orchestrator`); the agent's conversations next to them. |
-| `engine/agent.py` | The agent: instructions and tools' descriptions from the content's `agent.json`, its skills (`skills/*.md`), tool output from Experio tagged as untrusted data. |
-| `engine/model.py` | MiniMax-M3 with a 1024-token thinking budget, with this stack's own key. |
+| `engine/agent.py` | The agent: instructions and tools' descriptions from the content's `agent.json`, its skills (`skills/*.md`), tool output from Experio tagged as untrusted data; its model (MiniMax-M3, a 1024-token thinking budget, this stack's own key). |
 | `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the Prompts page. |
 | `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
 | `api.py` | The Experio app's API: cabinets created, changed or deactivated, served at once (guide: `docs/experio-api.md`). |
@@ -83,7 +82,8 @@ docker compose up --build -d
 | `GET /graphs/<graph>` | A workflow's shape for the canvas. |
 | `GET` / `PUT` / `DELETE /graphs/<graph>/layout` | How the team arranged its canvas: read, saved, or forgotten. |
 
-The team's pages: http://127.0.0.1:2024/ui/runs (runs), /ui/discussion (writing to Tarik), /ui/workflows
+The team's pages, each cabinet picked in the sidebar (under its name in Experio, its database beside it) and
+the pages showing that cabinet's: http://127.0.0.1:2024/ui/runs (runs), /ui/discussion (writing to Tarik), /ui/workflows
 (workflows), /ui/prompts (what the model was sent), /ui/contenu (what Tarik is told, edited with its history),
 /ui/cabinets (each cabinet's settings), /ui/comptes (the accounts), /ui/journal (who did what: logins, accounts,
 content, settings, layouts, runs started by hand; `engine/audit.py`, never a password or a link). Each person logs in with their own account, made

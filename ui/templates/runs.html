@@ -1,18 +1,13 @@
 {% extends "base.html" %}
+{% from "icons.html" import cabinet as cabinet_label %}
 {% block title %}Exécutions{% endblock %}
 {% block content %}
 <div class="head">
   <div>
-    <h1>Exécutions</h1>
+    <h1>Exécutions{% if cabinet %} · {{ cabinet_label(cabinet) }}{% endif %}</h1>
     <p class="muted">Chaque fois que Tarik travaille : une conversation, un traitement de documents, un dossier, des emails. Les plus récentes en premier, mises à jour toutes seules.</p>
   </div>
   <form class="filters" method="get" action="/ui/runs">
-    <label>Cabinet
-      <select name="cabinet" id="filter-cabinet" onchange="this.form.submit()">
-        <option value="">Tous</option>
-        {% for name in cabinets %}<option value="{{ name }}" {% if name == cabinet %}selected{% endif %}>{{ name }}</option>{% endfor %}
-      </select>
-    </label>
     <label>Type
       <select name="graph" id="filter-graph" onchange="this.form.submit()">
         <option value="">Tous</option>
@@ -23,8 +18,8 @@
 </div>
 <div class="table-wrap">
   <table class="runs">
-    <thead><tr><th>Début</th><th>Type</th><th>Cabinet</th><th>Conversation</th><th>État</th><th>Durée</th></tr></thead>
-    <tbody id="runs-rows" data-live="{{ request.url.path }}?partial=1{% if cabinet %}&cabinet={{ cabinet }}{% endif %}{% if graph %}&graph={{ graph }}{% endif %}">
+    <thead><tr><th>Début</th><th>Type</th><th>Conversation</th><th>État</th><th>Durée</th></tr></thead>
+    <tbody id="runs-rows" data-live="{{ request.url.path }}?partial=1{% if graph %}&graph={{ graph }}{% endif %}">
       {% include "runs_rows.html" %}
     </tbody>
   </table>

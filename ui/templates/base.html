@@ -1,4 +1,4 @@
-{% from "icons.html" import icon %}
+{% from "icons.html" import icon, cabinet as cabinet_label %}
 <!doctype html>
 <html lang="fr">
 <head>
@@ -10,23 +10,44 @@
 <body>
   <header class="bar">
     <a class="brand" href="/ui/runs">Tarik</a>
-    <nav>
-      <a href="/ui/runs" {% if request.url.path.startswith('/ui/runs') %}aria-current="page"{% endif %}>{{ icon("runs") }}Exécutions</a>
-      <a href="/ui/discussion" {% if request.url.path.startswith('/ui/discussion') %}aria-current="page"{% endif %}>{{ icon("chat") }}Discussion</a>
-      <a href="/ui/workflows" {% if request.url.path.startswith('/ui/workflows') %}aria-current="page"{% endif %}>{{ icon("workflows") }}Workflows</a>
-      <a href="/ui/prompts" {% if request.url.path.startswith('/ui/prompts') %}aria-current="page"{% endif %}>{{ icon("prompts") }}Prompts</a>
-      {% if is_admin(request) %}<a href="/ui/cabinets" {% if request.url.path.startswith('/ui/cabinets') %}aria-current="page"{% endif %}>{{ icon("cabinets") }}Cabinets</a>
-      <a href="/ui/comptes" {% if request.url.path.startswith('/ui/comptes') %}aria-current="page"{% endif %}>{{ icon("accounts") }}Comptes</a>
-      <a href="/ui/journal" {% if request.url.path.startswith('/ui/journal') %}aria-current="page"{% endif %}>{{ icon("journal") }}Journal</a>{% endif %}
-      <a href="/ui/contenu" {% if request.url.path.startswith('/ui/contenu') %}aria-current="page"{% endif %}>{{ icon("content") }}Contenu</a>
-    </nav>
     {% if request.state.user is defined and request.state.user %}
     <form class="who" method="post" action="/logout"><span>{{ request.state.user.name }}</span><button type="submit">Se déconnecter</button></form>
     {% endif %}
   </header>
+  {% set signed = request.state.user is defined and request.state.user %}
+  <div class="frame{% if not signed %} alone{% endif %}">
+  {% if signed %}
+  {% macro nav_link(href, name, words) %}<a href="{{ href }}" {% if request.url.path.startswith(href) %}aria-current="page"{% endif %}>{{ icon(name) }}{{ words }}</a>{% endmacro %}
+  <aside class="sidebar" aria-label="Navigation">
+    <section>
+      <h2>Cabinet</h2>
+      <ul class="cabinets">
+        {% for c in sidebar(request) %}
+        <li><a href="/ui/cabinet/{{ c.name }}?next={{ c.next }}" {% if c.chosen %}aria-current="true"{% endif %}>{{ cabinet_label(c.name) }}</a></li>
+        {% else %}<li class="muted">Aucun cabinet.</li>{% endfor %}
+      </ul>
+      <nav>
+        {{ nav_link("/ui/runs", "runs", "Exécutions") }}
+        {{ nav_link("/ui/discussion", "chat", "Discussion") }}
+        {{ nav_link("/ui/prompts", "prompts", "Prompts") }}
+        {% if is_admin(request) %}{{ nav_link("/ui/cabinets", "cabinets", "Réglages") }}{% endif %}
+      </nav>
+    </section>
+    <section>
+      <h2>Tous les cabinets</h2>
+      <nav>
+        {{ nav_link("/ui/workflows", "workflows", "Workflows") }}
+        {{ nav_link("/ui/contenu", "content", "Contenu de Tarik") }}
+        {% if is_admin(request) %}{{ nav_link("/ui/comptes", "accounts", "Comptes") }}
+        {{ nav_link("/ui/journal", "journal", "Journal") }}{% endif %}
+      </nav>
+    </section>
+  </aside>
+  {% endif %}
   <main class="page{% block page_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+  </div>
   <script src="{{ asset('app.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>

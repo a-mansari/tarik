@@ -11,7 +11,7 @@ from starlette.responses import RedirectResponse
 from engine import cabinet_settings, runs
 from engine.content import LABELS
 from tarik.core.cabinets import CABINETS
-from ui.pages import templates
+from ui.pages import chosen, templates
 
 # The page's sections, in order: which settings each shows.
 SECTIONS = {
@@ -45,15 +45,11 @@ def fields(data):
 
 
 async def cabinets_page(request: Request):
-    """The cabinets, each with whether Tarik really writes to its Experio."""
-    found = []
-    for name in sorted(CABINETS):
-        try:
-            data, _ = await asyncio.to_thread(cabinet_settings.latest, name)
-            found.append({"name": name, "dry_run": data.get("DRY_RUN", "1") == "1", "error": False})
-        except Exception:  # Vault or the page's AppRole unavailable: said on the row, the list still shown
-            found.append({"name": name, "dry_run": None, "error": True})
-    return templates.TemplateResponse(request, "cabinets.html", {"cabinets": found})
+    """The settings of the cabinet picked in the sidebar."""
+    cabinet = chosen(request)
+    if cabinet is None:
+        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+    return RedirectResponse(f"/ui/cabinets/{cabinet}", status_code=303)
 
 
 async def cabinet_page(request: Request):
@@ -76,7 +72,7 @@ async def cabinet_page(request: Request):
     try:
         data, version = await asyncio.to_thread(cabinet_settings.latest, cabinet)
     except Exception:
-        context = {"cabinet": cabinet, "unreachable": True}
+        context = {"cabinet": cabinet, "unreachable": True, "dry_run": None}
         return templates.TemplateResponse(request, "cabinet.html", context, status_code=503)
     sections = fields(data)
     if error:  # the form as it was sent, its secrets never sent back
@@ -89,6 +85,7 @@ async def cabinet_page(request: Request):
         "cabinet": cabinet,
         "sections": sections,
         "version": version,
+        "dry_run": data.get("DRY_RUN", "1") != "0",
         "error": error,
         "saved": None if saved is None else [key for key in saved.split(",") if key in cabinet_settings.FIELDS],
         "names": {key: LABELS.get("settings", {}).get(key, {}).get("name", key) for key in cabinet_settings.FIELDS},

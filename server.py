@@ -26,6 +26,7 @@ import contextlib
 import hmac
 import json
 import os
+import threading
 from urllib.parse import parse_qs, quote
 
 import uvicorn
@@ -264,6 +265,7 @@ async def lifespan(app):
     await runs.open_store(DATABASE)
     await content.setup(runs.pool)
     mail.start(asyncio.get_running_loop())
+    threading.Thread(target=pages.warm_names, daemon=True).start()  # the sidebar's names, read off the first pages
     async with AsyncPostgresSaver.from_conn_string(f"{DATABASE} options='-c search_path={runs.SCHEMA}'") as saver:
         await saver.setup()
         agent.CHECKPOINTER = saver
@@ -292,6 +294,7 @@ app = Starlette(
         Route("/invitation/{token}", accounts_pages.invitation_page, methods=["GET", "POST"]),
         Route("/ui/comptes", accounts_pages.accounts_page, methods=["GET", "POST"]),
         Route("/ui/journal", journal_pages.journal_page),
+        Route("/ui/cabinet/{cabinet}", pages.choose),
         Route("/ui/cabinets", settings_pages.cabinets_page),
         Route("/ui/cabinets/{cabinet}", settings_pages.cabinet_page, methods=["GET", "POST"]),
         Route("/ui/contenu", content_pages.contents_page),

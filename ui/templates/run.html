@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "icons.html" import crumbs, icon %}
+{% from "icons.html" import crumbs, icon, cabinet as cabinet_label %}
 {% from "avatar.html" import avatar %}
 {% block title %}{{ run.graph | graph_name }}{% endblock %}
 {% block page_class %} wide{% endblock %}
@@ -8,7 +8,7 @@
 <div class="head">
   <div>
     <h1>{{ run.graph | graph_name }}</h1>
-    <p class="muted">Cabinet <b>{{ run.cabinet }}</b> · conversation <span class="mono">{{ run.session_id }}</span> · début {{ run.started | when }}</p>
+    <p class="muted">Cabinet <b>{{ cabinet_label(run.cabinet) }}</b> · conversation <span class="mono">{{ run.session_id }}</span> · début {{ run.started | when }}</p>
     {% if run.parent_id or run.children %}
     <div class="run-links">
       {% if run.parent_id %}

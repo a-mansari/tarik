@@ -2,7 +2,7 @@
 {% from "icons.html" import crumbs, icon %}
 {% block title %}Discussion{% endblock %}
 {% block content %}
-{{ crumbs("/ui/discussion?cabinet=" ~ cabinet, "Discussion", "chat", cabinet) }}
+{{ crumbs("/ui/discussion", "Discussion", "chat", display_name(cabinet) or cabinet) }}
 <div class="head">
   <div>
     <h1>Conversation <span class="mono">{{ session_id }}</span></h1>

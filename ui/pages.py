@@ -1,8 +1,11 @@
 """The UI's pages, in French for the team: the runs of each cabinet, and each run step by step as it happens. Server
-rendered (Jinja2), no build step; the words come from content/labels.json."""
+rendered (Jinja2), no build step; the words come from content/labels.json. The sidebar picks the cabinet the pages
+show (a cookie, CHOSEN), each cabinet under its name in Experio with its database beside it."""
 
 import json
+import time
 from pathlib import Path
+from urllib.parse import quote
 
 from markdown_it import MarkdownIt
 from markupsafe import Markup
@@ -13,10 +16,68 @@ from starlette.templating import Jinja2Templates
 from engine import graphs, prompts, runs
 from engine.agent import text_of
 from engine.content import LABELS
-from tarik.core.cabinets import CABINETS
+from tarik.core.cabinets import CABINETS, using
+from tarik.emails.sending import cabinet_name
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
+
+CHOSEN = "tarik_cabinet"  # the cookie holding the cabinet the pages show
+NAMES, TRIED = {}, {}  # cabinet: its name in Experio; cabinet: when Experio last failed to give it
+RETRY_SECONDS = 300
+
+
+def display_name(cabinet):
+    """The cabinet's name in Experio (its company), "" while Experio can't give it: asked again RETRY_SECONDS after a
+    failure, so a page never waits on Experio twice in a row."""
+    if (
+        cabinet in CABINETS
+        and cabinet not in NAMES
+        and time.monotonic() - TRIED.get(cabinet, -RETRY_SECONDS) >= RETRY_SECONDS
+    ):
+        with using(cabinet):
+            found = cabinet_name()
+        if found:
+            NAMES[cabinet] = found
+        else:
+            TRIED[cabinet] = time.monotonic()
+    return NAMES.get(cabinet, "")
+
+
+def warm_names():
+    """Every cabinet's name read once (at start, off the event loop): the first pages need not wait for Experio."""
+    for cabinet in sorted(CABINETS):
+        display_name(cabinet)
+
+
+def chosen(request):
+    """The cabinet the pages show: the one picked in the sidebar, else the first; None without any."""
+    picked = request.cookies.get(CHOSEN)
+    return picked if picked in CABINETS else (min(CABINETS) if CABINETS else None)
+
+
+PER_CABINET = ("/ui/runs", "/ui/discussion", "/ui/prompts", "/ui/cabinets")  # a page of one cabinet's own things
+
+
+def sidebar(request):
+    """The sidebar's cabinets: [{name (its database), display, chosen, next}]. Picked on a page of one cabinet's own
+    things (a run, a conversation, its settings), the next page is that section's list for the cabinet picked."""
+    now, path = chosen(request), request.url.path
+    target = next((root for root in PER_CABINET if path.startswith(root)), path)
+    return [
+        {"name": c, "display": display_name(c), "chosen": c == now, "next": quote(target)} for c in sorted(CABINETS)
+    ]
+
+
+async def choose(request: Request):
+    """A cabinet picked in the sidebar: kept in a cookie, back to the page it was picked from (its own address only)."""
+    cabinet, target = request.path_params["cabinet"], request.query_params.get("next") or "/ui/runs"
+    if not target.startswith("/") or target.startswith("//"):
+        target = "/ui/runs"
+    answer = RedirectResponse(target, status_code=303)
+    if cabinet in CABINETS:
+        answer.set_cookie(CHOSEN, cabinet, max_age=365 * 86400, httponly=True, samesite="lax")
+    return answer
 
 
 def graph_name(graph):
@@ -54,7 +115,7 @@ def is_admin(request):
     return bool(user) and user.get("role") == "admin"
 
 
-templates.env.globals.update(step_name=graphs.label, is_admin=is_admin)
+templates.env.globals.update(step_name=graphs.label, is_admin=is_admin, sidebar=sidebar, display_name=display_name)
 
 
 def asset(path):
@@ -150,15 +211,9 @@ async def home(request: Request):
 
 async def runs_page(request: Request):
     query = request.query_params
-    cabinet, graph = query.get("cabinet") or None, query.get("graph") or None
-    found = await runs.recent(cabinet, graph, 100)
-    context = {
-        "runs": found,
-        "cabinet": cabinet,
-        "graph": graph,
-        "cabinets": await runs.cabinets(),
-        "graphs": runs.NAMES,
-    }
+    cabinet, graph = chosen(request), query.get("graph") or None
+    found = await runs.recent(cabinet, graph, 100) if cabinet else []
+    context = {"runs": found, "cabinet": cabinet, "graph": graph, "graphs": runs.NAMES}
     template = "runs_rows.html" if query.get("partial") else "runs.html"
     return templates.TemplateResponse(request, template, context)
 
@@ -183,14 +238,10 @@ async def run_page(request: Request):
 
 
 async def prompts_page(request: Request):
-    """The conversations whose model calls were saved, one cabinet at a time."""
-    known = sorted(CABINETS)
-    cabinet = request.query_params.get("cabinet")
-    cabinet = cabinet if cabinet in known else (known[0] if known else None)
+    """The conversations whose model calls were saved, of the cabinet picked in the sidebar."""
+    cabinet = chosen(request)
     found = await prompts.conversations(cabinet) if cabinet else []
-    return templates.TemplateResponse(
-        request, "prompts.html", {"cabinets": known, "cabinet": cabinet, "conversations": found}
-    )
+    return templates.TemplateResponse(request, "prompts.html", {"cabinet": cabinet, "conversations": found})
 
 
 async def prompt_calls_page(request: Request):
@@ -223,7 +274,7 @@ async def workflow_page(request: Request):
         "graph": graph,
         "run": found,
         "run_id": found["run_id"] if found else None,
-        "runs": await runs.recent(graph=graph, limit=30),
+        "runs": await runs.recent(chosen(request), graph, 30),
         "labels": LABELS,
     }
     return templates.TemplateResponse(request, "workflow.html", context)

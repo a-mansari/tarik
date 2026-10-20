@@ -19,6 +19,12 @@
 {%- endif %}</svg>
 {%- endmacro %}
 
+{# A cabinet as the team reads it: its name in Experio, its database beside it (what the code and the logs use). #}
+{% macro cabinet(name) -%}
+{%- set shown = display_name(name) -%}
+<span class="cabinet-name">{% if shown %}{{ shown }} <span class="mono muted">({{ name }})</span>{% else %}<span class="mono">{{ name }}</span>{% endif %}</span>
+{%- endmacro %}
+
 {# "List › this one": the link back to the list (its icon, its name), then where you are. #}
 {% macro crumbs(href, label, name, here) -%}
 <nav class="crumbs" aria-label="Fil d'Ariane"><a href="{{ href }}">{{ icon(name, 14) }}{{ label }}</a>{{ icon('next', 14) }}<span aria-current="page">{{ here }}</span></nav>

@@ -90,7 +90,11 @@ def test_the_comptes_page_renders_each_account_and_a_new_link_once():
         {"email": "c@experio.ma", "name": "C", "role": "member", "active": False, "has_password": True},
     ]
     user = {"email": "a@experio.ma", "name": "A", "role": "admin"}
-    request = type("R", (), {"url": type("U", (), {"path": "/ui/comptes"})(), "state": type("S", (), {"user": user})()})
+    request = type(
+        "R",
+        (),
+        {"cookies": {}, "url": type("U", (), {"path": "/ui/comptes"})(), "state": type("S", (), {"user": user})()},
+    )
     page = templates.get_template("accounts.html").render(
         request=request(),
         accounts=listed,
@@ -140,7 +144,11 @@ def test_the_journal_page_renders_each_entry_in_words():
         {"id": 1, "at": at, "actor": "x@ailleurs.ma", "action": "login_failed", "target": "", "detail": {}},
     ]
     user = {"email": "a@experio.ma", "name": "A", "role": "admin"}
-    request = type("R", (), {"url": type("U", (), {"path": "/ui/journal"})(), "state": type("S", (), {"user": user})()})
+    request = type(
+        "R",
+        (),
+        {"cookies": {}, "url": type("U", (), {"path": "/ui/journal"})(), "state": type("S", (), {"user": user})()},
+    )
     page = templates.get_template("journal.html").render(
         request=request(),
         entries=entries,

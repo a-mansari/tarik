@@ -405,3 +405,26 @@ fieldset.plain { border: 0; margin: 0; padding: 0; min-width: 0; display: conten
 .accounts .actions form { margin: 0; }
 .copy-row { display: flex; gap: .5rem; margin-top: .5rem; }
 .copy-row input { flex: 1; min-width: 0; font: inherit; font-size: .85rem; padding: .4rem .5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+
+/* The frame: the sidebar (the cabinet picked and its pages, then what all cabinets share), the page beside it. */
+.frame { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); min-height: calc(100vh - 3.2rem); }
+.frame.alone { display: block; }
+.bar { justify-content: space-between; }
+.sidebar { background: var(--surface); border-right: 1px solid var(--line); padding: 1rem .75rem; display: grid; align-content: start; gap: 1.4rem; position: sticky; top: 0; max-height: 100vh; overflow-y: auto; box-sizing: border-box; }
+.sidebar h2 { font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 .45rem .45rem; }
+.sidebar nav { display: grid; gap: .1rem; }
+.sidebar nav a, .sidebar .cabinets a { display: flex; align-items: center; gap: .55rem; padding: .4rem .5rem; border-radius: 6px; color: var(--fg); text-decoration: none; font-size: .9rem; }
+.sidebar nav a .icon { color: var(--muted); }
+.sidebar nav a:hover, .sidebar .cabinets a:hover { background: var(--bg); }
+.sidebar nav a[aria-current="page"] { background: var(--accent-soft); font-weight: 600; }
+.sidebar nav a[aria-current="page"] .icon { color: var(--accent); }
+.sidebar .cabinets { list-style: none; margin: 0 0 .5rem; padding: 0; display: grid; gap: .15rem; }
+.sidebar .cabinets a { display: block; border: 1px solid transparent; line-height: 1.3; overflow-wrap: anywhere; }
+.sidebar .cabinets a[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.sidebar .cabinets .mono { font-size: .75rem; font-weight: 400; display: block; }
+.cabinet-name .mono.muted { font-size: .85em; font-weight: 400; }
+@media (max-width: 52rem) {
+  .frame { display: block; }
+  .sidebar { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 30rem) { .sidebar { grid-template-columns: 1fr; } }
