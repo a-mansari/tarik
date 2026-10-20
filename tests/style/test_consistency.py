@@ -62,3 +62,22 @@ def test_each_tool_prompt_is_read_by_the_tool_its_file_names():
     assert sorted(loaded) == sorted(files), "a prompt file no tool reads, or a tool reading a missing one"
     for name, text in files.items():
         assert f"({loaded[name]})" in text.split("\n---\n", 1)[0], f"{name}.md: used_by names another file"
+
+
+# A statement's start inside a Python string: the app's SQL lives in sql/*.sql only (tarik.core.queries), the tests'
+# own fixtures aside.
+EMBEDDED = re.compile(
+    r"[\"']\s*(select|insert into|update \w+ set|delete from|create (table|schema|index)|alter table|with \w+ as)\b"
+)
+
+
+@pytest.mark.style
+def test_no_sql_in_python():
+    found = [
+        f"{path.relative_to(ROOT)}:{number}"
+        for path in ROOT.glob("**/*.py")
+        if not path.is_relative_to(ROOT / "tests") and ".venv" not in path.parts
+        for number, line in enumerate(path.read_text().splitlines(), 1)
+        if EMBEDDED.search(line)
+    ]
+    assert not found, "SQL hors de sql/ : " + ", ".join(found)

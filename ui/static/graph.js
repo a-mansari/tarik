@@ -112,7 +112,13 @@
       const xs = points.map((q) => q.x), ys = points.map((q) => q.y);
       return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 }; // exactly its frame's centre
     }
-    let layout = await (await fetch(`/graphs/${graph}/layout`)).json(); // how the team arranged it, shared
+    // Edges are kept under the whole graph's own (see keyOf): one kept under a folded shortcut is left behind.
+    const edgeIds = new Set(shape.edges.map((e) => e.id));
+    const kept = (found) => {
+      for (const id of Object.keys(found.edges || {})) if (!edgeIds.has(id)) delete found.edges[id];
+      return found;
+    };
+    let layout = kept(await (await fetch(`/graphs/${graph}/layout`)).json()); // how the team arranged it, shared
     let dirty = false;
     const saveButton = document.getElementById(container.dataset.save || "");
     const undoButton = document.getElementById(container.dataset.undo || "");
@@ -205,7 +211,7 @@
     // An edge as arranged: its style (straight by default, right angles, or curved), through its bend points when it has
     // some. Curved is an S as n8n draws one: out of its step to the right, into the next from the left.
     function drawEdge(edge) {
-      const saved = layout.edges?.[edge.id()] || { points: [], style: "straight" };
+      const saved = layout.edges?.[keyOf(edge)] || { points: [], style: "straight" };
       edge.removeStyle(OVERRIDES);
       if (saved.points.length) {
         const r = relative(edge, saved.points);
@@ -240,9 +246,17 @@
       edge.style("curve-style", saved.style || "straight");
     }
 
+    // Where an edge's bends and style are kept: under the whole graph's edge it stands for (all parts open), never
+    // the folded shortcut, so opening or folding a part moves its boxes and leaves every edge as arranged. A folded
+    // edge standing for several takes the one already arranged, else the first.
+    function keyOf(edge) {
+      const under = edge.data("under") || [edge.id()];
+      return under.find((id) => layout.edges?.[id]) || under[0];
+    }
+
     function edgeLayout(edge) {
       layout.edges ||= {};
-      return (layout.edges[edge.id()] ||= { points: [], style: "straight" });
+      return (layout.edges[keyOf(edge)] ||= { points: [], style: "straight" });
     }
 
     // The selected edge's bend points, as small handles to drag; double-click one to remove it.
@@ -614,7 +628,7 @@
     // instead of being stretched until the drop.
     cy.on("position", "node[kind != 'handle'][kind != 'ghost']", (event) => {
       event.target.connectedEdges().forEach((edge) => {
-        const saved = layout.edges?.[edge.id()];
+        const saved = layout.edges?.[keyOf(edge)];
         if (saved && (saved.style === "bezier" || saved.points.length)) drawEdge(edge);
       });
     });
@@ -734,7 +748,7 @@
     });
     // What was moved since the last save, put back as it was saved (the view stays where it is).
     undoButton?.addEventListener("click", async () => {
-      layout = await (await fetch(`/graphs/${graph}/layout`)).json();
+      layout = kept(await (await fetch(`/graphs/${graph}/layout`)).json());
       settled("Modifications annulées : la disposition enregistrée est revenue.");
       const view = { zoom: cy.zoom(), pan: { ...cy.pan() } };
       build();

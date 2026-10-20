@@ -3,6 +3,24 @@
 
 const list = document.getElementById("prompt-calls");
 const WHO = { system: "Instructions", user: "Client", human: "Client", assistant: "Tarik", ai: "Tarik", tool: "Outil" };
+// The same small avatars as a run's conversation (templates/avatar.html), by who speaks.
+const KIND = { Client: "client", Tarik: "tarik", Outil: "tool" };
+const ICONS = {
+  client: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  tarik: '<rect x="4" y="7" width="16" height="13" rx="3"/><path d="M12 3v4M9 13h.01M15 13h.01M9 17h6"/>',
+  tool: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/>',
+  system: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+};
+
+// "who" with its avatar in front: the label of a message, or of the instructions and tools.
+function who(label, kind) {
+  const span = el("span", "who");
+  const avatar = el("span", `avatar avatar-${kind}`);
+  avatar.setAttribute("aria-hidden", "true");
+  avatar.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[kind]}</svg>`;
+  span.append(avatar, label);
+  return span;
+}
 
 function el(tag, className, value) {
   const node = document.createElement(tag);
@@ -34,7 +52,7 @@ function messageItem(m) {
   if (typeof m === "string") return el("li", "", m); // a part removed since
   const role = m.role || "?";
   const li = el("li", role === "tool" ? "tool" : WHO[role] === "Client" ? "client" : "tarik");
-  li.append(el("span", "who", WHO[role] || role));
+  li.append(who(WHO[role] || role, KIND[WHO[role]] || "system"));
   const parts = Array.isArray(m.content) ? m.content : m.content ? [m.content] : [];
   if (role === "tool") li.append(folded(`Réponse de ${m.name || "l'outil"}`, parts.map((p) => (typeof p === "string" ? p : p.text ?? json(p))).join("\n")));
   else parts.forEach((p) => li.append(part(p)));
@@ -46,9 +64,9 @@ function messageItem(m) {
 function render(box, prompt) {
   box.replaceChildren();
   const system = el("li", "system");
-  system.append(el("span", "who", "Instructions"), folded("Lire les instructions envoyées", json(prompt.system)));
+  system.append(who("Instructions", "system"), folded("Lire les instructions envoyées", json(prompt.system)));
   const tools = el("li", "system");
-  tools.append(el("span", "who", `Outils (${prompt.tools.length})`));
+  tools.append(who(`Outils (${prompt.tools.length})`, "tool"));
   const ul = el("ul", "tools-list");
   for (const t of prompt.tools) {
     const li = el("li");

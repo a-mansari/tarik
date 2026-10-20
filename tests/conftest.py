@@ -33,7 +33,7 @@ def settings_from_the_environment(request, monkeypatch):
 
 @pytest.fixture(scope="session")
 def _db_schema(_test_database):
-    """One throwaway cabinet schema for the whole run, made once (its tables from cabinet.sql)."""
+    """One throwaway cabinet schema for the whole run, made once (its tables from sql/cabinet_schema.sql)."""
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(cabinets, "CABINETS", frozenset({DB_CABINET}))
         patch.setitem(cabinets.POSTGRES, "dbname", testdb.DATABASE)

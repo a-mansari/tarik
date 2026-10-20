@@ -5,6 +5,7 @@ automatic one."""
 from psycopg.types.json import Jsonb
 
 from engine import runs
+from tarik.core.queries import Q
 
 STYLES = {"straight", "taxi", "bezier"}  # straight (the default), right angles, curved
 LIMIT = 2000  # nodes or edges in one layout: far over any workflow's
@@ -32,7 +33,7 @@ def cleaned(layout):
 
 async def read(graph):
     async with runs.pool.connection() as db:
-        found = await (await db.execute("select layout from layouts where graph = %s", (graph,))).fetchone()
+        found = await (await db.execute(Q.layout_read, (graph,))).fetchone()
     return found[0] if found else {"nodes": {}, "edges": {}}
 
 
@@ -40,8 +41,7 @@ async def save(graph, layout):
     kept = cleaned(layout)
     async with runs.pool.connection() as db:
         await db.execute(
-            "insert into layouts (graph, layout) values (%s, %s) "
-            "on conflict (graph) do update set layout = excluded.layout, updated_at = now()",
+            Q.layout_saved,
             (graph, Jsonb(kept)),
         )
     return kept
@@ -49,4 +49,4 @@ async def save(graph, layout):
 
 async def forget(graph):
     async with runs.pool.connection() as db:
-        await db.execute("delete from layouts where graph = %s", (graph,))
+        await db.execute(Q.layout_forgotten, (graph,))

@@ -10,6 +10,7 @@ from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
 from tarik.core.conversation import chosen_among, own_words, yes_no
 from tarik.core.experio import odoo_call, require_invoice
+from tarik.core.queries import Q
 from tarik.core.words import normalized
 from tarik.dossiers.people import check_sender
 from tarik.dossiers.setup import ask_banks, set_journal_bank
@@ -117,16 +118,15 @@ def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
     with cabinet_db() as db:
         if answer in ("oui", "non"):
             db.execute(
-                "insert into tarik_held (invoice_id, session_id, released) values (%s, %s, %s) "
-                "on conflict (invoice_id) do update set released = excluded.released",
+                Q.upsert_held_choice,
                 (invoice_id, session_id, answer == "oui"),
             )
         else:
             db.execute(
-                "insert into tarik_held (invoice_id, session_id) values (%s, %s) on conflict do nothing",
+                Q.insert_held,
                 (invoice_id, session_id),
             )
-        released = db.execute("select released from tarik_held where invoice_id = %s", (invoice_id,)).fetchone()[0]
+        released = db.execute(Q.held_released, (invoice_id,)).fetchone()[0]
     if not released:
         return stop(
             f"Facture {invoice_id} : importee et verifiee, laissee en brouillon. Dites-moi quand la comptabiliser."
@@ -152,23 +152,19 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     row = (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, result.get("routine") is True)
     with cabinet_db() as db:
         db.execute(
-            "insert into tarik_results (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, "
-            "routine, choices, journal_id) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            Q.insert_result,
             (*row, choices, result.get("journal_id")),
         )
         if invoice_id and status == "question":
             db.execute(
-                "insert into tarik_pending (invoice_id, session_id, step, question, choices) "
-                "values (%s, %s, %s, %s, %s) on conflict (invoice_id) do update set step = excluded.step, "
-                "session_id = excluded.session_id, question = excluded.question, choices = excluded.choices, "
-                "created_at = now()",
+                Q.upsert_pending,
                 (invoice_id, session_id, step, message, choices),
             )
         elif invoice_id:
             # Only an outcome at or after the pending step settles it: an earlier step's outcome never does.
-            pending = db.execute("select step from tarik_pending where invoice_id = %s", (invoice_id,)).fetchone()
+            pending = db.execute(Q.pending_step, (invoice_id,)).fetchone()
             if pending and (pending[0] not in ORDER or position(step) >= position(pending[0])):
-                db.execute("delete from tarik_pending where invoice_id = %s", (invoice_id,))
+                db.execute(Q.delete_pending, (invoice_id,))
     return ok("enregistre", step=step, status_recorded=status)
 
 
@@ -191,8 +187,7 @@ def run_summary(run_id: str) -> dict:
     outcome. Routine ones (nothing to do, the expected setting) are left out; a dossier's setup is shown whole."""
     with cabinet_db() as db:
         rows = db.execute(
-            "select coalesce(invoice_id, -file_id), step, status, message, routine from tarik_results "
-            "where run_id = %s order by id",
+            Q.run_outcomes,
             (run_id,),
         ).fetchall()
     if not rows:
@@ -215,24 +210,6 @@ def run_summary(run_id: str) -> dict:
     return ok((TEST_MODE + "\n\n" if test else "") + summary)
 
 
-# Each bank statement of a conversation not imported yet whose last import asked for its bank account.
-STATEMENTS_ASKED = (
-    "select file_id, dossier_id, message, file_name, choices from (select distinct on (r.file_id) r.file_id, "
-    "r.dossier_id, r.status, r.message, r.choices, f.file_name from tarik_results r join tarik_files f "
-    "on f.id = r.file_id "
-    "where r.session_id = %s and r.step = 'import_bank_statement' and f.statement_id is null "
-    "order by r.file_id, r.id desc) latest where status = 'question'"
-)
-
-
-# Each dossier of a conversation whose last bank question (ask_banks) is still a question.
-BANKS_ASKED = (
-    "select dossier_id, journal_id, message, choices from (select distinct on (dossier_id) dossier_id, journal_id, "
-    "status, message, choices from tarik_results where session_id = %s and step = 'ask_banks' "
-    "order by dossier_id, id desc) latest where status = 'question'"
-)
-
-
 def journal_name(journal_id):
     """The bank journal's name while it still lacks its bank, else None."""
     found = odoo_call("exp.journal", "search_read", [("id", "=", journal_id), ("bank_id", "=", False)], fields=["name"])
@@ -248,16 +225,16 @@ def waiting_on(session_id):
     BQ"), names (what ``about`` may say), choices ({id: name} the question proposed, if any)}."""
     with cabinet_db() as db:
         invoices = db.execute(
-            "select invoice_id, step, question, choices from tarik_pending where session_id = %s order by created_at",
+            Q.pending_of_session,
             (session_id,),
         ).fetchall()
-        statements = db.execute(STATEMENTS_ASKED, (session_id,)).fetchall()
-        banks = db.execute(BANKS_ASKED, (session_id,)).fetchall()
+        statements = db.execute(Q.statements_asked, (session_id,)).fetchall()
+        banks = db.execute(Q.banks_asked, (session_id,)).fetchall()
         ids = [i for i, _, _, _ in invoices]
         drafts = set(odoo_call("exp.invoice", "search", [("id", "in", ids), ("state", "=", "draft")])) if ids else set()
         gone = [i for i in ids if i not in drafts]
         if gone:
-            db.execute("delete from tarik_pending where invoice_id = any(%s)", (gone,))
+            db.execute(Q.delete_pending_of_invoices, (gone,))
     return (
         [
             {
@@ -309,18 +286,15 @@ def dossier_questions(session_id: str, dossier_id: int) -> dict:
     since, or of another dossier, is left out. Each: {invoice_id,
     step (the one it waits at), message, choices}."""
     with cabinet_db() as db:
-        # This conversation's own question or held draft first: another's question would take the reply meant for it.
         busy = db.execute(
-            "select 1 from tarik_pending where session_id = %s union all "
-            "select 1 from tarik_held where session_id = %s and not released limit 1",
+            Q.session_busy,
             (session_id, session_id),
         ).fetchone()
         rows = (
             []
             if busy
             else db.execute(
-                "select invoice_id, step, question, choices from tarik_pending where session_id <> %s "
-                "order by created_at",
+                Q.pending_of_other_sessions,
                 (session_id,),
             ).fetchall()
         )
@@ -382,19 +356,10 @@ def apply_answer(item, answer, decision):
     return {**result, "invoice_id": item["invoice_id"], "step": item["step"]}
 
 
-# The files that came since the conversation's last run recorded anything: not yet taken by any step, not cut
-# parts, not a dossier's entries (those go to the dossier workflow).
-NEW_FILES = (
-    "select file_name from tarik_files where session_id = %s and invoice_id is null and statement_id is null "
-    "and parent_id is null and kind is distinct from 'entries' and created_at > "
-    "coalesce((select max(created_at) from tarik_results where session_id = %s), '-infinity')"
-)
-
-
 def new_files(session_id):
     """How many files (int) came in this conversation since its last run, for the processing sequence."""
     with cabinet_db() as db:
-        names = [name for (name,) in db.execute(NEW_FILES, (session_id, session_id))]
+        names = [name for (name,) in db.execute(Q.new_files_of_session, (session_id, session_id))]
     return sum(not name.lower().endswith(ENTRY_FILES) for name in names)
 
 
@@ -454,8 +419,7 @@ def save_files(session_id: str = "", files: list | None = None) -> dict:
     with cabinet_db() as db:
         for file in files or []:
             row = db.execute(
-                "insert into tarik_files (session_id, file_name, mime_type, data, source_id) "
-                "values (%s, %s, %s, %s, %s) on conflict (session_id, source_id) do nothing returning id",
+                Q.insert_agent_file,
                 (session_id, file["file_name"], file["mime_type"], base64.b64decode(file["data"]), file.get("id")),
             ).fetchone()
             if row:
@@ -469,12 +433,8 @@ def files_to_process(session_id: str, entries: bool = False) -> dict:
     ``entries`` its FEC and grand livre files. Picked here, not by the agent: it never
     sees the files' numbers, so it can't show them to the client."""
     with cabinet_db() as db:
-        # Whatever has no draft or statement yet, until it has: a file left uncut (its side wasn't given), one invoice
-        # cut out of a PDF whose draft failed, a statement waiting for its bank account. A cut PDF is its parts.
         rows = db.execute(
-            "select id, file_name from tarik_files f where session_id = %s and invoice_id is null "
-            "and statement_id is null and kind is distinct from 'entries' "
-            "and not exists (select 1 from tarik_files part where part.parent_id = f.id) order by id",
+            Q.files_to_process,
             (session_id,),
         ).fetchall()
     own = [i for i, name in rows if name.lower().endswith(ENTRY_FILES) == entries]
@@ -515,28 +475,21 @@ def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, sto
     Experio since is posted again. When they ask to post and nothing is to be, the answer says why (a stop)."""
     with cabinet_db() as db:
         rows = db.execute(
-            "select invoice_id, step, status from tarik_results where session_id = %s and invoice_id is not null "
-            "order by id",
+            Q.invoice_outcomes_of_session,
             (session_id,),
         ).fetchall()
         drafts = db.execute(
-            "select invoice_id from tarik_files where session_id = %s and invoice_id is not null order by id",
+            Q.drafts_of_session,
             (session_id,),
         ).fetchall()
         elsewhere = []
         if dossier_id and stopped:
-            elsewhere = db.execute(
-                "select invoice_id, step, status from tarik_results where invoice_id in "
-                "(select invoice_id from tarik_results where status = 'stop' and invoice_id is not null) order by id"
-            ).fetchall()
+            elsewhere = db.execute(Q.outcomes_of_stopped_invoices).fetchall()
         kept, reposted = [], []
         if held:
-            kept = db.execute("select invoice_id, session_id from tarik_held where not released").fetchall()
+            kept = db.execute(Q.held_not_released).fetchall()
         if held and dossier_id:
-            reposted = db.execute(
-                "select invoice_id, step, status from tarik_results where invoice_id in "
-                "(select invoice_id from tarik_results where step = 'post_invoice' and status = 'ok') order by id"
-            ).fetchall()
+            reposted = db.execute(Q.outcomes_of_posted_invoices).fetchall()
     mine = furthest_outcomes(rows)
     waiting = [i for i, (step, status) in mine.items() if resumable(step, status, stopped)]
     # shortcut: a draft of a run still going also has no outcome yet; one conversation runs one at a time
@@ -579,17 +532,10 @@ def nothing_to_post(session_id, dossier_id):
         return "Aucun brouillon dans ce dossier : rien a comptabiliser."
     ids = [draft["id"] for draft in drafts]
     with cabinet_db() as db:
-        made = {i for (i,) in db.execute("select invoice_id from tarik_files where invoice_id = any(%s)", (ids,))}
-        asked = dict(db.execute("select invoice_id, question from tarik_pending where invoice_id = any(%s)", (ids,)))
-        rows = db.execute(
-            "select invoice_id, step, status from tarik_results where invoice_id = any(%s) order by id", (ids,)
-        ).fetchall()
-        messages = {
-            (i, step): message
-            for i, step, message in db.execute(
-                "select invoice_id, step, message from tarik_results where invoice_id = any(%s) order by id", (ids,)
-            )
-        }
+        made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (ids,))}
+        asked = dict(db.execute(Q.pending_of_invoices, (ids,)))
+        rows = db.execute(Q.outcomes_of_invoices, (ids,)).fetchall()
+        messages = {(i, step): message for i, step, message in db.execute(Q.messages_of_invoices, (ids,))}
     furthest = furthest_outcomes(rows)
     lines = []
     for draft in drafts:

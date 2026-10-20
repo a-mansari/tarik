@@ -42,7 +42,8 @@ by `vault/setup.sh`) and the cabinets' Experio. The n8n implementation (branch `
 | `docker-compose.yml` | The server, its Postgres and Vault. |
 | `vault/` | Vault's configuration and setup. |
 | `docs/using-tarik.md` | For the cabinets: what Tarik can do, and how to write to it. |
-| `tarik/` | The tools (`TOOLS`, registered by `@tool` / `@step_tool`), Experio, mail, the vision model, `cabinet.sql`. |
+| `sql/` | Every SQL statement, named (`-- name: ...`), read as `Q.<name>` (`tarik/core/queries.py`); no SQL in the Python. |
+| `tarik/` | The tools (`TOOLS`, registered by `@tool` / `@step_tool`), Experio, mail, the vision model. |
 | `engine/tools.py` | One tool call: in a worker thread, in its cabinet, at most 10 at once per cabinet; a refusal's text kept for the client, a crash logged and told plainly; a step's outcome recorded for the run's summary. |
 | `engine/runs.py` | Every run and each of its steps, in Postgres (schema `orchestrator`); the agent's conversations next to them. |
 | `engine/agent.py` | The agent: instructions and tools' descriptions from the content's `agent.json`, its skills (`skills/*.md`), tool output from Experio tagged as untrusted data. |

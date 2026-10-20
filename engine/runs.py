@@ -20,52 +20,9 @@ from psycopg_pool import AsyncConnectionPool
 from engine import agent, graphs
 from engine.content import LABELS
 from engine.settings import DEFAULT_CABINET
+from tarik.core.queries import Q
 
 SCHEMA = "orchestrator"
-TABLES = """
-create table if not exists runs (
-    id uuid primary key,
-    graph text not null,
-    cabinet text not null,
-    session_id text not null,
-    thread_id text,
-    status text not null,  -- queued, running, done, error
-    input jsonb not null,
-    output jsonb,
-    error text,
-    started_at timestamptz not null default now(),
-    ended_at timestamptz
-);
-create index if not exists runs_started on runs (started_at desc);
-create index if not exists runs_session on runs (cabinet, session_id);
--- A run started inside another's step (a workflow the agent runs, a thread handed to the agent): its parent, and the
--- parent's step it started from.
-alter table runs add column if not exists parent_id uuid references runs (id);
-alter table runs add column if not exists parent_node text;
-create index if not exists runs_parent on runs (parent_id);
-create table if not exists steps (
-    id bigserial primary key,
-    run_id uuid not null references runs (id),
-    at timestamptz not null default now(),
-    path text not null,  -- the subgraphs it sits in: "" at the top, "fichier|facture" inside
-    node text not null,
-    status text not null,  -- the step's own: ok, question, stop, wait, error, or "" for plumbing
-    summary text not null,  -- one line for the list
-    detail jsonb  -- the node's whole update
-);
-create index if not exists steps_run on steps (run_id, id);
--- Which run of its part a step belongs to: the subgraphs' task ids ("fil:<id>|..."), so two invoices or two email
--- threads of one run, side by side, each keep their own order of steps (the canvas follows it).
-alter table steps add column if not exists lane text;
--- Its round in its graph (LangGraph's superstep): a step follows a step of the round before, in its lane. Parallel
--- branches (an answer and the files at once) each keep their own order.
-alter table steps add column if not exists round integer;
-create table if not exists layouts (
-    graph text primary key,
-    layout jsonb not null,  -- {nodes: {id: {x, y}}, edges: {id: {points: [{x, y}], style}}}: how the team arranged it
-    updated_at timestamptz not null default now()
-);
-"""
 NAMES = sorted([*graphs.COMPILED, "agent"])  # the agent: made per run
 DETAIL_LIMIT = 50_000  # characters of a node's update kept: a scan's text or a long history is cut, never the run
 
@@ -150,8 +107,7 @@ async def open_store(conninfo):
     pool = AsyncConnectionPool(f"{conninfo} options='-c search_path={SCHEMA}'", open=False, kwargs={"autocommit": True})
     await pool.open()
     async with pool.connection() as db:
-        await db.execute(f"create schema if not exists {SCHEMA}")
-        await db.execute(TABLES)
+        await db.execute(Q.orchestrator_schema)
 
 
 RUNNING = contextvars.ContextVar("running", default=None)  # the run whose steps are going on: a run started in one
@@ -163,8 +119,7 @@ async def created(name, given, cabinet, session, thread=None, parent=None, paren
     run_id = str(uuid.uuid4())
     async with pool.connection() as db:
         await db.execute(
-            "insert into runs (id, graph, cabinet, session_id, thread_id, status, input, parent_id, parent_node) "
-            "values (%s, %s, %s, %s, %s, 'queued', %s, %s, %s)",
+            Q.run_created,
             (run_id, name, cabinet, session, thread, Jsonb(jsonable(given)), parent, parent_node),
         )
     live[run_id] = asyncio.Event()
@@ -223,7 +178,7 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
         slots or contextlib.nullcontext()
     ):  # shortcut: one process's runs at once (20); several servers would need a shared queue
         async with pool.connection() as db:
-            await db.execute("update runs set status = 'running' where id = %s", (run_id,))
+            await db.execute(Q.run_running, (run_id,))
         try:  # the agent made here too: no model configured fails the run, never leaves it queued
             graph = graph_of(name, configurable)
             async for namespace, mode, data in graph.astream(
@@ -247,8 +202,7 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
                                 step_status = inner[own]
                             inner[path] = step_status
                             await db.execute(
-                                "insert into steps (run_id, path, lane, round, node, status, summary, detail) "
-                                "values (%s, %s, %s, %s, %s, %s, %s, %s)",
+                                Q.step_recorded,
                                 (
                                     run_id,
                                     path,
@@ -265,7 +219,7 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
             status, error, failure = "error", f"{type(caught).__name__}: {caught}", caught
         async with pool.connection() as db:
             await db.execute(
-                "update runs set status = %s, output = %s, error = %s, ended_at = now() where id = %s",
+                Q.run_ended,
                 (status, capped(output) if output is not None else None, error, run_id),
             )
     RUNNING.reset(running)
@@ -278,8 +232,7 @@ async def run(run_id):
     async with pool.connection() as db:
         found = await (
             await db.execute(
-                "select id, graph, cabinet, session_id, thread_id, status, input, output, error, started_at, ended_at, "
-                "parent_id, parent_node from runs where id = %s",
+                Q.run_found,
                 (run_id,),
             )
         ).fetchone()
@@ -287,19 +240,19 @@ async def run(run_id):
             return None
         steps = await (
             await db.execute(
-                "select id, at, path, lane, round, node, status, summary from steps where run_id = %s order by id",
+                Q.run_steps,
                 (run_id,),
             )
         ).fetchall()
         children = await (
             await db.execute(
-                "select id, graph, status, started_at, parent_node from runs where parent_id = %s order by started_at",
+                Q.run_children,
                 (run_id,),
             )
         ).fetchall()
         parent = None
         if found[11]:
-            parent = await (await db.execute("select graph from runs where id = %s", (found[11],))).fetchone()
+            parent = await (await db.execute(Q.run_graph, (found[11],))).fetchone()
     keys = (
         "run_id",
         "graph",
@@ -347,25 +300,13 @@ async def run(run_id):
 async def recent(cabinet=None, graph=None, limit=50):
     """The latest runs started on their own, newest first, each with the runs started in its steps (and theirs) right
     after it, indented by depth: what the runs list shows. A graph filter lists that graph's runs, children too."""
-    where, args = ([] if graph else ["parent_id is null"]), []
-    for column, value in (("cabinet", cabinet), ("graph", graph)):
-        if value:
-            where.append(f"{column} = %s")
-            args.append(value)
-    columns = "id, graph, cabinet, session_id, status, error, started_at, ended_at, parent_id"
     async with pool.connection() as db:
-        rows = await (
-            await db.execute(
-                f"select {columns} from runs where {' and '.join(where)} order by started_at desc limit %s",
-                (*args, limit),
-            )
-        ).fetchall()
+        asked = {"cabinet": cabinet or None, "graph": graph or None, "limit": limit}
+        rows = await (await db.execute(Q.runs_recent, asked)).fetchall()
         below = {}  # parent id -> its children, oldest first
         level = [row[0] for row in rows]
         while level and not graph:
-            found = await (
-                await db.execute(f"select {columns} from runs where parent_id = any(%s) order by started_at", (level,))
-            ).fetchall()
+            found = await (await db.execute(Q.runs_under, (level,))).fetchall()
             for row in found:
                 below.setdefault(row[8], []).append(row)
             level = [row[0] for row in found]
@@ -398,12 +339,11 @@ async def steps_after(run_id, after):
     async with pool.connection() as db:
         steps = await (
             await db.execute(
-                "select id, at, path, lane, round, node, status, summary from steps "
-                "where run_id = %s and id > %s order by id",
+                Q.steps_after,
                 (run_id, after),
             )
         ).fetchall()
-        state = await (await db.execute("select status, error from runs where id = %s", (run_id,))).fetchone()
+        state = await (await db.execute(Q.run_state, (run_id,))).fetchone()
     found = [
         {
             "id": i,
@@ -435,9 +375,7 @@ async def changed(run_id, seconds=1.0):
 async def step_detail(run_id, step_id):
     """One step's whole update (its node's output), None when unknown."""
     async with pool.connection() as db:
-        found = await (
-            await db.execute("select detail from steps where run_id = %s and id = %s", (run_id, step_id))
-        ).fetchone()
+        found = await (await db.execute(Q.step_detail, (run_id, step_id))).fetchone()
     if not found:
         return None
     return found[0] if found[0] is not None else {"etape": "Cette étape n'a rien renvoyé."}
@@ -446,4 +384,4 @@ async def step_detail(run_id, step_id):
 async def cabinets():
     """The cabinets that have runs, for the runs list's filter."""
     async with pool.connection() as db:
-        return [row[0] for row in await (await db.execute("select distinct cabinet from runs order by 1")).fetchall()]
+        return [row[0] for row in await (await db.execute(Q.runs_cabinets)).fetchall()]

@@ -37,8 +37,10 @@ from typing import Final
 
 import httpx
 import psycopg
+from psycopg import sql
 
 from tarik.core.config import POSTGRES
+from tarik.core.queries import Q
 
 # --- Vault ---
 
@@ -242,9 +244,6 @@ def misplaced_in_vault(shared, cabinets, environ=os.environ):
     return sorted(found)
 
 
-SCHEMA = Path(__file__).with_name("cabinet.sql")
-
-
 def cabinet_db():
     """A connection to Tarik's Postgres that only sees the current cabinet's schema: an unqualified
     table name can only be that cabinet's (search_path holds nothing else, not even public)."""
@@ -252,10 +251,9 @@ def cabinet_db():
 
 
 def create_schemas():
-    """Each cabinet's schema and tables, created if missing (cabinet.sql is idempotent)."""
-    ddl = SCHEMA.read_text()
+    """Each cabinet's schema and tables, created if missing (sql/cabinet_schema.sql is idempotent)."""
     for name in sorted(CABINETS):
         with psycopg.connect(**POSTGRES) as admin:
-            admin.execute(f"create schema if not exists {name}")
+            admin.execute(sql.SQL(Q.create_cabinet_schema).format(name=sql.Identifier(name)))
         with using(name), cabinet_db() as conn:
-            conn.execute(ddl)
+            conn.execute(Q.cabinet_schema)

@@ -15,6 +15,7 @@ from tarik.core.experio import (
     test_mode_note,
 )
 from tarik.core.model import ask_model, scan_pages, tool_prompt
+from tarik.core.queries import Q
 from tarik.core.words import normalized
 
 CATEGORY_TO_TYPE = {"achat": "purchase", "vente": "sale"}
@@ -42,9 +43,7 @@ def side_of(invoice):
     """The side of ``invoice`` (with id and type), "purchase" or "sale": from its classification when there is one,
     else Experio's type. ToolError for a bank statement or neither side."""
     with cabinet_db() as db:
-        row = db.execute(
-            "select category from tarik_classifications where invoice_id = %s", (invoice["id"],)
-        ).fetchone()
+        row = db.execute(Q.classification_category, (invoice["id"],)).fetchone()
     if row and row[0] == "rb":
         raise ToolError(f"Facture {invoice['id']} : c'est un releve bancaire, pas une facture.")
     side = CATEGORY_TO_TYPE[row[0]] if row else invoice["type"]
@@ -67,9 +66,7 @@ def _kept_classification(invoice_id, invoice_type):
     """The (category, reason) already decided for the invoice, or None: a draft taken up again keeps its side, the
     model's second look must not flip it. The client giving a side that differs asks for a new look."""
     with cabinet_db() as db:
-        row = db.execute(
-            "select category, reason from tarik_classifications where invoice_id = %s", (invoice_id,)
-        ).fetchone()
+        row = db.execute(Q.classification_of_invoice, (invoice_id,)).fetchone()
     return row if row and invoice_type in ("", row[0]) else None
 
 
@@ -77,9 +74,7 @@ def _save_classification(invoice_id, category, reason):
     """Store the invoice's ``category`` and its ``reason`` in tarik_classifications, replacing any earlier one."""
     with cabinet_db() as db:
         db.execute(
-            "insert into tarik_classifications (invoice_id, category, reason) values (%s, %s, %s) "
-            "on conflict (invoice_id) do update set category = excluded.category, reason = excluded.reason, "
-            "classified_at = now()",
+            Q.upsert_classification,
             (invoice_id, category, reason),
         )
 

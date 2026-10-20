@@ -8,21 +8,8 @@ import secrets
 import time
 
 from engine import runs
+from tarik.core.queries import Q
 
-TABLES = """
-create table if not exists users (
-    email text primary key,
-    name text not null,
-    password text not null,  -- scrypt$<salt hex>$<hash hex>
-    active boolean not null default true,
-    created_at timestamptz not null default now()
-);
-create table if not exists sessions (
-    token text primary key,  -- sha256 of the cookie's token
-    email text not null references users (email) on delete cascade,
-    expires_at timestamptz not null
-);
-"""
 SESSION_HOURS = 12
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 FAILURES = {}  # email: (count, last failure, monotonic): a guessing run waits
@@ -43,17 +30,11 @@ def digest(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-async def setup():
-    async with runs.pool.connection() as db:
-        await db.execute(TABLES)
-
-
 async def save_user(email, name, password):
     """An account made, or its name and password changed (and reactivated)."""
     async with runs.pool.connection() as db:
         await db.execute(
-            "insert into users (email, name, password) values (%s, %s, %s) on conflict (email) do update set "
-            "name = excluded.name, password = excluded.password, active = true",
+            Q.user_saved,
             (email.strip().lower(), name.strip(), hashed(password)),
         )
 
@@ -61,8 +42,8 @@ async def save_user(email, name, password):
 async def disable(email):
     """An account closed: it can no longer log in, and its sessions end."""
     async with runs.pool.connection() as db:
-        await db.execute("update users set active = false where email = %s", (email.strip().lower(),))
-        await db.execute("delete from sessions where email = %s", (email.strip().lower(),))
+        await db.execute(Q.user_closed, (email.strip().lower(),))
+        await db.execute(Q.user_sessions_ended, (email.strip().lower(),))
 
 
 async def log_in(email, password):
@@ -72,17 +53,17 @@ async def log_in(email, password):
     if count >= WAIT_AFTER and time.monotonic() - last < WAIT_SECONDS:
         return None
     async with runs.pool.connection() as db:
-        row = await (await db.execute("select password from users where email = %s and active", (email,))).fetchone()
+        row = await (await db.execute(Q.user_password, (email,))).fetchone()
         if not row or not matches(password, row[0]):
             FAILURES[email] = (count + 1, time.monotonic())
             return None
         FAILURES.pop(email, None)
         token = secrets.token_urlsafe(32)
         await db.execute(
-            "insert into sessions (token, email, expires_at) values (%s, %s, now() + %s * interval '1 hour')",
+            Q.session_opened,
             (digest(token), email, SESSION_HOURS),
         )
-        await db.execute("delete from sessions where expires_at < now()")
+        await db.execute(Q.sessions_expired_removed)
     return token
 
 
@@ -93,8 +74,7 @@ async def user_of(token):
     async with runs.pool.connection() as db:
         row = await (
             await db.execute(
-                "select u.email, u.name from sessions s join users u using (email) "
-                "where s.token = %s and s.expires_at > now() and u.active",
+                Q.session_user,
                 (digest(token),),
             )
         ).fetchone()
@@ -103,4 +83,4 @@ async def user_of(token):
 
 async def log_out(token):
     async with runs.pool.connection() as db:
-        await db.execute("delete from sessions where token = %s", (digest(token or ""),))
+        await db.execute(Q.session_closed, (digest(token or ""),))

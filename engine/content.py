@@ -17,19 +17,8 @@ import psycopg
 import tarik.core.model
 from tarik.core.config import POSTGRES
 from tarik.core.model import front_matter
+from tarik.core.queries import Q
 
-TABLE = """
-create table if not exists content_versions (
-    id bigserial primary key,
-    path text not null,
-    text text not null,
-    author text not null,
-    note text not null default '',
-    created_at timestamptz not null default now()
-);
-create index if not exists content_versions_path on content_versions (path, id desc);
-"""
-LATEST_ROWS = "select distinct on (path) path, text from content_versions order by path, id desc"
 PATH = re.compile(r"(agent|labels)\.json|(skills|tools)/[a-z0-9-]+\.md")  # the documents there can be
 LATEST = {}  # path: its latest text (this process serves every edit, so this is always current)
 
@@ -73,14 +62,13 @@ def loaded(rows):
 async def setup(pool):
     """The versions' table, and each document's latest version put to use."""
     async with pool.connection() as db:
-        await db.execute(TABLE)
-        loaded(await (await db.execute(LATEST_ROWS)).fetchall())
+        loaded(await (await db.execute(Q.content_latest)).fetchall())
 
 
 def load():
     """The latest versions read once, outside the server (check.py, the tests), from the stack's Postgres."""
     with psycopg.connect(**POSTGRES, options="-c search_path=orchestrator") as db:
-        loaded(db.execute(LATEST_ROWS).fetchall())
+        loaded(db.execute(Q.content_latest).fetchall())
 
 
 # A line that starts a block of its own: a list item, a heading, a table row, a quote, a fence, a JSON object, or a
@@ -118,7 +106,7 @@ async def save(pool, path, new, author, note="", create=False, reshape=False):
         return False
     async with pool.connection() as db:
         await db.execute(
-            "insert into content_versions (path, text, author, note) values (%s, %s, %s, %s)",
+            Q.content_saved,
             (path, new, author, note.strip()[:300]),
         )
     LATEST[path] = new
@@ -131,7 +119,7 @@ async def history(pool, path, limit=50):
     async with pool.connection() as db:
         rows = await (
             await db.execute(
-                "select id, author, note, created_at from content_versions where path = %s order by id desc limit %s",
+                Q.content_history,
                 (path, limit),
             )
         ).fetchall()
@@ -143,7 +131,7 @@ async def version(pool, path, version_id):
     async with pool.connection() as db:
         rows = await (
             await db.execute(
-                "select text from content_versions where path = %s and id <= %s order by id desc limit 2",
+                Q.content_version,
                 (path, version_id),
             )
         ).fetchall()
@@ -155,11 +143,7 @@ async def version(pool, path, version_id):
 async def last_changes(pool):
     """{path: {author, at}} of each document's latest version."""
     async with pool.connection() as db:
-        rows = await (
-            await db.execute(
-                "select distinct on (path) path, author, created_at from content_versions order by path, id desc"
-            )
-        ).fetchall()
+        rows = await (await db.execute(Q.content_last_changes)).fetchall()
     return {path: {"author": author, "at": at} for path, author, at in rows}
 
 

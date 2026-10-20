@@ -12,6 +12,7 @@ from tarik.core.config import TEST_MODE
 from tarik.core.conversation import client_messages
 from tarik.core.experio import dry_run, in_dossier, odoo_call, refused, require_dossier
 from tarik.core.model import ask_model, pdf_pages, to_pdf, tool_prompt
+from tarik.core.queries import Q
 from tarik.invoices.classify import classify_pages, client_side
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
@@ -27,10 +28,10 @@ def require_kind(name, kind, wanted):
         raise ToolError(f"{name} est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")
 
 
-def file_row(db, file_id, columns):
-    """The file's ``columns`` (a comma-separated str) as a tuple, its row locked until ``db`` commits;
-    ToolError when there is no such file."""
-    row = db.execute(f"select {columns} from tarik_files where id = %s for update", (file_id,)).fetchone()
+def file_row(db, file_id, query):
+    """The file's columns ``query`` (one of the *_file_locked statements) selects, as a tuple, its row locked until
+    ``db`` commits; ToolError when there is no such file."""
+    row = db.execute(query, (file_id,)).fetchone()
     if not row:
         raise ToolError(f"Aucun fichier n° {file_id}.")
     return row
@@ -48,7 +49,7 @@ def identify_document(file_id: int) -> dict:
     invoice (then split_invoices, create_draft_invoice) or a bank statement
     (then import_bank_statement). Nothing else accepts a file it hasn't seen."""
     with cabinet_db() as db:
-        name, mime, data, kind = file_row(db, file_id, "file_name, mime_type, data, kind")
+        name, mime, data, kind = file_row(db, file_id, Q.identify_file_locked)
         if kind:
             return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
         if mime != "application/pdf" and not mime.startswith("image/"):
@@ -61,7 +62,7 @@ def identify_document(file_id: int) -> dict:
         # a PDF mixing invoices and a statement needs splitting by kind.
         category, _ = classify_pages(pages, "Identification du document")
         kind = "statement" if category == "rb" else "invoice"
-        db.execute("update tarik_files set kind = %s where id = %s", (kind, file_id))
+        db.execute(Q.set_file_kind, (kind, file_id))
     return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
 
 
@@ -108,8 +109,7 @@ def save_parts(db, session_id, name, file_id, documents):
     made = []
     for first, last, document in documents:
         (new_id,) = db.execute(
-            "insert into tarik_files (session_id, file_name, mime_type, data, parent_id, kind) "
-            "values (%s, %s, %s, %s, %s, 'invoice') returning id",
+            Q.insert_cut_invoice_file,
             (session_id, f"{stem} - {pages_of(first, last)}.pdf", "application/pdf", document, file_id),
         ).fetchone()
         made.append((new_id, pages_of(first, last)))
@@ -123,15 +123,12 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
     when it holds only one); create one draft per number returned.
     ``invoice_type``: achat, vente or mixte, only as the client wrote it in this
     conversation; otherwise the client is asked first and nothing is made."""
-    columns = "session_id, file_name, mime_type, data, invoice_id, kind, parent_id"
     with cabinet_db() as db:
-        session_id, name, mime, data, invoice_id, kind, parent_id = file_row(db, file_id, columns)
+        session_id, name, mime, data, invoice_id, kind, parent_id = file_row(db, file_id, Q.split_file_locked)
         require_kind(name, kind, "invoice")
         if not client_side(invoice_type, " ".join(client_messages(session_id, client_message))):
             return question(f"{name} : s'agit-il de factures d'achat ou de vente ? Rien n'a ete cree.")
-        parts = db.execute(
-            "select id, file_name from tarik_files where parent_id = %s order by id", (file_id,)
-        ).fetchall()
+        parts = db.execute(Q.cut_parts_of_file, (file_id,)).fetchall()
         if parts:
             return ok(f"{name} : deja decoupe en {len(parts)} factures : {listed(parts)}.", files=[i for i, _ in parts])
         one = routine(f"{name} : 1 facture, fichier n° {file_id}.", files=[file_id])
@@ -178,17 +175,14 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
     it answers with the draft already made."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
-        # Locked until the draft is recorded, so a retry can't create a second one.
-        name, mime, data, existing, kind = file_row(db, file_id, "file_name, mime_type, data, invoice_id, kind")
+        name, mime, data, existing, kind = file_row(db, file_id, Q.draft_file_locked)
         require_kind(name, kind, "invoice")
         if existing:  # another run made it and works on it: this one leaves it alone
             return stop(
                 f"{name} : facture brouillon n° {existing} deja creee, deja en cours de traitement.",
                 invoice_id=existing,
             )
-        parts = [
-            part for (part,) in db.execute("select id from tarik_files where parent_id = %s order by id", (file_id,))
-        ]
+        parts = [part for (part,) in db.execute(Q.cut_part_ids_of_file, (file_id,))]
         if parts:
             raise ToolError(
                 f"{name} a ete decoupe : creez les brouillons des fichiers n° {', '.join(map(str, parts))}."
@@ -199,7 +193,7 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
         # A bare exp.invoice create would skip the import's defaults, pending state and Bluejay OCR job.
         with refused(f"create_draft_invoice: file {file_id}", f"Experio n'a pas pu creer la facture pour {name}."):
             invoice_id = import_pdf("exp.invoice.import", name, raw, dossier_id, type="purchase")
-        db.execute("update tarik_files set invoice_id = %s where id = %s", (invoice_id, file_id))
+        db.execute(Q.set_file_invoice, (invoice_id, file_id))
     created = f"{name} : facture brouillon n° {invoice_id} creee dans le dossier {dossier}."
     return routine(created, invoice_id=invoice_id)
 
@@ -250,8 +244,7 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
     the answer lists them and the client chooses. Safe to call again."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
-        # Locked until the statement is recorded, so a retry can't import it twice.
-        name, mime, data, kind, existing = file_row(db, file_id, "file_name, mime_type, data, kind, statement_id")
+        name, mime, data, kind, existing = file_row(db, file_id, Q.statement_file_locked)
         require_kind(name, kind, "statement")
         if existing:
             return ok(f"{name} : releve deja importe (n° {existing}).", statement_id=existing)
@@ -268,7 +261,7 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
             statement_id = import_pdf(
                 "exp.bank.statement.import", name, raw, dossier_id, invoice_journal_id=journal["id"]
             )
-        db.execute("update tarik_files set statement_id = %s where id = %s", (statement_id, file_id))
+        db.execute(Q.set_file_statement, (statement_id, file_id))
     return ok(
         f"{name} : releve importe (n° {statement_id}) dans le dossier {dossier}, journal {journal['name']}.",
         statement_id=statement_id,

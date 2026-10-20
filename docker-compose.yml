@@ -29,6 +29,7 @@ services:
       - ./run.py:/app/run.py
       - ./engine:/app/engine
       - ./tarik:/app/tarik
+      - ./sql:/app/sql
       - ./ui:/app/ui
       - ./tests:/app/tests
       - ./pytest.ini:/app/pytest.ini

@@ -32,6 +32,7 @@ from tarik.core.app import ToolError, ok, question, routine, step_tool, stop, to
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, TEST_MODE
 from tarik.core.experio import dry_run, in_dossier, misplaced_journals, odoo_call, odoo_json, refused, require_dossier
+from tarik.core.queries import Q
 from tarik.core.words import normalized, said
 from tarik.invoices.exercice import open_exercice
 
@@ -190,7 +191,7 @@ def entries_kind(text, separator):
 def taken(file_id):
     """The file is done with, imported or refused: a corrected file comes as a new one."""
     with cabinet_db() as db:
-        db.execute("update tarik_files set kind = 'entries' where id = %s", (file_id,))
+        db.execute(Q.file_taken_as_entries, (file_id,))
 
 
 def setup_waits(dossier_id, file_id=None):
@@ -199,21 +200,18 @@ def setup_waits(dossier_id, file_id=None):
     with cabinet_db() as db:
         if file_id:
             db.execute(
-                "insert into tarik_setups (dossier_id, session_id) select %s, session_id from tarik_files "
-                "where id = %s on conflict (dossier_id) do update set session_id = excluded.session_id",
+                Q.upsert_setup_wait,
                 (dossier_id, file_id),
             )
         else:
-            db.execute("delete from tarik_setups where dossier_id = %s", (dossier_id,))
+            db.execute(Q.delete_setup_wait, (dossier_id,))
 
 
 @tool
 def waiting_setups(session_id: str) -> dict:
     """This conversation's dossiers whose entries were imported and whose onboarding still waits."""
     with cabinet_db() as db:
-        rows = db.execute(
-            "select dossier_id from tarik_setups where session_id = %s order by created_at", (session_id,)
-        ).fetchall()
+        rows = db.execute(Q.setups_waiting_in_session, (session_id,)).fetchall()
     return ok(f"{len(rows)} dossier(s) a terminer.", dossiers=[dossier_id for (dossier_id,) in rows])
 
 
@@ -355,7 +353,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     nothing is imported when its test finds errors."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
-        row = db.execute("select file_name, mime_type, data from tarik_files where id = %s", (file_id,)).fetchone()
+        row = db.execute(Q.file_contents, (file_id,)).fetchone()
     if not row:
         raise ToolError(f"Aucun fichier n° {file_id}.")
     name = row[0]

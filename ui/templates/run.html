@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "avatar.html" import avatar %}
 {% block title %}{{ run.graph | graph_name }}{% endblock %}
 {% block page_class %} wide{% endblock %}
 {% block content %}
@@ -44,7 +45,7 @@
   <ol class="talk">
     {% for entry in conversation %}
     <li class="{% if entry.who == 'Client' %}client{% elif entry.tool %}tool{% else %}tarik{% endif %}">
-      <span class="who">{{ entry.who }}</span>
+      <span class="who">{{ avatar('client' if entry.who == 'Client' else 'tool' if entry.tool else 'tarik') }}{{ entry.who }}</span>
       {% if entry.thinking %}<details class="thinking"><summary>Sa réflexion</summary><pre>{{ entry.thinking }}</pre></details>{% endif %}
       {% if entry.calls %}<ul class="calls">{% for call in entry.calls %}<li>Utilise <b>{{ call.name }}</b> <span class="mono">{{ call.args }}</span></li>{% endfor %}</ul>{% endif %}
       {% if entry.text %}{% if entry.tool %}<details><summary>Réponse de l'outil</summary><pre>{{ entry.text }}</pre></details>{% else %}<pre class="said">{{ entry.text }}</pre>{% endif %}{% endif %}

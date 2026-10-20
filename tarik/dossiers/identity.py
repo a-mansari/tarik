@@ -10,6 +10,7 @@ from tarik.core.cabinets import cabinet_db
 from tarik.core.config import DOSSIER_DOMAIN, SIMILAR_NAME, TEST_MODE
 from tarik.core.conversation import client_messages, own_words
 from tarik.core.experio import dry_run, main_dossier_context, odoo_call, odoo_json, refused, require_dossier
+from tarik.core.queries import Q
 from tarik.core.words import ICE_WRITTEN, as_number, normalized, said, similarity, written_numbers
 from tarik.dossiers.people import attach_user
 from tarik.dossiers.search import dossiers
@@ -127,7 +128,7 @@ def confirmed(session_id, client_confirmed, *parts):
     another dossier, confirms nothing, and nothing is confirmed before Tarik asked."""
     with cabinet_db() as db:
         last = db.execute(
-            "select message from tarik_results where session_id = %s and status = 'question' order by id desc limit 1",
+            Q.last_question_of_session,
             (session_id,),
         ).fetchone()
     return client_confirmed is True and bool(last) and all(normalized(part) in normalized(last[0]) for part in parts)
@@ -187,8 +188,7 @@ def created_here(session_id, name):
         created = [
             dossier_id
             for (dossier_id,) in db.execute(
-                "select distinct dossier_id from tarik_results where session_id = %s and "
-                "step = 'create_dossier' and status = 'ok' and dossier_id is not null",
+                Q.dossiers_created_in_session,
                 (session_id,),
             )
         ]

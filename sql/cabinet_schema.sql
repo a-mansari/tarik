@@ -1,3 +1,4 @@
+-- name: cabinet_schema
 -- One cabinet's tables, created in its own schema (tarik.core.cabinets.create_schemas, at each
 -- start of the orchestrator): idempotent, so a new cabinet or a new table only needs a restart.
 

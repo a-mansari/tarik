@@ -14,6 +14,7 @@ import re
 from tarik.core.app import routine, stop, tool
 from tarik.core.cabinets import cabinet_db
 from tarik.core.experio import login, odoo_call, refused, require_dossier, require_invoice
+from tarik.core.queries import Q
 
 # Who may give Tarik work: the cabinet's collaborators and Experio's own staff (not client contacts).
 STAFF = ["employee", "internal"]
@@ -109,9 +110,7 @@ def attach_user(user_id, dossier_id, profile_id=None, employee_type="employee"):
 def sender_of(session_id):
     """Who wrote, for an email conversation; None in the chat, where Experio can't tell who writes."""
     with cabinet_db() as db:
-        row = db.execute(
-            "select client_address from tarik_mail_threads where session_id = %s", (session_id,)
-        ).fetchone()
+        row = db.execute(Q.sender_of_session, (session_id,)).fetchone()
     return row[0] if row else None
 
 

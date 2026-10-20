@@ -2,6 +2,7 @@
 wrote themselves (a model may not decide a value or a copy), and the agent's reading of their oui / non."""
 
 from tarik.core.cabinets import cabinet_db
+from tarik.core.queries import Q
 from tarik.core.words import normalized, said
 
 # What ask_agent adds to an email's text for the agent: never the client's own words.
@@ -21,20 +22,16 @@ def remember_client_message(session_id, client_message):
     if not (session_id and client_message.strip()):
         return
     with cabinet_db() as db:
-        last = db.execute(
-            "select message from tarik_client_messages where session_id = %s order by id desc limit 1", (session_id,)
-        ).fetchone()
+        last = db.execute(Q.last_client_message, (session_id,)).fetchone()
         if not last or last[0] != client_message:
-            db.execute(
-                "insert into tarik_client_messages (session_id, message) values (%s, %s)", (session_id, client_message)
-            )
+            db.execute(Q.insert_client_message, (session_id, client_message))
 
 
 def client_messages(session_id, client_message):
     """The client's messages (list of str) in this conversation, the current one included (their own words only)."""
     remember_client_message(session_id, client_message)
     with cabinet_db() as db:
-        rows = db.execute("select message from tarik_client_messages where session_id = %s order by id", (session_id,))
+        rows = db.execute(Q.client_messages_of_session, (session_id,))
         return [text for (text,) in rows]
 
 
@@ -72,9 +69,7 @@ def yes_no(decision):
 def kept_answer(invoice_id, step):
     """The client's answer kept for ``step``'s question on ``invoice_id`` ("" when none)."""
     with cabinet_db() as db:
-        row = db.execute(
-            "select answer from tarik_answers where invoice_id = %s and step = %s", (invoice_id, step)
-        ).fetchone()
+        row = db.execute(Q.kept_answer_of_step, (invoice_id, step)).fetchone()
     return row[0] if row else ""
 
 
@@ -82,7 +77,6 @@ def keep_answer(invoice_id, step, answer):
     """The client's understood answer to ``step``'s question on ``invoice_id``, kept for the runs taking it up again."""
     with cabinet_db() as db:
         db.execute(
-            "insert into tarik_answers (invoice_id, step, answer) values (%s, %s, %s) "
-            "on conflict (invoice_id, step) do update set answer = excluded.answer",
+            Q.upsert_answer,
             (invoice_id, step, answer),
         )

@@ -21,6 +21,7 @@ from tarik.core.app import ToolError, log, ok, tool
 from tarik.core.cabinets import cabinet_db, current, setting
 from tarik.core.config import ENTRY_FILES, READING
 from tarik.core.experio import odoo_call
+from tarik.core.queries import Q
 from tarik.core.words import strip_tags
 from tarik.dossiers.people import collaborator
 from tarik.dossiers.setup import waiting_setups
@@ -35,8 +36,6 @@ ACKNOWLEDGEMENT = (
     "Votre message est bien reçu. Je le traite et vous réponds dans ce fil, en général d'ici quelques minutes."
 )
 FILE_TYPES = (".pdf", ".jpg", ".jpeg", ".png", *ENTRY_FILES)
-# A thread Tarik must answer: new, or taken by a run that died (its lease is over). Its one parameter: LEASE_MINUTES.
-WAITING = "state = 'new' or (state = 'in_progress' and claimed_at < now() - make_interval(mins => %s))"
 
 # Where the client's own text stops and the quoted history begins: a line starting with "Le ... a écrit :",
 # "On ... wrote:", "-- Message d'origine" / "-- Original message", or a quoted header ("De :", "From:", "Envoyé :").
@@ -143,8 +142,7 @@ def thread_of(db, linked, sender, subject, reason, message_id):
     """The id of the sender's thread the email belongs to (one of ``linked`` is in it); a new thread, ignored
     when there is a ``reason``, otherwise. A thread the client wrote again in goes back to Tarik."""
     row = db.execute(
-        "select m.thread_id from tarik_mail_messages m join tarik_mail_threads t on t.thread_id = m.thread_id "
-        "where m.message_id = any(%s) and t.client_address = %s limit 1",
+        Q.thread_of_linked_message,
         (linked, sender),
     ).fetchone()
     if not row:
@@ -152,16 +150,13 @@ def thread_of(db, linked, sender, subject, reason, message_id):
         # email may reach two cabinets' mailboxes.
         session_id = "mail-" + hashlib.sha256(f"{current()}\n{message_id}".encode()).hexdigest()[:20]
         db.execute(
-            "insert into tarik_mail_threads (thread_id, session_id, client_address, subject, state, reason) "
-            "values (%s, %s, %s, %s, %s, %s)",
+            Q.insert_mail_thread,
             (message_id, session_id, sender, subject[:300], "ignored" if reason else "new", reason),
         )
         return message_id
     if not reason:  # allowed now: back to Tarik, even after an error or a refusal (a run on it takes it after)
         db.execute(
-            "update tarik_mail_threads set state = 'new', attempts = 0, reason = null, follow_up_until = null, "
-            "updated_at = now() "
-            "where thread_id = %s and state <> 'in_progress'",
+            Q.reopen_mail_thread,
             (row[0],),
         )
     return row[0]
@@ -174,7 +169,7 @@ def store(db, uid, message):
     refused one is kept aside and leaves the thread alone. Returns what the cabinet's manager must hear
     of when the sender may not use Tarik, else None."""
     message_id = (message.get("Message-ID") or f"<uid-{uid}@{folder()}>").strip()
-    if db.execute("select 1 from tarik_mail_messages where message_id = %s", (message_id,)).fetchone():
+    if db.execute(Q.mail_message_exists, (message_id,)).fetchone():
         return
     sender, reply_to, subject, linked, text, files, auto = read_email(message_id, message)
     own = (parseaddr(setting("SMTP_FROM", ""))[1], setting("SMTP_USER", ""), setting("IMAP_USER", ""))
@@ -182,16 +177,15 @@ def store(db, uid, message):
         return  # Tarik's own reply, when the folder holds the sent copies
     reason, unauthorized = refusal(sender, auto)
     thread_id = thread_of(db, linked, sender, subject, reason, message_id)
-    session = db.execute("select session_id from tarik_mail_threads where thread_id = %s", (thread_id,)).fetchone()[0]
+    session = db.execute(Q.session_of_thread, (thread_id,)).fetchone()[0]
     db.execute(
-        "insert into tarik_mail_messages (message_id, thread_id, uid, from_address, reply_to, subject, body, "
-        "references_ids, handled) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        Q.insert_mail_message,
         (message_id, thread_id, uid, sender, reply_to, subject[:300], text, " ".join(linked), reason is not None),
     )
     if not reason:
         for name, mime, data in files:
             db.execute(
-                "insert into tarik_files (session_id, file_name, mime_type, data) values (%s, %s, %s, %s)",
+                Q.insert_mail_file,
                 (session, name, mime, data),
             )
     return {"sender": sender, "subject": subject, "reason": unauthorized} if unauthorized else None
@@ -202,18 +196,15 @@ def thread_item(db, thread_id, session_id, address, subject):
     unanswered emails as one message, the files waiting, and what the reply answers (the thread's last email).
     With no unanswered email, it is a follow-up: Tarik takes up the drafts Experio was reading."""
     messages = db.execute(
-        "select message_id, body from tarik_mail_messages where thread_id = %s and not handled "
-        "order by received_at, uid",
+        Q.unhandled_messages_of_thread,
         (thread_id,),
     ).fetchall()
     last = db.execute(
-        "select message_id, references_ids, reply_to from tarik_mail_messages where thread_id = %s "
-        "order by received_at desc, uid desc limit 1",
+        Q.last_message_of_thread,
         (thread_id,),
     ).fetchone()
     files = db.execute(
-        "select file_name from tarik_files where session_id = %s and parent_id is null and kind is null "
-        "and invoice_id is null and statement_id is null order by id",
+        Q.untaken_file_names,
         (session_id,),
     )
     last_id, last_references, reply_to = last or ("", "", None)
@@ -235,15 +226,12 @@ def claim(db):
     """The threads with emails Tarik hasn't answered (list of thread_item), locked for this run; after 3 failed
     runs, set aside."""
     db.execute(
-        "update tarik_mail_threads set state = 'error', reason = %s, claimed_at = null "
-        "where state = 'in_progress' and attempts >= %s and claimed_at < now() - make_interval(mins => %s)",
+        Q.set_aside_failed_threads,
         (f"traitement echoue {MAX_ATTEMPTS} fois", MAX_ATTEMPTS, LEASE_MINUTES),
     )
     ready = follow_ups_ready(db)
     rows = db.execute(
-        "update tarik_mail_threads set state = 'in_progress', claimed_at = now(), attempts = attempts + 1, "
-        f"updated_at = now() where {WAITING} or (state = 'follow_up' and thread_id = any(%s)) "
-        "returning thread_id, session_id, client_address, subject",
+        Q.claim_mail_threads,
         (LEASE_MINUTES, ready),
     ).fetchall()
     return [thread_item(db, *row) for row in rows]
@@ -263,16 +251,14 @@ def follow_ups_ready(db):
     conversation waits on, or their time is up. One with nothing left (drafts posted or deleted in Experio
     meanwhile) is done."""
     ready = []
-    threads = "select thread_id, session_id, follow_up_until < now() from tarik_mail_threads where state = 'follow_up'"
-    for thread_id, session_id, over in db.execute(threads).fetchall():
+    for thread_id, session_id, over in db.execute(Q.follow_up_threads).fetchall():
         if waiting_setups(session_id)["dossiers"]:  # Experio's wait on its lines is over by the next tick
             ready.append(thread_id)
             continue
         drafts = drafts_to_resume(session_id)
         if not drafts:
             db.execute(
-                "update tarik_mail_threads set state = 'done', follow_up_until = null, updated_at = now() "
-                "where thread_id = %s and state = 'follow_up'",
+                Q.finish_follow_up,
                 (thread_id,),
             )
             continue
@@ -289,12 +275,11 @@ def follow_ups_ready(db):
 def last_read(db, uidvalidity, newest):
     """The uid of the last email read in the folder, or None on a first reading (or a folder rebuilt, its
     ``uidvalidity`` changed): then the folder's ``newest`` uid is noted, and earlier emails are left alone."""
-    state = db.execute("select uidvalidity, last_uid from tarik_mail_state where folder = %s", (folder(),)).fetchone()
+    state = db.execute(Q.mail_folder_state, (folder(),)).fetchone()
     if state and state[0] == uidvalidity:
         return state[1]
     db.execute(
-        "insert into tarik_mail_state (folder, uidvalidity, last_uid) values (%s, %s, %s) on conflict (folder) "
-        "do update set uidvalidity = excluded.uidvalidity, last_uid = excluded.last_uid",
+        Q.upsert_mail_folder_state,
         (folder(), uidvalidity, newest),
     )
     return None
@@ -319,7 +304,7 @@ def store_new(box, db, last):
             break
         if alert:
             alerts.append(alert)
-        db.execute("update tarik_mail_state set last_uid = %s where folder = %s", (uid, folder()))
+        db.execute(Q.set_mail_folder_last_uid, (uid, folder()))
         db.commit()
     return alerts
 
@@ -333,7 +318,7 @@ def read_mailbox():
         uidvalidity = int(box.response("UIDVALIDITY")[1][0])
         newest = int(box.response("UIDNEXT")[1][0]) - 1
         # This cabinet's reading lock, held until db closes: the watcher's wake-up and its tick may overlap.
-        if not db.execute("select pg_try_advisory_lock(hashtext(%s))", (f"read_mailbox {current()}",)).fetchone()[0]:
+        if not db.execute(Q.try_mailbox_lock, (f"read_mailbox {current()}",)).fetchone()[0]:
             return []
         last = last_read(db, uidvalidity, newest)
         return [] if last is None else store_new(box, db, last)
@@ -342,15 +327,14 @@ def read_mailbox():
 def threads_waiting():
     """Is a thread waiting for Tarik's answer, so that "Tarik - Emails" has work?"""
     with cabinet_db() as db:
-        waiting = db.execute(f"select 1 from tarik_mail_threads where {WAITING} limit 1", (LEASE_MINUTES,)).fetchone()
+        waiting = db.execute(Q.any_thread_waiting, (LEASE_MINUTES,)).fetchone()
         return waiting is not None or bool(follow_ups_ready(db))
 
 
 def set_aside(db, thread_id, state, reason):
     """Unlock thread ``thread_id`` in ``state`` ('ignored' or 'error'), with ``reason`` (str, cut to 300)."""
     db.execute(
-        "update tarik_mail_threads set state = %s, reason = %s, claimed_at = null, updated_at = now() "
-        "where thread_id = %s",
+        Q.set_aside_thread,
         (state, reason[:300], thread_id),
     )
 
@@ -361,9 +345,7 @@ def acknowledge_thread(thread_id: str) -> dict:
     thread, and only for one Tarik never answered (a reply in an existing thread or a follow-up gets none)."""
     with cabinet_db() as db:
         row = db.execute(
-            "select session_id, client_address, subject, acknowledged_at is null and not exists "
-            "(select 1 from tarik_mail_messages m where m.thread_id = t.thread_id and m.handled) "
-            "from tarik_mail_threads t where thread_id = %s",
+            Q.thread_to_acknowledge,
             (thread_id,),
         ).fetchone()
         if not row or not row[3]:
@@ -371,7 +353,7 @@ def acknowledge_thread(thread_id: str) -> dict:
         item = thread_item(db, thread_id, *row[:3])
     send_email(item["to"], item["subject"], ACKNOWLEDGEMENT, item["in_reply_to"], item["references"])
     with cabinet_db() as db:
-        db.execute("update tarik_mail_threads set acknowledged_at = now() where thread_id = %s", (thread_id,))
+        db.execute(Q.set_thread_acknowledged, (thread_id,))
     return ok("Accuse de reception envoye.", sent=True)
 
 
@@ -390,20 +372,19 @@ def thread_refusal(thread_id: str) -> dict:
     its emails counted as handled, and ``refused`` says the manager is to be told."""
     with cabinet_db() as db:
         thread = db.execute(
-            "select session_id, client_address, subject, claimed_at from tarik_mail_threads where thread_id = %s",
+            Q.thread_of_refusal,
             (thread_id,),
         ).fetchone()
         if not thread:
             return ok("Fil inconnu.", refused=False)
         session_id, sender, subject, claimed_at = thread
         refused = db.execute(
-            "select message from tarik_results where session_id = %s and step = 'check_sender' and status = 'stop' "
-            "and created_at >= %s order by id desc limit 1",
+            Q.sender_refused_since,
             (session_id, claimed_at),
         ).fetchone()
         if not refused:
             return ok("Pas de refus.", refused=False)
-        db.execute("update tarik_mail_messages set handled = true where thread_id = %s", (thread_id,))
+        db.execute(Q.handle_thread_messages, (thread_id,))
         set_aside(db, thread_id, "ignored", refused[0])
     message = "Travail refuse : l'expediteur n'a pas ce dossier."
     return ok(message, refused=True, sender=sender, subject=subject, reason=refused[0])
@@ -432,9 +413,7 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
             "n'est pas l'email d'un collaborateur du cabinet."
         )
     with cabinet_db() as db:
-        if db.execute(
-            "select 1 from tarik_mail_alerts where sender = %s and alerted_at > now() - interval '1 day'", (sender,)
-        ).fetchone():
+        if db.execute(Q.manager_alerted_today, (sender,)).fetchone():
             return ok(f"Manager deja prevenu aujourd'hui pour {sender}.")
         send_email(
             manager,
@@ -442,7 +421,7 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
             f"Bonjour,\n\n{sender} m'a ecrit (objet : « {subject or 'sans objet'} »).\n"
             f"Je n'ai pas traite son email : {reason}.\n\nJe ne lui ai envoye aucune reponse.",
         )
-        db.execute("insert into tarik_mail_alerts (sender) values (%s)", (sender,))
+        db.execute(Q.insert_mail_alert, (sender,))
     return ok(f"Manager prevenu : {sender}.")
 
 
@@ -453,31 +432,25 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
     dossiers to finish wait (FOLLOW_UP_MINUTES at most). When the reply could not be sent, the thread is set
     aside in error, with ``reason``."""
     with cabinet_db() as db:
-        session = db.execute("select session_id from tarik_mail_threads where thread_id = %s", (thread_id,)).fetchone()
+        session = db.execute(Q.session_of_thread, (thread_id,)).fetchone()
         if not session:
             return ok("Fil inconnu.")
         if not sent:
             set_aside(db, thread_id, "error", reason or "reponse non envoyee")
             return ok("Fil mis de cote : reponse non envoyee.")
-        db.execute("update tarik_mail_messages set handled = true where message_id = any(%s)", (list(message_ids),))
-        newer = db.execute(
-            "select 1 from tarik_mail_messages where thread_id = %s and not handled limit 1", (thread_id,)
-        ).fetchone()
-        waiting = db.execute("select 1 from tarik_pending where session_id = %s limit 1", session).fetchone()
+        db.execute(Q.handle_mail_messages, (list(message_ids),))
+        newer = db.execute(Q.thread_has_unhandled, (thread_id,)).fetchone()
+        waiting = db.execute(Q.session_has_pending, session).fetchone()
         state = "new" if newer else "waiting" if waiting else "done"  # new: an email came in during this run
         # Something left for a follow-up: drafts to take up again, or dossiers to finish.
         if state == "done" and (waiting_setups(session[0])["dossiers"] or drafts_to_resume(session[0])):
             until = db.execute(
-                "select coalesce(follow_up_until, now() + make_interval(mins => %s)) > now() "
-                "from tarik_mail_threads where thread_id = %s",
+                Q.follow_up_still_open,
                 (FOLLOW_UP_MINUTES, thread_id),
             ).fetchone()[0]
             state = "follow_up" if until else "done"
         db.execute(
-            "update tarik_mail_threads set state = %s, claimed_at = null, attempts = 0, reason = null, "
-            "follow_up_until = case when %s = 'follow_up' "
-            "then coalesce(follow_up_until, now() + make_interval(mins => %s)) end, "
-            "updated_at = now() where thread_id = %s",
+            Q.finish_mail_thread,
             (state, state, FOLLOW_UP_MINUTES, thread_id),
         )
     done = {
@@ -489,15 +462,9 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
     return ok(done[state])
 
 
-UNTAKEN = (
-    "select count(*) from tarik_files where session_id = %s and parent_id is null and kind is null "
-    "and invoice_id is null and statement_id is null"
-)
-
-
 def untaken(session_id):
     """How many of the conversation's files no tool has taken yet (int): a processed file is taken (kind, invoice or
     statement set) by the tools themselves, so files still untaken after the agent's reply mean it never called the
     files tool, or asked the client first."""
     with cabinet_db() as db:
-        return db.execute(UNTAKEN, (session_id,)).fetchone()[0]
+        return db.execute(Q.count_untaken_files, (session_id,)).fetchone()[0]

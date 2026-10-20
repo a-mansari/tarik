@@ -27,7 +27,6 @@ async def main(command, email, name=""):
     password = asked_password() if command == "add" else None
     await runs.open_store(DATABASE)
     try:
-        await accounts.setup()
         if command == "add":
             await accounts.save_user(email, name or email, password)
         else:

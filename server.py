@@ -220,7 +220,6 @@ async def lifespan(app):
     server's whole life."""
     check_cabinets()
     await runs.open_store(DATABASE)
-    await accounts.setup()
     await content.setup(runs.pool)
     mail.start(asyncio.get_running_loop())
     async with AsyncPostgresSaver.from_conn_string(f"{DATABASE} options='-c search_path={runs.SCHEMA}'") as saver:

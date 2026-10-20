@@ -1,5 +1,5 @@
 """What the agent is sent at each model call (n8n's prompt log, rebuilt): in the cabinet's own tarik_prompt_calls
-and tarik_prompt_parts (tarik/core/cabinet.sql), each distinct piece (the system text, the tools, one message) kept
+and tarik_prompt_parts (sql/cabinet_schema.sql), each distinct piece (the system text, the tools, one message) kept
 once by its hash, so a growing conversation is not stored again at every call. Saving never blocks or fails a model
 call; files are shown by their size."""
 
@@ -15,6 +15,7 @@ from langgraph.config import get_config
 from psycopg import sql
 
 from engine.settings import cabinet_of
+from tarik.core.queries import Q
 
 KEEP_DAYS = int(os.environ.get("TARIK_PROMPTS_KEEP_DAYS") or 30)
 AGENT = "Tarik - {}"
@@ -25,6 +26,15 @@ def runs():
     from engine import runs as module
 
     return module
+
+
+TABLES = {"calls": "tarik_prompt_calls", "parts": "tarik_prompt_parts"}
+
+
+def of(statement, cabinet):
+    """``statement`` (sql/orchestrator.sql) on the cabinet's own prompt tables: its {calls} and {parts} named."""
+    named = {key: sql.Identifier(cabinet, table) for key, table in TABLES.items() if f"{{{key}}}" in statement}
+    return sql.SQL(statement).format(**named)
 
 
 PENDING = set()  # the saves under way (a task nobody holds may be collected before it ends)
@@ -62,18 +72,9 @@ async def save(cabinet, session_id, agent, system, tools, messages):
     try:
         system_part, tools_part, *message_parts = [part(value) for value in (system, tools, *messages)]
         parts = dict([system_part, tools_part, *message_parts])
-        calls, parts_table = (
-            sql.Identifier(cabinet, "tarik_prompt_calls"),
-            sql.Identifier(cabinet, "tarik_prompt_parts"),
-        )
         async with runs().pool.connection() as db:
             await db.execute(
-                sql.SQL(
-                    "with new_parts as (insert into {} (hash, content) select hash, content::jsonb "
-                    "from unnest(%s::text[], %s::text[]) as t(hash, content) on conflict do nothing) "
-                    "insert into {} (session_id, agent, system_hash, tools_hash, message_hashes) "
-                    "values (%s, %s, %s, %s, %s)"
-                ).format(parts_table, calls),
+                of(Q.prompt_saved, cabinet),
                 (
                     list(parts),
                     list(parts.values()),
@@ -85,18 +86,8 @@ async def save(cabinet, session_id, agent, system, tools, messages):
                 ),
             )
             if random.random() < 0.01:  # now and then, the calls older than KEEP_DAYS and the parts no call uses
-                await db.execute(
-                    sql.SQL("delete from {} where created_at < now() - %s * interval '1 day'").format(calls),
-                    (KEEP_DAYS,),
-                )
-                # A part younger than a day may belong to a call being saved right now.
-                await db.execute(
-                    sql.SQL(
-                        "delete from {} p where p.created_at < now() - interval '1 day' "
-                        "and not exists (select 1 from {} c where p.hash = c.system_hash or p.hash = c.tools_hash "
-                        "or p.hash = any(c.message_hashes))"
-                    ).format(parts_table, calls)
-                )
+                await db.execute(of(Q.prompt_calls_expired_removed, cabinet), (KEEP_DAYS,))
+                await db.execute(of(Q.prompt_parts_unused_removed, cabinet))
     except Exception as error:
         print(f"tarik prompts not saved: {error}", file=sys.stderr)
 
@@ -130,10 +121,7 @@ async def conversations(cabinet, limit=100):
     async with runs().pool.connection() as db:
         rows = await (
             await db.execute(
-                sql.SQL(
-                    "select session_id, count(*), array_agg(distinct agent), max(created_at) from {} "
-                    "group by session_id order by 4 desc limit %s"
-                ).format(sql.Identifier(cabinet, "tarik_prompt_calls")),
+                of(Q.prompt_conversations, cabinet),
                 (limit,),
             )
         ).fetchall()
@@ -146,11 +134,7 @@ async def calls(cabinet, session_id, since=None, until=None):
     async with runs().pool.connection() as db:
         rows = await (
             await db.execute(
-                sql.SQL(
-                    "select id, agent, created_at, cardinality(message_hashes) from {} where session_id = %s "
-                    "and (%s::timestamptz is null or created_at >= %s) "
-                    "and (%s::timestamptz is null or created_at <= %s) order by id"
-                ).format(sql.Identifier(cabinet, "tarik_prompt_calls")),
+                of(Q.prompt_calls_of, cabinet),
                 (session_id, since, since, until, until),
             )
         ).fetchall()
@@ -160,14 +144,10 @@ async def calls(cabinet, session_id, since=None, until=None):
 async def prompt(cabinet, call_id):
     """One call's whole prompt: {agent, at, session_id, system, tools, messages}, or None."""
 
-    calls_table, parts = sql.Identifier(cabinet, "tarik_prompt_calls"), sql.Identifier(cabinet, "tarik_prompt_parts")
     async with runs().pool.connection() as db:
         row = await (
             await db.execute(
-                sql.SQL(
-                    "select agent, created_at, session_id, system_hash, tools_hash, message_hashes "
-                    "from {} where id = %s"
-                ).format(calls_table),
+                of(Q.prompt_call, cabinet),
                 (call_id,),
             )
         ).fetchone()
@@ -177,7 +157,7 @@ async def prompt(cabinet, call_id):
         found = dict(
             await (
                 await db.execute(
-                    sql.SQL("select hash, content from {} where hash = any(%s)").format(parts),
+                    of(Q.prompt_parts_of, cabinet),
                     ([system, tools, *hashes],),
                 )
             ).fetchall()

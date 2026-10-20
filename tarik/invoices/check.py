@@ -10,6 +10,7 @@ from tarik.core.cabinets import cabinet_db
 from tarik.core.config import MIN_SIMILARITY
 from tarik.core.experio import has_scan, odoo_call, require_invoice, still_reading
 from tarik.core.model import ask_model, scan_pages, tool_prompt
+from tarik.core.queries import Q
 from tarik.core.words import as_number, normalized, similarity, without_if
 
 # The invoice header fields Experio captured (correct_invoice may write them back), then the tiers' name and ICE.
@@ -204,18 +205,14 @@ def _read_scan(invoice_id, pages, stored):
 def stored_check(invoice_id):
     """The invoice's check as _save_check stored it: (readable, extracted, bad_fields), None when not checked yet."""
     with cabinet_db() as db:
-        return db.execute(
-            "select readable, extracted, bad_fields from tarik_checks where invoice_id = %s", (invoice_id,)
-        ).fetchone()
+        return db.execute(Q.stored_check_of_invoice, (invoice_id,)).fetchone()
 
 
 def _save_check(invoice_id, report):
     """Store ``report`` as the invoice's check in tarik_checks, replacing any earlier one."""
     with cabinet_db() as db:
         db.execute(
-            "insert into tarik_checks (invoice_id, readable, extracted, bad_fields) values (%s, %s, %s, %s) "
-            "on conflict (invoice_id) do update set readable = excluded.readable, extracted = excluded.extracted, "
-            "bad_fields = excluded.bad_fields, checked_at = now()",
+            Q.upsert_check,
             (invoice_id, report["readable"], json.dumps(report["extracted"]), json.dumps(report["bad_fields"])),
         )
 

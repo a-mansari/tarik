@@ -13,6 +13,7 @@ from tarik.core.cabinets import cabinet_db
 from tarik.core.config import POSTED, TEST_MODE
 from tarik.core.conversation import client_messages, own_words
 from tarik.core.experio import dry_run, odoo_call, odoo_json, refused, require_dossier
+from tarik.core.queries import Q
 from tarik.core.words import ICE_WRITTEN, normalized, said
 from tarik.dossiers.identity import FOLDER_TYPES, PLACEHOLDER_IDS, confirmed, having, real_ids
 from tarik.dossiers.people import attach_user
@@ -220,7 +221,7 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
     clear yes to that question). Experio checks each ICE and IF against the registry when creating:
     the rows it refuses are listed, the others are created."""
     with cabinet_db() as db:
-        row = db.execute("select file_name, mime_type, data from tarik_files where id = %s", (file_id,)).fetchone()
+        row = db.execute(Q.file_contents, (file_id,)).fetchone()
     if not row:
         raise ToolError(f"Aucun fichier n° {file_id}.")
     name = row[0]
@@ -252,7 +253,7 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
         attach_user(None, dossier_id)
         created.append(r["name"])
     with cabinet_db() as db:
-        db.execute("update tarik_files set kind = 'entries' where id = %s", (file_id,))  # done with
+        db.execute(Q.file_taken_as_entries, (file_id,))  # done with
     message = f"{name} : {len(created)} dossier(s) cree(s) sur {len(rows)}."
     if refused_rows:
         message += (
