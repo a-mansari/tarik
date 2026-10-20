@@ -76,18 +76,69 @@
     const steps = new Map(); // node id (as in the whole graph) -> the run's steps at that node
     const cy = cytoscape({ container, style: styles(), wheelSensitivity: 0.25, minZoom: 0.1, maxZoom: 2.5 });
     const GRID = 20; // the map's step: nodes and bends snap to it
-    let layout = await (await fetch(`/graphs/${graph}/layout`)).json(); // how the team arranged it, shared
+    const inside = (id, group) => id.startsWith(group + ":");
+    const snap = (value) => Math.round(value / GRID) * GRID;
+    const depth = (id) => id.split(":").length;
+    const byDepth = [...groups.keys()].sort((a, b) => depth(b) - depth(a)); // innermost first
+
+    // Where things sit (layout.nodes): a top-level node at its own place; a node inside a sub-workflow relative to the
+    // sub-workflow's place, which is where the sub-workflow shows folded and the centre of its steps when open. Folded
+    // or open, a sub-workflow is in one place: moving either moves both.
+    function fetched(found) {
+      if (found.relative) return found;
+      // A layout saved before (every place absolute): each sub-workflow's place becomes the centre of its saved steps.
+      // Only the nodes the workflow still has: a place kept for a node gone since would pull a centre away.
+      const old = Object.fromEntries(Object.entries(found.nodes || {}).filter(([id]) => parentOf.has(id)));
+      const anchors = new Map();
+      for (const g of byDepth) {
+        const inner = Object.keys(old).filter((id) => inside(id, g) && !groups.has(id)).map((id) => old[id]);
+        if (inner.length) {
+          const xs = inner.map((q) => q.x), ys = inner.map((q) => q.y);
+          anchors.set(g, { x: snap((Math.min(...xs) + Math.max(...xs)) / 2), y: snap((Math.min(...ys) + Math.max(...ys)) / 2) });
+        } else if (old[g]) anchors.set(g, old[g]);
+      }
+      const nodes = {};
+      const relativeTo = (id, at) => {
+        const parent = parentOf.get(id);
+        if (!parent) return at;
+        const base = anchors.get(parent);
+        return base ? { x: at.x - base.x, y: at.y - base.y } : null;
+      };
+      for (const [id, at] of [...Object.entries(old).filter(([id]) => !groups.has(id)), ...anchors]) {
+        const kept = relativeTo(id, at);
+        if (kept) nodes[id] = kept;
+      }
+      return { ...found, nodes, relative: true };
+    }
+    let layout = fetched(await (await fetch(`/graphs/${graph}/layout`)).json()); // how the team arranged it, shared
     let dirty = false;
     const saveButton = document.getElementById(container.dataset.save || "");
+    const undoButton = document.getElementById(container.dataset.undo || "");
     const resetButton = document.getElementById(container.dataset.reset || "");
     const note = document.getElementById(container.dataset.note || "");
+
+    // A node's saved place on the canvas, from its own and its sub-workflows'; null when it or one of them has none.
+    function savedAt(id) {
+      const own = layout.nodes?.[id];
+      if (!own) return null;
+      const parent = parentOf.get(id);
+      if (!parent) return own;
+      const base = savedAt(parent);
+      return base ? { x: base.x + own.x, y: base.y + own.y } : null;
+    }
 
     function changed() {
       dirty = true;
       if (saveButton) saveButton.disabled = false;
+      if (undoButton) undoButton.disabled = false;
       if (note) note.textContent = "Disposition modifiée, pas encore enregistrée.";
     }
-    const snap = (value) => Math.round(value / GRID) * GRID;
+    function settled(message) {
+      dirty = false;
+      if (saveButton) saveButton.disabled = true;
+      if (undoButton) undoButton.disabled = true;
+      if (note) note.textContent = message;
+    }
 
     // The grid drawn under the canvas, following its pan and zoom.
     function grid() {
@@ -104,7 +155,6 @@
       for (let p = parentOf.get(id); p; p = parentOf.get(p)) if (!opened.has(p)) shown = p;
       return shown;
     }
-    const inside = (id, group) => id.startsWith(group + ":");
     const stepCount = (group) => shape.nodes.filter((n) => n.kind === "step" && inside(n.id, group)).length;
 
     function build() {
@@ -142,7 +192,7 @@
       }
       // Where the team put things wins over the automatic layout; the rest stays where dagre put it.
       cy.nodes().forEach((node) => {
-        const saved = layout.nodes?.[node.id()];
+        const saved = savedAt(node.id());
         if (saved && !node.isParent()) node.position({ x: saved.x, y: saved.y });
       });
       cy.edges().forEach(drawEdge);
@@ -280,6 +330,8 @@
     }
 
     function toggle(group) {
+      const before = cy.getElementById(group).position(); // folded: its box; open: the centre of its frame
+      const was = { x: before.x, y: before.y };
       if (opened.has(group)) {
         opened.delete(group);
         for (const g of [...opened]) if (inside(g, group)) opened.delete(g); // what was open inside folds with it
@@ -289,6 +341,12 @@
       build();
       const node = cy.getElementById(group);
       if (!node.length) return;
+      if (!savedAt(group)) { // no saved place yet: it opens and folds where it was
+        const now = node.position(), dx = snap(was.x - now.x), dy = snap(was.y - now.y);
+        const moved = node.isParent() ? node.descendants().not(":parent") : node;
+        moved.forEach((n) => { const p = n.position(); n.position({ x: p.x + dx, y: p.y + dy }); });
+        moved.connectedEdges().forEach(drawEdge);
+      }
       // Opened: the view fits the group's frame; folded back: centred on its node. Its panel follows.
       cy.animate(opened.has(group) ? { fit: { eles: node, padding: 40 }, duration: 250 } : { center: { eles: node }, duration: 250 });
       node.select();
@@ -383,17 +441,45 @@
       ghost.position(placed);
       ghost.style({ width: node.width(), height: node.height() });
     });
-    // A node dropped snaps to the grid (a group's frame with all its steps), and its place is kept for saving.
+    // An open sub-workflow (and every one open inside it), kept as it now shows: its place the centre of its frame, each
+    // node in it relative to that place, ``base`` the place of the sub-workflow around it (null at the top).
+    function keep(group, base) {
+      const frame = cy.getElementById(group), p = frame.position(), at = { x: snap(p.x), y: snap(p.y) };
+      layout.nodes[group] = base ? { x: at.x - base.x, y: at.y - base.y } : at;
+      frame.children().forEach((child) => {
+        if (child.isParent()) return keep(child.id(), at);
+        const q = child.position();
+        layout.nodes[child.id()] = { x: q.x - at.x, y: q.y - at.y };
+      });
+    }
+    // A bend point belongs to the sub-workflow holding both ends of its edge: it moves when that one does.
+    function bendsFollow(before) {
+      for (const [id, edge] of Object.entries(layout.edges || {})) {
+        if (!edge.points?.length) continue;
+        const [source, target] = id.split("->");
+        const g = byDepth.find((x) => inside(source, x) && inside(target, x));
+        const from = g && before.get(g), to = g && savedAt(g);
+        if (!from || !to || (from.x === to.x && from.y === to.y)) continue;
+        edge.points = edge.points.map((q) => ({ x: q.x + to.x - from.x, y: q.y + to.y - from.y }));
+      }
+    }
+    // A node dropped snaps to the grid (a group's frame with all its steps), and its place is kept for saving: a
+    // top-level one as it is, anything inside an open sub-workflow by keeping that whole sub-workflow as it shows.
     cy.on("dragfree", "node[kind != 'handle'][kind != 'ghost']", (event) => {
       cy.remove("#ghost");
-      const moved = event.target.isParent() ? event.target.descendants().not(":parent") : event.target;
+      const target = event.target, before = new Map(byDepth.map((g) => [g, savedAt(g)]));
+      const moved = target.isParent() ? target.descendants().not(":parent") : target;
       moved.forEach((node) => {
-        const p = node.position(), placed = { x: snap(p.x), y: snap(p.y) };
-        node.position(placed);
-        layout.nodes ||= {};
-        layout.nodes[node.id()] = placed;
+        const p = node.position();
+        node.position({ x: snap(p.x), y: snap(p.y) });
       });
-      moved.connectedEdges().forEach(drawEdge);
+      layout.nodes ||= {};
+      const outermost = target.ancestors().last();
+      if (outermost.length) keep(outermost.id(), null);
+      else if (target.isParent()) keep(target.id(), null);
+      else layout.nodes[target.id()] = { ...target.position() };
+      bendsFollow(before);
+      cy.edges().forEach(drawEdge);
       changed();
     });
     // A bend handle dragged: the edge follows it live, then it snaps to the grid.
@@ -452,9 +538,8 @@
       try {
         const answer = await fetch(`/graphs/${graph}/layout`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(layout) });
         if (!answer.ok) throw new Error((await answer.json()).error);
-        layout = await answer.json();
-        dirty = false;
-        if (note) note.textContent = "Disposition enregistrée pour toute l'équipe.";
+        layout = fetched(await answer.json());
+        settled("Disposition enregistrée pour toute l'équipe.");
       } catch (error) {
         saveButton.disabled = false;
         if (note) note.textContent = `La disposition n'a pas pu être enregistrée (${error.message}). Réessayez.`;
@@ -467,12 +552,18 @@
         return;
       }
       resetButton.dataset.confirm = "";
-      layout = await (await fetch(`/graphs/${graph}/layout`, { method: "DELETE" })).json();
-      dirty = false;
-      if (saveButton) saveButton.disabled = true;
-      if (note) note.textContent = "Disposition automatique rétablie.";
+      layout = fetched(await (await fetch(`/graphs/${graph}/layout`, { method: "DELETE" })).json());
+      settled("Disposition automatique rétablie.");
       build();
       home();
+    });
+    // What was moved since the last save, put back as it was saved (the view stays where it is).
+    undoButton?.addEventListener("click", async () => {
+      layout = fetched(await (await fetch(`/graphs/${graph}/layout`)).json());
+      settled("Modifications annulées : la disposition enregistrée est revenue.");
+      const view = { zoom: cy.zoom(), pan: { ...cy.pan() } };
+      build();
+      cy.viewport(view);
     });
     addEventListener("beforeunload", (event) => { if (dirty) event.preventDefault(); });
 

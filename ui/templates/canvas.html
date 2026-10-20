@@ -11,13 +11,16 @@
       <button type="button" id="save-layout" class="icon-button" disabled aria-label="Enregistrer la disposition" data-tip="Enregistrer la disposition, pour toute l'équipe">
         <svg {{ icon | safe }}><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M8 3v5h7V3"/><rect x="8" y="13" width="8" height="5" rx="1"/></svg>
       </button>
+      <button type="button" id="undo-layout" class="icon-button" disabled aria-label="Annuler les modifications" data-tip="Annuler les modifications : revenir à la disposition enregistrée">
+        <svg {{ icon | safe }}><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+      </button>
       <button type="button" id="reset-layout" class="icon-button" aria-label="Disposition automatique" data-tip="Disposition automatique : oublier la disposition enregistrée">
         <svg {{ icon | safe }}><path d="m4 20 10-10"/><path d="m12 8 2 2"/><path d="M17 3v4M15 5h4M20 10v3M18.5 11.5h3M9 3v2M8 4h2"/></svg>
         <span class="confirm-text">Confirmer ?</span>
       </button>
       <span class="canvas-note" id="layout-note" role="status"></span>
     </div>
-    <div class="canvas" data-graph="{{ graph }}" data-run="{{ run_id or '' }}" data-panel="node-panel" data-fit="fit" data-home="home" data-save="save-layout" data-reset="reset-layout" data-note="layout-note" role="img" aria-label="Schéma du workflow {{ graph | graph_name }}"></div>
+    <div class="canvas" data-graph="{{ graph }}" data-run="{{ run_id or '' }}" data-panel="node-panel" data-fit="fit" data-home="home" data-save="save-layout" data-undo="undo-layout" data-reset="reset-layout" data-note="layout-note" role="img" aria-label="Schéma du workflow {{ graph | graph_name }}"></div>
     {# What the lines, colours and gestures mean, each shown as it looks on the canvas. #}
     <div class="legend">
       {% if run_id %}
