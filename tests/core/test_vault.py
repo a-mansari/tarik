@@ -11,7 +11,7 @@ import pytest
 from tarik.core import cabinets
 
 SECRETS = {
-    "shared": {"IMAP_HOST": "mail.example.ma", "N8N_MCP_API_TOKEN": "t"},
+    "shared": {"IMAP_HOST": "mail.example.ma", "SMTP_HOST": "smtp.example.ma"},
     "cabinets/experio_cabinet_8": {"ODOO_UID": "430", "IMAP_PASSWORD": "p8"},
     "cabinets/experio_cabinet_60": {"ODOO_UID": "12", "IMAP_PASSWORD": "p60"},
 }

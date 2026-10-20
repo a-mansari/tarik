@@ -19,7 +19,7 @@ psycopg (LGPL, as an unmodified library). Check the licence of every new depende
 From n8n it takes only ideas (its canvas, runs step by step, sub-workflows, the prompt log, untrusted data); nothing
 of the n8n stack runs in it:
 
-- **Its tools** (`tarik/`): every Experio step, mail and file, forked from tarik-mcp (branch `main`) and called in-process (no MCP
+- **Its tools** (`tarik/`): every Experio step, mail and file, forked from tarik-mcp (branch `main`, retired) and called in-process (no MCP
   hop), each call inside its cabinet (`using(cabinet)`): a run names its cabinet once, never the model. Free of n8n's
   workarounds: no 5-minute tool cap to dodge, steps recorded as they end.
 - **Its content**, in its Postgres only (table `content_versions`): the agent's instructions and tools' descriptions,
@@ -28,11 +28,12 @@ of the n8n stack runs in it:
   database, or keep an export. `docs/using-tarik.md` is for the cabinets.
 - **Its Postgres** (service `db`): runs, conversations, layouts (schema `orchestrator`) and each cabinet's schema.
 - **Its model key**: Vault `secret/tarik/orchestrator` (`MODEL_API_KEY`, `MODEL_API_URL` optional).
-- **Its mail watcher** (`engine/mail.py`), for the cabinets listed in `MAIL_BY_ORCHESTRATOR` (same Vault path) only:
-  a mailbox is answered by one stack, never both.
+- **Its mail watcher** (`engine/mail.py`), for every cabinet with a mailbox of its own (`IMAP_USER`).
+- **Its Vault** (service `vault`): read-only for Tarik, an AppRole on `secret/tarik/*`, and the Cabinets page's own,
+  which may only update `secret/tarik/cabinets/*`; both set up by `vault/setup.sh`.
 
-Shared with the n8n stack: Vault (service `vault` here, read-only for Tarik: an AppRole on `secret/tarik/*`, and the
-Cabinets page's own, which may only update `secret/tarik/cabinets/*`; both set up by `vault/setup.sh`) and the cabinets' Experio. The n8n implementation (branch `main`) keeps running until a cabinet is switched over.
+The n8n implementation it replaced (branch `main`) was retired on 2026-10-20: its stack stopped and removed, its data
+backed up outside the repository. Only the cabinets' Experio is outside this stack.
 
 ## Layout
 
@@ -121,8 +122,7 @@ with every run live, step by step.
    (`tarik-settings`: read and update `secret/tarik/cabinets/*` only, never the shared settings nor a new cabinet);
    a secret is never shown, only replaced; a change is written over the version the page showed only, kept (who,
    when, why, which settings; never a secret's value: table `settings_changes`) and in use at once.
-5. **Mail** — done: a cabinet switched over (`MAIL_BY_ORCHESTRATOR`, the n8n watcher stopped for it); then the email
-   test and `-m llm` again.
+5. **Mail** — done: a cabinet switched over from the n8n stack; then the email test and `-m llm` again.
 6. **Chat with file upload** — done: the Discussion page, for the team (logged in), per cabinet. Each message, with
    its files (the email's types, 10 per message, 20 MB each), is a run of the "Discussion" workflow: the files saved
    in the cabinet's schema first, then Tarik answers in the conversation's own thread, reminded of files left

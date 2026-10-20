@@ -12,18 +12,11 @@ def three(monkeypatch):
     monkeypatch.setattr(watcher, "CABINETS", cabinets.CABINETS)
     monkeypatch.setenv("TARIK_TEST_A__IMAP_USER", "tarik@a.ma")
     monkeypatch.setenv("TARIK_TEST_C__IMAP_USER", "tarik@c.ma")
-    monkeypatch.setenv("MAIL_BY_ORCHESTRATOR", "tarik_test_a, tarik_test_b, tarik_test_c")
 
 
 @pytest.mark.functionality
 def test_only_cabinets_with_their_own_mailbox_are_watched(three):
     assert watcher.mailboxes() == ["tarik_test_a", "tarik_test_c"]
-
-
-@pytest.mark.functionality
-def test_a_mailbox_the_n8n_stack_still_answers_is_left_alone(three, monkeypatch):
-    monkeypatch.setenv("MAIL_BY_ORCHESTRATOR", "tarik_test_c")
-    assert watcher.mailboxes() == ["tarik_test_c"]
 
 
 @pytest.mark.security

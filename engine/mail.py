@@ -1,8 +1,7 @@
 """Read each Tarik mailbox (a cabinet's own IMAP_USER) the moment an email arrives, and every 15 minutes in
 case one was missed: store the new emails in their threads, tell the cabinet's manager of refused senders,
 and start an Emails run when a thread waits for an answer. Each run names its cabinet, and works in that cabinet
-only. Started with the server (a new mailbox needs a restart), for the cabinets MAIL_BY_ORCHESTRATOR lists only:
-while the n8n stack still answers a mailbox, the two must never both read it.
+only. Started with the server (a new mailbox needs a restart), for every cabinet with its own mailbox.
 
 Per cabinet, one IMAP IDLE connection to its Tarik folder (read-only, pinned certificate, as
 read_mailbox connects): the server tells it when the folder gets a new email, and it reads it. The
@@ -100,12 +99,11 @@ def tick(cabinet):
 
 
 def mailboxes():
-    """The cabinets whose Tarik mailbox (their own IMAP_USER) this stack answers: those MAIL_BY_ORCHESTRATOR lists."""
+    """The cabinets with a Tarik mailbox of their own (IMAP_USER)."""
     found = []
     for cabinet in sorted(CABINETS):
         with using(cabinet):
-            listed = {name.strip() for name in setting("MAIL_BY_ORCHESTRATOR", "").split(",")}
-            if cabinet in listed and setting("IMAP_USER", ""):
+            if setting("IMAP_USER", ""):
                 found.append(cabinet)
     return found
 

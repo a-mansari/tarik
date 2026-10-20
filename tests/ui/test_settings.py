@@ -1,5 +1,5 @@
 """A cabinet's settings changed from the Cabinets page: what is refused, what a form changes, and what is written to
-Vault and recorded (never a secret's value, never over a newer version, the n8n stack's keys kept)."""
+Vault and recorded (never a secret's value, never over a newer version, any other key in the path kept)."""
 
 import asyncio
 import contextlib
@@ -14,7 +14,7 @@ BEFORE = {
     "ODOO_UID": "12",
     "ODOO_PASSWORD": "old-password",
     "MAIL_ALLOWED_RECIPIENTS": "@cabinet.ma",
-    "AGENT_ID": "n8n-agent",  # the n8n stack's own key, in the same path
+    "OTHER_KEY": "kept",  # a key the page does not show, in the same path
 }
 
 
@@ -32,6 +32,11 @@ BEFORE = {
 def test_a_setting_tarik_could_not_use_is_refused(key, value, why):
     with pytest.raises(ValueError, match=why):
         cabinet_settings.checked(key, value)
+
+
+def test_the_recipients_take_what_tarik_reads():
+    cabinet_settings.checked("MAIL_ALLOWED_RECIPIENTS", "test.*@experio.ma, @sarnec.com, a@b.ma, ")
+    cabinet_settings.checked("MAIL_ALLOWED_RECIPIENTS", "*")
 
 
 def test_a_form_changes_only_what_differs_and_a_secret_left_empty_stays():

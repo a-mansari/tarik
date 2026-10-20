@@ -6,7 +6,7 @@ Postgres schema (its files, results, questions, mail). A setting is either the c
 (SHARED_SETTINGS: the mail server; the model's key and address, the orchestrator's own), never both.
 
 They come from Vault (secret/tarik/shared, secret/tarik/orchestrator, secret/tarik/cabinets/<cabinet>, the
-cabinets being those paths). The n8n stack reads the same Vault: its own keys (N8N_ONLY) are left alone.
+cabinets being those paths).
 The tests set them in the environment instead: TARIK_CABINETS lists the cabinets, a cabinet's own
 settings are prefixed with its name (EXPERIO_CABINET_8__ODOO_UID).
 
@@ -194,11 +194,8 @@ SHARED_SETTINGS = frozenset(
         "MAIL_CERT_SHA256",
         "MODEL_API_KEY",  # secret/tarik/orchestrator
         "MODEL_API_URL",  # secret/tarik/orchestrator, optional (the provider's Anthropic-style address)
-        "MAIL_BY_ORCHESTRATOR",  # secret/tarik/orchestrator: the cabinets whose mailbox this stack answers
     ]
 )
-# The n8n stack's, in the same Vault paths: neither read nor refused here.
-N8N_ONLY = frozenset(["AGENT_ID", "N8N_MCP_API_TOKEN", "MAIL_WEBHOOK_SECRET"])
 
 
 def source():
@@ -233,12 +230,9 @@ def setting(key, default=None):
 def misplaced_in_vault(shared, cabinets, environ=os.environ):
     """With Vault: a setting under the wrong path, unknown, or still in the environment, where it
     would be a second copy. The server refuses to start with any."""
-    found = [f"tarik/shared:{key}" for key in shared if key not in SHARED_SETTINGS | N8N_ONLY]
+    found = [f"tarik/shared:{key}" for key in shared if key not in SHARED_SETTINGS]
     found += [
-        f"tarik/cabinets/{name}:{key}"
-        for name, own in cabinets.items()
-        for key in own
-        if key not in CABINET_SETTINGS | N8N_ONLY
+        f"tarik/cabinets/{name}:{key}" for name, own in cabinets.items() for key in own if key not in CABINET_SETTINGS
     ]
     known = CABINET_SETTINGS | SHARED_SETTINGS
     # TARIK_CABINETS, a setting (<KEY>) or a cabinet's own (<CABINET>__<KEY>), set in the environment.

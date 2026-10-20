@@ -3,8 +3,7 @@ receive Tarik's emails, whether Tarik really writes to Experio (DRY_RUN). Vault 
 stays their only home: they are written there with the page's own AppRole (tarik-settings, vault/setup.sh), which may
 only read and update the cabinets' paths, never the shared settings nor make a new cabinet. A secret (a password, a
 key) is never shown nor kept anywhere but Vault: it is only replaced. Each change is recorded (who, when, why, which
-settings: table settings_changes) and in use at once. The n8n stack's own keys in the same paths are kept as they
-are."""
+settings: table settings_changes) and in use at once. Any other key in the same path is kept as it is."""
 
 import asyncio
 import re
@@ -41,7 +40,8 @@ OPTIONAL = {"SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KE
 assert set(FIELDS) == cabinets.CABINET_SETTINGS  # every cabinet setting on the page, none other
 
 ADDRESS = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+")
-RECIPIENT = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+|@[^@\s,]+\.[^@\s,]+")
+# As tarik.emails.sending reads the list: an address, an @domain, or a pattern with "*" ("test.*@experio.ma", "*").
+RECIPIENT = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+|@[^@\s,]+\.[^@\s,]+|[^\s,]*\*[^\s,]*")
 
 _lock = threading.Lock()
 _token = {"value": "", "until": 0.0}
@@ -76,10 +76,10 @@ def checked(key, value):
         raise ValueError(f"{key} n'est pas une adresse email (sans espace autour)")
     if kind == "sender" and not ADDRESS.fullmatch(parseaddr(value)[1]):
         raise ValueError(f"{key} n'est pas un expéditeur (« Nom <adresse> » ou une adresse)")
-    # The recipients: each entry as Tarik reads it, split at the commas, its spaces around left out.
-    wrong = [e.strip() or "(entrée vide)" for e in value.split(",") if not RECIPIENT.fullmatch(e.strip())]
+    # The recipients, each entry as Tarik reads it: split at the commas, its spaces left out, an empty one skipped.
+    wrong = [e.strip() for e in value.split(",") if e.strip() and not RECIPIENT.fullmatch(e.strip())]
     if kind == "recipients" and wrong:
-        raise ValueError(f"{key} : ni adresse ni @domaine : {', '.join(wrong)}")
+        raise ValueError(f"{key} : ni adresse, ni @domaine, ni motif avec * : {', '.join(wrong)}")
 
 
 def changed(before, given):

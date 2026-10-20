@@ -1,10 +1,9 @@
 # Tarik: the server (the graphs, the agent, the tools, the mail watcher, the UI), its Postgres (runs, conversations,
-# each cabinet's schema) and Vault (Tarik's settings and secrets, vault/; read-only for the server). Its .env (from
+# each cabinet's schema) and Vault (Tarik's settings and secrets, vault/; read-only for the server, but the Cabinets page's own role). Its .env (from
 # .env.example, never in git) gives POSTGRES_PASSWORD and ODOO_URL:
 #   docker compose up --build -d
-# The project keeps the name sarnec-n8n, and the database its volume: the names of the stacks they came from. The n8n
-# implementation lives on branch main (run from a worktree of it with docker compose -p sarnec-n8n); it shares this
-# Vault and this network, and its services show here as orphans: never pass --remove-orphans.
+# The project keeps the name sarnec-n8n, and the database its volume: the names of the stacks they came from (Vault's
+# data is in sarnec-n8n_vault_data). The n8n implementation is retired (branch main); its data backed up, not here.
 name: sarnec-n8n
 
 services:
