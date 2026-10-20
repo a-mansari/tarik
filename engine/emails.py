@@ -11,7 +11,6 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
-from engine import agent, dossier, traitement
 from engine.tools import ToolFailure, call, within
 from tarik.core.conversation import FILES_NOTE, NO_TEXT, remember_client_message
 from tarik.emails.inbox import untaken
@@ -75,18 +74,18 @@ async def acknowledge(state: Thread):
 
 async def ask(state: Thread):
     """The cabinet's agent, in the thread's own conversation (its session id as thread id), asked again with a
-    reminder while the thread's files stay untaken."""
+    reminder while the thread's files stay untaken. Each ask is a run of the agent's own, started from this step."""
+    from engine import runs  # runs imports the graphs, this one among them
+
     thread, cabinet = state["thread"], state["cabinet"]
     text = (thread["message"] or NO_TEXT) + (FILES_NOTE + ", ".join(thread["files"]) if thread["files"] else "")
-    thread_id = thread["session_id"]  # the email thread's own session: its conversation, its files
-    config = {"configurable": {"thread_id": thread_id, "session_id": thread["session_id"], "cabinet": cabinet}}
+    session = thread["session_id"]  # the email thread's own session: its conversation (the agent's thread), its files
     started = time.monotonic()
     try:
         await within(cabinet, remember_client_message, thread["session_id"], thread["message"])
         for attempt in range(ASK_TRIES):
-            result = await agent.make_agent(config).ainvoke(
-                {"messages": [HumanMessage(text + (REMINDER if attempt else ""))]}, config=config
-            )
+            asked = {"messages": [HumanMessage(text + (REMINDER if attempt else ""))]}
+            result = await runs.nested("agent", asked, cabinet, session, thread=session, node="tarik")
             reply = result["messages"][-1].text
             if (
                 not thread["files"]
@@ -145,13 +144,18 @@ async def send(state: Thread):
 
 
 async def follow_up(state: Thread):
-    """A follow-up: no agent, no time limit. Traitement then Dossier in mode resume; one email tells both."""
+    """A follow-up: no agent, no time limit. Traitement then Dossier in mode resume, each a run of its own started
+    from this step; one email tells both."""
+    from engine import runs  # runs imports the graphs, this one among them
+
     thread = state["thread"]
     fixed = {"mode": "resume", "session_id": thread["session_id"], "cabinet": state["cabinet"]}
     summaries = []
     try:
-        for graph in (traitement.graph, dossier.graph):
-            result = await graph.ainvoke({"call": fixed, "outcomes": []})
+        for name in ("traitement", "dossier"):
+            result = await runs.nested(
+                name, {"call": fixed, "outcomes": []}, state["cabinet"], thread["session_id"], node="suite"
+            )
             if result["message"] != NOTHING:
                 summaries.append(result["message"])
     except Exception as error:  # set aside with why: never answered blind

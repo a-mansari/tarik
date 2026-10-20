@@ -4,6 +4,7 @@ checkpointer's tables, same schema)."""
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import re
 import time
@@ -12,6 +13,7 @@ from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from langchain_core.messages import BaseMessage
+from langchain_core.runnables.config import var_child_runnable_config
 from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
@@ -36,6 +38,11 @@ create table if not exists runs (
 );
 create index if not exists runs_started on runs (started_at desc);
 create index if not exists runs_session on runs (cabinet, session_id);
+-- A run started inside another's step (a workflow the agent runs, a thread handed to the agent): its parent, and the
+-- parent's step it started from.
+alter table runs add column if not exists parent_id uuid references runs (id);
+alter table runs add column if not exists parent_node text;
+create index if not exists runs_parent on runs (parent_id);
 create table if not exists steps (
     id bigserial primary key,
     run_id uuid not null references runs (id),
@@ -139,37 +146,77 @@ async def open_store(conninfo):
         await db.execute(TABLES)
 
 
-async def start(name, payload):
-    """Record a new run of graph ``name`` and start it in the background; its id."""
+RUNNING = contextvars.ContextVar("running", default=None)  # the run whose steps are going on: a run started in one
+# of them is its child (the context reaches every task the graph starts for its steps)
+
+
+async def created(name, given, cabinet, session, thread=None, parent=None, parent_node=None):
+    """A new run of graph ``name`` recorded, queued; its id."""
     run_id = str(uuid.uuid4())
-    given = payload.get("input") or {}
-    call = given.get("call") or {}  # a workflow's "Appel" inputs: its conversation and cabinet are there
-    session = payload.get("session_id") or call.get("session_id") or payload.get("thread_id") or run_id
-    cabinet = payload.get("cabinet") or call.get("cabinet") or given.get("cabinet") or DEFAULT_CABINET
-    thread = (payload.get("thread_id") or session) if name == "agent" else None
     async with pool.connection() as db:
         await db.execute(
-            "insert into runs (id, graph, cabinet, session_id, thread_id, status, input) "
-            "values (%s, %s, %s, %s, %s, 'queued', %s)",
-            (run_id, name, cabinet, session, thread, Jsonb(jsonable(payload.get("input") or {}))),
+            "insert into runs (id, graph, cabinet, session_id, thread_id, status, input, parent_id, parent_node) "
+            "values (%s, %s, %s, %s, %s, 'queued', %s, %s, %s)",
+            (run_id, name, cabinet, session, thread, Jsonb(jsonable(given)), parent, parent_node),
         )
     live[run_id] = asyncio.Event()
-    task = asyncio.create_task(execute(run_id, name, cabinet, session, thread, payload.get("input") or {}))
+    return run_id
+
+
+async def start(name, payload):
+    """Record a new run of graph ``name`` and start it in the background; its id."""
+    given = payload.get("input") or {}
+    call = given.get("call") or {}  # a workflow's "Appel" inputs: its conversation and cabinet are there
+    session = payload.get("session_id") or call.get("session_id") or payload.get("thread_id") or str(uuid.uuid4())
+    cabinet = payload.get("cabinet") or call.get("cabinet") or given.get("cabinet") or DEFAULT_CABINET
+    thread = (payload.get("thread_id") or session) if name == "agent" else None
+    run_id = await created(name, given, cabinet, session, thread)
+    task = asyncio.create_task(execute(run_id, name, cabinet, session, thread, given))
     return run_id, task
+
+
+async def nested(name, given, cabinet, session, thread=None, node=None):
+    """Graph ``name`` run inside a step of the run going on (a workflow the agent runs, a thread handed to the
+    agent), recorded as a run of its own, that run its parent and ``node`` the step it started from. Its output, or
+    its failure raised, as the graph's own call would."""
+    if pool is None:  # outside the server (a script, a test): run as is, nothing recorded
+        configurable = {"cabinet": cabinet, "session_id": session, **({"thread_id": thread} if thread else {})}
+        return await graph_of(name, configurable).ainvoke(given, {"configurable": configurable})
+    run_id = await created(name, given, cabinet, session, thread, RUNNING.get(), node)
+    # The step's own config travels in the context: left there, the graph would run as a part of the step's run, its
+    # steps and output that run's. Cleared, it is a run of its own.
+    detached = var_child_runnable_config.set(None)
+    try:
+        output, failure = await execute(run_id, name, cabinet, session, thread, given, slots=None)
+    finally:
+        var_child_runnable_config.reset(detached)
+    if failure:
+        raise failure
+    return output
+
+
+def graph_of(name, configurable):
+    """The graph a run of ``name`` runs: the agent is made for its cabinet and conversation."""
+    return agent.make_agent({"configurable": configurable}) if name == "agent" else graphs.COMPILED[name]
 
 
 SLOTS = asyncio.Semaphore(20)  # runs going on at once in this process
 
 
 async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
+    """Run the graph, each step recorded as it ends: (its output, its failure or None). ``slots`` None: a run inside
+    another's step, which already holds a slot (waiting for one could wait for itself)."""
     configurable = {"cabinet": cabinet, "session_id": session, **({"thread_id": thread} if thread else {})}
-    status, error, output = "done", None, None
+    status, error, output, failure = "done", None, None, None
     inner = {}  # a part's path ("facture", "fichier|facture") -> the status of the last step that ran inside it
-    async with slots:  # shortcut: one process's runs at once (20); several servers would need a shared queue
+    running = RUNNING.set(run_id)
+    async with (
+        slots or contextlib.nullcontext()
+    ):  # shortcut: one process's runs at once (20); several servers would need a shared queue
         async with pool.connection() as db:
             await db.execute("update runs set status = 'running' where id = %s", (run_id,))
         try:  # the agent made here too: no model configured fails the run, never leaves it queued
-            graph = agent.make_agent({"configurable": configurable}) if name == "agent" else graphs.COMPILED[name]
+            graph = graph_of(name, configurable)
             async for namespace, mode, data in graph.astream(
                 given,
                 {"configurable": configurable, "run_id": run_id},
@@ -193,14 +240,16 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
                                 (run_id, path, "|".join(namespace), node, step_status, line, capped(update)),
                             )
                     live[run_id].set()
-        except Exception as failure:  # the run's own failure: kept for whoever looks, the server goes on
-            status, error = "error", f"{type(failure).__name__}: {failure}"
+        except Exception as caught:  # the run's own failure: kept for whoever looks, the server goes on
+            status, error, failure = "error", f"{type(caught).__name__}: {caught}", caught
         async with pool.connection() as db:
             await db.execute(
                 "update runs set status = %s, output = %s, error = %s, ended_at = now() where id = %s",
                 (status, capped(output) if output is not None else None, error, run_id),
             )
+    RUNNING.reset(running)
     live.pop(run_id).set()
+    return output, failure
 
 
 async def run(run_id):
@@ -208,8 +257,8 @@ async def run(run_id):
     async with pool.connection() as db:
         found = await (
             await db.execute(
-                "select id, graph, cabinet, session_id, thread_id, status, input, output, error, started_at, ended_at "
-                "from runs where id = %s",
+                "select id, graph, cabinet, session_id, thread_id, status, input, output, error, started_at, ended_at, "
+                "parent_id, parent_node from runs where id = %s",
                 (run_id,),
             )
         ).fetchone()
@@ -220,6 +269,15 @@ async def run(run_id):
                 "select id, at, path, lane, node, status, summary from steps where run_id = %s order by id", (run_id,)
             )
         ).fetchall()
+        children = await (
+            await db.execute(
+                "select id, graph, status, started_at, parent_node from runs where parent_id = %s order by started_at",
+                (run_id,),
+            )
+        ).fetchall()
+        parent = None
+        if found[11]:
+            parent = await (await db.execute("select graph from runs where id = %s", (found[11],))).fetchone()
     keys = (
         "run_id",
         "graph",
@@ -232,9 +290,18 @@ async def run(run_id):
         "error",
         "started",
         "ended",
+        "parent_id",
+        "parent_node",
     )
     shown = dict(zip(keys, found, strict=True))
     shown["run_id"] = str(shown["run_id"])
+    shown["parent_id"] = shown["parent_id"] and str(shown["parent_id"])
+    shown["parent_graph"] = parent and parent[0]
+    # The runs started in its steps, each with the step it started from (the canvas's panel links them).
+    shown["children"] = [
+        {"run_id": str(i), "graph": graph, "status": status, "when": when(at), "node": node}
+        for i, graph, status, at, node in children
+    ]
     ended = shown["ended"].timestamp() if shown["ended"] else time.time()
     shown["seconds"] = round(ended - shown["started"].timestamp(), 1)
     shown["started"], shown["ended"] = shown["started"].isoformat(), shown["ended"] and shown["ended"].isoformat()
@@ -255,32 +322,52 @@ async def run(run_id):
 
 
 async def recent(cabinet=None, graph=None, limit=50):
-    """The latest runs, newest first: what the runs list shows."""
-    where, args = [], []
+    """The latest runs started on their own, newest first, each with the runs started in its steps (and theirs) right
+    after it, indented by depth: what the runs list shows. A graph filter lists that graph's runs, children too."""
+    where, args = ([] if graph else ["parent_id is null"]), []
     for column, value in (("cabinet", cabinet), ("graph", graph)):
         if value:
             where.append(f"{column} = %s")
             args.append(value)
-    clause = f"where {' and '.join(where)}" if where else ""
+    columns = "id, graph, cabinet, session_id, status, error, started_at, ended_at, parent_id"
     async with pool.connection() as db:
         rows = await (
             await db.execute(
-                f"select id, graph, cabinet, session_id, status, error, started_at, ended_at from runs {clause} "
-                "order by started_at desc limit %s",
+                f"select {columns} from runs where {' and '.join(where)} order by started_at desc limit %s",
                 (*args, limit),
             )
         ).fetchall()
+        below = {}  # parent id -> its children, oldest first
+        level = [row[0] for row in rows]
+        while level and not graph:
+            found = await (
+                await db.execute(f"select {columns} from runs where parent_id = any(%s) order by started_at", (level,))
+            ).fetchall()
+            for row in found:
+                below.setdefault(row[8], []).append(row)
+            level = [row[0] for row in found]
     keys = ("run_id", "graph", "cabinet", "session_id", "status", "error", "started", "ended")
-    return [
-        {
-            **dict(zip(keys, row, strict=True)),
+
+    def shown(row, depth):
+        return {
+            **dict(zip(keys, row[:8], strict=True)),
             "run_id": str(row[0]),
             "started": row[6].isoformat(),
             "ended": row[7] and row[7].isoformat(),
             "seconds": round((row[7] or datetime.now(UTC)).timestamp() - row[6].timestamp(), 1),
+            "depth": depth,
         }
-        for row in rows
-    ]
+
+    listed = []
+
+    def walk(row, depth):
+        listed.append(shown(row, depth))
+        for child in below.get(row[0], []):
+            walk(child, depth + 1)
+
+    for row in rows:
+        walk(row, 0)
+    return listed
 
 
 async def steps_after(run_id, after):

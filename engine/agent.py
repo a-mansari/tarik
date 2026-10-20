@@ -12,7 +12,7 @@ from langchain.agents import create_agent
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import HumanMessage
 
-from engine import content, dossier, prompts, traitement
+from engine import content, prompts
 from engine.content import AGENT
 from engine.model import model
 from engine.settings import cabinet_of
@@ -90,15 +90,6 @@ def fixed(runtime):
     }
 
 
-def child_config(runtime):
-    """The config a workflow graph runs under: the agent's callbacks (so Studio shows it inside the run), its own
-    thread left out (the run is not a turn of the conversation)."""
-    configurable = {
-        k: v for k, v in runtime.config.get("configurable", {}).items() if not k.startswith(("thread_id", "checkpoint"))
-    }
-    return {"callbacks": runtime.config.get("callbacks"), "configurable": configurable}
-
-
 def read_tool(tool_name):
     """One of tarik's read tools, named for the model Experio_<tool>."""
 
@@ -150,11 +141,14 @@ async def reading(runtime, tool_name, **arguments):
     return untrusted(result if isinstance(result, str) else json.dumps(result, ensure_ascii=False), tool_name)
 
 
-async def run_workflow(graph, runtime, call_inputs):
-    """A workflow tool's answer: the run's summary, word for word."""
-    result = await graph.ainvoke(
-        {"call": {**call_inputs, **fixed(runtime)}, "outcomes": []}, config=child_config(runtime)
-    )
+async def run_workflow(name, runtime, call_inputs):
+    """A workflow tool's answer: the run's summary, word for word. The workflow is a run of its own, started from
+    the agent's tool step (runs.nested), never a turn of the conversation."""
+    from engine import runs  # runs imports this module
+
+    call = {**call_inputs, **fixed(runtime)}
+    node = runtime.config.get("metadata", {}).get("langgraph_node")
+    result = await runs.nested(name, {"call": call, "outcomes": []}, call["cabinet"], call["session_id"], node=node)
     return result["message"]
 
 
@@ -183,13 +177,13 @@ async def traiter_fichiers(
         "mode_paiement": mode_paiement,
         "exercice": exercice,
     }
-    return await run_workflow(traitement.graph, runtime, inputs)
+    return await run_workflow("traitement", runtime, inputs)
 
 
 @tool("Experio_repondre", description=DESCRIBED_LATER)
 async def repondre(runtime: ToolRuntime, decision: str = "", about: str = "") -> str:
     inputs = {"mode": "answer", "answer": client_message(runtime), "decision": decision, "about": about}
-    return await run_workflow(traitement.graph, runtime, inputs)
+    return await run_workflow("traitement", runtime, inputs)
 
 
 @tool("Experio_parametrer_dossier", description=DESCRIBED_LATER)
@@ -219,7 +213,7 @@ async def parametrer_dossier(
         "kind": kind,
         "finish": finish,
     }
-    return await run_workflow(dossier.graph, runtime, inputs)
+    return await run_workflow("dossier", runtime, inputs)
 
 
 @tool("Experio_modifier_dossier", description=DESCRIBED_LATER)
@@ -261,7 +255,7 @@ async def modifier_dossier(
         "skip_ice_if_check": skip_ice_if_check,
         "client_confirmed": client_confirmed,
     }
-    return await run_workflow(dossier.graph, runtime, inputs)
+    return await run_workflow("dossier", runtime, inputs)
 
 
 @tool("Experio_creer_acces", description=DESCRIBED_LATER)
@@ -285,20 +279,20 @@ async def creer_acces(
         "profile": profile,
         "client_confirmed": client_confirmed,
     }
-    return await run_workflow(dossier.graph, runtime, inputs)
+    return await run_workflow("dossier", runtime, inputs)
 
 
 @tool("Experio_archiver_dossier", description=DESCRIBED_LATER)
 async def archiver_dossier(dossier_id: int, runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
-        dossier.graph, runtime, {"mode": "archive", "dossier_id": dossier_id, "client_confirmed": client_confirmed}
+        "dossier", runtime, {"mode": "archive", "dossier_id": dossier_id, "client_confirmed": client_confirmed}
     )
 
 
 @tool("Experio_importer_dossiers", description=DESCRIBED_LATER)
 async def importer_dossiers(runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
-        dossier.graph, runtime, {"mode": "dossiers", "dossier_id": 0, "client_confirmed": client_confirmed}
+        "dossier", runtime, {"mode": "dossiers", "dossier_id": 0, "client_confirmed": client_confirmed}
     )
 
 

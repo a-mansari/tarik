@@ -7,6 +7,12 @@
   <div>
     <h1>{{ run.graph | graph_name }}</h1>
     <p class="muted">Cabinet <b>{{ run.cabinet }}</b> · conversation <span class="mono">{{ run.session_id }}</span> · début {{ run.started | when }}</p>
+    {% if run.parent_id or run.children %}
+    <p class="run-links">
+      {% if run.parent_id %}<span>Lancée par <a href="/ui/runs/{{ run.parent_id }}">{{ run.parent_graph | graph_name }}</a>{% if run.parent_node %}, étape « {{ step_name(run.parent_graph, run.parent_node) }} »{% endif %}</span>{% endif %}
+      {% for child in run.children %}<span>A lancé <a href="/ui/runs/{{ child.run_id }}">{{ child.graph | graph_name }}</a> ({{ child.when }}, <span class="chip {{ child.status }}">{{ child.status | status_name }}</span>)</span>{% endfor %}
+    </p>
+    {% endif %}
   </div>
   <div class="state">
     <span class="chip big {{ run.status }}" id="run-status">{{ run.status | status_name }}</span>

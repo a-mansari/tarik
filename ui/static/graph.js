@@ -75,6 +75,7 @@
     const opened = new Set(); // groups shown whole; every other group is one node, as n8n shows a sub-workflow
     const steps = new Map(); // node id (as in the whole graph) -> the run's steps at that node
     const sequence = []; // every step of the run, in the order it ended
+    let children = []; // the runs started in its steps
     let finished = false; // the run has ended: each part's last step went on to its end
     const cy = cytoscape({ container, style: styles(), wheelSensitivity: 0.25, minZoom: 0.1, maxZoom: 2.5 });
     const GRID = 20; // the map's step: nodes and bends snap to it
@@ -386,6 +387,17 @@
         panel.append(text("p", "muted", group ? "Rien n'a été exécuté dans ce sous-workflow pendant cette exécution." : "Cette étape n'a pas été exécutée dans cette exécution."));
         return;
       }
+      // The runs this step started (a workflow the agent ran, the agent a thread was handed to): each its own page.
+      const started = children.filter((child) => child.node === id.split(":").pop());
+      if (started.length) {
+        const links = text("div", "panel-actions");
+        for (const child of started) {
+          const link = text("a", "panel-button", `${labels.graphs?.[child.graph] || child.graph} · ${child.when} · ${labels.statuses?.[child.status] || child.status}`);
+          link.href = `/ui/runs/${child.run_id}`;
+          links.append(link);
+        }
+        panel.append(text("p", "", started.length > 1 ? "Exécutions lancées par cette étape :" : "Exécution lancée par cette étape :"), links);
+      }
       const ol = text("ol", "panel-steps");
       for (const step of list) {
         const li = document.createElement("li");
@@ -554,6 +566,7 @@
 
     if (run) {
       const found = await (await fetch(`/runs/${run}`)).json();
+      children = found.children || [];
       finished = !["queued", "running"].includes(found.status);
       (found.steps || []).forEach(add);
       if (["queued", "running"].includes(found.status)) {

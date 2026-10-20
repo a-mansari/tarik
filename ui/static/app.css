@@ -285,3 +285,10 @@ details.card > summary .card-title { flex: 1 1 14rem; }
 .legend svg.line.dashed line { stroke-dasharray: 5 4; }
 .legend svg.stop { color: var(--bad); }
 .legend .key { font-weight: 400; color: var(--fg); width: 16px; text-align: center; }
+
+/* A run started in another's step: under it, indented by depth. */
+table.runs tr.child td { background: var(--bg); }
+table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 1.2rem); }
+.under { color: var(--muted); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.run-links { display: flex; flex-wrap: wrap; gap: .4rem 1.2rem; margin: .2rem 0 0; font-size: .9rem; }

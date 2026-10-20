@@ -1,7 +1,7 @@
 {% for run in runs %}
-<tr>
+<tr{% if run.depth %} class="child"{% endif %}>
   <td class="num"><a href="/ui/runs/{{ run.run_id }}">{{ run.started | when }}</a></td>
-  <td><a href="/ui/runs/{{ run.run_id }}">{{ run.graph | graph_name }}</a></td>
+  <td style="--depth: {{ run.depth }}">{% if run.depth %}<span class="under" aria-hidden="true">↳</span> <span class="sr-only">Lancée par l'exécution au-dessus :</span>{% endif %}<a href="/ui/runs/{{ run.run_id }}">{{ run.graph | graph_name }}</a></td>
   <td>{{ run.cabinet }}</td>
   <td class="mono">{{ run.session_id }}</td>
   <td><span class="chip {{ run.status }}">{{ run.status | status_name }}</span>{% if run.error %}<span class="note">{{ run.error[:120] }}</span>{% endif %}</td>
