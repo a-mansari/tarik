@@ -46,7 +46,15 @@ templates.env.filters.update(
     graph_description=graph_description,
     status_name=status_name,
 )
-templates.env.globals.update(step_name=graphs.label)
+
+
+def is_admin(request):
+    """Whether the person on the page is an admin (server.py's admin_only): what only they may do is not offered."""
+    user = getattr(request.state, "user", None)
+    return bool(user) and user.get("role") == "admin"
+
+
+templates.env.globals.update(step_name=graphs.label, is_admin=is_admin)
 
 
 def asset(path):

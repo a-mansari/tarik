@@ -9,6 +9,7 @@
   <p class="what">{{ what }}</p>
   {% if model %}<p class="muted">Modèle : <b>{{ model }}</b> (se change dans le code, pas ici).</p>{% endif %}
 </div></div>
+{% if not is_admin(request) %}<div class="panel" role="status">Lecture seule : seul un administrateur modifie le contenu.</div>{% endif %}
 {% if error %}<div class="panel bad" role="alert"><b>Non enregistré :</b> {{ error }}. Corrigez puis enregistrez à nouveau.</div>{% endif %}
 {% if saved == '1' %}<div class="panel accent" role="status">Enregistré. Tarik l'utilise dès le message suivant.</div>{% elif saved == '0' %}<div class="panel" role="status">Rien n'a changé : aucune nouvelle version.</div>{% endif %}
 <div class="panel" id="import-status" role="status" hidden></div>
@@ -17,7 +18,7 @@
   <p><b>Version {{ compare.id }}</b> : {% if compare.first %}la première, rien à comparer.{% elif compare.fields %}ce qu'elle a changé est montré dans chaque section concernée, à gauche du champ en service (→).{% else %}elle n'a rien changé.{% endif %}
   Les champs gardent le texte en service.</p>
   <div class="panel-actions">
-    {% if versions and compare.id != versions[0].id %}
+    {% if versions and compare.id != versions[0].id and is_admin(request) %}
     <form method="post"><input type="hidden" name="action" value="restore"><input type="hidden" name="version" value="{{ compare.id }}"><button type="submit" class="primary">Revenir à cette version</button></form>
     {% endif %}
     <a class="panel-button" href="/ui/contenu/{{ path }}">Fermer</a>
@@ -26,6 +27,7 @@
 {% endif %}
 <div class="flow content-flow">
   <form class="content-form" method="post" id="content-form">
+    <fieldset class="plain" {% if not is_admin(request) %}disabled{% endif %}>
     {% if sections | length > 1 %}
     <div class="card-tools"><button type="button" data-cards="open">Tout déplier</button><button type="button" data-cards="close">Tout replier</button></div>
     {% endif %}
@@ -40,7 +42,7 @@
           {% if touched %}<span class="chip wait">{{ touched }} changé{{ 's' if touched > 1 }} en version {{ compare.id }}</span>{% endif %}
           <span class="muted">{{ section.fields | length }} champ{{ 's' if section.fields | length > 1 }}</span>
           <a class="card-action" href="?export={{ loop.index0 }}" download data-tip="{{ tips.section_export }}" aria-description="{{ tips.section_export }}">Exporter</a>
-          <button type="button" class="card-action" data-import="/ui/contenu/{{ path }}" data-tip="{{ tips.section_import }}" aria-description="{{ tips.section_import }}">Importer</button>
+          {% if is_admin(request) %}<button type="button" class="card-action" data-import="/ui/contenu/{{ path }}" data-tip="{{ tips.section_import }}" aria-description="{{ tips.section_import }}">Importer</button>{% endif %}
         </span>
       </summary>
       <div class="card-body">
@@ -66,14 +68,15 @@
       </div>
     </details>
     {% endfor %}
+    </fieldset>
   </form>
   <div class="side-column">
     {# Outside the form, tied to it by form="content-form": the right column, above the history, always in view. #}
-    <section class="panel save-card" aria-label="Enregistrer">
+    {% if is_admin(request) %}<section class="panel save-card" aria-label="Enregistrer">
       <h2>Enregistrer</h2>
       <label class="field"><span>Pourquoi ce changement (gardé dans l'historique)</span><textarea name="note" form="content-form" maxlength="300" rows="2" placeholder="ex. : demander l'exercice avant le compte"></textarea></label>
       <button type="submit" form="content-form" class="primary">Enregistrer</button>
-    </section>
+    </section>{% endif %}
   <aside class="side panel">
     <h2>Historique</h2>
     <p class="muted">Cliquez sur une version pour voir, dans chaque section, ce qu'elle a changé.</p>

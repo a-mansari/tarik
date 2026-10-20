@@ -52,7 +52,7 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 | `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the Prompts page. |
 | `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
 | `engine/cabinet_settings.py`, `ui/settings_pages.py` | Each cabinet's own settings, read and changed on the Cabinets page, written to Vault with its own AppRole, each change kept. |
-| `engine/accounts.py`, `users.py` | The team's accounts (scrypt hashes) and sessions; `users.py` makes and closes accounts. |
+| `engine/accounts.py`, `users.py` | The team's accounts (scrypt hashes), their role (admin or member) and sessions; `users.py` makes accounts, sets their role and closes them. |
 | `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
 | `engine/traitement.py`, `dossier.py`, `emails.py`, `chat.py` | The workflows, as graphs (`chat.py`: the Discussion page's, and the asking shared with email threads). |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
@@ -81,9 +81,13 @@ docker compose up --build -d
 | `GET /graphs/<graph>` | A workflow's shape for the canvas. |
 | `GET` / `PUT` / `DELETE /graphs/<graph>/layout` | How the team arranged its canvas: read, saved, or forgotten. |
 
-The team's pages: http://127.0.0.1:2024/ui/runs (runs), /ui/workflows (workflows), /ui/prompts (what the model
-was sent), /ui/contenu (what Tarik is told, edited with its history). Each person logs in with their own account,
-made in the container: `python users.py add <email> "<name>"` (the password is asked; `disable` closes one).
+The team's pages: http://127.0.0.1:2024/ui/runs (runs), /ui/discussion (writing to Tarik), /ui/workflows
+(workflows), /ui/prompts (what the model was sent), /ui/contenu (what Tarik is told, edited with its history),
+/ui/cabinets (each cabinet's settings). Each person logs in with their own account, made in the container:
+`python users.py add <email> "<name>"` (the password is asked; `disable` closes one). A new account is a member: it
+reads every page and writes to Tarik on Discussion. An admin (`python users.py role <email> admin`) also changes what
+everyone's Tarik uses: the content, the cabinets' settings (read too), the canvases' layout, and starts runs by hand.
+The server refuses these to a member (`admin_only` in `server.py`), whatever a page shows.
 
 Every call but `/ok` and the login page needs a session, or for scripts `TARIK_GRAPH_TOKEN` as a bearer token. A
 change made with a session must come from the pages themselves (Origin checked). Graphs: `agent`, `traitement`,

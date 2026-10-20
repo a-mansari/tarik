@@ -1,6 +1,8 @@
 """The team's accounts for the pages, made from a terminal (there is no sign-up page). In the container:
 
 python users.py add <email> "<name>"     made, or its name and password changed (the password is asked)
+python users.py role <email> admin|member  what it may do: an admin changes content, cabinets' settings and
+                                         canvases' layout; a member (a new account) reads and uses Discussion
 python users.py disable <email>          closed: no more logging in, its sessions ended"""
 
 import asyncio
@@ -22,13 +24,15 @@ def asked_password():
 
 
 async def main(command, email, name=""):
-    if command not in ("add", "disable"):
+    if command not in ("add", "role", "disable"):
         raise SystemExit(__doc__)
     password = asked_password() if command == "add" else None
     await runs.open_store(DATABASE)
     try:
         if command == "add":
             await accounts.save_user(email, name or email, password)
+        elif command == "role":
+            await accounts.set_role(email, name)
         else:
             await accounts.disable(email)
     finally:

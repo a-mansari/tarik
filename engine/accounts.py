@@ -1,6 +1,7 @@
 """Who may use the team's pages: each person's account (email, name, password kept as an scrypt hash, never the
 password), and the sessions they opened (a random token in an HttpOnly cookie; only its hash is kept here). Accounts
-are made from a terminal (users.py): there is no sign-up page."""
+are made from a terminal (users.py): there is no sign-up page. Each has a role (ROLES): an admin changes what
+everyone uses, a member reads and talks to Tarik (server.py's admin_only says which is which)."""
 
 import hashlib
 import hmac
@@ -11,6 +12,7 @@ from engine import runs
 from tarik.core.queries import Q
 
 SESSION_HOURS = 12
+ROLES = ("admin", "member")
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 FAILURES = {}  # email: (count, last failure, monotonic): a guessing run waits
 WAIT_AFTER, WAIT_SECONDS = 5, 60
@@ -37,6 +39,15 @@ async def save_user(email, name, password):
             Q.user_saved,
             (email.strip().lower(), name.strip(), hashed(password)),
         )
+
+
+async def set_role(email, role):
+    """An account's role changed (one of ROLES); LookupError when there is no such account."""
+    if role not in ROLES:
+        raise ValueError(f"role {role!r}: admin or member")
+    async with runs.pool.connection() as db:
+        if not await (await db.execute(Q.user_role, (role, email.strip().lower()))).fetchone():
+            raise LookupError(f"no account {email}")
 
 
 async def disable(email):
@@ -68,7 +79,8 @@ async def log_in(email, password):
 
 
 async def user_of(token):
-    """{email, name} of the session ``token`` opened, or None when it is unknown, expired or its account closed."""
+    """{email, name, role} of the session ``token`` opened, or None when it is unknown, expired or its account
+    closed."""
     if not token:
         return None
     async with runs.pool.connection() as db:
@@ -78,7 +90,7 @@ async def user_of(token):
                 (digest(token),),
             )
         ).fetchone()
-    return {"email": row[0], "name": row[1]} if row else None
+    return {"email": row[0], "name": row[1], "role": row[2]} if row else None
 
 
 async def log_out(token):

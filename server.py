@@ -17,7 +17,8 @@ its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) sta
 
 Every call but /ok, /login and the static files needs a session (the login page's cookie: users.py makes the
 accounts) or, for scripts (run.py), TARIK_GRAPH_TOKEN as a bearer token. A change (POST, PUT, DELETE) made with a
-session must come from these pages themselves (its Origin or Referer): another site cannot make it in someone's name."""
+session must come from these pages themselves (its Origin or Referer): another site cannot make it in someone's name.
+What changes everyone's Tarik needs an admin's session (admin_only): a member reads and talks to Tarik."""
 
 import asyncio
 import contextlib
@@ -50,6 +51,16 @@ OPEN = ("/ok", "/login", "/ui/static/")
 COOKIE = "tarik_session"
 
 
+def admin_only(method, path):
+    """Whether this call is an admin's to make: the cabinets' settings (read too: logins, mailboxes, whitelist), a
+    change to the content or to a canvas's layout, a run started by hand. Discussion stays every member's."""
+    return (
+        path.startswith("/ui/cabinets")
+        or (method == "POST" and path.startswith(("/ui/contenu", "/runs/")))
+        or (method in ("PUT", "DELETE") and path.startswith("/graphs/"))
+    )
+
+
 class Guard:
     """Every call needs a session or the scripts' token; the person behind a session goes in request.state.user."""
 
@@ -62,7 +73,7 @@ class Guard:
         request = Request(scope)
         scope.setdefault("state", {})
         if TOKEN and hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {TOKEN}"):
-            scope["state"]["user"] = {"email": "script", "name": "Script"}
+            scope["state"]["user"] = {"email": "script", "name": "Script", "role": "admin"}
             return await self.app(scope, receive, send)
         user = await accounts.user_of(request.cookies.get(COOKIE))
         if user is None:
@@ -74,6 +85,12 @@ class Guard:
         if request.method not in ("GET", "HEAD") and not same_origin(request):
             return await JSONResponse({"error": "cross-site request refused"}, status_code=403)(scope, receive, send)
         scope["state"]["user"] = user
+        if user["role"] != "admin" and admin_only(request.method, scope["path"]):
+            if request.method == "GET":
+                answer = pages.templates.TemplateResponse(request, "forbidden.html", {}, status_code=403)
+            else:
+                answer = JSONResponse({"error": "réservé aux administrateurs"}, status_code=403)
+            return await answer(scope, receive, send)
         return await self.app(scope, receive, send)
 
 

@@ -54,6 +54,9 @@ create table if not exists users (
     active boolean not null default true,
     created_at timestamptz not null default now()
 );
+-- What the account may do: an admin changes what everyone uses (content, cabinets' settings, canvases' layout) and
+-- starts runs by hand; a member reads everything and writes to Tarik on the Discussion page.
+alter table users add column if not exists role text not null default 'member' check (role in ('admin', 'member'));
 create table if not exists sessions (
     token text primary key,  -- sha256 of the cookie's token
     email text not null references users (email) on delete cascade,

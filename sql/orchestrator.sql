@@ -76,6 +76,10 @@ delete from layouts where graph = %s
 insert into users (email, name, password) values (%s, %s, %s)
 on conflict (email) do update set name = excluded.name, password = excluded.password, active = true
 
+-- name: user_role
+-- An account's role changed: its open sessions carry the new one at their next page.
+update users set role = %s where email = %s returning email
+
 -- name: user_closed
 update users set active = false where email = %s
 
@@ -93,7 +97,7 @@ delete from sessions where expires_at < now()
 
 -- name: session_user
 -- Who opened a session still valid, their account still open.
-select u.email, u.name from sessions s join users u using (email)
+select u.email, u.name, u.role from sessions s join users u using (email)
 where s.token = %s and s.expires_at > now() and u.active
 
 -- name: session_closed
