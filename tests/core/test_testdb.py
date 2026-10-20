@@ -17,7 +17,11 @@ def test_only_a_crashed_runs_schemas_are_dropped():
         with testdb.connect() as db:
             left = {
                 name
-                for (name,) in db.execute("select nspname from pg_namespace where nspname like 'tarik\\_test\\_0%'")
+                # only the two made here: this run's own id may start with 0 too (one run in 16)
+                for (name,) in db.execute(
+                    "select nspname from pg_namespace where nspname = any(%s)",
+                    (["tarik_test_0badc0de_db", "tarik_test_0a11ce00_db"],),
+                )
             }
         assert left == {"tarik_test_0a11ce00_db"}
     finally:
