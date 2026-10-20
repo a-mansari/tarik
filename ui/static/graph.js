@@ -747,6 +747,24 @@
       if (kind === "subflow" || kind === "group") toggle(event.target.id());
     });
     document.getElementById(container.dataset.fit || "")?.addEventListener("click", () => cy.fit(undefined, 24));
+    // Every sub-workflow opened at once, or all folded back: while any is folded the button opens them all.
+    const foldButton = document.getElementById(container.dataset.fold || "");
+    function foldState() {
+      if (!foldButton) return;
+      foldButton.hidden = !groups.size;
+      const all = groups.size && [...groups.keys()].every((g) => opened.has(g));
+      foldButton.classList.toggle("folding", Boolean(all));
+      const label = all ? "Tout replier" : "Tout déplier";
+      foldButton.setAttribute("aria-label", label);
+      foldButton.dataset.tip = all ? "Tout replier : refermer chaque sous-workflow" : "Tout déplier : ouvrir chaque sous-workflow";
+    }
+    foldButton?.addEventListener("click", () => {
+      if ([...groups.keys()].every((g) => opened.has(g))) opened.clear();
+      else for (const g of groups.keys()) opened.add(g);
+      build(); // the view stays as it is, as when one is folded or opened
+      foldState();
+    });
+    cy.on("add remove", "node", () => foldState());
     document.getElementById(container.dataset.home || "")?.addEventListener("click", home);
 
     if (run) {

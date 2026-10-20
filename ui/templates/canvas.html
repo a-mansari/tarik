@@ -21,6 +21,10 @@
       <button type="button" id="fit" class="icon-button" aria-label="Tout voir" data-tip="Tout voir : le schéma entier, centré">
         <svg {{ icon | safe }}><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
       </button>
+      <button type="button" id="fold-all" class="icon-button" hidden aria-label="Tout déplier" data-tip="Tout déplier : ouvrir chaque sous-workflow">
+        <svg {{ icon | safe }} class="unfold"><path d="M7 15l5 5 5-5"/><path d="M7 9l5-5 5 5"/></svg>
+        <svg {{ icon | safe }} class="fold"><path d="M7 20l5-5 5 5"/><path d="M7 4l5 5 5-5"/></svg>
+      </button>
       <button type="button" id="save-layout" class="icon-button" disabled aria-label="Enregistrer la disposition" data-tip="Enregistrer la disposition, pour toute l'équipe">
         <svg {{ icon | safe }}><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M8 3v5h7V3"/><rect x="8" y="13" width="8" height="5" rx="1"/></svg>
       </button>
@@ -33,7 +37,7 @@
       </button>
       <span class="canvas-note" id="layout-note" role="status"></span>
     </div>
-    <div class="canvas" data-graph="{{ graph }}" data-run="{{ run_id or '' }}" data-panel="node-panel" data-fit="fit" data-home="home" data-save="save-layout" data-undo="undo-layout" data-reset="reset-layout" data-note="layout-note" role="img" aria-label="Schéma du workflow {{ graph | graph_name }}"></div>
+    <div class="canvas" data-graph="{{ graph }}" data-run="{{ run_id or '' }}" data-panel="node-panel" data-fit="fit" data-home="home" data-fold="fold-all" data-save="save-layout" data-undo="undo-layout" data-reset="reset-layout" data-note="layout-note" role="img" aria-label="Schéma du workflow {{ graph | graph_name }}"></div>
     {% if run_id %}<ol class="moment-steps" id="moment-steps" aria-live="polite"></ol>{% endif %}
     {# What the lines, colours and gestures mean, each shown as it looks on the canvas. #}
     <div class="legend">

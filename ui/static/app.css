@@ -303,3 +303,7 @@ table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 
 .moment-steps { list-style: none; padding: 0; margin: .5rem 0 0; display: grid; gap: .3rem; font-size: .88rem; }
 .moment-steps:empty { display: none; }
 .moment-steps li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: baseline; padding: .35rem .6rem; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 6px 6px 0; }
+
+/* Tout déplier / Tout replier: one button, its icon the action it does next. */
+#fold-all .fold, #fold-all.folding .unfold { display: none; }
+#fold-all.folding .fold { display: inline; }
