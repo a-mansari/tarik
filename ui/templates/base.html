@@ -10,22 +10,10 @@
 <body>
   {% set signed = request.state.user is defined and request.state.user %}
   {% macro nav_link(href, name, words) %}<a href="{{ href }}" {% if request.url.path.startswith(href) %}aria-current="page"{% endif %}>{{ icon(name) }}{{ words }}</a>{% endmacro %}
-  <header class="bar">
-    <a class="brand" href="/ui/runs">Tarik</a>
-    {% if signed %}
-    {# The pages of the cabinet picked in the sidebar: what differs from one cabinet to the next. #}
-    <nav aria-label="Pages du cabinet">
-      {{ nav_link("/ui/runs", "runs", "Exécutions") }}
-      {{ nav_link("/ui/discussion", "chat", "Discussion") }}
-      {{ nav_link("/ui/prompts", "prompts", "Prompts") }}
-      {% if is_admin(request) %}{{ nav_link("/ui/cabinets", "cabinets", "Réglages") }}{% endif %}
-    </nav>
-    <form class="who" method="post" action="/logout"><span>{{ request.state.user.name }}</span><button type="submit">Se déconnecter</button></form>
-    {% endif %}
-  </header>
-  <div class="frame{% if not signed %} alone{% endif %}">
   {% if signed %}
+  <div class="frame">
   <aside class="sidebar" aria-label="Navigation">
+    <a class="brand" href="/ui/runs">Tarik</a>
     <section>
       <h2>Général</h2>
       <nav>
@@ -44,11 +32,26 @@
       </ul>
     </section>
   </aside>
-  {% endif %}
-  <main class="page{% block page_class %}{% endblock %}">
-    {% block content %}{% endblock %}
-  </main>
+  <div class="column">
+    <header class="bar">
+      {# The pages of the cabinet picked in the sidebar: what differs from one cabinet to the next. #}
+      <nav aria-label="Pages du cabinet">
+        {{ nav_link("/ui/runs", "runs", "Exécutions") }}
+        {{ nav_link("/ui/discussion", "chat", "Discussion") }}
+        {{ nav_link("/ui/prompts", "prompts", "Prompts") }}
+        {% if is_admin(request) %}{{ nav_link("/ui/cabinets", "cabinets", "Réglages") }}{% endif %}
+      </nav>
+      <form class="who" method="post" action="/logout"><span>{{ request.state.user.name }}</span><button type="submit">Se déconnecter</button></form>
+    </header>
+    <main class="page{% block page_class %}{% endblock %}">
+      {% block content %}{% endblock %}
+    </main>
   </div>
+  </div>
+  {% else %}
+  <header class="bar"><a class="brand" href="/ui/runs">Tarik</a></header>
+  <main class="page">{{ self.content() }}</main>
+  {% endif %}
   <script src="{{ asset('app.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
