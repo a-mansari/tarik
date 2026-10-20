@@ -148,7 +148,7 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .runs-side { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
 .runs-side a { display: flex; justify-content: space-between; gap: .5rem; padding: .4rem .5rem; border-radius: 6px; text-decoration: none; color: var(--fg); }
 .runs-side a[aria-current="true"], .runs-side a:hover { background: var(--accent-soft); }
-@media (max-width: 60rem) { .flow { grid-template-columns: 1fr; } .side { position: static; max-height: none; } }
+@media (max-width: 60rem) { .flow { grid-template-columns: 1fr; } .side { position: static; max-height: none; } .side-column { position: static; } .side-column .side { max-height: none; } }
 
 .page.wide { max-width: none; }
 .panel-actions { display: flex; flex-wrap: wrap; gap: .5rem; margin: .4rem 0 .2rem; }
@@ -195,7 +195,6 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .field { display: grid; gap: .3rem; font-size: .85rem; color: var(--muted); }
 .field textarea, .field input { font: inherit; font-size: .9rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; width: 100%; box-sizing: border-box; }
 .field textarea { resize: vertical; line-height: 1.45; }
-.save-bar { position: sticky; bottom: 0; z-index: 1; background: var(--surface); padding: 1rem 1.15rem; display: grid; grid-template-columns: 1fr auto; gap: .8rem; align-items: end; }
 button.primary, .compare button { font: inherit; cursor: pointer; border-radius: 6px; padding: .5rem 1rem; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
 .versions { list-style: none; padding: 0; display: grid; gap: .3rem; font-size: .85rem; }
 .versions a { display: grid; gap: .1rem; padding: .4rem .5rem; border-radius: 6px; color: var(--fg); text-decoration: none; }
@@ -203,7 +202,6 @@ button.primary, .compare button { font: inherit; cursor: pointer; border-radius:
 .diff { white-space: pre-wrap; word-break: break-word; font-size: .78rem; max-height: 22rem; overflow: auto; background: var(--bg); padding: .5rem; border-radius: 6px; }
 .diff .add { color: var(--good); }
 .diff .del { color: var(--bad); text-decoration: line-through; }
-@media (max-width: 700px) { .save-bar { grid-template-columns: 1fr; } }
 
 /* Content: each section a card that folds; a card holding an unsaved change says so. */
 .content-form { display: grid; gap: .7rem; }
@@ -218,7 +216,6 @@ details.card[open] > summary .card-title::before { transform: rotate(90deg); }
 details.card[open] > summary { border-bottom: 1px solid var(--line); }
 details.card.changed > summary .muted::after { content: " · modifié, pas encore enregistré"; color: var(--wait, #9a6b00); }
 .card-body { display: grid; gap: .9rem; padding: 1rem; }
-.save-bar.panel { margin: 0; box-shadow: 0 -6px 12px -10px rgba(0, 0, 0, .35); }
 .field textarea { overflow: hidden; min-height: 4.5rem; }
 .field .count { justify-self: end; font-size: .75rem; color: var(--muted); margin-top: -.15rem; }
 @media (prefers-reduced-motion: reduce) { details.card > summary .card-title::before { transition: none; } }
@@ -253,3 +250,10 @@ details.card.touched { border-color: var(--wait, #9a6b00); }
 details.card > summary { flex-wrap: wrap; }
 details.card > summary .card-title { flex: 1 1 14rem; }
 .head [data-tip]::after, .group-head [data-tip]::after { left: auto; right: 0; } /* buttons on the right: tip to the left */
+
+/* The save card: the right column, above the history, kept in view while the form scrolls. */
+.side-column { display: grid; gap: 1rem; align-content: start; position: sticky; top: 1rem; }
+.save-card { display: grid; gap: .8rem; }
+.save-card h2 { margin: 0; }
+.save-card .field textarea { min-height: 3.5rem; }
+.side-column .side { max-height: calc(100vh - 16rem); overflow: auto; }

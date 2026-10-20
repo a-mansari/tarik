@@ -65,11 +65,14 @@
       </div>
     </details>
     {% endfor %}
-    <div class="save-bar panel">
-      <label class="field"><span>Pourquoi ce changement (gardé dans l'historique)</span><input name="note" maxlength="300" placeholder="ex. : demander l'exercice avant le compte"></label>
-      <button type="submit" class="primary">Enregistrer</button>
-    </div>
   </form>
+  <div class="side-column">
+    {# Outside the form, tied to it by form="content-form": the right column, above the history, always in view. #}
+    <section class="panel save-card" aria-label="Enregistrer">
+      <h2>Enregistrer</h2>
+      <label class="field"><span>Pourquoi ce changement (gardé dans l'historique)</span><textarea name="note" form="content-form" maxlength="300" rows="2" placeholder="ex. : demander l'exercice avant le compte"></textarea></label>
+      <button type="submit" form="content-form" class="primary">Enregistrer</button>
+    </section>
   <aside class="side panel">
     <h2>Historique</h2>
     <p class="muted">Cliquez sur une version pour voir, dans chaque section, ce qu'elle a changé.</p>
@@ -82,6 +85,7 @@
       {% endfor %}
     </ol>
   </aside>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
