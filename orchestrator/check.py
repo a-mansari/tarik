@@ -1,51 +1,32 @@
-"""Parity check (and every drawn step described): every tarik-mcp tool the n8n workflows call is called by the graphs, and no other (an "Appel"
-input the agents fill is passed on too). Run in the container: python check.py (exit 1 on a gap)."""
+"""Checks the graphs against what they call and show: every tool a graph or the agent calls exists (tarik/), and
+every step the canvas draws has its plain description (content/labels.json). Run in the container: python check.py
+(exit 1 on a gap)."""
 
-import json
-import re
+import ast
 import sys
 from pathlib import Path
 
-GRAPHS = Path(__file__).parent / "engine"
-WORKFLOWS = Path("/workflows")
+from engine import agent, graphs, traitement
+from engine.tools import TOOLS
+
+ENGINE = Path(__file__).parent / "engine"
+TOOL_ARGUMENT = {"step": 3, "call": 1, "run_tool": 1}  # where each caller takes the tool's name
 
 
-def n8n_tools():
-    found = set()
-    for path in WORKFLOWS.glob("tarik-*.json"):
-        if "merge-test" in path.name or "nodes" not in json.loads(path.read_text()):
-            continue
-        for node in json.loads(path.read_text())["nodes"]:
-            if node["type"].endswith("mcpClient"):
-                found.add(node["parameters"]["tool"]["value"])
+def called():
+    """{tool: where} for every tool named in the graphs' calls (step, call, run_tool) and the agent's read tools."""
+    found = dict.fromkeys(traitement.CHAIN, "traitement.CHAIN")
+    found |= dict.fromkeys(agent.READ_TOOLS, "content/agent.json read_tools")
+    for path in ENGINE.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in TOOL_ARGUMENT:
+                at = TOOL_ARGUMENT[node.func.id]
+                if len(node.args) > at and isinstance(node.args[at], ast.Constant):
+                    found[node.args[at].value] = f"{path.name}:{node.lineno}"
     return found
 
 
-def graph_tools():
-    source = "".join(path.read_text() for path in GRAPHS.glob("*.py"))
-    # Every quoted snake_case word of the graphs' source that names a tool n8n's workflows call. The agent's read tools
-    # (experio_connection, list_dossiers...) are not workflow steps: both agents take them from the same template.
-    # ask_agent (n8n's call_agent in between) has no counterpart: the Emails graph runs the agent graph itself.
-    return (set(re.findall(r'"([a-z_]+)"', source)) & n8n_tools()) | {"ask_agent"}
-
-
-def inputs():
-    """Each workflow's "Appel" inputs (n8n) against the graphs' INPUTS."""
-    gaps = []
-    for name, module in (("traitement", "traitement"), ("dossier", "dossier")):
-        nodes = json.loads((WORKFLOWS / f"tarik-{name}.json").read_text())["nodes"]
-        appel = next(node for node in nodes if node["name"] == "Appel")
-        n8n = {value["name"] for value in appel["parameters"]["workflowInputs"]["values"]}
-        source = (GRAPHS / f"{module}.py").read_text()
-        ours = set(re.search(r'INPUTS = \(\n((?:.*\n)+?)\)\.split\(\)', source).group(1).replace('"', "").split())
-        if n8n != ours:
-            gaps.append(f"{name} inputs: n8n only {sorted(n8n - ours)}, graph only {sorted(ours - n8n)}")
-    return gaps
-
-
 def undescribed():
-    """Every step and part the canvas draws has its plain description (content/labels.json)."""
-    from engine import graphs
     return [
         f"{name}: no description for {node['id']}"
         for name in ("agent", *graphs.COMPILED)
@@ -55,11 +36,6 @@ def undescribed():
 
 
 if __name__ == "__main__":
-    n8n, ours = n8n_tools(), graph_tools()
-    gaps = inputs() + undescribed()
-    if n8n - ours:
-        gaps.append(f"tools n8n calls, the graphs don't: {sorted(n8n - ours)}")
-    if ours - n8n:
-        gaps.append(f"tools the graphs call, n8n doesn't: {sorted(ours - n8n)}")
-    print("\n".join(gaps) or f"parity: {len(n8n)} tools, same inputs")
+    gaps = [f"{where}: no tool {name}" for name, where in called().items() if name not in TOOLS] + undescribed()
+    print("\n".join(gaps) or f"ok: {len(called())} tools called, all exist; every step described")
     sys.exit(1 if gaps else 0)

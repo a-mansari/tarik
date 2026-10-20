@@ -1,43 +1,12 @@
-"""What this stack reads from Vault, with tarik-mcp's own AppRole (read-only on secret/tarik/*): the shared settings
-(secret/tarik/shared) and its own (secret/tarik/langgraph: the model's address and key). Read once per process."""
+"""Where this stack finds its content and its default cabinet. Every setting (Vault: the shared ones, the
+orchestrator's own, each cabinet's) is read through tarik.core.cabinets.setting, within a cabinet."""
 
-import functools
 import os
 from pathlib import Path
 
-import httpx
-
-VAULT = os.environ["VAULT_ADDR"].rstrip("/")
-APPROLE = Path("/run/vault")
 DEFAULT_CABINET = os.getenv("TARIK_DEFAULT_CABINET", "experio_cabinet_8")
-MCP = os.getenv("TARIK_MCP", "http://tarik-mcp:8000")
-SKILLS = Path("/instructions/skills")
-
-
-@functools.cache
-def token():
-    ids = {name: (APPROLE / name).read_text().strip() for name in ("role_id", "secret_id")}
-    return httpx.post(f"{VAULT}/v1/auth/approle/login", json=ids, timeout=10).raise_for_status().json()["auth"]["client_token"]
-
-
-def secret(path):
-    """secret/tarik/<path> as a dict, {} when it does not exist."""
-    answer = httpx.get(f"{VAULT}/v1/secret/data/tarik/{path}", headers={"X-Vault-Token": token()}, timeout=10)
-    if answer.status_code == 404:
-        return {}
-    return answer.raise_for_status().json()["data"]["data"]
-
-
-@functools.cache
-def shared():
-    """secret/tarik/shared."""
-    return secret("shared")
-
-
-@functools.cache
-def own():
-    """secret/tarik/langgraph: this stack's own settings (MODEL_API_URL, MODEL_API_KEY), {} until they are written."""
-    return secret("langgraph")
+CONTENT = Path(__file__).resolve().parents[1] / "content"
+SKILLS = CONTENT / "skills"
 
 
 def cabinet_of(config):

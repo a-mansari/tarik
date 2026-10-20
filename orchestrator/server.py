@@ -1,6 +1,7 @@
 """Tarik's orchestrator: its graphs served over HTTP on permissively licensed parts only (starlette, uvicorn: BSD;
 langgraph and its Postgres checkpointer: MIT; psycopg: LGPL, unmodified). Every run and each of its steps is kept in
-Postgres (engine/runs.py), the agent's conversations next to them.
+Postgres (engine/runs.py), the agent's conversations next to them. The tools (tarik/) run in this process, each in
+its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) starts runs for the mailboxes it answers.
 
   GET  /ok                        the server is up, and its graphs
   POST /runs/{graph}              {input, thread_id?, cabinet?, session_id?, wait?}: wait (default) answers the run
@@ -17,6 +18,7 @@ With TARIK_GRAPH_TOKEN set, every API call but /ok needs it as a bearer token.
 shortcut: the pages have no login yet: the server listens on the host only (127.0.0.1); a login comes before it is
 reachable from anywhere else."""
 
+import asyncio
 import contextlib
 import json
 import os
@@ -29,12 +31,14 @@ from starlette.responses import JSONResponse, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from engine import agent, graphs, layouts, prompts, runs
+from engine import agent, graphs, layouts, mail, prompts, runs
+from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
+from tarik.core.experio import account
 from ui import pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = (
-    f"host={os.getenv('POSTGRES_HOST', 'postgres')} dbname={os.environ['POSTGRES_DB']} "
+    f"host={os.getenv('POSTGRES_HOST', 'db')} dbname={os.environ['POSTGRES_DB']} "
     f"user={os.environ['POSTGRES_USER']} password={os.environ['POSTGRES_PASSWORD']}"
 )
 
@@ -126,7 +130,11 @@ async def layout(request: Request):
 async def prompt(request: Request):
     """One model call's whole prompt (the UI opens it when asked: it holds the clients' words)."""
     cabinet = request.path_params["cabinet"]
-    found = await prompts.prompt(cabinet, int(request.path_params["call_id"])) if cabinet in await prompts.cabinets() else None
+    found = (
+        await prompts.prompt(cabinet, int(request.path_params["call_id"]))
+        if cabinet in await prompts.cabinets()
+        else None
+    )
     if found is None:
         return JSONResponse({"error": "unknown call"}, status_code=404)
     return JSONResponse({**found, "at": runs.when(found["at"])})
@@ -137,10 +145,28 @@ async def step(request: Request):
     return JSONResponse(found) if found is not None else JSONResponse({"error": "unknown step"}, status_code=404)
 
 
+def check_cabinets():
+    """At start: every cabinet fully configured and its schema ready, or nothing is served."""
+    if not VAULT_ENABLED:
+        raise SystemExit("VAULT_ADDR is not set: Tarik's settings are read from Vault only")
+    if not CABINETS:
+        raise SystemExit("no cabinet in Vault (secret/tarik/cabinets/<cabinet>): no cabinet to serve")
+    misplaced = misplaced_in_vault(*vault_settings())
+    if misplaced:
+        raise SystemExit(f"settings not where they belong (see tarik/core/cabinets.py): {', '.join(misplaced)}")
+    for name in sorted(CABINETS):
+        with using(name):
+            account()  # exact database name and Tarik's user id, or SystemExit
+    create_schemas()
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app):
-    """The run store and the agent's memory, in Postgres, for the server's whole life."""
+    """The cabinets checked, the run store and the agent's memory, in Postgres, and the mail watcher, for the
+    server's whole life."""
+    check_cabinets()
     await runs.open_store(DATABASE)
+    mail.start(asyncio.get_running_loop())
     async with AsyncPostgresSaver.from_conn_string(f"{DATABASE} options='-c search_path={runs.SCHEMA}'") as saver:
         await saver.setup()
         agent.CHECKPOINTER = saver

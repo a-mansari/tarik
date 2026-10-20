@@ -8,39 +8,51 @@ Why: n8n's Sustainable Use License allows internal use only, and LangGraph's own
 neither: only `langgraph`, `langgraph-checkpoint(-postgres)` and LangChain (MIT), starlette and uvicorn (BSD), and
 psycopg (LGPL, as an unmodified library). Check the licence of every new dependency.
 
-## What it reuses, unchanged
+## A stack of its own
 
-- **tarik-mcp** (`mcp/`): every Experio step, mail and file, as MCP tools, one address per cabinet. The isolation
-  between cabinets lives there: a run names its cabinet once, never the model.
-- **`instructions/`**: the skills and the tools' prompts, shared with the n8n stack.
-- **Postgres and Vault**, on the n8n stack's Docker network.
+From n8n it takes only ideas (its canvas, runs step by step, sub-workflows, the prompt log, untrusted data); nothing
+of the n8n stack runs in it:
 
-n8n keeps running untouched until a cabinet is switched over.
+- **Its tools** (`tarik/`): every Experio step, mail and file, forked from tarik-mcp and called in-process (no MCP
+  hop), each call inside its cabinet (`using(cabinet)`): a run names its cabinet once, never the model. Free of n8n's
+  workarounds: no 5-minute tool cap to dodge, steps recorded as they end.
+- **Its content** (`content/`): the agent's instructions and tools' descriptions, the skills, the tools' prompts, the
+  UI's words; the n8n stack keeps its own copy in `instructions/`.
+- **Its Postgres** (service `db`): runs, conversations, layouts (schema `orchestrator`) and each cabinet's schema.
+- **Its model key**: Vault `secret/tarik/orchestrator` (`MODEL_API_KEY`, `MODEL_API_URL` optional).
+- **Its mail watcher** (`engine/mail.py`), for the cabinets listed in `MAIL_BY_ORCHESTRATOR` (same Vault path) only:
+  a mailbox is answered by one stack, never both.
+
+Shared with the n8n stack: Vault (read-only AppRole on `secret/tarik/*`, reached on its Docker network) and the
+cabinets' Experio. n8n keeps running untouched until a cabinet is switched over.
 
 ## Layout
 
 | Path | What |
 |---|---|
-| `server.py` | The HTTP API. |
+| `server.py` | The HTTP API; checks every cabinet and makes its schema at start. |
+| `tarik/` | The tools (`TOOLS`, registered by `@tool` / `@step_tool`), Experio, mail, the vision model, `cabinet.sql`. |
+| `engine/tools.py` | One tool call: in a worker thread, in its cabinet, at most 10 at once per cabinet; a refusal's text kept for the client, a crash logged and told plainly; a step's outcome recorded for the run's summary. |
 | `engine/runs.py` | Every run and each of its steps, in Postgres (schema `orchestrator`); the agent's conversations next to them. |
-| `engine/agent.py` | The agent: instructions and tools' descriptions from `content/agent.json`, skills from `instructions/skills/`, tool output from Experio tagged as untrusted data. |
-| `engine/model.py` | MiniMax-M3 with a 1024-token thinking budget; this stack's own key (Vault `secret/tarik/langgraph`) or n8n's "Tarik - Model". |
+| `engine/agent.py` | The agent: instructions and tools' descriptions from `content/agent.json`, skills from `content/skills/`, tool output from Experio tagged as untrusted data. |
+| `engine/model.py` | MiniMax-M3 with a 1024-token thinking budget, with this stack's own key. |
+| `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the Prompts page. |
+| `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
 | `engine/traitement.py`, `dossier.py`, `emails.py` | The workflows, as graphs. |
-| `engine/tools.py` | One tarik-mcp call; a step's outcome recorded for the run's summary; retried after a dropped connection only when nothing can be written twice. |
-| `content/agent.json` | What the agent is told: kept out of the code so the UI can show and edit it. |
-| `content/labels.json` | The UI's plain words for each workflow, step and status. |
+| `content/` | What the agent is told and the UI's plain words (`labels.json`: names and descriptions of each step). |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
 | `engine/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
-| `ui/` | The team's pages (French): `pages.py`, its templates, a stylesheet, two scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |
-| `check.py` | Parity with the n8n workflows: same tools, same inputs. |
+| `ui/` | The team's pages (French): `pages.py`, its templates, a stylesheet, scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |
+| `tests/` | The tools' and the isolation tests (`python -m pytest`; the real model's with `-m llm`). |
+| `check.py` | Every tool a graph calls exists; every step drawn is described. |
 | `run.py` | Run a graph from a terminal and watch it step by step. |
 
 ## Run it
 
-From the repository's root (its `.env` gives the container only the `POSTGRES_*` values):
+From this folder (its `.env`, never in git, gives `POSTGRES_PASSWORD` and `ODOO_URL`):
 
 ```bash
-docker compose -f orchestrator/docker-compose.yml --env-file .env up --build -d
+docker compose up --build -d
 ```
 
 | Call | What it does |
@@ -53,10 +65,12 @@ docker compose -f orchestrator/docker-compose.yml --env-file .env up --build -d
 | `GET /graphs/<graph>` | A workflow's shape for the canvas. |
 | `GET` / `PUT` / `DELETE /graphs/<graph>/layout` | How the team arranged its canvas: read, saved, or forgotten. |
 
-The team's pages: http://127.0.0.1:2024/ui/runs (runs) and http://127.0.0.1:2024/ui/workflows (workflows).
+The team's pages: http://127.0.0.1:2024/ui/runs (runs), /ui/workflows (workflows), /ui/prompts (what the model
+was sent).
 
 Graphs: `agent`, `traitement`, `dossier`, `emails`. `TARIK_GRAPH_TOKEN` set: every call but `/ok` needs it as a
-bearer token. In the container: `python run.py <graph> '<input json>' [--thread name]`, `python check.py`.
+bearer token. In the container: `python run.py <graph> '<input json>' [--thread name]`, `python check.py`,
+`python -m pytest`.
 
 ## Plan
 
@@ -65,11 +79,11 @@ and questions, cabinets' settings. Workflows stay Python, reviewed by developers
 with every run live, step by step.
 
 1. **Engine and server** — done: the four graphs, the agent with its memory in Postgres, runs and steps kept and
-   streamed live, parity with n8n (`check.py`).
+   streamed live; parity with the n8n workflows checked step by step (2026-10-20), then the stack made its own.
 2. **Runs in the UI** — done: the runs of each cabinet (refreshed on their own), each run step by step as it happens,
    in plain words (what was asked, what the client reads, each step's outcome, its whole output on demand), and for
-   the agent the conversation with its thinking and the tools it used. Still to come: the exact prompt sent to the
-   model at each call, and the inputs' names in plain words.
+   the agent the conversation with its thinking and the tools it used; the exact prompt of each model call (Prompts).
+   Still to come: the inputs' names in plain words.
 3. **Workflows in the UI** — done: each workflow drawn as a canvas, as n8n draws one (steps left to right, a file or
    an invoice as a framed group, conditional paths dashed; pan, zoom, "Au début", "Tout voir"); a run painted over it,
    live while it goes on (each step coloured by its outcome, ×n when it ran for several invoices); a click on a step
@@ -78,11 +92,12 @@ with every run live, step by step.
    The canvas is a map on a 20 px grid: steps dragged snap to it, an edge takes bend points (dragged, snapped,
    removed with a double-click) and a route style (right angles, straight, curved), and "Enregistrer la disposition"
    keeps the arrangement in Postgres (table `layouts`, one per workflow, shared by the team); "Disposition
-   automatique" forgets it. On each run's page and on each workflow's page with its recent runs. Still to
-   come: each step explained in plain words in the panel.
+   automatique" forgets it. On each run's page and on each workflow's page with its recent runs. Each step explained
+   in plain words in its panel.
 4. **Content in the UI, with history**: the agent's instructions and skills, the tools' prompts, cabinets' settings;
    every change kept (who, when), and undone in one click.
-5. **Mail**: the watcher wakes this stack for a cabinet switched to it; then the email test and `-m llm` again.
+5. **Mail**: a cabinet switched over (`MAIL_BY_ORCHESTRATOR`, the n8n watcher stopped for it); then the email test
+   and `-m llm` again.
 6. **Chat with file upload**, per cabinet, if cabinets need more than email.
 
 ## Lessons kept from the first port
@@ -91,5 +106,5 @@ with every run live, step by step.
   decisions without, 1 % with).
 - An answer's outcome is recorded under the step it answers, or a question asked again can never be answered.
 - A step's own arguments are positional: a tool may take a `run_id` of its own.
-- After a dropped connection, only a tool a second call answers the same is called again.
-- Tool output from Experio reaches the model as untrusted data, as n8n's agents do.
+- Tool output from Experio reaches the model as untrusted data (n8n's guard, rebuilt).
+- Two invoices of one message run one after another: side by side, both could create the same new tiers.

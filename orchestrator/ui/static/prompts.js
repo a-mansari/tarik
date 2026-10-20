@@ -1,6 +1,5 @@
-// A model call's whole prompt, loaded when it is opened: its instructions, its tools, then each message. Reads both
-// n8n's messages (role user/assistant/tool, parts text/reasoning/tool-call/tool-result) and LangChain's (role
-// human/ai/tool, parts text/thinking/tool_use, tool_calls).
+// A model call's whole prompt, loaded when it is opened: its instructions, its tools, then each message (role
+// human/ai/tool; parts text/thinking/tool_use, tool_calls; the AI SDK's user/assistant/reasoning/tool-call too).
 
 const list = document.getElementById("prompt-calls");
 const WHO = { system: "Instructions", user: "Client", human: "Client", assistant: "Tarik", ai: "Tarik", tool: "Outil" };

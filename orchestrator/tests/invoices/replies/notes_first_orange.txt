@@ -1,0 +1,63 @@
+Looking at the scan carefully:
+
+**Read from the scan:**
+- Invoice number: F-0726-2580188
+- Invoice date: 25-07-2026
+- Invoice date language: fr (French labels: "Facture", "Numéro de facture", "Date de facture", "Montant HT", "Total TTC")
+- Amount untaxed (HT): 248.33
+- TVA: 49.67
+- Amount stamp: not present → 0
+- Amount total (TTC): 298.00
+- Supplier: Orange / MEDI TELECOM (SA au Capital de 2.373.168.700 DH)
+- Supplier ICE: 001524628000001 (in footer with RC/IF/CNSS)
+- Supplier IF: 1086826
+- Client ICE: 000000000000000 (in client box — not supplier)
+- Designation: Vos forfaits/abonnements et options
+- Currency: MAD (DH)
+- Country: MA (Casablanca, Maroc)
+- TVA lines: [{rate: 20, amount_ht: 248.33, amount_tva: 49.67}]
+- Internal consistency: 248.33 + 49.67 = 298.00 ✓
+
+**Comparison with captured values:**
+- amount_total: stored 398.0 vs extracted 298.00 → mismatch (the most visible amount on the invoice is 298,00 DH)
+
+```json
+{
+  "readable": true,
+  "extracted": {
+    "invoice_number": "F-0726-2580188",
+    "invoice_date_raw": "25-07-2026",
+    "invoice_date_language": "fr",
+    "amount_untaxed": 248.33,
+    "amount_tva": 49.67,
+    "amount_stamp": 0,
+    "amount_disbursement": 0,
+    "amount_guarantee_holdback": 0,
+    "amount_prorata": 0,
+    "amount_insurance": 0,
+    "amount_ts": 0,
+    "amount_tsp": 0,
+    "advance_amount": 0,
+    "amount_total": 298.00,
+    "tier": "MEDI TELECOM",
+    "designation": "Vos forfaits/abonnements et options",
+    "ice": "001524628000001",
+    "vat": "1086826",
+    "is_credit_note": false,
+    "currency": "MAD",
+    "payment_method": null,
+    "period_start": null,
+    "period_end": null,
+    "country": "MA",
+    "tva_lines": [{"rate": 20, "amount_ht": 248.33, "amount_tva": 49.67}]
+  },
+  "bad_fields": [
+    {
+      "field": "amount_total",
+      "stored": "398.0",
+      "extracted": "298.00",
+      "problem": "Le TTC saisi est 398,00 alors que la facture affiche clairement « Total TTC 298,00 » et « Montant total à payer 298,00 DH »."
+    }
+  ]
+}
+```

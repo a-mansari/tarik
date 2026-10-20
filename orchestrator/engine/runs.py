@@ -147,7 +147,8 @@ async def start(name, payload):
     thread = (payload.get("thread_id") or session) if name == "agent" else None
     async with pool.connection() as db:
         await db.execute(
-            "insert into runs (id, graph, cabinet, session_id, thread_id, status, input) values (%s, %s, %s, %s, %s, 'queued', %s)",
+            "insert into runs (id, graph, cabinet, session_id, thread_id, status, input) "
+            "values (%s, %s, %s, %s, %s, 'queued', %s)",
             (run_id, name, cabinet, session, thread, Jsonb(jsonable(payload.get("input") or {}))),
         )
     live[run_id] = asyncio.Event()
@@ -155,17 +156,23 @@ async def start(name, payload):
     return run_id, task
 
 
-async def execute(run_id, name, cabinet, session, thread, given, slots=asyncio.Semaphore(20)):
+SLOTS = asyncio.Semaphore(20)  # runs going on at once in this process
+
+
+async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
     configurable = {"cabinet": cabinet, "session_id": session, **({"thread_id": thread} if thread else {})}
-    graph = agent.make_agent({"configurable": configurable}) if name == "agent" else GRAPHS[name]
     status, error, output = "done", None, None
     inner = {}  # a part's path ("facture", "fichier|facture") -> the status of the last step that ran inside it
     async with slots:  # shortcut: one process's runs at once (20); several servers would need a shared queue
         async with pool.connection() as db:
             await db.execute("update runs set status = 'running' where id = %s", (run_id,))
-        try:
+        try:  # the agent made here too: no model configured fails the run, never leaves it queued
+            graph = agent.make_agent({"configurable": configurable}) if name == "agent" else GRAPHS[name]
             async for namespace, mode, data in graph.astream(
-                given, {"configurable": configurable, "run_id": run_id}, stream_mode=["updates", "values"], subgraphs=True
+                given,
+                {"configurable": configurable, "run_id": run_id},
+                stream_mode=["updates", "values"],
+                subgraphs=True,
             ):
                 if mode == "values" and not namespace:
                     output = data
@@ -179,7 +186,8 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=asyncio.S
                                 step_status = inner[own]
                             inner[path] = step_status
                             await db.execute(
-                                "insert into steps (run_id, path, node, status, summary, detail) values (%s, %s, %s, %s, %s, %s)",
+                                "insert into steps (run_id, path, node, status, summary, detail) "
+                                "values (%s, %s, %s, %s, %s, %s)",
                                 (run_id, path, node, step_status, line, capped(update)),
                             )
                     live[run_id].set()
@@ -196,23 +204,48 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=asyncio.S
 async def run(run_id):
     """A run as the API shows it, its steps included; None when unknown."""
     async with pool.connection() as db:
-        found = await (await db.execute(
-            "select id, graph, cabinet, session_id, thread_id, status, input, output, error, started_at, ended_at "
-            "from runs where id = %s", (run_id,),
-        )).fetchone()
+        found = await (
+            await db.execute(
+                "select id, graph, cabinet, session_id, thread_id, status, input, output, error, started_at, ended_at "
+                "from runs where id = %s",
+                (run_id,),
+            )
+        ).fetchone()
         if not found:
             return None
-        steps = await (await db.execute(
-            "select id, at, path, node, status, summary from steps where run_id = %s order by id", (run_id,)
-        )).fetchall()
-    keys = ("run_id", "graph", "cabinet", "session_id", "thread_id", "status", "input", "output", "error", "started", "ended")
+        steps = await (
+            await db.execute(
+                "select id, at, path, node, status, summary from steps where run_id = %s order by id", (run_id,)
+            )
+        ).fetchall()
+    keys = (
+        "run_id",
+        "graph",
+        "cabinet",
+        "session_id",
+        "thread_id",
+        "status",
+        "input",
+        "output",
+        "error",
+        "started",
+        "ended",
+    )
     shown = dict(zip(keys, found, strict=True))
     shown["run_id"] = str(shown["run_id"])
     ended = shown["ended"].timestamp() if shown["ended"] else time.time()
     shown["seconds"] = round(ended - shown["started"].timestamp(), 1)
     shown["started"], shown["ended"] = shown["started"].isoformat(), shown["ended"] and shown["ended"].isoformat()
     shown["steps"] = [
-        {"id": i, "at": at.isoformat(), "when": when(at), "path": path, "node": node, "status": status, "summary": summary}
+        {
+            "id": i,
+            "at": at.isoformat(),
+            "when": when(at),
+            "path": path,
+            "node": node,
+            "status": status,
+            "summary": summary,
+        }
         for i, at, path, node, status, summary in steps
     ]
     return shown
@@ -227,10 +260,13 @@ async def recent(cabinet=None, graph=None, limit=50):
             args.append(value)
     clause = f"where {' and '.join(where)}" if where else ""
     async with pool.connection() as db:
-        rows = await (await db.execute(
-            f"select id, graph, cabinet, session_id, status, error, started_at, ended_at from runs {clause} "
-            "order by started_at desc limit %s", (*args, limit),
-        )).fetchall()
+        rows = await (
+            await db.execute(
+                f"select id, graph, cabinet, session_id, status, error, started_at, ended_at from runs {clause} "
+                "order by started_at desc limit %s",
+                (*args, limit),
+            )
+        ).fetchall()
     keys = ("run_id", "graph", "cabinet", "session_id", "status", "error", "started", "ended")
     return [
         {
@@ -247,9 +283,12 @@ async def recent(cabinet=None, graph=None, limit=50):
 async def steps_after(run_id, after):
     """The run's steps after step id ``after``, and whether the run has ended."""
     async with pool.connection() as db:
-        steps = await (await db.execute(
-            "select id, at, path, node, status, summary from steps where run_id = %s and id > %s order by id", (run_id, after)
-        )).fetchall()
+        steps = await (
+            await db.execute(
+                "select id, at, path, node, status, summary from steps where run_id = %s and id > %s order by id",
+                (run_id, after),
+            )
+        ).fetchall()
         state = await (await db.execute("select status, error from runs where id = %s", (run_id,))).fetchone()
     found = [
         {"id": i, "at": at.isoformat(), "when": when(at), "path": p, "node": n, "status": s, "summary": line}
@@ -265,16 +304,16 @@ async def changed(run_id, seconds=1.0):
         await asyncio.sleep(seconds)
         return
     event.clear()
-    try:
+    with contextlib.suppress(TimeoutError):
         await asyncio.wait_for(event.wait(), seconds)
-    except TimeoutError:
-        pass
 
 
 async def step_detail(run_id, step_id):
     """One step's whole update (its node's output), None when unknown."""
     async with pool.connection() as db:
-        found = await (await db.execute("select detail from steps where run_id = %s and id = %s", (run_id, step_id))).fetchone()
+        found = await (
+            await db.execute("select detail from steps where run_id = %s and id = %s", (run_id, step_id))
+        ).fetchone()
     return found[0] if found else None
 
 

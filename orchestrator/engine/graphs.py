@@ -4,6 +4,8 @@ the conditional ones marked, with the plain words of content/labels.json. Read f
 
 import functools
 
+from langchain_anthropic import ChatAnthropic
+
 from engine import agent, dossier, emails, traitement
 from engine.content import LABELS
 
@@ -29,9 +31,12 @@ def description(graph, node_id):
 
 @functools.cache
 def shape(name):
-    """{nodes: [{id, label, description, parent, kind}], edges: [{id, source, target, conditional}]} for graph ``name``. A nested
-    part's nodes have their part as parent (a group); kind is "end" for a start or an end, "group", or "step"."""
-    compiled = agent.make_agent() if name == "agent" else COMPILED[name]
+    """{nodes: [{id, label, description, parent, kind}], edges: [{id, source, target, conditional}]} for graph
+    ``name``. A nested part's nodes have their part as parent (a group); kind is "end" for a start or an end,
+    "group", or "step"."""
+    compiled = (
+        agent.make_agent(chat=ChatAnthropic(model="drawing", api_key="unused")) if name == "agent" else COMPILED[name]
+    )
     drawn = compiled.get_graph(xray=True)
     nodes, groups = [], {}
     for node_id in drawn.nodes:
@@ -41,8 +46,25 @@ def shape(name):
             groups.setdefault(prefix, prefix.rsplit(":", 1)[0] if ":" in prefix else None)
             prefix = groups[prefix]
         kind = "end" if node_id.rsplit(":", 1)[-1] in ENDS else "step"
-        nodes.append({"id": node_id, "label": label(name, node_id), "description": description(name, node_id), "parent": parent, "kind": kind})
-    nodes += [{"id": group, "label": label(name, group), "description": description(name, group), "parent": parent, "kind": "group"} for group, parent in groups.items()]
+        nodes.append(
+            {
+                "id": node_id,
+                "label": label(name, node_id),
+                "description": description(name, node_id),
+                "parent": parent,
+                "kind": kind,
+            }
+        )
+    nodes += [
+        {
+            "id": group,
+            "label": label(name, group),
+            "description": description(name, group),
+            "parent": parent,
+            "kind": "group",
+        }
+        for group, parent in groups.items()
+    ]
     leaving = {}
     for edge in drawn.edges:
         leaving[edge.source] = leaving.get(edge.source, 0) + 1
@@ -54,9 +76,20 @@ def shape(name):
     # And a part may start at any of its steps (an invoice resumes where an answer leaves it): only its first entry is
     # drawn, the step nothing else leads to; the others would fan out from its start.
     edges = [
-        {"id": f"{edge.source}->{edge.target}", "source": edge.source, "target": edge.target, "conditional": bool(edge.conditional)}
+        {
+            "id": f"{edge.source}->{edge.target}",
+            "source": edge.source,
+            "target": edge.target,
+            "conditional": bool(edge.conditional),
+        }
         for edge in drawn.edges
         if not (edge.conditional and edge.target.endswith(":__end__") and leaving[edge.source] > 1)
         and not (edge.conditional and edge.source.endswith(":__start__") and arriving[edge.target] > 1)
     ]
-    return {"graph": name, "label": LABELS["graphs"].get(name, name), "description": LABELS["descriptions"]["graphs"].get(name, ""), "nodes": nodes, "edges": edges}
+    return {
+        "graph": name,
+        "label": LABELS["graphs"].get(name, name),
+        "description": LABELS["descriptions"]["graphs"].get(name, ""),
+        "nodes": nodes,
+        "edges": edges,
+    }

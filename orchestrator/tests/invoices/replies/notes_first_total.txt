@@ -1,0 +1,60 @@
+Looking at the scan:
+
+- **invoice_number**: FACTURE N° 22100
+- **invoice_date_raw**: 20/07/2026
+- **invoice_date_language**: fr
+- **tier**: STATION SERVICE TOTAL OULED ZIANE (HAMZA AHMED)
+- **ice**: 001629396000076 (supplier's ICE in footer)
+- **vat**: 46600060
+- **designation**: CARBURANT (only line with non-zero amount)
+- **amount_total**: 5000.00
+- **amount_untaxed**: 5000.00 - 454.55 = 4545.45
+- **amount_tva**: 454.55
+- **amount_stamp**: 0
+- **currency**: MAD (Cinq mille dhs)
+- **payment_method**: cheque (checkbox marked in PAYÉ PAR section)
+- **is_credit_note**: false
+- **country**: MA (Maroc)
+- **tva_lines**: [{rate: 10, amount_ht: 4545.45, amount_tva: 454.55}]
+
+The capture has only amount_total = 5100.0, which doesn't match the 5000.00 on the invoice.
+
+```json
+{
+  "readable": true,
+  "extracted": {
+    "invoice_number": "22100",
+    "invoice_date_raw": "20/07/2026",
+    "invoice_date_language": "fr",
+    "amount_untaxed": 4545.45,
+    "amount_tva": 454.55,
+    "amount_stamp": 0,
+    "amount_disbursement": 0,
+    "amount_guarantee_holdback": 0,
+    "amount_prorata": 0,
+    "amount_insurance": 0,
+    "amount_ts": 0,
+    "amount_tsp": 0,
+    "advance_amount": 0,
+    "amount_total": 5000.00,
+    "tier": "STATION SERVICE TOTAL OULED ZIANE",
+    "designation": "CARBURANT",
+    "ice": "001629396000076",
+    "vat": "46600060",
+    "is_credit_note": false,
+    "currency": "MAD",
+    "payment_method": "cheque",
+    "period_start": null,
+    "period_end": null,
+    "country": "MA",
+    "tva_lines": [{"rate": 10, "amount_ht": 4545.45, "amount_tva": 454.55}]
+  },
+  "bad_fields": [
+    {"field": "amount_total", "stored": "5100.00", "extracted": "5000.00", "problem": "Le TTC capturé est 5100,00 alors que la facture indique « Montant total ttc 5000,00 » et « Cinq mille dhs »."},
+    {"field": "amount_untaxed", "stored": "null", "extracted": "4545.45", "problem": "Le HT est null alors que la facture indique un total CARBURANT de 5000,00 dont TVA 454,55, soit HT = 4545,45."},
+    {"field": "amount_tva", "stored": "null", "extracted": "454.55", "problem": "La TVA est null alors que la facture indique « Dont T.V.A 10 % 454,55 »."},
+    {"field": "invoice_number", "stored": "null", "extracted": "22100", "problem": "Le numéro est null alors que la facture porte « FACTURE N° 22100 »."},
+    {"field": "invoice_date", "stored": "null", "extracted": "20/07/2026", "problem": "La date est null alors que la facture indique « CASA : 20/07/2026 »."}
+  ]
+}
+```

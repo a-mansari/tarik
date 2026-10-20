@@ -32,7 +32,9 @@ def status_name(status):
     return LABELS["statuses"].get(status, status)
 
 
-templates.env.filters.update(when=when, graph_name=graph_name, graph_description=graph_description, status_name=status_name)
+templates.env.filters.update(
+    when=when, graph_name=graph_name, graph_description=graph_description, status_name=status_name
+)
 templates.env.globals.update(step_name=step_name)
 
 
@@ -40,7 +42,9 @@ def text_of(content):
     """A message's text: its string, or its text parts."""
     if isinstance(content, str):
         return content
-    return "\n".join(part.get("text", "") for part in content or [] if isinstance(part, dict) and part.get("type") == "text")
+    return "\n".join(
+        part.get("text", "") for part in content or [] if isinstance(part, dict) and part.get("type") == "text"
+    )
 
 
 def conversation(messages):
@@ -53,16 +57,28 @@ def conversation(messages):
             shown.append({"who": "Client", "text": text_of(message.get("content"))})
         elif kind == "ai":
             content = message.get("content")
-            thinking = "\n".join(
-                part.get("thinking", "") for part in content if isinstance(part, dict) and part.get("type") == "thinking"
-            ) if isinstance(content, list) else ""
+            thinking = (
+                "\n".join(
+                    part.get("thinking", "")
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") == "thinking"
+                )
+                if isinstance(content, list)
+                else ""
+            )
             calls = [
                 {"name": call["name"], "args": json.dumps(call.get("args") or {}, ensure_ascii=False)}
                 for call in message.get("tool_calls") or []
             ]
             shown.append({"who": "Tarik", "text": text_of(content), "thinking": thinking, "calls": calls})
         elif kind == "tool":
-            shown.append({"who": f"Outil {message.get('name', '')}", "text": runs.readable(text_of(message.get("content"))), "tool": True})
+            shown.append(
+                {
+                    "who": f"Outil {message.get('name', '')}",
+                    "text": runs.readable(text_of(message.get("content"))),
+                    "tool": True,
+                }
+            )
     return shown
 
 
@@ -86,7 +102,13 @@ async def runs_page(request: Request):
     query = request.query_params
     cabinet, graph = query.get("cabinet") or None, query.get("graph") or None
     found = await runs.recent(cabinet, graph, 100)
-    context = {"runs": found, "cabinet": cabinet, "graph": graph, "cabinets": await runs.cabinets(), "graphs": runs.NAMES}
+    context = {
+        "runs": found,
+        "cabinet": cabinet,
+        "graph": graph,
+        "cabinets": await runs.cabinets(),
+        "graphs": runs.NAMES,
+    }
     template = "runs_rows.html" if query.get("partial") else "runs.html"
     return templates.TemplateResponse(request, template, context)
 
@@ -104,18 +126,21 @@ async def run_page(request: Request):
         "labels": LABELS,
         # The model calls of this run: its conversation's, while it ran.
         "prompts": await prompts.calls(found["cabinet"], found["session_id"], found["started"], found["ended"])
-        if found["graph"] == "agent" and found["cabinet"] in await prompts.cabinets() else [],
+        if found["graph"] == "agent" and found["cabinet"] in await prompts.cabinets()
+        else [],
     }
     return templates.TemplateResponse(request, "run.html", context)
 
 
 async def prompts_page(request: Request):
-    """The conversations whose model calls were saved, one cabinet at a time (n8n's and the orchestrator's)."""
+    """The conversations whose model calls were saved, one cabinet at a time."""
     known = await prompts.cabinets()
     cabinet = request.query_params.get("cabinet")
     cabinet = cabinet if cabinet in known else (known[0] if known else None)
     found = await prompts.conversations(cabinet) if cabinet else []
-    return templates.TemplateResponse(request, "prompts.html", {"cabinets": known, "cabinet": cabinet, "conversations": found})
+    return templates.TemplateResponse(
+        request, "prompts.html", {"cabinets": known, "cabinet": cabinet, "conversations": found}
+    )
 
 
 async def prompt_calls_page(request: Request):
@@ -126,7 +151,11 @@ async def prompt_calls_page(request: Request):
     found = await prompts.calls(cabinet, session)
     if not found:
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
-    return templates.TemplateResponse(request, "prompt_calls.html", {"cabinet": cabinet, "session_id": session, "calls": found, "open": request.query_params.get("call")})
+    return templates.TemplateResponse(
+        request,
+        "prompt_calls.html",
+        {"cabinet": cabinet, "session_id": session, "calls": found, "open": request.query_params.get("call")},
+    )
 
 
 async def workflows_page(request: Request):

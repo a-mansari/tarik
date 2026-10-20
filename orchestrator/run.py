@@ -35,7 +35,11 @@ def main(graph, payload, thread=None):
         output = http.get(f"{SERVER}/runs/{run_id}").json()["output"] or {}
     if graph == "agent" and output.get("messages"):
         content = output["messages"][-1]["content"]
-        reply = content if isinstance(content, str) else "".join(b.get("text", "") for b in content if b.get("type") == "text")
+        reply = (
+            content
+            if isinstance(content, str)
+            else "".join(b.get("text", "") for b in content if b.get("type") == "text")
+        )
         print(f"{time.monotonic() - started:7.2f}s  reply: {reply[:400]}")
     elif output.get("message"):
         print(f"{time.monotonic() - started:7.2f}s  summary: {output['message'][:400]}")

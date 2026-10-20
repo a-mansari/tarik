@@ -1,11 +1,11 @@
-"""ʺTarik - Traitementʺ (workflows/build_tarik_traitement.py) as a graph: the fixed processing sequence.
+"""Traitement as a graph: the fixed processing sequence of the documents a client sends.
 
-Where a message goes comes from the database (route_message), as in the workflow: files (the dossier found from
-the name the client gave, then the conversation's new files, from identification to verified drafts, posted only
-when the client asked to; with none, the questions other conversations left on the dossier are asked again and
-the drafts left waiting, held back or stopped are resumed), resume (waiting drafts only), answer (the client's
-answer, then the sequence resumes at its next step), or both. One subgraph per file, one per invoice: invoices run one after another (as n8n runs its items), each visible node by node. No time
-budget: nothing stops a run after 300 s here, so the n8n "Hors delai" branches have no counterpart."""
+Where a message goes comes from the database (route_message): files (the dossier found from the name the client
+gave, then the conversation's new files, from identification to verified drafts, posted only when the client asked
+to; with none, the questions other conversations left on the dossier are asked again and the drafts left waiting,
+held back or stopped are resumed), resume (waiting drafts only), answer (the client's answer, then the sequence
+resumes at its next step), or both. One subgraph per file, one per invoice, each visible node by node; they run one
+after another, so two invoices of one message never race on the same tiers or duplicate check."""
 
 import operator
 import uuid
@@ -14,7 +14,8 @@ from typing import Annotated, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
-from engine.tools import call as mcp_call, step
+from engine.tools import call as run_tool
+from engine.tools import step
 
 # The sequence, in order (CHAIN in build_tarik_traitement.py), and where an answer resumes it (RESUMED).
 CHAIN = [
@@ -36,10 +37,25 @@ CHAIN = [
     "post_invoice",
 ]
 RESUMED = CHAIN[6:]
-INPUTS = (
-    "mode session_id dossier answer decision about invoice_type client_message tva_non_recuperable retenue "
-    "repartir compte mode_paiement exercice comptabiliser attachments cabinet"
-).split()
+INPUTS = [
+    "mode",
+    "session_id",
+    "dossier",
+    "answer",
+    "decision",
+    "about",
+    "invoice_type",
+    "client_message",
+    "tva_non_recuperable",
+    "retenue",
+    "repartir",
+    "compte",
+    "mode_paiement",
+    "exercice",
+    "comptabiliser",
+    "attachments",
+    "cabinet",
+]
 
 
 class Outcomes(TypedDict):
@@ -90,7 +106,9 @@ def invoice_step(tool):
             ids = {"file_id": state["file_id"], "dossier_id": call["dossier_id"]}
         else:
             ids = {"invoice_id": state["invoice_id"]}
-        result = await step(call["cabinet"], state["run_id"], call["session_id"], tool, **ids, **extra(tool, call, state["run_id"]))
+        result = await step(
+            call["cabinet"], state["run_id"], call["session_id"], tool, **ids, **extra(tool, call, state["run_id"])
+        )
         return {"last": result, "invoice_id": result.get("invoice_id", state.get("invoice_id")), "outcomes": [result]}
 
     return node
@@ -102,7 +120,9 @@ for index, tool in enumerate(CHAIN):
     following = CHAIN[index + 1] if index + 1 < len(CHAIN) else END
     # Each step only when the previous one says ok; a question, stop, wait or error ends the invoice's run.
     # Its two ways out named, so the drawn graph shows the sequence (LangGraph cannot see inside the lambda).
-    invoice.add_conditional_edges(tool, lambda s, f=following: f if s["last"].get("status") == "ok" else END, list({following, END}))
+    invoice.add_conditional_edges(
+        tool, lambda s, f=following: f if s["last"].get("status") == "ok" else END, list({following, END})
+    )
 invoice.add_conditional_edges(START, lambda s: s["entry"], CHAIN)
 INVOICE = invoice.compile(name="facture")
 
@@ -115,21 +135,39 @@ class File(Outcomes, total=False):
 
 
 async def identify(state: File):
-    result = await step(state["call"]["cabinet"], state["run_id"], state["call"]["session_id"], "identify_document", file_id=state["file_id"])
+    result = await step(
+        state["call"]["cabinet"],
+        state["run_id"],
+        state["call"]["session_id"],
+        "identify_document",
+        file_id=state["file_id"],
+    )
     return {"last": result, "outcomes": [result]}
 
 
 async def import_statement(state: File):
     call = state["call"]
-    result = await step(call["cabinet"], state["run_id"], call["session_id"], "import_bank_statement", file_id=state["file_id"], dossier_id=call["dossier_id"])
+    result = await step(
+        call["cabinet"],
+        state["run_id"],
+        call["session_id"],
+        "import_bank_statement",
+        file_id=state["file_id"],
+        dossier_id=call["dossier_id"],
+    )
     return {"last": result, "outcomes": [result]}
 
 
 async def split(state: File):
     call = state["call"]
     result = await step(
-        call["cabinet"], state["run_id"], call["session_id"], "split_invoices",
-        file_id=state["file_id"], invoice_type=call.get("invoice_type") or "", client_message=call.get("client_message") or "",
+        call["cabinet"],
+        state["run_id"],
+        call["session_id"],
+        "split_invoices",
+        file_id=state["file_id"],
+        invoice_type=call.get("invoice_type") or "",
+        client_message=call.get("client_message") or "",
     )
     return {"last": result, "outcomes": [result]}
 
@@ -145,7 +183,19 @@ def drafts(state: File):
     """One invoice run per invoice cut out of the file, from its draft."""
     if state["last"].get("status") != "ok":
         return END
-    return [Send("facture", {"call": state["call"], "run_id": state["run_id"], "entry": "create_draft_invoice", "file_id": file_id, "outcomes": []}) for file_id in state["last"]["files"]]
+    return [
+        Send(
+            "facture",
+            {
+                "call": state["call"],
+                "run_id": state["run_id"],
+                "entry": "create_draft_invoice",
+                "file_id": file_id,
+                "outcomes": [],
+            },
+        )
+        for file_id in state["last"]["files"]
+    ]
 
 
 file = StateGraph(File, output_schema=Outcomes)
@@ -163,7 +213,14 @@ async def start(state: Run, config):
     """The run's id (the summary's key), the agent's attachments saved once each."""
     call = {key: state["call"].get(key) for key in INPUTS}
     run_id = str(config.get("run_id") or uuid.uuid4())
-    result = await step(call["cabinet"], run_id, call["session_id"], "save_files", payload=call.get("attachments") or "")
+    result = await step(
+        call["cabinet"],
+        run_id,
+        call["session_id"],
+        "save_files",
+        session_id=call["session_id"],
+        files=call.get("attachments") or [],
+    )
     return {"call": call, "run_id": run_id, "outcomes": [result]}
 
 
@@ -171,7 +228,11 @@ async def aiguillage(state: Run):
     """Where the message goes, from what the database knows (route_message); without it, the mode decides."""
     call = state["call"]
     try:
-        route = (await mcp_call(call["cabinet"], "route_message", session_id=call["session_id"], mode=call.get("mode") or "files"))["route"]
+        route = (
+            await run_tool(
+                call["cabinet"], "route_message", session_id=call["session_id"], mode=call.get("mode") or "files"
+            )
+        )["route"]
     except Exception:
         route = call.get("mode")
     return {"route": route if route in ("files", "answer", "resume", "both") else "files"}
@@ -190,38 +251,66 @@ async def dossier_found(state: Run):
     """The dossier the client named, found here (not by the agent: it never sees an id). A name that is no single
     dossier ends the run: the summary asks the client."""
     call = state["call"]
-    result = await step(call["cabinet"], state["run_id"], call["session_id"], "resolve_dossier", name=call.get("dossier") or "")
+    result = await step(
+        call["cabinet"], state["run_id"], call["session_id"], "resolve_dossier", name=call.get("dossier") or ""
+    )
     return {"dossier_id": result.get("dossier_id", 0), "outcomes": [result]}
 
 
 async def sender(state: Run):
     call = state["call"]
-    result = await step(call["cabinet"], state["run_id"], call["session_id"], "check_sender", session_id=call["session_id"], dossier_id=state["dossier_id"])
+    result = await step(
+        call["cabinet"],
+        state["run_id"],
+        call["session_id"],
+        "check_sender",
+        session_id=call["session_id"],
+        dossier_id=state["dossier_id"],
+    )
     return {"outcomes": [result]}
 
 
 async def files(state: Run):
     call = state["call"]
-    result = await step(call["cabinet"], state["run_id"], call["session_id"], "files_to_process", session_id=call["session_id"])
+    result = await step(
+        call["cabinet"], state["run_id"], call["session_id"], "files_to_process", session_id=call["session_id"]
+    )
     return {"files": result.get("files", []), "outcomes": [result]}
 
 
 def each_file(state: Run):
     """One file run per new file; none: the dossier's waiting questions, then the drafts left waiting."""
     if state["outcomes"][-1].get("status") != "ok":
-        return "resume"  # the files could not be listed: recorded, nothing more (n8n)
+        return "resume"  # the files could not be listed: recorded, nothing more
     if not state["files"]:
         return "questions"
-    return [Send("fichier", {"call": with_dossier(state), "run_id": state["run_id"], "file_id": file_id, "outcomes": []}) for file_id in state["files"]]
+    return [
+        Send("fichier", {"call": with_dossier(state), "run_id": state["run_id"], "file_id": file_id, "outcomes": []})
+        for file_id in state["files"]
+    ]
 
 
 async def questions(state: Run):
     """The questions other conversations left on this dossier's invoices, asked again here: each recorded as this
     run's question, which makes it this conversation's (record_step), so the summary asks it and the answer finds it."""
     call = state["call"]
-    found = await step(call["cabinet"], state["run_id"], call["session_id"], "dossier_questions", session_id=call["session_id"], dossier_id=state["dossier_id"])
+    found = await step(
+        call["cabinet"],
+        state["run_id"],
+        call["session_id"],
+        "dossier_questions",
+        session_id=call["session_id"],
+        dossier_id=state["dossier_id"],
+    )
     for question in found.get("questions", []):
-        await mcp_call(call["cabinet"], "record_step", run_id=state["run_id"], session_id=call["session_id"], origin="dossier_questions", result={"status": "question", **question})
+        await run_tool(
+            call["cabinet"],
+            "record_step",
+            run_id=state["run_id"],
+            session_id=call["session_id"],
+            origin="dossier_questions",
+            result={"status": "question", **question},
+        )
     return {}
 
 
@@ -230,9 +319,14 @@ async def waiting(state: Run):
     and, with "oui", the dossier's drafts held back, from any conversation."""
     call = state["call"]
     result = await step(
-        call["cabinet"], state["run_id"], call["session_id"], "waiting_drafts",
-        session_id=call["session_id"], held=call.get("comptabiliser") == "oui",
-        dossier_id=state.get("dossier_id", 0), stopped=call.get("mode") != "resume",
+        call["cabinet"],
+        state["run_id"],
+        call["session_id"],
+        "waiting_drafts",
+        session_id=call["session_id"],
+        held=call.get("comptabiliser") == "oui",
+        dossier_id=state.get("dossier_id", 0),
+        stopped=call.get("mode") != "resume",
     )
     return {"invoices": result.get("invoices", []), "outcomes": [result]}
 
@@ -241,14 +335,32 @@ def each_draft(state: Run):
     """Each draft to take up again goes back to the reading step."""
     if not state.get("invoices"):
         return "resume"
-    return [Send("facture", {"call": with_dossier(state), "run_id": state["run_id"], "entry": "wait_until_read", "invoice_id": invoice_id, "outcomes": []}) for invoice_id in state["invoices"]]
+    return [
+        Send(
+            "facture",
+            {
+                "call": with_dossier(state),
+                "run_id": state["run_id"],
+                "entry": "wait_until_read",
+                "invoice_id": invoice_id,
+                "outcomes": [],
+            },
+        )
+        for invoice_id in state["invoices"]
+    ]
 
 
 async def answer(state: Run):
     call = state["call"]
     result = await step(
-        call["cabinet"], state["run_id"], call["session_id"], "answer_pending",
-        session_id=call["session_id"], answer=call.get("answer") or call.get("client_message") or "", decision=str(call.get("decision") or ""), about=str(call.get("about") or ""),
+        call["cabinet"],
+        state["run_id"],
+        call["session_id"],
+        "answer_pending",
+        session_id=call["session_id"],
+        answer=call.get("answer") or call.get("client_message") or "",
+        decision=str(call.get("decision") or ""),
+        about=str(call.get("about") or ""),
     )
     return {"outcomes": [result]}
 
@@ -261,12 +373,21 @@ def resume_at(state: Run):
         return "resume"
     if following == "waiting_drafts":
         return "brouillons"
-    return Send("facture", {"call": with_dossier(state), "run_id": state["run_id"], "entry": following, "invoice_id": last["invoice_id"], "outcomes": []})
+    return Send(
+        "facture",
+        {
+            "call": with_dossier(state),
+            "run_id": state["run_id"],
+            "entry": following,
+            "invoice_id": last["invoice_id"],
+            "outcomes": [],
+        },
+    )
 
 
 async def summary(state: Run):
     call = state["call"]
-    result = await mcp_call(call["cabinet"], "run_summary", run_id=state["run_id"])
+    result = await run_tool(call["cabinet"], "run_summary", run_id=state["run_id"])
     return {"message": result["message"]}
 
 
@@ -283,11 +404,17 @@ run.add_node("facture", INVOICE)
 run.add_node("reponse", answer)
 run.add_node("resume", summary)
 run.add_edge(START, "debut")
-# A failed save is recorded and goes no further, as in n8n (its error output only records).
-run.add_conditional_edges("debut", lambda s: "aiguillage" if s["outcomes"][-1].get("status") == "ok" else "resume", ["aiguillage", "resume"])
+# A failed save is recorded and goes no further: the files the run would work on are missing.
+run.add_conditional_edges(
+    "debut", lambda s: "aiguillage" if s["outcomes"][-1].get("status") == "ok" else "resume", ["aiguillage", "resume"]
+)
 run.add_conditional_edges("aiguillage", by_route, ["dossier", "reponse", "brouillons"])
-run.add_conditional_edges("dossier", lambda s: "expediteur" if s["outcomes"][-1].get("status") == "ok" else "resume", ["expediteur", "resume"])
-run.add_conditional_edges("expediteur", lambda s: "fichiers" if s["outcomes"][-1].get("status") == "ok" else "resume", ["fichiers", "resume"])
+run.add_conditional_edges(
+    "dossier", lambda s: "expediteur" if s["outcomes"][-1].get("status") == "ok" else "resume", ["expediteur", "resume"]
+)
+run.add_conditional_edges(
+    "expediteur", lambda s: "fichiers" if s["outcomes"][-1].get("status") == "ok" else "resume", ["fichiers", "resume"]
+)
 run.add_conditional_edges("fichiers", each_file, ["fichier", "questions", "resume"])
 run.add_edge("questions", "brouillons")
 run.add_conditional_edges("brouillons", each_draft, ["facture", "resume"])
@@ -295,6 +422,6 @@ run.add_conditional_edges("reponse", resume_at, ["facture", "brouillons", "resum
 run.add_edge("fichier", "resume")
 run.add_edge("facture", "resume")
 run.add_edge("resume", END)
-# One task at a time, as n8n runs its items one after another: two invoices of one new supplier never both create
+# One task at a time: two invoices of one new supplier never both create
 # it (link_tiers), and the second of two identical invoices sees the first (check_duplicate).
 graph = run.compile(name="Tarik - Traitement").with_config(max_concurrency=1)
