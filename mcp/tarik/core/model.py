@@ -42,6 +42,10 @@ def json_answer(text, keys=()):
     return found[0]
 
 
+# "Tarik - Model" (workflows/build_tarik_model.py), on Docker's network: n8n sends the request on with the agents'
+# own credential, so the model's key stays in n8n.
+MODEL_HOOK = "http://n8n:5678/webhook/tarik-model"
+HOOK_HEADER = "X-Tarik-Webhook"  # the secret tarik-mcp and n8n share (Vault MAIL_WEBHOOK_SECRET)
 MODEL_KEPT_SECONDS = 300
 _models = {}  # cabinet: (the agent's model, when to ask n8n again)
 
@@ -72,8 +76,8 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
     maybe none).
     ``what`` names the step in the log and in the agent's ToolError when it fails. ``think``: M3 thinks first.
     ``keys``: the ones the answer must hold (json_answer)."""
-    url, key = (setting(name, "") for name in ("MODEL_API_URL", "MODEL_API_KEY"))
-    if not (url and key):
+    secret = setting("MAIL_WEBHOOK_SECRET", "")
+    if not secret:
         raise ToolError(f"{what} : le modele n'est pas encore configure.")
     model = model_name()
     png = [{"type": "base64", "media_type": "image/png", "data": base64.b64encode(page).decode()} for page in pages]
@@ -81,9 +85,9 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
     content = [*images, {"type": "text", "text": instruction}]
     try:
         answer = HTTP.post(
-            f"{url.rstrip('/')}/v1/messages",  # the Anthropic path and header MiniMax imitates
+            MODEL_HOOK,
             timeout=MODEL_TIMEOUT,
-            headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
+            headers={HOOK_HEADER: secret},
             json={
                 "model": model,
                 "max_tokens": 16384,  # the thinking included: M3 thinks as long as it needs, 1k to 8k tokens

@@ -1,0 +1,121 @@
+{
+  "id": "TarikModel000001",
+  "name": "Tarik - Model",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "none",
+    "saveManualExecutions": false
+  },
+  "nodes": [
+    {
+      "id": "11b2fd35-96f4-5f61-8b39-acfb1fc1aaa1",
+      "name": "Demande",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tarik-model",
+        "responseMode": "responseNode",
+        "options": {},
+        "authentication": "headerAuth"
+      },
+      "webhookId": "8b6f2e41-3c7a-4d95-a1e8-6f0b9c2d4e73",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "TarikMailWebhook1",
+          "name": "Tarik mail webhook"
+        }
+      }
+    },
+    {
+      "id": "34bf2367-92ba-5eb0-a72d-49816158bd16",
+      "name": "Modele",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.minimax.io/anthropic/v1/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "minimaxApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "timeout": 290000,
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "minimaxApi": {
+          "id": "MiniMaxNative001",
+          "name": "MiniMax"
+        }
+      }
+    },
+    {
+      "id": "ea547a77-5f84-5bc8-9686-0272b48bacd5",
+      "name": "Reponse",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "responseCode": "={{ $json.statusCode }}"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Demande": {
+      "main": [
+        [
+          {
+            "node": "Modele",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Modele": {
+      "main": [
+        [
+          {
+            "node": "Reponse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -3,7 +3,7 @@
 A cabinet is named by its Experio database (experio_cabinet_8). The same name is its
 Postgres schema (its files, results, questions, mail). A setting is either the cabinet's own
 (CABINET_SETTINGS: its Experio login, its mailbox's credentials and addresses, its n8n agent) or
-shared by all of them (SHARED_SETTINGS: the mail server, n8n's MCP token, the model), never both.
+shared by all of them (SHARED_SETTINGS: the mail server, n8n's MCP token, the webhook secret), never both.
 
 They come from Vault (secret/tarik/shared, secret/tarik/cabinets/<cabinet>, the cabinets being those
 paths). The tests set them in the environment instead: TARIK_CABINETS lists the cabinets, a cabinet's own
@@ -183,8 +183,6 @@ SHARED_SETTINGS = frozenset(
         "SMTP_PORT",
         "MAIL_CERT_SHA256",
         "N8N_MCP_API_TOKEN",
-        "MODEL_API_KEY",
-        "MODEL_API_URL",
         "MAIL_WEBHOOK_SECRET",
     ]
 )
