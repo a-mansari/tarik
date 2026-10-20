@@ -13,7 +13,7 @@
 <div class="panel" id="import-status" role="status" hidden></div>
 {% if compare %}
 <div class="panel compare-banner">
-  <p><b>Version {{ compare.id }}</b> : {% if compare.first %}la première, rien à comparer.{% elif compare.fields %}ce qu'elle a changé est montré dans chaque section concernée, sous le champ.{% else %}elle n'a rien changé.{% endif %}
+  <p><b>Version {{ compare.id }}</b> : {% if compare.first %}la première, rien à comparer.{% elif compare.fields %}ce qu'elle a changé est montré dans chaque section concernée, à gauche du champ en service (→).{% else %}elle n'a rien changé.{% endif %}
   Les champs gardent le texte en service.</p>
   <div class="panel-actions">
     {% if versions and compare.id != versions[0].id %}
@@ -38,23 +38,29 @@
         <span class="card-meta">
           {% if touched %}<span class="chip wait">{{ touched }} changé{{ 's' if touched > 1 }} en version {{ compare.id }}</span>{% endif %}
           <span class="muted">{{ section.fields | length }} champ{{ 's' if section.fields | length > 1 }}</span>
-          <a class="card-action" href="?export={{ loop.index0 }}" download>Exporter</a>
-          <button type="button" class="card-action" data-import="/ui/contenu/{{ path }}">Importer</button>
+          <a class="card-action" href="?export={{ loop.index0 }}" download data-tip="{{ tips.section_export }}" aria-description="{{ tips.section_export }}">Exporter</a>
+          <button type="button" class="card-action" data-import="/ui/contenu/{{ path }}" data-tip="{{ tips.section_import }}" aria-description="{{ tips.section_import }}">Importer</button>
         </span>
       </summary>
       <div class="card-body">
         {% for f in section.fields %}
+        {% set change = compare.fields[f.key] if compare and f.key in compare.fields else None %}
+        {% if change %}<div class="field-pair">
+        {# The version's change (old) beside the text in service (new), an arrow from one to the other. #}
+        <div class="field-diff">
+          <span class="eyebrow">{{ f.label }} : changé en version {{ compare.id }}</span>
+          <p class="diff">{% for kind, part in change.parts %}{% if kind == '+' %}<ins>{{ part }}</ins>{% elif kind == '-' %}<del>{{ part }}</del>{% else %}{{ part }}{% endif %}{% endfor %}</p>
+          <small class="count num">{{ change.before }} → {{ change.after }} caractères</small>
+        </div>
+        <span class="arrow" aria-hidden="true">→</span>
+        {% endif %}
         <label class="field">
-          <span>{{ f.label }}</span>
+          <span>{{ f.label }}{% if change %} : en service{% endif %}</span>
           {% if f.long %}<textarea name="{{ f.key }}" rows="3">{{ f.value }}</textarea>
           <small class="count num" aria-live="off">{{ f.value | length }} caractères</small>
-          {% else %}<input name="{{ f.key }}" value="{{ f.value }}">{% endif %}
+          {% else %}<input name="{{ f.key }}" value="{{ f.value }}">{% if change %}<small class="count num">{{ f.value | length }} caractères</small>{% endif %}{% endif %}
         </label>
-        {% if compare and f.key in compare.fields %}
-        <div class="field-diff"><span class="eyebrow">Changé en version {{ compare.id }}</span>
-          <p class="diff">{% for kind, part in compare.fields[f.key] %}{% if kind == '+' %}<ins>{{ part }}</ins>{% elif kind == '-' %}<del>{{ part }}</del>{% else %}{{ part }}{% endif %}{% endfor %}</p>
-        </div>
-        {% endif %}
+        {% if change %}</div>{% endif %}
         {% endfor %}
       </div>
     </details>

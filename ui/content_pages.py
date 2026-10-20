@@ -138,7 +138,7 @@ def rebuilt(path, form):
     return "---\n" + "\n".join(f"{key}: {value}" for key, value in meta.items()) + "\n---\n" + body + end
 
 
-CONTEXT = 12  # words kept around each change
+CONTEXT = 40  # words kept around each change
 
 
 def diff(before, after):
@@ -164,21 +164,40 @@ def diff(before, after):
 
 
 def changes(path, before, after):
-    """{field key: diff} of each field one version changed, against the version before it (None: the first)."""
+    """{field key: {parts, before, after}} of each field one version changed, against the version before it (None:
+    the first): its change word by word, and its length in characters before and after."""
     if before is None:
         return {}
     old = {f["key"]: f["value"] for section in sections(path, before) for f in section["fields"]}
-    return {
-        f["key"]: diff(old.get(f["key"], ""), f["value"])
-        for section in sections(path, after)
-        for f in section["fields"]
-        if old.get(f["key"], "") != f["value"]
-    }
+    found = {}
+    for section in sections(path, after):
+        for f in section["fields"]:
+            was = old.get(f["key"], "")
+            if was != f["value"]:
+                found[f["key"]] = {"parts": diff(was, f["value"]), "before": len(was), "after": len(f["value"])}
+    return found
 
 
 # --- Export and import: a whole group of documents, or one card's fields ---
 
 BUNDLE, SECTION = "tarik-contenu", "tarik-contenu-section"
+TIPS = {  # what each button is for, and its file's format, shown when it is hovered or focused
+    "all_export": "Télécharge tout le contenu (instructions, compétences, consignes, pages) en un fichier JSON au "
+    "format « tarik-contenu » : chaque document et son texte en service. Pour le garder en sauvegarde, ou le copier "
+    "vers une autre installation.",
+    "all_import": "Charge un fichier exporté ici (JSON « tarik-contenu », tout ou un groupe). Chaque document qui "
+    "diffère devient une nouvelle version, notée « Importé de … » ; un document absent est créé. Tout est vérifié "
+    "avant : un seul refusé, rien n'est enregistré.",
+    "group_export": "Télécharge les documents « {group} » en un fichier JSON au format « tarik-contenu » : chaque "
+    "document et son texte en service. Pour les garder, ou les copier vers une autre installation.",
+    "group_import": "Charge un fichier exporté (JSON « tarik-contenu ») : chaque document qui diffère devient une "
+    "nouvelle version. Tout est vérifié avant : un seul refusé, rien n'est enregistré.",
+    "section_export": "Télécharge les champs de cette section en un fichier JSON au format « tarik-contenu-section » "
+    ": le document, la section, et chaque champ avec son texte. Modifiable, puis réimportable ici.",
+    "section_import": "Charge un fichier exporté de cette même section (JSON « tarik-contenu-section »). Ses champs "
+    "remplacent ceux en service et forment une nouvelle version, vérifiée avant d'être enregistrée.",
+}
+templates.env.globals["tips"] = TIPS
 
 
 def download(data, name):
