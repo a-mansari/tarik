@@ -9,7 +9,7 @@ from tarik.core.app import ok, question, routine, step_tool, stop, tool, wait
 from tarik.core.archives import unpacked
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import ENTRY_FILES, FILE_TYPES, READ_WAIT, READING, TEST_MODE
-from tarik.core.conversation import chosen_among, own_words, yes_no
+from tarik.core.conversation import chosen_among, client_messages, own_words, yes_no
 from tarik.core.experio import odoo_call, require_invoice
 from tarik.core.queries import Q
 from tarik.core.words import normalized
@@ -550,10 +550,13 @@ def files_to_process(session_id: str, entries: bool = False, asked: bool = False
 FIXABLE_STOPS = {"assign_account", "check_journal", "configure_cabinet", "post_invoice"}
 
 
-def resumable(step, status, stopped):
+def resumable(step, status, stopped, sided=False):
     """True when a draft whose furthest outcome is ``status`` at ``step`` is taken up again: it waited or failed, or
-    (``stopped``, the client asked) a fixable setting stopped it."""
-    return status in ("wait", "error") or (stopped and status == "stop" and step in FIXABLE_STOPS)
+    (``stopped``, the client asked) a fixable setting stopped it, or (``sided``: the client now says which side it
+    is) its classification did."""
+    if status in ("wait", "error"):
+        return True
+    return stopped and status == "stop" and (step in FIXABLE_STOPS or (sided and step == "classify_invoice"))
 
 
 def furthest_outcomes(rows):
@@ -568,7 +571,12 @@ def furthest_outcomes(rows):
 
 @tool
 def waiting_drafts(
-    session_id: str, held: bool = False, dossier_id: int = 0, stopped: bool = False, run_id: str = ""
+    session_id: str,
+    held: bool = False,
+    dossier_id: int = 0,
+    stopped: bool = False,
+    run_id: str = "",
+    invoice_type: str = "",
 ) -> dict:
     """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
     waiting on Experio (still reading) or failed (an Experio or model timeout), or nothing was recorded for it (a
@@ -579,7 +587,10 @@ def waiting_drafts(
     a new email thread; never an automatic follow-up's. A draft deleted or posted in Experio since is left alone.
     Experio decides what is a draft: with ``held`` and a dossier, a draft Tarik posted that was put back to draft in
     Experio since is posted again. When they ask to post and nothing is to be, the answer says why (a stop).
-    ``run_id``: the run taking them up, which claims them: a draft another run is still working on is left to it."""
+    ``run_id``: the run taking them up, which claims them: a draft another run is still working on is left to it.
+    ``invoice_type``: the side the client now gives (achat, vente): a draft its classification stopped (not an
+    invoice, the other side) is classified again with it."""
+    sided = stopped and bool(client_side(invoice_type, " ".join(client_messages(session_id, ""))))  # their words
     with cabinet_db() as db:
         rows = db.execute(
             Q.invoice_outcomes_of_session,
@@ -598,7 +609,7 @@ def waiting_drafts(
         if held and dossier_id:
             reposted = db.execute(Q.outcomes_of_posted_invoices).fetchall()
     mine = furthest_outcomes(rows)
-    waiting = [i for i, (step, status) in mine.items() if resumable(step, status, stopped)]
+    waiting = [i for i, (step, status) in mine.items() if resumable(step, status, stopped, sided)]
     # shortcut: a draft of a run still going also has no outcome yet; one conversation runs one at a time
     waiting += [invoice_id for (invoice_id,) in drafts if invoice_id not in mine]
     if dossier_id and stopped:

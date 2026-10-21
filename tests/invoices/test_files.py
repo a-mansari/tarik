@@ -99,3 +99,17 @@ def test_a_missing_attachment_is_told_only_when_the_client_said_they_attached_on
     from tarik.core.conversation import mentions_attachment
 
     assert mentions_attachment(message) is told
+
+
+@pytest.mark.functionality
+def test_a_draft_stopped_as_no_invoice_is_classified_again_once_the_client_gives_its_side(db_cabinet, monkeypatch):
+    from tarik.core.conversation import remember_client_message
+    from tarik.invoices import pipeline
+
+    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain: domain[0][2])
+    stopped = {"status": "stop", "message": "Facture 9 : ce n'est pas une facture.", "invoice_id": 9}
+    pipeline.record_step("A", "s", "classify_invoice", stopped)
+    pipeline.run_summary("A")
+    assert pipeline.waiting_drafts("s", stopped=True, run_id="B", invoice_type="achat")["invoices"] == []  # not said
+    remember_client_message("s", "C'est bien une facture d'achat, des droits de douane.")
+    assert pipeline.waiting_drafts("s", stopped=True, run_id="C", invoice_type="achat")["invoices"] == [9]
