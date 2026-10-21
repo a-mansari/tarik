@@ -9,7 +9,7 @@
     return [
       { selector: "node", style: {
         "shape": "round-rectangle", "label": "data(display)", "text-wrap": "wrap", "text-max-width": 130,
-        "text-valign": "center", "text-halign": "center", "font-family": css("--font"), "font-size": 11,
+        "text-valign": "center", "text-halign": "center", "font-family": css("--font"), "font-size": 13,
         "color": css("--fg"), "background-color": css("--node-bg"), "border-width": 1.5, "border-color": css("--node-border"),
         "width": 150, "height": 44, "padding": 6,
       } },
