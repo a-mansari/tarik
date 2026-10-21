@@ -563,6 +563,16 @@ That is 67 scenario cases in total, each multiplied by REPEAT. The judges reuse 
 - The parsed result is empty: "asked again".
 - Anything else: "wrong".
 
+### tests/llm/test_requests.py
+The first move on a client's request, the model shown the agent exactly as it starts (no skill loaded, `load_skill`
+among its tools: `ask(None, messages)`), and the new dossier's name kept whole once « Nouveau dossier » is loaded.
+- `test_a_request_goes_first_to_what_does_it` [llm]: `FIRST_MOVES`, each case the client's words (``asked(said,
+  before)``, ``before`` the earlier turns, e.g. `GREETED`) and the skill expected, or the read tool. A skill's own
+  first step counts as loading it (`STARTS`); for a new dossier only its creation does, never a search first.
+- `test_a_new_dossier_keeps_the_name_the_client_wrote` [llm]: `NAMES`, each case its expected (name, folder_type).
+- To add a client's situation: one `asked("…")` line in either list. Born of « creer un dossier HTML TEST »
+  (2026-10-21), which searched « TEST », or created « TEST ».
+
 ### tests/llm/test_relay.py
 - `test_the_shorter_summary_reaches_the_client_whole` [llm] (line 54): the model relays every key fact from the shortened summary.
   - It builds two summaries from `tests/runs.py`: `runs.summary(routine=False)` ("before") and `runs.summary()` ("now").

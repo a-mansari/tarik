@@ -1,7 +1,8 @@
 """The real model shown Tarik as the agent has it (engine/agent.py): its system prompt, the skill the agent would
 load, and its tools. It answers a conversation with a tool call, which is only read: no tool runs, no Experio.
 
-One difference with the agent, kept small: the skill is in the system prompt (the agent loads it on demand). The
+One difference with the agent, kept small: the skill is in the system prompt (the agent loads it on demand). With no
+skill (None), the model gets the agent's very own start: its system prompt, its list of skills and load_skill. The
 model thinks as the agent's does (a 1024-token budget), unless THINKING=off (env). Each case runs REPEAT times (env,
 default 1), 3 at once. Slow and billed: python -m pytest -m llm -s."""
 
@@ -30,13 +31,14 @@ def agent():
     skills = {name: instructions for name, _, instructions in tarik.skills()}
     rules = f"<built_in_rules>\n- {tarik.UNTRUSTED_RULE}\n</built_in_rules>"
     tools = [convert_to_anthropic_tool(tool) for tool in tarik.described() if tool.name != "load_skill"]
-    return f"{rules}\n\n{tarik.AGENT['instructions']}", skills, tools
+    start = tarik.system_prompt(), [convert_to_anthropic_tool(tool) for tool in tarik.described()]
+    return f"{rules}\n\n{tarik.AGENT['instructions']}", skills, tools, start
 
 
 @pytest.fixture(scope="session")
 def ask():
     """ask(skill, messages) -> the model's whole answer (its JSON: content blocks, usage) and the seconds it took."""
-    instructions, skills, tools = agent()
+    instructions, skills, tools, (start, all_tools) = agent()
     with using(CABINET):
         key, url = setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", MODEL_URL)
     if not key:
@@ -44,13 +46,13 @@ def ask():
     http = httpx.Client(timeout=180, headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
 
     def call(skill, messages):
-        system = f"{instructions}\n\nCompétence « {skill} », chargée :\n{skills[skill]}"
+        system = start if skill is None else f"{instructions}\n\nCompétence « {skill} », chargée :\n{skills[skill]}"
         request = {
             "model": model_name(),
             "max_tokens": 4096,
             "temperature": 0,
             "system": system,
-            "tools": tools,
+            "tools": all_tools if skill is None else tools,
             "messages": messages,
         }
         if THINKING:  # as the agent sends it: no temperature, room for the thinking
@@ -59,7 +61,7 @@ def ask():
         for attempt in range(6):  # the agents share this account: a 429 waits its turn, never crowds them out
             started = time.monotonic()
             answer = http.post(url.rstrip("/") + "/v1/messages", json=request)
-            if answer.status_code != 429:
+            if answer.status_code not in (429, 529):  # 529: the provider overloaded for a moment, as busy
                 break
             time.sleep(float(answer.headers.get("retry-after") or 2**attempt))
         answer.raise_for_status()
