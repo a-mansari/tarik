@@ -66,9 +66,7 @@ async def cabinet_page(request: Request):
         given = {key: value for key, value in form.items() if key in cabinet_settings.FIELDS}
         user = request.state.user
         try:
-            done = await cabinet_settings.save(
-                runs.pool, cabinet, given, int(form.get("version", 0)), user["email"]
-            )
+            done = await cabinet_settings.save(runs.pool, cabinet, given, int(form.get("version", 0)), user["email"])
             return RedirectResponse(f"/ui/cabinets/{cabinet}?saved={quote(','.join(done) or '-')}", status_code=303)
         except ValueError as refused:
             error = str(refused)

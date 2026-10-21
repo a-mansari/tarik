@@ -162,3 +162,26 @@ def test_test_mode_creates_no_tiers(scanned, monkeypatch):
     invoice, calls = scanned
     monkeypatch.setattr(tiers, "dry_run", lambda: True)
     assert "serait cree" in tiers.link_tiers(4)["message"] and not calls
+
+
+@pytest.mark.functionality
+def test_a_supplier_only_the_check_read_proposes_the_closest_tiers_never_creates(scanned, monkeypatch):
+    from tarik.invoices import tiers
+
+    invoice, calls = scanned
+    invoice["supplier_name"] = False  # Experio's reading left it empty (invoice 272383)
+    read = {"tier": "ORDRE DES EXPERTS COMPTABLES - CONSEIL REGIONAL DE RABAT", "ice": "001818244000082"}
+    monkeypatch.setattr(tiers, "stored_check", lambda invoice_id: (True, read, []))
+    monkeypatch.setattr(
+        tiers,
+        "dossier_tiers",
+        lambda company_id: [
+            {"id": 1, "name": "FOURNISSEUR ALPHA", "ice": ""},
+            {"id": 2, "name": "STE L ORDRE DES EXPERTS COMPTABLES", "ice": ""},
+            {"id": 3, "name": "CRRSK", "ice": "001818244000082"},
+        ],
+    )
+    result = tiers.link_tiers(4)
+    assert result["status"] == "question" and "« ORDRE DES EXPERTS COMPTABLES" in result["message"]
+    assert list(result["choices"]) == [3, 2]  # its ICE first, then the close name; ALPHA too far
+    assert calls == []

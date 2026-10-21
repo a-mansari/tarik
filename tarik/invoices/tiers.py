@@ -24,9 +24,12 @@ from tarik.core.experio import (
     test_mode_note,
 )
 from tarik.core.words import ICE_WRITTEN, ranked
+from tarik.invoices.check import stored_check
 from tarik.invoices.classify import side_of
 
 # Per invoice side: the party Experio detected, the name printed on the scan, the tiers' Compte Tiers field.
+READ_MIN_SIMILARITY = 0.5  # a name only Tarik's check read: proposed from this close, never linked nor created alone
+
 SIDE = {
     "purchase": {
         "detected": "detected_supplier_id",
@@ -156,20 +159,34 @@ def link_tiers(invoice_id: int) -> dict:
         return link(invoice, invoice["partner_id"][0], kind)
     printed = invoice[SIDE[kind]["printed"]]
     if not printed:
-        return question(f"Facture {invoice_id} : aucun {role} detecte sur le scan. Quel est son nom ?")
+        # Experio read no name, the check may have: the dossier's tiers with its ICE, then the closest by name, proposed
+        # with a lower bar, never created from it (a name read whole, "ORDRE DES EXPERTS COMPTABLES - CONSEIL
+        # REGIONAL...", is 62 % like the tiers' "STE L ORDRE DES EXPERTS COMPTABLES").
+        extracted = (stored_check(invoice_id) or (None, {}))[1]
+        read = extracted.get("tier")
+        if not read:
+            return question(f"Facture {invoice_id} : aucun {role} detecte sur le scan. Quel est son nom ?")
+        phrase, choices = find_tiers(invoice_id, read, READ_MIN_SIMILARITY, extracted.get("ice"))
+        ask = phrase if choices else f"{phrase} Faut-il le creer sous ce nom, ou est-ce un autre tiers (nom ou ICE) ?"
+        return question(
+            f"Facture {invoice_id} : Experio n'a pas lu de {role} ; le scan indique « {read} ». {ask}", choices=choices
+        )
     phrase, choices = find_tiers(invoice_id, printed)
     if not choices:  # nothing of the dossier resembles it: a new tiers, as the screen's "Créer"
         return create_tiers(invoice, printed, kind)
     return question(f"Facture {invoice_id} : {role} « {printed} » introuvable par ICE/IF. {phrase}", choices=choices)
 
 
-def find_tiers(invoice_id, name):
+def find_tiers(invoice_id, name, minimum=TIERS_MIN_SIMILARITY, ice=None):
     """The tiers of the invoice's dossier whose name looks like ``name`` (misspelled or partial is fine), the 5
     closest first with their id, for the client to choose: (a phrase for the question, {id: name} proposed).
     However many tiers the dossier has, the client is shown 5 at most, and narrows them with another name or the
-    tiers' ICE."""
+    tiers' ICE. ``ice``: the tiers holding it come first."""
     company_id = require_invoice(invoice_id, ["company_id"])["company_id"][0]
-    close = ranked(name, dossier_tiers(company_id), TIERS_MIN_SIMILARITY, top=5)
+    found = dossier_tiers(company_id)
+    same_ice = [(1.0, p) for p in found if ice and p["ice"] == ice]
+    by_name = [pair for pair in ranked(name, found, minimum) if pair[1] not in [p for _, p in same_ice]]
+    close = (same_ice + by_name)[:5]
     if not close:
         return f"Aucun tiers du dossier ne ressemble a « {name} ».", {}
     proposed = "; ".join(
