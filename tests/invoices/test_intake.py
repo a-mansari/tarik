@@ -75,3 +75,63 @@ def test_test_mode_creates_no_draft_and_imports_no_statement(monkeypatch):
     assert (
         statement["status"] == "ok" and statement["message"].startswith("MODE TEST") and "BMCE" in statement["message"]
     )
+
+
+def pdf(count):
+    """A PDF of ``count`` blank pages."""
+    buffer = io.BytesIO()
+    pages = [Image.new("RGB", (200, 280), "white") for _ in range(count)]
+    pages[0].save(buffer, format="PDF", save_all=True, append_images=pages[1:])
+    return buffer.getvalue()
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "said, choice",
+    [
+        ("Une facture par page svp", "by_page"),
+        ("Découpez page par page", "by_page"),
+        ("par document", "by_document"),
+        ("C'est une seule facture", "by_document"),
+        ("Voici les factures d'achat", None),  # nothing said: asked
+        ("par page ou par document, je ne sais pas", None),  # both said: never guessed
+    ],
+)
+def test_how_a_pdf_is_cut_is_the_client_s_word(said, choice):
+    from tarik.invoices.intake import split_choice
+
+    assert split_choice(["Voici les factures d'achat de TARIK TEST", said]) == choice
+
+
+def saved(db_cabinet, data, session="s-split"):
+    from tarik.core.cabinets import cabinet_db
+
+    with cabinet_db() as db:
+        (file_id,) = db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, kind) "
+            "values (%s, 'lot.pdf', 'application/pdf', %s, 'invoice') returning id",
+            (session, data),
+        ).fetchone()
+    return file_id
+
+
+@pytest.mark.functionality
+def test_a_pdf_of_several_pages_waits_for_the_client_to_say_how_to_cut_it(db_cabinet):
+    from tarik.invoices.intake import split_invoices
+
+    file_id = saved(db_cabinet, pdf(3))
+    asked = split_invoices(file_id=file_id, invoice_type="achat", client_message="Voici les factures d'achat")
+    assert asked["status"] == "question" and "par page" in asked["message"] and "par document" in asked["message"]
+    whole = split_invoices(file_id=file_id, invoice_type="achat", client_message="par document, achat")
+    assert whole["status"] == "ok" and whole["files"] == [file_id]
+
+
+@pytest.mark.functionality
+def test_a_pdf_cut_per_page_is_one_invoice_per_page_and_one_page_never_asked(db_cabinet):
+    from tarik.invoices.intake import split_invoices
+
+    file_id = saved(db_cabinet, pdf(3), "s-pages")
+    cut = split_invoices(file_id=file_id, invoice_type="achat", client_message="achat, une facture par page")
+    assert cut["status"] == "ok" and len(cut["files"]) == 3 and file_id not in cut["files"]
+    one = saved(db_cabinet, pdf(1), "s-one")
+    assert split_invoices(file_id=one, invoice_type="achat", client_message="achat")["files"] == [one]

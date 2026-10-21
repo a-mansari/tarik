@@ -94,6 +94,14 @@ async def save(pool, path, new, author, note="", create=False, reshape=False):
     return True
 
 
+async def retire(pool, path, author, note):
+    """A document no code reads any more, retired: an empty last version, so it is no longer one (content_latest),
+    its history kept. Code only, when the code that read it goes."""
+    async with pool.connection() as db:
+        await db.execute(Q.content_saved, (path, "", author, note.strip()[:300]))
+    LATEST.pop(path, None)
+
+
 async def history(pool, path, limit=50):
     """The document's versions, latest first: {id, author, note, at}."""
     async with pool.connection() as db:

@@ -3,16 +3,18 @@
 import base64
 import io
 import itertools
+import re
 
 import pypdfium2
 
-from tarik.core.app import ToolError, log, ok, question, routine, step_tool, stop
+from tarik.core.app import ToolError, ok, question, routine, step_tool, stop
 from tarik.core.cabinets import cabinet_db
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import client_messages
 from tarik.core.experio import dry_run, in_dossier, odoo_call, refused, require_dossier
-from tarik.core.model import ask_model, pdf_pages, to_pdf, tool_prompt
+from tarik.core.model import pdf_pages, to_pdf
 from tarik.core.queries import Q
+from tarik.core.words import normalized
 from tarik.invoices.classify import classify_pages, client_side
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
@@ -69,14 +71,26 @@ def identify_document(file_id: int) -> dict:
     return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
 
 
-def invoice_starts(pages):
-    """1-based pages that begin an invoice, as MiniMax-M3 sees them. ``pages``: PNG bytes, in order."""
-    shape = f'{len(pages)} pages, in order. Answer with only a JSON object: {{"starts": [1, ...]}}'
-    starts = ask_model(tool_prompt("split-pdf"), pages, shape, "Decoupage du PDF").get("starts")
-    if not isinstance(starts, list) or not all(isinstance(n, int) for n in starts):
-        log(f"invoice_starts: starts must be page numbers: {starts}")
-        raise ToolError("Decoupage du PDF : echec, reessayez plus tard.")
-    return starts
+# How a PDF of several pages is cut, as Experio's own import screen asks it (split_type): one invoice per page, or
+# one invoice for the whole document. Decided by the client's own words only, never by a model.
+SPLIT_WORDS = {
+    "by_page": r"par page|chaque page|page par page|une facture par page|pages? separees?",
+    "by_document": r"par document|tout le document|le document entier|une seule facture|un seul document|en entier",
+}
+SPLIT_QUESTION = (
+    "{name} : ce PDF a {count} pages. Comment le decouper ? Repondez « par page » (une facture par page) ou "
+    "« par document » (une seule facture pour tout le fichier). Rien n'a ete cree."
+)
+
+
+def split_choice(messages):
+    """``by_page`` or ``by_document``, as the client's latest message that says one (and only one) of them; else
+    None: the client is asked."""
+    for message in reversed(messages):
+        said = {choice for choice, words in SPLIT_WORDS.items() if re.search(rf"\b(?:{words})\b", normalized(message))}
+        if len(said) == 1:
+            return said.pop()
+    return None
 
 
 def split_pdf(raw, starts):
@@ -121,9 +135,10 @@ def save_parts(db, session_id, name, file_id, documents):
 
 @step_tool
 def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "") -> dict:
-    """Call it for every file identify_document found to be an invoice: a PDF
-    may hold several invoices. Returns the file number of each invoice found (the same file
-    when it holds only one); create one draft per number returned.
+    """Call it for every file identify_document found to be an invoice. A PDF of several pages is cut as the
+    client says, the two ways Experio's import screen offers: one invoice per page, or one for the whole document;
+    until they say, they are asked and nothing is made. Returns the file number of each invoice (the same file when
+    it is one); create one draft per number returned.
     ``invoice_type``: achat, vente or mixte, only as the client wrote it in this
     conversation; otherwise the client is asked first and nothing is made."""
     with cabinet_db() as db:
@@ -131,7 +146,8 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
             db, file_id, "session_id", "file_name", "mime_type", "data", "invoice_id", "kind", "parent_id"
         )
         require_kind(name, kind, "invoice")
-        if not client_side(invoice_type, " ".join(client_messages(session_id, client_message))):
+        said = client_messages(session_id, client_message)
+        if not client_side(invoice_type, " ".join(said)):
             return question(f"{name} : s'agit-il de factures d'achat ou de vente ? Rien n'a ete cree.")
         parts = db.execute(Q.cut_parts_of_file, (file_id,)).fetchall()
         if parts:
@@ -145,11 +161,13 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
             return ok(f"{name} : PDF illisible, 1 document, fichier n° {file_id}.", files=[file_id])
         if count == 1:
             return one
-        documents = split_pdf(bytes(data), invoice_starts(pdf_pages(bytes(data), limit=None, scale=1.0)))
-        if len(documents) == 1:
+        choice = split_choice(said)
+        if choice is None:
+            return question(SPLIT_QUESTION.format(name=name, count=count))
+        if choice == "by_document":
             return routine(f"{name} : 1 facture sur {count} pages, fichier n° {file_id}.", files=[file_id])
-        made = save_parts(db, session_id, name, file_id, documents)
-    return ok(f"{name} : {len(made)} factures : {listed(made)}.", files=[i for i, _ in made])
+        made = save_parts(db, session_id, name, file_id, split_pdf(bytes(data), range(1, count + 1)))
+    return ok(f"{name} : {len(made)} factures, une par page : {listed(made)}.", files=[i for i, _ in made])
 
 
 def import_pdf(wizard, name, raw, dossier_id, **values):

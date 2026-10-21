@@ -187,6 +187,13 @@ select file_name from tarik_files where session_id = %s and invoice_id is null a
 and parent_id is null and kind is distinct from 'entries' and created_at >
 coalesce((select max(created_at) from tarik_results where session_id = %s), '-infinity')
 
+-- name: pdfs_awaiting_split
+-- The conversation's PDFs left uncut and without a draft: a document of several pages waits for the client to say
+-- how to cut it (split_invoices asks), and their answer must reach it, whatever else waits.
+select count(*) from tarik_files f where session_id = %s and kind = 'invoice' and invoice_id is null
+and parent_id is null and mime_type = 'application/pdf'
+and not exists (select 1 from tarik_files part where part.parent_id = f.id)
+
 -- name: insert_agent_file
 -- One of the agent's attachments, saved once per attachment id however many times the sequence runs.
 insert into tarik_files (session_id, file_name, mime_type, data, source_id)

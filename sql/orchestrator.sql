@@ -149,8 +149,9 @@ delete from sessions where token = %s
 -- === Content versions (engine/content.py) ===
 
 -- name: content_latest
--- Each document's latest version.
-select distinct on (path) path, text from content_versions order by path, id desc
+-- Each document's latest version; a document retired (its latest version empty) is no longer one.
+select path, text from (select distinct on (path) path, text from content_versions order by path, id desc) latest
+where text <> ''
 
 -- name: content_saved
 insert into content_versions (path, text, author, note) values (%s, %s, %s, %s)

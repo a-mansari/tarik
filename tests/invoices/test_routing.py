@@ -9,9 +9,10 @@ from tarik.invoices import pipeline
 @pytest.fixture
 def state(monkeypatch):
     """route_message over a conversation that waits on the client (or not), with files that came (or not)."""
-    state = {"waiting": [], "files": 0}
+    state = {"waiting": [], "files": 0, "uncut": 0}
     monkeypatch.setattr(pipeline, "waiting_on", lambda session_id: state["waiting"])
     monkeypatch.setattr(pipeline, "new_files", lambda session_id: state["files"])
+    monkeypatch.setattr(pipeline, "awaiting_split", lambda session_id: state["uncut"])
     return state
 
 
@@ -34,6 +35,14 @@ def state(monkeypatch):
 def test_the_database_decides_where_a_message_goes(state, waiting, files, mode, route):
     state["waiting"], state["files"] = [{"invoice_id": 11}] if waiting else [], files
     assert pipeline.route_message("s", mode)["route"] == route
+
+
+@pytest.mark.functionality
+def test_how_to_cut_a_pdf_answered_goes_to_its_files(state):
+    state["uncut"] = 1  # a PDF of several pages asked about: « par page » is for it, whatever tool the agent took
+    assert pipeline.route_message("s", "answer")["route"] == "files"
+    state["waiting"] = [{"invoice_id": 11}]
+    assert pipeline.route_message("s", "answer")["route"] == "both"
 
 
 @pytest.mark.functionality

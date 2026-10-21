@@ -359,6 +359,13 @@ def new_files(session_id):
     return sum(not name.lower().endswith(ENTRY_FILES) for name in names)
 
 
+def awaiting_split(session_id):
+    """How many PDFs of the conversation wait for the client to say how to cut them (split_invoices asks): their
+    answer goes to the files, whatever else waits."""
+    with cabinet_db() as db:
+        return db.execute(Q.pdfs_awaiting_split, (session_id,)).fetchone()[0]
+
+
 @tool
 def route_message(session_id: str, mode: str = "files") -> dict:
     """Where a message of this conversation goes in the processing workflow, from what the database knows, not
@@ -368,7 +375,7 @@ def route_message(session_id: str, mode: str = "files") -> dict:
     stays one."""
     if mode == "resume":
         return ok("Suite du traitement.", route="resume")
-    waiting, fresh = bool(waiting_on(session_id)), new_files(session_id) > 0
+    waiting, fresh = bool(waiting_on(session_id)), new_files(session_id) > 0 or awaiting_split(session_id) > 0
     if waiting:
         route = "both" if fresh else "answer"
     else:
