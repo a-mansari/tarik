@@ -13,8 +13,8 @@ from email.utils import parseaddr
 import httpx
 from psycopg.types.json import Jsonb
 
-from engine import audit
-from engine.accounts import EMAIL
+from app import audit
+from app.accounts import EMAIL
 from tarik.core import cabinets
 from tarik.core.queries import Q
 

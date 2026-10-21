@@ -1,9 +1,9 @@
-"""The Journal page, an admin's: who did what in the UI, latest first (engine/audit.py), one action or one person at
+"""The Journal page, an admin's: who did what in the UI, latest first (app/audit.py), one action or one person at
 a time, paged back."""
 
 from starlette.requests import Request
 
-from engine import audit
+from app import audit
 from engine.content import LABELS
 from ui.pages import templates
 

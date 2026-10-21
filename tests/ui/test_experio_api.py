@@ -9,7 +9,7 @@ from starlette.requests import Request
 
 import api
 import server
-from engine import cabinet_settings
+from app import cabinet_settings
 
 FULL = {
     "ODOO_USER": "tarik@cab.ma",

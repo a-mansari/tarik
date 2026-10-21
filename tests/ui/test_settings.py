@@ -6,7 +6,7 @@ import contextlib
 
 import pytest
 
-from engine import cabinet_settings
+from app import cabinet_settings
 
 BEFORE = {
     "DRY_RUN": "1",

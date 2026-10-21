@@ -11,7 +11,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from engine import agent, audit, chat, content, dossier, graphs, traitement
+from app import audit
+from engine import agent, chat, content, dossier, graphs, traitement
 from engine.content import AGENT, LABELS
 from engine.tools import TOOLS
 from tarik.invoices.pipeline import INVOICE_CHAIN

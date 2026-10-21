@@ -64,7 +64,7 @@ select detail from steps where run_id = %s and id = %s
 -- name: runs_cabinets
 select distinct cabinet from runs order by 1
 
--- === Canvas layouts (engine/layouts.py) ===
+-- === Canvas layouts (app/layouts.py) ===
 
 -- name: layout_read
 select layout from layouts where graph = %s
@@ -76,7 +76,7 @@ on conflict (graph) do update set layout = excluded.layout, updated_at = now()
 -- name: layout_forgotten
 delete from layouts where graph = %s
 
--- === Accounts and sessions (engine/accounts.py) ===
+-- === Accounts and sessions (app/accounts.py) ===
 
 -- name: user_saved
 -- An account made, or its name and password changed (and reactivated).
@@ -227,7 +227,7 @@ union select session_id from {held} where session_id = any(%s) and not released
 select file_name, mime_type, data from {files} where session_id = %s and file_name = %s and parent_id is null
 order by id limit 1
 
--- === A cabinet's settings, changed from the Cabinets page (engine/cabinet_settings.py) ===
+-- === A cabinet's settings, changed from the Cabinets page (app/cabinet_settings.py) ===
 
 -- name: settings_changed
 insert into settings_changes (cabinet, author, note, changes, vault_version) values (%s, %s, %s, %s, %s)
@@ -236,7 +236,7 @@ insert into settings_changes (cabinet, author, note, changes, vault_version) val
 select author, note, changes, vault_version, created_at from settings_changes where cabinet = %s
 order by id desc limit %s
 
--- === Who did what in the UI (engine/audit.py) ===
+-- === Who did what in the UI (app/audit.py) ===
 
 -- name: audit_recorded
 insert into audit (actor, action, target, detail) values (%s, %s, %s, %s)

@@ -41,7 +41,8 @@ from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 import api
-from engine import accounts, agent, audit, content, graphs, layouts, live, mail, prompts, runs
+from app import accounts, audit, layouts
+from engine import agent, content, graphs, live, mail, prompts, runs
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.config import POSTGRES
 from tarik.core.experio import account

@@ -1,13 +1,13 @@
 """The Comptes page, an admin's: every account, one made for a colleague (with a one-time link to send them, for
 them to choose their password), a role changed, an account closed, a new link (a forgotten password). And the
-invitation page, open without a session: the link's person chooses their password (engine/accounts.py)."""
+invitation page, open without a session: the link's person chooses their password (app/accounts.py)."""
 
 from urllib.parse import parse_qs
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
-from engine import accounts, audit
+from app import accounts, audit
 from ui.pages import templates
 
 

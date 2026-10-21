@@ -2,7 +2,7 @@
 -- The orchestrator's own tables, in schema orchestrator (made at each start of the server: idempotent).
 create schema if not exists orchestrator;
 
--- === Runs and their steps (engine/runs.py), and how the team arranged each canvas (engine/layouts.py) ===
+-- === Runs and their steps (engine/runs.py), and how the team arranged each canvas (app/layouts.py) ===
 create table if not exists runs (
     id uuid primary key,
     graph text not null,
@@ -47,7 +47,7 @@ create table if not exists layouts (
     updated_at timestamptz not null default now()
 );
 
--- === The team's accounts and sessions (engine/accounts.py) ===
+-- === The team's accounts and sessions (app/accounts.py) ===
 create table if not exists users (
     email text primary key,
     name text not null,
@@ -84,7 +84,7 @@ create table if not exists content_versions (
 );
 create index if not exists content_versions_path on content_versions (path, id desc);
 
--- === Every change made to a cabinet's settings from the Cabinets page (engine/cabinet_settings.py) ===
+-- === Every change made to a cabinet's settings from the Cabinets page (app/cabinet_settings.py) ===
 -- The values live in Vault only; here who changed which, when and why. A secret's value is never kept, not even here.
 create table if not exists settings_changes (
     id bigserial primary key,
@@ -97,7 +97,7 @@ create table if not exists settings_changes (
 );
 create index if not exists settings_changes_cabinet on settings_changes (cabinet, id desc);
 
--- === Who did what in the UI (engine/audit.py): the Journal page, an admin's ===
+-- === Who did what in the UI (app/audit.py): the Journal page, an admin's ===
 create table if not exists audit (
     id bigserial primary key,
     at timestamptz not null default now(),

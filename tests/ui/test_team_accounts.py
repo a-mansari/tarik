@@ -7,7 +7,8 @@ import asyncio
 import pytest
 from psycopg.conninfo import make_conninfo
 
-from engine import accounts, runs
+from app import accounts
+from engine import runs
 from tarik.core import cabinets
 from tests import testdb
 
@@ -110,7 +111,7 @@ def test_the_comptes_page_renders_each_account_and_a_new_link_once():
 
 @pytest.mark.security
 def test_the_journal_keeps_who_did_what_latest_first_and_filters_it(monkeypatch):
-    from engine import audit
+    from app import audit
 
     async def check():
         await audit.record("a@experio.ma", "login")

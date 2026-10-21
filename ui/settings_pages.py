@@ -1,4 +1,4 @@
-"""The Cabinets page: each cabinet's own settings (engine/cabinet_settings.py), read and changed by the team, in
+"""The Cabinets page: each cabinet's own settings (app/cabinet_settings.py), read and changed by the team, in
 plain words, each change kept (who, when, why). A secret is never sent to the page: only whether it is set, and a
 field to replace it."""
 
@@ -8,7 +8,8 @@ from urllib.parse import parse_qs, quote
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
 
-from engine import cabinet_settings, runs
+from app import cabinet_settings
+from engine import runs
 from engine.content import LABELS
 from tarik.core.cabinets import CABINETS
 from ui.pages import chosen, templates

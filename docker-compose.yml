@@ -27,6 +27,7 @@ services:
       - ./check.py:/app/check.py
       - ./users.py:/app/users.py
       - ./run.py:/app/run.py
+      - ./app:/app/app
       - ./engine:/app/engine
       - ./tarik:/app/tarik
       - ./sql:/app/sql
