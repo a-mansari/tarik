@@ -1,6 +1,6 @@
 """Write what the scan shows over what Experio captured differently."""
 
-from tarik.core.app import ToolError, ok, routine, step_tool
+from tarik.core.app import ToolError, ok, routine, step_tool, stop
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import instructed
 from tarik.core.experio import (
@@ -90,7 +90,8 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
     """Correct a draft invoice from its check: writes what check_invoice read on
     the scan over the fields Experio captured differently (amounts, number,
     date, credit note, multi-TVA, currency, payment method), then lets Experio
-    rebuild its TVA lines. Call check_invoice first. ``payment_method``: the one the
+    rebuild its TVA lines. Call check_invoice first. A scan whose total is 0 or less is
+    no invoice (a payment's receipt): stopped, nothing written. ``payment_method``: the one the
     client wrote with the invoice (especes, cheque, virement, effet, prelevement,
     compensation), over the scan's; taken only when ``client_message`` holds it."""
     fields = ["state", "company_id", "exercice_id", "refund", "amount_tax_non_recoverable", "payment_method_id"]
@@ -101,6 +102,13 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
     readable, extracted, bad_fields = check
     if not readable:
         return ok(f"Facture {invoice_id} : scan illisible, rien a corriger.")
+    if extracted.get("amount_total") is not None and extracted["amount_total"] <= 0:
+        # A hotel's folio after payment, a receipt: nothing owed, which Experio refuses to record anyway.
+        return stop(
+            f"Facture {invoice_id} : le document ne porte aucun montant a payer (total "
+            f"{extracted['amount_total']:.2f}) : c'est sans doute un justificatif de paiement, pas une facture. "
+            "Rien n'a ete comptabilise ; envoyez la facture elle-meme, avec ses montants."
+        )
     changes = planned_changes(extracted, bad_fields, invoice)
     notes = []
     with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refuse la correction."):

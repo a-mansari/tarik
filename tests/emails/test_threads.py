@@ -321,3 +321,11 @@ def test_the_reply_email_ends_with_what_the_zip_left_out(monkeypatch):
     asyncio.run(emails.send({"cabinet": "c", "thread": thread, "reply": "Facture 12 : brouillon cree."}))
     assert sent["body"].startswith("Facture 12 : brouillon cree.")
     assert sent["body"].endswith("- lot.zip › notes.docx : type non pris en charge")
+
+
+@pytest.mark.communication
+def test_the_subject_is_the_client_s_words_too_without_its_reply_prefixes():
+    from engine.emails import with_subject
+
+    assert with_subject("Re: TR : Facture achat", "Voici") == "Objet : Facture achat\n\nVoici"
+    assert with_subject("Re: ", "Voici") == "Voici" and with_subject(None, "Voici") == "Voici"

@@ -19,7 +19,8 @@ POOL = ThreadPoolExecutor(TOTAL, thread_name_prefix="tool")
 SLOTS = {}  # cabinet: its semaphore, made on its first call (in the running loop)
 INVALID = "des informations manquent ou sont invalides pour cette etape."
 
-# Steps whose ok answer is plumbing, not an outcome: recorded only when they fail or refuse.
+# Steps whose ok answer is plumbing, not an outcome: recorded only when they fail or refuse, or say ``tell`` (an ok
+# the client reads: the dossier taken for them, the attachment that never arrived).
 QUIET_WHEN_OK = {
     "save_files",
     "files_to_process",
@@ -77,7 +78,7 @@ async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a
     except ToolFailure as failure:
         ids = {key: arguments[key] for key in ("invoice_id", "file_id", "dossier_id") if key in arguments}
         result = {"status": "error", "message": str(failure), **ids}
-    if not (tool in QUIET_WHEN_OK and result.get("status") == "ok"):
+    if not (tool in QUIET_WHEN_OK and result.get("status") == "ok" and not result.get("tell")):
         # An answer's outcome is the step it answers (answer_pending says which): recorded under answer_pending, a
         # question asked again could never be answered.
         origin = result.get("step") or tool if tool == "answer_pending" else tool

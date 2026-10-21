@@ -99,3 +99,15 @@ def test_lines_not_read_in_full_or_not_adding_up_are_never_split():
         {"amount_tva": 250, "tva_lines": twice}, [], {}
     )  # 450 is not the 250 read
     assert "multi_tva" not in planned_changes({"tva_lines": twice[1:]}, [], {})  # no total read: nothing to check it by
+
+
+@pytest.mark.communication
+def test_a_scan_owing_nothing_is_no_invoice_and_nothing_is_written(monkeypatch):
+    from tarik.invoices import correct
+
+    monkeypatch.setattr(correct, "require_draft_invoice", lambda *a, **k: {"refund": False, "payment_method_id": False})
+    monkeypatch.setattr(correct, "fill_invoice", lambda *a: pytest.fail("nothing is written"))
+    for total in (0.0, -600.0):  # a hotel's folio once paid: Total 0,00, Paiement -600, Solde -600
+        monkeypatch.setattr(correct, "stored_check", lambda invoice_id, t=total: (True, {"amount_total": t}, []))
+        result = correct.correct_invoice(3)
+        assert result["status"] == "stop" and "justificatif de paiement, pas une facture" in result["message"]

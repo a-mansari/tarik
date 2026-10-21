@@ -40,6 +40,7 @@ STEPS = {
     "import_dossiers": "liste de dossiers",
     "create_person": "acces",
     "archive_dossier": "archivage",
+    "files_to_process": "fichiers",
     "identify_document": "identification",
     "import_bank_statement": "releve bancaire",
     "split_invoices": "decoupage",
@@ -450,7 +451,7 @@ def files_to_process(session_id: str, entries: bool = False, asked: bool = False
         ).fetchall()
     own = [i for i, name in rows if name.lower().endswith(ENTRY_FILES) == entries]
     if asked and not own:
-        return ok(NO_FILE, files=[])
+        return ok(NO_FILE, files=[], tell=True)
     return ok(f"{len(own)} fichier(s) a traiter.", files=own)
 
 

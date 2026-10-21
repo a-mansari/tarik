@@ -6,6 +6,7 @@ stays set aside. A follow-up thread runs Traitement then Dossier in mode resume 
 
 import asyncio
 import operator
+import re
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -78,11 +79,23 @@ async def acknowledge(state: Thread):
         return {"acknowledged": f"Pas envoye : {failure_text(error)}"}
 
 
+# What a reply or forward puts before a subject: « Re: », « TR : », « Fwd: », repeated or not.
+REPLY_PREFIX = re.compile(r"^(?:\s*(?:re|tr|fw|fwd|ref)\s*:)+\s*", re.IGNORECASE)
+
+
+def with_subject(subject, message):
+    """The client's ``message`` headed by its email's subject, reply prefixes taken off: the subject is the client's
+    words too (« Facture achat » gives the side)."""
+    subject = REPLY_PREFIX.sub("", subject or "").strip()
+    return f"Objet : {subject}\n\n{message}" if subject else message
+
+
 async def ask(state: Thread):
     """The cabinet's agent, in the thread's own conversation (its session id as thread id): engine.chat.answered."""
     thread = state["thread"]
     try:
-        given = state["cabinet"], thread["session_id"], thread["message"], thread["files"]
+        message = with_subject(thread.get("subject"), thread["message"])
+        given = state["cabinet"], thread["session_id"], message, thread["files"]
         reply = await answered(*given, "tarik", thread.get("skipped", ()))
         return {"reply": reply}
     except Exception:  # no reply (the model failing): set aside, with why, never asked twice

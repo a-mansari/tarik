@@ -45,3 +45,14 @@ def test_automatic_emails_are_never_answered(header, value):
     del away[header]
     away[header] = value
     assert automatic(away)
+
+
+@pytest.mark.communication
+def test_a_signature_s_images_are_no_words_of_the_client():
+    mail = EmailMessage()
+    mail.set_content(
+        "Voila ma facture\n\n[Image]\nHICHAM MOUTI\n[EXPERIO png bleu.png]\n[Image]  +212 663-785382\n"
+        "[cid:image001.png@01DB]   www.experio.ma\n[1] la note de bas de page reste"
+    )
+    text = client_text(mail)
+    assert "[" not in text.replace("[1]", "") and "Voila ma facture" in text and "+212 663-785382" in text

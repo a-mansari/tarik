@@ -47,6 +47,16 @@ QUOTE_START = re.compile(
 LINE_END_TAG = re.compile(r"<(br|/p|/div)[^>]*>", re.IGNORECASE)  # <br>, </p> or </div>: where an HTML line ends
 HIDDEN = re.compile(r"<(style|script)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)  # a style or script element
 BLANK_LINES = re.compile(r"\n{3,}")  # more than one blank line in a row
+# Where an email's text shows an image it holds inline (a signature's logo, icons): « [Image] », « [logo.png] »,
+# « [cid:image001.png@…] ». Never the client's files; left in, they read as an attachment that is not one.
+IMAGE_MARK = re.compile(r"\[(?:image|cid:[^\]\n]*|[^\]\n]*\.(?:png|jpe?g|gif|bmp))\]", re.IGNORECASE)
+
+
+def without_images(text):
+    """``text`` without its inline images' marks (IMAGE_MARK), each line's spaces they leave trimmed."""
+    return "\n".join(IMAGE_MARK.sub("", line).strip() for line in text.splitlines())
+
+
 AUTOMATIC_SENDER = re.compile(r"(no-?reply|mailer-daemon|postmaster)@")  # noreply@, no-reply@, mailer-daemon@...
 MESSAGE_ID = re.compile(r"<[^>]+>")  # one <message id> in In-Reply-To or References
 
@@ -65,7 +75,8 @@ def connect():
 
 
 def client_text(message):
-    """The client's own words: the plain text (or the HTML without its tags), the quoted history cut off."""
+    """The client's own words: the plain text (or the HTML without its tags), the quoted history and the inline
+    images' marks cut off."""
     part = message.get_body(preferencelist=("plain", "html"))
     text = part.get_content() if part else ""
     if part and part.get_content_type() == "text/html":
@@ -76,7 +87,7 @@ def client_text(message):
             break
         if not line.lstrip().startswith(">"):  # a quoted line
             lines.append(line.rstrip())
-    return BLANK_LINES.sub("\n\n", "\n".join(lines)).strip()[:4000]
+    return BLANK_LINES.sub("\n\n", without_images("\n".join(lines))).strip()[:4000]
 
 
 def attachments(message):

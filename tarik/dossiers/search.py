@@ -81,6 +81,8 @@ def resolve_dossier(name: str) -> dict:
         return routine(f"Dossier {exact[0]['name']}.", dossier_id=exact[0]["id"])
     if len(close) == 1:  # the only dossier near the name: taken, and the client told which
         dossier = close[0][1]
-        return ok(f"Dossier {dossier['name']} retenu : le seul proche de « {name} ».", dossier_id=dossier["id"])
+        return ok(
+            f"Dossier {dossier['name']} retenu : le seul proche de « {name} ».", dossier_id=dossier["id"], tell=True
+        )
     names = " ; ".join(dossier["name"] for _, dossier in close)
     return stop(f"Quel dossier est « {name} » ? Les plus proches : {names}. Rien n'a ete traite.")

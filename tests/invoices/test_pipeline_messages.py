@@ -48,3 +48,14 @@ def test_a_crash_is_told_plainly_and_its_details_stay_in_the_log(tool, capsys):
     with pytest.raises(tools.ToolFailure, match=r"^echec technique, reessayez plus tard\.$"):
         tool(crash)()
     assert "secret-value" in capsys.readouterr().out  # logged for the team, never shown
+
+
+@pytest.mark.communication
+def test_a_quiet_step_s_ok_reaches_the_summary_only_when_the_client_must_read_it(monkeypatch, db_cabinet):
+    from tarik.invoices.pipeline import NO_FILE, run_summary
+
+    told = {"status": "ok", "message": NO_FILE, "files": [], "tell": True}
+    for result in (told, {"status": "ok", "message": "2 fichier(s) a traiter.", "files": [1, 2]}):
+        monkeypatch.setitem(TOOLS, "files_to_process", lambda session_id, asked=False, result=result: result)
+        asyncio.run(tools.step(db_cabinet, "r", "s", "files_to_process", session_id="s", asked=True))
+    assert run_summary("r")["message"] == f"- fichiers : {NO_FILE}"
