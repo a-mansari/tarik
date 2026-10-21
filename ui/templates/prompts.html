@@ -15,7 +15,7 @@
       {% for call in calls %}
       <tr>
         <td><a href="/ui/llm-logs/{{ call.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}">{{ call.at | when }}</a></td>
-        <td><a class="mono" href="/ui/discussion/{{ call.session_id | urlencode }}">{{ call.session_id }}</a></td>
+        <td><a href="/ui/discussion/{{ call.session_id | urlencode }}">{{ titles[call.session_id] or "(sans texte)" }}</a></td>
         <td>{% if call.run_id %}<a href="/ui/executions/{{ call.run_id }}">Discussion avec Tarik</a>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="num">{{ call.messages }}</td>
       </tr>

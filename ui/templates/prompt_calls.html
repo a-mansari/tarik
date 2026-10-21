@@ -4,7 +4,7 @@
 {% block content %}
 {{ crumbs("/ui/llm-logs", "Logs LLM", "prompts", display_name(cabinet) or cabinet) }}
 <div class="head"><div>
-  <h1>Discussion <span class="mono">{{ session_id }}</span></h1>
+  <h1>{{ title or "Discussion" }}</h1>
   <p class="muted">{{ calls | length }} appel(s) du modèle, dans l'ordre. Ouvrez-en un pour voir exactement ce que Tarik a reçu : ses instructions, ses outils, puis chaque message.</p>
 </div></div>
 <ol class="prompt-calls" id="prompt-calls" data-follow="session={{ session_id | urlencode }}" data-append>

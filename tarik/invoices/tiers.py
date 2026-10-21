@@ -26,6 +26,8 @@ from tarik.core.experio import (
 from tarik.core.words import ICE_WRITTEN, normalized, ranked
 from tarik.invoices.check import stored_check
 from tarik.invoices.classify import side_of
+from tarik.invoices.duplicates import FIELDS as DUPLICATE_FIELDS
+from tarik.invoices.duplicates import without_tiers_twin
 
 # Per invoice side: the party Experio detected, the name printed on the scan, the tiers' Compte Tiers field.
 READ_MIN_SIMILARITY = 0.5  # a name only Tarik's check read: proposed from this close, never linked nor created alone
@@ -157,6 +159,10 @@ def link_tiers(invoice_id: int) -> dict:
     detected = invoice[SIDE[kind]["detected"]]
     if detected:
         return link(invoice, detected[0], kind)
+    # No tiers to link: an invoice already in the dossier is stopped before its client is asked about it.
+    twin = without_tiers_twin(require_invoice(invoice_id, DUPLICATE_FIELDS), invoice_context(invoice))
+    if twin:
+        return twin
     printed = invoice[SIDE[kind]["printed"]]
     if not printed:
         # Experio read no name, the check may have: the dossier's tiers with its ICE, then the closest by name, proposed

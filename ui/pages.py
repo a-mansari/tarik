@@ -17,6 +17,7 @@ from engine import graphs, prompts, runs
 from engine.agent import text_of
 from engine.content import LABELS
 from tarik.core.cabinets import CABINETS, using
+from tarik.core.queries import Q
 from tarik.emails.sending import cabinet_name
 
 HERE = Path(__file__).parent
@@ -232,12 +233,36 @@ async def run_page(request: Request):
     return templates.TemplateResponse(request, "run.html", context)
 
 
+async def openings(cabinet, sessions):
+    """{session: {first, subject, sender}} of the cabinet's conversations ``sessions``: their first message's words
+    (cut, else its files), and for an email its subject and sender."""
+    async with runs.pool.connection() as db:
+        rows = await (await db.execute(Q.conversations_first_messages, (cabinet, sessions))).fetchall()
+    found = {}
+    for session, message, files, subject, sender in rows:
+        words = " ".join((message or "").split())
+        first = words[:90] + ("…" if len(words) > 90 else "") or ", ".join(files or [])
+        found[session] = {"first": first, "subject": subject, "sender": sender}
+    return found
+
+
+async def titles(cabinet, sessions):
+    """{session: its title}: an email's subject, else the first message's words, as the Discussions page shows them."""
+    found = await openings(cabinet, sessions)
+    return {session: opening["subject"] or opening["first"] for session, opening in found.items()}
+
+
 async def prompts_page(request: Request):
     """The LLM logs: each model call Tarik made for the cabinet picked in the sidebar, latest first, with its
     conversation and its run; ``?before=`` pages back."""
     cabinet, before = chosen(request), request.query_params.get("before", "")
     found = await prompts.listed(cabinet, int(before) if before.isdigit() else None) if cabinet else []
-    context = {"cabinet": cabinet, "calls": found, "older": found[-1]["id"] if len(found) == 100 else None}
+    context = {
+        "cabinet": cabinet,
+        "calls": found,
+        "titles": await titles(cabinet, list({call["session_id"] for call in found})) if found else {},
+        "older": found[-1]["id"] if len(found) == 100 else None,
+    }
     return templates.TemplateResponse(request, "prompts.html", context)
 
 
@@ -252,7 +277,13 @@ async def prompt_calls_page(request: Request):
     return templates.TemplateResponse(
         request,
         "prompt_calls.html",
-        {"cabinet": cabinet, "session_id": session, "calls": found, "open": request.query_params.get("call")},
+        {
+            "cabinet": cabinet,
+            "session_id": session,
+            "title": (await titles(cabinet, [session])).get(session),
+            "calls": found,
+            "open": request.query_params.get("call"),
+        },
     )
 
 

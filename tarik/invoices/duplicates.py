@@ -10,6 +10,8 @@ format, and the label field would override it.
 from tarik.core.app import ok, routine, step_tool, stop
 from tarik.core.experio import invoice_context, odoo_call, odoo_json, plain, refused, require_invoice
 
+FIELDS = ["company_id", "exercice_id", "invoice_number", "invoice_date", "amount_total", "partner_id", "type"]
+
 
 def _same_number_drafts(invoice, context):
     """The ids of the dossier's drafts with the invoice's type, tiers and number (spaces aside), its own included,
@@ -28,12 +30,47 @@ def _same_number_drafts(invoice, context):
     return sorted([invoice["id"]] + same)
 
 
+def without_tiers_twin(invoice, context):
+    """A stop when an older invoice of the dossier, not cancelled, is this one with no tiers to compare by: the
+    same type, number (spaces aside), date and total, one of them without its tiers yet (Experio's check needs
+    both). An invoice waiting on its supplier question is still caught, and one asked about after it too."""
+    if not invoice.get("invoice_number") or invoice.get("amount_total") is None:
+        return None
+    domain = [
+        ("company_id", "=", invoice["company_id"][0]),
+        ("type", "=", invoice["type"]),
+        ("id", "<", invoice["id"]),
+        ("state", "!=", "cancel"),
+        ("invoice_number", "ilike", invoice["invoice_number"].strip()),
+    ]
+    if invoice["partner_id"]:
+        domain.append(("partner_id", "=", False))
+    fields = ["invoice_number", "invoice_date", "amount_total"]
+    found = odoo_call("exp.invoice", "search_read", domain, fields=fields, context=context)
+    number = invoice["invoice_number"].replace(" ", "")
+    twins = sorted(
+        other["id"]
+        for other in found
+        if (other.get("invoice_number") or "").replace(" ", "") == number
+        and other.get("invoice_date") == invoice.get("invoice_date")
+        and other.get("amount_total") == invoice["amount_total"]
+    )
+    if not twins:
+        return None
+    return stop(
+        f"Facture {invoice['id']} : DOUBLON, deja enregistree dans le dossier. Meme numero, date et montant que la "
+        f"facture {twins[0]}, saisie avant (sans tiers pour l'une d'elles). Ne pas la traiter."
+    )
+
+
 @step_tool
 def check_duplicate(invoice_id: int) -> dict:
     """Check whether this invoice is already recorded in its dossier (same number,
-    tiers and date). Call it once the tiers is set. A duplicate must not be
-    processed any further."""
-    invoice = require_invoice(invoice_id, ["company_id", "exercice_id", "invoice_number", "partner_id", "type"])
+    tiers and date; or same number, date and total when one has no tiers yet).
+    Call it once the tiers is set. A duplicate must not be processed any further."""
+    invoice = require_invoice(invoice_id, FIELDS)
+    if twin := without_tiers_twin(invoice, invoice_context(invoice)):
+        return twin
     if not invoice["invoice_number"] or not invoice["partner_id"]:
         return ok(
             f"Facture {invoice_id} : numero ou tiers manquant, "

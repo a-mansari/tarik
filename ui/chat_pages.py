@@ -23,7 +23,7 @@ from tarik.core.cabinets import CABINETS
 from tarik.core.config import FILE_TYPES, MAX_PAGES
 from tarik.core.conversation import SKIPPED_NOTE, files_of, own_words
 from tarik.core.queries import Q
-from ui.pages import chosen, templates
+from ui.pages import chosen, openings, templates
 
 SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations: the only ones written to from here
 SHOWN = re.compile(r"[\w.@-]{1,120}")  # any conversation's id, to read it (an email thread's, a workflow's)
@@ -116,7 +116,6 @@ async def conversations(cabinet):
         found.setdefault(run["session_id"], {**run, "medium": MEDIUMS[run["graph"]]})
     tables = {key: sql.Identifier(cabinet, f"tarik_{key}") for key in ("pending", "held")}
     async with runs.pool.connection() as db:
-        rows = await (await db.execute(Q.conversations_first_messages, (cabinet, list(found)))).fetchall()
         waiting = {
             row[0]
             for row in await (
@@ -125,10 +124,8 @@ async def conversations(cabinet):
         }
     for session, run in found.items():
         run["state"] = state(run["status"], session in waiting)
-    for session, message, files, subject, sender in rows:
-        words = " ".join((message or "").split())
-        first = words[:90] + ("…" if len(words) > 90 else "") or ", ".join(files or [])
-        found[session].update(first=first, subject=subject, sender=sender)
+    for session, opening in (await openings(cabinet, list(found))).items():
+        found[session].update(opening)
     return list(found.values())
 
 
