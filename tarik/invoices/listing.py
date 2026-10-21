@@ -1,7 +1,6 @@
 """The dossier's invoices, as Experio lists them, filtered by where they stand."""
 
 from tarik.core.app import ToolError, ok, tool
-from tarik.core.config import POSTED
 from tarik.core.experio import odoo_call, refused, require_dossier
 from tarik.core.words import without_if
 
@@ -9,10 +8,12 @@ from tarik.core.words import without_if
 STATUSES = {
     "en cours": [("state", "=", "pending")],  # Experio is still reading it
     "brouillon": [("state", "=", "draft")],
-    "comptabilisee": [("state", "in", list(POSTED)), ("payment_state", "!=", "paid")],
-    "payee": [("state", "in", list(POSTED)), ("payment_state", "=", "paid")],
+    "comptabilisee": [("state", "=", "post"), ("payment_state", "!=", "paid")],
+    "payee": [("state", "=", "post"), ("payment_state", "=", "paid")],
+    "exportee": [("state", "=", "export")],  # paid or not, as Experio's state shows it
 }
-LABELS = {"pending": "en cours", "draft": "brouillon"}  # posted: by its payment; cancelled ones are never listed
+# posted: by its payment; cancelled ones are never listed
+LABELS = {"pending": "en cours", "draft": "brouillon", "export": "exportee"}
 
 
 def label(invoice):
@@ -39,12 +40,12 @@ def line(invoice):
 @tool
 def list_invoices(dossier_id: int, status: str = "", limit: int = 20) -> dict:
     """List a dossier's invoices, most recent first. ``status`` filters them, exactly one of: "en cours" (Experio
-    still reading), "brouillon", "comptabilisee" (posted, not paid: the unpaid ones), "payee"; empty for all of
-    them. The agent chooses it from what the client asked; any other value is refused."""
+    still reading), "brouillon", "comptabilisee" (posted, not paid: the unpaid ones), "payee", "exportee"; empty for
+    all of them. The agent chooses it from what the client asked; any other value is refused."""
     dossier = require_dossier(dossier_id)
     wanted = (status or "").strip()
     if wanted and wanted not in STATUSES:
-        raise ToolError(f"Statut « {status} » inconnu : en cours, brouillon, comptabilisee, payee, ou vide pour tout.")
+        raise ToolError(f"Statut « {status} » inconnu : {', '.join(STATUSES)}, ou vide pour tout.")
     domain = [("company_id", "=", dossier_id), ("state", "!=", "cancel"), *STATUSES.get(wanted, [])]
     limit = max(1, min(int(limit or 20), 100))
     with refused(f"list_invoices {dossier_id}", "Experio n'a pas pu donner la liste des factures."):

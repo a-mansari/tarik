@@ -8,7 +8,7 @@ from tarik.invoices.listing import label
 
 
 @pytest.mark.functionality
-@pytest.mark.parametrize("status", ["", "en cours", "brouillon", "comptabilisee", "payee"])
+@pytest.mark.parametrize("status", ["", "en cours", "brouillon", "comptabilisee", "payee", "exportee"])
 def test_a_status_the_agent_chooses_filters_the_list(monkeypatch, status):
     asked = []
     monkeypatch.setattr(listing, "require_dossier", lambda dossier_id: "ALPHA")
@@ -32,7 +32,8 @@ ATLAS = {"id": 12, "invoice_number": "F-1", "invoice_date": "2026-03-15", "amoun
 def test_each_invoice_has_one_status():
     assert listing.line({**ATLAS, "partner_id": [3, "ATLAS - ROULEMENT - 12345678"]}).count("ATLAS - ROULEMENT,") == 1
     assert label({"state": "post", "payment_state": "paid"}) == "payee"
-    assert label({"state": "export", "payment_state": "partial"}) == "comptabilisee"
+    assert label({"state": "export", "payment_state": "paid"}) == "exportee"
+    assert label({"state": "post", "payment_state": "partial"}) == "comptabilisee"
     assert label({"state": "pending", "payment_state": "unpaid"}) == "en cours"
 
 
