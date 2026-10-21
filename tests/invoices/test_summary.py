@@ -1,5 +1,5 @@
 """The run's summary, on the real Postgres (db_cabinet): every invoice's outcome, each under its own number, in
-sections the client reads in order (Fait, En cours, Doublons, À corriger, Questions)."""
+sections the client reads in order (Fait, En attente, Doublons, À corriger, Questions)."""
 
 import pytest
 
@@ -66,3 +66,10 @@ def test_a_long_run_s_summary_keeps_what_the_client_needs_and_drops_the_rest(db_
     lines, old_lines = len(new.splitlines()), len(old.splitlines())
     print(f"\nsummary: {old_lines} lines, {len(old)} characters before; {lines} lines, {len(new)} characters now")
     assert lines <= 20 and len(new) <= len(old) / 2  # one line per invoice, routine outcomes left out
+
+
+@pytest.mark.communication
+def test_a_draft_kept_until_the_client_says_to_post_it_waits_it_is_nothing_to_correct(db_cabinet):
+    held = "Facture 14 : importée et vérifiée, laissée en brouillon. Dites-moi quand la comptabiliser."
+    record_step("r", "s", "hold_posting", {"status": "stop", "message": held, "invoice_id": 14})
+    assert run_summary("r")["message"] == f"**En attente**\n- {held}"

@@ -197,11 +197,12 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     return ok("enregistre", step=step, status_recorded=status)
 
 
-# The summary's sections, in the order the client reads them: what was done, what is still under way, the
-# duplicates left aside, what failed or was stopped, then what they must answer. Empty ones are left out.
+# The summary's sections, in the order the client reads them: what was done, what waits (Experio still reading, a
+# draft kept until the client says to post it), the duplicates left aside, what failed or was stopped, then what
+# they must answer. Empty ones are left out.
 SECTIONS = {
     "done": "**Fait**",
-    "wait": "**En cours**",
+    "wait": "**En attente**",
     "duplicate": "**Doublons, non traités**",
     "problem": "**À corriger**",
     "question": "**Questions**",
@@ -211,7 +212,11 @@ QUESTION_MARK = "QUESTION : "  # what the agent recognizes a question by (its an
 
 
 def section_of(step, status):
-    return "duplicate" if step == "check_duplicate" and status == "stop" else SECTION_OF.get(status, "problem")
+    if step == "check_duplicate" and status == "stop":
+        return "duplicate"
+    if step == "hold_posting" and status == "stop":  # verified, left as a draft until the client says to post it
+        return "wait"
+    return SECTION_OF.get(status, "problem")
 
 
 def summary_text(key, step, status, message):
@@ -238,7 +243,7 @@ def joined(key, texts):
 
 @tool
 def run_summary(run_id: str) -> dict:
-    """What happened in one processing run, for the client, in sections: Fait, En cours, Doublons, À corriger,
+    """What happened in one processing run, for the client, in sections: Fait, En attente, Doublons, À corriger,
     Questions (empty ones left out). Each invoice (or file) is one line, in the section of where it stands (its
     furthest outcome): its outcomes that say something (what was set or changed) joined when it is done, else only
     what it waits on, the problem or the question. Routine ones (nothing to do, the expected setting) are left out; a

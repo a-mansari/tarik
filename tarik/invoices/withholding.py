@@ -27,10 +27,10 @@ from tarik.core.words import as_number
 QUESTIONS = {
     "foreign": (
         "quelle retenue à la source étrangère ?\n"
-        "1. Sans retenue\n2. A la charge du fournisseur\n3. A la charge de la societe\n"
+        "1. Sans retenue\n2. À la charge du fournisseur\n3. À la charge de la société\n"
         "(ajoutez « hors Maroc » si le service est rendu à l'étranger)"
     ),
-    "local": "y a-t-il une retenue à la source ? Repondez « sans », ou le taux (ex. « 10 » ou « 10 et 75 »).",
+    "local": "y a-t-il une retenue à la source ? Répondez « sans », ou le taux (ex. « 10 » ou « 10 et 75 »).",
 }
 
 
