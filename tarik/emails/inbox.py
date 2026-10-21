@@ -158,7 +158,7 @@ def thread_of(db, linked, sender, subject, reason, message_id):
     when there is a ``reason``, otherwise. A thread the client wrote again in goes back to Tarik."""
     row = db.execute(
         Q.thread_of_linked_message,
-        (linked, sender),
+        {"linked": linked, "sender": sender},
     ).fetchone()
     if not row:
         # The thread's conversation, the cabinet's own: conversation ids are shared by every cabinet, and one
@@ -378,9 +378,11 @@ def acknowledge_thread(thread_id: str) -> dict:
         if not row or not row[3]:
             return ok("Pas d'accuse de reception : fil deja suivi.", sent=False)
         item = thread_item(db, thread_id, *row[:3])
-    send_email(item["to"], item["subject"], ACKNOWLEDGEMENT, item["in_reply_to"], item["references"])
+    result = send_email(item["to"], item["subject"], ACKNOWLEDGEMENT, item["in_reply_to"], item["references"])
     with cabinet_db() as db:
         db.execute(Q.set_thread_acknowledged, (thread_id,))
+        if (result or {}).get("message_id"):
+            db.execute(Q.insert_mail_sent, (result["message_id"], thread_id))
     return ok("Accuse de reception envoye.", sent=True)
 
 
@@ -453,15 +455,18 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
 
 
 @tool
-def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "") -> dict:
+def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "", sent_id: str = "") -> dict:
     """After Tarik's reply: its emails are answered, and the thread waits for the client
     when Tarik asked a question, or is followed up while drafts Experio was reading or
     dossiers to finish wait (FOLLOW_UP_MINUTES at most). When the reply could not be sent, the thread is set
-    aside in error, with ``reason``."""
+    aside in error, with ``reason``. ``sent_id``: the Message-ID of Tarik's reply, which the client's next email may
+    name alone."""
     with cabinet_db() as db:
         session = db.execute(Q.session_of_thread, (thread_id,)).fetchone()
         if not session:
             return ok("Fil inconnu.")
+        if sent_id:
+            db.execute(Q.insert_mail_sent, (sent_id, thread_id))
         if not sent:
             set_aside(db, thread_id, "error", reason or "reponse non envoyee")
             return ok("Fil mis de cote : reponse non envoyee.")

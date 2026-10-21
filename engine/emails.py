@@ -33,6 +33,7 @@ class Steps(TypedDict, total=False):
     refusal: dict
     manager: str
     sent: str
+    sent_id: str  # the reply's Message-ID
     done: Annotated[list, operator.add]
 
 
@@ -133,7 +134,7 @@ def failure_text(error):
 async def send(state: Thread):
     thread = state["thread"]
     try:
-        await call(
+        result = await call(
             state["cabinet"],
             "send_email",
             to=thread["to"],
@@ -144,7 +145,7 @@ async def send(state: Thread):
         )
     except Exception as error:
         return {"error": failure_text(error)}
-    return {"sent": f"Envoye a {thread['to']}."}
+    return {"sent": f"Envoye a {thread['to']}.", "sent_id": (result or {}).get("message_id") or ""}
 
 
 async def follow_up(state: Thread):
@@ -177,6 +178,7 @@ async def finish(state: Thread):
         message_ids=thread["message_ids"],
         sent=sent,
         reason=state.get("error", ""),
+        sent_id=state.get("sent_id", ""),
     )
     return {"done": [{"thread_id": thread["thread_id"], "sent": sent, "reason": state.get("error", "")}]}
 

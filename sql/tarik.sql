@@ -253,9 +253,15 @@ select invoice_id, step, status, message from tarik_results where invoice_id = a
 
 -- name: thread_of_linked_message
 -- === tarik/emails/inbox.py ===
--- The sender's thread holding one of the linked message ids (In-Reply-To, References).
-select m.thread_id from tarik_mail_messages m join tarik_mail_threads t on t.thread_id = m.thread_id
-where m.message_id = any(%s) and t.client_address = %s limit 1
+-- The sender's thread holding one of the linked message ids (In-Reply-To, References): one of their emails, or one
+-- Tarik sent in it.
+select t.thread_id from tarik_mail_threads t where t.client_address = %(sender)s and t.thread_id in
+(select thread_id from tarik_mail_messages where message_id = any(%(linked)s)
+ union select thread_id from tarik_mail_sent where message_id = any(%(linked)s)) limit 1
+
+-- name: insert_mail_sent
+-- An email Tarik sent in a thread.
+insert into tarik_mail_sent (message_id, thread_id) values (%s, %s) on conflict do nothing
 
 -- name: insert_mail_thread
 -- A new thread, new or ignored.

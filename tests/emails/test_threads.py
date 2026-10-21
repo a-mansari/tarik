@@ -96,6 +96,16 @@ def test_an_email_during_a_run_waits_for_that_run_then_is_answered(mailbox):
         assert [thread["message_ids"] for thread in inbox.claim(db)] == [["<m2@x>"]]
 
 
+@pytest.mark.functionality
+def test_a_reply_naming_only_tarik_s_email_stays_in_its_thread(mailbox):
+    stored(mail(CHEF, "<m1@x>"))
+    with cabinet_db() as db:
+        (item,) = inbox.claim(db)
+    inbox.finish_thread("<m1@x>", item["message_ids"], True, sent_id="<t1@cabinet.ma>")
+    _, threads = stored(mail(CHEF, "<m2@x>", "Par document.", replying_to="<t1@cabinet.ma>"))
+    assert [thread for thread, _, _ in threads] == ["<m1@x>"]  # its memory, files and dossier with it
+
+
 BROKEN = (
     b"From: chef@cabinet.ma\r\nMessage-ID: <m1@x>\r\nContent-Type: text/plain; charset=x-unknown\r\n\r\nbonjour\r\n"
 )
