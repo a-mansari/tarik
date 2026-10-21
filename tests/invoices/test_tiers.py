@@ -185,3 +185,39 @@ def test_a_supplier_only_the_check_read_proposes_the_closest_tiers_never_creates
     assert result["status"] == "question" and "« ORDRE DES EXPERTS COMPTABLES" in result["message"]
     assert list(result["choices"]) == [3, 2]  # its ICE first, then the close name; ALPHA too far
     assert calls == []
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("tiers_found", "linked"),
+    [
+        ([{"id": 7, "name": "Beta Services."}], 7),  # the same name, case and punctuation aside: linked
+        ([{"id": 7, "name": "BETA SERVICES"}, {"id": 8, "name": "Beta-Services"}], None),  # two of that name: asked
+        ([{"id": 7, "name": "BETA SERVICE"}], None),  # close is not the same: asked
+    ],
+)
+def test_only_a_tiers_of_the_very_same_name_is_linked_and_the_client_told(scanned, monkeypatch, tiers_found, linked):
+    from tarik.invoices import tiers
+
+    invoice, calls = scanned
+    found = [*tiers_found, {"id": 9, "name": "BETA SERVICES SARL"}]
+    monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"ice": "", **p} for p in found])
+    result = tiers.link_tiers(4)
+    if linked is None:
+        assert result["status"] == "question"
+    else:
+        assert result["status"] == "ok" and f"(id {linked})" in result["message"]
+        assert "meme nom" in result["message"] and "BETA SERVICES SARL" in result["message"]  # the lookalike named
+    assert calls == []
+
+
+@pytest.mark.security
+def test_a_tiers_already_set_is_kept_over_the_one_detected(scanned, monkeypatch):
+    from tarik.invoices import tiers
+
+    invoice, calls = scanned
+    invoice.update(partner_id=[5, "SET BY HAND"], detected_supplier_id=[6, "DETECTED"])
+    linked = []
+    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
+    tiers.link_tiers(4)
+    assert linked == [5] and calls == []

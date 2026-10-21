@@ -370,6 +370,14 @@ def fill_invoice(invoice_id, changes, context, save=True):
         for name, value in values.items()
         if value != start.get(name) and (name in form["editable"] or name in changes)
     }
+    # A supplier or customer already set in Experio is never replaced nor cleared by Tarik, whatever the scan or an
+    # onchange says: only the cabinet's staff change it, in Experio.
+    if save and start.get("partner_id") and values.get("partner_id") != start["partner_id"]:
+        log(f"fill_invoice {invoice_id}: partner {start['partner_id']} -> {values.get('partner_id')} refused")
+        raise ToolError(
+            f"Facture {invoice_id} : son tiers est deja choisi dans Experio ; Tarik ne le remplace pas. "
+            "Un collaborateur du cabinet peut le changer dans Experio s'il n'est pas le bon."
+        )
     if changed and save and not dry_run():
         odoo_call("exp.invoice", "write", [invoice_id], changed, context=context)
     return changed

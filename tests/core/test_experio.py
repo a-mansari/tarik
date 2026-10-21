@@ -147,3 +147,28 @@ def test_one_xml_rpc_proxy_per_thread_and_path(monkeypatch):
     thread.start()
     thread.join()
     assert elsewhere[0] is not experio.rpc("/xmlrpc/2/common")
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    ("changes", "onchange"),
+    [({"partner_id": 8}, {}), ({"type": "sale"}, {"partner_id": False})],  # replaced, or cleared by an onchange
+)
+def test_a_tiers_already_set_in_experio_is_never_replaced(db_cabinet, monkeypatch, changes, onchange):
+    written = []
+
+    def odoo_call(model, method, *args, **kw):
+        if method == "fields_get":
+            fields = (("partner_id", "many2one"), ("type", "char"))
+            return {name: {"type": kind, "store": True} for name, kind in fields}
+        if method == "read":
+            return [{"partner_id": [7, "ATLAS"], "type": "purchase"}]
+        written.append(method)
+
+    monkeypatch.setattr(experio, "odoo_call", odoo_call)
+    monkeypatch.setattr(experio, "odoo_json", lambda *a, **k: {"value": onchange})
+    monkeypatch.setattr(experio, "dry_run", lambda: False)
+    monkeypatch.setattr(experio, "_forms", {})
+    with pytest.raises(experio.ToolError, match="ne le remplace pas"):
+        experio.fill_invoice(1, changes, {})
+    assert written == []
