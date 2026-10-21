@@ -11,7 +11,7 @@ import re
 
 from tarik.core.app import ToolError, log, ok, question, step_tool, with_ids
 from tarik.core.config import TEST_MODE
-from tarik.core.conversation import instructed
+from tarik.core.conversation import client_messages, instructed
 from tarik.core.experio import (
     dry_run,
     fill_invoice,
@@ -125,16 +125,23 @@ def _model_choice(invoice, kind, designation):
 
 
 @step_tool
-def assign_account(invoice_id: int, answer: str = "", client_message: str = "") -> dict:
+def assign_account(invoice_id: int, answer: str = "", client_message: str = "", session_id: str = "") -> dict:
     """Give a draft invoice its account (Compte): the one the client named with
-    the invoice (``answer``, taken only when ``client_message`` holds it: set_account),
-    else the one Experio memorized for its tiers, else the one matching what the
-    invoice bills. Call it after link_tiers and check_invoice. When none fits, the
+    the invoice (``answer``, taken only when the client wrote it, in ``client_message`` or an earlier message of
+    the conversation ``session_id``: set_account), else the one Experio memorized for its tiers, else the one
+    matching what the invoice bills. Call it after link_tiers and check_invoice. When none fits, the
     answer is the question to ask the client; their answer goes to set_account
-    (answer_pending)."""
-    told = instructed(answer, client_message)
+    (answer_pending). An account asked for that the client's words don't hold is asked about, never skipped: the
+    invoice must not be posted on another one."""
+    said_before = client_messages(session_id, client_message) if session_id else [client_message]
+    told = instructed(answer, "\n".join(said_before))
     if told:
         return set_account(invoice_id, told)
+    if (answer or "").strip():
+        return question(
+            f"Facture {invoice_id} : quel compte voulez-vous exactement (code ou intitulé) ? "
+            f"Je n'ai pas retrouvé « {answer.strip()} » dans vos messages."
+        )
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     if invoice["account_id"]:
         return ok(f"Facture {invoice_id} : compte déjà renseigné, {invoice['account_id'][1]}.")

@@ -36,8 +36,23 @@ def test_the_account_the_client_named_goes_on_the_invoice_first(monkeypatch):
     assert accounts.assign_account(3, "6125", "compte 6125 pour celle-ci")["status"] == "ok"
     assert applied == ["6125"]
     monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: {"account_id": [1, "6111 Achats"]})
-    assert "déjà renseigné" in accounts.assign_account(3, "6125", "comptabilisez-la")["message"]  # the usual path
+    assert "déjà renseigné" in accounts.assign_account(3, "", "comptabilisez-la")["message"]  # the usual path
+    # An account the client's words don't hold: asked about, never skipped (the invoice would be posted on another).
+    asked = accounts.assign_account(3, "6125", "comptabilisez-la")
+    assert asked["status"] == "question" and "« 6125 »" in asked["message"]
     assert applied == ["6125"]
+
+
+@pytest.mark.functionality
+def test_an_account_correction_made_in_an_earlier_message_is_applied(monkeypatch, db_cabinet):
+    from tarik.core.conversation import remember_client_message
+
+    applied = []
+    monkeypatch.setattr(accounts, "set_account", lambda invoice_id, answer: applied.append(answer) or {"status": "ok"})
+    remember_client_message("s", "Nouveau. Et ce n'est pas du téléphone : mettez-la en frais de déplacement / péage.")
+    later = "Oui, comptabilisez la facture 272391 maintenant."
+    assert accounts.assign_account(3, "frais de déplacement / péage", later, "s")["status"] == "ok"
+    assert applied == ["frais de déplacement / péage"]
 
 
 @pytest.mark.functionality

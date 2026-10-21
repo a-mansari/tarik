@@ -81,7 +81,7 @@ def extra(tool, call, run_id):
         "wait_until_read": {"run_id": run_id},
         "correct_invoice": {"payment_method": call.get("mode_paiement") or "", **words},
         "classify_invoice": {"invoice_type": call.get("invoice_type") or ""},
-        "assign_account": {"answer": call.get("compte") or "", **words},
+        "assign_account": {"answer": call.get("compte") or "", "session_id": call["session_id"], **words},
         "settle_tva": {"answer": call.get("tva_non_recuperable") or ""},
         "settle_withholding": {"answer": call.get("retenue") or "", **words},
         "settle_prepaid": {"answer": call.get("repartir") or ""},
