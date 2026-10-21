@@ -1,33 +1,74 @@
 // The live parts of the pages: the runs list refreshes itself, a run going on shows each step as it ends, and a
 // step's whole output loads when it is opened. Each follows the server's changes (engine/live.py) instead of asking
-// again and again: nothing is fetched until something it shows changed, and no stream is held while its tab is hidden.
+// again and again: nothing is fetched until something it shows changed, and the whole browser holds one stream.
 
-// A server stream (EventSource) held only while its tab is shown: a hidden tab gives its connection back. The browser
-// opens 6 at most per site over HTTP/1.1, and with one per open page a 7th page's own requests (a run's canvas)
-// waited forever. ``on(name, listener)`` listens on the stream now and on each one reopened; ``close()`` ends it.
-window.liveStream = (url, { reopened = () => {} } = {}) => {
-  const listeners = [];
-  let source = null, stopped = false;
-  const open = () => {
-    source = new EventSource(url);
-    for (const [name, listener] of listeners) source.addEventListener(name, listener);
+// One server stream for the whole browser (engine/live.py: /ui/live). Over HTTP/1.1 a browser opens 6 connections at
+// most per site: with one stream per page, a 7th page's own requests (a running run's canvas) waited forever. So the
+// tabs share one: whichever holds the lock (Web Locks) opens it for every key any tab follows (each says its own over
+// a BroadcastChannel), and passes on each change; when it closes, another takes over. Each key: "cabinet=…",
+// "session=…" or "run=…". On each (re)opening, every page refreshes once: a change may have come in between.
+window.liveHub = (() => {
+  const own = new Map(); // key -> this tab's listeners
+  const tab = Math.random().toString(36).slice(2);
+  const fire = (keys) => { for (const key of keys) for (const listener of own.get(key) || []) listener(); };
+  if (!("locks" in navigator) || !("BroadcastChannel" in window)) { // an old browser: a stream of its own per tab
+    let source = null;
+    const reopen = () => {
+      source?.close();
+      source = own.size ? new EventSource(`/ui/live?${[...own.keys()].sort().join("&")}`) : null;
+      source?.addEventListener("change", (event) => fire(keyed(event)));
+    };
+    return { on: (key, listener) => follow(key, listener, reopen) };
+  }
+  const channel = new BroadcastChannel("tarik-live");
+  const others = new Map(); // when this tab leads: tab -> the keys it follows
+  let leading = false, source = null, opened = "";
+  const say = () => channel.postMessage({ type: "keys", tab, keys: [...own.keys()] });
+  const reopen = () => {
+    if (!leading) { say(); return; }
+    const keys = new Set(own.keys());
+    for (const followed of others.values()) for (const key of followed) keys.add(key);
+    const query = [...keys].sort().join("&");
+    if (query === opened) return;
+    opened = query;
+    source?.close();
+    source = query ? new EventSource(`/ui/live?${query}`) : null;
+    source?.addEventListener("open", () => { fire(own.keys()); channel.postMessage({ type: "opened" }); });
+    source?.addEventListener("change", (event) => {
+      const keys = keyed(event);
+      fire(keys);
+      channel.postMessage({ type: "change", keys });
+    });
   };
-  const shut = () => { source?.close(); source = null; };
-  document.addEventListener("visibilitychange", () => {
-    if (stopped) return;
-    if (document.hidden) shut();
-    else if (!source) { open(); reopened(); }
-  });
-  if (!document.hidden) open();
-  return {
-    on(name, listener) { listeners.push([name, listener]); source?.addEventListener(name, listener); return this; },
-    close() { stopped = true; shut(); },
+  channel.onmessage = ({ data }) => {
+    if (data.type === "change") fire(data.keys);
+    else if (data.type === "opened") fire(own.keys());
+    else if (data.type === "ask") say();
+    else if (leading && data.type === "keys") { others.set(data.tab, data.keys); reopen(); }
+    else if (leading && data.type === "gone") { others.delete(data.tab); reopen(); }
   };
-};
+  addEventListener("pagehide", () => channel.postMessage({ type: "gone", tab }));
+  navigator.locks.request("tarik-live", () => new Promise(() => { // held until this tab closes
+    leading = true;
+    channel.postMessage({ type: "ask" }); // every other tab says what it follows
+    reopen();
+  }));
+  return { on: (key, listener) => follow(key, listener, reopen) };
 
-// Follow the changes of ``query`` (cabinet=… or session=…): ``refresh`` runs on each, and once when the tab is shown
-// again (its stream was closed meanwhile: what changed is not known), never twice at once. Returns the stream, to
-// close when there is nothing left to follow.
+  function follow(key, listener, reopen) {
+    if (!own.has(key)) own.set(key, new Set());
+    own.get(key).add(listener);
+    reopen();
+    return { close() { own.get(key)?.delete(listener); if (!own.get(key)?.size) own.delete(key); reopen(); } };
+  }
+
+  function keyed(event) { // the change's [kind, id] pairs, as the keys followed
+    return JSON.parse(event.data || "[]").map(([kind, id]) => `${kind}=${encodeURIComponent(id)}`);
+  }
+})();
+
+// Follow the changes of ``query`` (cabinet=… or session=…): ``refresh`` runs on each, never twice at once. Returns
+// what to close when there is nothing left to follow.
 window.followChanges = (query, refresh) => {
   let missed = false, busy = false;
   const run = async () => {
@@ -37,7 +78,29 @@ window.followChanges = (query, refresh) => {
     busy = false;
     if (missed) { missed = false; run(); }
   };
-  return window.liveStream(`/ui/live?${query}`, { reopened: run }).on("change", run);
+  return window.liveHub.on(query, run);
+};
+
+// A run going on, followed on the shared stream: at each of its changes its new steps are fetched. ``on("step")``
+// gets each step once, in order; ``on("end")`` once it has ended. Shared by the steps list and the canvas.
+window.followRun = (run) => {
+  const listeners = { step: [], end: [] };
+  let last = 0, ended = false;
+  const read = async () => {
+    const found = await (await fetch(`/runs/${run}?after=${last}`)).json();
+    for (const step of found.steps || []) {
+      last = Math.max(last, step.id);
+      for (const listener of listeners.step) listener(step);
+    }
+    if (!ended && found.status && !["queued", "running"].includes(found.status)) {
+      ended = true;
+      following.close();
+      for (const listener of listeners.end) listener(found);
+    }
+  };
+  const following = window.followChanges(`run=${encodeURIComponent(run)}`, read);
+  setTimeout(() => read().catch(() => {})); // where it stands now, once the page has said what it listens to
+  return { on(name, listener) { listeners[name].push(listener); return this; } };
 };
 
 const rows = document.getElementById("runs-rows");
@@ -114,19 +177,14 @@ if (steps) {
 
   if (steps.dataset.live) {
     const seen = new Set([...steps.querySelectorAll("li[data-id]")].map((li) => li.dataset.id));
-    // One stream, the canvas shares it; reopened when the tab is shown again, it replays the run's steps from the first.
-    const events = (window.runEvents ||= window.liveStream(`/runs/${run}/events`));
-    events.on("step", (event) => {
-      const step = JSON.parse(event.data);
+    const events = (window.runEvents ||= window.followRun(run)); // the canvas shares it
+    events.on("step", (step) => {
       if (seen.has(String(step.id))) return;
       seen.add(String(step.id));
       steps.querySelector("li.empty")?.remove();
       steps.append(stepItem(step, steps.dataset.graph));
     });
-    events.on("end", () => {
-      events.close();
-      location.reload(); // the run's outcome: what the client reads, the conversation
-    });
+    events.on("end", () => location.reload()); // the run's outcome: what the client reads, the conversation
   }
 }
 

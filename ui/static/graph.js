@@ -791,9 +791,9 @@
       wire();
       controls();
       if (["queued", "running"].includes(found.status)) {
-        const events = (window.runEvents ||= window.liveStream(`/runs/${run}/events`)); // shared with the steps list
-        events.on("step", (event) => { add(JSON.parse(event.data)); controls(); paint(); });
-        events.on("end", () => { events.close(); finished = true; paint(); });
+        const events = (window.runEvents ||= window.followRun(run)); // shared with the steps list
+        events.on("step", (step) => { add(step); controls(); paint(); });
+        events.on("end", () => { finished = true; paint(); });
       }
     }
     build();

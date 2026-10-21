@@ -193,7 +193,13 @@ async def listing(request: Request):
 
 
 async def one(request: Request):
-    found = await runs.run(request.path_params["run_id"])
+    run_id, after = request.path_params["run_id"], request.query_params.get("after", "")
+    if after.isdigit():  # only its steps after that one, and where it stands: a page following it (app.js)
+        steps, state = await runs.steps_after(run_id, int(after))
+        if state is None:
+            return JSONResponse({"error": "unknown run"}, status_code=404)
+        return JSONResponse({"steps": steps, "status": state[0], "error": state[1]})
+    found = await runs.run(run_id)
     return JSONResponse(found) if found else JSONResponse({"error": "unknown run"}, status_code=404)
 
 
@@ -220,12 +226,13 @@ async def events(request: Request):
 
 
 async def changes(request: Request):
-    """The pages' live updates (server-sent events): a "change" each time something they show changes, a cabinet's
-    runs (?cabinet=) or a conversation (?session=), at most two a second; the page then fetches what it shows. Nothing
-    is read from the database here."""
+    """The pages' live updates (server-sent events), for every page of a browser on one connection (app.js): a
+    "change" each time something they show changes, a cabinet's runs (?cabinet=), a conversation (?session=) or a run
+    (?run=), each given as many times as followed; its data lists the [kind, id] that changed, at most two a second.
+    The page then fetches what it shows. Nothing is read from the database here."""
     query = request.query_params
-    keys = [("cabinet", query["cabinet"])] if query.get("cabinet") in CABINETS else []
-    keys += [("session", query["session"])] if query.get("session") else []
+    keys = [("cabinet", name) for name in query.getlist("cabinet") if name in CABINETS]
+    keys += [(kind, value) for kind in ("session", "run") for value in query.getlist(kind) if value]
     if not keys:
         return JSONResponse({"error": "nothing to follow"}, status_code=400)
 
@@ -236,8 +243,9 @@ async def changes(request: Request):
             if now is None:
                 yield ": still here\n\n"
                 continue
+            moved = [list(key) for key in keys if now[key] != seen[key]]
             seen = now
-            yield "event: change\ndata: {}\n\n"
+            yield f"event: change\ndata: {json.dumps(moved, ensure_ascii=False)}\n\n"
             await asyncio.sleep(0.5)  # the changes of the next half second, one fetch for them all
 
     return StreamingResponse(stream(), media_type="text/event-stream")
