@@ -1,23 +1,43 @@
 // The live parts of the pages: the runs list refreshes itself, a run going on shows each step as it ends, and a
 // step's whole output loads when it is opened. Each follows the server's changes (engine/live.py) instead of asking
-// again and again: nothing is fetched until something it shows changed, nor while its tab is hidden.
+// again and again: nothing is fetched until something it shows changed, and no stream is held while its tab is hidden.
 
-// Follow the changes of ``query`` (cabinet=… or session=…): ``refresh`` runs on each, once for those that came while
-// the tab was hidden, and never twice at once. Returns the stream, to close when there is nothing left to follow.
+// A server stream (EventSource) held only while its tab is shown: a hidden tab gives its connection back. The browser
+// opens 6 at most per site over HTTP/1.1, and with one per open page a 7th page's own requests (a run's canvas)
+// waited forever. ``on(name, listener)`` listens on the stream now and on each one reopened; ``close()`` ends it.
+window.liveStream = (url, { reopened = () => {} } = {}) => {
+  const listeners = [];
+  let source = null, stopped = false;
+  const open = () => {
+    source = new EventSource(url);
+    for (const [name, listener] of listeners) source.addEventListener(name, listener);
+  };
+  const shut = () => { source?.close(); source = null; };
+  document.addEventListener("visibilitychange", () => {
+    if (stopped) return;
+    if (document.hidden) shut();
+    else if (!source) { open(); reopened(); }
+  });
+  if (!document.hidden) open();
+  return {
+    on(name, listener) { listeners.push([name, listener]); source?.addEventListener(name, listener); return this; },
+    close() { stopped = true; shut(); },
+  };
+};
+
+// Follow the changes of ``query`` (cabinet=… or session=…): ``refresh`` runs on each, and once when the tab is shown
+// again (its stream was closed meanwhile: what changed is not known), never twice at once. Returns the stream, to
+// close when there is nothing left to follow.
 window.followChanges = (query, refresh) => {
-  const source = new EventSource(`/ui/live?${query}`);
   let missed = false, busy = false;
   const run = async () => {
-    if (document.hidden) { missed = true; return; }
     if (busy) { missed = true; return; }
     busy = true;
     try { await refresh(); } catch {} // the next change tries again
     busy = false;
     if (missed) { missed = false; run(); }
   };
-  source.addEventListener("change", run);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden && missed) { missed = false; run(); } });
-  return source;
+  return window.liveStream(`/ui/live?${query}`, { reopened: run }).on("change", run);
 };
 
 const rows = document.getElementById("runs-rows");
@@ -94,15 +114,16 @@ if (steps) {
 
   if (steps.dataset.live) {
     const seen = new Set([...steps.querySelectorAll("li[data-id]")].map((li) => li.dataset.id));
-    const events = (window.runEvents ||= new EventSource(`/runs/${run}/events`)); // one stream, the canvas shares it
-    events.addEventListener("step", (event) => {
+    // One stream, the canvas shares it; reopened when the tab is shown again, it replays the run's steps from the first.
+    const events = (window.runEvents ||= window.liveStream(`/runs/${run}/events`));
+    events.on("step", (event) => {
       const step = JSON.parse(event.data);
       if (seen.has(String(step.id))) return;
       seen.add(String(step.id));
       steps.querySelector("li.empty")?.remove();
       steps.append(stepItem(step, steps.dataset.graph));
     });
-    events.addEventListener("end", () => {
+    events.on("end", () => {
       events.close();
       location.reload(); // the run's outcome: what the client reads, the conversation
     });
