@@ -66,9 +66,9 @@ def asked(invoice, opens):
     """The question: book ``invoice`` late in one of ``opens``, or a new exercice."""
     names = [e["name"] for e in opens]
     return (
-        f"Elle est datee du {invoice['invoice_date']}, en dehors des exercices ouverts ({', '.join(names)}). "
-        "Je la comptabilise dans un de ceux-la (comme facture antérieure, precisez lequel), ou je créé un nouvel "
-        "exercice couvrant sa vraie date (repondez « nouveau ») ?"
+        f"Elle est datée du {invoice['invoice_date']}, en dehors des exercices ouverts ({', '.join(names)}). "
+        "Je la comptabilise dans un de ceux-là (comme facture antérieure, précisez lequel), ou je crée un nouvel "
+        "exercice couvrant sa vraie date (répondez « nouveau ») ?"
     )
 
 

@@ -375,6 +375,24 @@ def test_when_nothing_is_to_be_posted_the_client_is_told_why(db_cabinet, monkeyp
     assert "facture 3 (sans numéro) : pas importée par Tarik" in told["message"]
 
 
+@pytest.mark.communication
+def test_a_draft_another_conversation_is_working_on_is_said_in_progress(db_cabinet, monkeypatch):
+    drafts = [{"id": 2, "invoice_number": "F-2"}]
+    monkeypatch.setattr(
+        pipeline, "odoo_call", lambda model, method, domain, **kw: drafts if method == "search_read" else []
+    )
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
+            "('other', 'b.pdf', 'application/pdf', '', 2)"
+        )
+    pipeline.record_step(
+        "A", "other", "create_draft_invoice", {"status": "ok", "message": "brouillon 2 créé", "invoice_id": 2}
+    )
+    told = pipeline.waiting_drafts("s", held=True, dossier_id=5, run_id="B")["message"]
+    assert "facture 2 (F-2) : en cours de traitement" in told and "brouillon 2 créé" not in told
+
+
 @pytest.mark.functionality
 def test_posting_takes_the_conversations_own_held_drafts_first(db_cabinet, monkeypatch):
     """ "Comptabilisez-la" in a thread is about that thread's invoice: the dossier's drafts held in other

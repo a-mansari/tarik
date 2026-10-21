@@ -623,7 +623,7 @@ def nothing_to_post(session_id, dossier_id):
     """Why nothing is posted when the client asks to post: each draft of the dossier and what keeps it from being
     posted (a question waiting for them, a draft Tarik did not import, where Tarik's sequence stopped it)."""
     if not dossier_id:
-        return "Aucune facture laissee en brouillon dans cette conversation : rien à comptabiliser."
+        return "Aucune facture laissée en brouillon dans cette conversation : rien à comptabiliser."
     drafts = odoo_call(
         "exp.invoice",
         "search_read",
@@ -638,6 +638,7 @@ def nothing_to_post(session_id, dossier_id):
         made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (ids,))}
         asked = dict(db.execute(Q.pending_of_invoices, (ids,)))
         outcomes = db.execute(Q.outcomes_of_invoices, (ids,)).fetchall()
+        working = {i for (i,) in db.execute(Q.invoices_worked_on, (ids,))}
     rows = [(i, step, status) for i, step, status, _ in outcomes]
     messages = {(i, step): message for i, step, _, message in outcomes}
     furthest = furthest_outcomes(rows)
@@ -648,6 +649,9 @@ def nothing_to_post(session_id, dossier_id):
             lines.append(f"- {name} : attend votre réponse à sa question : {asked[draft['id']]}")
         elif draft["id"] not in made:
             lines.append(f"- {name} : pas importée par Tarik, à comptabiliser dans Experio")
+        elif draft["id"] in working and furthest.get(draft["id"], ("", "ok"))[1] in ("ok", "wait"):
+            # Another run is at it, not stopped yet: its own reply will tell how it ends.
+            lines.append(f"- {name} : en cours de traitement, je vous écris dès qu'elle est prête")
         elif draft["id"] in furthest:
             lines.append(f"- {name} : {messages[(draft['id'], furthest[draft['id']][0])]}")
         else:
