@@ -510,6 +510,7 @@ STEPPER_PREFIXES = {
 
 
 STEPPER_SECONDS = 15  # what finish_setup needs after Experio's wait: the stepper's calls, then the dossier's state
+PROCESSING_SECONDS = 180  # shortcut: the chat has no follow-up, so lines still pending after this go unreported
 
 
 def exercice_note(dossier_id, dossier):
@@ -700,6 +701,15 @@ def error_reasons(reasons):
     return " | ".join(f"{text} ({n} lignes)" for text, n in merged.most_common(3))
 
 
+def processed(dossier_id, context):
+    """Waits, up to PROCESSING_SECONDS, while Experio still processes lines handed over (pending), so the dossier's
+    state tells the client which lines it put in error."""
+    end = time.time() + PROCESSING_SECONDS
+    pending = [("company_id", "=", dossier_id), ("state", "=", "pending")]
+    while time.time() < end and odoo_call("experio.history", "search_count", pending, context=context):
+        time.sleep(10)
+
+
 def other_dossiers_journals(dossier_id):
     """The labels of the dossier's journal settings that point to another dossier's journal (Experio's default for
     a new dossier, until its own journals are created or imported), "" when none does."""
@@ -713,6 +723,7 @@ def setup_status(dossier_id: int) -> dict:
     and the settings Experio needs before an invoice can be posted."""
     dossier = require_dossier(dossier_id)
     with refused(f"setup_status {dossier_id}", f"Dossier {dossier} : Experio n'a pas pu donner l'etat du parametrage."):
+        processed(dossier_id, in_dossier(dossier_id))
         company, states, reasons, exercices, counts = setup_facts(dossier_id, in_dossier(dossier_id))
     parts = [
         f"{counts['exp.account']} comptes, {counts['exp.journal']} journaux, {counts['exp.tax']} taxes, "
@@ -721,7 +732,7 @@ def setup_status(dossier_id: int) -> dict:
     entries = [f"{states[state]} {label}" for state, label in HISTORY_STATES.items() if states.get(state)]
     parts.append("ecritures importees : " + (", ".join(entries) if entries else "aucune"))
     if reasons:
-        parts.append("erreurs signalees par Experio : " + error_reasons(reasons))
+        parts.append("erreurs signalees par Experio, a corriger dans le fichier puis a renvoyer : " + error_reasons(reasons))
     opened = [e["name"] + (" (en cours)" if e["selected"] else "") for e in exercices if e["state"] == "open"]
     parts.append("exercices ouverts : " + (", ".join(opened) if opened else "aucun"))
     missing = [label for key, label in POSTING_SETTINGS.items() if not company[key]]

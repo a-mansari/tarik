@@ -81,3 +81,13 @@ def test_the_models_advance_accounts_are_made_reconcilable_before_its_copy(monke
     monkeypatch.setattr(setup, "odoo_call", odoo_call)
     assert setup.make_advance_accounts_reconcilable(890) == 1
     assert calls[-1] == ("exp.account", "write", ([7], {"reconcile": True}))
+
+
+@pytest.mark.functionality
+def test_the_state_waits_for_experio_to_process_the_lines(monkeypatch):
+    pending = [2, 1, 0]  # lines still processing at each look
+    slept = []
+    monkeypatch.setattr(setup, "odoo_call", lambda *a, **k: pending.pop(0))
+    monkeypatch.setattr(setup.time, "sleep", slept.append)
+    setup.processed(557, {})
+    assert pending == [] and slept == [10, 10]
