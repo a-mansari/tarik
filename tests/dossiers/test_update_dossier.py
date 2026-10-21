@@ -70,6 +70,12 @@ def test_an_ice_sent_as_a_number_keeps_its_zeros(experio):
     assert experio["write"] == [{"ice": "008123456000011"}]
 
 
+@pytest.mark.functionality
+def test_experios_placeholder_ice_is_taken_when_the_client_writes_it(experio):
+    onboarding.update_dossier(557, ice="1111", client_message="Changer l'ICE du dossier a 1111")
+    assert experio["write"] == [{"ice": "1111"}]
+
+
 @pytest.mark.security
 def test_another_dossiers_ice_is_refused(experio):
     experio["others"] = [{"id": 25, "name": "CAFE EPSOM"}]

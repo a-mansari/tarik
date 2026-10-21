@@ -117,6 +117,8 @@ def client_wrote(key, value, words):
         number = re.sub(r"\.0+$", "", str(value)).replace(" ", "")  # a trailing ".0" a float left
         # Else every number in the text, the spaces, dots and commas between its digits removed (100 000 -> 100000).
         found = LABELLED[key].findall(joined(words)) if key in LABELLED else re.findall(r"\d+", joined(words, " .,  "))
+        if number in PLACEHOLDER_IDS:  # Experio's "not known yet", too short for ICE_WRITTEN
+            return said(number, normalized(words))
         return number.isdigit() and number in found
     if key == "folder_type":
         return any(said(word, normalized(words)) for word in TYPE_WORDS.get(value, ()))

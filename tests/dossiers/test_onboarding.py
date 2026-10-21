@@ -88,6 +88,9 @@ def test_a_value_counts_only_as_the_client_wrote_it():
         "capital", "beaucoup", "capital 100 000"
     )
     assert client_wrote("rc", "331245", "RC 331245") and not client_wrote("rc", "33124", "RC 331245")
+    assert client_wrote("ice", "1111", "Changer l'ICE du dossier a 1111") and not client_wrote(
+        "ice", "1111", "ICE 001111222333444"
+    )
 
 
 MESSAGE = "Créez le dossier FAIR KAPPA, ICE 008123456000100 et IF n° 0712345."
