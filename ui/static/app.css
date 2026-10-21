@@ -463,3 +463,10 @@ html { scroll-padding-top: 4rem; }
 .dashboard { flex: 1; display: flex; flex-direction: column; gap: 1.1rem; }
 .dashboard:not(.chatting) .chat-start { margin-block: auto; }
 .talk .files.skipped li { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }
+
+/* Every button the same height and padding, whatever its page (an icon-only one keeps its own padding). */
+button.primary, a.primary, .panel-button, .card-action, .card-tools button, .compare button, .login button, .who button,
+.replay button, .canvas-tools button, .chat-actions .attach {
+  min-height: 2.25rem; padding: .4rem .9rem; box-sizing: border-box; display: inline-flex; align-items: center;
+  justify-content: center; gap: .4rem; line-height: 1.2;
+}
