@@ -83,3 +83,19 @@ def test_a_draft_another_run_is_working_on_is_never_taken_up_by_a_second_one(db_
     pipeline.run_summary("A")  # A is over: 7 is free
     assert pipeline.waiting_drafts("s", run_id="B")["invoices"] == [7]
     assert pipeline.waiting_drafts("s", run_id="C")["invoices"] == []  # now B's
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize(
+    "message, told",
+    [
+        ("Objet : Facture\n\nBonjour, voici la facture de juillet.", True),
+        ("Objet : Facture\n\nCi-joint le relevé.", True),
+        ("Objet : Re: Facture\n\nOui, comptabilisez-la.", False),  # an answer: no file meant
+        ("Objet : Zip\n\nVoici le zip.\n\nFichiers laissés de côté : lot.zip : archive vide", False),  # told already
+    ],
+)
+def test_a_missing_attachment_is_told_only_when_the_client_said_they_attached_one(message, told):
+    from tarik.core.conversation import mentions_attachment
+
+    assert mentions_attachment(message) is told

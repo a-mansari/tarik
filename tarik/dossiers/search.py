@@ -72,10 +72,10 @@ def resolve_dossier(name: str) -> dict:
         raise ToolError(UNAVAILABLE)
     name = (name or "").strip()
     if not name:
-        return stop("Pour quel dossier sont ces fichiers ? Rien n'a ete traite.")
+        return stop("Pour quel dossier ? Rien n'a été traité.")
     close = words.ranked(name, found, MIN_SIMILARITY, top=5)
     if not close:
-        return stop(f"Aucun dossier ne ressemble a « {name} » : quel est le nom du dossier ? Rien n'a ete traite.")
+        return stop(f"Aucun dossier ne ressemble a « {name} » : quel est le nom du dossier ? Rien n'a été traité.")
     exact = [dossier for score, dossier in close if round(score * 100) == 100]
     if len(exact) == 1:
         return routine(f"Dossier {exact[0]['name']}.", dossier_id=exact[0]["id"])
@@ -85,4 +85,4 @@ def resolve_dossier(name: str) -> dict:
             f"Dossier {dossier['name']} retenu : le seul proche de « {name} ».", dossier_id=dossier["id"], tell=True
         )
     names = " ; ".join(dossier["name"] for _, dossier in close)
-    return stop(f"Quel dossier est « {name} » ? Les plus proches : {names}. Rien n'a ete traite.")
+    return stop(f"Quel dossier est « {name} » ? Les plus proches : {names}. Rien n'a été traité.")

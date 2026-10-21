@@ -16,6 +16,7 @@ from langgraph.types import Send
 
 from engine.tools import call as run_tool
 from engine.tools import failed, ok_or_summary, run_step, sender_checked, started, summary
+from tarik.core.conversation import mentions_attachment
 from tarik.invoices.pipeline import INVOICE_CHAIN
 
 INPUTS = [
@@ -277,8 +278,10 @@ async def sender(state: Run):
 
 
 async def files(state: Run):
-    # Reached only from a client's message (a follow-up resumes its drafts): no file is told to the client.
-    result = await run_step(state, "files_to_process", session_id=state["call"]["session_id"], asked=True)
+    # Reached only from a client's message (a follow-up resumes its drafts): no file is told to the client when they
+    # said they attached one (an answer or « comptabilisez » carries none, and a zip's left out files are told).
+    asked = mentions_attachment(state["call"].get("client_message") or "")
+    result = await run_step(state, "files_to_process", session_id=state["call"]["session_id"], asked=asked)
     return {"files": result.get("files", []), "outcomes": [result]}
 
 

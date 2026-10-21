@@ -245,7 +245,10 @@ def _save_check(invoice_id, report):
 def _check_result(invoice_id, report):
     """What check_invoice returns for ``report``: unreadable (stop), conforming, or its differences listed."""
     if not report["readable"]:
-        return stop(f"Facture {invoice_id} : scan illisible, demandez au client de la renvoyer plus nette.")
+        return stop(
+            f"Facture {invoice_id} : je n'y lis pas de facture (scan illisible, ou document qui n'en est pas une). "
+            "Renvoyez la facture elle-même, plus nette si c'est un scan."
+        )
     if not report["bad_fields"]:
         return routine(f"Facture {invoice_id} : conforme, ce qu'Experio a lu correspond au scan.")
     differences = "\n".join(f"- {b['field']} : {b['problem']}" for b in report["bad_fields"])

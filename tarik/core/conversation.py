@@ -1,6 +1,8 @@
 """The client's own words in a conversation: kept for the checks that only accept what the client
 wrote themselves (a model may not decide a value or a copy), and the agent's reading of their oui / non."""
 
+import re
+
 from tarik.core.cabinets import cabinet_db
 from tarik.core.queries import Q
 from tarik.core.words import normalized, said
@@ -42,6 +44,16 @@ def files_of(message):
     """The names of the files (list) in a message handed to the agent (see handed)."""
     files = (message or "").partition(FILES_NOTE)[2].split(SKIPPED_NOTE)[0]
     return files.split(", ") if files else []
+
+
+# How a client says they attached something (normalized): only then is a missing attachment told to them.
+ATTACHED = re.compile(r"(?<![a-z])(?:ci jointe?s?|pieces? jointes?|pj|jointe?s?|voici|en annexe|attachee?s?)(?![a-z])")
+
+
+def mentions_attachment(message):
+    """True when the client's message says it carries files ("ci-joint", "voici la facture"...), and no zip of
+    theirs was left out (that is told already, file by file)."""
+    return SKIPPED_NOTE not in (message or "") and ATTACHED.search(normalized(own_words(message))) is not None
 
 
 def own_words(message):
