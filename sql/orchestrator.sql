@@ -199,10 +199,12 @@ select hash, content from {parts} where hash = any(%s)
 
 -- === The Discussion page (ui/chat_pages.py), in a cabinet's schema ===
 
--- name: chat_first_messages
--- Each conversation's first message, as it was sent from the Chat page.
-select distinct on (session_id) session_id, input ->> 'message', input -> 'files' from runs
-where graph = 'discussion' and cabinet = %s and session_id = any(%s) order by session_id, started_at
+-- name: conversations_first_messages
+-- Each conversation's first message: as sent from the Discussions page, or an email thread's (with its subject and
+-- sender).
+select distinct on (session_id) session_id, coalesce(input ->> 'message', input -> 'thread' ->> 'message'),
+    coalesce(input -> 'files', input -> 'thread' -> 'files'), input -> 'thread' ->> 'subject', input -> 'thread' ->> 'to'
+from runs where graph in ('discussion', 'fil') and cabinet = %s and session_id = any(%s) order by session_id, started_at
 
 -- name: chat_file
 -- A file a client sent in a conversation, as sent: the first saved under that name, never a part cut out of it.

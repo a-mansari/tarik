@@ -31,17 +31,23 @@ def known(cabinet, session=None, written=True):
     return cabinet in CABINETS and (session is None or (SESSION if written else SHOWN).fullmatch(session))
 
 
+MEDIUMS = {"discussion": "chat", "fil": "email"}  # the run that answers each message: how the client wrote
+
+
 async def conversations(cabinet):
-    """The cabinet's Chat conversations, latest first: their latest message's run {session_id, started, status...},
-    and the first message's words (``first``, cut) or its files."""
+    """The cabinet's conversations, from the Discussions page and by email, latest first: their latest message's run
+    {session_id, started, status, graph...}, how the client writes (``medium``: chat or email), the first message's
+    words (``first``, cut, else its files) and for an email its subject and sender."""
+    latest = [run for graph in MEDIUMS for run in await runs.recent(cabinet, graph, 200)]
     found = {}
-    for run in await runs.recent(cabinet, "discussion", 200):
-        found.setdefault(run["session_id"], run)
+    for run in sorted(latest, key=lambda run: run["started"], reverse=True):
+        found.setdefault(run["session_id"], {**run, "medium": MEDIUMS[run["graph"]]})
     async with runs.pool.connection() as db:
-        rows = await (await db.execute(Q.chat_first_messages, (cabinet, list(found)))).fetchall()
-    for session, message, files in rows:
+        rows = await (await db.execute(Q.conversations_first_messages, (cabinet, list(found)))).fetchall()
+    for session, message, files, subject, sender in rows:
         words = " ".join((message or "").split())
-        found[session]["first"] = words[:90] + ("…" if len(words) > 90 else "") or ", ".join(files or [])
+        first = words[:90] + ("…" if len(words) > 90 else "") or ", ".join(files or [])
+        found[session].update(first=first, subject=subject, sender=sender)
     return list(found.values())
 
 
@@ -82,7 +88,7 @@ async def talk(cabinet, session):
     shown = await messages(session)
     latest = next(iter([r for r in await conversations(cabinet) if r["session_id"] == session]), None)
     going = bool(latest and latest["status"] in ("queued", "running"))
-    if going:
+    if going and latest["medium"] == "chat":  # an email thread's message is in Tarik's memory once its run asks
         given = (await runs.run(latest["run_id"]))["input"] or {}
         clients = [entry for entry in shown if entry["who"] == "Client"]
         if not clients or clients[-1]["text"].strip() != (given.get("message") or "").strip():
