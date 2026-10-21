@@ -14,7 +14,7 @@
         "width": 150, "height": 44, "padding": 6,
       } },
       { selector: "node[kind = 'end']", style: {
-        "shape": "ellipse", "width": 18, "height": 18, "label": "data(display)", "font-size": 9,
+        "shape": "ellipse", "width": 18, "height": 18, "label": "data(display)", "font-size": 12,
         "text-valign": "bottom", "text-margin-y": 4, "color": css("--muted"), "background-color": css("--edge"), "border-width": 0,
       } },
       { selector: "node[kind = 'group']", style: {
