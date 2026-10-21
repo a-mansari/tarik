@@ -36,6 +36,7 @@ LINE_NUMBERS = ("rate", "amount_ht", "amount_tva")
 # The amounts that make the TTC: HT + TVA + stamp + debours + taxe de sejour + TPT.
 TTC_PARTS = {"amount_untaxed", "amount_tva", "amount_stamp", "amount_disbursement", "amount_ts", "amount_tsp"}
 AMOUNT_FIELDS = TTC_PARTS | {"amount_total"}
+UTILITIES = {"water": "water ", "electricity": "electricity "}  # Experio's utility_type, as the model reads it
 
 
 def resolve_date(raw, language):
@@ -171,12 +172,36 @@ def _captured(invoice):
     return stored
 
 
-def _read_scan(invoice_id, pages, stored):
-    """The model's resolved report on the scan's ``pages`` against ``stored``. Asked twice when it says "unreadable",
-    answers out of shape or gives no single whole answer: MiniMax-M3 sometimes does on a page it reads fine the
-    next time."""
+def split_scan(invoice):
+    """When Experio made several drafts of one document (one per bill: water and electricity), what this draft is
+    checked against: (the scan, read on whichever draft holds it, or None; what to tell the model: this draft is one
+    of the document's bills). (None, "") for a draft alone of its document."""
+    if not invoice["token"]:
+        return None, ""
+    others = odoo_call(
+        "exp.invoice",
+        "search_read",
+        [("token", "=", invoice["token"]), ("id", "!=", invoice["id"])],
+        fields=["document_pdf", "file_type"],
+    )
+    if not others:
+        return None, ""
+    scanned = next((other for other in [invoice, *others] if has_scan(other)), None)
+    kind = UTILITIES.get(invoice["utility_type"], "")
+    part = (
+        f"\nThis document holds {len(others) + 1} bills; Experio made one draft per bill. This draft is only the "
+        f"{kind}bill numbered {invoice['invoice_number']}: compare the captured values with that bill alone, never "
+        "with another bill nor with the document's total of all its bills."
+    )
+    return scanned, part
+
+
+def _read_scan(invoice_id, pages, stored, part=""):
+    """The model's resolved report on the scan's ``pages`` against ``stored`` (``part``: which bill of the document
+    this draft is, split_scan). Asked twice when it says "unreadable", answers out of shape or gives no single whole
+    answer: MiniMax-M3 sometimes does on a page it reads fine the next time."""
     system = tool_prompt("check-invoice") + f"\nToday's date is {date.today()}."
-    captured = "Values captured in Experio:\n" + json.dumps(stored, default=str, ensure_ascii=False, indent=2)
+    captured = "Values captured in Experio:\n" + json.dumps(stored, default=str, ensure_ascii=False, indent=2) + part
     unclear = ""
     for attempt in range(2):
         # No thinking: measured on real scans, it read no better and took up to 170 s instead of 11.
@@ -233,15 +258,18 @@ def check_invoice(invoice_id: int) -> dict:
     """Check a draft invoice once Experio has read it: compares what Experio
     captured with what the scan shows, and lists every difference. Changes
     nothing. invoice_id is the draft invoice number given at its creation."""
-    invoice = require_invoice(invoice_id, ["bluejay_state", "document_pdf", "file_type", *CAPTURED, "partner_id"])
+    fields = ["bluejay_state", "document_pdf", "file_type", *CAPTURED, "partner_id", "token", "utility_type"]
+    invoice = require_invoice(invoice_id, fields)
     reading = still_reading(invoice)
     if reading:
         return reading
     if invoice["bluejay_state"] != "done":
         return ok(f"Facture {invoice_id} : Experio n'a pas lu cette facture automatiquement, rien a comparer.")
     stored = _captured(invoice)
-    if not has_scan(invoice):
+    scanned, part = split_scan(invoice)
+    scanned = scanned or (invoice if has_scan(invoice) else None)
+    if not scanned:
         return routine(f"Facture {invoice_id} : pas de scan PDF a verifier.")
-    report = _read_scan(invoice_id, scan_pages(invoice["document_pdf"]), stored)
+    report = _read_scan(invoice_id, scan_pages(scanned["document_pdf"]), stored, part)
     _save_check(invoice_id, report)
     return _check_result(invoice_id, report)

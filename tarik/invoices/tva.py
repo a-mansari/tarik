@@ -3,7 +3,8 @@
 Experio does most of it: picking the tiers
 in the form applies its memorized non-recoverable and prorata flags, and its refresh picks
 the tax for each rate from the dossier's tax settings (or says which setting is missing).
-Left here: the question on the usual non-recoverable accounts, and the cabinet's prorata.
+Left here: the question on the usual non-recoverable accounts, the cabinet's prorata, and the dossier's tax
+for a rate it has none for (taxes.py), made before the refresh that would refuse that rate.
 """
 
 from tarik.core.app import ToolError, ok, question, routine, step_tool
@@ -21,6 +22,7 @@ from tarik.core.experio import (
     test_mode_note,
 )
 from tarik.invoices.classify import side_of
+from tarik.invoices.taxes import add_missing_taxes
 
 # CGI art. 106: a confirmer par le comptable avant usage en production.
 NON_RECOVERABLE_ACCOUNTS = ("6142", "6143", "61251", "2340")  # travel, receptions, fuel, passenger cars
@@ -90,11 +92,13 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
             fill_invoice(invoice_id, changes, context)
             if changes.get("amount_tax_non_recoverable"):
                 notes.append("TVA non recuperable")  # Experio saves it on the supplier when the invoice is posted
+        taxes = add_missing_taxes(invoice_id, context)  # a rate without its tax: Experio's refresh would refuse it
         refresh(invoice_id, context)  # Experio picks the tax for each rate
         taxed = _tax_lines(invoice_id, context)
     # Only the TVA is said here: what else Experio refuses on the invoice is configure_cabinet's and post_invoice's.
     body = f"{test_mode_note()}Facture {invoice_id} : TVA {'non recuperable' if non_recoverable else 'recuperable'}"
     body += (f", {', '.join(notes)}" if notes and not non_recoverable else "") + ". "
     body += ("Lignes : " + "; ".join(taxed) + ".") if taxed else "Pas encore de ligne de TVA."
-    told = non_recoverable or notes  # what the client should know: else routine
+    body += (" Taxes du dossier : " + " ; ".join(taxes) + ".") if taxes else ""
+    told = non_recoverable or notes or taxes  # what the client should know: else routine
     return ok(body) if told else routine(body)
