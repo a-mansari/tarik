@@ -204,6 +204,26 @@ def drafts(state: File):
     ]
 
 
+def split_drafts(state: File):
+    """The drafts Experio split off the document (a bill holding several: wait_until_read's split_off), each through
+    its invoice's steps once, after the draft Tarik made."""
+    done = {outcome.get("invoice_id") for outcome in state["outcomes"]}
+    found = [i for outcome in state["outcomes"] for i in outcome.get("split_off") or [] if i not in done]
+    return [
+        Send(
+            "facture",
+            {
+                "call": state["call"],
+                "run_id": state["run_id"],
+                "entry": "wait_until_read",
+                "invoice_id": invoice_id,
+                "outcomes": [],
+            },
+        )
+        for invoice_id in dict.fromkeys(found)
+    ] or END
+
+
 file = StateGraph(File, output_schema=Outcomes)
 file.add_node("identification", identify)
 file.add_node("releve", import_statement)
@@ -215,6 +235,7 @@ file.add_conditional_edges(
 )
 file.add_conditional_edges("identification", after_identify, ["releve", "decoupage", END])
 file.add_conditional_edges("decoupage", drafts, ["facture", END])
+file.add_conditional_edges("facture", split_drafts, ["facture", END])
 FILE = file.compile(name="fichier")  # a document: drawn once, whatever brought it
 
 

@@ -105,7 +105,9 @@ READ_DEADLINES = {}  # run id -> when that run stops waiting on Experio's readin
 @step_tool
 def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
     """Wait until Experio has finished reading a new draft: READ_WAIT seconds at most for all the drafts of run
-    ``run_id`` together, so one stuck reading never holds the run; a draft still being read is resumed later."""
+    ``run_id`` together, so one stuck reading never holds the run; a draft still being read is resumed later. Once
+    read, the drafts Experio made from the same document besides this one (``split_off``), for the run to take in
+    hand too."""
     now = time.monotonic()
     for old in [run for run, deadline in READ_DEADLINES.items() if deadline < now - 3600]:
         del READ_DEADLINES[old]
@@ -114,7 +116,30 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
         if time.monotonic() >= deadline:
             return wait(f"Facture {invoice_id} : Experio la lit encore, elle sera reprise a votre prochain message.")
         time.sleep(15)
+    others = split_off(invoice_id)
+    if others:
+        listed = ", ".join(f"n° {other}" for other in others)
+        return ok(
+            f"Facture {invoice_id} : lue par Experio, qui a tire du meme document la ou les factures {listed} "
+            "(une par facture du document), traitees a la suite.",
+            split_off=others,
+        )
     return routine(f"Facture {invoice_id} : lue par Experio.")
+
+
+def split_off(invoice_id):
+    """The drafts Experio made from the same scan as Tarik's draft ``invoice_id`` (one per bill of a document holding
+    several: water and electricity), no step has taken in hand yet: their ids. None for a draft Tarik did not make
+    itself, so a split-off draft never reports the others again."""
+    with cabinet_db() as db:
+        if not db.execute(Q.invoices_made_by_tarik, ([invoice_id],)).fetchone():
+            return []
+    token = require_invoice(invoice_id, ["token"])["token"]  # Experio's reading job, the same for each draft it made
+    domain = [("token", "=", token), ("id", "!=", invoice_id), ("state", "in", ["pending", "draft"])]
+    others = odoo_call("exp.invoice", "search", domain, order="id") if token else []
+    with cabinet_db() as db:
+        taken = {row[0] for row in db.execute(Q.outcomes_of_invoices, (others,))} if others else set()
+    return [other for other in others if other not in taken]
 
 
 @step_tool

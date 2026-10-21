@@ -199,6 +199,7 @@ def test_a_run_waits_on_experio_reading_once_for_all_its_drafts(monkeypatch):
     monkeypatch.setattr(pipeline.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
     monkeypatch.setattr(pipeline, "require_invoice", lambda invoice_id, fields: {"bluejay_state": states[invoice_id]})
     monkeypatch.setattr(pipeline, "READ_DEADLINES", {})
+    monkeypatch.setattr(pipeline, "split_off", lambda invoice_id: [])
     assert pipeline.wait_until_read(1, "run")["status"] == "wait"
     waited = clock[0]
     assert pipeline.READ_WAIT <= waited < pipeline.READ_WAIT + 15  # one stuck reading never holds the run
