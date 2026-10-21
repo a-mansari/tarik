@@ -129,3 +129,7 @@ if (toTop) {
     window.scrollTo({ top: 0, behavior: still ? "auto" : "smooth" });
   });
 }
+
+// On a phone the pages' menu scrolls sideways: it opens on the page shown.
+const currentPage = document.querySelector(".bar nav a[aria-current='page']");
+if (currentPage) currentPage.parentElement.scrollLeft = currentPage.offsetLeft - currentPage.parentElement.offsetLeft - 16;

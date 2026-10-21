@@ -443,6 +443,10 @@ fieldset.plain { border: 0; margin: 0; padding: 0; min-width: 0; display: conten
 /* The cabinet's pages stay at the top while the page scrolls; an anchor lands below them. */
 html { scroll-padding-top: 4rem; }
 .column > .bar { position: sticky; top: 0; z-index: 30; }
+@media (max-width: 40rem) { /* a phone: the account on one row, the pages on one line under it that scrolls sideways */
+  .bar { flex-wrap: wrap; gap: .3rem 1rem; padding: .5rem 1rem; }
+  .bar nav { order: 2; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; white-space: nowrap; }
+}
 .to-top { position: fixed; right: 1.25rem; bottom: 1.25rem; z-index: 40; width: 2.6rem; height: 2.6rem; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; box-shadow: 0 2px 8px rgb(0 0 0 / 25%); }
 .to-top:hover { border-color: var(--accent); color: var(--accent); }
 .to-top[hidden] { display: none; }
