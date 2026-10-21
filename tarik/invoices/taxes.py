@@ -27,7 +27,28 @@ DGI_CODES = {
     ("sale", 20, False): 80,
 }
 SERVICES = {("purchase", 20): (("6124", "6134", "6141"), 140), ("sale", 20): (("7124", "7125"), 81)}
-INVOICE_FIELDS = ["type", "company_id", "account_id", "folder_id", *(f"amount_tva_{rate}" for rate in RATES)]
+INVOICE_FIELDS = [
+    "type",
+    "company_id",
+    "account_id",
+    "folder_id",
+    "amount_untaxed",
+    "amount_tva",
+    *(f"amount_tva_{rate}" for rate in RATES),
+]
+GAP = 1.0  # MAD: how far the rates' amounts may be from the invoice's TVA (roundings)
+
+
+def rates_used(invoice):
+    """The TVA rates the invoice really has: its amounts per rate when they add up to its TVA, else the one rate its
+    TVA and HT give (none when none fits). A stray amount Experio read under a rate (3.22 « TVA 3 % » next to 260
+    at 20 % on a 260 TVA) never makes a tax."""
+    rates = [rate for rate in RATES if invoice[f"amount_tva_{rate}"]]
+    if abs(sum(invoice[f"amount_tva_{rate}"] for rate in rates) - (invoice["amount_tva"] or 0)) <= GAP:
+        return rates
+    untaxed, tva = invoice["amount_untaxed"] or 0, invoice["amount_tva"] or 0
+    implied = [rate for rate in RATES if untaxed and abs(untaxed * rate / 100 - tva) <= GAP]
+    return implied[:1]
 
 
 def settings_field(side, immo):
@@ -105,7 +126,7 @@ def add_missing_taxes(invoice_id, context):
     domain = [("company_id", "=", company_id), ("type", "=", side), ("is_immo_tax", "=", immo)]
     taxes = odoo_call("exp.tax", "search_read", domain, fields=["rate", "account_id"])
     notes = []
-    for rate in [rate for rate in RATES if invoice[f"amount_tva_{rate}"]]:
+    for rate in rates_used(invoice):
         found = [tax["id"] for tax in taxes if tax["rate"] == rate]
         if not found:
             account = tva_account(company_id, side, immo, taxes)

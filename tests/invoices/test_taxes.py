@@ -11,6 +11,8 @@ WATER = {  # a water bill at 10 %, in a dossier made from a FEC: TVA 0 % and 20 
     "folder_id": False,
     **{f"amount_tva_{rate}": 0.0 for rate in taxes.RATES},
     "amount_tva_10": 4.18,
+    "amount_untaxed": 41.8,
+    "amount_tva": 4.18,
 }
 
 
@@ -85,3 +87,19 @@ def test_the_dgi_code_follows_the_cabinets_table(experio):
     assert taxes.dgi_code("purchase", 10, True, "61110000") is None  # 149: not in this fake Experio
     assert taxes.DGI_CODES[("purchase", 10, True)] == 149
     assert taxes.dgi_code("purchase", 14, False, "61110000") is None  # not in the table: no code
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "amounts, untaxed, tva, rates",
+    [
+        ({10: 4.18}, 41.8, 4.18, [10]),
+        ({10: 10.0, 20: 40.0}, 300.0, 50.0, [10, 20]),  # a multi-rate invoice whose rates add up
+        ({3: 3.22, 20: 260.0}, 1300.0, 260.0, [20]),  # B6: a stray 3.22 under 3 % never makes a 3 % tax
+        ({3: 3.22}, 1710.0, 0.0, []),  # a foreign invoice with no TVA: none
+    ],
+)
+def test_a_tax_is_made_only_for_a_rate_the_invoice_really_has(amounts, untaxed, tva, rates):
+    invoice = {**{f"amount_tva_{rate}": 0.0 for rate in taxes.RATES}, "amount_untaxed": untaxed, "amount_tva": tva}
+    invoice.update({f"amount_tva_{rate}": amount for rate, amount in amounts.items()})
+    assert taxes.rates_used(invoice) == rates
