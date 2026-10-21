@@ -148,7 +148,7 @@ def test_a_pdf_cut_per_page_is_one_invoice_per_page_and_one_page_never_asked(db_
 @pytest.mark.parametrize(
     "callback_url, gladden_says, kind, model_asked",
     [
-        ("https://tarik.example/gladden", "bank", "statement", False),
+        ("https://tarik.example/gladden", "bank", "statement", True),  # checked by the model, which has the last word
         ("https://tarik.example/gladden", "invoice", "invoice", False),
         ("https://tarik.example/gladden", None, "statement", True),  # no answer: the model decides
         ("https://tarik.example/gladden", "receipt", "statement", True),  # a type Tarik doesn't take: the model
@@ -256,3 +256,15 @@ def test_a_statement_sent_again_is_not_imported_twice_in_its_dossier(db_cabinet,
         assert db.execute("select statement_id from tarik_files where id = %s", (again,)).fetchone() == (42,)
     assert intake.import_bank_statement(other, 557)["status"] == "question"  # another statement: imported as usual
     assert intake.import_bank_statement(again, 558)["statement_id"] == 42  # linked to it now: never imported again
+
+
+@pytest.mark.functionality
+def test_a_leasing_schedule_gladden_calls_a_statement_is_set_aside_by_the_model(monkeypatch):
+    from tarik.invoices import intake
+
+    db = FakeDb((None, "echeancier.pdf", "application/pdf", pdf(1), None, None, None, None))
+    monkeypatch.setattr(intake, "cabinet_db", lambda: db)
+    monkeypatch.setattr(intake, "gladden_type", lambda raw: "bank")
+    monkeypatch.setattr(intake, "classify_pages", lambda pages, what: ("autre", "un échéancier de leasing"))
+    answer = intake.identify_document(1)
+    assert answer["kind"] == "other" and answer["status"] == "stop"

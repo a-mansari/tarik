@@ -25,7 +25,7 @@ KIND_WORDS = {
     "invoice": r"(?:c est|ce sont|il s agit d) (?:une |des )?factures?|(?:pas|ni) (?:un |des )?releves?",
     "statement": r"(?:c est|ce sont|il s agit d) (?:un |des )?releves?|(?:pas|ni) (?:une |des )?factures?",
 }
-# Gladden's types Tarik takes; any other (or none) leaves the file to the model.
+# Gladden's types Tarik takes; any other (or none) leaves the file to the model, and so does "bank" (checked).
 GLADDEN_KIND = {"invoice": "invoice", "bank": "statement"}
 # What Q.file_locked selects, in its order.
 FILE_COLUMNS = ("session_id", "file_name", "mime_type", "data", "kind", "invoice_id", "statement_id", "parent_id")
@@ -122,7 +122,9 @@ def identify_document(file_id: int, client_message: str = "") -> dict:
         # notice or account extract), which would make the whole file look like a statement.
         # shortcut: a PDF mixing invoices and a statement needs splitting by kind.
         kind, reason = GLADDEN_KIND.get(gladden_type(raw)), ""
-        if kind is None:
+        # Gladden's "bank" is checked by the model, which has the last word: Gladden calls a leasing schedule, a
+        # contract or a customs slip a bank statement (its first page is a table of amounts and dates).
+        if kind != "invoice":
             category, reason = classify_pages(pages, "Identification du document")
             kind = {"rb": "statement", "autre": "other"}.get(category, "invoice")
         db.execute(Q.set_file_kind, (kind, file_id))
