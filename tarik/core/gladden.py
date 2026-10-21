@@ -8,7 +8,8 @@ already sent, and the runner offers no way to ask for a result: the callback is 
 
 The callback, 5 to 30 s later, as seen on the test runner (not the shape its documentation gives; no confidence):
     {"params": {"token": "...", "results": {"type": "invoice" | "bank", "sub_type": "bmce" | "sgeneral" | null}}}
-A document Gladden fails on (not a PDF, or some real invoices) gets no callback at all: wait with a time limit."""
+A document Gladden fails on (not a PDF, or some real invoices) gets no callback at all: wait with a time limit.
+A callback refused (any non-2xx) is sent again 10 times, 5 s apart, then dropped."""
 
 import base64
 import secrets
