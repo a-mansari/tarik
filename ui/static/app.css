@@ -8,6 +8,7 @@
   --line: #d8dfdb;
   --accent: #1f6b55;
   --accent-soft: #e1eee8;
+  --on-accent: #ffffff; /* text on an accent fill */
   --good: #23743a;
   --good-bg: #e2f1e5;
   --wait: #8a5d00;
@@ -29,7 +30,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #111614; --surface: #19201d; --fg: #e2e8e5; --muted: #98a59f; --line: #2b3531;
-    --accent: #6cc3a2; --accent-soft: #1d2f28;
+    --accent: #6cc3a2; --accent-soft: #1d2f28; --on-accent: #0d1a15;
     --good: #72c98d; --good-bg: #1c3123; --wait: #e3b75a; --wait-bg: #33291a; --bad: #f08a80; --bad-bg: #3a1f1c;
     --neutral-bg: #252e2a; --canvas-bg: #0f151b; --grid-dot: #2c3843; --grid-line: #151d24;
     --edge: #8aa1b8; --node-bg: #1f2a35; --node-border: #627385; color-scheme: dark;
@@ -37,7 +38,7 @@
 }
 :root[data-theme="dark"] {
   --bg: #111614; --surface: #19201d; --fg: #e2e8e5; --muted: #98a59f; --line: #2b3531;
-  --accent: #6cc3a2; --accent-soft: #1d2f28;
+  --accent: #6cc3a2; --accent-soft: #1d2f28; --on-accent: #0d1a15;
   --good: #72c98d; --good-bg: #1c3123; --wait: #e3b75a; --wait-bg: #33291a; --bad: #f08a80; --bad-bg: #3a1f1c;
   --neutral-bg: #252e2a; --canvas-bg: #0f151b; --grid-dot: #2c3843; --grid-line: #151d24;
     --edge: #8aa1b8; --node-bg: #1f2a35; --node-border: #627385; color-scheme: dark;
@@ -167,7 +168,7 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .canvas-tools button:disabled { opacity: .5; cursor: default; }
 .canvas-note { font-size: .8rem; color: var(--muted); background: var(--surface); padding: .15rem .4rem; border-radius: 4px; }
 .canvas-note:empty { display: none; }
-.panel-button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+.panel-button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 
 /* Prompts: each model call, opened to read what the model got. */
 .prompt-calls { list-style: none; padding: 0; display: grid; gap: .5rem; }
@@ -185,7 +186,7 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .login label { display: grid; gap: .3rem; font-size: .9rem; color: var(--muted); }
 .login input { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; }
 .login button, .who button { font: inherit; cursor: pointer; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); padding: .4rem .8rem; }
-.login button { background: var(--accent); border-color: var(--accent); color: #fff; }
+.login button { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .bad-text { color: var(--bad, #b42318); }
 .who { margin-left: auto; display: flex; align-items: center; gap: .6rem; font-size: .85rem; color: var(--muted); }
 
@@ -194,7 +195,7 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .field { display: grid; gap: .3rem; font-size: .85rem; color: var(--muted); }
 .field textarea, .field input, .field select { font: inherit; font-size: .9rem; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; width: 100%; box-sizing: border-box; }
 .field textarea { resize: vertical; line-height: 1.45; }
-button.primary, .compare button { font: inherit; cursor: pointer; border-radius: 6px; padding: .5rem 1rem; border: 1px solid var(--accent); background: var(--accent); color: #fff; }
+button.primary, .compare button { font: inherit; cursor: pointer; border-radius: 6px; padding: .5rem 1rem; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); }
 .versions { list-style: none; padding: 0; display: grid; gap: .3rem; font-size: .85rem; }
 .versions a { display: grid; gap: .1rem; padding: .4rem .5rem; border-radius: 6px; color: var(--fg); text-decoration: none; }
 .versions li[aria-current] a, .versions a:hover { background: var(--bg); }
@@ -321,7 +322,7 @@ table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 
 .avatar-system { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
 
 /* The Discussion page: the conversation, then the message to send with its files. */
-a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none; border-radius: 6px; padding: 0 .9rem; background: var(--accent); color: #fff; }
+a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none; border-radius: 6px; padding: 0 .9rem; background: var(--accent); color: var(--on-accent); }
 .talk .files { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .9rem; color: var(--muted); }
 .talk .files li { border: 0; padding: 0; }
 .chat-form { display: grid; gap: .5rem; margin-top: 1rem; }
