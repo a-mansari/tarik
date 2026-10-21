@@ -136,3 +136,41 @@ def test_the_dashboard_shows_its_numbers_as_the_team_reads_them(metrics, shown, 
     )
     assert re.findall(r'<span class="value num">([^<]*)</span>', page) == shown
     assert 'data-send="/ui/discussion/cab_a/chat-' in page and 'data-opens="yes"' in page
+
+
+def test_the_dashboard_s_numbers_are_read_once_per_change_for_every_viewer(monkeypatch):
+    from engine import live
+
+    asked = []
+
+    class Pool:
+        def connection(self):
+            class Db:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *args):
+                    return False
+
+                async def execute(self, statement, values):
+                    asked.append(values)
+
+                    class Rows:
+                        async def fetchone(self):
+                            return (len(asked), 1.0, 0.0, 1)
+
+                    return Rows()
+
+            return Db()
+
+    monkeypatch.setattr(chat_pages.runs, "pool", Pool())
+    monkeypatch.setattr(chat_pages, "NUMBERS", {})
+
+    async def check():
+        seen = [await chat_pages.metrics_of("cab_m") for _ in range(5)]  # five dashboards open on the cabinet
+        assert len(asked) == 1 and all(numbers["runs"] == 1 for numbers in seen)
+        live.touched("run-m", "cab_m", "chat-m")  # a run changes: the next look reads again, once
+        assert (await chat_pages.metrics_of("cab_m"))["runs"] == 2
+        assert (await chat_pages.metrics_of("cab_m"))["runs"] == 2 and len(asked) == 2
+
+    asyncio.run(check())

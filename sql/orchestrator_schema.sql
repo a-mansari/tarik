@@ -18,6 +18,7 @@ create table if not exists runs (
 );
 create index if not exists runs_started on runs (started_at desc);
 create index if not exists runs_session on runs (cabinet, session_id);
+create index if not exists runs_cabinet_started on runs (cabinet, started_at desc);  -- a cabinet's latest, its dashboard
 -- A run started inside another's step (a workflow the agent runs, a thread handed to the agent): its parent, and the
 -- parent's step it started from.
 alter table runs add column if not exists parent_id uuid references runs (id);

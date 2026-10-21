@@ -90,6 +90,15 @@ if (steps) {
   }
 }
 
+// The dashboard's numbers, read again at each change of its cabinet (the server reads them once per change for all).
+const metrics = document.getElementById("metrics");
+if (metrics?.dataset.cabinet) {
+  window.metricsStream = window.followChanges(`cabinet=${encodeURIComponent(metrics.dataset.cabinet)}`, async () => {
+    const answer = await fetch("/ui/accueil?partial=metrics");
+    if (answer.ok) document.getElementById("metrics").outerHTML = await answer.text();
+  });
+}
+
 // Back to the top of the page, offered once the page is scrolled down.
 const toTop = document.getElementById("to-top");
 if (toTop) {

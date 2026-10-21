@@ -5,6 +5,7 @@ is a Discussion run, followed on its own page."""
 import base64
 import hashlib
 import re
+import time
 import uuid
 from urllib.parse import quote
 
@@ -12,7 +13,7 @@ from psycopg import sql
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from engine import agent, runs
+from engine import agent, live, runs
 from engine.chat import REMINDER
 from engine.content import LABELS
 from engine.tools import call
@@ -220,17 +221,33 @@ async def send(request: Request):
 
 
 DAYS = 30  # the dashboard's period
+KEPT_SECONDS = 300  # a cabinet's numbers, read again at its next change, or after this (the period moves on)
+NUMBERS = {}  # cabinet: (its changes' count when read, when, its numbers)
+
+
+async def metrics_of(cabinet):
+    """The cabinet's last DAYS days in four numbers: read once for each change of the cabinet (engine/live.py), and
+    kept for every dashboard open on it, however many follow it."""
+    version = live.versions([("cabinet", cabinet)])
+    kept = NUMBERS.get(cabinet)
+    if kept and kept[0] == version and time.monotonic() - kept[1] < KEPT_SECONDS:
+        return kept[2]
+    async with runs.pool.connection() as db:
+        count, seconds, failed, talks = await (await db.execute(Q.dashboard_metrics, (cabinet, DAYS))).fetchone()
+    metrics = {"runs": count, "seconds": seconds, "failed": failed, "conversations": talks}
+    NUMBERS[cabinet] = (version, time.monotonic(), metrics)
+    return metrics
 
 
 async def dashboard_page(request: Request):
-    """The cabinet picked: its last DAYS days in four numbers, and a message to Tarik that opens a new conversation
-    in place (chat.js)."""
+    """The cabinet picked: its last DAYS days in four numbers, kept up to date as runs happen (``?partial=metrics``:
+    the numbers alone, which the page asks for at each change of the cabinet), and a message to Tarik that opens a
+    new conversation in place (chat.js)."""
     cabinet = chosen(request)
-    metrics = None
-    if cabinet:
-        async with runs.pool.connection() as db:
-            count, seconds, failed, talks = await (await db.execute(Q.dashboard_metrics, (cabinet, DAYS))).fetchone()
-        metrics = {"runs": count, "seconds": seconds, "failed": failed, "conversations": talks}
+    metrics = await metrics_of(cabinet) if cabinet else None
+    if request.query_params.get("partial") == "metrics":
+        context = {"cabinet": cabinet, "metrics": metrics, "days": DAYS}
+        return templates.TemplateResponse(request, "dashboard_metrics.html", context)
     context = {
         "cabinet": cabinet,
         "metrics": metrics,

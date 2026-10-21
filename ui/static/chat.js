@@ -79,6 +79,7 @@
   // conversation's own (a reload or a link shows it as such), the back button back to the dashboard.
   function opened() {
     delete form.dataset.opens;
+    window.metricsStream?.close(); // the numbers fold away: no longer followed
     document.getElementById("dashboard")?.classList.add("chatting");
     history.pushState({ conversation: true }, "", form.dataset.send);
     document.title = "Discussions · Tarik";

@@ -10,12 +10,7 @@
       <p class="muted" id="dashboard-what">Les {{ days }} derniers jours de Tarik pour ce cabinet.</p>
     </div>
   </div>
-  <section class="metrics" id="metrics" aria-label="Les {{ days }} derniers jours">
-    <a class="metric" href="/ui/runs"><span class="value num">{{ metrics.runs }}</span><span class="what">exécutions</span></a>
-    <a class="metric" href="/ui/runs"><span class="value num">{% if metrics.seconds is none %}—{% elif metrics.seconds < 60 %}{{ '%.1f' | format(metrics.seconds) | replace('.', ',') }} s{% else %}{{ (metrics.seconds // 60) | int }} min {{ (metrics.seconds % 60) | round | int }} s{% endif %}</span><span class="what">durée moyenne</span></a>
-    <a class="metric{% if metrics.failed %} bad{% endif %}" href="/ui/runs"><span class="value num">{% if metrics.failed is none %}—{% else %}{{ (metrics.failed * 100) | round(1) | replace('.0', '') | replace('.', ',') }} %{% endif %}</span><span class="what">en échec</span></a>
-    <a class="metric" href="/ui/discussion"><span class="value num">{{ metrics.conversations }}</span><span class="what">conversations</span></a>
-  </section>
+  {% include "dashboard_metrics.html" %}
   <section class="panel chat-start">
     <h2 class="ask">Écrire à Tarik</h2>
     {% set session_id = new %}{% include "chat_talk.html" %}
