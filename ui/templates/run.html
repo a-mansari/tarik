@@ -79,7 +79,7 @@
   <h2>Ce que Tarik a reçu</h2>
   <p class="muted">Chaque appel du modèle pendant cette exécution : ses instructions, ses outils et la discussion, tels qu'envoyés.</p>
   <ul class="runs-side">
-    {% for call in prompts %}<li><a href="/ui/llm-logs/{{ run.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}"><span class="num">{{ call.at | when }} · Appel {{ loop.index }}</span><span class="muted">{{ call.messages }} message(s)</span></a></li>{% endfor %}
+    {% for call in prompts %}<li><a href="/ui/llm-calls/{{ run.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}"><span class="num">{{ call.at | when }} · Appel {{ loop.index }}</span><span class="muted">{{ call.messages }} message(s)</span></a></li>{% endfor %}
   </ul>
 </section>
 {% endif %}

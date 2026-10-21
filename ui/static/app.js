@@ -29,7 +29,7 @@ if (rows && rows.dataset.cabinet) {
 }
 
 // A list read again from its own page at each change it shows (data-follow: cabinet=… or session=…): the
-// discussions, the LLM logs, with the texts marked data-follow-text beside it (a count). ``data-append`` keeps the
+// discussions, the LLM Calls, with the texts marked data-follow-text beside it (a count). ``data-append`` keeps the
 // items there (one opened stays open) and adds the new ones.
 for (const node of document.querySelectorAll("[data-follow]")) {
   window.followChanges(node.dataset.follow, async () => {

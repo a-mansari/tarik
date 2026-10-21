@@ -39,7 +39,7 @@
         {{ nav_link("/ui/accueil", "home", "Accueil") }}
         {{ nav_link("/ui/executions", "runs", "Exécutions") }}
         {{ nav_link("/ui/discussion", "chat", "Discussions") }}
-        {{ nav_link("/ui/llm-logs", "prompts", "Logs LLM") }}
+        {{ nav_link("/ui/llm-calls", "prompts", "LLM Calls") }}
         {% if is_admin(request) %}{{ nav_link("/ui/settings", "settings", "Réglages") }}{% endif %}
       </nav>
       <form class="who" method="post" action="/logout"><span>{{ request.state.user.name }}</span><button type="submit">Se déconnecter</button></form>

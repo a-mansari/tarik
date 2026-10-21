@@ -72,7 +72,7 @@ def test_picking_a_cabinet_keeps_it_and_opens_its_dashboard(monkeypatch):
         }
         return asyncio.run(pages.choose(Request(scope, receive)))
 
-    answer = pick("cab_a", "/ui/llm-logs")
+    answer = pick("cab_a", "/ui/llm-calls")
     assert answer.headers["location"] == "/ui/accueil" and "tarik_cabinet=cab_a" in answer.headers["set-cookie"]
     assert pick("cab_a", "//evil.example").headers["location"] == "/ui/accueil"  # never another site
     assert "set-cookie" not in pick("cab_unknown", "/ui/executions").headers

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% from "icons.html" import cabinet as cabinet_label %}
-{% block title %}Logs LLM{% endblock %}
+{% block title %}LLM Calls{% endblock %}
 {% block content %}
 <div class="head">
   <div>
-    <h1>Logs LLM{% if cabinet %} · {{ cabinet_label(cabinet) }}{% endif %}</h1>
+    <h1>LLM Calls{% if cabinet %} · {{ cabinet_label(cabinet) }}{% endif %}</h1>
     <p class="muted">Chaque appel du modèle par Tarik, le plus récent d'abord : ce qu'il a reçu (ses instructions, ses outils et toute la discussion), dans quelle discussion et quelle exécution. Gardés 30 jours. Ils contiennent les mots des clients : à ne pas partager.</p>
   </div>
 </div>
@@ -14,7 +14,7 @@
     <tbody id="calls"{% if cabinet %} data-follow="cabinet={{ cabinet | urlencode }}"{% endif %}>
       {% for call in calls %}
       <tr>
-        <td><a href="/ui/llm-logs/{{ call.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}">{{ call.at | when }}</a></td>
+        <td><a href="/ui/llm-calls/{{ call.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}">{{ call.at | when }}</a></td>
         <td><a href="/ui/discussion/{{ call.session_id | urlencode }}">{{ titles[call.session_id] or "(sans texte)" }}</a></td>
         <td>{% if call.run_id %}<a href="/ui/executions/{{ call.run_id }}">Discussion avec Tarik</a>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="num">{{ call.messages }}</td>
@@ -25,5 +25,5 @@
     </tbody>
   </table>
 </div>
-{% if older %}<p><a class="panel-button" href="/ui/llm-logs?before={{ older }}">Plus ancien</a></p>{% endif %}
+{% if older %}<p><a class="panel-button" href="/ui/llm-calls?before={{ older }}">Plus ancien</a></p>{% endif %}
 {% endblock %}

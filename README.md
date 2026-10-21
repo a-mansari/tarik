@@ -50,7 +50,7 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 | `engine/live.py` | What changed (a run, a cabinet's runs, a conversation), for the pages to refresh near real time: each holds one event stream and fetches only when something it shows changed, never while its tab is hidden. One server process. |
 | `engine/runs.py` | Every run and each of its steps, in Postgres (schema `orchestrator`); the agent's conversations next to them. |
 | `engine/agent.py` | The agent: instructions and tools' descriptions from the content's `agent.json`, its skills (`skills/*.md`), tool output from Experio tagged as untrusted data; its model (MiniMax-M3, a 1024-token thinking budget, this stack's own key). |
-| `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the Logs LLM page (each call, its conversation and its run). |
+| `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the LLM Calls page (each call, its conversation and its run). |
 | `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
 | `app/api.py` | The Experio app's API: cabinets created, changed or deactivated, served at once (guide: `docs/experio-api.md`). |
 | `docs/tests.md` | Every test by category, and how to add a client situation to the live model tests. |
@@ -87,7 +87,7 @@ docker compose up --build -d
 The team's pages, each cabinet picked in the sidebar (under its name in Experio, its database beside it) and
 the pages showing that cabinet's: http://127.0.0.1:2024/ui/accueil (its dashboard: its last 30 days in four
 numbers, and a message to Tarik that opens a conversation in place), /ui/executions (runs), /ui/discussion (Discussions: every conversation, the ones written there and the email threads, read-only), /ui/workflows
-(workflows), /ui/llm-logs (the Logs LLM: each model call, what it was sent), /ui/tarik-prompts (Tarik prompts: what Tarik is told, edited with its history),
+(workflows), /ui/llm-calls (LLM Calls: each model call, what it was sent), /ui/tarik-prompts (Tarik prompts: what Tarik is told, edited with its history),
 /ui/cabinets (each cabinet's settings), /ui/comptes (the accounts), /ui/logs-serveur (the Logs serveur page, who did what: logins, accounts,
 content, settings, layouts, runs started by hand; `app/audit.py`, never a password or a link). Each person logs in with their own account, made
 by an admin on the Comptes page (a one-time link, 72 h, for the person to choose their password; a new link for a

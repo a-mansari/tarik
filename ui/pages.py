@@ -253,7 +253,7 @@ async def titles(cabinet, sessions):
 
 
 async def prompts_page(request: Request):
-    """The LLM logs: each model call Tarik made for the cabinet picked in the sidebar, latest first, with its
+    """The LLM Calls page: each model call Tarik made for the cabinet picked in the sidebar, latest first, with its
     conversation and its run; ``?before=`` pages back."""
     cabinet, before = chosen(request), request.query_params.get("before", "")
     found = await prompts.listed(cabinet, int(before) if before.isdigit() else None) if cabinet else []
