@@ -109,6 +109,13 @@ async def open_store(conninfo):
         await db.execute(Q.orchestrator_schema)
 
 
+async def end_cut_off():
+    """The runs a restart cut off, ended in error: only the server's start may call it (the terminal commands open the
+    store while it runs)."""
+    async with pool.connection() as db:
+        await db.execute(Q.runs_cut_off)
+
+
 RUNNING = contextvars.ContextVar("running", default=None)  # the run whose steps are going on: a run started in one
 # of them is its child (the context reaches every task the graph starts for its steps)
 

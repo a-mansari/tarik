@@ -24,6 +24,11 @@ update runs set status = 'running' where id = %s
 -- One step as it ended: its subgraphs (path), its run of its part (lane), its round, what it said.
 insert into steps (run_id, path, lane, round, node, status, summary, detail) values (%s, %s, %s, %s, %s, %s, %s, %s)
 
+-- name: runs_cut_off
+-- At the server's start: the runs a restart cut off (queued or running, kept in no queue) end in error.
+update runs set status = 'error', error = 'Interrompu : le serveur a redemarre', ended_at = now()
+where status in ('queued', 'running')
+
 -- name: run_ended
 update runs set status = %s, output = %s, error = %s, ended_at = now() where id = %s
 

@@ -289,6 +289,7 @@ async def lifespan(app):
     server's whole life."""
     check_cabinets()
     await runs.open_store(DATABASE)
+    await runs.end_cut_off()
     await content.setup(runs.pool)
     mail.start(asyncio.get_running_loop())
     threading.Thread(target=pages.warm_names, daemon=True).start()  # the sidebar's names, read off the first pages
