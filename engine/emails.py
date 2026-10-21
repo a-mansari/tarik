@@ -12,6 +12,7 @@ from langgraph.graph import END, START, StateGraph
 
 from engine.chat import answered
 from engine.tools import ToolFailure, call
+from tarik.core.conversation import left_out
 from tarik.invoices.pipeline import NOTHING
 
 
@@ -81,7 +82,8 @@ async def ask(state: Thread):
     """The cabinet's agent, in the thread's own conversation (its session id as thread id): engine.chat.answered."""
     thread = state["thread"]
     try:
-        reply = await answered(state["cabinet"], thread["session_id"], thread["message"], thread["files"], "tarik")
+        given = state["cabinet"], thread["session_id"], thread["message"], thread["files"]
+        reply = await answered(*given, "tarik", thread.get("skipped", ()))
         return {"reply": reply}
     except Exception:  # no reply (the model failing): set aside, with why, never asked twice
         return {"error": "Tarik n'a pas pu repondre pour le moment."}
@@ -123,7 +125,7 @@ async def send(state: Thread):
             "send_email",
             to=thread["to"],
             subject=thread["subject"],
-            body=state["reply"],
+            body=state["reply"] + left_out(thread.get("skipped")),  # what a zip of theirs left out: always said
             in_reply_to=thread["in_reply_to"],
             references=thread["references"],
         )

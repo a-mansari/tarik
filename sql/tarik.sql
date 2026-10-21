@@ -269,15 +269,15 @@ select session_id from tarik_mail_threads where thread_id = %s
 -- name: insert_mail_message
 -- One email, in its sender's thread.
 insert into tarik_mail_messages (message_id, thread_id, uid, from_address, reply_to, subject, body,
-references_ids, handled) values (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+references_ids, handled, skipped) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 
 -- name: insert_mail_file
 -- One file an email brought, in its thread's conversation.
 insert into tarik_files (session_id, file_name, mime_type, data) values (%s, %s, %s, %s)
 
 -- name: unhandled_messages_of_thread
--- A thread's unanswered emails, oldest first.
-select message_id, body from tarik_mail_messages where thread_id = %s and not handled
+-- A thread's unanswered emails, oldest first, and what their zips left out.
+select message_id, body, skipped from tarik_mail_messages where thread_id = %s and not handled
 order by received_at, uid
 
 -- name: last_message_of_thread

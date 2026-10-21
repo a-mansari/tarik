@@ -274,3 +274,50 @@ def test_a_refused_sender_is_still_told_when_the_connection_drops_after(mailbox,
     assert inbox.read_mailbox() == [alert]  # email 1's, read before the cut
     with cabinet_db() as db:
         assert db.execute("select last_uid from tarik_mail_state").fetchone() == (1,)  # email 2 waits for next time
+
+
+@pytest.mark.communication
+def test_what_an_emailed_zip_left_out_is_told_in_the_reply(mailbox):
+    import io
+    import zipfile
+
+    from tarik.core.conversation import left_out
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("f1.pdf", b"%PDF-1")
+        archive.writestr("notes.docx", b"pas une facture")
+    message = mail(CHEF, "<zip@x>", "Voici le zip des factures d'achat.")
+    message.add_attachment(buffer.getvalue(), maintype="application", subtype="zip", filename="lot.zip")
+    stored(message)
+    with cabinet_db() as db:
+        (thread,) = inbox.claim(db)
+    assert thread["files"] == ["lot.zip › f1.pdf"]
+    assert thread["skipped"] == ["lot.zip › notes.docx : type non pris en charge"]
+    told = left_out(thread["skipped"])
+    assert told == "\n\nLaissés de côté dans votre archive :\n- lot.zip › notes.docx : type non pris en charge"
+    assert left_out([]) == ""
+
+
+@pytest.mark.communication
+def test_the_reply_email_ends_with_what_the_zip_left_out(monkeypatch):
+    import asyncio
+
+    from engine import emails
+
+    sent = {}
+
+    async def call(cabinet, tool, **arguments):
+        sent.update(arguments)
+
+    monkeypatch.setattr(emails, "call", call)
+    thread = {
+        "to": CHEF,
+        "subject": "Re: Factures",
+        "in_reply_to": "<m@x>",
+        "references": "<m@x>",
+        "skipped": ["lot.zip › notes.docx : type non pris en charge"],
+    }
+    asyncio.run(emails.send({"cabinet": "c", "thread": thread, "reply": "Facture 12 : brouillon cree."}))
+    assert sent["body"].startswith("Facture 12 : brouillon cree.")
+    assert sent["body"].endswith("- lot.zip › notes.docx : type non pris en charge")

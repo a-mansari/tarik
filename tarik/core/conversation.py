@@ -17,6 +17,14 @@ def handed(message, files, skipped=()):
     return text + (SKIPPED_NOTE + " ; ".join(skipped) if skipped else "")
 
 
+def left_out(skipped):
+    """What a client's zip left out (tarik.core.archives' notes), told to them: a paragraph to end a reply with, or ""
+    when nothing was. Added by the code, never left to the model to remember."""
+    if not skipped:
+        return ""
+    return "\n\nLaissés de côté dans votre archive :\n" + "\n".join(f"- {why}" for why in skipped)
+
+
 def files_of(message):
     """The names of the files (list) in a message handed to the agent (see handed)."""
     files = (message or "").partition(FILES_NOTE)[2].split(SKIPPED_NOTE)[0]

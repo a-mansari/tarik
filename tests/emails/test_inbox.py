@@ -19,7 +19,9 @@ def test_the_client_text_and_files():
     mail.add_attachment(b"PNG", maintype="image", subtype="png", filename="logo.png", disposition="inline")
     mail.add_attachment(b"zip", maintype="application", subtype="zip", filename="archive.zip")
     assert client_text(mail) == "Bonjour,\nci-joint nos factures."
-    assert [name for name, _, _ in attachments(mail)] == ["facture.pdf"]
+    files, skipped = attachments(mail)
+    assert [name for name, _, _ in files] == ["facture.pdf"]
+    assert skipped == ["archive.zip : archive illisible"]  # a zip that is none: said, never silently dropped
     assert not automatic(mail)
 
 

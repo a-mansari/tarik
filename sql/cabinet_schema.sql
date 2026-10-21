@@ -129,6 +129,8 @@ create table if not exists tarik_mail_messages (
 );
 -- Where the sender asked for replies (Reply-To): used only when it is on the whitelist, never as who wrote.
 alter table tarik_mail_messages add column if not exists reply_to text;
+-- What a zip of the email held that Tarik does not take, and why (tarik.core.archives): told to the client.
+alter table tarik_mail_messages add column if not exists skipped text[] not null default '{}';
 -- When the cabinet's manager was told of a refused sender: at most once a day per sender.
 create table if not exists tarik_mail_alerts (
     id serial primary key,

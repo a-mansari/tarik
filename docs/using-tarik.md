@@ -9,7 +9,8 @@ By email, at the cabinet's own Tarik mailbox:
 
 - **Files accepted**: PDF, images, CSV, TXT, XLSX, any size the mail server accepts. A **ZIP** is opened and the files
   in it are processed as if sent one by one (a zip inside it too, not deeper; password-protected files, and types
-  Tarik does not take, are left out).
+  Tarik does not take, are left out, and the
+  reply says which and why).
 - **Who may use it**: only the cabinet's whitelisted addresses (`@experio.ma`, `@sarnec.com`, …), as the email's
   From says; for an existing dossier, a collaborator (or one of Experio's own staff) who has that dossier in Experio.
   A colleague replying in your thread gets their own answer.

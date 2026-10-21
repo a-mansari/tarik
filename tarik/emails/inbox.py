@@ -80,8 +80,9 @@ def client_text(message):
 
 
 def attachments(message):
-    """The files the client sent, as [(name, mime type, bytes)]: an invoice, a statement, a FEC; a zip replaced by the
-    files in it (tarik.core.archives, what it leaves out logged). Inline images (signature logos) are left out."""
+    """The files the client sent, as ([(name, mime type, bytes)], what a zip of theirs left out and why): an invoice, a
+    statement, a FEC; a zip replaced by the files in it (tarik.core.archives). Inline images (signature logos) are
+    left out, unsaid: never the client's."""
     found = []
     for part in message.iter_attachments():
         name = part.get_filename() or ""
@@ -90,10 +91,7 @@ def attachments(message):
         if part.get_content_maintype() == "image" and part.get_content_disposition() == "inline":
             continue
         found.append((name, part.get_content_type(), part.get_payload(decode=True) or b""))
-    found, skipped = unpacked(found, FILE_TYPES)
-    for why in skipped:
-        log(f"attachment left out: {why}")
-    return found
+    return unpacked(found, FILE_TYPES)
 
 
 def automatic(message):
@@ -112,20 +110,21 @@ class UnreadableEmail(Exception):
 
 
 def read_email(message_id, message):
-    """What ``message`` holds: (sender, reply_to, subject, linked message ids, text, files, automatic?).
-    UnreadableEmail when Python can't read it."""
+    """What ``message`` holds: (sender, reply_to, subject, linked message ids, text, files, what its zips left out,
+    automatic?). UnreadableEmail when Python can't read it."""
     try:
         sender = parseaddr(message.get("From", ""))[1].lower()
         reply_to = parseaddr(message.get("Reply-To", ""))[1].lower() or sender
         subject = str(message.get("Subject", "") or "").strip()
         linked = MESSAGE_ID.findall(f"{message.get('In-Reply-To', '')} {message.get('References', '')}")
-        text, files, auto = client_text(message), attachments(message), automatic(message)
+        text, (files, skipped), auto = client_text(message), attachments(message), automatic(message)
         # Postgres text never holds a NUL: one in an email would stop every reading at it.
         sender, reply_to, subject, text = (value.replace("\x00", "") for value in (sender, reply_to, subject, text))
         files = [(name.replace("\x00", ""), mime, data) for name, mime, data in files]
+        skipped = [why.replace("\x00", "") for why in skipped]
     except Exception as error:
         raise UnreadableEmail(f"{message_id}: {type(error).__name__}: {error}") from None
-    return sender, reply_to, subject, linked, text, files, auto
+    return sender, reply_to, subject, linked, text, files, skipped, auto
 
 
 def refusal(sender, auto):
@@ -174,7 +173,7 @@ def store(db, uid, message):
     message_id = (message.get("Message-ID") or f"<uid-{uid}@{folder()}>").strip()
     if db.execute(Q.mail_message_exists, (message_id,)).fetchone():
         return
-    sender, reply_to, subject, linked, text, files, auto = read_email(message_id, message)
+    sender, reply_to, subject, linked, text, files, skipped, auto = read_email(message_id, message)
     own = (parseaddr(setting("SMTP_FROM", ""))[1], setting("SMTP_USER", ""), setting("IMAP_USER", ""))
     if sender in {address.lower() for address in own if address}:
         return  # Tarik's own reply, when the folder holds the sent copies
@@ -183,7 +182,18 @@ def store(db, uid, message):
     session = db.execute(Q.session_of_thread, (thread_id,)).fetchone()[0]
     db.execute(
         Q.insert_mail_message,
-        (message_id, thread_id, uid, sender, reply_to, subject[:300], text, " ".join(linked), reason is not None),
+        (
+            message_id,
+            thread_id,
+            uid,
+            sender,
+            reply_to,
+            subject[:300],
+            text,
+            " ".join(linked),
+            reason is not None,
+            skipped,
+        ),
     )
     if not reason:
         for name, mime, data in files:
@@ -216,9 +226,10 @@ def thread_item(db, thread_id, session_id, address, subject):
         "session_id": session_id,
         "to": reply_to if reply_to and recipient_allowed(reply_to) else address,
         "subject": subject if subject.lower().startswith(("re:", "re :")) else f"Re: {subject}",
-        "message": "\n\n".join(body for _, body in messages if body) or "(pas de texte)",
+        "message": "\n\n".join(body for _, body, _ in messages if body) or "(pas de texte)",
         "files": [name for (name,) in files],
-        "message_ids": [message_id for message_id, _ in messages],
+        "skipped": [why for _, _, left in messages for why in left],
+        "message_ids": [message_id for message_id, _, _ in messages],
         "follow_up": not messages,
         "in_reply_to": last_id,
         "references": last_references,
