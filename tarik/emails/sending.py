@@ -34,6 +34,7 @@ CODE = re.compile(r"`([^`\n]+)`")  # `text` on one line: a file name, kept as wr
 CODE_HTML = '<code style="background:#f2f2f2;padding:1px 4px;border-radius:3px">{}</code>'
 LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")  # [label](http(s) address)
 BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")  # a list item's mark at a line's start: -, *, •, "1." or "1)"
+NUMBERED = re.compile(r"^\s*\d+[.)]\s+")  # a numbered item: kept numbered, the client answers « 1 oui, 2 non »
 HEADING = re.compile(r"^\s*#{1,6}\s*")  # a Markdown heading's leading #s
 RULE = re.compile(r"\s*([-*_]\s*){3,}")  # a Markdown rule: 3 or more -, * or _, spaces allowed
 # One line of an IMAP LIST answer: (flags) "delimiter" name, the name quoted or not.
@@ -41,6 +42,7 @@ LIST_LINE = re.compile(rb'\(([^)]*)\) "[^"]*" "?([^"]+)"?$')
 
 PARAGRAPH = '<p style="margin:0 0 14px">{}</p>'
 LIST = '<ul style="margin:0 0 14px;padding-left:22px">{}</ul>'
+NUMBERED_LIST = '<ol style="margin:0 0 14px;padding-left:22px">{}</ol>'
 SIGNED = (
     '<p style="margin:22px 0 0;padding-top:12px;border-top:1px solid #dddddd;color:#555555">'
     "Cordialement,<br><br><strong>Tarik</strong><br>{}</p>"
@@ -123,14 +125,15 @@ def cabinet_name():
 
 def blocks(body):
     """The message as paragraphs and lists, cleaned of HTML tags and Markdown headings and rules:
-    [("p", [lines]) | ("ul", [items])]."""
+    [("p", [lines]) | ("ul", [items]) | ("ol", [items])]."""
     found = []
     for line in strip_tags(body).replace("\r", "").split("\n"):
         line = HEADING.sub("", line).rstrip()
         if RULE.fullmatch(line) or not line.strip():  # a rule or a blank line ends a block
             found.append(None)
             continue
-        kind, text = ("ul", BULLET.sub("", line)) if BULLET.match(line) else ("p", line.strip())
+        kind = "ol" if NUMBERED.match(line) else "ul" if BULLET.match(line) else "p"
+        text = BULLET.sub("", line) if kind != "p" else line.strip()
         if found and found[-1] and found[-1][0] == kind:
             found[-1][1].append(text)
         else:
@@ -168,14 +171,17 @@ def inline_html(text):
 
 
 def plain_block(kind, lines):
-    """One block as plain text: a list's items with "- "."""
+    """One block as plain text: a list's items with "- ", a numbered one's with their number."""
+    if kind == "ol":
+        return "\n".join(f"{i}. {inline_text(line)}" for i, line in enumerate(lines, 1))
     return "\n".join(f"- {inline_text(line)}" if kind == "ul" else inline_text(line) for line in lines)
 
 
 def html_block(kind, lines):
     """One block as HTML: a list, or a paragraph with its lines broken."""
-    if kind == "ul":
-        return LIST.format("".join(f"<li>{inline_html(item)}</li>" for item in lines))
+    if kind in ("ul", "ol"):
+        frame = LIST if kind == "ul" else NUMBERED_LIST
+        return frame.format("".join(f"<li>{inline_html(item)}</li>" for item in lines))
     return PARAGRAPH.format("<br>".join(inline_html(line) for line in lines))
 
 

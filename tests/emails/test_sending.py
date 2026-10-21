@@ -159,3 +159,11 @@ def test_a_cabinet_name_experio_could_not_give_is_asked_again(monkeypatch):
     monkeypatch.setattr(sending, "current", lambda: "tarik_test_a")
     assert sending.cabinet_name() == ""
     assert sending.cabinet_name() == sending.cabinet_name() == "CABINET TEST"  # then kept: Experio asked once more
+
+
+@pytest.mark.communication
+def test_numbered_questions_stay_numbered(monkeypatch):
+    monkeypatch.setattr(sending, "cabinet_name", lambda: "")
+    text, page = render("**Questions**\n1. Facture 12 : TVA ? oui / non\n2. Facture 13 : quel compte ?\n- autre")
+    assert "1. Facture 12 : TVA ? oui / non\n2. Facture 13 : quel compte ?" in text and "- autre" in text
+    assert "<ol" in page and "<li>Facture 13 : quel compte ?</li></ol>" in page
