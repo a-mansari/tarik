@@ -19,7 +19,7 @@
         <td>{% if item.medium == 'email' %}<span class="chip">{{ icon("mail", 13) }} Email</span>{% else %}<span class="chip ok">{{ icon("chat", 13) }} Chat</span>{% endif %}</td>
         <td><a href="/ui/discussion/{{ cabinet }}/{{ item.session_id | urlencode }}">{% if item.subject %}<b>{{ item.subject }}</b> · {% endif %}{{ item.first or "(sans texte)" }}</a>{% if item.sender %}<br><span class="muted">{{ item.sender }}</span>{% endif %}</td>
         <td class="mono muted">{{ item.session_id }}</td>
-        <td><span class="chip {{ item.status }}">{{ item.status | status_name }}</span></td>
+        <td><span class="chip {{ {'answering': 'running', 'failed': 'error', 'waiting': 'question', 'answered': 'ok'}[item.state] }}">{{ labels.conversation_states[item.state] }}</span></td>
       </tr>
       {% else %}
       <tr><td colspan="5" class="muted">Aucune conversation pour ce cabinet.</td></tr>

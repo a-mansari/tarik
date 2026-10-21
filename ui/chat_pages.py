@@ -14,6 +14,7 @@ from starlette.responses import JSONResponse, Response
 
 from engine import agent, runs
 from engine.chat import REMINDER
+from engine.content import LABELS
 from engine.tools import call
 from tarik.core.cabinets import CABINETS
 from tarik.core.conversation import files_of, own_words
@@ -34,6 +35,16 @@ def known(cabinet, session=None, written=True):
 MEDIUMS = {"discussion": "chat", "fil": "email"}  # the run that answers each message: how the client wrote
 
 
+def state(status, waiting):
+    """Where a conversation stands, as the team reads it: Tarik answering, failed, waiting for its client (a question
+    asked, drafts to post once told to), or answered. A key of labels.json's conversation_states."""
+    if status in ("queued", "running"):
+        return "answering"
+    if status == "error":
+        return "failed"
+    return "waiting" if waiting else "answered"
+
+
 async def conversations(cabinet):
     """The cabinet's conversations, from the Discussions page and by email, latest first: their latest message's run
     {session_id, started, status, graph...}, how the client writes (``medium``: chat or email), the first message's
@@ -42,8 +53,17 @@ async def conversations(cabinet):
     found = {}
     for run in sorted(latest, key=lambda run: run["started"], reverse=True):
         found.setdefault(run["session_id"], {**run, "medium": MEDIUMS[run["graph"]]})
+    tables = {key: sql.Identifier(cabinet, f"tarik_{key}") for key in ("pending", "held")}
     async with runs.pool.connection() as db:
         rows = await (await db.execute(Q.conversations_first_messages, (cabinet, list(found)))).fetchall()
+        waiting = {
+            row[0]
+            for row in await (
+                await db.execute(sql.SQL(Q.sessions_waiting_for_client).format(**tables), (list(found), list(found)))
+            ).fetchall()
+        }
+    for session, run in found.items():
+        run["state"] = state(run["status"], session in waiting)
     for session, message, files, subject, sender in rows:
         words = " ".join((message or "").split())
         first = words[:90] + ("…" if len(words) > 90 else "") or ", ".join(files or [])
@@ -102,6 +122,7 @@ async def chat_page(request: Request):
     context = {
         "cabinet": cabinet,
         "conversations": await conversations(cabinet) if cabinet else [],
+        "labels": LABELS,
         "new": f"chat-{uuid.uuid4().hex}",
     }
     return templates.TemplateResponse(request, "chat.html", context)

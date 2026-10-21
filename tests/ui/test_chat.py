@@ -91,3 +91,9 @@ def test_tarik_s_turn_shows_its_tools_as_they_run_then_its_reply(monkeypatch):
 def test_a_reply_s_markdown_is_shown_without_its_html():
     shown = pages.markdown("**Fait** <img src=x onerror=alert(1)> [x](javascript:alert(1))")
     assert "<strong>Fait</strong>" in shown and "<img" not in shown and 'href="javascript' not in shown
+
+
+def test_a_conversation_reads_as_where_it_stands():
+    assert chat_pages.state("running", False) == "answering" and chat_pages.state("queued", True) == "answering"
+    assert chat_pages.state("error", True) == "failed"
+    assert chat_pages.state("done", True) == "waiting" and chat_pages.state("done", False) == "answered"

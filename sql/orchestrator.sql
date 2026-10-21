@@ -206,6 +206,12 @@ select distinct on (session_id) session_id, coalesce(input ->> 'message', input 
     coalesce(input -> 'files', input -> 'thread' -> 'files'), input -> 'thread' ->> 'subject', input -> 'thread' ->> 'to'
 from runs where graph in ('discussion', 'fil') and cabinet = %s and session_id = any(%s) order by session_id, started_at
 
+-- name: sessions_waiting_for_client
+-- The conversations whose client Tarik waits for, in a cabinet's schema: a question asked, or verified drafts to post
+-- once told to.
+select session_id from {pending} where session_id = any(%s)
+union select session_id from {held} where session_id = any(%s) and not released
+
 -- name: chat_file
 -- A file a client sent in a conversation, as sent: the first saved under that name, never a part cut out of it.
 select file_name, mime_type, data from {files} where session_id = %s and file_name = %s and parent_id is null
