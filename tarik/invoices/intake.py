@@ -299,9 +299,42 @@ def bank_journals(dossier_id):
     return journals, [journal for journal in journals if journal["bank_id"]]
 
 
-def statement_journal(name, dossier, dossier_id, journal_id):
-    """The usable bank journal (dict) statement ``name`` goes to: ``journal_id``, or the dossier's only one.
-    Without one to use, or with several to choose from, the stop or question result (a dict with "status")."""
+# Other names clients give a bank (normalized): its sigle, its old or short name.
+BANK_ALIASES = {
+    "bank of africa": ("bmce", "boa"),
+    "attijariwafa": ("awb", "attijari", "wafa"),
+    "banque populaire": ("bcp", "chaabi"),
+    "societe generale": ("sgmb",),
+    "saham": ("sgmb",),
+    "credit du maroc": ("cdm",),
+    "credit agricole": ("cam",),
+    "cih": ("cih bank",),
+    "bmci": ("bnp",),
+}
+
+
+def bank_names(journal):
+    """Every name ``journal`` can be called by (normalized): its own, its bank's, the sigle in its bank's name
+    (« BANK OF AFRICA (BMCE) »), and the bank's usual other names."""
+    bank = journal["bank_id"][1] if journal["bank_id"] else ""
+    plain = re.sub(r"\([^)]*\)", " ", bank)  # « BANK OF AFRICA (BMCE) » is also « BANK OF AFRICA »
+    names = {normalized(journal["name"]), *(normalized(part) for part in (*bank.split(" - "), *plain.split(" - ")))}
+    names |= {normalized(sigle) for sigle in re.findall(r"\(([^)]+)\)", bank)}
+    names |= {alias for known, aliases in BANK_ALIASES.items() if said(known, normalized(bank)) for alias in aliases}
+    return {name for name in names if name}
+
+
+def journal_named(usable, words):
+    """The one usable journal the client's ``words`` name (by its name, its bank's, its sigle), else None."""
+    words = normalized(words or "")
+    named = [journal for journal in usable if any(said(name, words) for name in bank_names(journal))]
+    return named[0] if len(named) == 1 else None
+
+
+def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
+    """The usable bank journal (dict) statement ``name`` goes to: ``journal_id``, the dossier's only one, or the
+    one the client named in ``client_message`` (« relevé du compte BMCE »). Without one to use, or with several to
+    choose from, the stop or question result (a dict with "status")."""
     journals, usable = bank_journals(dossier_id)
     if not usable:
         unset = f" ({', '.join(j['name'] for j in journals)} sans banque renseignee)" if journals else ""
@@ -309,6 +342,8 @@ def statement_journal(name, dossier, dossier_id, journal_id):
             f"Le dossier {dossier} n'a aucun journal de banque utilisable{unset} : a configurer par le cabinet."
         )
     if not journal_id:
+        if len(usable) > 1 and (named := journal_named(usable, own_words(client_message))):
+            return named
         if len(usable) > 1:
             listed = ", ".join(f"{j['name']} - {j['bank_id'][1]} (n° {j['id']})" for j in usable)
             return question(
@@ -322,11 +357,11 @@ def statement_journal(name, dossier, dossier_id, journal_id):
 
 
 @step_tool
-def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) -> dict:
+def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0, client_message: str = "") -> dict:
     """Import a bank statement the client sent into the dossier's bank journal,
     through Experio's own statement import (Experio then reads its lines).
-    journal_id: leave 0 when the dossier has one bank journal; with several,
-    the answer lists them and the client chooses. Safe to call again."""
+    journal_id: leave 0 when the dossier has one bank journal; with several, the one the client's message names
+    (``client_message``, their own words), else the answer lists them and the client chooses. Safe to call again."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
         name, mime, data, kind, existing = file_row(
@@ -344,7 +379,7 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
             return ok(
                 f"`{name}` : relevé déjà importé (n° {twin[0]}), le même fichier envoyé avant.", statement_id=twin[0]
             )
-        journal = statement_journal(name, dossier, dossier_id, journal_id)
+        journal = statement_journal(name, dossier, dossier_id, journal_id, client_message)
         if "status" in journal:
             return journal
         if dry_run():

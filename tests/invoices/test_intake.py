@@ -268,3 +268,28 @@ def test_a_leasing_schedule_gladden_calls_a_statement_is_set_aside_by_the_model(
     monkeypatch.setattr(intake, "classify_pages", lambda pages, what: ("autre", "un échéancier de leasing"))
     answer = intake.identify_document(1)
     assert answer["kind"] == "other" and answer["status"] == "stop"
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "said, journal",
+    [
+        ("Bonjour, relevé du compte BMCE.", 3245),
+        ("le relevé Bank of Africa de juillet", 3245),
+        ("relevé Crédit du Maroc", 3246),
+        ("relevé SGMB", 3244),
+        ("Voici le relevé.", None),  # no bank named: asked
+        ("relevés BMCE et SGMB", None),  # two: asked
+    ],
+)
+def test_the_bank_account_the_client_names_takes_the_statement(said, journal, monkeypatch):
+    from tarik.invoices import intake
+
+    usable = [
+        {"id": 3245, "name": "BMCE", "bank_id": [1, "BANK OF AFRICA (BMCE)"]},
+        {"id": 3246, "name": "CREDIT DU MAROC", "bank_id": [2, "CREDIT DU MAROC"]},
+        {"id": 3244, "name": "SGMB", "bank_id": [3, "SAHAM BANK"]},
+    ]
+    monkeypatch.setattr(intake, "bank_journals", lambda dossier_id: (usable, usable))
+    found = intake.statement_journal("r.pdf", "D", 1, 0, f"Objet : Relevé\n\n{said}")
+    assert (found.get("id") if "status" not in found else None) == journal

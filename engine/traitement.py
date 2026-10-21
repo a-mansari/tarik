@@ -162,8 +162,13 @@ async def identify(state: File):
 
 
 async def import_statement(state: File):
+    call = state["call"]
     result = await run_step(
-        state, "import_bank_statement", file_id=state["file_id"], dossier_id=state["call"]["dossier_id"]
+        state,
+        "import_bank_statement",
+        file_id=state["file_id"],
+        dossier_id=call["dossier_id"],
+        client_message=call.get("client_message") or "",
     )
     return {"last": result, "outcomes": [result]}
 
