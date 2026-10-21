@@ -40,7 +40,7 @@
       } },
       { selector: "edge.conditional", style: { "line-style": "dashed" } },
       // A run over the drawing: what did not run fades, what ran takes its outcome's colour.
-      { selector: ".dim", style: { "opacity": 0.5 } },
+      { selector: ".dim", style: { "opacity": 0.65 } }, // faded, yet its label still readable (4.5:1) in both themes
       { selector: "node.ran", style: { "border-width": 2.5, "border-color": css("--good"), "background-color": css("--good-bg") } },
       { selector: "node.ran.wait, node.ran.question", style: { "border-color": css("--wait"), "background-color": css("--wait-bg") } },
       { selector: "node.ran.stop, node.ran.error", style: { "border-color": css("--bad"), "background-color": css("--bad-bg") } },
