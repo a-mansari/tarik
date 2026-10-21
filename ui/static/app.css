@@ -455,3 +455,4 @@ html { scroll-padding-top: 4rem; }
 .column > .page:has(.dashboard) { flex: 1; display: flex; flex-direction: column; padding-bottom: 1.1rem; }
 .dashboard { flex: 1; display: flex; flex-direction: column; gap: 1.1rem; }
 .dashboard:not(.chatting) .chat-start { margin-block: auto; }
+.talk .files.skipped li { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }

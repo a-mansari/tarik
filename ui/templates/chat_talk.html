@@ -12,6 +12,7 @@
       {% if entry.files %}<ul class="files">{% for name in entry.files %}
         <li>{{ icon('file', 14) }}<span>{{ name }}</span><a class="download" href="/ui/discussion/{{ cabinet }}/{{ session_id }}/fichier?nom={{ name | urlencode }}" download title="Télécharger {{ name }}" aria-label="Télécharger {{ name }}">{{ icon('download', 14) }}</a></li>
       {% endfor %}</ul>{% endif %}
+      {% if entry.skipped %}<ul class="files skipped" aria-label="Laissés de côté dans l'archive">{% for why in entry.skipped %}<li>{{ icon('file', 14) }}<span>{{ why }}</span></li>{% endfor %}</ul>{% endif %}
     </li>
     {% else %}
     <li class="tarik">

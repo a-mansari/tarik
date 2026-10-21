@@ -7,23 +7,26 @@ from tarik.core.words import normalized, said
 
 # What ask_agent adds to an email's text for the agent: never the client's own words.
 FILES_NOTE, NO_TEXT = "\n\nFichiers joints : ", "(pas de message)"
+SKIPPED_NOTE = "\n\nLaissés de côté dans une archive : "  # what a zip held that Tarik does not take, and why
 
 
-def handed(message, files):
-    """The client's ``message`` and the names of their ``files`` (list), as one text handed to the agent."""
-    return (message or NO_TEXT) + (FILES_NOTE + ", ".join(files) if files else "")
+def handed(message, files, skipped=()):
+    """The client's ``message``, the names of their ``files`` (list) and what an archive of theirs left out
+    (``skipped``: tarik.core.archives' notes), as one text handed to the agent."""
+    text = (message or NO_TEXT) + (FILES_NOTE + ", ".join(files) if files else "")
+    return text + (SKIPPED_NOTE + " ; ".join(skipped) if skipped else "")
 
 
 def files_of(message):
     """The names of the files (list) in a message handed to the agent (see handed)."""
-    files = (message or "").partition(FILES_NOTE)[2]
+    files = (message or "").partition(FILES_NOTE)[2].split(SKIPPED_NOTE)[0]
     return files.split(", ") if files else []
 
 
 def own_words(message):
-    """The client's own text in a message handed to the agent (str): without the files' names, which no
-    client wrote ("ICE 001122334455667.pdf" is not an ICE they gave)."""
-    text = (message or "").split(FILES_NOTE)[0]
+    """The client's own text in a message handed to the agent (str): without the files' names nor what an archive
+    left out, which no client wrote ("ICE 001122334455667.pdf" is not an ICE they gave)."""
+    text = (message or "").split(FILES_NOTE)[0].split(SKIPPED_NOTE)[0]
     return "" if text.strip() == NO_TEXT else text
 
 

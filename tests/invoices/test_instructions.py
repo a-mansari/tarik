@@ -20,6 +20,10 @@ def test_the_files_names_handed_with_a_message_are_not_the_clients_words():
     text = handed("compte 6125", ["ICE 001122334455667.pdf", "b.png"])
     assert files_of(text) == ["ICE 001122334455667.pdf", "b.png"] and own_words(text) == "compte 6125"
     assert files_of(handed("", [])) == [] and own_words(handed("", [])) == ""
+    left = ["lot.zip › compte 6126.docx : type non pris en charge"]  # what a zip left out: not their words either
+    text = handed("compte 6125", ["lot.zip › f.pdf"], left)
+    assert files_of(text) == ["lot.zip › f.pdf"] and own_words(text) == "compte 6125" and "6126" in text
+    assert own_words(handed("", [], left)) == ""
 
 
 @pytest.mark.functionality

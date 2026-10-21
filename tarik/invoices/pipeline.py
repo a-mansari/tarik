@@ -6,8 +6,9 @@ import json
 import time
 
 from tarik.core.app import ok, question, routine, step_tool, stop, tool, wait
+from tarik.core.archives import unpacked
 from tarik.core.cabinets import cabinet_db
-from tarik.core.config import ENTRY_FILES, READ_WAIT, READING, TEST_MODE
+from tarik.core.config import ENTRY_FILES, FILE_TYPES, READ_WAIT, READING, TEST_MODE
 from tarik.core.conversation import chosen_among, own_words, yes_no
 from tarik.core.experio import odoo_call, require_invoice
 from tarik.core.queries import Q
@@ -409,17 +410,20 @@ def answer_pending(session_id: str, answer: str, decision: str = "", about: str 
 @tool
 def save_files(session_id: str = "", files: list | None = None) -> dict:
     """Save a conversation's files, the agent's attachments: [{ id, file_name, mime_type, data (base64) }], whose id
-    saves each one once however many times the sequence runs."""
-    saved = []
+    saves each one once however many times the sequence runs. A zip is saved as the files in it Tarik takes
+    (tarik.core.archives), each under its archive's id and its own name."""
+    saved, skipped = [], []
     with cabinet_db() as db:
         for file in files or []:
-            row = db.execute(
-                Q.insert_agent_file,
-                (session_id, file["file_name"], file["mime_type"], base64.b64decode(file["data"]), file.get("id")),
-            ).fetchone()
-            if row:
-                saved.append({"id": row[0], "file_name": file["file_name"]})
-    return ok(f"{len(saved)} fichier(s) enregistre(s).", files=saved)
+            found, left = unpacked([(file["file_name"], file["mime_type"], base64.b64decode(file["data"]))], FILE_TYPES)
+            skipped += left
+            for name, mime, data in found:
+                key = file.get("id") if len(found) == 1 and name == file["file_name"] else f"{file.get('id')}:{name}"
+                row = db.execute(Q.insert_agent_file, (session_id, name, mime, data, key)).fetchone()
+                if row:
+                    saved.append({"id": row[0], "file_name": name})
+    left = f" Ignores : {' ; '.join(skipped)}." if skipped else ""
+    return ok(f"{len(saved)} fichier(s) enregistre(s).{left}", files=saved)
 
 
 @tool

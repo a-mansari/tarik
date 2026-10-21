@@ -69,6 +69,7 @@ def test_a_message_reads_as_written_with_its_files_and_reminders_left_out():
         "who": "Client",
         "text": "Voici",
         "files": ["a.pdf", "b.png"],
+        "skipped": [],
     }
     assert chat_pages.said(HumanMessage(f"Voici{FILES_NOTE}a.pdf{REMINDER}")) is None
 
@@ -174,3 +175,12 @@ def test_the_dashboard_s_numbers_are_read_once_per_change_for_every_viewer(monke
         assert (await chat_pages.metrics_of("cab_m"))["runs"] == 2 and len(asked) == 2
 
     asyncio.run(check())
+
+
+def test_what_an_archive_left_out_shows_under_the_message():
+    from tarik.core.conversation import handed
+
+    text = handed("Voici", ["lot.zip › f.pdf"], ["lot.zip › notes.docx : type non pris en charge"])
+    shown = chat_pages.said(HumanMessage(text))
+    assert shown["text"] == "Voici" and shown["files"] == ["lot.zip › f.pdf"]
+    assert shown["skipped"] == ["lot.zip › notes.docx : type non pris en charge"]

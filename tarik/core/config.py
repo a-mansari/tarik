@@ -41,3 +41,4 @@ SIMILAR_NAME: Final = 0.9  # a new dossier's name this close to another one's is
 MAX_PAGES: Final = 3  # the first pages carry every field checked
 SCALE: Final = 150 / 72  # pages rendered at 150 dpi for the model
 ENTRY_FILES: Final = (".csv", ".txt", ".xlsx", ".xlsm")  # FEC and grand livre files, as import_entries reads them
+FILE_TYPES: Final = (".pdf", ".jpg", ".jpeg", ".png", *ENTRY_FILES)  # what Tarik takes from a client (a zip: its files)

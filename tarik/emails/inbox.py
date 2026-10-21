@@ -18,8 +18,9 @@ from email.utils import parseaddr
 import psycopg
 
 from tarik.core.app import ToolError, log, ok, tool
+from tarik.core.archives import unpacked
 from tarik.core.cabinets import cabinet_db, current, setting
-from tarik.core.config import ENTRY_FILES, READING
+from tarik.core.config import FILE_TYPES, READING
 from tarik.core.experio import odoo_call
 from tarik.core.queries import Q
 from tarik.core.words import strip_tags
@@ -35,7 +36,6 @@ FOLLOW_UP_MINUTES = 30  # how long after Tarik's reply the drafts Experio was re
 ACKNOWLEDGEMENT = (
     "Votre message est bien reçu. Je le traite et vous réponds dans ce fil, en général d'ici quelques minutes."
 )
-FILE_TYPES = (".pdf", ".jpg", ".jpeg", ".png", *ENTRY_FILES)
 
 # Where the client's own text stops and the quoted history begins: a line starting with "Le ... a écrit :",
 # "On ... wrote:", "-- Message d'origine" / "-- Original message", or a quoted header ("De :", "From:", "Envoyé :").
@@ -80,16 +80,19 @@ def client_text(message):
 
 
 def attachments(message):
-    """The files the client sent, as [(name, mime type, bytes)]: an invoice, a statement, a FEC. Inline images
-    (signature logos) are left out."""
+    """The files the client sent, as [(name, mime type, bytes)]: an invoice, a statement, a FEC; a zip replaced by the
+    files in it (tarik.core.archives, what it leaves out logged). Inline images (signature logos) are left out."""
     found = []
     for part in message.iter_attachments():
         name = part.get_filename() or ""
-        if not name.lower().endswith(FILE_TYPES):
+        if not name.lower().endswith((*FILE_TYPES, ".zip")):
             continue
         if part.get_content_maintype() == "image" and part.get_content_disposition() == "inline":
             continue
         found.append((name, part.get_content_type(), part.get_payload(decode=True) or b""))
+    found, skipped = unpacked(found, FILE_TYPES)
+    for why in skipped:
+        log(f"attachment left out: {why}")
     return found
 
 

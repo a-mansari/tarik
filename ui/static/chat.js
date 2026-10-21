@@ -65,6 +65,10 @@
       });
       const found = await answer.json().catch(() => ({ error: "Réponse illisible du serveur." }));
       if (!answer.ok) throw new Error(found.error || "Message refusé.");
+      if (found.skipped?.length) { // what a zip left out, told to who sent it
+        failure.textContent = `Laissés de côté dans l'archive : ${found.skipped.join(" ; ")}`;
+        failure.hidden = false;
+      }
       form.reset();
       if (form.dataset.opens) opened();
       follow();

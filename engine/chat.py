@@ -20,13 +20,13 @@ ASK_TRIES, QUICK = 3, 200
 REMINDER = "\n\nRappel : ces fichiers n'ont pas ete traites. Traitez-les maintenant si rien ne manque."
 
 
-async def answered(cabinet, session, message, files, node):
+async def answered(cabinet, session, message, files, node, skipped=()):
     """Tarik's reply to the client's ``message`` and its saved ``files`` (their names), in the conversation
     ``session`` (its own thread): asked again with a reminder while the files stay untaken. Each ask is a run of the
     agent's own, started from the step ``node``."""
     from engine import runs  # runs imports the graphs, this one among them
 
-    text = handed(message, files)
+    text = handed(message, files, skipped)
     started = time.monotonic()
     await within(cabinet, remember_client_message, session, message)
     for attempt in range(ASK_TRIES):
@@ -48,11 +48,13 @@ class Chat(Steps, total=False):
     session_id: str
     message: str
     files: list  # the names of the files saved with the message
+    skipped: list  # what a zip of the message held that Tarik does not take, and why (tarik.core.archives)
 
 
 async def ask(state: Chat):
     try:
-        reply = await answered(state["cabinet"], state["session_id"], state["message"], state["files"], "tarik")
+        given = state["cabinet"], state["session_id"], state["message"], state["files"]
+        reply = await answered(*given, "tarik", state.get("skipped", ()))
         return {"reply": reply}
     except Exception:  # no reply (the model failing): told plainly, the message can be sent again
         return {"error": "Tarik n'a pas pu repondre pour le moment. Renvoyez votre message dans un instant."}

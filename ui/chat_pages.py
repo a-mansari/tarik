@@ -17,15 +17,17 @@ from engine import agent, live, runs
 from engine.chat import REMINDER
 from engine.content import LABELS
 from engine.tools import call
+from tarik.core.archives import unpacked
 from tarik.core.cabinets import CABINETS
-from tarik.core.conversation import files_of, own_words
+from tarik.core.config import FILE_TYPES
+from tarik.core.conversation import SKIPPED_NOTE, files_of, own_words
 from tarik.core.queries import Q
-from tarik.emails.inbox import FILE_TYPES
 from ui.pages import chosen, templates
 
 SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations: the only ones written to from here
 SHOWN = re.compile(r"[\w.@-]{1,120}")  # any conversation's id, to read it (an email thread's, a workflow's)
 MAX_FILES, MAX_FILE, MAX_TEXT = 10, 20 * 1024 * 1024, 4000  # files per message, bytes per file, characters
+ACCEPTED = (*FILE_TYPES, ".zip")  # a zip is opened before anything is saved (tarik.core.archives)
 
 
 def known(cabinet, session=None, written=True):
@@ -77,7 +79,13 @@ def said(message):
     text = agent.text_of(message.content)
     if text.endswith(REMINDER):
         return None
-    return {"who": "Client", "text": own_words(text), "files": files_of(text)}
+    left = text.partition(SKIPPED_NOTE)[2]
+    return {
+        "who": "Client",
+        "text": own_words(text),
+        "files": files_of(text),
+        "skipped": left.split(" ; ") if left else [],
+    }
 
 
 async def messages(session):
@@ -113,7 +121,12 @@ async def talk(cabinet, session):
         given = (await runs.run(latest["run_id"]))["input"] or {}
         clients = [entry for entry in shown if entry["who"] == "Client"]
         if not clients or clients[-1]["text"].strip() != (given.get("message") or "").strip():
-            shown.append({"who": "Client", "text": given.get("message", ""), "files": given.get("files", [])})
+            pending = {
+                "text": given.get("message", ""),
+                "files": given.get("files", []),
+                "skipped": given.get("skipped", []),
+            }
+            shown.append({"who": "Client", **pending})
     return {"messages": shown, "latest": latest, "going": going}
 
 
@@ -140,7 +153,7 @@ async def conversation_page(request: Request):
         "session_id": session,
         "written": bool(SESSION.fullmatch(session)),
         **await talk(cabinet, session),
-        "accepted": ",".join(FILE_TYPES),
+        "accepted": ",".join(ACCEPTED),
         "max_files": MAX_FILES,
         "max_mb": MAX_FILE // (1024 * 1024),
     }
@@ -204,10 +217,15 @@ async def send(request: Request):
     if len(files) > MAX_FILES:
         return refused(f"{MAX_FILES} fichiers au plus par message.")
     for file in files:
-        if not file["file_name"].lower().endswith(FILE_TYPES) or "/" in file["file_name"]:
-            return refused(f"{file['file_name']} : type non accepté ({', '.join(FILE_TYPES)}).")
+        if not file["file_name"].lower().endswith(ACCEPTED) or "/" in file["file_name"]:
+            return refused(f"{file['file_name']} : type non accepté ({', '.join(ACCEPTED)}).")
         if not file["data"] or len(file["data"]) > MAX_FILE:
             return refused(f"{file['file_name']} : vide, ou plus de {MAX_FILE // (1024 * 1024)} Mo.")
+    # A zip, replaced by the files in it Tarik takes; what it leaves out is told to the person who sent it.
+    found, skipped = unpacked([(f["file_name"], f["mime_type"], f["data"]) for f in files], FILE_TYPES)
+    files = [{"file_name": name, "mime_type": mime, "data": data} for name, mime, data in found]
+    if not text and not files:
+        return refused("Aucun fichier utilisable dans l'archive : " + " ; ".join(skipped))
     if files:
         await call(
             cabinet,
@@ -215,9 +233,15 @@ async def send(request: Request):
             session_id=session,
             files=[{**file, "data": base64.b64encode(file["data"]).decode(), "id": digest(file)} for file in files],
         )
-    given = {"cabinet": cabinet, "session_id": session, "message": text, "files": [f["file_name"] for f in files]}
+    given = {
+        "cabinet": cabinet,
+        "session_id": session,
+        "message": text,
+        "files": [f["file_name"] for f in files],
+        "skipped": skipped,
+    }
     run_id, _ = await runs.start("discussion", {"input": given, "cabinet": cabinet, "session_id": session})
-    return JSONResponse({"run_id": run_id}, status_code=202)
+    return JSONResponse({"run_id": run_id, "skipped": skipped}, status_code=202)
 
 
 DAYS = 30  # the dashboard's period
@@ -256,7 +280,7 @@ async def dashboard_page(request: Request):
         "messages": [],
         "latest": None,
         "going": False,
-        "accepted": ",".join(FILE_TYPES),
+        "accepted": ",".join(ACCEPTED),
         "max_files": MAX_FILES,
         "max_mb": MAX_FILE // (1024 * 1024),
     }
