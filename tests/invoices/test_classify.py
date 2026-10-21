@@ -42,3 +42,11 @@ def test_a_side_the_client_gives_asks_for_a_new_look(asked):
     classify.classify_invoice(5)
     asked["answer"] = "vente"
     assert classify.classify_invoice(5, "vente")["category"] == "vente" and asked["model"] == 2
+
+
+@pytest.mark.functionality
+def test_a_draft_that_is_no_invoice_is_left_alone(asked):
+    asked["answer"] = "autre"  # a screenshot, a contract: never given a side nor a type
+    result = classify.classify_invoice(5)
+    assert result["status"] == "stop" and "ce n'est pas une facture mais un autre document" in result["message"]
+    assert asked["filled"] == []

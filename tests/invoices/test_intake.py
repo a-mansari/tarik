@@ -169,3 +169,55 @@ def test_gladden_identifies_a_file_first_and_the_model_when_it_cant(
     assert answer["kind"] == kind and bool(asked) == model_asked
     assert sent == ([1] if callback_url else [])  # the first page only, as the model sees it
     assert db.queries[-1][1] == (kind, 1)
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "said, kind",
+    [
+        ("Ce n'est pas un relevé bancaire, c'est une facture d'achat.", "invoice"),
+        ("facture.pdf : ce n'est pas un relevé", "invoice"),
+        ("Il s'agit d'une facture de douane", "invoice"),
+        ("c'est un relevé, pas une facture", "statement"),
+        ("Voici la facture et le relevé de mars", None),  # what was sent, not what a file is
+        ("c'est une facture ; c'est un relevé", None),  # both: nothing decided
+        ("", None),
+    ],
+)
+def test_what_the_client_says_a_file_is_is_read_from_their_words_only(said, kind):
+    from tarik.invoices.intake import client_kind
+
+    assert client_kind(said) == kind
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "message, imported, kind",
+    [
+        ("Objet : Re: relevé\n\ndouane.pdf n'est pas un relevé, c'est une facture d'achat.", None, "invoice"),
+        ("Objet : Re: relevé\n\nce n'est pas un relevé, c'est une facture.", None, "statement"),  # which file?
+        ("Objet : Re: relevé\n\ndouane.pdf n'est pas un relevé, c'est une facture.", 4524, "statement"),  # imported
+    ],
+)
+def test_the_client_corrects_a_file_s_kind_until_it_is_imported(message, imported, kind, monkeypatch):
+    from tarik.invoices import intake
+
+    db = FakeDb(("s", "douane.pdf", "application/pdf", pdf(1), "statement", None, imported, None))
+    monkeypatch.setattr(intake, "cabinet_db", lambda: db)
+    monkeypatch.setattr(intake, "gladden_type", lambda raw: pytest.fail("a known kind is never read again"))
+    assert intake.identify_document(1, client_message=message)["kind"] == kind
+    assert any(params == ("invoice", 1) for _, params in db.queries) == (kind == "invoice")
+
+
+@pytest.mark.functionality
+def test_a_document_that_is_neither_invoice_nor_statement_is_said_and_left_alone(monkeypatch):
+    from tarik.invoices import intake
+
+    db = FakeDb((None, "contrat leasing.pdf", "application/pdf", pdf(2), None, None, None, None))
+    monkeypatch.setattr(intake, "cabinet_db", lambda: db)
+    monkeypatch.setattr(intake, "gladden_type", lambda raw: None)
+    monkeypatch.setattr(intake, "classify_pages", lambda pages, what: ("autre", "un contrat de crédit-bail"))
+    answer = intake.identify_document(1)
+    assert answer["status"] == "stop" and answer["kind"] == "other"
+    assert answer["message"].startswith("`contrat leasing.pdf` : ni une facture ni un relevé bancaire")
+    assert db.queries[-1][1] == ("other", 1)

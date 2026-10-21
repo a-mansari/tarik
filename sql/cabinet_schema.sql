@@ -12,13 +12,17 @@ create table if not exists tarik_files (
     invoice_id integer, -- the draft invoice made from it: a second call must not make another
     parent_id integer references tarik_files (id), -- set on each invoice cut out of a multi-invoice PDF
     -- identify_document, before anything is created; entries: import_entries took it (imported or refused)
-    kind text check (kind in ('invoice', 'statement', 'entries')),
+    kind text, -- invoice, statement, entries or other (tarik_files_kind_check, below)
     statement_id integer, -- the bank statement imported from it: a second call must not import it again
     created_at timestamptz not null default now()
 );
 -- The agent's attachment id: its files are saved once, however many times the sequence runs.
 alter table tarik_files add column if not exists source_id text;
 create unique index if not exists tarik_files_source on tarik_files (session_id, source_id);
+-- A file's kinds: dropped and added again at each start, so a new kind applies to old schemas too.
+alter table tarik_files drop constraint if exists tarik_files_kind_check;
+alter table tarik_files add constraint tarik_files_kind_check
+    check (kind in ('invoice', 'statement', 'entries', 'other'));
 
 -- What check_invoice read on each scan, against what Experio captured. The correction step reads it back.
 create table if not exists tarik_checks (
@@ -29,13 +33,17 @@ create table if not exists tarik_checks (
     checked_at timestamptz not null default now()
 );
 
--- What classify_invoice decided: achat, vente or rb (bank statement). The tiers and account steps read it.
+-- What classify_invoice decided: achat, vente, rb (bank statement) or autre (neither). The tiers and account steps
+-- read it.
 create table if not exists tarik_classifications (
     invoice_id integer primary key,
-    category text not null check (category in ('achat', 'vente', 'rb')),
+    category text not null,
     reason text not null,
     classified_at timestamptz not null default now()
 );
+alter table tarik_classifications drop constraint if exists tarik_classifications_category_check;
+alter table tarik_classifications add constraint tarik_classifications_category_check
+    check (category in ('achat', 'vente', 'rb', 'autre'));
 
 -- Each step outcome of each processing run (engine/traitement.py, engine/dossier.py).
 create table if not exists tarik_results (

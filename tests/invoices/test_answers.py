@@ -145,6 +145,28 @@ def test_a_statement_gets_the_bank_account_the_client_names(answers, monkeypatch
 
 
 @pytest.mark.functionality
+def test_a_file_the_client_says_is_no_statement_becomes_an_invoice_without_any_import(answers, monkeypatch):
+    with cabinet_db() as db:
+        file_id = db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, kind) values "
+            "('s', 'douane.pdf', 'application/pdf', '', 'statement') returning id"
+        ).fetchone()[0]
+        db.execute(
+            "insert into tarik_results (run_id, session_id, file_id, dossier_id, step, status, message, choices) "
+            "values ('r', 's', %s, 557, 'import_bank_statement', 'question', 'douane.pdf : lequel ?', %s)",
+            (file_id, '{"4": "BMCE - BMCE BANK"}'),
+        )
+    monkeypatch.setattr(pipeline, "import_bank_statement", lambda *args: pytest.fail("never imported"))
+    said = "Ce n'est pas un relevé bancaire, c'est une facture d'achat."
+    result = pipeline.answer_pending("s", said, "")
+    assert result["status"] == "ok" and result["next_step"] == "identify_document"
+    assert (result["file_id"], result["dossier_id"], result["invoice_type"]) == (file_id, 557, "achat")
+    with cabinet_db() as db:
+        assert db.execute("select kind from tarik_files where id = %s", (file_id,)).fetchone() == ("invoice",)
+    assert pipeline.waiting_on("s") == []  # no bank account asked any more
+
+
+@pytest.mark.functionality
 def test_the_date_the_client_gives_is_the_invoices(monkeypatch):
     written = []
     monkeypatch.setattr(

@@ -152,7 +152,7 @@ where run_id = %s order by id
 select file_id, dossier_id, message, file_name, choices from (select distinct on (r.file_id) r.file_id,
 r.dossier_id, r.status, r.message, r.choices, f.file_name from tarik_results r join tarik_files f
 on f.id = r.file_id
-where r.session_id = %s and r.step = 'import_bank_statement' and f.statement_id is null
+where r.session_id = %s and r.step = 'import_bank_statement' and f.statement_id is null and f.kind = 'statement'
 order by r.file_id, r.id desc) latest where status = 'question'
 
 -- name: banks_asked

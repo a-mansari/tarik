@@ -11,14 +11,20 @@ from tarik.core import gladden
 from tarik.core.app import ToolError, ok, question, routine, step_tool, stop
 from tarik.core.cabinets import cabinet_db, setting
 from tarik.core.config import TEST_MODE
-from tarik.core.conversation import client_messages
+from tarik.core.conversation import client_messages, own_words
 from tarik.core.experio import dry_run, in_dossier, odoo_call, refused, require_dossier
 from tarik.core.model import pdf_pages, to_pdf
 from tarik.core.queries import Q
-from tarik.core.words import normalized
+from tarik.core.words import normalized, said
 from tarik.invoices.classify import classify_pages, client_side
 
-KIND_LABEL = {"invoice": "une facture", "statement": "un relevé bancaire"}
+KIND_LABEL = {"invoice": "une facture", "statement": "un relevé bancaire", "other": "ni une facture ni un relevé"}
+# How a client corrects what a file they sent is, in their own words (normalized): it wins over Gladden's and the
+# model's reading, as long as the file is not imported yet. Both kinds said, or none: nothing is decided.
+KIND_WORDS = {
+    "invoice": r"(?:c est|ce sont|il s agit d) (?:une |des )?factures?|(?:pas|ni) (?:un |des )?releves?",
+    "statement": r"(?:c est|ce sont|il s agit d) (?:un |des )?releves?|(?:pas|ni) (?:une |des )?factures?",
+}
 # Gladden's types Tarik takes; any other (or none) leaves the file to the model.
 GLADDEN_KIND = {"invoice": "invoice", "bank": "statement"}
 # What Q.file_locked selects, in its order.
@@ -33,6 +39,20 @@ def require_kind(name, kind, wanted):
     if kind != wanted:
         other = "import_bank_statement" if kind == "statement" else "split_invoices puis create_draft_invoice"
         raise ToolError(f"`{name}` est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")
+
+
+def client_kind(text):
+    """The kind ("invoice" or "statement") the client's own ``text`` gives a file they sent, or None (neither, or
+    both said)."""
+    words = normalized(text or "")
+    found = {kind for kind, pattern in KIND_WORDS.items() if re.search(rf"(?<![a-z0-9])(?:{pattern})", words)}
+    return found.pop() if len(found) == 1 else None
+
+
+def set_kind(file_id, kind):
+    """Store ``kind`` for the file, as the client said it is (apply_answer)."""
+    with cabinet_db() as db:
+        db.execute(Q.set_file_kind, (kind, file_id))
 
 
 def gladden_type(raw):
@@ -58,15 +78,39 @@ def as_pdf(mime, data):
     return to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
 
 
+def identified(name, file_id, kind, reason=""):
+    """identify_document's answer: routine for an invoice or a statement, a stop for anything else (nothing is
+    made of it)."""
+    if kind == "other":
+        why = f" ({reason})" if reason else ""
+        return stop(
+            f"`{name}` : ni une facture ni un relevé bancaire{why}, je ne le saisis pas. Si c'en est un, dites-le-moi.",
+            kind=kind,
+            file_id=file_id,
+        )
+    return routine(f"`{name}` : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
+
+
 @step_tool
-def identify_document(file_id: int) -> dict:
+def identify_document(file_id: int, client_message: str = "") -> dict:
     """Call it first for every file the client sends: says whether it is an
-    invoice (then split_invoices, create_draft_invoice) or a bank statement
-    (then import_bank_statement). Nothing else accepts a file it hasn't seen."""
+    invoice (then split_invoices, create_draft_invoice), a bank statement
+    (then import_bank_statement), or neither (nothing is made of it). Nothing else accepts a file it hasn't seen.
+    What the client says the file is (``client_message``, their own words) wins, until it is imported."""
     with cabinet_db() as db:
-        name, mime, data, kind = file_row(db, file_id, "file_name", "mime_type", "data", "kind")
+        name, mime, data, kind, invoice_id, statement_id = file_row(
+            db, file_id, "file_name", "mime_type", "data", "kind", "invoice_id", "statement_id"
+        )
+        # Only a correction: of a file already identified, which the client names (a new file's kind is read, a
+        # message's "voici une facture et le relevé" never decides it for each of its files).
+        words = own_words(client_message)
+        named = kind and said(normalized(name.split(" › ")[-1].rsplit(".", 1)[0]), normalized(words))
+        said_kind = client_kind(words) if named else None
+        if said_kind and said_kind != kind and not invoice_id and not statement_id:
+            db.execute(Q.set_file_kind, (said_kind, file_id))
+            return routine(f"`{name}` : {KIND_LABEL[said_kind]}, comme vous l'avez dit.", kind=said_kind)
         if kind:
-            return routine(f"`{name}` : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
+            return identified(name, file_id, kind)
         if mime != "application/pdf" and not mime.startswith("image/"):
             raise ToolError(f"`{name}` : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
         raw = as_pdf(mime, data)
@@ -77,12 +121,12 @@ def identify_document(file_id: int) -> dict:
         # The first page decides: an invoice is often followed by its payment's proofs (a cheque, the bank's
         # notice or account extract), which would make the whole file look like a statement.
         # shortcut: a PDF mixing invoices and a statement needs splitting by kind.
-        kind = GLADDEN_KIND.get(gladden_type(raw))
+        kind, reason = GLADDEN_KIND.get(gladden_type(raw)), ""
         if kind is None:
-            category, _ = classify_pages(pages, "Identification du document")
-            kind = "statement" if category == "rb" else "invoice"
+            category, reason = classify_pages(pages, "Identification du document")
+            kind = {"rb": "statement", "autre": "other"}.get(category, "invoice")
         db.execute(Q.set_file_kind, (kind, file_id))
-    return routine(f"`{name}` : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
+    return identified(name, file_id, kind, reason)
 
 
 # How a PDF of several pages is cut, as Experio's own import screen asks it (split_type): one invoice per page, or

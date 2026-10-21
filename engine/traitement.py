@@ -155,7 +155,8 @@ class File(Given, Outcomes, total=False):
 
 
 async def identify(state: File):
-    result = await run_step(state, "identify_document", file_id=state["file_id"])
+    message = state["call"].get("client_message") or ""
+    result = await run_step(state, "identify_document", file_id=state["file_id"], client_message=message)
     return {"last": result, "outcomes": [result]}
 
 
@@ -370,6 +371,9 @@ def resume_at(state: Run):
         return "resume"
     if following == "waiting_drafts":
         return "brouillons"
+    if following == "identify_document":  # the client said what the file is: it starts over from there
+        call = {**state["call"], "dossier_id": last["dossier_id"], "invoice_type": last.get("invoice_type") or ""}
+        return Send("fichier", {"call": call, "run_id": state["run_id"], "file_id": last["file_id"], "outcomes": []})
     return Send(
         "fichier",
         {

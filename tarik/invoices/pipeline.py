@@ -16,8 +16,9 @@ from tarik.core.words import normalized
 from tarik.dossiers.people import check_sender
 from tarik.dossiers.setup import ask_banks, set_journal_bank
 from tarik.invoices.accounts import set_account
+from tarik.invoices.classify import client_side
 from tarik.invoices.exercice import settle_exercice
-from tarik.invoices.intake import import_bank_statement
+from tarik.invoices.intake import client_kind, import_bank_statement, set_kind
 from tarik.invoices.prepaid import settle_prepaid
 from tarik.invoices.tiers import choose_tiers
 from tarik.invoices.tva import settle_tva
@@ -322,6 +323,7 @@ def waiting_on(session_id):
                 "step": "import_bank_statement",
                 "question": text,
                 "label": f"relevé {name}",
+                "file_name": name,
                 "names": {normalized(name), normalized(name.rsplit(".", 1)[0])},
                 "choices": choices,
             }
@@ -399,6 +401,18 @@ def apply_answer(item, answer, decision):
     fine, the ``next_step`` the sequence resumes at. A oui / non question the decision doesn't settle is asked
     again."""
     if item["step"] == "import_bank_statement":
+        if client_kind(own_words(answer)) == "invoice":  # « ce n'est pas un relevé, c'est une facture »
+            set_kind(item["file_id"], "invoice")
+            told = f"`{item['file_name']}` : une facture, comme vous l'avez dit."
+            sides = [side for side in ("achat", "vente") if client_side(side, answer)]  # « une facture d'achat »
+            return {
+                **ok(told),
+                "step": "import_bank_statement",
+                "file_id": item["file_id"],
+                "dossier_id": item["dossier_id"],
+                "invoice_type": sides[0] if len(sides) == 1 else "",
+                "next_step": "identify_document",
+            }
         chosen = chosen_among(decision, item["choices"]) or 0  # 0: the question is asked again
         imported = import_bank_statement(item["file_id"], item["dossier_id"], chosen)
         return {**imported, "step": "import_bank_statement"}

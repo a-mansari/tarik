@@ -25,15 +25,15 @@ SIDES = {"achat": {"achat"}, "vente": {"vente"}, "mixte": {"achat", "vente"}}
 
 
 def classify_pages(pages, what):
-    """The model's (category, reason) for a document's ``pages``: achat, vente or rb (bank statement). ``what``
-    names the step in logs and errors."""
+    """The model's (category, reason) for a document's ``pages``: achat, vente, rb (bank statement) or autre
+    (neither: a contract, a schedule, a screenshot). ``what`` names the step in logs and errors."""
     result = ask_model(
         tool_prompt("classify-document"),
         pages,
-        'Answer with only a JSON object: {"category": "achat"|"vente"|"rb", "reason": "one French sentence"}',
+        'Answer with only a JSON object: {"category": "achat"|"vente"|"rb"|"autre", "reason": "one French sentence"}',
         what,
     )
-    if result.get("category") not in ("achat", "vente", "rb"):
+    if result.get("category") not in ("achat", "vente", "rb", "autre"):
         log(f"{what}: unexpected category {result.get('category')!r}")
         raise ToolError(
             f"{what} : {READER} n'a pas su dire si c'est une facture d'achat, de vente ou un relevé bancaire ; "
@@ -47,8 +47,8 @@ def side_of(invoice):
     else Experio's type. ToolError for a bank statement or neither side."""
     with cabinet_db() as db:
         row = db.execute(Q.classification_of_invoice, (invoice["id"],)).fetchone()
-    if row and row[0] == "rb":
-        raise ToolError(f"Facture {invoice['id']} : c'est un relevé bancaire, pas une facture.")
+    if row and row[0] in ("rb", "autre"):
+        raise ToolError(f"Facture {invoice['id']} : ce n'est pas une facture.")
     side = CATEGORY_TO_TYPE[row[0]] if row else invoice["type"]
     if side not in ("purchase", "sale"):
         raise ToolError(f"Facture {invoice['id']} : ni achat ni vente, classez-la d'abord avec classify_invoice.")
@@ -103,10 +103,10 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     else:
         category, reason = classify_pages(scan_pages(invoice["document_pdf"]), "Classement de la facture")
         _save_classification(invoice_id, category, reason)
-    if category == "rb":
+    if category in ("rb", "autre"):
+        what = "un relevé bancaire" if category == "rb" else "un autre document"
         return stop(
-            f"Facture {invoice_id} : ce n'est pas une facture mais un relevé bancaire ({reason}). "
-            "Rien n'a ete modifie.",
+            f"Facture {invoice_id} : ce n'est pas une facture mais {what} ({reason}). Rien n'a été modifié.",
             category=category,
         )
     if invoice_type in CATEGORY_TO_TYPE and category != invoice_type:
