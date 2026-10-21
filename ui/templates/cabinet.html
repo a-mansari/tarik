@@ -54,10 +54,10 @@
       {% if history %}
       <ol class="versions settings-history">
         {% for item in history %}
-        <li>
-          <span class="num muted">{{ item.at | when }} · {{ item.author }}</span>
+        <li><div class="entry">
+          <span class="num">{{ item.at | when }}</span> <b>{{ item.author }}</b>
           <ul>{% for change in item.changes %}<li><b>{{ names.get(change.key, change.key) }}</b>{% if change.before is none %} : remplacé{% else %} : <span class="mono">{{ change.before or '(vide)' }}</span> → <span class="mono">{{ change.after or '(vide)' }}</span>{% endif %}</li>{% endfor %}</ul>
-        </li>
+        </div></li>
         {% endfor %}
       </ol>
       {% else %}<p class="muted">Aucun changement fait depuis cette page.</p>{% endif %}

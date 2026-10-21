@@ -197,8 +197,10 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .field textarea { resize: vertical; line-height: 1.45; }
 button.primary, .compare button { font: inherit; cursor: pointer; border-radius: 6px; padding: .5rem 1rem; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); }
 .versions { list-style: none; padding: 0; display: grid; gap: .3rem; font-size: .85rem; }
-.versions a { display: grid; gap: .1rem; padding: .4rem .5rem; border-radius: 6px; color: var(--fg); text-decoration: none; }
+.versions a, .versions .entry { display: grid; gap: .1rem; padding: .4rem .5rem; border-radius: 6px; color: var(--fg); text-decoration: none; }
 .versions li[aria-current] a, .versions a:hover { background: var(--bg); }
+.versions > li + li { border-top: 1px solid var(--line); padding-top: .3rem; } /* one line between changes, so each reads as its own */
+.versions .chip { justify-self: start; }
 .diff { white-space: pre-wrap; word-break: break-word; font-size: .78rem; max-height: 22rem; overflow: auto; background: var(--bg); padding: .5rem; border-radius: 6px; }
 .diff .add { color: var(--good); }
 .diff .del { color: var(--bad); text-decoration: line-through; }
