@@ -17,17 +17,75 @@ from engine import agent, live, runs
 from engine.chat import REMINDER
 from engine.content import LABELS
 from engine.tools import call
+from tarik.core import archives
 from tarik.core.archives import unpacked
 from tarik.core.cabinets import CABINETS
-from tarik.core.config import FILE_TYPES
+from tarik.core.config import FILE_TYPES, MAX_PAGES
 from tarik.core.conversation import SKIPPED_NOTE, files_of, own_words
 from tarik.core.queries import Q
 from ui.pages import chosen, templates
 
 SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations: the only ones written to from here
 SHOWN = re.compile(r"[\w.@-]{1,120}")  # any conversation's id, to read it (an email thread's, a workflow's)
-MAX_FILES, MAX_FILE, MAX_TEXT = 10, 20 * 1024 * 1024, 4000  # files per message, bytes per file, characters
+MB = 1024 * 1024
+MAX_FILES, MAX_FILE, MAX_TEXT = 10, 20 * MB, 4000  # files per message, bytes per file, characters
 ACCEPTED = (*FILE_TYPES, ".zip")  # a zip is opened before anything is saved (tarik.core.archives)
+TYPES = ", ".join(kind.lstrip(".").upper() for kind in ACCEPTED)
+# Every cap on what a message carries, as the chat page lists them; each refusal names the one exceeded (problems).
+LIMITS = [
+    ("Types acceptés", f"{TYPES} (factures et relevés en PDF ou photo ; FEC et grand livre en CSV, TXT ou Excel)"),
+    ("Par message", f"{MAX_FILES} fichiers au plus ; {MAX_TEXT} caractères au plus"),
+    ("Par fichier", f"{MAX_FILE // MB} Mo au plus, non vide"),
+    (
+        "Archive ZIP",
+        f"{archives.MAX_FILES} fichiers et {archives.MAX_TOTAL // MB} Mo décompressés au plus, "
+        f"{archives.MAX_FILE // MB} Mo par fichier décompressé ; une seule archive dans l'archive ; sans mot de "
+        "passe. Ce qui est laissé de côté vous est dit.",
+    ),
+    ("Photos", "toute taille : redressées et réduites pour la lecture"),
+    ("Lecture", f"les {MAX_PAGES} premières pages d'une facture donnent ses informations"),
+]
+# What the page needs to show the limits and check them before sending (chat_form.html, chat.js).
+FORM = {
+    "accepted": ",".join(ACCEPTED),
+    "limits": LIMITS,
+    "checks": {
+        "accepted": ACCEPTED,
+        "max_files": MAX_FILES,
+        "max_file": MAX_FILE,
+        "max_text": MAX_TEXT,
+        "types": TYPES,
+    },
+}
+
+
+def megabytes(size):
+    return f"{size / MB:.1f} Mo".replace(".", ",")
+
+
+def problems(text, files):
+    """Each cap ``text`` and ``files`` exceed, in plain French: which one, by how much, and how to stay under it.
+    chat.js says the same before sending; this is what holds."""
+    found = []
+    if len(text) > MAX_TEXT:
+        found.append(f"Message de {len(text)} caractères : {MAX_TEXT} au plus. Raccourcissez-le.")
+    if len(files) > MAX_FILES:
+        found.append(
+            f"{len(files)} fichiers joints : {MAX_FILES} au plus par message. Envoyez les autres dans un second "
+            "message, ou réunissez-les dans un zip."
+        )
+    for file in files:
+        name, size = file["file_name"], len(file["data"])
+        if not name.lower().endswith(ACCEPTED) or "/" in name:
+            found.append(f"{name} : type non accepté. Types acceptés : {TYPES}.")
+        elif not size:
+            found.append(f"{name} : fichier vide.")
+        elif size > MAX_FILE:
+            found.append(
+                f"{name} : {megabytes(size)}, {MAX_FILE // MB} Mo au plus par fichier. Envoyez-le compressé ou en "
+                "plusieurs parties."
+            )
+    return found
 
 
 def known(cabinet, session=None, written=True):
@@ -153,9 +211,7 @@ async def conversation_page(request: Request):
         "session_id": session,
         "written": bool(SESSION.fullmatch(session)),
         **await talk(cabinet, session),
-        "accepted": ",".join(ACCEPTED),
-        "max_files": MAX_FILES,
-        "max_mb": MAX_FILE // (1024 * 1024),
+        **FORM,
     }
     template = "chat_talk.html" if request.query_params.get("partial") else "chat_conversation.html"
     return templates.TemplateResponse(request, template, context)
@@ -196,7 +252,7 @@ async def send(request: Request):
     if not known(cabinet, session):
         return refused("Conversation inconnue.")
     if int(request.headers.get("content-length") or 0) > MAX_FILES * MAX_FILE * 4 // 3 + 64 * 1024:
-        return refused("Message trop lourd.")
+        return refused(f"Message trop lourd : {MAX_FILES} fichiers de {MAX_FILE // MB} Mo au plus par message.")
     try:
         payload = await request.json()
         text = str(payload.get("message") or "").strip()
@@ -212,15 +268,8 @@ async def send(request: Request):
         return refused("Message illisible.")
     if not text and not files:
         return refused("Écrivez un message ou joignez un fichier.")
-    if len(text) > MAX_TEXT:
-        return refused(f"Message trop long : {MAX_TEXT} caractères au plus.")
-    if len(files) > MAX_FILES:
-        return refused(f"{MAX_FILES} fichiers au plus par message.")
-    for file in files:
-        if not file["file_name"].lower().endswith(ACCEPTED) or "/" in file["file_name"]:
-            return refused(f"{file['file_name']} : type non accepté ({', '.join(ACCEPTED)}).")
-        if not file["data"] or len(file["data"]) > MAX_FILE:
-            return refused(f"{file['file_name']} : vide, ou plus de {MAX_FILE // (1024 * 1024)} Mo.")
+    if exceeded := problems(text, files):
+        return refused("Rien n'a été envoyé :\n" + "\n".join(f"- {line}" for line in exceeded))
     # A zip, replaced by the files in it Tarik takes; what it leaves out is told to the person who sent it.
     found, skipped = unpacked([(f["file_name"], f["mime_type"], f["data"]) for f in files], FILE_TYPES)
     files = [{"file_name": name, "mime_type": mime, "data": data} for name, mime, data in found]
@@ -280,8 +329,6 @@ async def dashboard_page(request: Request):
         "messages": [],
         "latest": None,
         "going": False,
-        "accepted": ",".join(ACCEPTED),
-        "max_files": MAX_FILES,
-        "max_mb": MAX_FILE // (1024 * 1024),
+        **FORM,
     }
     return templates.TemplateResponse(request, "dashboard.html", context)

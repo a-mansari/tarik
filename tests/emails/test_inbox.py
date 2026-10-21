@@ -18,10 +18,12 @@ def test_the_client_text_and_files():
     mail.add_attachment(b"%PDF-1.4", maintype="application", subtype="pdf", filename="facture.pdf")
     mail.add_attachment(b"PNG", maintype="image", subtype="png", filename="logo.png", disposition="inline")
     mail.add_attachment(b"zip", maintype="application", subtype="zip", filename="archive.zip")
+    mail.add_attachment(b"doc", maintype="application", subtype="msword", filename="notes.docx")
     assert client_text(mail) == "Bonjour,\nci-joint nos factures."
     files, skipped = attachments(mail)
     assert [name for name, _, _ in files] == ["facture.pdf"]
-    assert skipped == ["archive.zip : archive illisible"]  # a zip that is none: said, never silently dropped
+    # A zip that is none, a type Tarik does not take: said, never silently dropped.
+    assert skipped == ["notes.docx : type non pris en charge", "archive.zip : archive illisible"]
     assert not automatic(mail)
 
 

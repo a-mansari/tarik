@@ -81,17 +81,19 @@ def client_text(message):
 
 def attachments(message):
     """The files the client sent, as ([(name, mime type, bytes)], what a zip of theirs left out and why): an invoice, a
-    statement, a FEC; a zip replaced by the files in it (tarik.core.archives). Inline images (signature logos) are
-    left out, unsaid: never the client's."""
-    found = []
+    statement, a FEC; a zip replaced by the files in it (tarik.core.archives). Inline images (signature logos) and
+    unnamed parts are left out, unsaid: never the client's; a named file of another type is said."""
+    found, other = [], []
     for part in message.iter_attachments():
         name = part.get_filename() or ""
-        if not name.lower().endswith((*FILE_TYPES, ".zip")):
+        if part.get_content_maintype() == "image" and part.get_content_disposition() == "inline" or not name:
             continue
-        if part.get_content_maintype() == "image" and part.get_content_disposition() == "inline":
+        if not name.lower().endswith((*FILE_TYPES, ".zip")):
+            other.append(f"{name} : type non pris en charge")
             continue
         found.append((name, part.get_content_type(), part.get_payload(decode=True) or b""))
-    return unpacked(found, FILE_TYPES)
+    files, skipped = unpacked(found, FILE_TYPES)
+    return files, other + skipped
 
 
 def automatic(message):

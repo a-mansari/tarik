@@ -295,7 +295,7 @@ def test_what_an_emailed_zip_left_out_is_told_in_the_reply(mailbox):
     assert thread["files"] == ["lot.zip › f1.pdf"]
     assert thread["skipped"] == ["lot.zip › notes.docx : type non pris en charge"]
     told = left_out(thread["skipped"])
-    assert told == "\n\nLaissés de côté dans votre archive :\n- lot.zip › notes.docx : type non pris en charge"
+    assert told == "\n\nFichiers laissés de côté :\n- lot.zip › notes.docx : type non pris en charge"
     assert left_out([]) == ""
 
 

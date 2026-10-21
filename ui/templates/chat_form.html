@@ -1,7 +1,8 @@
-{# The message to Tarik and its files (chat.js): on a conversation's page, or on the dashboard where it opens one. #}
+{# The message to Tarik and its files (chat.js): on a conversation's page, or on the dashboard where it opens one.
+   Its limits (chat_pages.LIMITS) listed under it, and checked by chat.js before anything is sent. #}
 {% from "icons.html" import icon %}
-  <form class="chat-form" id="chat-form" data-send="{{ send }}"{% if opens %} data-opens="yes"{% endif %}>
-    <textarea name="message" rows="3" maxlength="4000" placeholder="Votre message à Tarik (le dossier, achats ou ventes…)"></textarea>
+  <form class="chat-form" id="chat-form" data-send="{{ send }}" data-checks="{{ checks | tojson | forceescape }}"{% if opens %} data-opens="yes"{% endif %}>
+    <textarea name="message" rows="3" maxlength="{{ checks.max_text }}" placeholder="Votre message à Tarik (le dossier, achats ou ventes…)"></textarea>
     <div class="chat-actions">
       <label class="attach">{{ icon('attach') }}<span>Joindre des fichiers</span>
         <input type="file" name="files" multiple accept="{{ accepted }}"></label>
@@ -9,4 +10,8 @@
       <button type="submit" class="primary">Envoyer</button>
     </div>
     <p class="bad-text" id="chat-error" hidden></p>
+    <details class="limits">
+      <summary>Limites des fichiers</summary>
+      <dl>{% for what, cap in limits %}<dt>{{ what }}</dt><dd>{{ cap }}</dd>{% endfor %}</dl>
+    </details>
   </form>

@@ -46,11 +46,11 @@ def one_cabinet(monkeypatch):
         ({"message": "Bonjour"}, "cabinet_b", SESSION, "inconnue"),
         ({"message": "Bonjour"}, "cabinet_a", "mail-5fb65a1333466ddbe437", "inconnue"),  # never an email thread
         ({"message": " "}, "cabinet_a", SESSION, "joignez"),
-        ({"message": "x" * 4001}, "cabinet_a", SESSION, "trop long"),
+        ({"message": "x" * 4001}, "cabinet_a", SESSION, "Message de 4001 caractères : 4000 au plus"),
         ({"files": [pdf("script.sh")]}, "cabinet_a", SESSION, "type non accepté"),
         ({"files": [pdf("../facture.pdf")]}, "cabinet_a", SESSION, "type non accepté"),
         ({"files": [pdf(data=b"")]}, "cabinet_a", SESSION, "vide"),
-        ({"files": [pdf()] * 11}, "cabinet_a", SESSION, "10 fichiers"),
+        ({"files": [pdf()] * 11}, "cabinet_a", SESSION, "11 fichiers joints : 10 au plus par message"),
         ({"files": [{"file_name": "f.pdf", "data": "pas du base64!"}]}, "cabinet_a", SESSION, "illisible"),
     ],
 )
@@ -62,6 +62,22 @@ def test_a_wrong_message_is_refused_before_anything_is_done(payload, cabinet, se
     monkeypatch.setattr(chat_pages.runs, "start", never)
     status, error = sent(payload, cabinet, session)
     assert status == 400 and why in error
+
+
+@pytest.mark.communication
+def test_a_refusal_names_every_cap_exceeded_and_how_to_stay_under_it(monkeypatch):
+    monkeypatch.setattr(chat_pages, "MAX_FILE", chat_pages.MB)
+    status, error = sent({"files": [pdf("gros.pdf", b"x" * 1_600_000), pdf("notes.docx")]}, "cabinet_a", SESSION)
+    assert status == 400 and error.startswith("Rien n'a été envoyé :")
+    assert "- gros.pdf : 1,5 Mo, 1 Mo au plus par fichier. Envoyez-le compressé" in error
+    assert "- notes.docx : type non accepté. Types acceptés : PDF, JPG" in error
+
+
+def test_the_limits_listed_are_the_ones_checked():
+    shown = dict(chat_pages.LIMITS)
+    assert f"{chat_pages.MAX_FILES} fichiers au plus" in shown["Par message"]
+    assert f"{chat_pages.MAX_FILE // chat_pages.MB} Mo au plus" in shown["Par fichier"]
+    assert "ZIP" in shown["Types acceptés"] and "100 fichiers et 200 Mo" in shown["Archive ZIP"]
 
 
 def test_a_message_reads_as_written_with_its_files_and_reminders_left_out():
@@ -131,9 +147,7 @@ def test_the_dashboard_shows_its_numbers_as_the_team_reads_them(metrics, shown, 
         messages=[],
         latest=None,
         going=False,
-        accepted=".pdf",
-        max_files=10,
-        max_mb=20,
+        **chat_pages.FORM,
     )
     assert re.findall(r'<span class="value num">([^<]*)</span>', page) == shown
     assert 'data-send="/ui/discussion/cab_a/chat-' in page and 'data-opens="yes"' in page

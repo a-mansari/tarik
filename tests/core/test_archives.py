@@ -59,9 +59,8 @@ def test_a_zip_bomb_stops_at_the_limit(monkeypatch):
     monkeypatch.setattr(archives, "MAX_FILE", 1000)
     data = zipped(("enorme.pdf", b"0" * 50_000), ("petit.pdf", b"ok"))  # 50 kB of zeros: a few hundred bytes zipped
     kept, skipped = archives.unpacked([("b.zip", "application/zip", data)], FILE_TYPES)
-    assert names(kept) == ["b.zip › petit.pdf"] and skipped == [
-        "b.zip › enorme.pdf : trop volumineux une fois décompressé"
-    ]
+    assert names(kept) == ["b.zip › petit.pdf"] and len(skipped) == 1
+    assert skipped[0].startswith("b.zip › enorme.pdf : plus de") and "au plus par fichier" in skipped[0]
 
 
 @pytest.mark.security
@@ -69,13 +68,16 @@ def test_an_archive_gives_at_most_so_many_files_and_bytes(monkeypatch):
     monkeypatch.setattr(archives, "MAX_FILES", 3)
     data = zipped(*[(f"f{i}.pdf", b"x") for i in range(5)])
     kept, skipped = archives.unpacked([("c.zip", "application/zip", data)], FILE_TYPES)
-    assert len(kept) == 3 and skipped == ["c.zip : plus de 3 fichiers, les suivants ignorés"]
+    assert len(kept) == 3 and skipped == [
+        "c.zip : plus de 3 fichiers, les suivants ignorés (envoyez-les dans une autre archive)"
+    ]
     monkeypatch.setattr(archives, "MAX_FILES", 100)
     monkeypatch.setattr(archives, "MAX_TOTAL", 5)
     kept, skipped = archives.unpacked(
         [("d.zip", "application/zip", zipped(("a.pdf", b"123"), ("b.pdf", b"456")))], FILE_TYPES
     )
-    assert names(kept) == ["d.zip › a.pdf"] and skipped == ["d.zip › b.pdf : trop volumineux une fois décompressé"]
+    assert names(kept) == ["d.zip › a.pdf"] and len(skipped) == 1  # the archive's total, not the file's own size
+    assert skipped[0].startswith("d.zip › b.pdf : l'archive dépasse") and "autre archive" in skipped[0]
 
 
 @pytest.mark.security
@@ -86,7 +88,10 @@ def test_a_zip_in_a_zip_is_opened_once_never_deeper():
         [("e.zip", "application/zip", zipped(("f1.pdf", b"1"), ("sous.zip", inner)))], FILE_TYPES
     )
     assert names(kept) == ["e.zip › f1.pdf", "e.zip › sous.zip › f2.pdf"]
-    assert skipped == ["e.zip › sous.zip › encore.zip : archive dans une archive dans une archive"]
+    assert skipped == [
+        "e.zip › sous.zip › encore.zip : archive dans une archive dans une archive (une seule archive dans "
+        "l'archive au plus)"
+    ]
 
 
 @pytest.mark.security

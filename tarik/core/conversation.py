@@ -7,7 +7,8 @@ from tarik.core.words import normalized, said
 
 # What ask_agent adds to an email's text for the agent: never the client's own words.
 FILES_NOTE, NO_TEXT = "\n\nFichiers joints : ", "(pas de message)"
-SKIPPED_NOTE = "\n\nLaissés de côté dans une archive : "  # what a zip held that Tarik does not take, and why
+# What Tarik does not take of what the client sent (a file's type, what a zip held), and why.
+SKIPPED_NOTE = "\n\nFichiers laissés de côté : "
 
 
 def handed(message, files, skipped=()):
@@ -18,11 +19,11 @@ def handed(message, files, skipped=()):
 
 
 def left_out(skipped):
-    """What a client's zip left out (tarik.core.archives' notes), told to them: a paragraph to end a reply with, or ""
-    when nothing was. Added by the code, never left to the model to remember."""
+    """What Tarik left out of what a client sent (a file's type, tarik.core.archives' notes), told to them: a
+    paragraph to end a reply with, or "" when nothing was. Added by the code, never left to the model to remember."""
     if not skipped:
         return ""
-    return "\n\nLaissés de côté dans votre archive :\n" + "\n".join(f"- {why}" for why in skipped)
+    return "\n\nFichiers laissés de côté :\n" + "\n".join(f"- {why}" for why in skipped)
 
 
 def files_of(message):

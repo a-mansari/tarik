@@ -51,9 +51,31 @@
     if (!(await refresh())) done();
   }
 
+  // The caps the server holds (chat_pages.problems), said the same way before anything is read or sent.
+  const checks = JSON.parse(form.dataset.checks);
+  const megabytes = (size) => `${(size / 1048576).toFixed(1).replace(".", ",")} Mo`;
+  function problems(text, files) {
+    const found = [];
+    if (text.length > checks.max_text) found.push(`Message de ${text.length} caractères : ${checks.max_text} au plus. Raccourcissez-le.`);
+    if (files.length > checks.max_files) found.push(`${files.length} fichiers joints : ${checks.max_files} au plus par message. Envoyez les autres dans un second message, ou réunissez-les dans un zip.`);
+    for (const file of files) {
+      if (!checks.accepted.some((kind) => file.name.toLowerCase().endsWith(kind))) found.push(`${file.name} : type non accepté. Types acceptés : ${checks.types}.`);
+      else if (!file.size) found.push(`${file.name} : fichier vide.`);
+      else if (file.size > checks.max_file) found.push(`${file.name} : ${megabytes(file.size)}, ${checks.max_file / 1048576} Mo au plus par fichier. Envoyez-le compressé ou en plusieurs parties.`);
+    }
+    return found;
+  }
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     failure.hidden = true;
+    const exceeded = problems(form.message.value.trim(), [...form.files.files]);
+    if (exceeded.length) {
+      failure.textContent = `Rien n'a été envoyé :\n${exceeded.map((line) => `- ${line}`).join("\n")}`;
+      failure.hidden = false;
+      form.querySelector(".limits").open = true;
+      return;
+    }
     busy(true);
     try {
       const files = await Promise.all([...form.files.files].map(async (file) => ({
@@ -66,7 +88,7 @@
       const found = await answer.json().catch(() => ({ error: "Réponse illisible du serveur." }));
       if (!answer.ok) throw new Error(found.error || "Message refusé.");
       if (found.skipped?.length) { // what a zip left out, told to who sent it
-        failure.textContent = `Laissés de côté dans l'archive : ${found.skipped.join(" ; ")}`;
+        failure.textContent = `Fichiers laissés de côté :\n${found.skipped.map((line) => `- ${line}`).join("\n")}`;
         failure.hidden = false;
       }
       form.reset();

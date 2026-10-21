@@ -328,6 +328,13 @@ a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decorati
 .chat-form textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; resize: vertical; width: 100%; box-sizing: border-box; }
 .chat-actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; justify-content: space-between; }
 .chat-actions input[type=file] { min-width: 0; max-width: 100%; }
+.chat-form .bad-text { white-space: pre-line; }
+.limits { font-size: .85rem; color: var(--muted); }
+.limits summary { cursor: pointer; }
+.limits dl { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .8rem; margin: .4rem 0 0; }
+.limits dt { font-weight: 600; color: var(--fg); }
+.limits dd { margin: 0; }
+@media (max-width: 560px) { .limits dl { grid-template-columns: 1fr; } .limits dd { margin-bottom: .3rem; } }
 .talk .files li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .talk a.download:hover { border-color: var(--accent); }
 .talk .used { margin: .35rem 0; font-size: .85rem; }

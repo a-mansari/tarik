@@ -16,6 +16,7 @@ MAX_FILES = 100  # files kept from one archive, the nested ones included
 MAX_FILE = 50 * 1024 * 1024  # bytes read of one file, whatever its header says
 MAX_TOTAL = 200 * 1024 * 1024  # bytes kept from one archive in all
 SEPARATOR = " › "
+MB = 1024 * 1024
 
 
 def is_zip(name):
@@ -54,15 +55,26 @@ def opened(name, data, accepted, budget, skipped, depth):
             skipped.append(f"{label} : protégé par un mot de passe")
             continue
         if is_zip(base) and depth >= 2:
-            skipped.append(f"{label} : archive dans une archive dans une archive")
+            skipped.append(
+                f"{label} : archive dans une archive dans une archive (une seule archive dans l'archive au plus)"
+            )
             continue
         if not is_zip(base) and not base.lower().endswith(accepted):
             skipped.append(f"{label} : type non pris en charge")
             continue
         if budget["files"] <= 0:
-            skipped.append(f"{name} : plus de {MAX_FILES} fichiers, les suivants ignorés")
+            skipped.append(
+                f"{name} : plus de {MAX_FILES} fichiers, les suivants ignorés (envoyez-les dans une autre archive)"
+            )
             break
-        content, why = read(archive, member, min(MAX_FILE, budget["bytes"]))
+        limit = min(MAX_FILE, budget["bytes"])
+        content, why = read(archive, member, limit)
+        if why == TOO_BIG:
+            why = (
+                f"plus de {MAX_FILE // MB} Mo une fois décompressé ({MAX_FILE // MB} Mo au plus par fichier)"
+                if limit == MAX_FILE
+                else f"l'archive dépasse {MAX_TOTAL // MB} Mo décompressés (envoyez-le dans une autre archive)"
+            )
         if why:
             skipped.append(f"{label} : {why}")
             continue
@@ -75,6 +87,9 @@ def opened(name, data, accepted, budget, skipped, depth):
     return found
 
 
+TOO_BIG = "too big"  # read's answer for a file over its limit, said by the caller with the limit it was over
+
+
 def read(archive, member, limit):
     """(the member's bytes, "") read at most ``limit`` (+1 to know it is over), or (None, why it is left out)."""
     try:
@@ -82,4 +97,4 @@ def read(archive, member, limit):
             content = stream.read(limit + 1)
     except zipfile.BadZipFile, OSError, RuntimeError, NotImplementedError, ValueError:
         return None, "illisible"
-    return (None, "trop volumineux une fois décompressé") if len(content) > limit else (content, "")
+    return (None, TOO_BIG) if len(content) > limit else (content, "")
