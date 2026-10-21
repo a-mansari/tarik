@@ -28,6 +28,19 @@ if (rows && rows.dataset.cabinet) {
   });
 }
 
+// A list read again from its own page at each change it shows (data-follow: cabinet=… or session=…): the
+// discussions, the LLM logs. ``data-append`` keeps the items there (one opened stays open) and adds the new ones.
+for (const node of document.querySelectorAll("[data-follow]")) {
+  window.followChanges(node.dataset.follow, async () => {
+    const answer = await fetch(location.href);
+    if (!answer.ok) return;
+    const fresh = new DOMParser().parseFromString(await answer.text(), "text/html").getElementById(node.id);
+    if (!fresh) return;
+    if (!("append" in node.dataset)) { node.innerHTML = fresh.innerHTML; return; }
+    for (const item of fresh.children) if (!document.getElementById(item.id)) node.append(item.cloneNode(true));
+  });
+}
+
 const steps = document.getElementById("steps");
 const labels = JSON.parse(document.getElementById("labels")?.textContent || "{}");
 

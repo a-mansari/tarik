@@ -11,7 +11,7 @@
 <div class="table-wrap">
   <table class="runs">
     <thead><tr><th>Appel</th><th>Discussion</th><th>Exécution</th><th>Messages reçus</th></tr></thead>
-    <tbody>
+    <tbody id="calls"{% if cabinet %} data-follow="cabinet={{ cabinet | urlencode }}"{% endif %}>
       {% for call in calls %}
       <tr>
         <td><a href="/ui/llm-logs/{{ call.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}">{{ call.at | when }}</a></td>

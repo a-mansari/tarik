@@ -206,7 +206,7 @@ async def events(request: Request):
 
 async def changes(request: Request):
     """The pages' live updates (server-sent events): a "change" each time something they show changes, a cabinet's
-    runs (?cabinet=) or a conversation (?session=), at most one a second; the page then fetches what it shows. Nothing
+    runs (?cabinet=) or a conversation (?session=), at most two a second; the page then fetches what it shows. Nothing
     is read from the database here."""
     query = request.query_params
     keys = [("cabinet", query["cabinet"])] if query.get("cabinet") in CABINETS else []
@@ -223,7 +223,7 @@ async def changes(request: Request):
                 continue
             seen = now
             yield "event: change\ndata: {}\n\n"
-            await asyncio.sleep(1)  # the changes of the next second, one fetch for them all
+            await asyncio.sleep(0.5)  # the changes of the next half second, one fetch for them all
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 

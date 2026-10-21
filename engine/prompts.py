@@ -14,6 +14,7 @@ from langchain.agents.middleware import wrap_model_call
 from langgraph.config import get_config
 from psycopg import sql
 
+from engine import live
 from engine.settings import cabinet_of, session_of
 from tarik.core.queries import Q
 
@@ -90,6 +91,7 @@ async def save(cabinet, session_id, agent, system, tools, messages):
             if random.random() < 0.01:  # now and then, the calls older than KEEP_DAYS and the parts no call uses
                 await db.execute(of(Q.prompt_calls_expired_removed, cabinet), (KEEP_DAYS,))
                 await db.execute(of(Q.prompt_parts_unused_removed, cabinet))
+        live.touched(runs().RUNNING.get(), cabinet, session_id)  # the LLM logs pages show it at once
     except Exception as error:
         print(f"tarik prompts not saved: {error}", file=sys.stderr)
 
