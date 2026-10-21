@@ -59,7 +59,7 @@ SIDE = {
 }
 NO_AUTOFILL = (
     "pas de Compte Tiers {role} : dans ce dossier le cabinet les attribue lui-même "
-    "(numerotation automatique desactivee), la facture ne pourra pas être comptabilisée avant"
+    "(numérotation automatique désactivée), la facture ne pourra pas être comptabilisée avant"
 )
 INVOICE_FIELDS = [
     "state",
@@ -86,12 +86,12 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
     field, role = SIDE[kind]["account"], SIDE[kind]["role"]
     partner = odoo_call("exp.partner", "read", [partner_id], fields=["name", field], context=context)[0]
     if partner[field]:
-        return f"Compte Tiers {role} {partner[field]}"
+        return f"compte tiers {partner[field]}"
     if dry_run():  # the wizard proposes its code only once created: test mode reads the dossier's switch instead
         autofill = SIDE[kind]["autofill"]
         company = odoo_call("res.company", "read", context["allowed_company_ids"], fields=[autofill])[0]
         if company[autofill]:
-            return f"Compte Tiers {role} serait créé par Experio (numerotation automatique)"
+            return "compte tiers serait créé par Experio (numérotation automatique)"
         return NO_AUTOFILL.format(role=role)
     wizard = "exp.invoice.partner.account.wizard"
     wizard_id = odoo_call(wizard, "create", {"invoice_id": invoice_id}, context=context)
@@ -101,7 +101,7 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
     if not code:
         return NO_AUTOFILL.format(role=role)
     odoo_json(wizard, "action_confirm", [wizard_id], context=context)
-    return f"Compte Tiers {role} {code} créé"
+    return f"compte tiers {code} créé"
 
 
 def link(invoice, partner_id, kind):
@@ -125,7 +125,7 @@ def link(invoice, partner_id, kind):
 # Experio checks a new tiers' name, ICE and IF against the official registry; this is its answer when the registry
 # has nothing for them (a brand name with its company's ICE: "MIDAS" for AUDACE AUTO SARL's numbers).
 NOT_IN_REGISTRY = "aucune donnee n a pu etre recuperee"
-UNCHECKED = "sans verification"  # the client's words that create the tiers without the registry check
+UNCHECKED = "sans verification"  # normalized: the client's words that create the tiers without the registry check
 
 
 def as_named(name):
@@ -152,7 +152,7 @@ def create_tiers(invoice, name, kind, unchecked=False):
         partner_id = odoo_call("exp.partner", "create", values, context=invoice_context(invoice))
     except Exception as error:
         reason = experio_refusal(error)
-        log(f"tiers cree {invoice['id']} {name}: {error}")
+        log(f"tiers créé {invoice['id']} {name}: {error}")
         if NOT_IN_REGISTRY in normalized(reason) and not unchecked:
             numbers = ", ".join(
                 f"{label} {values[key]}" for key, label in (("ice", "ICE"), ("vat", "IF")) if key in values

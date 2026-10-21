@@ -33,7 +33,7 @@ def line(invoice):
     """One invoice of the list: "- facture 12 : F-001, ATLAS, 2026-03-15, 1 200.00 DH, brouillon"."""
     tiers = without_if((invoice["partner_id"] or [0, "tiers inconnu"])[1])
     return (
-        f"- facture {invoice['id']} : {invoice['invoice_number'] or 'sans numero'}, {tiers}, "
+        f"- facture {invoice['id']} : {invoice['invoice_number'] or 'sans numéro'}, {tiers}, "
         f"{invoice['invoice_date'] or 'sans date'}, {amount(invoice['amount_total'])} DH, {label(invoice)}"
     )
 

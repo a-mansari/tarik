@@ -500,7 +500,7 @@ def answer_pending(session_id: str, answer: str, decision: str = "", about: str 
     if not item:
         questions = "\n".join(f"- {entry['label']} : {entry['question']}" for entry in waiting)
         return question(
-            f"Plusieurs questions attendent votre réponse ; precisez la facture ou le relevé :\n{questions}",
+            f"Plusieurs questions attendent votre réponse ; précisez la facture ou le relevé :\n{questions}",
             step="answer_pending",
         )
     sender = check_sender(session_id, dossier_id=item.get("dossier_id", 0), invoice_id=item.get("invoice_id", 0))

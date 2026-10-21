@@ -92,7 +92,7 @@ def check_duplicate(invoice_id: int) -> dict:
             if len(batch) == 1 or not odoo_json("exp.invoice", "get_duplicated_invoice_ids", batch, context=context):
                 return routine(f"Facture {invoice_id} : pas de doublon dans le dossier.")
             if invoice_id == batch[0]:
-                return ok(
+                return routine(
                     f"Facture {invoice_id} : pas de doublon, c'est la première saisie ; les brouillons "
                     f"{', '.join(map(str, batch[1:]))} en sont des doublons."
                 )

@@ -55,7 +55,7 @@ def account_question(invoice, designation):
         if designation
         else "la designation est illisible, je n'ai pas pu choisir le compte"
     )
-    return f"{facture} : {why}.\nQuel compte utiliser (code ou intitule) ?"
+    return f"{facture} : {why}.\nQuel compte utiliser (code ou intitulé) ?"
 
 
 def chart(company_id, *domain):
@@ -76,8 +76,13 @@ def apply_account(invoice, account_id, why):
     with refused(f"apply_account {invoice_id} -> {account_id}", f"Facture {invoice_id} : Experio a refusé le compte."):
         fill_invoice(invoice_id, {"account_id": account_id}, context)
         refresh(invoice_id, context)
+    return ok(f"{test_mode_note()}Facture {invoice_id} : compte {account_label(account_id)} ({why}).")
+
+
+def account_label(account_id):
+    """The account's code and whole name (Experio's own label for it is cut short: « …des biens mobili »)."""
     account = odoo_call("exp.account", "read", [account_id], fields=["code", "name"])[0]
-    return ok(f"{test_mode_note()}Facture {invoice_id} : compte {account['code']} {account['name']} ({why}).")
+    return f"{account['code']} {account['name']}"
 
 
 def _fill_empty_chart(invoice_id, company_id):
@@ -87,7 +92,7 @@ def _fill_empty_chart(invoice_id, company_id):
         return None
     if dry_run():
         return ok(
-            f"{TEST_MODE}Plan comptable vide, les comptes de base seraient crees (dossier de la facture {invoice_id})."
+            f"{TEST_MODE}Plan comptable vide, les comptes de base seraient créés (dossier de la facture {invoice_id})."
         )
     # Experio's "Creer les comptes manquants" button: its wizard lists the base CGNC accounts the dossier lacks.
     wizard_id = odoo_call("exp.account.missing.wizard", "create", {}, context=in_dossier(company_id))
@@ -144,7 +149,7 @@ def assign_account(invoice_id: int, answer: str = "", client_message: str = "", 
         )
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     if invoice["account_id"]:
-        return ok(f"Facture {invoice_id} : compte déjà renseigné, {invoice['account_id'][1]}.")
+        return ok(f"Facture {invoice_id} : compte déjà renseigné, {account_label(invoice['account_id'][0])}.")
     # Without the dossier's own journal Experio cannot propose any account, and says so obscurely: an invoice made
     # before the dossier had journals still sits on another dossier's, which check_journal moves to its own.
     if refusal := journal_stop(invoice_id, require_invoice(invoice_id, JOURNAL_FIELDS)):
@@ -217,7 +222,7 @@ def set_account(invoice_id, answer):
     ("6111", "61110000") or a label ("achats de marchandises") on its own, else read from their sentence. When it
     names none clearly, the question again."""
     if not (answer or "").strip():
-        raise ToolError("answer manquant : le code ou l'intitule donne par le client.")
+        raise ToolError("answer manquant : le code ou l'intitulé donne par le client.")
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     accounts = chart(invoice["company_id"][0])
     account = resolve_account(accounts, answer) or account_meant(accounts, answer)
@@ -225,5 +230,5 @@ def set_account(invoice_id, answer):
         return apply_account(invoice, account["id"], f"demande du client : {answer.strip()}")
     return question(
         f"Facture {invoice_id} : « {without_subject(answer)} » ne désigne pas un seul compte du dossier. "
-        "Quel compte utiliser (code ou intitule) ?"
+        "Quel compte utiliser (code ou intitulé) ?"
     )

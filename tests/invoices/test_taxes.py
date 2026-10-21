@@ -17,7 +17,7 @@ WATER = {  # a water bill at 10 %, in a dossier made from a FEC: TVA 0 % and 20 
 @pytest.fixture
 def experio(monkeypatch):
     """A fake Experio: the dossier's taxes and settings, and what was created."""
-    state = {"taxes": [{"id": 4951, "rate": 20.0, "account_id": [243204, "34550000 Etat - TVA recuperable"]}]}
+    state = {"taxes": [{"id": 4951, "rate": 20.0, "account_id": [243204, "34550000 État - TVA récupérable"]}]}
     state.update(created=[], listed=[4949, 4951], dry=False)
 
     def odoo_call(model, method, *args, **kw):
@@ -60,14 +60,14 @@ def test_a_missing_rate_gets_its_tax_on_the_dossiers_tva_account(experio):
     ]
     assert experio["listed"] == [4949, 4951, 5000]  # Configuration > General > Achats > Autres taxes
     assert notes == [
-        "taxe TVA 10% ACHATS creee (compte 34550000)",
+        "taxe TVA 10% ACHATS créée (compte 34550000)",
         "taxe 10 % ajoutee aux taxes du dossier (Configuration > General)",
     ]
 
 
 @pytest.mark.functionality
 def test_a_rate_with_its_listed_tax_changes_nothing(experio):
-    experio["taxes"].append({"id": 4960, "rate": 10.0, "account_id": [243204, "34550000 Etat"]})
+    experio["taxes"].append({"id": 4960, "rate": 10.0, "account_id": [243204, "34550000 État"]})
     experio["listed"].append(4960)
     assert taxes.add_missing_taxes(272379, {}) == [] and experio["created"] == []
 
@@ -75,7 +75,7 @@ def test_a_rate_with_its_listed_tax_changes_nothing(experio):
 @pytest.mark.functionality
 def test_in_test_mode_nothing_is_created(experio):
     experio["dry"] = True
-    assert taxes.add_missing_taxes(272379, {}) == ["taxe TVA 10% ACHATS serait creee (compte 34550000)"]
+    assert taxes.add_missing_taxes(272379, {}) == ["taxe TVA 10% ACHATS serait créée (compte 34550000)"]
     assert experio["created"] == []
 
 

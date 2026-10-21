@@ -68,7 +68,7 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
     invoice = require_draft_invoice(invoice_id, [*fields, "amount_tax_non_recoverable", "tax_prorata", "tva_line_ids"])
     if not invoice["account_id"]:
         if dry_run():  # the account step only simulated its write
-            return ok(f"{TEST_MODE}Facture {invoice_id} : la TVA sera reglee une fois le compte enregistre.")
+            return ok(f"{TEST_MODE}Facture {invoice_id} : la TVA sera réglée une fois le compte enregistré.")
         raise ToolError(
             f"Facture {invoice_id} : pas encore de compte, appelez d'abord assign_account (la TVA en dépend)."
         )

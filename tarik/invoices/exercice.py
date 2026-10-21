@@ -122,7 +122,7 @@ def new_exercice(invoice_id, invoice, opens):
         log(f"settle_exercice {invoice_id}: {error}")
         return question(
             f"Facture {invoice_id} : Experio refuse de créer l'exercice {year} ({experio_refusal(error)}). "
-            f"La comptabiliser plutot comme facture antérieure dans un exercice ouvert ? "
+            f"La comptabiliser plutôt comme facture antérieure dans un exercice ouvert ? "
             f"({', '.join(e['name'] for e in opens)})"
         )
     return ok(f"Facture {invoice_id} : exercice {year} créé et ouvert, la facture y est rattachée.")

@@ -63,5 +63,5 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
         fill_invoice(invoice_id, {"has_prepaid_expenses": True, **values}, context)
     return ok(
         f"{test_mode_note()}Facture {invoice_id} : {kind} constates d'avance sur {values['prepaid_months']} mois "
-        f"a partir du {values['prepaid_start_date']} (ecritures generees à la comptabilisation)."
+        f"à partir du {values['prepaid_start_date']} (écritures générées à la comptabilisation)."
     )

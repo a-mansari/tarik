@@ -110,14 +110,14 @@ def add_missing_taxes(invoice_id, context):
         if not found:
             account = tva_account(company_id, side, immo, taxes)
             if not account:
-                notes.append(f"taxe {rate} % : aucun compte de TVA dans le dossier, a creer par le cabinet")
+                notes.append(f"taxe {rate} % : aucun compte de TVA dans le dossier, à créer par le cabinet")
                 continue
             values = tax_values(invoice, rate, account, immo)
             if dry_run():
-                notes.append(f"taxe {values['name']} serait creee (compte {account['code']})")
+                notes.append(f"taxe {values['name']} serait créée (compte {account['code']})")
                 continue
             found = [odoo_call("exp.tax", "create", values, context=context)]
-            notes.append(f"taxe {values['name']} creee (compte {account['code']})")
+            notes.append(f"taxe {values['name']} créée (compte {account['code']})")
         if dry_run():
             continue
         state = listed(company_id, field, found[0], context)

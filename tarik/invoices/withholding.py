@@ -39,7 +39,7 @@ QUESTIONS = {
 FOREIGN_SHAPE = (
     'Answer with only a JSON object: {"rule": "none"|"supplier"|"society"|null, "abroad": true|false}. '
     "rule: none = sans retenue (1), supplier = à la charge du fournisseur (2), society = à la charge de la "
-    "societe (3), null when the answer does not say. abroad: the service was rendered outside Morocco "
+    "société (3), null when the answer does not say. abroad: the service was rendered outside Morocco "
     '("hors Maroc", "a l\'etranger").'
 )
 LOCAL_SHAPE = (

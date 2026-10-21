@@ -64,7 +64,7 @@ def journal_stop(invoice_id, invoice):
     return stop(
         f"{start}, à régler par le cabinet avant de continuer : créer ou importer les journaux du dossier "
         f"(Configuration > Comptabilite > Journaux), puis le choisir dans Configuration > {where}. "
-        "Rien n'a ete modifie."
+        "Rien n'a été modifié."
     )
 
 

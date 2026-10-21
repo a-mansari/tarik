@@ -37,7 +37,7 @@ def classify_pages(pages, what):
         log(f"{what}: unexpected category {result.get('category')!r}")
         raise ToolError(
             f"{what} : {READER} n'a pas su dire si c'est une facture d'achat, de vente ou un relevé bancaire ; "
-            "precisez-le dans votre message."
+            "précisez-le dans votre message."
         )
     return result["category"], str(result.get("reason") or "")
 
@@ -117,7 +117,7 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     if invoice_type in CATEGORY_TO_TYPE and category != invoice_type:
         return stop(
             f"Facture {invoice_id} : vous l'avez donnée comme {invoice_type}, mais elle ressemble à une {category} "
-            f"({reason}). Laissee en brouillon, rien n'a ete modifie : verifiez-la dans Experio.",
+            f"({reason}). Laissée en brouillon, rien n'a été modifié : vérifiez-la dans Experio.",
             category=category,
         )
     wanted = CATEGORY_TO_TYPE[category]
