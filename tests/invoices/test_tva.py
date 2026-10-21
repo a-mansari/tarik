@@ -30,7 +30,6 @@ def experio(monkeypatch):
     monkeypatch.setattr(tva, "side_of", lambda invoice: invoice["type"])
     monkeypatch.setattr(tva, "fill_invoice", lambda invoice_id, changes, context: state["written"].append(changes))
     monkeypatch.setattr(tva, "refresh", lambda invoice_id, context: None)
-    monkeypatch.setattr(tva, "experio_notes", lambda invoice_id, context: "")
     monkeypatch.setattr(tva, "test_mode_note", lambda: "")
     monkeypatch.setattr(tva, "_tax_lines", lambda invoice_id, context: ["500.0 HT a 20.0 % (TVA 20%)"])
     monkeypatch.setattr(tva, "odoo_call", lambda *a, **k: [{"use_prorata": state["prorata"], "prorata_rate": 80}])

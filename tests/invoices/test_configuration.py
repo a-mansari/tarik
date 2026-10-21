@@ -62,22 +62,26 @@ def test_experios_own_detection_runs_only_when_its_check_blocks(experio):
 
 
 @pytest.mark.communication
-def test_what_still_blocks_is_named_for_the_cabinet(experio):
+def test_what_still_blocks_stops_the_invoice_the_dossier_s_settings_apart_from_the_invoice_s_own(experio):
     experio["after"] = [
         ("cgnc", "<p>The configuration of <b>local supplier journal</b> is not defined.</p>"),
-        ("warning", "x"),
+        ("error", "Le montant TTC de la facture doit être strictement positif."),
     ]
     result = configuration.configure_cabinet(3)
+    assert result["status"] == "stop"
     assert result["message"].endswith(
-        "Reste a parametrer par le cabinet : The configuration of local supplier journal is not defined. ; x"
+        "Pas comptabilisable en l'etat. A regler par le cabinet dans la Configuration du dossier : The configuration "
+        "of local supplier journal is not defined. Sur la facture elle-meme, Experio signale : Le montant TTC de la "
+        "facture doit être strictement positif."
     )
 
 
 @pytest.mark.functionality
-def test_a_warning_still_blocks_posting(experio):
+def test_a_warning_still_blocks_posting_and_is_no_setting(experio):
     experio["after"] = [("warning", "<p>Date d'echeance depassee</p>")]
     result = configuration.configure_cabinet(3)
-    assert result["message"].endswith("Reste a parametrer par le cabinet : Date d'echeance depassee")
+    assert result["status"] == "stop" and "Configuration" not in result["message"]
+    assert result["message"].endswith("Sur la facture elle-meme, Experio signale : Date d'echeance depassee.")
 
 
 @pytest.mark.functionality
@@ -91,8 +95,8 @@ def test_an_amount_the_invoice_carries_turns_its_switch_on_with_its_account(expe
     assert "retenue de garantie active(s) dans le dossier" in result["message"]
     # no 6149 account for the prorata, no 6167 for the stamp: the cabinet's, named
     assert result["message"].endswith(
-        "Reste a parametrer par le cabinet : prorata : compte a choisir dans Configuration ; "
-        "timbre : compte a choisir dans Configuration"
+        "A regler par le cabinet dans la Configuration du dossier : prorata : compte a choisir ; "
+        "timbre : compte a choisir."
     )
     experio["calls"].clear()
     assert "active(s)" not in configuration.configure_cabinet(3)["message"]  # set now: nothing written again

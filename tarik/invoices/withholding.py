@@ -12,7 +12,6 @@ from tarik.core.config import POSTED
 from tarik.core.conversation import instructed
 from tarik.core.experio import (
     account_code,
-    experio_notes,
     fill_invoice,
     invoice_context,
     odoo_call,
@@ -201,5 +200,4 @@ def settle_withholding(invoice_id: int, answer: str = "", client_message: str = 
     ):
         fill_invoice(invoice_id, values, context)  # Experio's onchange sets the RAS lines and accounts, as on screen
         refresh(invoice_id, context)
-        experio = experio_notes(invoice_id, context)
-    return ok(f"{test_mode_note()}Facture {invoice_id} : {described(values)}.{experio}")
+    return ok(f"{test_mode_note()}Facture {invoice_id} : {described(values)}.")

@@ -12,7 +12,6 @@ from tarik.core.conversation import kept_yes_no, yes_no
 from tarik.core.experio import (
     account_code,
     dry_run,
-    experio_notes,
     fill_invoice,
     invoice_context,
     odoo_call,
@@ -93,9 +92,9 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
                 notes.append("TVA non recuperable")  # Experio saves it on the supplier when the invoice is posted
         refresh(invoice_id, context)  # Experio picks the tax for each rate
         taxed = _tax_lines(invoice_id, context)
-        experio = experio_notes(invoice_id, context)
+    # Only the TVA is said here: what else Experio refuses on the invoice is configure_cabinet's and post_invoice's.
     body = f"{test_mode_note()}Facture {invoice_id} : TVA {'non recuperable' if non_recoverable else 'recuperable'}"
     body += (f", {', '.join(notes)}" if notes and not non_recoverable else "") + ". "
     body += ("Lignes : " + "; ".join(taxed) + ".") if taxed else "Pas encore de ligne de TVA."
-    told = non_recoverable or notes or experio  # what the client should know: else routine
-    return ok(body + experio) if told else routine(body)
+    told = non_recoverable or notes  # what the client should know: else routine
+    return ok(body) if told else routine(body)

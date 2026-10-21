@@ -9,12 +9,23 @@ one tax per rate and type from the 3455 and 4455 accounts, the 0 % ones always).
 turns on the settings the detection leaves off (a switch is never auto-detected): an amount the invoice carries
 (retenue de garantie, prorata, assurance, avance, timbre, debours, taxes de sejour) that Experio would drop silently
 with its switch off, with its account by its CGNC code when the detection found none. Then it reads again what
-still blocks: an account or a journal the dossier lacks is the cabinet's to create.
+still blocks, told apart: a setting the dossier lacks (Experio's "cgnc" level, an account to choose) is the
+cabinet's, in Configuration; what Experio refuses on the invoice itself (an amount, a field, a warning) is no
+setting at all. Either stops the invoice there, before it is said verified.
 """
 
-from tarik.core.app import ok, routine, step_tool
+from tarik.core.app import ok, routine, step_tool, stop
 from tarik.core.config import TEST_MODE
-from tarik.core.experio import blocking, dry_run, invoice_context, odoo_call, odoo_json, refused, require_invoice
+from tarik.core.experio import (
+    blocking,
+    checked,
+    dry_run,
+    invoice_context,
+    odoo_call,
+    odoo_json,
+    refused,
+    require_invoice,
+)
 
 TVA_ACCOUNTS = ["|", ("code", "=like", "3455%"), ("code", "=like", "4455%")]
 # Per amount of the invoice: its name, then per side (purchase, sale) the dossier's switch (None: none), its
@@ -52,6 +63,11 @@ AMOUNTS = {
 }
 FOREIGN_IGNORED = {"amount_guarantee_holdback", "amount_prorata", "amount_insurance", "advance_amount"}
 INVOICE_FIELDS = ["state", "company_id", "exercice_id", "type", "is_local_invoice", *AMOUNTS]
+
+
+def listed(texts):
+    """``texts`` as one sentence: "a ; b." (Experio's own end with their period: not doubled)."""
+    return " ; ".join(text.rstrip(". ") for text in texts) + "."
 
 
 def tax_count(company_id):
@@ -113,8 +129,8 @@ def save_settings(company_id, values, context):
 def configure_cabinet(invoice_id: int) -> dict:
     """Fill the dossier's settings the invoice needs to be posted, as Experio's own screens do:
     the taxes its TVA accounts call for, then Configuration's "Detection automatique", which fills
-    every empty setting from the chart of accounts and the journals. Says what still blocks after
-    that: an account or a journal the dossier lacks, for the cabinet."""
+    every empty setting from the chart of accounts and the journals. What still blocks after that stops the
+    invoice: a setting the dossier lacks, for the cabinet, apart from what Experio refuses on the invoice itself."""
     invoice = require_invoice(invoice_id, INVOICE_FIELDS)
     if invoice["state"] != "draft":
         return routine(f"Facture {invoice_id} : en etat {invoice['state']}, rien a parametrer.")
@@ -140,11 +156,18 @@ def configure_cabinet(invoice_id: int) -> dict:
         values, names, cabinet = settings_needed(invoice, company)
         if values and not save_settings(company_id, values, context):
             cabinet, names = [*names, *cabinet], []
-        after = blocking(invoice_id, context)
+        after = checked(invoice_id, context)
     done = f"Facture {invoice_id} : detection automatique des parametres du dossier lancee"
     done += f", {made} taxe(s) creee(s)" if made else ""
     done += f", {', '.join(names)} active(s) dans le dossier" if names else ""
-    after += [f"{name} : compte a choisir dans Configuration" for name in cabinet]
-    if after:
-        return ok(f"{done}. Reste a parametrer par le cabinet : " + " ; ".join(after))
-    return ok(f"{done} : plus rien ne bloque la comptabilisation.")
+    settings = [text for level, text in after if level == "cgnc"]
+    settings += [f"{name} : compte a choisir" for name in cabinet]
+    refused_here = [text for level, text in after if level != "cgnc"]
+    if not (settings or refused_here):
+        return ok(f"{done} : plus rien ne bloque la comptabilisation.")
+    told = []
+    if settings:
+        told.append("A regler par le cabinet dans la Configuration du dossier : " + listed(settings))
+    if refused_here:
+        told.append("Sur la facture elle-meme, Experio signale : " + listed(refused_here))
+    return stop(f"{done}. Pas comptabilisable en l'etat. " + " ".join(told))

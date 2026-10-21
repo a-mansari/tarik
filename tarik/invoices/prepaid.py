@@ -9,7 +9,6 @@ entries with the dossier's prepaid account and journal.
 from tarik.core.app import ok, question, routine, step_tool
 from tarik.core.conversation import kept_yes_no
 from tarik.core.experio import (
-    experio_notes,
     fill_invoice,
     invoice_context,
     refused,
@@ -62,8 +61,7 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
     with refused(f"settle_prepaid {invoice_id}", f"Facture {invoice_id} : Experio a refuse la repartition."):
         # Ticked first, as on screen (its onchange fills defaults), then the period read on the scan.
         fill_invoice(invoice_id, {"has_prepaid_expenses": True, **values}, context)
-        experio = experio_notes(invoice_id, context)
     return ok(
         f"{test_mode_note()}Facture {invoice_id} : {kind} constates d'avance sur {values['prepaid_months']} mois "
-        f"a partir du {values['prepaid_start_date']} (ecritures generees a la comptabilisation).{experio}"
+        f"a partir du {values['prepaid_start_date']} (ecritures generees a la comptabilisation)."
     )

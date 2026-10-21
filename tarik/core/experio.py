@@ -299,11 +299,17 @@ def misplaced_journals(company_id, fields):
     }
 
 
-def blocking(invoice_id, context):
-    """What Experio's own check (the Comptabiliser button's) says blocks posting the invoice ([str], plain text).
-    Its warnings too: Tarik posts only when the check says nothing at all."""
+def checked(invoice_id, context):
+    """Experio's own check (the Comptabiliser button's) of the invoice: [(level, plain text)], its level "cgnc" for
+    the dossier's settings, "error" for the invoice's own fields and amounts, "warning"."""
     messages = odoo_json("exp.invoice", "collect_validation_messages", [invoice_id], context=context) or []
-    return [plain(text) for _level, text in messages]
+    return [(level, plain(text)) for level, text in messages]
+
+
+def blocking(invoice_id, context):
+    """What Experio's own check says blocks posting the invoice ([str], plain text). Its warnings too: Tarik posts
+    only when the check says nothing at all."""
+    return [text for _level, text in checked(invoice_id, context)]
 
 
 def experio_refusal(error):
@@ -314,14 +320,6 @@ def experio_refusal(error):
 def plain(html):
     """Experio's HTML message as one line of text."""
     return " ".join(strip_tags(html, " ").split())
-
-
-def experio_notes(invoice_id, context):
-    """Experio's own error and warning on the invoice, as " Erreur Experio : ... Avertissement Experio : ..."
-    to end a message with, "" when there is none."""
-    invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=["error_msg", "warning_msg"], context=context)[0]
-    labelled = (("Erreur Experio", invoice["error_msg"]), ("Avertissement Experio", invoice["warning_msg"]))
-    return "".join(f" {label} : {plain(html)}" for label, html in labelled if plain(html))
 
 
 FORM_SKIP = {"one2many", "many2many", "binary", "html", "properties", "json"}  # field types the form can't send back
