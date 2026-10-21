@@ -81,3 +81,13 @@ def test_no_sql_in_python():
         if EMBEDDED.search(line)
     ]
     assert not found, "SQL hors de sql/ : " + ", ".join(found)
+
+
+@pytest.mark.style
+def test_skipped_files_are_said_once_by_the_code_never_repeated_by_the_agent():
+    """tarik.core.conversation.left_out ends every email with what was left out: the instructions must not have the
+    agent say it too (a duplicate block in every such reply)."""
+    from engine import agent
+
+    assert "dis-le-lui toujours dans ta réponse" not in agent.AGENT["instructions"]
+    assert "ne les répète pas" in agent.AGENT["instructions"]
