@@ -69,3 +69,17 @@ def test_a_message_asking_for_work_without_a_file_is_told_its_attachment_is_miss
 
     assert files_to_process("s", asked=True)["message"] == NO_FILE
     assert files_to_process("s")["message"] == "0 fichier(s) a traiter."  # a follow-up says nothing
+
+
+@pytest.mark.technical
+def test_a_draft_another_run_is_working_on_is_never_taken_up_by_a_second_one(db_cabinet, monkeypatch):
+    from tarik.invoices import pipeline
+
+    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain: domain[0][2])  # every one still a draft
+    pipeline.record_step("A", "s", "wait_until_read", {"status": "wait", "message": "lit encore", "invoice_id": 7})
+    # Run A (conversation s) is still at it: run B, of another conversation asking to post the dossier's drafts, and
+    # a second run of s, both find draft 7 waiting, and leave it.
+    assert pipeline.waiting_drafts("s", run_id="B")["invoices"] == []
+    pipeline.run_summary("A")  # A is over: 7 is free
+    assert pipeline.waiting_drafts("s", run_id="B")["invoices"] == [7]
+    assert pipeline.waiting_drafts("s", run_id="C")["invoices"] == []  # now B's

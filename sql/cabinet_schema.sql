@@ -176,3 +176,11 @@ create table if not exists tarik_prompt_calls (
     created_at timestamptz not null default now()
 );
 create index if not exists tarik_prompt_calls_session on tarik_prompt_calls (session_id, id);
+
+-- The invoices a processing run is working on: another run (another conversation) leaves them alone until it ends
+-- (run_summary releases them) or stops refreshing its claim for 30 minutes (a run cut short).
+create table if not exists tarik_working (
+    invoice_id integer primary key,
+    run_id text not null,
+    claimed_at timestamptz not null default now()
+);

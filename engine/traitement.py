@@ -327,6 +327,7 @@ async def waiting(state: Run):
         held=call.get("comptabiliser") == "oui",
         dossier_id=state.get("dossier_id", 0),
         stopped=call.get("mode") != "resume",
+        run_id=state["run_id"],
     )
     return {"invoices": result.get("invoices", []), "outcomes": [result]}
 

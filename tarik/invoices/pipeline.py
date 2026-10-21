@@ -182,6 +182,8 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
             Q.insert_result,
             (*row, choices, result.get("journal_id")),
         )
+        if invoice_id:
+            db.execute(Q.claim_invoices, ([invoice_id], run_id))  # still working on it: refreshed, never taken over
         if invoice_id and status == "question":
             db.execute(
                 Q.upsert_pending,
@@ -246,6 +248,7 @@ def run_summary(run_id: str) -> dict:
             Q.run_outcomes,
             (run_id,),
         ).fetchall()
+        db.execute(Q.release_invoices, (run_id,))  # the run is over: its invoices are free for another
     if not rows:
         return ok(NOTHING)
     # In the sequence's order, whatever order the rows were recorded in (invoices of one run are interleaved).
@@ -557,7 +560,9 @@ def furthest_outcomes(rows):
 
 
 @tool
-def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, stopped: bool = False) -> dict:
+def waiting_drafts(
+    session_id: str, held: bool = False, dossier_id: int = 0, stopped: bool = False, run_id: str = ""
+) -> dict:
     """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
     waiting on Experio (still reading) or failed (an Experio or model timeout), or nothing was recorded for it (a
     run cut short: the server restarted). Every later step runs again; a question or a stop is not resumed here,
@@ -566,7 +571,8 @@ def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, sto
     resume). Both also reach the dossier ``dossier_id``'s drafts from any conversation, since the client may ask in
     a new email thread; never an automatic follow-up's. A draft deleted or posted in Experio since is left alone.
     Experio decides what is a draft: with ``held`` and a dossier, a draft Tarik posted that was put back to draft in
-    Experio since is posted again. When they ask to post and nothing is to be, the answer says why (a stop)."""
+    Experio since is posted again. When they ask to post and nothing is to be, the answer says why (a stop).
+    ``run_id``: the run taking them up, which claims them: a draft another run is still working on is left to it."""
     with cabinet_db() as db:
         rows = db.execute(
             Q.invoice_outcomes_of_session,
@@ -605,6 +611,9 @@ def waiting_drafts(session_id: str, held: bool = False, dossier_id: int = 0, sto
         if dossier_id and (held or stopped):
             domain.append(("company_id", "in", [dossier_id]))
         waiting = sorted(odoo_call("exp.invoice", "search", domain))
+    if waiting and run_id:
+        with cabinet_db() as db:
+            waiting = sorted(i for (i,) in db.execute(Q.claim_invoices, (waiting, run_id)).fetchall())
     if held and not waiting:
         return stop(nothing_to_post(session_id, dossier_id), invoices=[])
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)

@@ -404,3 +404,14 @@ update tarik_mail_threads set state = %s, claimed_at = null, attempts = 0, reaso
 follow_up_until = case when %s = 'follow_up'
 then coalesce(follow_up_until, now() + make_interval(mins => %s)) end,
 updated_at = now() where thread_id = %s
+
+-- name: claim_invoices
+-- Of the invoices given, those this run may work on: free, already its own, or left by a run silent for 30 minutes.
+insert into tarik_working (invoice_id, run_id) select unnest(%s::int[]), %s
+on conflict (invoice_id) do update set run_id = excluded.run_id, claimed_at = now()
+where tarik_working.run_id = excluded.run_id or tarik_working.claimed_at < now() - interval '30 minutes'
+returning invoice_id
+
+-- name: release_invoices
+-- The run is over: its invoices are free.
+delete from tarik_working where run_id = %s
