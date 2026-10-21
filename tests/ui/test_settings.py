@@ -25,6 +25,7 @@ BEFORE = {
         ("ODOO_UID", "-3", "entier positif"),
         ("ODOO_USER", "", "vide"),
         ("MAIL_MANAGER", "pas une adresse", "adresse"),
+        ("MODEL_ADAPTER", "gpt", "l'un de"),
         ("SMTP_FROM", "Tarik <pas-une-adresse>", "expéditeur"),
         ("MAIL_ALLOWED_RECIPIENTS", "@cabinet.ma, n'importe qui", "n'importe qui"),
     ],
@@ -127,6 +128,7 @@ def test_the_page_renders_a_saved_change_and_never_a_secret():
         saved=["MAIL_ALLOWED_RECIPIENTS", "DRY_RUN"],
         names={key: key for key in cabinet_settings.FIELDS},
         history=[],
+        adapters=settings_pages.ADAPTERS,
     )
     assert "Enregistré : MAIL_ALLOWED_RECIPIENTS, DRY_RUN." in page
     assert "old-password" not in page and "mailbox-secret" not in page

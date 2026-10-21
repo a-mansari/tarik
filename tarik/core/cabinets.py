@@ -212,6 +212,7 @@ CABINET_SETTINGS = frozenset(
         "SMTP_FROM",
         "MAIL_MANAGER",
         "MAIL_ALLOWED_RECIPIENTS",
+        "MODEL_ADAPTER",  # the model Tarik works with (tarik.core.model.ADAPTERS); missing: MiniMax
         "ACTIVE",  # "0": deactivated by the Experio API (missing: served)
     ]
 )
@@ -226,6 +227,7 @@ SHARED_SETTINGS = frozenset(
         "MAIL_CERT_SHA256",
         "MODEL_API_KEY",  # secret/tarik/orchestrator
         "MODEL_API_URL",  # secret/tarik/orchestrator, optional (the provider's Anthropic-style address)
+        "CLAUDE_CODE_OAUTH_TOKEN",  # secret/tarik/orchestrator, optional: the claude CLI's login (`claude setup-token`)
         "EXPERIO_API_KEY",  # secret/tarik/orchestrator: what the Experio app shows to create, change or close cabinets
     ]
 )

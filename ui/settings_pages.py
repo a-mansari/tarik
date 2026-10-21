@@ -12,10 +12,12 @@ from app import cabinet_settings
 from engine import runs
 from engine.content import LABELS
 from tarik.core.cabinets import CABINETS
+from tarik.core.model import ADAPTERS
 from ui.pages import chosen, templates
 
 # The page's sections, in order: which settings each shows.
 SECTIONS = {
+    "Modèle": ["MODEL_ADAPTER"],
     "Experio": ["DRY_RUN", "ODOO_USER", "ODOO_UID", "ODOO_PASSWORD", "ODOO_API_KEY"],
     "Boîte mail de Tarik": ["IMAP_USER", "IMAP_PASSWORD", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM"],
     "Qui reçoit les emails de Tarik": ["MAIL_ALLOWED_RECIPIENTS", "MAIL_MANAGER"],
@@ -65,7 +67,7 @@ async def cabinet_page(request: Request):
         user = request.state.user
         try:
             done = await cabinet_settings.save(
-                runs.pool, cabinet, given, int(form.get("version", 0)), user["email"], form.get("note", "")
+                runs.pool, cabinet, given, int(form.get("version", 0)), user["email"]
             )
             return RedirectResponse(f"/ui/cabinets/{cabinet}?saved={quote(','.join(done) or '-')}", status_code=303)
         except ValueError as refused:
@@ -91,5 +93,6 @@ async def cabinet_page(request: Request):
         "saved": None if saved is None else [key for key in saved.split(",") if key in cabinet_settings.FIELDS],
         "names": {key: LABELS.get("settings", {}).get(key, {}).get("name", key) for key in cabinet_settings.FIELDS},
         "history": await cabinet_settings.history(runs.pool, cabinet),
+        "adapters": ADAPTERS,
     }
     return templates.TemplateResponse(request, "cabinet.html", context, status_code=400 if error else 200)

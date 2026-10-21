@@ -10,6 +10,7 @@ import httpx
 import pypdfium2
 from PIL import Image, ImageOps
 
+from tarik.core import claude_code
 from tarik.core.app import ToolError, log
 from tarik.core.cabinets import setting
 from tarik.core.config import MAX_PAGES, MAX_SIDE, MODEL_TIMEOUT, SCALE
@@ -61,6 +62,18 @@ def json_answer(text, keys=()):
 
 MODEL_URL = "https://api.minimax.io/anthropic"  # the provider's Anthropic-style address (MODEL_API_URL overrides it)
 
+# The models a cabinet may work with (MODEL_ADAPTER, the Cabinets page): the first one when it names none.
+ADAPTERS = {
+    "minimax": "MiniMax-M3, par l'API de MiniMax (MODEL_API_KEY)",
+    "claude-code": f"Claude ({claude_code.MODEL}), par la CLI Claude Code (CLAUDE_CODE_OAUTH_TOKEN)",
+}
+
+
+def adapter():
+    """The current cabinet's model adapter (a key of ADAPTERS)."""
+    chosen = setting("MODEL_ADAPTER", "minimax")
+    return chosen if chosen in ADAPTERS else "minimax"
+
 
 def model_name():
     """The model every tool uses: the agent's own (agent.json)."""
@@ -71,6 +84,8 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
     """The model's JSON answer (dict) to ``instruction`` about ``pages`` (PNG bytes, in order, maybe none).
     ``what`` names the step in the log and in the agent's ToolError when it fails. ``think``: M3 thinks first.
     ``keys``: the ones the answer must hold (json_answer)."""
+    if adapter() == "claude-code":
+        return ask_claude_code(system, pages, instruction, what, keys)
     key = setting("MODEL_API_KEY", "")
     if not key:
         raise ToolError(f"{what} : le modele n'est pas encore configure.")
@@ -100,6 +115,20 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
         log(f"{what}: {error!r}")
         raise ToolError(f"{what} : {READER} ne repond pas ; reessayez dans quelques minutes.") from None
     except Exception as error:
+        log(f"{what}: {error!r}")
+        raise ToolError(f"{what} : {READER} a donne une reponse illisible ; reessayez dans quelques minutes.") from None
+
+
+def ask_claude_code(system, pages, instruction, what, keys):
+    """ask_model through the Claude Code CLI (it does not think on demand: ``think`` has no use here)."""
+    png = [{"type": "base64", "media_type": "image/png", "data": base64.b64encode(page).decode()} for page in pages]
+    content = [*({"type": "image", "source": source} for source in png), {"type": "text", "text": instruction}]
+    try:
+        return json_answer(claude_code.ask(system, content), keys)
+    except claude_code.ClaudeCodeError as error:
+        log(f"{what}: {error}")
+        raise ToolError(f"{what} : {READER} est indisponible ; reessayez dans quelques minutes.") from None
+    except ValueError as error:
         log(f"{what}: {error!r}")
         raise ToolError(f"{what} : {READER} a donne une reponse illisible ; reessayez dans quelques minutes.") from None
 

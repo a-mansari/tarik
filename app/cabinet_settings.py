@@ -16,6 +16,7 @@ from psycopg.types.json import Jsonb
 from app import audit
 from app.accounts import EMAIL
 from tarik.core import cabinets
+from tarik.core.model import ADAPTERS
 from tarik.core.queries import Q
 
 ROLE = "/run/vault-settings"  # the page's AppRole files, mounted by docker-compose.yml
@@ -35,8 +36,10 @@ FIELDS = {
     "SMTP_FROM": "sender",
     "MAIL_MANAGER": "address",
     "MAIL_ALLOWED_RECIPIENTS": "recipients",
+    "MODEL_ADAPTER": "adapter",
 }
-OPTIONAL = {"SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KEY"}  # left empty: Tarik does without
+# Left empty: Tarik does without (MODEL_ADAPTER: the first of ADAPTERS).
+OPTIONAL = {"SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KEY", "MODEL_ADAPTER"}
 assert set(FIELDS) == cabinets.CABINET_SETTINGS - {"ACTIVE"}  # every cabinet setting on the page, but the API's own
 
 # As tarik.emails.sending reads the list: an address, an @domain, or a pattern with "*" ("test.*@experio.ma", "*").
@@ -70,6 +73,8 @@ def checked(key, value):
         if key in OPTIONAL:
             return
         raise ValueError(f"{key} ne peut pas être vide")
+    if kind == "adapter" and value not in ADAPTERS:
+        raise ValueError(f"{key} vaut l'un de : {', '.join(ADAPTERS)}")
     if kind == "flag" and value not in ("0", "1"):
         raise ValueError(f"{key} vaut 1 (simulation) ou 0 (écritures réelles)")
     if kind == "integer" and not (value.isdigit() and int(value) > 0):
@@ -97,7 +102,7 @@ def changed(before, given):
             continue
         if kind != "secret":
             checked(key, value)
-        if value != before.get(key, ""):
+        if value != (before.get(key) or (next(iter(ADAPTERS)) if kind == "adapter" else "")):  # unset: the first
             found[key] = value
     return found
 

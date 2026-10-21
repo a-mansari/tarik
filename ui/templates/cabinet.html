@@ -27,6 +27,10 @@
             <option value="1" {% if f.value != '0' %}selected{% endif %}>Simulation : Tarik dit ce qu'il ferait, rien n'est écrit dans Experio</option>
             <option value="0" {% if f.value == '0' %}selected{% endif %}>Écritures réelles : Tarik crée et modifie dans Experio</option>
           </select>
+          {% elif f.kind == 'adapter' %}
+          <select name="{{ f.key }}" data-was="{{ f.value }}">
+            {% for key, label in adapters.items() %}<option value="{{ key }}" {% if f.value == key or (not f.value and loop.first) %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
           {% elif f.kind == 'secret' %}
           <input type="password" name="{{ f.key }}" autocomplete="new-password" placeholder="{{ 'Défini — laisser vide pour le garder' if f.value else 'Non défini' }}">
           {% else %}
@@ -42,8 +46,6 @@
   </form>
   <div class="side-column">
     <section class="panel save-card" aria-label="Enregistrer">
-      <h2>Enregistrer</h2>
-      <label class="field"><span>Pourquoi ce changement (gardé dans l'historique)</span><textarea name="note" form="settings-form" maxlength="300" rows="2" required placeholder="ex. : nouveau mot de passe de la boîte mail"></textarea></label>
       <button type="submit" form="settings-form" class="primary">Enregistrer</button>
     </section>
     <aside class="side panel">
@@ -53,7 +55,6 @@
         {% for item in history %}
         <li>
           <span class="num muted">{{ item.at | when }} · {{ item.author }}</span>
-          {% if item.note %}<span>« {{ item.note }} »</span>{% endif %}
           <ul>{% for change in item.changes %}<li><b>{{ names.get(change.key, change.key) }}</b>{% if change.before is none %} : remplacé{% else %} : <span class="mono">{{ change.before or '(vide)' }}</span> → <span class="mono">{{ change.after or '(vide)' }}</span>{% endif %}</li>{% endfor %}</ul>
         </li>
         {% endfor %}

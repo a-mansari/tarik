@@ -16,17 +16,20 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 
 from engine import content, prompts
+from engine.claude_code import ChatClaudeCode
 from engine.content import AGENT
 from engine.settings import cabinet_of, session_of
 from engine.tools import ToolFailure, call
 from tarik.core.cabinets import setting, using
-from tarik.core.model import MODEL_URL
+from tarik.core.model import MODEL_URL, adapter
 
 
 def model(cabinet):
-    """The model, for a run of ``cabinet`` (the settings are read within it)."""
+    """The model, for a run of ``cabinet`` (the settings are read within it): its MODEL_ADAPTER's."""
     with using(cabinet):
-        key, url = setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", MODEL_URL)
+        chosen, key, url = adapter(), setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", MODEL_URL)
+    if chosen == "claude-code":  # the Cabinets page's choice
+        return ChatClaudeCode(cabinet=cabinet)
     if not key:
         raise RuntimeError("MODEL_API_KEY is not set in Vault secret/tarik/orchestrator: the agent has no model")
     return ChatAnthropic(
