@@ -293,3 +293,16 @@ def test_the_bank_account_the_client_names_takes_the_statement(said, journal, mo
     monkeypatch.setattr(intake, "bank_journals", lambda dossier_id: (usable, usable))
     found = intake.statement_journal("r.pdf", "D", 1, 0, f"Objet : Relevé\n\n{said}")
     assert (found.get("id") if "status" not in found else None) == journal
+
+
+@pytest.mark.functionality
+def test_a_screenshot_gladden_calls_an_invoice_never_becomes_a_draft(monkeypatch):
+    from tarik.invoices import intake
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (300, 200), "white").save(buffer, format="PNG")
+    db = FakeDb((None, "capture.png", "image/png", buffer.getvalue(), None, None, None, None))
+    monkeypatch.setattr(intake, "cabinet_db", lambda: db)
+    monkeypatch.setattr(intake, "gladden_type", lambda raw: "invoice")
+    monkeypatch.setattr(intake, "classify_pages", lambda pages, what: ("autre", "une capture d'écran d'un logiciel"))
+    assert intake.identify_document(1)["kind"] == "other"

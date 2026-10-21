@@ -123,8 +123,9 @@ def identify_document(file_id: int, client_message: str = "") -> dict:
         # shortcut: a PDF mixing invoices and a statement needs splitting by kind.
         kind, reason = GLADDEN_KIND.get(gladden_type(raw)), ""
         # Gladden's "bank" is checked by the model, which has the last word: Gladden calls a leasing schedule, a
-        # contract or a customs slip a bank statement (its first page is a table of amounts and dates).
-        if kind != "invoice":
+        # contract or a customs slip a bank statement (its first page is a table of amounts and dates). So is a photo
+        # Gladden calls an invoice: a screenshot of a software screen otherwise became a draft in Experio.
+        if kind != "invoice" or mime.startswith("image/"):
             category, reason = classify_pages(pages, "Identification du document")
             kind = {"rb": "statement", "autre": "other"}.get(category, "invoice")
         db.execute(Q.set_file_kind, (kind, file_id))
