@@ -454,7 +454,7 @@ Covers the Discussions page's messages.
 - `test_a_reply_s_markdown_is_shown_without_its_html`: reply Markdown is rendered with raw HTML stripped.
 
 ### tests/ui/test_experio_api.py
-Covers the Experio app's API (api.py) against a Vault in memory.
+Covers the Experio app's API (app/api.py) against a Vault in memory.
 - `test_a_new_cabinet_needs_every_setting_tarik_uses`: a create with settings missing or unknown is refused, nothing written.
 - `test_a_new_cabinet_is_written_in_simulation_unless_told_and_never_twice`: a new cabinet starts in DRY_RUN 1; a bad name is refused.
 - `test_a_deactivated_cabinet_comes_back_with_its_other_keys_kept`: a create on a deactivated cabinet reactivates it, other keys kept.

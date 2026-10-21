@@ -62,7 +62,7 @@ async def invitation_page(request: Request):
         return templates.TemplateResponse(request, "invitation.html", {"gone": True}, status_code=404)
     error = None
     if request.method == "POST":
-        from server import same_origin  # the server imports these pages
+        from app.server import same_origin  # the server imports these pages
 
         if not same_origin(request):
             return JSONResponse({"error": "cross-site request refused"}, status_code=403)

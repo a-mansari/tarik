@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-import server
+from app import server
 
 
 @pytest.mark.parametrize(

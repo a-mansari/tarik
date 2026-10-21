@@ -12,12 +12,12 @@ its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) sta
   GET  /runs/{run_id}/steps/{id}  one step's whole output
   GET  /graphs/{graph}            a workflow's shape for the canvas: its nodes, groups and edges
   GET|PUT|DELETE /graphs/{graph}/layout   how the team arranged its canvas (node places, edge bends and style)
-  /api/cabinets...                the Experio app's API (api.py): cabinets created, changed, closed
+  /api/cabinets...                the Experio app's API (app/api.py): cabinets created, changed, closed
   GET  /ui/live                    the pages' live updates (server-sent events, engine/live.py)
   GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live; the
                                   Discussion page (ui/chat_pages.py), its messages sent with POST
 
-Every call but /ok, /login and the static files needs a session (the login page's cookie: users.py makes the
+Every call but /ok, /login and the static files needs a session (the login page's cookie: app/users.py makes the
 accounts) or, for scripts (run.py), TARIK_GRAPH_TOKEN as a bearer token. A change (POST, PUT, DELETE) made with a
 session must come from these pages themselves (its Origin or Referer): another site cannot make it in someone's name.
 What changes everyone's Tarik needs an admin's session (admin_only): a member reads and talks to Tarik."""
@@ -30,7 +30,6 @@ import os
 import threading
 from urllib.parse import parse_qs, quote
 
-import uvicorn
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg.conninfo import make_conninfo
 from starlette.applications import Starlette
@@ -40,8 +39,7 @@ from starlette.responses import JSONResponse, RedirectResponse, StreamingRespons
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-import api
-from app import accounts, audit, layouts
+from app import accounts, api, audit, layouts
 from engine import agent, content, graphs, live, mail, prompts, runs
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.config import POSTGRES
@@ -346,6 +344,3 @@ app = Starlette(
     middleware=[Middleware(Guard)],
     lifespan=lifespan,
 )
-
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=2024, log_level="warning")

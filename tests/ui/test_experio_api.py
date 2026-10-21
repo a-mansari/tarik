@@ -7,9 +7,7 @@ import json
 import pytest
 from starlette.requests import Request
 
-import api
-import server
-from app import cabinet_settings
+from app import api, cabinet_settings, server
 
 FULL = {
     "ODOO_USER": "tarik@cab.ma",

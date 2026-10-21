@@ -9,9 +9,10 @@ name: sarnec-n8n
 services:
   server:
     build: .
+    command: ["python", "-m", "app"] # as the image's own, for an image built before app/ held the server
     restart: unless-stopped
     ports:
-      - "127.0.0.1:2024:2024" # server.py, local only
+      - "127.0.0.1:2024:2024" # app/server.py, local only
     environment:
       VAULT_ADDR: http://vault:8200
       TARIK_DEFAULT_CABINET: experio_cabinet_8
@@ -22,10 +23,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       TARIK_PROMPTS_KEEP_DAYS: "30"
     volumes: # the code, mounted (a change needs a restart, not a build); never vault/ nor .env
-      - ./server.py:/app/server.py
-      - ./api.py:/app/api.py
       - ./check.py:/app/check.py
-      - ./users.py:/app/users.py
       - ./run.py:/app/run.py
       - ./app:/app/app
       - ./engine:/app/engine

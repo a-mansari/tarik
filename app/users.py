@@ -1,17 +1,17 @@
 """The team's accounts for the pages, made from a terminal (there is no sign-up page). In the container:
 
-python users.py add <email> "<name>"     made, or its name and password changed (the password is asked)
-python users.py role <email> admin|member  what it may do: an admin changes content, cabinets' settings and
+python -m app.users add <email> "<name>"     made, or its name and password changed (the password is asked)
+python -m app.users role <email> admin|member  what it may do: an admin changes content, cabinets' settings and
                                          canvases' layout; a member (a new account) reads and uses Discussion
-python users.py disable <email>          closed: no more logging in, its sessions ended"""
+python -m app.users disable <email>          closed: no more logging in, its sessions ended"""
 
 import asyncio
 import getpass
 import sys
 
 from app import accounts, audit
+from app.server import DATABASE
 from engine import runs
-from server import DATABASE
 
 
 def asked_password():

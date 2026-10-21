@@ -1,9 +1,9 @@
 """Who may use the team's pages: each person's account (email, name, password kept as an scrypt hash, never the
 password), and the sessions they opened (a random token in an HttpOnly cookie; only its hash is kept here). Accounts
-are made by an admin, on the Comptes page or from a terminal (users.py): there is no sign-up page. One made on the
+are made by an admin, on the Comptes page or from a terminal (app/users.py): there is no sign-up page. One made on the
 page has no password until its person sets one, through a one-time link (an invitation, INVITATION_HOURS long; only
 its token's hash is kept). Each has a role (ROLES): an admin changes what
-everyone uses, a member reads and talks to Tarik (server.py's admin_only says which is which)."""
+everyone uses, a member reads and talks to Tarik (app/server.py's admin_only says which is which)."""
 
 import hashlib
 import hmac
