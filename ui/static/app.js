@@ -29,12 +29,18 @@ if (rows && rows.dataset.cabinet) {
 }
 
 // A list read again from its own page at each change it shows (data-follow: cabinet=… or session=…): the
-// discussions, the LLM logs. ``data-append`` keeps the items there (one opened stays open) and adds the new ones.
+// discussions, the LLM logs, with the texts marked data-follow-text beside it (a count). ``data-append`` keeps the
+// items there (one opened stays open) and adds the new ones.
 for (const node of document.querySelectorAll("[data-follow]")) {
   window.followChanges(node.dataset.follow, async () => {
     const answer = await fetch(location.href);
     if (!answer.ok) return;
-    const fresh = new DOMParser().parseFromString(await answer.text(), "text/html").getElementById(node.id);
+    const page = new DOMParser().parseFromString(await answer.text(), "text/html");
+    for (const shown of document.querySelectorAll("[data-follow-text]")) { // a count beside the list
+      const text = page.getElementById(shown.id)?.textContent;
+      if (text !== undefined) shown.textContent = text;
+    }
+    const fresh = page.getElementById(node.id);
     if (!fresh) return;
     if (!("append" in node.dataset)) { node.innerHTML = fresh.innerHTML; return; }
     for (const item of fresh.children) if (!document.getElementById(item.id)) node.append(item.cloneNode(true));
