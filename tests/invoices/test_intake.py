@@ -9,6 +9,7 @@ from PIL import Image
 
 from engine.tools import ToolFailure, call
 from tarik.core.app import ToolError
+from tarik.core.queries import Q
 from tarik.invoices.intake import require_kind, split_pdf
 from tests.fakes import FakeDb
 
@@ -68,8 +69,14 @@ def test_test_mode_creates_no_draft_and_imports_no_statement(monkeypatch):
     draft = intake.create_draft_invoice(1, 557)
     assert draft["status"] == "stop" and draft["message"].startswith("MODE TEST") and "invoice_id" not in draft
 
+    class FileOnly(FakeDb):  # the file's row; no other file of the same content
+        def fetchone(self):
+            return self.row if self.queries[-1][0] == Q.file_locked else None
+
     monkeypatch.setattr(
-        intake, "cabinet_db", lambda: FakeDb(("s", "r.pdf", "application/pdf", b"%PDF", "statement", None, None, None))
+        intake,
+        "cabinet_db",
+        lambda: FileOnly(("s", "r.pdf", "application/pdf", b"%PDF", "statement", None, None, None)),
     )
     statement = intake.import_bank_statement(2, 557)
     assert (
@@ -221,3 +228,31 @@ def test_a_document_that_is_neither_invoice_nor_statement_is_said_and_left_alone
     assert answer["status"] == "stop" and answer["kind"] == "other"
     assert answer["message"].startswith("`contrat leasing.pdf` : ni une facture ni un relevé bancaire")
     assert db.queries[-1][1] == ("other", 1)
+
+
+@pytest.mark.functionality
+def test_a_statement_sent_again_is_not_imported_twice_in_its_dossier(db_cabinet, monkeypatch):
+    from tarik.core.cabinets import cabinet_db
+    from tarik.invoices import intake
+
+    with cabinet_db() as db:
+        insert = (
+            "insert into tarik_files (session_id, file_name, mime_type, data, kind, statement_id) "
+            "values (%s, %s, 'application/pdf', %s, 'statement', %s) returning id"
+        )
+        first = db.execute(insert, ("s1", "releve.pdf", b"%PDF same", 42)).fetchone()[0]
+        again = db.execute(insert, ("s2", "releve (1).pdf", b"%PDF same", None)).fetchone()[0]
+        other = db.execute(insert, ("s2", "avril.pdf", b"%PDF other", None)).fetchone()[0]
+        db.execute(
+            "insert into tarik_results (run_id, session_id, file_id, dossier_id, step, status, message) "
+            "values ('r', 's1', %s, 557, 'import_bank_statement', 'ok', 'importé')",
+            (first,),
+        )
+    monkeypatch.setattr(intake, "require_dossier", lambda dossier_id: "D")
+    monkeypatch.setattr(intake, "statement_journal", lambda *a: {"status": "question", "message": "lequel ?"})
+    answer = intake.import_bank_statement(again, 557)
+    assert answer["statement_id"] == 42 and "déjà importé (n° 42)" in answer["message"]
+    with cabinet_db() as db:
+        assert db.execute("select statement_id from tarik_files where id = %s", (again,)).fetchone() == (42,)
+    assert intake.import_bank_statement(other, 557)["status"] == "question"  # another statement: imported as usual
+    assert intake.import_bank_statement(again, 558)["statement_id"] == 42  # linked to it now: never imported again

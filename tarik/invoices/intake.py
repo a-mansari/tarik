@@ -333,6 +333,15 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
         require_kind(name, kind, "statement")
         if existing:
             return ok(f"`{name}` : relevé déjà importé (n° {existing}).", statement_id=existing)
+        # The same statement sent again (another email, the same zip twice): imported once per dossier. Two copies
+        # arriving together wait for each other here, until the first is imported.
+        db.execute(Q.lock_file_content, (bytes(data),))
+        twin = db.execute(Q.statement_of_same_content, (bytes(data), dossier_id, file_id)).fetchone()
+        if twin:
+            db.execute(Q.set_file_statement, (twin[0], file_id))
+            return ok(
+                f"`{name}` : relevé déjà importé (n° {twin[0]}), le même fichier envoyé avant.", statement_id=twin[0]
+            )
         journal = statement_journal(name, dossier, dossier_id, journal_id)
         if "status" in journal:
             return journal
