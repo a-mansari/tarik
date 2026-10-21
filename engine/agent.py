@@ -202,8 +202,17 @@ async def traiter_fichiers(
 
 
 @tool("Experio_repondre", description=DESCRIBED_LATER)
-async def repondre(runtime: ToolRuntime, decision: str = "", about: str = "") -> str:
-    inputs = {"mode": "answer", "answer": client_message(runtime), "decision": decision, "about": about}
+async def repondre(
+    runtime: ToolRuntime, decision: str = "", about: str = "", compte: str = "", comptabiliser: str = ""
+) -> str:
+    inputs = {
+        "mode": "answer",
+        "answer": client_message(runtime),
+        "decision": decision,
+        "about": about,
+        "compte": compte,  # an account the client corrects with their answer: the account step runs again
+        "comptabiliser": comptabiliser,
+    }
     return await run_workflow("traitement", runtime, inputs)
 
 

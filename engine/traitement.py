@@ -17,7 +17,7 @@ from langgraph.types import Send
 from engine.tools import call as run_tool
 from engine.tools import failed, ok_or_summary, run_step, sender_checked, started, summary
 from tarik.core.conversation import mentions_attachment
-from tarik.invoices.pipeline import INVOICE_CHAIN
+from tarik.invoices.pipeline import INVOICE_CHAIN, position
 
 INPUTS = [
     "mode",
@@ -383,6 +383,9 @@ def resume_at(state: Run):
     if following == "identify_document":  # the client said what the file is: it starts over from there
         call = {**state["call"], "dossier_id": last["dossier_id"], "invoice_type": last.get("invoice_type") or ""}
         return Send("fichier", {"call": call, "run_id": state["run_id"], "file_id": last["file_id"], "outcomes": []})
+    # An account the client corrected with their answer: the invoice goes back to its account step, past it already.
+    if state["call"].get("compte") and following in INVOICE_CHAIN and position(following) > position("assign_account"):
+        following = "assign_account"
     return Send(
         "fichier",
         {

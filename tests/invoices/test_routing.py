@@ -113,3 +113,24 @@ def test_asked_to_post_the_drafts_are_posted_whatever_question_waits(monkeypatch
     assert asyncio.run(traitement.aiguillage(state)) == {"route": "both"}
     state["call"]["comptabiliser"] = ""
     assert asyncio.run(traitement.aiguillage(state)) == {"route": "answer"}
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "compte, entry",
+    [
+        ("", "check_journal"),  # the answer's own next step
+        ("frais de péage", "assign_account"),  # an account corrected with the answer: its step runs again
+    ],
+)
+def test_an_account_corrected_with_an_answer_sends_the_invoice_back_to_its_account_step(compte, entry):
+    from engine import traitement
+
+    state = {
+        "call": {"session_id": "s", "compte": compte},
+        "run_id": "r",
+        "dossier_id": 5,
+        "outcomes": [{"status": "ok", "next_step": "check_journal", "invoice_id": 7}],
+    }
+    sent = traitement.resume_at(state)
+    assert sent.arg["entry"] == entry and sent.arg["invoice_id"] == 7
