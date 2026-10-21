@@ -54,7 +54,7 @@
       <span class="who">{{ avatar('client' if entry.who == 'Client' else 'tool' if entry.tool else 'tarik') }}{{ entry.who }}</span>
       {% if entry.thinking %}<details class="thinking"><summary>Sa réflexion</summary><pre>{{ entry.thinking }}</pre></details>{% endif %}
       {% if entry.calls %}<ul class="calls">{% for call in entry.calls %}<li>Utilise <b>{{ call.name }}</b> <span class="mono">{{ call.args }}</span></li>{% endfor %}</ul>{% endif %}
-      {% if entry.text %}{% if entry.tool %}<details><summary>Réponse de l'outil</summary><pre>{{ entry.text }}</pre></details>{% elif entry.who == 'Client' %}<pre class="said">{{ entry.text }}</pre>{% else %}<div class="reply">{{ entry.text | markdown }}</div>{% endif %}{% endif %}
+      {% if entry.text %}{% if entry.tool %}<details><summary>Réponse de l'outil</summary><pre>{{ entry.text }}</pre></details>{% else %}<div class="reply">{{ entry.text | markdown }}</div>{% endif %}{% endif %}
     </li>
     {% endfor %}
   </ol>

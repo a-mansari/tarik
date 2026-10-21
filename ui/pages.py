@@ -89,8 +89,8 @@ def status_name(status):
 
 
 def markdown(text):
-    """Tarik's reply as it means it (bold, lists, tables): its raw HTML never kept, unsafe links never made (what
-    Experio holds, and so what Tarik says, was typed by clients)."""
+    """A message as its writer means it (bold, lists, tables), the client's as Tarik's: raw HTML never kept, unsafe
+    links never made (a client types it, or Experio holds what clients typed)."""
     return Markup(MARKDOWN.render(text or ""))
 
 

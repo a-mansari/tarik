@@ -209,3 +209,9 @@ def test_what_an_archive_left_out_shows_under_the_message():
     shown = chat_pages.said(HumanMessage(text))
     assert shown["text"] == "Voici" and shown["files"] == ["lot.zip › f.pdf"]
     assert shown["skipped"] == ["lot.zip › notes.docx : type non pris en charge"]
+
+
+def test_a_client_message_reads_as_markdown_with_its_html_and_unsafe_links_left_inert():
+    shown = str(pages.markdown("**urgent**\n- facture 12\n\n<script>alert(1)</script> [lien](javascript:alert(1))"))
+    assert "<strong>urgent</strong>" in shown and "<li>facture 12</li>" in shown
+    assert "<script>" not in shown and 'href="javascript:' not in shown
