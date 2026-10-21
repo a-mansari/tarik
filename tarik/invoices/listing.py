@@ -14,6 +14,7 @@ STATUSES = {
 }
 # posted: by its payment; cancelled ones are never listed
 LABELS = {"pending": "en cours", "draft": "brouillon", "export": "exportee"}
+SIDES = {"achat": ("purchase", "d'achat"), "vente": ("sale", "de vente")}  # the side -> Experio's type, its words
 
 
 def label(invoice):
@@ -38,15 +39,21 @@ def line(invoice):
 
 
 @tool
-def list_invoices(dossier_id: int, status: str = "", limit: int = 20) -> dict:
+def list_invoices(dossier_id: int, status: str = "", limit: int = 20, side: str = "") -> dict:
     """List a dossier's invoices, most recent first. ``status`` filters them, exactly one of: "en cours" (Experio
     still reading), "brouillon", "comptabilisee" (posted, not paid: the unpaid ones), "payee", "exportee"; empty for
-    all of them. The agent chooses it from what the client asked; any other value is refused."""
+    all of them. ``side``: "achat", "vente", or empty for both. The agent chooses them from what the client asked;
+    any other value is refused."""
     dossier = require_dossier(dossier_id)
     wanted = (status or "").strip()
     if wanted and wanted not in STATUSES:
         raise ToolError(f"Statut « {status} » inconnu : {', '.join(STATUSES)}, ou vide pour tout.")
+    side = (side or "").strip()
+    if side and side not in SIDES:
+        raise ToolError(f"Type « {side} » inconnu : achat, vente, ou vide pour les deux.")
     domain = [("company_id", "=", dossier_id), ("state", "!=", "cancel"), *STATUSES.get(wanted, [])]
+    if side:
+        domain.append(("type", "=", SIDES[side][0]))
     limit = max(1, min(int(limit or 20), 100))
     with refused(f"list_invoices {dossier_id}", "Experio n'a pas pu donner la liste des factures."):
         total = odoo_call("exp.invoice", "search_count", domain)
@@ -58,7 +65,7 @@ def list_invoices(dossier_id: int, status: str = "", limit: int = 20) -> dict:
             limit=limit,
             fields=["invoice_number", "invoice_date", "partner_id", "amount_total", "state", "payment_state"],
         )
-    what = f"facture(s) {wanted}" if wanted else "facture(s)"
+    what = " ".join(word for word in ("facture(s)", SIDES.get(side, ("", ""))[1], wanted) if word)
     if not found:
         return ok(f"Aucune {what.replace('(s)', '')} dans le dossier {dossier}.")
     lines = [line(invoice) for invoice in found]

@@ -121,8 +121,10 @@ def read_tool(tool_name):
     async def find_dossier(name: str, runtime: ToolRuntime) -> str:
         return await reading(runtime, tool_name, name=name)
 
-    async def list_invoices(dossier_id: int, runtime: ToolRuntime, status: str = "", limit: int = 20) -> str:
-        return await reading(runtime, tool_name, dossier_id=dossier_id, status=status, limit=limit)
+    async def list_invoices(
+        dossier_id: int, runtime: ToolRuntime, status: str = "", limit: int = 20, side: str = ""
+    ) -> str:
+        return await reading(runtime, tool_name, dossier_id=dossier_id, status=status, limit=limit, side=side)
 
     function = locals()[tool_name]
     # Described by the tool's own docstring (tarik/), kept in content/agent.json to be edited.

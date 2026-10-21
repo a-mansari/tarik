@@ -25,6 +25,19 @@ def test_any_other_status_is_refused_never_guessed(monkeypatch, status):
         listing.list_invoices(5, status)
 
 
+@pytest.mark.functionality
+def test_a_side_filters_the_list_and_any_other_is_refused(monkeypatch):
+    asked = []
+    monkeypatch.setattr(listing, "require_dossier", lambda dossier_id: "ALPHA")
+    monkeypatch.setattr(listing, "odoo_call", lambda model, method, domain, **kw: asked.append(domain) or 0)
+    assert listing.list_invoices(5, "exportee", side="achat")["message"] == (
+        "Aucune facture d'achat exportee dans le dossier ALPHA."
+    )
+    assert asked[0][-1] == ("type", "=", "purchase")
+    with pytest.raises(ToolError, match="inconnu"):
+        listing.list_invoices(5, side="mixte")
+
+
 ATLAS = {"id": 12, "invoice_number": "F-1", "invoice_date": "2026-03-15", "amount_total": 10, "state": "draft"}
 
 

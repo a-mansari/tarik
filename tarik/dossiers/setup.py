@@ -732,7 +732,9 @@ def setup_status(dossier_id: int) -> dict:
     entries = [f"{states[state]} {label}" for state, label in HISTORY_STATES.items() if states.get(state)]
     parts.append("ecritures importees : " + (", ".join(entries) if entries else "aucune"))
     if reasons:
-        parts.append("erreurs signalees par Experio, a corriger dans le fichier puis a renvoyer : " + error_reasons(reasons))
+        parts.append(
+            "erreurs signalees par Experio, a corriger dans le fichier puis a renvoyer : " + error_reasons(reasons)
+        )
     opened = [e["name"] + (" (en cours)" if e["selected"] else "") for e in exercices if e["state"] == "open"]
     parts.append("exercices ouverts : " + (", ".join(opened) if opened else "aucun"))
     missing = [label for key, label in POSTING_SETTINGS.items() if not company[key]]

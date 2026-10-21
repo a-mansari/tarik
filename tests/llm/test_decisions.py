@@ -199,15 +199,20 @@ LISTS = [
     listing("Les factures comptabilisées de Gecafisc", "comptabilisee"),
     listing("Liste les factures de Gecafisc", ""),
     listing("Gecafisc : quelles factures restent à payer ?", "comptabilisee"),
+    listing("Combien de factures d'achat sont exportées chez Gecafisc ?", ("exportee", "achat")),
+    listing("Les factures de vente payées de Gecafisc", ("payee", "vente")),
+    listing("Les factures exportées de Gecafisc", "exportee"),
 ]
 
 
 def status(call, expected):
-    """The status the agent filters by: one the server accepts, the one the client asked for."""
+    """The status (and side: achat, vente) the agent filters by: one the server accepts, the one the client asked
+    for."""
     if not call or call["name"] != "Experio_list_invoices":
         return "asked again"
+    expected, side = expected if isinstance(expected, tuple) else (expected, "")
     given = str(call["input"].get("status") or "").strip()
-    if given == expected:
+    if given == expected and str(call["input"].get("side") or "").strip() == side:
         return "right"
     return "wrong" if given in STATUSES or not given else "asked again"  # any other value is refused
 
