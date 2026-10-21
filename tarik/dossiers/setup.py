@@ -243,20 +243,20 @@ class Refused(Exception):
 def entries_text(file_id, name, mime, data):
     """The file's text (CSV, TXT or an Excel sheet as CSV); Refused for another kind of file."""
     if not (name.lower().endswith(ENTRY_FILES) or (mime or "").startswith("text/")):
-        raise Refused(f"{name} : envoyez le FEC ou le grand livre en CSV, TXT ou Excel (.xlsx).")
-    with refused(f"import_entries {file_id}", f"{name} : fichier Excel illisible.", Refused):
+        raise Refused(f"`{name}` : envoyez le FEC ou le grand livre en CSV, TXT ou Excel (.xlsx).")
+    with refused(f"import_entries {file_id}", f"`{name}` : fichier Excel illisible.", Refused):
         return table_text(name, data)
 
 
 def previewed(file_id, name, text, context, model="experio.history"):
     """The file uploaded to Experio's import screen for ``model``: (import id, its preview: headers, matches,
     options)."""
-    with refused(f"import_entries {file_id}", f"{name} : Experio n'a pas pu lire le fichier ({{reason}}).", Refused):
+    with refused(f"import_entries {file_id}", f"`{name}` : Experio n'a pas pu lire le fichier ({{reason}}).", Refused):
         upload = {"res_model": model, "file": text, "file_name": name, "file_type": "text/csv"}
         import_id = odoo_json("base_import.import", "create", upload, context=context)
         preview = odoo_json("base_import.import", "parse_preview", [import_id], IMPORT_OPTIONS, context=context)
     if preview.get("error"):
-        raise Refused(f"{name} : Experio n'a pas pu lire le fichier ({preview['error']}).")
+        raise Refused(f"`{name}` : Experio n'a pas pu lire le fichier ({preview['error']}).")
     return import_id, preview
 
 
@@ -375,7 +375,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         kind = file_kind(kind, text)
         if not kind:  # the file stays: the agent calls again with the client's answer as kind
             return question(
-                f"{name} : qu'est-ce que ce fichier ? Des ecritures (FEC ou grand livre), le plan comptable, "
+                f"`{name}` : qu'est-ce que ce fichier ? Des ecritures (FEC ou grand livre), le plan comptable, "
                 "les journaux, les fournisseurs ou les clients ?",
                 file_id=file_id,
             )

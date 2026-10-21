@@ -52,8 +52,8 @@ def chosen(monkeypatch):
 @pytest.mark.security
 def test_the_agent_chooses_among_the_tiers_proposed_only(chosen):
     assert chosen("7", "le premier") == 7 and chosen(" 8 ", "ATLAS TRANSPORT") == 8
-    assert "ne designe pas un seul tiers" in chosen("9", "oui")  # an id the question did not propose
-    assert "ne designe pas un seul tiers" in chosen("", "BETA SARL, TVA 20 %")  # a number in the answer is no id
+    assert "ne désigne pas un seul tiers" in chosen("9", "oui")  # an id the question did not propose
+    assert "ne désigne pas un seul tiers" in chosen("", "BETA SARL, TVA 20 %")  # a number in the answer is no id
 
 
 @pytest.mark.functionality
@@ -72,12 +72,12 @@ def test_another_tiers_the_client_names_is_searched_or_linked_by_its_ice(chosen)
     proposed = chosen("Nova Telecom", "non, c'est plutôt Nova Telecom")
     assert "« Nova Telecom »" in proposed and "(id 9" in proposed and "(id 10" in proposed  # proposed, not picked
     assert chosen("Beta Services", "c'est Beta Services") == "Beta Services"  # nothing like it: created as written
-    assert "ne designe pas" in chosen("009999999000011", "ICE 009999999000011")  # an unknown ICE creates nothing
+    assert "ne désigne pas" in chosen("009999999000011", "ICE 009999999000011")  # an unknown ICE creates nothing
 
 
 @pytest.mark.security
 @pytest.mark.parametrize(
-    "autofill, said", [(True, "serait cree par Experio"), (False, "le cabinet les attribue lui-meme")]
+    "autofill, said", [(True, "serait créé par Experio"), (False, "le cabinet les attribue lui-même")]
 )
 def test_test_mode_creates_no_wizard_in_experio(monkeypatch, autofill, said):
     from tarik.invoices import tiers
@@ -150,7 +150,7 @@ def test_a_tiers_nothing_resembles_is_created_from_the_scan(scanned):
             },
         )
     ]
-    assert result["message"] == "fournisseur BETA SERVICES cree, id 55"
+    assert result["message"] == "fournisseur BETA SERVICES créé, id 55"
     invoice["supplier_name"], calls[:] = "Atlas Transports", []
     assert tiers.link_tiers(4)["status"] == "question" and not calls  # close names: asked, not created
 
@@ -161,7 +161,7 @@ def test_test_mode_creates_no_tiers(scanned, monkeypatch):
 
     invoice, calls = scanned
     monkeypatch.setattr(tiers, "dry_run", lambda: True)
-    assert "serait cree" in tiers.link_tiers(4)["message"] and not calls
+    assert "serait créé" in tiers.link_tiers(4)["message"] and not calls
 
 
 @pytest.mark.functionality
@@ -207,7 +207,7 @@ def test_only_a_tiers_of_the_very_same_name_is_linked_and_the_client_told(scanne
         assert result["status"] == "question"
     else:
         assert result["status"] == "ok" and f"(id {linked})" in result["message"]
-        assert "meme nom" in result["message"] and "BETA SERVICES SARL" in result["message"]  # the lookalike named
+        assert "même nom" in result["message"] and "BETA SERVICES SARL" in result["message"]  # the lookalike named
     assert calls == []
 
 

@@ -18,7 +18,7 @@ from tarik.core.queries import Q
 from tarik.core.words import normalized
 from tarik.invoices.classify import classify_pages, client_side
 
-KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
+KIND_LABEL = {"invoice": "une facture", "statement": "un relevé bancaire"}
 # Gladden's types Tarik takes; any other (or none) leaves the file to the model.
 GLADDEN_KIND = {"invoice": "invoice", "bank": "statement"}
 # What Q.file_locked selects, in its order.
@@ -29,10 +29,10 @@ def require_kind(name, kind, wanted):
     """ToolError unless file ``name`` was identified as ``wanted`` ("invoice" or "statement"): a bank statement
     must never become an invoice draft (nor be cut page by page), nor the reverse."""
     if kind is None:
-        raise ToolError(f"{name} n'est pas encore identifie : appelez d'abord identify_document.")
+        raise ToolError(f"`{name}` n'est pas encore identifie : appelez d'abord identify_document.")
     if kind != wanted:
         other = "import_bank_statement" if kind == "statement" else "split_invoices puis create_draft_invoice"
-        raise ToolError(f"{name} est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")
+        raise ToolError(f"`{name}` est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")
 
 
 def gladden_type(raw):
@@ -66,14 +66,14 @@ def identify_document(file_id: int) -> dict:
     with cabinet_db() as db:
         name, mime, data, kind = file_row(db, file_id, "file_name", "mime_type", "data", "kind")
         if kind:
-            return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
+            return routine(f"`{name}` : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
         if mime != "application/pdf" and not mime.startswith("image/"):
-            raise ToolError(f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
+            raise ToolError(f"`{name}` : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
         raw = as_pdf(mime, data)
         try:
             pages = pdf_pages(raw, limit=1)
         except pypdfium2.PdfiumError:
-            raise ToolError(f"{name} : PDF illisible.") from None
+            raise ToolError(f"`{name}` : PDF illisible.") from None
         # The first page decides: an invoice is often followed by its payment's proofs (a cheque, the bank's
         # notice or account extract), which would make the whole file look like a statement.
         # shortcut: a PDF mixing invoices and a statement needs splitting by kind.
@@ -82,7 +82,7 @@ def identify_document(file_id: int) -> dict:
             category, _ = classify_pages(pages, "Identification du document")
             kind = "statement" if category == "rb" else "invoice"
         db.execute(Q.set_file_kind, (kind, file_id))
-    return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
+    return routine(f"`{name}` : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
 
 
 # How a PDF of several pages is cut, as Experio's own import screen asks it (split_type): one invoice per page, or
@@ -92,8 +92,8 @@ SPLIT_WORDS = {
     "by_document": r"par document|tout le document|le document entier|une seule facture|un seul document|en entier",
 }
 SPLIT_QUESTION = (
-    "{name} : ce PDF a {count} pages. Comment le decouper ? Repondez « par page » (une facture par page) ou "
-    "« par document » (une seule facture pour tout le fichier). Rien n'a ete cree."
+    "`{name}` : ce PDF a {count} pages. Comment le découper ? Répondez « par page » (une facture par page) ou "
+    "« par document » (une seule facture pour tout le fichier). Rien n'a été créé."
 )
 
 
@@ -162,26 +162,28 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
         require_kind(name, kind, "invoice")
         said = client_messages(session_id, client_message)
         if not client_side(invoice_type, " ".join(said)):
-            return question(f"{name} : s'agit-il de factures d'achat ou de vente ? Rien n'a ete cree.")
+            return question(f"`{name}` : s'agit-il de factures d'achat ou de vente ? Rien n'a été créé.")
         parts = db.execute(Q.cut_parts_of_file, (file_id,)).fetchall()
         if parts:
-            return ok(f"{name} : deja decoupe en {len(parts)} factures : {listed(parts)}.", files=[i for i, _ in parts])
-        one = routine(f"{name} : 1 facture, fichier n° {file_id}.", files=[file_id])
+            return ok(
+                f"`{name}` : déjà découpé en {len(parts)} factures : {listed(parts)}.", files=[i for i, _ in parts]
+            )
+        one = routine(f"`{name}` : 1 facture, fichier n° {file_id}.", files=[file_id])
         if invoice_id or parent_id or mime != "application/pdf":  # parent_id: already one invoice cut out of a PDF
             return one
         try:
             count = len(pypdfium2.PdfDocument(bytes(data)))
         except pypdfium2.PdfiumError:
-            return ok(f"{name} : PDF illisible, 1 document, fichier n° {file_id}.", files=[file_id])
+            return ok(f"`{name}` : PDF illisible, 1 document, fichier n° {file_id}.", files=[file_id])
         if count == 1:
             return one
         choice = split_choice(said)
         if choice is None:
             return question(SPLIT_QUESTION.format(name=name, count=count))
         if choice == "by_document":
-            return routine(f"{name} : 1 facture sur {count} pages, fichier n° {file_id}.", files=[file_id])
+            return routine(f"`{name}` : 1 facture sur {count} pages, fichier n° {file_id}.", files=[file_id])
         made = save_parts(db, session_id, name, file_id, split_pdf(bytes(data), range(1, count + 1)))
-    return ok(f"{name} : {len(made)} factures, une par page : {listed(made)}.", files=[i for i, _ in made])
+    return ok(f"`{name}` : {len(made)} factures, une par page : {listed(made)}.", files=[i for i, _ in made])
 
 
 def import_pdf(wizard, name, raw, dossier_id, **values):
@@ -216,22 +218,22 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
         require_kind(name, kind, "invoice")
         if existing:  # another run made it and works on it: this one leaves it alone
             return stop(
-                f"{name} : facture brouillon n° {existing} deja creee, deja en cours de traitement.",
+                f"`{name}` : facture brouillon n° {existing} déjà créée, déjà en cours de traitement.",
                 invoice_id=existing,
             )
         parts = [part for part, _ in db.execute(Q.cut_parts_of_file, (file_id,))]
         if parts:
             raise ToolError(
-                f"{name} a ete decoupe : creez les brouillons des fichiers n° {', '.join(map(str, parts))}."
+                f"`{name}` a été découpé : créez les brouillons des fichiers n° {', '.join(map(str, parts))}."
             )
         raw = as_pdf(mime, data)
         if dry_run():  # stop: without a draft, the steps after this one have nothing to work on
-            return stop(f"{TEST_MODE}{name} : la facture brouillon serait creee dans le dossier {dossier}.")
+            return stop(f"{TEST_MODE}`{name}` : la facture brouillon serait créée dans le dossier {dossier}.")
         # A bare exp.invoice create would skip the import's defaults, pending state and Bluejay OCR job.
-        with refused(f"create_draft_invoice: file {file_id}", f"Experio n'a pas pu creer la facture pour {name}."):
+        with refused(f"create_draft_invoice: file {file_id}", f"Experio n'a pas pu créer la facture pour {name}."):
             invoice_id = import_pdf("exp.invoice.import", name, raw, dossier_id, type="purchase")
         db.execute(Q.set_file_invoice, (invoice_id, file_id))
-    created = f"{name} : facture brouillon n° {invoice_id} creee dans le dossier {dossier}."
+    created = f"`{name}` : facture brouillon n° {invoice_id} créée dans le dossier {dossier}."
     return routine(created, invoice_id=invoice_id)
 
 
@@ -239,7 +241,7 @@ def bank_journals(dossier_id):
     """The dossier's bank journals, and those Experio can import into (a journal without its bank is refused):
     two lists of {id, name, bank_id}."""
     with refused(
-        f"bank_journals {dossier_id}", "Experio est injoignable : les journaux de banque n'ont pas pu etre lus."
+        f"bank_journals {dossier_id}", "Experio est injoignable : les journaux de banque n'ont pas pu être lus."
     ):
         journals = odoo_call(
             "exp.journal",
@@ -264,7 +266,7 @@ def statement_journal(name, dossier, dossier_id, journal_id):
         if len(usable) > 1:
             listed = ", ".join(f"{j['name']} - {j['bank_id'][1]} (n° {j['id']})" for j in usable)
             return question(
-                f"{name} : le dossier {dossier} a plusieurs comptes bancaires, lequel ? {listed}",
+                f"`{name}` : le dossier {dossier} a plusieurs comptes bancaires, lequel ? {listed}",
                 choices={j["id"]: f"{j['name']} - {j['bank_id'][1]}" for j in usable},
             )
         return usable[0]
@@ -286,22 +288,22 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0) ->
         )
         require_kind(name, kind, "statement")
         if existing:
-            return ok(f"{name} : releve deja importe (n° {existing}).", statement_id=existing)
+            return ok(f"`{name}` : relevé déjà importé (n° {existing}).", statement_id=existing)
         journal = statement_journal(name, dossier, dossier_id, journal_id)
         if "status" in journal:
             return journal
         if dry_run():
             return ok(
-                f"{TEST_MODE}{name} : le releve serait importe dans le dossier {dossier}, journal {journal['name']}."
+                f"{TEST_MODE}`{name}` : le relevé serait importé dans le dossier {dossier}, journal {journal['name']}."
             )
         raw = as_pdf(mime, data)
         # Experio's own statement import, as its upload screen uses it: bank code as doctype, Bluejay job.
-        with refused(f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le releve {name}."):
+        with refused(f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé {name}."):
             statement_id = import_pdf(
                 "exp.bank.statement.import", name, raw, dossier_id, invoice_journal_id=journal["id"]
             )
         db.execute(Q.set_file_statement, (statement_id, file_id))
     return ok(
-        f"{name} : releve importe (n° {statement_id}) dans le dossier {dossier}, journal {journal['name']}.",
+        f"`{name}` : relevé importé (n° {statement_id}) dans le dossier {dossier}, journal {journal['name']}.",
         statement_id=statement_id,
     )

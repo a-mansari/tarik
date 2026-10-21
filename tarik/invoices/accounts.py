@@ -73,7 +73,7 @@ def apply_account(invoice, account_id, why):
     """Put the account ``account_id`` on the invoice through Experio's form, then let Experio's own refresh
     carry it onto the HT lines. The ok result says ``why``."""
     invoice_id, context = invoice["id"], invoice_context(invoice)
-    with refused(f"apply_account {invoice_id} -> {account_id}", f"Facture {invoice_id} : Experio a refuse le compte."):
+    with refused(f"apply_account {invoice_id} -> {account_id}", f"Facture {invoice_id} : Experio a refusé le compte."):
         fill_invoice(invoice_id, {"account_id": account_id}, context)
         refresh(invoice_id, context)
     account = odoo_call("exp.account", "read", [account_id], fields=["code", "name"])[0]
@@ -137,7 +137,7 @@ def assign_account(invoice_id: int, answer: str = "", client_message: str = "") 
         return set_account(invoice_id, told)
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     if invoice["account_id"]:
-        return ok(f"Facture {invoice_id} : compte deja renseigne, {invoice['account_id'][1]}.")
+        return ok(f"Facture {invoice_id} : compte déjà renseigné, {invoice['account_id'][1]}.")
     # Without the dossier's own journal Experio cannot propose any account, and says so obscurely: an invoice made
     # before the dossier had journals still sits on another dossier's, which check_journal moves to its own.
     if refusal := journal_stop(invoice_id, require_invoice(invoice_id, JOURNAL_FIELDS)):
@@ -150,11 +150,11 @@ def assign_account(invoice_id: int, answer: str = "", client_message: str = "") 
             return simulated
         memorized = _memorized(invoice, invoice_context(invoice))
         if memorized:
-            return apply_account(invoice, memorized, "compte memorise pour ce tiers")
+            return apply_account(invoice, memorized, "compte mémorisé pour ce tiers")
     check = stored_check(invoice_id)
     if not check:
         raise ToolError(
-            f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice (il faut ce qui est facture)."
+            f"Facture {invoice_id} : pas encore vérifiée, appelez d'abord check_invoice (il faut ce qui est facture)."
         )
     designation = check[1].get("designation")
     if not designation:
@@ -194,7 +194,7 @@ def account_meant(accounts, answer):
         + listing(accounts)
         + '\n\nAnswer with only a JSON object: {"code": "<a code from the list above>" or null}'
     )
-    code = ask_model(tool_prompt("read-account-answer"), [], instruction, "Lecture de la reponse").get("code")
+    code = ask_model(tool_prompt("read-account-answer"), [], instruction, "Lecture de la réponse").get("code")
     if code is None or not str(code).strip().isdigit():
         return None
     code = str(code).strip()
@@ -217,6 +217,6 @@ def set_account(invoice_id, answer):
     if account:
         return apply_account(invoice, account["id"], f"demande du client : {answer.strip()}")
     return question(
-        f"Facture {invoice_id} : « {answer.strip()} » ne designe pas un seul compte du dossier. "
+        f"Facture {invoice_id} : « {answer.strip()} » ne désigne pas un seul compte du dossier. "
         "Quel compte utiliser (code ou intitule) ?"
     )

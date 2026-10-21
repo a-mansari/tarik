@@ -39,29 +39,29 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
         invoice_id, ["state", "type", "company_id", "exercice_id", "invoice_number", "has_prepaid_expenses"]
     )
     if invoice["has_prepaid_expenses"]:
-        return routine(f"Facture {invoice_id} : deja repartie en constatee d'avance.")
+        return routine(f"Facture {invoice_id} : déjà répartie en constatée d'avance.")
     check = stored_check(invoice_id)
     values = check and prepaid_period(check[1].get("period_start"), check[1].get("period_end"))
     if not values:
-        return routine(f"Facture {invoice_id} : pas de periode sur plusieurs mois, rien a repartir.")
+        return routine(f"Facture {invoice_id} : pas de période sur plusieurs mois, rien à répartir.")
     kind = "produits" if invoice["type"] == "sale" else "charges"
     asked = (
         f"Facture {invoice['invoice_number'] or invoice_id} : elle couvre {values['prepaid_months']} mois "
         f"({values['prepaid_start_date']} au {values['prepaid_end_date']}). "
-        f"La repartir en {kind} constates d'avance ? oui / non"
+        f"La répartir en {kind} constates d'avance ? oui / non"
     )
     # Asked before: its answer, not the question again.
     answer, spread = kept_yes_no(invoice_id, "settle_prepaid", answer)
     if spread is None:
-        return question(asked if not answer else f"Reponse non comprise. {asked}")
+        return question(asked if not answer else f"Réponse non comprise. {asked}")
     if not spread:
-        return routine(f"Facture {invoice_id} : pas de repartition.")
+        return routine(f"Facture {invoice_id} : pas de répartition.")
     require_draft(invoice_id, invoice)
     context = invoice_context(invoice)
-    with refused(f"settle_prepaid {invoice_id}", f"Facture {invoice_id} : Experio a refuse la repartition."):
+    with refused(f"settle_prepaid {invoice_id}", f"Facture {invoice_id} : Experio a refusé la répartition."):
         # Ticked first, as on screen (its onchange fills defaults), then the period read on the scan.
         fill_invoice(invoice_id, {"has_prepaid_expenses": True, **values}, context)
     return ok(
         f"{test_mode_note()}Facture {invoice_id} : {kind} constates d'avance sur {values['prepaid_months']} mois "
-        f"a partir du {values['prepaid_start_date']} (ecritures generees a la comptabilisation)."
+        f"a partir du {values['prepaid_start_date']} (ecritures generees à la comptabilisation)."
     )

@@ -25,28 +25,28 @@ from tarik.invoices.withholding import settle_withholding
 
 # The sequence, in order: step tool -> what the client reads it as.
 STEPS = {
-    "answer_pending": "reponse",
-    "waiting_drafts": "comptabilisation demandee",
+    "answer_pending": "réponse",
+    "waiting_drafts": "comptabilisation demandée",
     "resolve_dossier": "dossier",
-    "check_sender": "acces au dossier",
-    "check_creator": "droit de creer des dossiers",
-    "create_dossier": "creation du dossier",
+    "check_sender": "accès au dossier",
+    "check_creator": "droit de créer des dossiers",
+    "create_dossier": "création du dossier",
     "update_dossier": "modification du dossier",
     "copy_configuration": "configuration",
-    "import_entries": "ecritures",
-    "finish_setup": "integration",
+    "import_entries": "écritures",
+    "finish_setup": "intégration",
     "ask_banks": "banque",
-    "setup_status": "etat du dossier",
+    "setup_status": "état du dossier",
     "import_dossiers": "liste de dossiers",
-    "create_person": "acces",
+    "create_person": "accès",
     "archive_dossier": "archivage",
     "files_to_process": "fichiers",
     "identify_document": "identification",
-    "import_bank_statement": "releve bancaire",
-    "split_invoices": "decoupage",
+    "import_bank_statement": "relevé bancaire",
+    "split_invoices": "découpage",
     "create_draft_invoice": "brouillon",
     "wait_until_read": "lecture par Experio",
-    "check_invoice": "verification",
+    "check_invoice": "vérification",
     "correct_invoice": "correction",
     "classify_invoice": "classement",
     "link_tiers": "tiers",
@@ -54,18 +54,18 @@ STEPS = {
     "assign_account": "compte",
     "settle_tva": "TVA",
     "check_journal": "journal",
-    "settle_withholding": "retenue a la source",
-    "settle_prepaid": "constatee d'avance",
+    "settle_withholding": "retenue à la source",
+    "settle_prepaid": "constatée d'avance",
     "settle_exercice": "exercice",
-    "configure_cabinet": "parametrage",
+    "configure_cabinet": "paramétrage",
     "hold_posting": "mise en attente",
     "post_invoice": "comptabilisation",
 }
 ORDER = list(STEPS)
 INVOICE_CHAIN = ORDER[ORDER.index("create_draft_invoice") :]  # an invoice's own steps, from its draft (Traitement)
-NOTHING = "Rien n'a ete traite."  # a run's summary when it did nothing (the Emails follow-up leaves it out)
+NOTHING = "Rien n'a été traité."  # a run's summary when it did nothing (the Emails follow-up leaves it out)
 NO_FILE = (
-    "Aucune piece jointe n'est arrivee avec votre message : verifiez qu'elle est bien jointe (certaines "
+    "Aucune pièce jointe n'est arrivée avec votre message : vérifiez qu'elle est bien jointe (certaines "
     "messageries la retirent) et renvoyez-la."
 )
 SETUP_STEPS = {
@@ -120,8 +120,8 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
     if others:
         listed = ", ".join(f"n° {other}" for other in others)
         return ok(
-            f"Facture {invoice_id} : lue par Experio, qui a tire du meme document la ou les factures {listed} "
-            "(une par facture du document), traitees a la suite.",
+            f"Facture {invoice_id} : lue par Experio, qui a tire du même document la ou les factures {listed} "
+            "(une par facture du document), traitees à la suite.",
             split_off=others,
         )
     return routine(f"Facture {invoice_id} : lue par Experio.")
@@ -160,9 +160,9 @@ def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
         released = db.execute(Q.held_released, (invoice_id,)).fetchone()[0]
     if not released:
         return stop(
-            f"Facture {invoice_id} : importee et verifiee, laissee en brouillon. Dites-moi quand la comptabiliser."
+            f"Facture {invoice_id} : importée et vérifiée, laissée en brouillon. Dites-moi quand la comptabiliser."
         )
-    return routine(f"Facture {invoice_id} : a comptabiliser.")
+    return routine(f"Facture {invoice_id} : à comptabiliser.")
 
 
 @tool
@@ -194,23 +194,52 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     return ok("enregistre", step=step, status_recorded=status)
 
 
-def summary_line(key, step, status, message):
-    """One line of the run's summary: a step's outcome on invoice ``key`` (int, None or a negative file id)."""
+# The summary's sections, in the order the client reads them: what was done, what is still under way, the
+# duplicates left aside, what failed or was stopped, then what they must answer. Empty ones are left out.
+SECTIONS = {
+    "done": "**Fait**",
+    "wait": "**En cours**",
+    "duplicate": "**Doublons, non traités**",
+    "problem": "**À corriger**",
+    "question": "**Questions**",
+}
+SECTION_OF = {"ok": "done", "wait": "wait", "stop": "problem", "question": "question"}  # any other status: a problem
+QUESTION_MARK = "QUESTION : "  # what the agent recognizes a question by (its answer goes to Experio_repondre)
+
+
+def section_of(step, status):
+    return "duplicate" if step == "check_duplicate" and status == "stop" else SECTION_OF.get(status, "problem")
+
+
+def summary_text(key, step, status, message):
+    """One outcome's text in the summary, on invoice ``key`` (int, None or a negative file id)."""
     text = message.removeprefix(TEST_MODE)
     if key and key > 0 and str(key) not in text:  # an error Experio gave without it: which invoice
-        text = f"facture {key} : {text}"
+        text = f"Facture {key} : {text}"
     if status == "question":
-        text = f"QUESTION : {text}"
-    elif status not in ("ok", "stop", "wait"):
-        text = f"Probleme a l'etape {STEPS.get(step, step)} : {text}"
-    return f"- {STEPS.get(step, step)} : {text}"
+        return QUESTION_MARK + text
+    if status not in SECTION_OF:
+        head, sep, rest = text.partition(" : ")
+        problem = f"problème à l'étape {STEPS.get(step, step)}"
+        return f"{head} : {problem} : {rest}" if sep and head.lower().startswith("facture") else f"{problem} : {text}"
+    return text
+
+
+def joined(key, texts):
+    """An invoice's (or file's) outcomes as one sentence: the first whole, the next ones without the « Facture N : »
+    they each start with."""
+    head = f"facture {key} : "
+    parts = [text if i == 0 or not text.lower().startswith(head) else text[len(head) :] for i, text in enumerate(texts)]
+    return "; ".join(part.rstrip(". ") for part in parts) + "."
 
 
 @tool
 def run_summary(run_id: str) -> dict:
-    """What happened in one processing run, invoice by invoice, for the client: each invoice's (or file's) outcomes
-    that say something (a question, a stop, a problem, what was set or changed), and where it stands, its furthest
-    outcome. Routine ones (nothing to do, the expected setting) are left out; a dossier's setup is shown whole."""
+    """What happened in one processing run, for the client, in sections: Fait, En cours, Doublons, À corriger,
+    Questions (empty ones left out). Each invoice (or file) is one line, in the section of where it stands (its
+    furthest outcome): its outcomes that say something (what was set or changed) joined when it is done, else only
+    what it waits on, the problem or the question. Routine ones (nothing to do, the expected setting) are left out; a
+    dossier's setup keeps one line per outcome."""
     with cabinet_db() as db:
         rows = db.execute(
             Q.run_outcomes,
@@ -228,12 +257,24 @@ def run_summary(run_id: str) -> dict:
         if (key, step, message) not in seen:
             seen.add((key, step, message))
             outcomes.setdefault(key, []).append((step, status, message, unread))
-    blocks = [
-        [summary_line(key, *outcome[:3]) for outcome in found if not outcome[3] or outcome is found[-1]]
-        for key, found in outcomes.items()
-    ]
-    summary = "\n\n".join("\n".join(lines) for lines in blocks)
-    return ok((TEST_MODE + "\n\n" if test else "") + summary)
+    sections = {name: [] for name in SECTIONS}
+    for key, found in outcomes.items():
+        shown = [outcome for outcome in found if not outcome[3] or outcome is found[-1]]
+        if key is None:  # a dossier's setup: each outcome in its own section, on its own line
+            for step, status, message, _ in shown:
+                sections[section_of(step, status)].append(summary_text(key, step, status, message))
+            continue
+        where = section_of(*found[-1][:2])
+        texts = [summary_text(key, *outcome[:3]) for outcome in shown if section_of(*outcome[:2]) == where]
+        sections[where] += texts if where == "question" else [joined(key, texts)]
+    parts = []
+    for name, lines in sections.items():
+        if lines:
+            marks = [f"{i}." if name == "question" else "-" for i in range(1, len(lines) + 1)]
+            parts.append(
+                SECTIONS[name] + "\n" + "\n".join(f"{mark} {line}" for mark, line in zip(marks, lines, strict=True))
+            )
+    return ok((TEST_MODE + "\n\n" if test else "") + "\n\n".join(parts))
 
 
 def journal_name(journal_id):
@@ -280,7 +321,7 @@ def waiting_on(session_id):
                 "dossier_id": d,
                 "step": "import_bank_statement",
                 "question": text,
-                "label": f"releve {name}",
+                "label": f"relevé {name}",
                 "names": {normalized(name), normalized(name.rsplit(".", 1)[0])},
                 "choices": choices,
             }
@@ -347,7 +388,7 @@ def meant(waiting, about):
     number or a statement's name, as the questions are listed). None when unclear: the client is asked which."""
     if len(waiting) == 1:
         return waiting[0]
-    about = normalized(str(about or "")).removeprefix("facture ").removeprefix("releve ")
+    about = normalized(str(about or "")).removeprefix("facture ").removeprefix("relevé ")
     named = [item for item in waiting if about and about in item["names"]]
     return named[0] if len(named) == 1 else None
 
@@ -372,7 +413,7 @@ def apply_answer(item, answer, decision):
     elif item["step"] == "settle_exercice":  # the client's date, or the exercice chosen
         result = apply(item["invoice_id"], answer, decision)
     elif item["step"] in DECIDED and yes_no(decision) is None and yes_no(answer) is None:
-        result = question(f"Reponse non comprise. {item['question']}")
+        result = question(f"Réponse non comprise. {item['question']}")
     else:
         # A plain "oui" or "non" is read here when the agent left the decision empty (it chose another tool).
         settled = decision if yes_no(decision) is not None else answer
@@ -435,7 +476,7 @@ def answer_pending(session_id: str, answer: str, decision: str = "", about: str 
     if not item:
         questions = "\n".join(f"- {entry['label']} : {entry['question']}" for entry in waiting)
         return question(
-            f"Plusieurs questions attendent votre reponse ; precisez la facture ou le releve :\n{questions}",
+            f"Plusieurs questions attendent votre réponse ; precisez la facture ou le relevé :\n{questions}",
             step="answer_pending",
         )
     sender = check_sender(session_id, dossier_id=item.get("dossier_id", 0), invoice_id=item.get("invoice_id", 0))
@@ -559,7 +600,7 @@ def nothing_to_post(session_id, dossier_id):
     """Why nothing is posted when the client asks to post: each draft of the dossier and what keeps it from being
     posted (a question waiting for them, a draft Tarik did not import, where Tarik's sequence stopped it)."""
     if not dossier_id:
-        return "Aucune facture laissee en brouillon dans cette conversation : rien a comptabiliser."
+        return "Aucune facture laissee en brouillon dans cette conversation : rien à comptabiliser."
     drafts = odoo_call(
         "exp.invoice",
         "search_read",
@@ -568,7 +609,7 @@ def nothing_to_post(session_id, dossier_id):
         order="id",
     )
     if not drafts:
-        return "Aucun brouillon dans ce dossier : rien a comptabiliser."
+        return "Aucun brouillon dans ce dossier : rien à comptabiliser."
     ids = [draft["id"] for draft in drafts]
     with cabinet_db() as db:
         made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (ids,))}
@@ -579,13 +620,13 @@ def nothing_to_post(session_id, dossier_id):
     furthest = furthest_outcomes(rows)
     lines = []
     for draft in drafts:
-        name = f"facture {draft['id']} ({draft['invoice_number'] or 'sans numero'})"
+        name = f"facture {draft['id']} ({draft['invoice_number'] or 'sans numéro'})"
         if draft["id"] in asked:
-            lines.append(f"- {name} : attend votre reponse a sa question : {asked[draft['id']]}")
+            lines.append(f"- {name} : attend votre réponse à sa question : {asked[draft['id']]}")
         elif draft["id"] not in made:
-            lines.append(f"- {name} : pas importee par Tarik, a comptabiliser dans Experio")
+            lines.append(f"- {name} : pas importée par Tarik, à comptabiliser dans Experio")
         elif draft["id"] in furthest:
             lines.append(f"- {name} : {messages[(draft['id'], furthest[draft['id']][0])]}")
         else:
             lines.append(f"- {name} : encore en cours de traitement")
-    return "Rien n'a ete comptabilise. Les brouillons du dossier :\n" + "\n".join(lines)
+    return "Rien n'a été comptabilisé. Les brouillons du dossier :\n" + "\n".join(lines)

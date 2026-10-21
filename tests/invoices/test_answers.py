@@ -49,7 +49,7 @@ def test_the_only_question_gets_the_answer_and_the_sequence_resumes(answers):
 @pytest.mark.functionality
 def test_with_several_questions_the_answer_names_its_invoice(answers):
     waits(11, "assign_account", "Facture FA-11 : quel compte utiliser ?")
-    waits(12, "settle_tva", "Facture de NOVA TELECOM : la TVA est-elle non recuperable ? oui / non")
+    waits(12, "settle_tva", "Facture de NOVA TELECOM : la TVA est-elle non récupérable ? oui / non")
     which = pipeline.answer_pending("s", "oui pour Nova Telecom", "oui")  # the agent didn't say which: asked
     assert which["status"] == "question" and "- facture 12 : Facture de NOVA TELECOM" in which["message"]
     assert answers == []
@@ -58,18 +58,18 @@ def test_with_several_questions_the_answer_names_its_invoice(answers):
 
 
 @pytest.mark.security
-@pytest.mark.parametrize("decision", ["", "Ok non merci", "peut-etre"])
+@pytest.mark.parametrize("decision", ["", "Ok non merci", "peut-être"])
 def test_a_oui_non_question_the_agents_decision_does_not_settle_is_asked_again(answers, decision):
-    waits(12, "settle_tva", "Facture de NOVA TELECOM : la TVA est-elle non recuperable ? oui / non")
+    waits(12, "settle_tva", "Facture de NOVA TELECOM : la TVA est-elle non récupérable ? oui / non")
     result = pipeline.answer_pending("s", "Ok non merci", decision)
-    assert result["status"] == "question" and result["message"].startswith("Reponse non comprise. Facture de NOVA")
+    assert result["status"] == "question" and result["message"].startswith("Réponse non comprise. Facture de NOVA")
     assert answers == []  # nothing applied: the client is asked again
 
 
 @pytest.mark.functionality
 def test_a_plain_oui_is_read_even_when_the_agent_left_the_decision_empty(answers):
     """The agent called the wrong tool for an answer: its decision is empty, the client's "Oui" is still exact."""
-    waits(12, "settle_tva", "Facture de NOVA TELECOM : la TVA est-elle non recuperable ? oui / non")
+    waits(12, "settle_tva", "Facture de NOVA TELECOM : la TVA est-elle non récupérable ? oui / non")
     result = pipeline.answer_pending("s", "Oui", "")
     assert answers == [(12, "Oui")] and result["next_step"] == "check_journal"
 
@@ -77,7 +77,7 @@ def test_a_plain_oui_is_read_even_when_the_agent_left_the_decision_empty(answers
 @pytest.mark.security
 def test_only_a_plain_oui_or_non_decides():
     assert yes_no("oui") is True and yes_no(" Oui ") is True and yes_no("non") is False
-    for unclear in ("Ok non merci", "Nous sommes d'accord", "non recuperable", "oui... enfin non", "", None):
+    for unclear in ("Ok non merci", "Nous sommes d'accord", "non récupérable", "oui... enfin non", "", None):
         assert yes_no(unclear) is None, unclear  # the agent reads the reply and says "oui" or "non", or it is asked
 
 
@@ -99,8 +99,8 @@ def test_a_sender_without_the_dossier_changes_nothing_and_is_recorded_as_refused
 
 @pytest.mark.security
 def test_only_the_invoice_the_agent_names_among_those_waiting_is_answered(answers):
-    waits(20, "settle_tva", "Facture FA-20 : la TVA est-elle non recuperable ? oui / non")
-    waits(35, "settle_tva", "Facture FA-35 : la TVA est-elle non recuperable ? oui / non")
+    waits(20, "settle_tva", "Facture FA-20 : la TVA est-elle non récupérable ? oui / non")
+    waits(35, "settle_tva", "Facture FA-35 : la TVA est-elle non récupérable ? oui / non")
     for about in ("", "99", "FA-20 ou FA-35"):  # none, one not waiting, not one
         assert pipeline.answer_pending("s", "oui, TVA 20 %", "oui", about)["status"] == "question" and answers == []
     assert pipeline.answer_pending("s", "oui pour la facture 35", "oui", "facture 35")["invoice_id"] == 35
@@ -120,11 +120,11 @@ def test_a_statement_gets_the_bank_account_the_client_names(answers, monkeypatch
     with cabinet_db() as db:
         file_id = db.execute(
             "insert into tarik_files (session_id, file_name, mime_type, data, kind) values "
-            "('s', 'releve mars.pdf', 'application/pdf', '', 'statement') returning id"
+            "('s', 'relevé mars.pdf', 'application/pdf', '', 'statement') returning id"
         ).fetchone()[0]
         db.execute(
             "insert into tarik_results (run_id, session_id, file_id, dossier_id, step, status, message, choices) "
-            "values ('r', 's', %s, 557, 'import_bank_statement', 'question', 'releve mars.pdf : lequel ? BMCE - BMCE "
+            "values ('r', 's', %s, 557, 'import_bank_statement', 'question', 'relevé mars.pdf : lequel ? BMCE - BMCE "
             "BANK (n° 4), BP - BANQUE POPULAIRE (n° 5)', %s)",
             (file_id, '{"4": "BMCE - BMCE BANK", "5": "BP - BANQUE POPULAIRE"}'),
         )
@@ -166,7 +166,7 @@ def test_the_date_the_client_gives_is_the_invoices(monkeypatch):
     monkeypatch.setattr(exercice, "fill_invoice", lambda invoice_id, values, context: written.append(values))
     monkeypatch.setattr(exercice, "test_mode_note", lambda: "")
     assert exercice.settle_exercice(7, "")["status"] == "question"
-    assert exercice.settle_exercice(7, "du 15/03/2026")["message"].endswith("rattachee a l'exercice Exercice 2026.")
+    assert exercice.settle_exercice(7, "du 15/03/2026")["message"].endswith("rattachée à l'exercice Exercice 2026.")
     assert written == [{"invoice_date": "2026-03-15"}, {"exercice_id": 5}]
 
 
@@ -348,9 +348,9 @@ def test_when_nothing_is_to_be_posted_the_client_is_told_why(db_cabinet, monkeyp
     )
     told = pipeline.waiting_drafts("s", held=True, dossier_id=5)
     assert told["status"] == "stop" and told["invoices"] == []
-    assert "facture 1 (F-1) : attend votre reponse a sa question : quel compte ?" in told["message"]
+    assert "facture 1 (F-1) : attend votre réponse à sa question : quel compte ?" in told["message"]
     assert "facture 2 (F-2) : Facture 2 : doublon." in told["message"]
-    assert "facture 3 (sans numero) : pas importee par Tarik" in told["message"]
+    assert "facture 3 (sans numéro) : pas importée par Tarik" in told["message"]
 
 
 @pytest.mark.functionality

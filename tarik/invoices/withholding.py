@@ -26,11 +26,11 @@ from tarik.core.words import as_number
 
 QUESTIONS = {
     "foreign": (
-        "quelle retenue a la source etrangere ?\n"
+        "quelle retenue à la source étrangère ?\n"
         "1. Sans retenue\n2. A la charge du fournisseur\n3. A la charge de la societe\n"
-        "(ajoutez « hors Maroc » si le service est rendu a l'etranger)"
+        "(ajoutez « hors Maroc » si le service est rendu à l'étranger)"
     ),
-    "local": "y a-t-il une retenue a la source ? Repondez « sans », ou le taux (ex. « 10 » ou « 10 et 75 »).",
+    "local": "y a-t-il une retenue à la source ? Repondez « sans », ou le taux (ex. « 10 » ou « 10 et 75 »).",
 }
 
 
@@ -38,7 +38,7 @@ QUESTIONS = {
 # free text ("a la charge de la societe, contrat 2025", "sans, facture du 15/03") defeats any pattern.
 FOREIGN_SHAPE = (
     'Answer with only a JSON object: {"rule": "none"|"supplier"|"society"|null, "abroad": true|false}. '
-    "rule: none = sans retenue (1), supplier = a la charge du fournisseur (2), society = a la charge de la "
+    "rule: none = sans retenue (1), supplier = à la charge du fournisseur (2), society = à la charge de la "
     "societe (3), null when the answer does not say. abroad: the service was rendered outside Morocco "
     '("hors Maroc", "a l\'etranger").'
 )
@@ -57,7 +57,7 @@ def read_answer(kind, reply):
         [],
         f"Question: {QUESTIONS[kind]}\nClient's answer: {reply}\n\n"
         + (FOREIGN_SHAPE if kind == "foreign" else LOCAL_SHAPE),
-        "Lecture de la reponse",
+        "Lecture de la réponse",
     )
 
 
@@ -112,16 +112,16 @@ FIELDS = {
 def described(values):
     """The withholding ``values`` (Experio's fields) in French words, for the client."""
     if not values.get("retenue"):
-        return "sans retenue a la source"
+        return "sans retenue à la source"
     if "foreign_withholding" in values:
-        who = {"supplier": "a la charge du fournisseur", "society": "a la charge de la societe"}.get(
+        who = {"supplier": "à la charge du fournisseur", "society": "à la charge de la société"}.get(
             values["foreign_withholding"], ""
         )
-        return f"retenue etrangere {who}" + ("" if values.get("local_service", True) else ", service rendu hors Maroc")
+        return f"retenue étrangère {who}" + ("" if values.get("local_service", True) else ", service rendu hors Maroc")
     rates = [f"IS/IR {values['local_withholding_percentage']} %"] if values.get("local_withholding_percentage") else []
     if values.get("tax_withholding_percentage") not in (None, False, "0"):
         rates.append(f"TVA {values['tax_withholding_percentage']} %")
-    return "retenue a la source " + " et ".join(rates)
+    return "retenue à la source " + " et ".join(rates)
 
 
 def _last_foreign_rule(invoice):
@@ -151,13 +151,13 @@ def _rule(invoice, kind, answer):
     if answer:
         values = (withholding_answer if kind == "foreign" else local_withholding_answer)(answer)
         if values is None:
-            return question(f"Facture {invoice_id} : reponse non comprise, {QUESTIONS[kind]}"), None
+            return question(f"Facture {invoice_id} : réponse non comprise, {QUESTIONS[kind]}"), None
         return None, values
     if kind == "foreign":
         values = _last_foreign_rule(invoice)
         return (None, values) if values else (question(f"Facture de {tier} : {QUESTIONS['foreign']}"), None)
     if not account_code(invoice).startswith(LOCAL_RAS_ACCOUNTS):
-        return routine(f"Facture {invoice_id} : sans retenue a la source."), None
+        return routine(f"Facture {invoice_id} : sans retenue à la source."), None
     return question(f"Facture de {tier} : {QUESTIONS['local']}"), None
 
 
@@ -185,18 +185,18 @@ def settle_withholding(invoice_id: int, answer: str = "", client_message: str = 
         ],
     )
     if invoice["type"] != "purchase" or not invoice["partner_id"]:
-        return routine(f"Facture {invoice_id} : pas de retenue a la source a regler ici (vente ou tiers absent).")
+        return routine(f"Facture {invoice_id} : pas de retenue à la source à régler ici (vente ou tiers absent).")
     require_draft(invoice_id, invoice)
     kind = "local" if invoice["is_local_invoice"] else "foreign"
     if invoice["retenue"]:  # the tiers' remembered rule, applied by Experio when the tiers was picked
         known = described({name: invoice[name] for name in FIELDS[kind]})
-        return ok(f"Facture {invoice_id} : {known} (regle connue du tiers).")
+        return ok(f"Facture {invoice_id} : {known} (règle connue du tiers).")
     result, values = _rule(invoice, kind, answer)
     if result:
         return result
     context = invoice_context(invoice)
     with refused(
-        f"settle_withholding {invoice_id}", f"Facture {invoice_id} : Experio a refuse la retenue a la source."
+        f"settle_withholding {invoice_id}", f"Facture {invoice_id} : Experio a refusé la retenue à la source."
     ):
         fill_invoice(invoice_id, values, context)  # Experio's onchange sets the RAS lines and accounts, as on screen
         refresh(invoice_id, context)

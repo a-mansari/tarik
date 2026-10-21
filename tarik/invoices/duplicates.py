@@ -7,7 +7,7 @@ invoice sent twice before either is posted, the same rule across same-number dra
 format, and the label field would override it.
 """
 
-from tarik.core.app import ok, routine, step_tool, stop
+from tarik.core.app import log, ok, routine, step_tool, stop
 from tarik.core.experio import invoice_context, odoo_call, odoo_json, plain, refused, require_invoice
 
 FIELDS = ["company_id", "exercice_id", "invoice_number", "invoice_date", "amount_total", "partner_id", "type"]
@@ -58,8 +58,7 @@ def without_tiers_twin(invoice, context):
     if not twins:
         return None
     return stop(
-        f"Facture {invoice['id']} : DOUBLON, deja enregistree dans le dossier. Meme numero, date et montant que la "
-        f"facture {twins[0]}, saisie avant (sans tiers pour l'une d'elles). Ne pas la traiter."
+        f"Facture {invoice['id']} : doublon de la facture {twins[0]} (même numéro, date et montant), non traitée."
     )
 
 
@@ -73,14 +72,19 @@ def check_duplicate(invoice_id: int) -> dict:
         return twin
     if not invoice["invoice_number"] or not invoice["partner_id"]:
         return ok(
-            f"Facture {invoice_id} : numero ou tiers manquant, "
-            "la verification des doublons attend qu'ils soient renseignes."
+            f"Facture {invoice_id} : numéro ou tiers manquant, "
+            "la vérification des doublons attend qu'ils soient renseignés."
         )
     context = invoice_context(invoice)
-    with refused(f"check_duplicate {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu verifier les doublons."):
+    with refused(f"check_duplicate {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier les doublons."):
         # 1. Against posted invoices: Experio's check on this invoice alone.
         if invoice_id in (odoo_json("exp.invoice", "get_duplicated_invoice_ids", [invoice_id], context=context) or []):
             message = odoo_json("exp.invoice", "get_duplicated_invoice_msg", [invoice_id], context=context) or ""
+            log(f"check_duplicate {invoice_id}: {plain(message)}")  # Experio's long wording: for the team
+            message = (
+                f"déjà enregistrée (n° {invoice['invoice_number']}, {invoice['partner_id'][1].split(' - ')[0]}, "
+                f"{invoice['invoice_date'] or 'sans date'})"
+            )
         else:
             # 2. Against the dossier's other drafts with the same number and tiers, checked together so Experio's
             # rule (date or year) decides. Its "original" depends on SQL order, so the oldest draft is kept instead.
@@ -89,10 +93,8 @@ def check_duplicate(invoice_id: int) -> dict:
                 return routine(f"Facture {invoice_id} : pas de doublon dans le dossier.")
             if invoice_id == batch[0]:
                 return ok(
-                    f"Facture {invoice_id} : pas de doublon, c'est la premiere saisie ; les brouillons "
+                    f"Facture {invoice_id} : pas de doublon, c'est la première saisie ; les brouillons "
                     f"{', '.join(map(str, batch[1:]))} en sont des doublons."
                 )
-            message = f"Meme facture que le brouillon {batch[0]}, saisi avant."
-    return stop(
-        f"Facture {invoice_id} : DOUBLON, deja enregistree dans le dossier. {plain(message)} Ne pas la traiter."
-    )
+            message = f"doublon du brouillon {batch[0]}, saisi avant"
+    return stop(f"Facture {invoice_id} : {message}, non traitée.")

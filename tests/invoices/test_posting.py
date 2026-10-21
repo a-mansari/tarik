@@ -33,7 +33,7 @@ def experio(monkeypatch):
 
 @pytest.mark.functionality
 def test_posted_only_when_nothing_blocks(experio):
-    assert posting.post_invoice(3)["message"] == "Facture 3 : comptabilisee."
+    assert posting.post_invoice(3)["message"] == "Facture 3 : comptabilisée."
     assert experio["calls"].count("action_post") == 1
     experio["blocking"] = ["<b>Compte</b> manquant"]
     result = posting.post_invoice(3)
@@ -50,7 +50,7 @@ def test_experios_refusal_and_state_decide(experio):
     result = posting.post_invoice(3)
     assert result["status"] == "stop" and result["message"].endswith("ValidationError: Tiers sans compte")
     experio["after"] = "draft"  # action_post went through, the invoice stayed a draft
-    assert posting.post_invoice(3)["message"] == "Facture 3 : pas comptabilisee (Bloque)."
+    assert posting.post_invoice(3)["message"] == "Facture 3 : pas comptabilisée (Bloque)."
     experio["state"] = "post"
     assert posting.post_invoice(3)["routine"]
 

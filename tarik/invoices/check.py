@@ -207,7 +207,7 @@ def _read_scan(invoice_id, pages, stored, part=""):
         # No thinking: measured on real scans, it read no better and took up to 170 s instead of 11.
         prompt = captured + "\n\n" + tool_prompt("check-invoice-answer") + unclear
         try:  # a reply with no single whole answer in it (notes around it, two answers) is asked again
-            answer = ask_model(system, pages, prompt, "Verification de la facture", think=False, keys=REPORT_KEYS)
+            answer = ask_model(system, pages, prompt, "Vérification de la facture", think=False, keys=REPORT_KEYS)
         except ToolError:
             if attempt:
                 raise
@@ -217,7 +217,7 @@ def _read_scan(invoice_id, pages, stored, part=""):
         except ValueError as error:
             log(f"check_invoice {invoice_id}: {error} (attempt {attempt + 1})")
             if attempt:
-                raise ToolError("Verification de la facture : echec, reessayez plus tard.") from None
+                raise ToolError("Vérification de la facture : échec, réessayez plus tard.") from None
             # The model, which sees the scan, says which reading it meant (a number written "1,005": 1.005 or 1005).
             unclear = f"\nYour last answer was unusable: {error}. Read that value on the scan again, as a JSON number."
             continue
@@ -264,12 +264,12 @@ def check_invoice(invoice_id: int) -> dict:
     if reading:
         return reading
     if invoice["bluejay_state"] != "done":
-        return ok(f"Facture {invoice_id} : Experio n'a pas lu cette facture automatiquement, rien a comparer.")
+        return ok(f"Facture {invoice_id} : Experio n'a pas lu cette facture automatiquement, rien à comparer.")
     stored = _captured(invoice)
     scanned, part = split_scan(invoice)
     scanned = scanned or (invoice if has_scan(invoice) else None)
     if not scanned:
-        return routine(f"Facture {invoice_id} : pas de scan PDF a verifier.")
+        return routine(f"Facture {invoice_id} : pas de scan PDF a vérifier.")
     report = _read_scan(invoice_id, scan_pages(scanned["document_pdf"]), stored, part)
     _save_check(invoice_id, report)
     return _check_result(invoice_id, report)

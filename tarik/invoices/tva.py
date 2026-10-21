@@ -34,12 +34,12 @@ def _non_recoverable(invoice, answer):
     told = yes_no(answer) if answer else None
     if answer and told is None:
         return (
-            question(f"Facture {invoice['id']} : reponse non comprise, la TVA est-elle non recuperable ? oui / non"),
+            question(f"Facture {invoice['id']} : réponse non comprise, la TVA est-elle non récupérable ? oui / non"),
             {},
         )
     if told is None and account_code(invoice).startswith(NON_RECOVERABLE_ACCOUNTS):
         tier = (invoice["partner_id"] or [0, "ce fournisseur"])[1]
-        asked = f"Facture de {tier} : la TVA est-elle non recuperable (voyage, carburant, vehicule de tourisme) ? "
+        asked = f"Facture de {tier} : la TVA est-elle non récupérable (voyage, carburant, véhicule de tourisme) ? "
         return question(asked + "oui / non"), {}
     return None, ({"amount_tax_non_recoverable": True, "multi_tva": False} if told else {})
 
@@ -70,7 +70,7 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
         if dry_run():  # the account step only simulated its write
             return ok(f"{TEST_MODE}Facture {invoice_id} : la TVA sera reglee une fois le compte enregistre.")
         raise ToolError(
-            f"Facture {invoice_id} : pas encore de compte, appelez d'abord assign_account (la TVA en depend)."
+            f"Facture {invoice_id} : pas encore de compte, appelez d'abord assign_account (la TVA en dépend)."
         )
     purchase = side_of(invoice) == "purchase"
     context = invoice_context(invoice)
@@ -81,7 +81,7 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
         if asked:
             return asked
     non_recoverable = invoice["amount_tax_non_recoverable"] or changes.get("amount_tax_non_recoverable")
-    with refused(f"settle_tva {invoice_id}", f"Facture {invoice_id} : Experio a refuse la mise a jour de la TVA."):
+    with refused(f"settle_tva {invoice_id}", f"Facture {invoice_id} : Experio a refusé la mise à jour de la TVA."):
         if purchase and not non_recoverable and invoice["amount_tva"] and not invoice["tax_prorata"]:
             fields = ["use_prorata", "prorata_rate"]
             company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=fields)[0]
@@ -91,12 +91,12 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
         if changes:
             fill_invoice(invoice_id, changes, context)
             if changes.get("amount_tax_non_recoverable"):
-                notes.append("TVA non recuperable")  # Experio saves it on the supplier when the invoice is posted
+                notes.append("TVA non récupérable")  # Experio saves it on the supplier when the invoice is posted
         taxes = add_missing_taxes(invoice_id, context)  # a rate without its tax: Experio's refresh would refuse it
         refresh(invoice_id, context)  # Experio picks the tax for each rate
         taxed = _tax_lines(invoice_id, context)
     # Only the TVA is said here: what else Experio refuses on the invoice is configure_cabinet's and post_invoice's.
-    body = f"{test_mode_note()}Facture {invoice_id} : TVA {'non recuperable' if non_recoverable else 'recuperable'}"
+    body = f"{test_mode_note()}Facture {invoice_id} : TVA {'non récupérable' if non_recoverable else 'récupérable'}"
     body += (f", {', '.join(notes)}" if notes and not non_recoverable else "") + ". "
     body += ("Lignes : " + "; ".join(taxed) + ".") if taxed else "Pas encore de ligne de TVA."
     body += (" Taxes du dossier : " + " ; ".join(taxes) + ".") if taxes else ""

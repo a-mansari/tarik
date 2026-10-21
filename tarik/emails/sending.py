@@ -27,10 +27,11 @@ from tarik.core.words import strip_tags
 
 MAIL_TIMEOUT = 60  # seconds before the mail server is given up
 
-BOLD = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")  # **text** or __text__
+BOLD = re.compile(r"\*\*(.+?)\*\*|(?<!\w)__(.+?)__(?!\w)")  # **text** or __text__, never inside a word (a__b__c)
 # *text*: single stars, not inside a word nor next to another star, the text not starting or ending with a space.
 ITALIC = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])")
-CODE = re.compile(r"`([^`\n]+)`")  # `text` on one line
+CODE = re.compile(r"`([^`\n]+)`")  # `text` on one line: a file name, kept as written
+CODE_HTML = '<code style="background:#f2f2f2;padding:1px 4px;border-radius:3px">{}</code>'
 LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")  # [label](http(s) address)
 BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")  # a list item's mark at a line's start: -, *, •, "1." or "1)"
 HEADING = re.compile(r"^\s*#{1,6}\s*")  # a Markdown heading's leading #s
@@ -137,19 +138,33 @@ def blocks(body):
     return [block for block in found if block]
 
 
+def spans(text, outside, inside):
+    """``text`` with ``outside`` applied to what is not code and ``inside`` to each `code` span's content: what is
+    in backticks (a file name) is never read as Markdown."""
+    parts = CODE.split(text)  # even: outside code, odd: a code span's content
+    return "".join(inside(part) if i % 2 else outside(part) for i, part in enumerate(parts))
+
+
 def inline_text(text):
-    """One line's Markdown as plain text: links as "label (address)", emphasis and code marks dropped."""
-    text = LINK.sub(lambda m: f"{m.group(1)} ({m.group(2)})", text)
-    text = BOLD.sub(lambda m: m.group(1) or m.group(2), text)
-    return ITALIC.sub(r"\1", CODE.sub(r"\1", text))
+    """One line's Markdown as plain text: links as "label (address)", emphasis marks dropped, code in « »."""
+
+    def outside(part):
+        part = LINK.sub(lambda m: f"{m.group(1)} ({m.group(2)})", part)
+        return ITALIC.sub(r"\1", BOLD.sub(lambda m: m.group(1) or m.group(2), part))
+
+    return spans(text, outside, lambda code: f"« {code} »")
 
 
 def inline_html(text):
-    """One line's Markdown as escaped HTML: links, bold and italics as tags, code marks dropped."""
-    text = html.escape(text, quote=False)
-    text = LINK.sub(lambda m: f'<a href="{html.escape(m.group(2))}">{m.group(1)}</a>', text)
-    text = BOLD.sub(lambda m: f"<strong>{m.group(1) or m.group(2)}</strong>", text)
-    return ITALIC.sub(r"<em>\1</em>", CODE.sub(r"\1", text))
+    """One line's Markdown as escaped HTML: links, bold and italics as tags, code as <code>."""
+
+    def outside(part):
+        part = html.escape(part, quote=False)
+        part = LINK.sub(lambda m: f'<a href="{html.escape(m.group(2))}">{m.group(1)}</a>', part)
+        part = BOLD.sub(lambda m: f"<strong>{m.group(1) or m.group(2)}</strong>", part)
+        return ITALIC.sub(r"<em>\1</em>", part)
+
+    return spans(text, outside, lambda code: CODE_HTML.format(html.escape(code, quote=False)))
 
 
 def plain_block(kind, lines):

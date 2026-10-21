@@ -58,4 +58,4 @@ def test_a_quiet_step_s_ok_reaches_the_summary_only_when_the_client_must_read_it
     for result in (told, {"status": "ok", "message": "2 fichier(s) a traiter.", "files": [1, 2]}):
         monkeypatch.setitem(TOOLS, "files_to_process", lambda session_id, asked=False, result=result: result)
         asyncio.run(tools.step(db_cabinet, "r", "s", "files_to_process", session_id="s", asked=True))
-    assert run_summary("r")["message"] == f"- fichiers : {NO_FILE}"
+    assert run_summary("r")["message"] == f"**Fait**\n- {NO_FILE}"

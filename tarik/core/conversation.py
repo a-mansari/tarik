@@ -23,7 +23,19 @@ def left_out(skipped):
     paragraph to end a reply with, or "" when nothing was. Added by the code, never left to the model to remember."""
     if not skipped:
         return ""
-    return "\n\nFichiers laissés de côté :\n" + "\n".join(f"- {why}" for why in skipped)
+    return "\n\n**Fichiers laissés de côté**\n" + "\n".join(f"- {named(why)}" for why in skipped)
+
+
+def named(why):
+    """A note « name : why » with its file name in backticks, as every file name the client reads."""
+    name, sep, reason = why.partition(" : ")
+    return f"`{name}` : {reason}" if sep else why
+
+
+def for_client(reply):
+    """Tarik's ``reply`` as the client reads it: without the « QUESTION : » marks the agent recognizes questions by
+    (tarik.invoices.pipeline.QUESTION_MARK), which say nothing to them."""
+    return (reply or "").replace("QUESTION : ", "")
 
 
 def files_of(message):

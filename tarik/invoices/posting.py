@@ -59,22 +59,22 @@ def post_invoice(invoice_id: int) -> dict:
     blocking; otherwise list what blocks it."""
     invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "type", "partner_id"])
     if invoice["state"] in POSTED:
-        return routine(f"Facture {invoice_id} : deja comptabilisee.")
+        return routine(f"Facture {invoice_id} : déjà comptabilisée.")
     if invoice["state"] != "draft":
-        return stop(f"Facture {invoice_id} : en etat {invoice['state']}, elle ne peut pas etre comptabilisee.")
+        return stop(f"Facture {invoice_id} : en état {invoice['state']}, elle ne peut pas être comptabilisée.")
     if role := missing_compte_tiers(invoice):
         return stop(
-            f"Facture {invoice_id} : pas comptabilisee, son tiers n'a pas de Compte Tiers {role} : le cabinet doit "
+            f"Facture {invoice_id} : pas comptabilisée, son tiers n'a pas de Compte Tiers {role} : le cabinet doit "
             "l'attribuer dans Experio (fiche du tiers), puis me dire de la comptabiliser."
         )
     context = invoice_context(invoice)
-    with refused(f"post_invoice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu verifier la facture."):
+    with refused(f"post_invoice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier la facture."):
         refresh(invoice_id, context)
         found = _blocking(invoice_id, context)
     if found:
-        return stop(f"Facture {invoice_id} : pas comptabilisee, Experio signale : " + " ; ".join(found))
+        return stop(f"Facture {invoice_id} : pas comptabilisée, Experio signale : " + " ; ".join(found))
     if dry_run():
-        return ok(f"{TEST_MODE}Facture {invoice_id} : rien ne bloque, elle serait comptabilisee.")
+        return ok(f"{TEST_MODE}Facture {invoice_id} : rien ne bloque, elle serait comptabilisée.")
     try:
         # skip_due_date_detected_check: what the "date d'echeance detectee" popup's Confirmer does; over RPC the popup
         # would come back instead and nothing would post.
@@ -82,7 +82,7 @@ def post_invoice(invoice_id: int) -> dict:
         after = odoo_call("exp.invoice", "read", [invoice_id], fields=["state", "error_msg"], context=context)[0]
     except Exception as error:  # not refused(): a refusal here stops this invoice, with Experio's own reason
         log(f"post_invoice {invoice_id}: {error}")
-        return stop(f"Facture {invoice_id} : Experio a refuse la comptabilisation : {experio_refusal(error)}")
+        return stop(f"Facture {invoice_id} : Experio a refusé la comptabilisation : {experio_refusal(error)}")
     if after["state"] in POSTED:
-        return ok(f"Facture {invoice_id} : comptabilisee.")
-    return stop(f"Facture {invoice_id} : pas comptabilisee ({plain(after['error_msg']) or 'etat ' + after['state']}).")
+        return ok(f"Facture {invoice_id} : comptabilisée.")
+    return stop(f"Facture {invoice_id} : pas comptabilisée ({plain(after['error_msg']) or 'état ' + after['state']}).")

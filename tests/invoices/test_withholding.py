@@ -33,7 +33,7 @@ def test_foreign_withholding(model):
     reading.update(rule="supplier", abroad=True)
     assert (
         described(withholding_answer("2, hors maroc"))
-        == "retenue etrangere a la charge du fournisseur, service rendu hors Maroc"
+        == "retenue étrangère à la charge du fournisseur, service rendu hors Maroc"
     )
 
 
@@ -46,7 +46,7 @@ def test_local_withholding(model):
         "local_withholding_percentage": "10",
         "tax_withholding_percentage": "75",
     }
-    assert described(local_withholding_answer("10 et 75")) == "retenue a la source IS/IR 10 % et TVA 75 %"
+    assert described(local_withholding_answer("10 et 75")) == "retenue à la source IS/IR 10 % et TVA 75 %"
     reading.update(retenue=True, is_ir="10%", tva="75 %")
     assert local_withholding_answer("10 % et 75 %")["local_withholding_percentage"] == "10"
     assert local_withholding_answer("10 % et 75 %")["tax_withholding_percentage"] == "75"

@@ -295,8 +295,16 @@ def test_what_an_emailed_zip_left_out_is_told_in_the_reply(mailbox):
     assert thread["files"] == ["lot.zip › f1.pdf"]
     assert thread["skipped"] == ["lot.zip › notes.docx : type non pris en charge"]
     told = left_out(thread["skipped"])
-    assert told == "\n\nFichiers laissés de côté :\n- lot.zip › notes.docx : type non pris en charge"
+    assert told == "\n\n**Fichiers laissés de côté**\n- `lot.zip › notes.docx` : type non pris en charge"
     assert left_out([]) == ""
+
+
+@pytest.mark.communication
+def test_the_client_never_reads_the_agent_s_question_marks():
+    from tarik.core.conversation import for_client
+
+    reply = "**Questions**\n1. QUESTION : Facture 12 : la TVA est-elle non récupérable ? oui / non"
+    assert for_client(reply) == "**Questions**\n1. Facture 12 : la TVA est-elle non récupérable ? oui / non"
 
 
 @pytest.mark.communication
@@ -320,7 +328,7 @@ def test_the_reply_email_ends_with_what_the_zip_left_out(monkeypatch):
     }
     asyncio.run(emails.send({"cabinet": "c", "thread": thread, "reply": "Facture 12 : brouillon cree."}))
     assert sent["body"].startswith("Facture 12 : brouillon cree.")
-    assert sent["body"].endswith("- lot.zip › notes.docx : type non pris en charge")
+    assert sent["body"].endswith("- `lot.zip › notes.docx` : type non pris en charge")
 
 
 @pytest.mark.communication

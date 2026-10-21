@@ -36,7 +36,7 @@ def test_the_account_the_client_named_goes_on_the_invoice_first(monkeypatch):
     assert accounts.assign_account(3, "6125", "compte 6125 pour celle-ci")["status"] == "ok"
     assert applied == ["6125"]
     monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: {"account_id": [1, "6111 Achats"]})
-    assert "deja renseigne" in accounts.assign_account(3, "6125", "comptabilisez-la")["message"]  # the usual path
+    assert "déjà renseigné" in accounts.assign_account(3, "6125", "comptabilisez-la")["message"]  # the usual path
     assert applied == ["6125"]
 
 

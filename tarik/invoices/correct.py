@@ -1,6 +1,6 @@
 """Write what the scan shows over what Experio captured differently."""
 
-from tarik.core.app import ToolError, ok, routine, step_tool, stop
+from tarik.core.app import ToolError, log, ok, routine, step_tool, stop
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import instructed
 from tarik.core.experio import (
@@ -24,6 +24,31 @@ PAYMENT_METHODS = {
     "prelevement": "Pr",
     "compensation": "Compensation",
 }
+
+
+# How the client reads a corrected field; amount_tva_<rate> is « TVA <rate> % ». A field holding an id (mode de
+# paiement, devise) is said set, its id meaning nothing to them; multi_tva is Experio's own switch, never said.
+FIELD_LABELS = {
+    "invoice_date": "date",
+    "invoice_number": "numéro",
+    "amount_untaxed": "montant HT",
+    "amount_tva": "TVA",
+    "amount_total": "montant TTC",
+    "amount_tax_non_recoverable": "TVA non récupérable",
+    "is_credit_note": "avoir",
+    "payment_method_id": "mode de paiement",
+    "currency_id": "devise",
+}
+
+
+def change_text(field, value):
+    """One corrected field as the client reads it (None: not said)."""
+    if field == "multi_tva":
+        return None
+    if field.startswith("amount_tva_") and field.removeprefix("amount_tva_").isdigit():
+        return f"TVA {field.removeprefix('amount_tva_')} % {value}"
+    label = FIELD_LABELS.get(field, field)
+    return f"{label} renseigné(e)" if field.endswith("_id") else f"{label} {value}"
 
 
 def planned_changes(extracted, bad_fields, invoice):
@@ -95,39 +120,39 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
     client wrote with the invoice (especes, cheque, virement, effet, prelevement,
     compensation), over the scan's; taken only when ``client_message`` holds it."""
     fields = ["state", "company_id", "exercice_id", "refund", "amount_tax_non_recoverable", "payment_method_id"]
-    invoice = require_draft_invoice(invoice_id, [*fields, "currency_id"], "etre corrigee")
+    invoice = require_draft_invoice(invoice_id, [*fields, "currency_id"], "être corrigee")
     check = stored_check(invoice_id)
     if not check:
-        raise ToolError(f"Facture {invoice_id} : pas encore verifiee, appelez d'abord check_invoice.")
+        raise ToolError(f"Facture {invoice_id} : pas encore vérifiée, appelez d'abord check_invoice.")
     readable, extracted, bad_fields = check
     if not readable:
-        return ok(f"Facture {invoice_id} : scan illisible, rien a corriger.")
+        return ok(f"Facture {invoice_id} : scan illisible, rien à corriger.")
     if extracted.get("amount_total") is not None and extracted["amount_total"] <= 0:
         # A hotel's folio after payment, a receipt: nothing owed, which Experio refuses to record anyway.
         return stop(
             f"Facture {invoice_id} : le document ne porte aucun montant a payer (total "
             f"{extracted['amount_total']:.2f}) : c'est sans doute un justificatif de paiement, pas une facture. "
-            "Rien n'a ete comptabilise ; envoyez la facture elle-meme, avec ses montants."
+            "Rien n'a été comptabilisé ; envoyez la facture elle-même, avec ses montants."
         )
     changes = planned_changes(extracted, bad_fields, invoice)
     notes = []
-    with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refuse la correction."):
+    with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé la correction."):
         _currency((extracted.get("currency") or "MAD").upper(), changes, notes)
         told = instructed(payment_method, client_message)
         _payment_method(told or extracted.get("payment_method"), invoice, changes)
         noted = f" ({'; '.join(notes)})" if notes else ""
         if not changes:
-            return routine(f"Facture {invoice_id} : rien a corriger.{noted}")
+            return routine(f"Facture {invoice_id} : rien à corriger.{noted}")
         context = invoice_context(invoice)
         changed = fill_invoice(invoice_id, changes, context)
         if not changed:
-            return routine(f"Facture {invoice_id} : deja a jour, rien a changer.")
+            return routine(f"Facture {invoice_id} : déjà a jour, rien à changer.")
         refresh(invoice_id, context)
-    shown = ", ".join(f"{field} = {changed.get(field, value)}" for field, value in changes.items())
+    texts = (change_text(field, changed.get(field, value)) for field, value in changes.items())
+    shown = ", ".join(text for text in texts if text) or "montants"
     other = sorted(set(changed) - set(changes))
+    if other:  # what Experio recomputed by itself (rate, its own codes): for the team, not the client
+        log(f"correct_invoice {invoice_id}: Experio also updated {', '.join(other)}")
     if dry_run():
-        head = f"{TEST_MODE}Facture {invoice_id}, correction prevue : {shown}."
-    else:
-        head = f"Facture {invoice_id} : corrigee : {shown}."
-    also = f" Experio a aussi mis a jour : {', '.join(other)}." if other else ""
-    return ok(head + also + noted)
+        return ok(f"{TEST_MODE}Facture {invoice_id}, correction prévue : {shown}.{noted}")
+    return ok(f"Facture {invoice_id} : corrigée ({shown}).{noted}")

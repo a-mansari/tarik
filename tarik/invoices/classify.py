@@ -36,7 +36,7 @@ def classify_pages(pages, what):
     if result.get("category") not in ("achat", "vente", "rb"):
         log(f"{what}: unexpected category {result.get('category')!r}")
         raise ToolError(
-            f"{what} : {READER} n'a pas su dire si c'est une facture d'achat, de vente ou un releve bancaire ; "
+            f"{what} : {READER} n'a pas su dire si c'est une facture d'achat, de vente ou un relevé bancaire ; "
             "precisez-le dans votre message."
         )
     return result["category"], str(result.get("reason") or "")
@@ -48,7 +48,7 @@ def side_of(invoice):
     with cabinet_db() as db:
         row = db.execute(Q.classification_of_invoice, (invoice["id"],)).fetchone()
     if row and row[0] == "rb":
-        raise ToolError(f"Facture {invoice['id']} : c'est un releve bancaire, pas une facture.")
+        raise ToolError(f"Facture {invoice['id']} : c'est un relevé bancaire, pas une facture.")
     side = CATEGORY_TO_TYPE[row[0]] if row else invoice["type"]
     if side not in ("purchase", "sale"):
         raise ToolError(f"Facture {invoice['id']} : ni achat ni vente, classez-la d'abord avec classify_invoice.")
@@ -105,22 +105,22 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
         _save_classification(invoice_id, category, reason)
     if category == "rb":
         return stop(
-            f"Facture {invoice_id} : ce n'est pas une facture mais un releve bancaire ({reason}). "
+            f"Facture {invoice_id} : ce n'est pas une facture mais un relevé bancaire ({reason}). "
             "Rien n'a ete modifie.",
             category=category,
         )
     if invoice_type in CATEGORY_TO_TYPE and category != invoice_type:
         return stop(
-            f"Facture {invoice_id} : vous l'avez donnee comme {invoice_type}, mais elle ressemble a une {category} "
+            f"Facture {invoice_id} : vous l'avez donnée comme {invoice_type}, mais elle ressemble à une {category} "
             f"({reason}). Laissee en brouillon, rien n'a ete modifie : verifiez-la dans Experio.",
             category=category,
         )
     wanted = CATEGORY_TO_TYPE[category]
     if invoice["type"] == wanted:
-        already = f"Facture {invoice_id} : {category}, deja enregistree comme telle ({reason})."
+        already = f"Facture {invoice_id} : {category}, déjà enregistrée comme telle ({reason})."
         return routine(already, category=category)
     require_draft(invoice_id, invoice, "changer de type")
-    with refused(f"classify_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refuse le changement de type."):
+    with refused(f"classify_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé le changement de type."):
         fill_invoice(
             invoice_id, {"type": wanted}, invoice_context(invoice)
         )  # Experio's onchange on type runs, as on screen

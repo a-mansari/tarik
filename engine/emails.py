@@ -13,7 +13,7 @@ from langgraph.graph import END, START, StateGraph
 
 from engine.chat import answered
 from engine.tools import ToolFailure, call
-from tarik.core.conversation import left_out
+from tarik.core.conversation import for_client, left_out
 from tarik.invoices.pipeline import NOTHING
 
 
@@ -164,7 +164,7 @@ async def follow_up(state: Thread):
                 summaries.append(result["message"])
     except Exception as error:  # set aside with why: never answered blind
         return {"error": failure_text(error)}
-    return {"reply": "Suite du traitement de vos documents :\n\n" + "\n\n".join(summaries)}
+    return {"reply": for_client("Suite du traitement de vos documents :\n\n" + "\n\n".join(summaries))}
 
 
 async def finish(state: Thread):

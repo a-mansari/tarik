@@ -55,8 +55,8 @@ SIDE = {
     },
 }
 NO_AUTOFILL = (
-    "pas de Compte Tiers {role} : dans ce dossier le cabinet les attribue lui-meme "
-    "(numerotation automatique desactivee), la facture ne pourra pas etre comptabilisee avant"
+    "pas de Compte Tiers {role} : dans ce dossier le cabinet les attribue lui-même "
+    "(numerotation automatique desactivee), la facture ne pourra pas être comptabilisée avant"
 )
 INVOICE_FIELDS = [
     "state",
@@ -88,7 +88,7 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
         autofill = SIDE[kind]["autofill"]
         company = odoo_call("res.company", "read", context["allowed_company_ids"], fields=[autofill])[0]
         if company[autofill]:
-            return f"Compte Tiers {role} serait cree par Experio (numerotation automatique)"
+            return f"Compte Tiers {role} serait créé par Experio (numerotation automatique)"
         return NO_AUTOFILL.format(role=role)
     wizard = "exp.invoice.partner.account.wizard"
     wizard_id = odoo_call(wizard, "create", {"invoice_id": invoice_id}, context=context)
@@ -98,7 +98,7 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
     if not code:
         return NO_AUTOFILL.format(role=role)
     odoo_json(wizard, "action_confirm", [wizard_id], context=context)
-    return f"Compte Tiers {role} {code} cree"
+    return f"Compte Tiers {role} {code} créé"
 
 
 def link(invoice, partner_id, kind):
@@ -110,7 +110,7 @@ def link(invoice, partner_id, kind):
         raise ToolError(f"Le tiers n° {partner_id} n'appartient pas au dossier de la facture {invoice['id']}.")
     name = partner[0]["name"]
     with refused(
-        f"tiers {invoice['id']} -> {partner_id}", f"Facture {invoice['id']} : Experio a refuse le tiers {name}."
+        f"tiers {invoice['id']} -> {partner_id}", f"Facture {invoice['id']} : Experio a refusé le tiers {name}."
     ):
         if not invoice["partner_id"] or invoice["partner_id"][0] != partner_id:
             fill_invoice(invoice["id"], {"partner_id": partner_id}, context)
@@ -126,11 +126,11 @@ def create_tiers(invoice, name, kind):
     if name == invoice[side["printed"]]:
         values.update({k: v for k, v in (("ice", invoice[side["ice"]]), ("vat", invoice[side["if"]])) if v})
     if dry_run():
-        return ok(f"{test_mode_note()}Facture {invoice['id']} : {side['role']} {name} serait cree dans le dossier.")
-    with refused(f"tiers cree {invoice['id']} {name}", f"Facture {invoice['id']} : Experio a refuse le tiers {name}."):
+        return ok(f"{test_mode_note()}Facture {invoice['id']} : {side['role']} {name} serait créé dans le dossier.")
+    with refused(f"tiers créé {invoice['id']} {name}", f"Facture {invoice['id']} : Experio a refusé le tiers {name}."):
         partner_id = odoo_call("exp.partner", "create", values, context=invoice_context(invoice))
     result = link(invoice, partner_id, kind)
-    return {**result, "message": result["message"].replace(f"{side['role']} {name},", f"{side['role']} {name} cree,")}
+    return {**result, "message": result["message"].replace(f"{side['role']} {name},", f"{side['role']} {name} créé,")}
 
 
 def dossier_tiers(company_id):
@@ -171,11 +171,11 @@ def link_tiers(invoice_id: int) -> dict:
         extracted = (stored_check(invoice_id) or (None, {}))[1]
         read = extracted.get("tier")
         if not read:
-            return question(f"Facture {invoice_id} : aucun {role} detecte sur le scan. Quel est son nom ?")
+            return question(f"Facture {invoice_id} : aucun {role} détecté sur le scan. Quel est son nom ?")
         if same := same_name(invoice, read, kind):
             return same
         phrase, choices = find_tiers(invoice_id, read, READ_MIN_SIMILARITY, extracted.get("ice"))
-        ask = phrase if choices else f"{phrase} Faut-il le creer sous ce nom, ou est-ce un autre tiers (nom ou ICE) ?"
+        ask = phrase if choices else f"{phrase} Faut-il le créer sous ce nom, ou est-ce un autre tiers (nom ou ICE) ?"
         return question(
             f"Facture {invoice_id} : Experio n'a pas lu de {role} ; le scan indique « {read} ». {ask}", choices=choices
         )
@@ -199,8 +199,8 @@ def same_name(invoice, name, kind):
     near = [p["name"] for _, p in ranked(name, found, TIERS_MIN_SIMILARITY, top=4) if p["id"] != same[0]["id"]]
     warned = f" Attention, tiers aux noms proches dans le dossier : {', '.join(near)}." if near else ""
     said = (
-        f"Facture {invoice['id']} : {SIDE[kind]['role']} « {name} » non reconnu par ICE/IF, relie au tiers du dossier "
-        f"de meme nom « {same[0]['name']} » (id {same[0]['id']}).{warned} S'il n'est pas le bon, un collaborateur du "
+        f"Facture {invoice['id']} : {SIDE[kind]['role']} « {name} » non reconnu par ICE/IF, relié au tiers du dossier "
+        f"de même nom « {same[0]['name']} » (id {same[0]['id']}).{warned} S'il n'est pas le bon, un collaborateur du "
         "cabinet le change dans Experio. "
     )
     return {**result, "message": said + result["message"]}
@@ -217,7 +217,7 @@ def find_tiers(invoice_id, name, minimum=TIERS_MIN_SIMILARITY, ice=None):
     by_name = [pair for pair in ranked(name, found, minimum) if pair[1] not in [p for _, p in same_ice]]
     close = (same_ice + by_name)[:5]
     if not close:
-        return f"Aucun tiers du dossier ne ressemble a « {name} ».", {}
+        return f"Aucun tiers du dossier ne ressemble à « {name} ».", {}
     proposed = "; ".join(
         f"{p['name']} (id {p['id']}{', ICE ' + p['ice'] if p['ice'] else ''}) {round(score * 100)} %"
         for score, p in close
@@ -246,4 +246,4 @@ def choose_tiers(invoice_id, decision, answer, choices=None):
     phrase, choices = find_tiers(invoice_id, given)
     if not choices and given == decision and not given.isdigit():  # a name the client gave, nothing like it: created
         return create_tiers(invoice, given, side_of(invoice))
-    return question(f"Facture {invoice_id} : « {given} » ne designe pas un seul tiers. {phrase}", choices=choices)
+    return question(f"Facture {invoice_id} : « {given} » ne désigne pas un seul tiers. {phrase}", choices=choices)

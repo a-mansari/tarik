@@ -11,7 +11,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 
 from engine.tools import within
-from tarik.core.conversation import handed, remember_client_message
+from tarik.core.conversation import for_client, handed, remember_client_message
 from tarik.emails.inbox import untaken
 
 # Files no tool took after the reply mean the files tool did not run (tarik.emails.inbox.untaken): the agent is
@@ -32,7 +32,7 @@ async def answered(cabinet, session, message, files, node, skipped=()):
     for attempt in range(ASK_TRIES):
         asked = {"messages": [HumanMessage(text + (REMINDER if attempt else ""))]}
         result = await runs.nested("agent", asked, cabinet, session, thread=session, node=node)
-        reply = result["messages"][-1].text
+        reply = for_client(result["messages"][-1].text)
         if not files or time.monotonic() - started > QUICK or not await within(cabinet, untaken, session):
             return reply
     return reply

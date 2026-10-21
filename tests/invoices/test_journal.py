@@ -43,7 +43,7 @@ def test_the_invoice_sits_in_the_dossiers_journal(experio):
     experio["invoice"]["journal_id"] = [2, "Autre"]
     assert journal.check_journal(3)["message"] == "Facture 3 : journal Achats." and experio["refreshed"] == 1
     experio["after"] = [2, "Autre"]  # Experio kept its own
-    with pytest.raises(ToolError, match="garde le journal Autre au lieu de Achats"):
+    with pytest.raises(ToolError, match="gardé le journal Autre au lieu de Achats"):
         journal.check_journal(3)
 
 
@@ -52,7 +52,7 @@ def test_the_missing_setting_is_named(experio):
     experio["misplaced"] = {"foreign_purchase_journal_id": None}
     experio["invoice"]["is_local_invoice"] = False
     result = journal.check_journal(3)
-    assert result["status"] == "stop" and "journal d'achats etranger configure" in result["message"]
+    assert result["status"] == "stop" and "journal d'achats etranger configuré" in result["message"]
     experio["invoice"].update(enable_multi_journal=True, journal_id=[4, "Choisi"])
     assert journal.check_journal(3)["message"] == "Facture 3 : journal Choisi (choix propre au dossier)."
 

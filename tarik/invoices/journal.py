@@ -23,9 +23,9 @@ from tarik.core.experio import (
 ACHAT, VENTE = "General > Achat, carte ", "General > Vente, carte "
 SETTING = {  # (type, local?) -> the dossier setting Experio takes the journal from, and where it is set
     ("purchase", True): ("local_purchase_journal_id", "journal d'achats local", ACHAT + "Achat local"),
-    ("purchase", False): ("foreign_purchase_journal_id", "journal d'achats etranger", ACHAT + "Achat a l'etranger"),
+    ("purchase", False): ("foreign_purchase_journal_id", "journal d'achats etranger", ACHAT + "Achat à l'etranger"),
     ("sale", True): ("local_sale_journal_id", "journal de ventes local", VENTE + "Vente locale"),
-    ("sale", False): ("foreign_sale_journal_id", "journal de ventes etranger", VENTE + "Vente a l'etranger"),
+    ("sale", False): ("foreign_sale_journal_id", "journal de ventes etranger", VENTE + "Vente à l'etranger"),
 }
 
 
@@ -58,11 +58,11 @@ def journal_stop(invoice_id, invoice):
     wrong = misplaced_journals(invoice["company_id"][0], [field])
     if not wrong:
         return None
-    start = f"Facture {invoice_id} : le dossier n'a pas de {label} configure"
+    start = f"Facture {invoice_id} : le dossier n'a pas de {label} configuré"
     if wrong[field]:
         start = f"Facture {invoice_id} : le {label} du dossier ({wrong[field]}) est celui d'un autre dossier"
     return stop(
-        f"{start}, a regler par le cabinet avant de continuer : creer ou importer les journaux du dossier "
+        f"{start}, à régler par le cabinet avant de continuer : créer ou importer les journaux du dossier "
         f"(Configuration > Comptabilite > Journaux), puis le choisir dans Configuration > {where}. "
         "Rien n'a ete modifie."
     )
@@ -74,7 +74,7 @@ def check_journal(invoice_id: int) -> dict:
     which dossier setting is missing, or is another dossier's, when it is."""
     invoice = require_invoice(invoice_id, JOURNAL_FIELDS)
     if chosen_by_dossier(invoice):
-        journal = (invoice["journal_id"] or [0, "non renseigne"])[1]
+        journal = (invoice["journal_id"] or [0, "non renseigné"])[1]
         return routine(f"Facture {invoice_id} : journal {journal} (choix propre au dossier).")
     if refusal := journal_stop(invoice_id, invoice):
         return refusal
@@ -91,6 +91,6 @@ def check_journal(invoice_id: int) -> dict:
         now = odoo_call("exp.invoice", "read", [invoice_id], fields=["journal_id"], context=context)[0]["journal_id"]
     if not now or now[0] != expected[0]:
         raise ToolError(
-            f"Facture {invoice_id} : Experio a garde le journal {(now or [0, 'vide'])[1]} au lieu de {expected[1]}."
+            f"Facture {invoice_id} : Experio a gardé le journal {(now or [0, 'vide'])[1]} au lieu de {expected[1]}."
         )
     return routine(f"Facture {invoice_id} : journal {expected[1]}.")
