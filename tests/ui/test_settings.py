@@ -108,6 +108,15 @@ def test_a_change_is_written_over_the_version_shown_and_recorded_without_any_sec
     assert "password" not in repr(pool.recorded)
 
 
+def test_the_model_is_kept_in_postgres_never_in_vault(vault):
+    pool = Pool()
+    done = asyncio.run(cabinet_settings.save(pool, "cabinet_a", {"MODEL_ADAPTER": "claude-code"}, 4, "a@experio.ma"))
+    assert done == ["MODEL_ADAPTER"] and vault == []
+    (chosen, (cabinet, _, _, changes, version)) = pool.recorded
+    assert chosen == ("cabinet_a", "claude-code") and version == 4  # Vault's version, as it was
+    assert changes.obj == [{"key": "MODEL_ADAPTER", "before": "", "after": "claude-code"}]
+
+
 def test_a_page_older_than_vault_s_version_changes_nothing(vault):
     with pytest.raises(ValueError, match="rechargez"):
         asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", {"DRY_RUN": "0"}, 3, "a@experio.ma"))
@@ -119,9 +128,7 @@ def test_the_page_renders_a_saved_change_and_never_a_secret():
 
     data = {**BEFORE, "IMAP_PASSWORD": "mailbox-secret"}
     page = settings_pages.templates.get_template("cabinet.html").render(
-        request=type(
-            "R", (), {"cookies": {}, "url": type("U", (), {"path": "/ui/cabinets/cabinet_a"})(), "state": None}
-        )(),
+        request=type("R", (), {"cookies": {}, "url": type("U", (), {"path": "/ui/settings"})(), "state": None})(),
         cabinet="cabinet_a",
         sections=settings_pages.fields(data),
         version=4,

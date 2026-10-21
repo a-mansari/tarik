@@ -12,16 +12,14 @@ from app import server
 @pytest.mark.parametrize(
     ("method", "path"),
     [
-        ("GET", "/ui/cabinets"),
-        ("GET", "/ui/cabinets/experio_cabinet_8"),
-        ("POST", "/ui/cabinets/experio_cabinet_8"),
-        ("POST", "/ui/contenu/agent.json"),
-        ("POST", "/ui/contenu-import"),
+        ("GET", "/ui/settings"),
+        ("POST", "/ui/tarik-prompts/agent.json"),
+        ("POST", "/ui/tarik-prompts-import"),
         ("PUT", "/graphs/traitement/layout"),
         ("DELETE", "/graphs/traitement/layout"),
         ("POST", "/runs/traitement"),
         ("GET", "/ui/comptes"),
-        ("GET", "/ui/journal"),
+        ("GET", "/ui/logs-serveur"),
     ],
 )
 def test_what_changes_everyone_s_tarik_is_an_admin_s(method, path):
@@ -31,12 +29,12 @@ def test_what_changes_everyone_s_tarik_is_an_admin_s(method, path):
 @pytest.mark.parametrize(
     ("method", "path"),
     [
-        ("GET", "/ui/runs"),
-        ("GET", "/ui/contenu/agent.json"),
-        ("GET", "/ui/contenu-export"),
+        ("GET", "/ui/executions"),
+        ("GET", "/ui/tarik-prompts/agent.json"),
+        ("GET", "/ui/tarik-prompts-export"),
         ("GET", "/graphs/traitement/layout"),
-        ("GET", "/ui/discussion/experio_cabinet_8/chat-" + "0" * 32),
-        ("POST", "/ui/discussion/experio_cabinet_8/chat-" + "0" * 32),
+        ("GET", "/ui/discussion/chat-" + "0" * 32),
+        ("POST", "/ui/discussion/chat-" + "0" * 32),
         ("POST", "/logout"),
     ],
 )

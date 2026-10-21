@@ -1,6 +1,7 @@
 """Each cabinet's own settings, read and changed from the Cabinets page: its Experio login, its mailbox, who may
-receive Tarik's emails, whether Tarik really writes to Experio (DRY_RUN). Vault (secret/tarik/cabinets/<cabinet>)
-stays their only home: they are written there with the page's own AppRole (tarik-settings, vault/setup.sh), which may
+receive Tarik's emails, whether Tarik really writes to Experio (DRY_RUN), its model. Vault
+(secret/tarik/cabinets/<cabinet>) is their only home, but the model's (MODEL_ADAPTER: no secret, in the orchestrator's
+table cabinet_models): they are written there with the page's own AppRole (tarik-settings, vault/setup.sh), which may
 only read and update the cabinets' paths, never the shared settings nor make a new cabinet. A secret (a password, a
 key) is never shown nor kept anywhere but Vault: it is only replaced. Each change is recorded (who, when, why, which
 settings: table settings_changes) and in use at once. Any other key in the same path is kept as it is."""
@@ -15,7 +16,7 @@ from psycopg.types.json import Jsonb
 
 from app import audit
 from app.accounts import EMAIL
-from tarik.core import cabinets
+from tarik.core import cabinets, model
 from tarik.core.model import ADAPTERS
 from tarik.core.queries import Q
 
@@ -40,7 +41,9 @@ FIELDS = {
 }
 # Left empty: Tarik does without (MODEL_ADAPTER: the first of ADAPTERS).
 OPTIONAL = {"SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KEY", "MODEL_ADAPTER"}
-assert set(FIELDS) == cabinets.CABINET_SETTINGS - {"ACTIVE"}  # every cabinet setting on the page, but the API's own
+IN_POSTGRES = "MODEL_ADAPTER"  # kept in cabinet_models, not in Vault
+# Every cabinet setting on the page, but the API's own.
+assert set(FIELDS) - {IN_POSTGRES} == cabinets.CABINET_SETTINGS - {"ACTIVE"}
 
 # As tarik.emails.sending reads the list: an address, an @domain, or a pattern with "*" ("test.*@experio.ma", "*").
 RECIPIENT = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+|@[^@\s,]+\.[^@\s,]+|[^\s,]*\*[^\s,]*")
@@ -50,14 +53,14 @@ _token = {"token": "", "token_until": 0.0}
 
 
 def latest(cabinet, served_only=True):
-    """The cabinet's settings as Vault holds them now, and their version: (data, version). ``served_only`` False: a
-    deactivated cabinet too (the Experio API). LookupError when Vault has no such cabinet."""
+    """The cabinet's settings as Vault holds them now, its model's with them, and Vault's version: (data, version).
+    ``served_only`` False: a deactivated cabinet too (the Experio API). LookupError when Vault has no such cabinet."""
     if cabinet not in cabinets.CABINETS and (served_only or not cabinets.NAME.fullmatch(cabinet)):
         raise LookupError("cabinet inconnu")
     found = _vault("GET", f"/v1/secret/data/tarik/cabinets/{cabinet}")
     if not found or not found["data"] or found["data"]["data"] is None:
         raise LookupError("cabinet inconnu")
-    return found["data"]["data"], found["data"]["metadata"]["version"]
+    return {**found["data"]["data"], IN_POSTGRES: model.chosen_adapter(cabinet)}, found["data"]["metadata"]["version"]
 
 
 def shown(data):
@@ -130,22 +133,26 @@ async def save(pool, cabinet, given, seen, author, note="", active=None):
         found["ACTIVE"] = "1" if active else "0"
     if not found:
         return []
-    path = f"/v1/secret/data/tarik/cabinets/{cabinet}"
-    try:  # cas: only over the version read, whoever writes in between
-        written = await asyncio.to_thread(
-            _vault, "POST", path, json={"options": {"cas": version}, "data": {**data, **found}}
-        )
-    except httpx.HTTPStatusError as error:
-        raise ValueError(MOVED) from error
+    vault = {key: value for key, value in found.items() if key != IN_POSTGRES}
+    if vault:
+        path = f"/v1/secret/data/tarik/cabinets/{cabinet}"
+        kept = {key: value for key, value in data.items() if key != IN_POSTGRES}
+        try:  # cas: only over the version read, whoever writes in between
+            written = await asyncio.to_thread(
+                _vault, "POST", path, json={"options": {"cas": version}, "data": {**kept, **vault}}
+            )
+        except httpx.HTTPStatusError as error:
+            raise ValueError(MOVED) from error
+        version = written["data"]["version"]
     secret = {key for key, kind in FIELDS.items() if kind == "secret"}
     changes = [
         {"key": key, "before": None if key in secret else data.get(key, ""), "after": None if key in secret else value}
         for key, value in found.items()
     ]
     async with pool.connection() as db:
-        await db.execute(
-            Q.settings_changed, (cabinet, author, note.strip()[:300], Jsonb(changes), written["data"]["version"])
-        )
+        if IN_POSTGRES in found:
+            await db.execute(Q.model_adapter_set, (cabinet, found[IN_POSTGRES]))
+        await db.execute(Q.settings_changed, (cabinet, author, note.strip()[:300], Jsonb(changes), version))
     await asyncio.to_thread(cabinets.reread_vault)
     await audit.record(author, "settings_saved", cabinet, keys=list(found), note=note.strip()[:300])
     return list(found)
@@ -169,14 +176,17 @@ async def create(pool, cabinet, given, author):
         raise ValueError("nom de cabinet : la base Experio exacte, en minuscules (lettres, chiffres, _)")
     data = complete(given)
     try:
+        vault = {key: value for key, value in data.items() if key != IN_POSTGRES}
         written = await asyncio.to_thread(
-            _vault, "POST", f"/v1/secret/data/tarik/cabinets/{cabinet}", json={"options": {"cas": 0}, "data": data}
+            _vault, "POST", f"/v1/secret/data/tarik/cabinets/{cabinet}", json={"options": {"cas": 0}, "data": vault}
         )
     except httpx.HTTPStatusError as error:
         raise ValueError("ce cabinet existe déjà") from error
     secret = {key for key, kind in FIELDS.items() if kind == "secret"}
     changes = [{"key": key, "before": None, "after": None if key in secret else value} for key, value in data.items()]
     async with pool.connection() as db:
+        if IN_POSTGRES in data:
+            await db.execute(Q.model_adapter_set, (cabinet, data[IN_POSTGRES]))
         await db.execute(Q.settings_changed, (cabinet, author, "Créé", Jsonb(changes), written["data"]["version"]))
     return list(data)
 

@@ -7,14 +7,16 @@ import json
 import re
 
 import httpx
+import psycopg
 import pypdfium2
 from PIL import Image, ImageOps
 
 from tarik.core import claude_code
 from tarik.core.app import ToolError, log
-from tarik.core.cabinets import setting
-from tarik.core.config import MAX_PAGES, MAX_SIDE, MODEL_TIMEOUT, SCALE
+from tarik.core.cabinets import current, setting
+from tarik.core.config import MAX_PAGES, MAX_SIDE, MODEL_TIMEOUT, POSTGRES, SCALE
 from tarik.core.experio import HTTP
+from tarik.core.queries import Q
 
 # Where the content is read: its latest version, edited in the UI (engine/content.py sets it). Read at each use, so
 # an edit applies to the next call.
@@ -69,9 +71,17 @@ ADAPTERS = {
 }
 
 
+def chosen_adapter(cabinet):
+    """The model ``cabinet`` picked on the Cabinets page ("" when none): in the orchestrator's table, not in Vault (it
+    is no secret), nor in the cabinet's schema (no tool reads it, nor the agent)."""
+    with psycopg.connect(**POSTGRES) as db:
+        found = db.execute(Q.model_adapter, (cabinet,)).fetchone()
+    return found[0] if found else ""
+
+
 def adapter():
     """The current cabinet's model adapter (a key of ADAPTERS)."""
-    chosen = setting("MODEL_ADAPTER", "minimax")
+    chosen = chosen_adapter(current())
     return chosen if chosen in ADAPTERS else "minimax"
 
 

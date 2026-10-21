@@ -7,7 +7,7 @@ from its Postgres once: the tools and the content checks test what is in use."""
 import pytest
 
 from engine import content
-from tarik.core import cabinets
+from tarik.core import cabinets, model
 from tests import testdb
 
 content.load()
@@ -29,6 +29,8 @@ def settings_from_the_environment(request, monkeypatch):
     if "tests/llm/" not in str(request.path):
         monkeypatch.setattr(cabinets, "VAULT_ENABLED", False)
         monkeypatch.setitem(cabinets.POSTGRES, "dbname", testdb.DATABASE)
+    # The orchestrator's table cabinet_models is not in the test database.
+    monkeypatch.setattr(model, "chosen_adapter", lambda cabinet: "")
 
 
 @pytest.fixture(scope="session")

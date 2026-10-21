@@ -5,15 +5,15 @@
 {{ crumbs("/ui/discussion", "Discussions", "chat", display_name(cabinet) or cabinet) }}
 <div class="head">
   <div>
-    <h1>Conversation <span class="mono">{{ session_id }}</span></h1>
-    <p class="muted">Tarik se souvient de cette conversation, pas des autres.</p>
+    <h1>Discussion <span class="mono">{{ session_id }}</span></h1>
+    <p class="muted">Tarik se souvient de cette discussion, pas des autres.</p>
   </div>
 </div>
 <section class="panel">
   {% include "chat_talk.html" %}
   {% if written %}
-  {% set send = "/ui/discussion/" ~ cabinet ~ "/" ~ session_id %}{% include "chat_form.html" %}
-  {% else %}<p class="muted read-only">Conversation d'un fil d'emails ou d'un workflow : elle se lit ici, on n'y écrit pas. Pour écrire à Tarik, ouvrez une nouvelle conversation dans Discussions.</p>{% endif %}
+  {% set send = "/ui/discussion/" ~ session_id %}{% include "chat_form.html" %}
+  {% else %}<p class="muted read-only">Discussion d'un fil d'emails ou d'un workflow : elle se lit ici, on n'y écrit pas. Pour écrire à Tarik, ouvrez une nouvelle discussion dans Discussions.</p>{% endif %}
 </section>
 {% endblock %}
 {% block scripts %}<script src="{{ asset('chat.js') }}"></script>{% endblock %}

@@ -11,7 +11,6 @@ from starlette.responses import RedirectResponse
 from app import cabinet_settings
 from engine import runs
 from engine.content import LABELS
-from tarik.core.cabinets import CABINETS
 from tarik.core.model import ADAPTERS
 from ui.pages import chosen, templates
 
@@ -47,18 +46,11 @@ def fields(data):
     ]
 
 
-async def cabinets_page(request: Request):
-    """The settings of the cabinet picked in the sidebar."""
+async def cabinet_page(request: Request):
+    """The settings of the cabinet picked in the sidebar (GET), and a change to them (POST): refused when the sidebar
+    picked another since the page showed its own."""
     cabinet = chosen(request)
     if cabinet is None:
-        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
-    return RedirectResponse(f"/ui/cabinets/{cabinet}", status_code=303)
-
-
-async def cabinet_page(request: Request):
-    """One cabinet's settings (GET), and a change to them (POST)."""
-    cabinet = request.path_params["cabinet"]
-    if cabinet not in CABINETS:
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
     error, given = None, {}
     if request.method == "POST":
@@ -66,8 +58,10 @@ async def cabinet_page(request: Request):
         given = {key: value for key, value in form.items() if key in cabinet_settings.FIELDS}
         user = request.state.user
         try:
+            if form.get("cabinet") != cabinet:
+                raise ValueError("un autre cabinet a été choisi depuis l'ouverture de la page : rechargez-la")
             done = await cabinet_settings.save(runs.pool, cabinet, given, int(form.get("version", 0)), user["email"])
-            return RedirectResponse(f"/ui/cabinets/{cabinet}?saved={quote(','.join(done) or '-')}", status_code=303)
+            return RedirectResponse(f"/ui/settings?saved={quote(','.join(done) or '-')}", status_code=303)
         except ValueError as refused:
             error = str(refused)
     try:

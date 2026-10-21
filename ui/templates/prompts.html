@@ -5,18 +5,18 @@
 <div class="head">
   <div>
     <h1>Logs LLM{% if cabinet %} · {{ cabinet_label(cabinet) }}{% endif %}</h1>
-    <p class="muted">Chaque appel du modèle par Tarik, le plus récent d'abord : ce qu'il a reçu (ses instructions, ses outils et toute la conversation), dans quelle conversation et quelle exécution. Gardés 30 jours. Ils contiennent les mots des clients : à ne pas partager.</p>
+    <p class="muted">Chaque appel du modèle par Tarik, le plus récent d'abord : ce qu'il a reçu (ses instructions, ses outils et toute la discussion), dans quelle discussion et quelle exécution. Gardés 30 jours. Ils contiennent les mots des clients : à ne pas partager.</p>
   </div>
 </div>
 <div class="table-wrap">
   <table class="runs">
-    <thead><tr><th>Appel</th><th>Conversation</th><th>Exécution</th><th>Messages reçus</th></tr></thead>
+    <thead><tr><th>Appel</th><th>Discussion</th><th>Exécution</th><th>Messages reçus</th></tr></thead>
     <tbody>
       {% for call in calls %}
       <tr>
-        <td><a href="/ui/prompts/{{ cabinet }}/{{ call.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}">{{ call.at | when }}</a></td>
-        <td><a class="mono" href="/ui/discussion/{{ cabinet }}/{{ call.session_id | urlencode }}">{{ call.session_id }}</a></td>
-        <td>{% if call.run_id %}<a href="/ui/runs/{{ call.run_id }}">Conversation avec Tarik</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td><a href="/ui/llm-logs/{{ call.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}">{{ call.at | when }}</a></td>
+        <td><a class="mono" href="/ui/discussion/{{ call.session_id | urlencode }}">{{ call.session_id }}</a></td>
+        <td>{% if call.run_id %}<a href="/ui/executions/{{ call.run_id }}">Discussion avec Tarik</a>{% else %}<span class="muted">—</span>{% endif %}</td>
         <td class="num">{{ call.messages }}</td>
       </tr>
       {% else %}
@@ -25,5 +25,5 @@
     </tbody>
   </table>
 </div>
-{% if older %}<p><a class="panel-button" href="/ui/prompts?before={{ older }}">Plus ancien</a></p>{% endif %}
+{% if older %}<p><a class="panel-button" href="/ui/llm-logs?before={{ older }}">Plus ancien</a></p>{% endif %}
 {% endblock %}

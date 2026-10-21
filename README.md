@@ -86,9 +86,9 @@ docker compose up --build -d
 
 The team's pages, each cabinet picked in the sidebar (under its name in Experio, its database beside it) and
 the pages showing that cabinet's: http://127.0.0.1:2024/ui/accueil (its dashboard: its last 30 days in four
-numbers, and a message to Tarik that opens a conversation in place), /ui/runs (runs), /ui/discussion (Discussions: every conversation, the ones written there and the email threads, read-only), /ui/workflows
-(workflows), /ui/prompts (the Logs LLM: each model call, what it was sent), /ui/contenu (what Tarik is told, edited with its history),
-/ui/cabinets (each cabinet's settings), /ui/comptes (the accounts), /ui/journal (who did what: logins, accounts,
+numbers, and a message to Tarik that opens a conversation in place), /ui/executions (runs), /ui/discussion (Discussions: every conversation, the ones written there and the email threads, read-only), /ui/workflows
+(workflows), /ui/llm-logs (the Logs LLM: each model call, what it was sent), /ui/tarik-prompts (Tarik prompts: what Tarik is told, edited with its history),
+/ui/cabinets (each cabinet's settings), /ui/comptes (the accounts), /ui/logs-serveur (the Logs serveur page, who did what: logins, accounts,
 content, settings, layouts, runs started by hand; `app/audit.py`, never a password or a link). Each person logs in with their own account, made
 by an admin on the Comptes page (a one-time link, 72 h, for the person to choose their password; a new link for a
 forgotten one) or in the container: `python -m app.users add <email> "<name>"` (the password is asked; `disable` closes
@@ -101,6 +101,9 @@ Every call but `/ok` and the login page needs a session, or for scripts `TARIK_G
 change made with a session must come from the pages themselves (Origin checked). Graphs: `agent`, `traitement`,
 `dossier`, `emails`. In the container: `python run.py <graph> '<input json>' [--thread name]`, `python check.py`,
 `python -m pytest`.
+
+Before each commit, `.githooks/pre-commit` runs the style check (ruff, as `pyproject.toml` sets it) in the server
+container. Enable it once per clone: `git config core.hooksPath .githooks`.
 
 ## Plan
 

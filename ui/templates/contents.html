@@ -1,14 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Contenu{% endblock %}
+{% block title %}Tarik prompts{% endblock %}
 {% block content %}
 <div class="head">
   <div>
-    <h1>Contenu de Tarik</h1>
+    <h1>Tarik prompts</h1>
     <p class="muted">Ce que Tarik dit et ce qu'on lui dit, le même pour tous les cabinets pour l'instant, modifiable sans toucher au code. Chaque modification est gardée (qui, quand, pourquoi) et peut être annulée en un clic. Elle s'applique au message suivant. Le contenu vit dans la base de données : exportez-le pour le garder ou le copier vers une autre installation.</p>
   </div>
   <div class="panel-actions">
-    <a class="panel-button" href="/ui/contenu-export" download data-tip="{{ tips.all_export }}" aria-description="{{ tips.all_export }}">Exporter tout</a>
-    {% if is_admin(request) %}<button type="button" class="panel-button" data-import="/ui/contenu-import" data-tip="{{ tips.all_import }}" aria-description="{{ tips.all_import }}">Importer un export</button>{% endif %}
+    <a class="panel-button" href="/ui/tarik-prompts-export" download data-tip="{{ tips.all_export }}" aria-description="{{ tips.all_export }}">Exporter tout</a>
+    {% if is_admin(request) %}<button type="button" class="panel-button" data-import="/ui/tarik-prompts-import" data-tip="{{ tips.all_import }}" aria-description="{{ tips.all_import }}">Importer un export</button>{% endif %}
   </div>
 </div>
 <div class="panel" id="import-status" role="status" hidden></div>
@@ -20,13 +20,13 @@
   <div class="group-head">
     <h2>{{ name }}</h2>
     <span class="panel-actions">
-      <a class="card-action" href="/ui/contenu-export?group={{ key }}" download data-tip="{{ tips.group_export | replace('{group}', name) }}" aria-description="{{ tips.group_export | replace('{group}', name) }}">Exporter</a>
-      {% if is_admin(request) %}<button type="button" class="card-action" data-import="/ui/contenu-import" data-tip="{{ tips.group_import | replace('{group}', name) }}" aria-description="{{ tips.group_import | replace('{group}', name) }}">Importer</button>{% endif %}
+      <a class="card-action" href="/ui/tarik-prompts-export?group={{ key }}" download data-tip="{{ tips.group_export | replace('{group}', name) }}" aria-description="{{ tips.group_export | replace('{group}', name) }}">Exporter</a>
+      {% if is_admin(request) %}<button type="button" class="card-action" data-import="/ui/tarik-prompts-import" data-tip="{{ tips.group_import | replace('{group}', name) }}" aria-description="{{ tips.group_import | replace('{group}', name) }}">Importer</button>{% endif %}
     </span>
   </div>
   <ul class="runs-side">
     {% for path, label, change in documents %}
-    <li><a href="/ui/contenu/{{ path }}"><span>{{ label }}</span><span class="muted">{% if change %}{{ change.author.split(' <')[0] }} · {{ change.at | when }}{% endif %}</span></a></li>
+    <li><a href="/ui/tarik-prompts/{{ path }}"><span>{{ label }}</span><span class="muted">{% if change %}{{ change.author.split(' <')[0] }} · {{ change.at | when }}{% endif %}</span></a></li>
     {% else %}
     <li class="muted">Aucun document.</li>
     {% endfor %}

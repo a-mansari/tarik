@@ -1,5 +1,5 @@
-"""The Journal page, an admin's: who did what in the UI, latest first (app/audit.py), one action or one person at
-a time, paged back."""
+"""The Logs serveur page (/ui/logs-serveur), an admin's: who did what in the UI, latest first (app/audit.py), one
+action or one person at a time, paged back."""
 
 from starlette.requests import Request
 

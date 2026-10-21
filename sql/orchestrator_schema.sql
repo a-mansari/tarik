@@ -96,6 +96,13 @@ create table if not exists settings_changes (
     created_at timestamptz not null default now()
 );
 create index if not exists settings_changes_cabinet on settings_changes (cabinet, id desc);
+-- Each cabinet's model (MODEL_ADAPTER, the Cabinets page): not a secret, so not in Vault; here, outside the cabinets'
+-- schemas, no tool reads it, nor the agent.
+create table if not exists cabinet_models (
+    cabinet text primary key,
+    adapter text not null,  -- a key of tarik.core.model.ADAPTERS
+    updated_at timestamptz not null default now()
+);
 
 -- === Who did what in the UI (app/audit.py): the Journal page, an admin's ===
 create table if not exists audit (

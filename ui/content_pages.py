@@ -300,7 +300,7 @@ async def content_page(request: Request):
             else:
                 new = rebuilt(path, {key: value for key, value in form.items() if key != "action"})
             changed = await content.save(runs.pool, path, new, author, note)
-            return RedirectResponse(f"/ui/contenu/{quote(path)}?saved={'1' if changed else '0'}", status_code=303)
+            return RedirectResponse(f"/ui/tarik-prompts/{quote(path)}?saved={'1' if changed else '0'}", status_code=303)
         except (ValueError, KeyError) as refusal:
             error = str(refusal)
             if form.get("action", [""])[0] != "restore":

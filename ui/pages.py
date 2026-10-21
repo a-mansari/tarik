@@ -5,6 +5,7 @@ show (a cookie, CHOSEN), each cabinet under its name in Experio with its databas
 import json
 import time
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from markdown_it import MarkdownIt
 from markupsafe import Markup
@@ -65,8 +66,9 @@ def sidebar(request):
 
 
 async def choose(request: Request):
-    """A cabinet picked in the sidebar: kept in a cookie, then its dashboard."""
-    cabinet = request.path_params["cabinet"]
+    """A cabinet picked in the sidebar (posted: its name never in an address): kept in a cookie, then its
+    dashboard."""
+    cabinet = parse_qs((await request.body()).decode()).get("cabinet", [""])[0]
     answer = RedirectResponse(HOME, status_code=303)
     if cabinet in CABINETS:
         answer.set_cookie(CHOSEN, cabinet, max_age=365 * 86400, httponly=True, samesite="lax")
@@ -240,9 +242,9 @@ async def prompts_page(request: Request):
 
 
 async def prompt_calls_page(request: Request):
-    """A conversation's model calls, each opened to read its whole prompt."""
-    cabinet, session = request.path_params["cabinet"], request.path_params["session_id"]
-    if cabinet not in CABINETS:
+    """A conversation's model calls (of the cabinet picked in the sidebar), each opened to read its whole prompt."""
+    cabinet, session = chosen(request), request.path_params["session_id"]
+    if cabinet is None:
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
     found = await prompts.calls(cabinet, session)
     if not found:

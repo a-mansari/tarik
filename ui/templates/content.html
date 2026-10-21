@@ -3,7 +3,7 @@
 {% block title %}{{ title }}{% endblock %}
 {% block page_class %} wide{% endblock %}
 {% block content %}
-{{ crumbs("/ui/contenu", "Contenu", "content", title) }}
+{{ crumbs("/ui/tarik-prompts", "Tarik prompts", "content", title) }}
 <div class="head"><div>
   <h1>{{ title }}</h1>
   <p class="what">{{ what }}</p>
@@ -21,7 +21,7 @@
     {% if versions and compare.id != versions[0].id and is_admin(request) %}
     <form method="post"><input type="hidden" name="action" value="restore"><input type="hidden" name="version" value="{{ compare.id }}"><button type="submit" class="primary">Revenir à cette version</button></form>
     {% endif %}
-    <a class="panel-button" href="/ui/contenu/{{ path }}">Fermer</a>
+    <a class="panel-button" href="/ui/tarik-prompts/{{ path }}">Fermer</a>
   </div>
 </div>
 {% endif %}
@@ -42,7 +42,7 @@
           {% if touched %}<span class="chip wait">{{ touched }} changé{{ 's' if touched > 1 }} en version {{ compare.id }}</span>{% endif %}
           <span class="muted">{{ section.fields | length }} champ{{ 's' if section.fields | length > 1 }}</span>
           <a class="card-action" href="?export={{ loop.index0 }}" download data-tip="{{ tips.section_export }}" aria-description="{{ tips.section_export }}">Exporter</a>
-          {% if is_admin(request) %}<button type="button" class="card-action" data-import="/ui/contenu/{{ path }}" data-tip="{{ tips.section_import }}" aria-description="{{ tips.section_import }}">Importer</button>{% endif %}
+          {% if is_admin(request) %}<button type="button" class="card-action" data-import="/ui/tarik-prompts/{{ path }}" data-tip="{{ tips.section_import }}" aria-description="{{ tips.section_import }}">Importer</button>{% endif %}
         </span>
       </summary>
       <div class="card-body">

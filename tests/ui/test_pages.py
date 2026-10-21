@@ -30,7 +30,7 @@ def test_an_email_thread_reads_as_its_sender_subject_and_message():
     assert shown == expected
 
 
-def picked(cookie, path="/ui/runs"):
+def picked(cookie, path="/ui/executions"):
     return type(
         "R", (), {"cookies": {"tarik_cabinet": cookie} if cookie else {}, "url": type("U", (), {"path": path})}
     )()
@@ -43,7 +43,7 @@ def test_the_pages_show_the_cabinet_picked_else_the_first(monkeypatch):
     monkeypatch.setattr(pages, "display_name", lambda cabinet: {"cab_a": "Cabinet A"}.get(cabinet, ""))
     assert pages.chosen(picked("cab_b")) == "cab_b"
     assert pages.chosen(picked("cab_gone")) == "cab_a" and pages.chosen(picked(None)) == "cab_a"
-    shown = pages.sidebar(picked("cab_b", "/ui/discussion/cab_b/chat-1"))
+    shown = pages.sidebar(picked("cab_b", "/ui/discussion/chat-1"))
     assert [(c["name"], c["display"], c["chosen"]) for c in shown] == [
         ("cab_a", "Cabinet A", False),
         ("cab_b", "", True),
@@ -60,17 +60,19 @@ def test_picking_a_cabinet_keeps_it_and_opens_its_dashboard(monkeypatch):
     monkeypatch.setattr(pages, "CABINETS", {"cab_a"})
 
     def pick(cabinet, target):
+        async def receive():
+            return {"type": "http.request", "body": f"cabinet={cabinet}".encode()}
+
         scope = {
             "type": "http",
-            "method": "GET",
-            "path": f"/ui/cabinet/{cabinet}",
+            "method": "POST",
+            "path": "/ui/cabinet",
             "headers": [],
             "query_string": f"next={target}".encode(),
-            "path_params": {"cabinet": cabinet},
         }
-        return asyncio.run(pages.choose(Request(scope)))
+        return asyncio.run(pages.choose(Request(scope, receive)))
 
-    answer = pick("cab_a", "/ui/prompts")
+    answer = pick("cab_a", "/ui/llm-logs")
     assert answer.headers["location"] == "/ui/accueil" and "tarik_cabinet=cab_a" in answer.headers["set-cookie"]
     assert pick("cab_a", "//evil.example").headers["location"] == "/ui/accueil"  # never another site
-    assert "set-cookie" not in pick("cab_unknown", "/ui/runs").headers
+    assert "set-cookie" not in pick("cab_unknown", "/ui/executions").headers

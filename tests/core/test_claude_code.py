@@ -25,7 +25,7 @@ def fake_cli(tmp_path, monkeypatch, result):
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setattr(cabinets, "CABINETS", frozenset({"cabinet_a"}))
-    monkeypatch.setenv("CABINET_A__MODEL_ADAPTER", "claude-code")
+    monkeypatch.setattr(model, "chosen_adapter", lambda cabinet: "claude-code")
 
 
 @pytest.mark.technical
@@ -74,7 +74,7 @@ def test_the_agent_gets_the_cli_s_tool_calls_and_the_cli_the_whole_conversation(
 @pytest.mark.technical
 def test_an_unknown_adapter_falls_back_to_minimax(monkeypatch):
     monkeypatch.setattr(cabinets, "CABINETS", frozenset({"cabinet_a"}))
-    monkeypatch.setenv("CABINET_A__MODEL_ADAPTER", "gpt")
+    monkeypatch.setattr(model, "chosen_adapter", lambda cabinet: "gpt")
     with cabinets.using("cabinet_a"):
         assert model.adapter() == "minimax"
     assert claude_code.MODEL

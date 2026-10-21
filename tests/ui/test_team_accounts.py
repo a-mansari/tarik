@@ -148,7 +148,7 @@ def test_the_journal_page_renders_each_entry_in_words():
     request = type(
         "R",
         (),
-        {"cookies": {}, "url": type("U", (), {"path": "/ui/journal"})(), "state": type("S", (), {"user": user})()},
+        {"cookies": {}, "url": type("U", (), {"path": "/ui/logs-serveur"})(), "state": type("S", (), {"user": user})()},
     )
     page = templates.get_template("journal.html").render(
         request=request(),

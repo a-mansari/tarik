@@ -72,5 +72,5 @@ Answer `{"name", "active": false}`.
 
 ## Traces
 
-Each call shows in Tarik's Journal (actor `experio-api`) and in the cabinet's settings history (which settings,
+Each call shows in Tarik's server logs page (actor `experio-api`) and in the cabinet's settings history (which settings,
 never a secret's value).

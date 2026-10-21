@@ -594,7 +594,7 @@
         const links = text("div", "panel-actions");
         for (const child of started) {
           const link = text("a", "panel-button", `${labels.graphs?.[child.graph] || child.graph} · ${child.when} · ${labels.statuses?.[child.status] || child.status}`);
-          link.href = `/ui/runs/${child.run_id}`;
+          link.href = `/ui/executions/${child.run_id}`;
           links.append(link);
         }
         panel.append(text("p", "", started.length > 1 ? "Exécutions lancées par cette étape :" : "Exécution lancée par cette étape :"), links);

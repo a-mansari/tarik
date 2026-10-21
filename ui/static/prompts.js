@@ -80,13 +80,12 @@ function render(box, prompt) {
 }
 
 if (list) {
-  const cabinet = list.dataset.cabinet;
   async function load(details) {
     if (!details.open || details.dataset.loaded) return;
     details.dataset.loaded = "yes";
     const box = details.querySelector(".prompt");
     try {
-      const answer = await fetch(`/prompts/${encodeURIComponent(cabinet)}/${details.dataset.call}`);
+      const answer = await fetch(`/prompts/${details.dataset.call}`);
       if (!answer.ok) throw new Error(answer.status);
       render(box, await answer.json());
     } catch {

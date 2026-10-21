@@ -1,7 +1,7 @@
 {% from "avatar.html" import avatar %}
 {% from "icons.html" import icon %}
 {% macro typing() %}<p class="typing"><span class="dots" aria-label="Tarik répond"><i></i><i></i><i></i></span>
-  <a class="muted" href="/ui/runs/{{ latest.run_id }}">suivre l'exécution</a></p>{% endmacro %}
+  <a class="muted" href="/ui/executions/{{ latest.run_id }}">suivre l'exécution</a></p>{% endmacro %}
 <div id="talk" data-going="{{ 'yes' if going else '' }}" data-run="{{ latest.run_id if latest else '' }}">
   <ol class="talk bubbles">
     {% for entry in messages %}
@@ -10,7 +10,7 @@
       <span class="who">{{ avatar('client') }}Client</span>
       {% if entry.text %}<pre class="said">{{ entry.text }}</pre>{% endif %}
       {% if entry.files %}<ul class="files">{% for name in entry.files %}
-        <li>{{ icon('file', 14) }}<span>{{ name }}</span><a class="download" href="/ui/discussion/{{ cabinet }}/{{ session_id }}/fichier?nom={{ name | urlencode }}" download title="Télécharger {{ name }}" aria-label="Télécharger {{ name }}">{{ icon('download', 14) }}</a></li>
+        <li>{{ icon('file', 14) }}<span>{{ name }}</span><a class="download" href="/ui/discussion/{{ session_id }}/fichier?nom={{ name | urlencode }}" download title="Télécharger {{ name }}" aria-label="Télécharger {{ name }}">{{ icon('download', 14) }}</a></li>
       {% endfor %}</ul>{% endif %}
       {% if entry.skipped %}<ul class="files skipped" aria-label="Fichiers laissés de côté">{% for why in entry.skipped %}<li>{{ icon('file', 14) }}<span>{{ why }}</span></li>{% endfor %}</ul>{% endif %}
     </li>
@@ -35,5 +35,5 @@
     <li class="tarik"><span class="who">{{ avatar('tarik') }}Tarik</span>{{ typing() }}</li>
     {% endif %}
   </ol>
-  {% if latest and latest.status == 'error' %}<p class="bad-text">Le dernier message a échoué : <a href="/ui/runs/{{ latest.run_id }}">voir l'exécution</a>. Renvoyez-le.</p>{% endif %}
+  {% if latest and latest.status == 'error' %}<p class="bad-text">Le dernier message a échoué : <a href="/ui/executions/{{ latest.run_id }}">voir l'exécution</a>. Renvoyez-le.</p>{% endif %}
 </div>

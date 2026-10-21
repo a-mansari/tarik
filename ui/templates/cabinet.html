@@ -15,6 +15,7 @@
 <div class="flow content-flow">
   <form class="content-form" method="post" id="settings-form" autocomplete="off">
     <input type="hidden" name="version" value="{{ version }}">
+    <input type="hidden" name="cabinet" value="{{ cabinet }}">
     {% for title, items in sections %}
     <details class="panel card" open>
       <summary><span class="card-title">{{ title }}</span><span class="card-meta"><span class="muted">{{ items | length }} réglage{{ 's' if items | length > 1 }}</span></span></summary>

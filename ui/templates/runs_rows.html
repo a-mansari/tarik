@@ -1,8 +1,8 @@
 {% for run in runs %}
 <tr{% if run.depth %} class="child"{% endif %}>
   <td class="num">{{ run.started | when }}</td>
-  <td style="--depth: {{ run.depth }}">{% if run.depth %}<span class="under" aria-hidden="true">↳</span> <span class="sr-only">Lancée par l'exécution au-dessus :</span>{% endif %}<a href="/ui/runs/{{ run.run_id }}">{{ run.graph | graph_name }}</a></td>
-  <td><a class="mono" href="/ui/discussion/{{ run.cabinet }}/{{ run.session_id | urlencode }}">{{ run.session_id }}</a></td>
+  <td style="--depth: {{ run.depth }}">{% if run.depth %}<span class="under" aria-hidden="true">↳</span> <span class="sr-only">Lancée par l'exécution au-dessus :</span>{% endif %}<a href="/ui/executions/{{ run.run_id }}">{{ run.graph | graph_name }}</a></td>
+  <td><a class="mono" href="/ui/discussion/{{ run.session_id | urlencode }}">{{ run.session_id }}</a></td>
   <td><span class="chip {{ run.status }}">{{ run.status | status_name }}</span></td>
   <td class="num">{{ run.seconds }} s{% if not run.ended %} …{% endif %}</td>
 </tr>

@@ -15,8 +15,9 @@ from ui import chat_pages, pages
 SESSION = "chat-" + "0" * 32
 
 
-def sent(payload, cabinet="cabinet_a", session=SESSION):
-    body = json.dumps(payload).encode()
+def sent(payload, cabinet="cabinet_a", session=SESSION, shown=None):
+    """``payload`` posted by the page of ``shown`` (default: ``cabinet``), ``cabinet`` picked in the sidebar."""
+    body = json.dumps({"cabinet": shown or cabinet, **payload}).encode()
 
     async def receive():
         return {"type": "http.request", "body": body}
@@ -24,8 +25,8 @@ def sent(payload, cabinet="cabinet_a", session=SESSION):
     scope = {
         "type": "http",
         "method": "POST",
-        "headers": [(b"content-length", str(len(body)).encode())],
-        "path_params": {"cabinet": cabinet, "session_id": session},
+        "headers": [(b"content-length", str(len(body)).encode()), (b"cookie", f"tarik_cabinet={cabinet}".encode())],
+        "path_params": {"session_id": session},
     }
     answer = asyncio.run(chat_pages.send(Request(scope, receive)))
     return answer.status_code, json.loads(answer.body).get("error", "")
@@ -38,12 +39,22 @@ def pdf(name="facture.pdf", data=b"%PDF-1.4"):
 @pytest.fixture(autouse=True)
 def one_cabinet(monkeypatch):
     monkeypatch.setattr(chat_pages, "CABINETS", frozenset({"cabinet_a"}))
+    monkeypatch.setattr(pages, "CABINETS", frozenset({"cabinet_a"}))
+
+
+def test_a_message_from_a_page_of_another_cabinet_than_the_one_picked_is_refused(monkeypatch):
+    async def never(*args, **kwargs):
+        raise AssertionError("nothing is saved or run in the cabinet picked since")
+
+    monkeypatch.setattr(chat_pages, "call", never)
+    monkeypatch.setattr(chat_pages.runs, "start", never)
+    status, error = sent({"message": "Bonjour"}, "cabinet_a", SESSION, shown="cabinet_b")
+    assert status == 400 and "autre cabinet" in error
 
 
 @pytest.mark.parametrize(
     ("payload", "cabinet", "session", "why"),
     [
-        ({"message": "Bonjour"}, "cabinet_b", SESSION, "inconnue"),
         ({"message": "Bonjour"}, "cabinet_a", "mail-5fb65a1333466ddbe437", "inconnue"),  # never an email thread
         ({"message": " "}, "cabinet_a", SESSION, "joignez"),
         ({"message": "x" * 4001}, "cabinet_a", SESSION, "Message de 4001 caractères : 4000 au plus"),
@@ -150,7 +161,7 @@ def test_the_dashboard_shows_its_numbers_as_the_team_reads_them(metrics, shown, 
         **chat_pages.FORM,
     )
     assert re.findall(r'<span class="value num">([^<]*)</span>', page) == shown
-    assert 'data-send="/ui/discussion/cab_a/chat-' in page and 'data-opens="yes"' in page
+    assert 'data-send="/ui/discussion/chat-' in page and 'data-cabinet="cab_a"' in page and 'data-opens="yes"' in page
 
 
 def test_the_dashboard_s_numbers_are_read_once_per_change_for_every_viewer(monkeypatch):

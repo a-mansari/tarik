@@ -202,8 +202,8 @@ async def chat_page(request: Request):
 
 async def conversation_page(request: Request):
     """One conversation: its messages, the message on its way, and the form; ``?partial=1`` its messages alone, which
-    the page asks for again while Tarik works (its tools showing as they run)."""
-    cabinet, session = request.path_params["cabinet"], request.path_params["session_id"]
+    the page asks for again while Tarik works (its tools showing as they run). The cabinet picked in the sidebar's."""
+    cabinet, session = chosen(request), request.path_params["session_id"]
     if not known(cabinet, session, written=False):
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
     context = {
@@ -219,7 +219,7 @@ async def conversation_page(request: Request):
 
 async def download(request: Request):
     """A file the client sent in the conversation (``?nom=``), as sent: always downloaded, never opened in the page."""
-    cabinet, session = request.path_params["cabinet"], request.path_params["session_id"]
+    cabinet, session = chosen(request), request.path_params["session_id"]
     name = request.query_params.get("nom", "")
     if not known(cabinet, session, written=False):
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
@@ -247,10 +247,11 @@ def refused(why):
 
 async def send(request: Request):
     """A message sent: {message, files: [{file_name, mime_type, data (base64)}]}. Its files saved in the cabinet's
-    schema for this conversation, then a Discussion run started; its run_id at once."""
-    cabinet, session = request.path_params["cabinet"], request.path_params["session_id"]
+    schema for this conversation, then a Discussion run started; its run_id at once. ``cabinet``, the one the page
+    showed: refused when the sidebar picked another since, never sent to the wrong cabinet."""
+    cabinet, session = chosen(request), request.path_params["session_id"]
     if not known(cabinet, session):
-        return refused("Conversation inconnue.")
+        return refused("Discussion inconnue.")
     if int(request.headers.get("content-length") or 0) > MAX_FILES * MAX_FILE * 4 // 3 + 64 * 1024:
         return refused(f"Message trop lourd : {MAX_FILES} fichiers de {MAX_FILE // MB} Mo au plus par message.")
     try:
@@ -266,6 +267,8 @@ async def send(request: Request):
         ]
     except ValueError, KeyError, TypeError:
         return refused("Message illisible.")
+    if payload.get("cabinet") != cabinet:
+        return refused("Un autre cabinet a été choisi depuis l'ouverture de la page : rechargez-la.")
     if not text and not files:
         return refused("Écrivez un message ou joignez un fichier.")
     if exceeded := problems(text, files):

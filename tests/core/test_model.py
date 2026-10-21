@@ -30,6 +30,7 @@ def test_a_failed_reading_says_it_is_tarik_s_reader_not_experio(monkeypatch, sta
 
     monkeypatch.setattr(model, "setting", lambda name, default="": "key" if name == "MODEL_API_KEY" else default)
     monkeypatch.setattr(model, "model_name", lambda: "m")
+    monkeypatch.setattr(model, "adapter", lambda: "minimax")
     monkeypatch.setattr(model.HTTP, "post", post)
     with pytest.raises(ToolError) as raised:
         model.ask_model("s", [], "i", "Identification du document")

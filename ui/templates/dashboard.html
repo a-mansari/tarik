@@ -14,7 +14,7 @@
   <section class="panel chat-start">
     <h2 class="ask">Écrire à Tarik</h2>
     {% set session_id = new %}{% include "chat_talk.html" %}
-    {% set send = "/ui/discussion/" ~ cabinet ~ "/" ~ new %}{% set opens = True %}{% include "chat_form.html" %}
+    {% set send = "/ui/discussion/" ~ new %}{% set opens = True %}{% include "chat_form.html" %}
   </section>
 </div>
 {% endif %}

@@ -27,12 +27,12 @@
     const answer = await fetch(`${form.dataset.send}?partial=1`).catch(() => null);
     if (!answer?.ok) return true; // a hiccup: asked again next time
     const talk = document.getElementById("talk");
-    const near = talk.getBoundingClientRect().bottom <= window.innerHeight + 80; // following the end: kept there
+    const where = window.scrollY; // the reader's place, never moved by a new tool or reply
     const opened = [...talk.querySelectorAll("details.used[open]")].map((d) => d.dataset.turn); // kept open
     talk.outerHTML = await answer.text();
     const shown = document.getElementById("talk");
     for (const turn of opened) shown.querySelector(`details.used[data-turn="${turn}"]`)?.setAttribute("open", "");
-    if (near) shown.scrollIntoView({ block: "end" });
+    window.scrollTo(0, where);
     return Boolean(shown.dataset.going);
   }
 
@@ -83,7 +83,7 @@
       })));
       const answer = await fetch(form.dataset.send, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: form.message.value, files }),
+        body: JSON.stringify({ cabinet: form.dataset.cabinet, message: form.message.value, files }),
       });
       const found = await answer.json().catch(() => ({ error: "Réponse illisible du serveur." }));
       if (!answer.ok) throw new Error(found.error || "Message refusé.");

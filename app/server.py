@@ -59,8 +59,8 @@ def admin_only(method, path):
     accounts, a change to the content or to a canvas's layout, a run started by hand. Discussion stays every
     member's."""
     return (
-        path.startswith(("/ui/cabinets", "/ui/comptes", "/ui/journal"))
-        or (method == "POST" and path.startswith(("/ui/contenu", "/runs/")))
+        path.startswith(("/ui/settings", "/ui/comptes", "/ui/logs-serveur"))
+        or (method == "POST" and path.startswith(("/ui/tarik-prompts", "/runs/")))
         or (method in ("PUT", "DELETE") and path.startswith("/graphs/"))
     )
 
@@ -255,9 +255,10 @@ async def layout(request: Request):
 
 
 async def prompt(request: Request):
-    """One model call's whole prompt (the UI opens it when asked: it holds the clients' words)."""
-    cabinet = request.path_params["cabinet"]
-    found = await prompts.prompt(cabinet, int(request.path_params["call_id"])) if cabinet in CABINETS else None
+    """One model call's whole prompt, of the cabinet picked in the sidebar (the UI opens it when asked: it holds the
+    clients' words)."""
+    cabinet = pages.chosen(request)
+    found = await prompts.prompt(cabinet, int(request.path_params["call_id"])) if cabinet else None
     if found is None:
         return JSONResponse({"error": "unknown call"}, status_code=404)
     return JSONResponse({**found, "at": runs.when(found["at"])})
@@ -315,31 +316,30 @@ app = Starlette(
         Route("/runs/{run_id}/steps/{step_id}", step),
         Route("/graphs/{graph}", graph_shape),
         Route("/graphs/{graph}/layout", layout, methods=["GET", "PUT", "DELETE"]),
-        Route("/prompts/{cabinet}/{call_id:int}", prompt),
-        Route("/ui/prompts", pages.prompts_page),
-        Route("/ui/prompts/{cabinet}/{session_id}", pages.prompt_calls_page),
+        Route("/prompts/{call_id:int}", prompt),
+        Route("/ui/llm-logs", pages.prompts_page),
+        Route("/ui/llm-logs/{session_id}", pages.prompt_calls_page),
         Route("/invitation/{token}", accounts_pages.invitation_page, methods=["GET", "POST"]),
         Route("/ui/comptes", accounts_pages.accounts_page, methods=["GET", "POST"]),
-        Route("/ui/journal", journal_pages.journal_page),
+        Route("/ui/logs-serveur", journal_pages.journal_page),
         Route("/ui/live", changes),
-        Route("/ui/cabinet/{cabinet}", pages.choose),
-        Route("/ui/cabinets", settings_pages.cabinets_page),
-        Route("/ui/cabinets/{cabinet}", settings_pages.cabinet_page, methods=["GET", "POST"]),
-        Route("/ui/contenu", content_pages.contents_page),
-        Route("/ui/contenu-export", content_pages.export_contents),
-        Route("/ui/contenu-import", content_pages.import_contents, methods=["POST"]),
-        Route("/ui/contenu/{path:path}", content_pages.content_page, methods=["GET", "POST"]),
+        Route("/ui/cabinet", pages.choose, methods=["POST"]),
+        Route("/ui/settings", settings_pages.cabinet_page, methods=["GET", "POST"]),
+        Route("/ui/tarik-prompts", content_pages.contents_page),
+        Route("/ui/tarik-prompts-export", content_pages.export_contents),
+        Route("/ui/tarik-prompts-import", content_pages.import_contents, methods=["POST"]),
+        Route("/ui/tarik-prompts/{path:path}", content_pages.content_page, methods=["GET", "POST"]),
         Route("/ui/discussion", chat_pages.chat_page),
-        Route("/ui/discussion/{cabinet}/{session_id}", chat_pages.conversation_page),
-        Route("/ui/discussion/{cabinet}/{session_id}", chat_pages.send, methods=["POST"]),
-        Route("/ui/discussion/{cabinet}/{session_id}/fichier", chat_pages.download),
+        Route("/ui/discussion/{session_id}", chat_pages.conversation_page),
+        Route("/ui/discussion/{session_id}", chat_pages.send, methods=["POST"]),
+        Route("/ui/discussion/{session_id}/fichier", chat_pages.download),
         Route("/ui/workflows", pages.workflows_page),
         Route("/ui/workflows/{graph}", pages.workflow_page),
         Route("/", pages.home),
         Route("/ui", pages.home),
         Route("/ui/accueil", chat_pages.dashboard_page),
-        Route("/ui/runs", pages.runs_page),
-        Route("/ui/runs/{run_id}", pages.run_page),
+        Route("/ui/executions", pages.runs_page),
+        Route("/ui/executions/{run_id}", pages.run_page),
         Mount("/ui/static", StaticFiles(directory=pages.HERE / "static"), name="static"),
     ],
     middleware=[Middleware(Guard)],

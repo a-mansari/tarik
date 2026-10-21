@@ -212,7 +212,6 @@ CABINET_SETTINGS = frozenset(
         "SMTP_FROM",
         "MAIL_MANAGER",
         "MAIL_ALLOWED_RECIPIENTS",
-        "MODEL_ADAPTER",  # the model Tarik works with (tarik.core.model.ADAPTERS); missing: MiniMax
         "ACTIVE",  # "0": deactivated by the Experio API (missing: served)
     ]
 )
