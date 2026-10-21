@@ -123,7 +123,7 @@ def sender_of(session_id):
 @tool
 def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> dict:
     """Before work on an existing dossier (``dossier_id``, or the dossier of ``invoice_id``):
-    the email's sender must be a collaborator or Experio staff member with that dossier assigned to them.
+    the email's sender must be Experio staff, or a collaborator with that dossier assigned to them.
     The chat has no sender to check."""
     if invoice_id and not dossier_id:
         dossier_id = require_invoice(invoice_id, ["company_id"])["company_id"][0]
@@ -137,6 +137,8 @@ def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> d
             f"{address} n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun travail sur le dossier "
             f"{dossier}."
         )
+    if user["employee_type"] == "internal":
+        return routine(f"{user['name']} (equipe Experio) peut travailler sur le dossier {dossier}.")
     if dossier_id not in user["company_ids"]:
         return stop(f"Le dossier {dossier} n'est pas attribue a {user['name']} dans Experio : rien n'y est fait.")
     return routine(f"{user['name']} a le dossier {dossier}.")

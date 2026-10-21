@@ -44,3 +44,20 @@ def test_only_managers_and_experio_staff_create_dossiers(monkeypatch, who, manag
 def test_the_chat_has_no_sender_to_check(monkeypatch):
     monkeypatch.setattr(people, "sender_of", lambda session_id: None)
     assert people.check_creator("s")["status"] == "ok"
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "who, allowed",
+    [
+        ({"name": "Chef", "employee_type": "employee", "company_ids": [7]}, True),  # the dossier is theirs
+        ({"name": "Sam", "employee_type": "employee", "company_ids": [9]}, False),  # a collaborator, not on it
+        ({"name": "Jane", "employee_type": "internal", "company_ids": []}, True),  # Experio's staff: every dossier
+        (None, False),  # nobody Experio knows
+    ],
+)
+def test_only_collaborators_on_the_dossier_and_experio_staff_work_on_it(monkeypatch, who, allowed):
+    monkeypatch.setattr(people, "require_dossier", lambda dossier_id: "SOCIETE")
+    monkeypatch.setattr(people, "sender_of", lambda session_id: "x@cabinet.ma")
+    monkeypatch.setattr(people, "collaborator", lambda address: who)
+    assert (people.check_sender("s", dossier_id=7)["status"] == "ok") is allowed
