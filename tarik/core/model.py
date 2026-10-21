@@ -6,12 +6,13 @@ import io
 import json
 import re
 
+import httpx
 import pypdfium2
-from PIL import Image
+from PIL import Image, ImageOps
 
 from tarik.core.app import ToolError, log
 from tarik.core.cabinets import setting
-from tarik.core.config import MAX_PAGES, MODEL_TIMEOUT, SCALE
+from tarik.core.config import MAX_PAGES, MAX_SIDE, MODEL_TIMEOUT, SCALE
 from tarik.core.experio import HTTP
 
 # Where the content is read: its latest version, edited in the UI (engine/content.py sets it). Read at each use, so
@@ -92,27 +93,51 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
         answer.raise_for_status()
         text = "".join(block.get("text", "") for block in answer.json()["content"])
         return json_answer(text, keys)
+    except httpx.HTTPStatusError as error:
+        log(f"{what}: {error}: {error.response.text[:500]}")
+        raise ToolError(f"{what} : {refused(error.response.status_code)}") from None
+    except httpx.TransportError as error:
+        log(f"{what}: {error!r}")
+        raise ToolError(f"{what} : {READER} ne repond pas ; reessayez dans quelques minutes.") from None
     except Exception as error:
-        log(f"{what}: {error}")
-        raise ToolError(f"{what} : echec, reessayez plus tard.") from None
+        log(f"{what}: {error!r}")
+        raise ToolError(f"{what} : {READER} a donne une reponse illisible ; reessayez dans quelques minutes.") from None
+
+
+# Who failed, said to the client: Tarik's own reading service, not Experio, and not the file's reception.
+READER = "le service de lecture des documents de Tarik (pas Experio)"
+
+
+def refused(status):
+    """Why the model's service answered ``status``, for the client: the file refused (4xx: the same file fails
+    again), the service down (5xx, 429: a later try may pass)."""
+    if status in (429, 529) or status >= 500:
+        return f"{READER} est indisponible (erreur {status}) ; reessayez dans quelques minutes."
+    return (
+        f"{READER} a refuse de lire ce fichier (erreur {status}), bien qu'il ait ete recu ; renvoyez-le en PDF. "
+        "L'administrateur de Tarik peut voir le detail dans le journal du serveur."
+    )
 
 
 # --- The documents' pages ---
 
 
 def to_pdf(raw):
-    """A photo (image bytes) as one-page PDF bytes: Experio only takes PDFs."""
+    """A photo (image bytes) as one-page PDF bytes: Experio only takes PDFs. Turned upright as the phone took it
+    (its EXIF orientation), on a page the size of an A4 whatever its pixels."""
+    image = ImageOps.exif_transpose(Image.open(io.BytesIO(raw))).convert("RGB")
     buffer = io.BytesIO()
-    Image.open(io.BytesIO(raw)).convert("RGB").save(buffer, format="PDF")
+    image.save(buffer, format="PDF", resolution=max(image.size) / 11.69)  # 11.69 inches: an A4's long side
     return buffer.getvalue()
 
 
 def pdf_pages(raw, limit=MAX_PAGES, scale=SCALE):
-    """The first ``limit`` pages (None: all) of a PDF (bytes), as PNG bytes rendered at ``scale``."""
+    """The first ``limit`` pages (None: all) of a PDF (bytes), as PNG bytes rendered at ``scale``, their longest
+    side at most MAX_SIDE pixels."""
     pages = []
     for page in list(pypdfium2.PdfDocument(raw))[:limit]:
         buffer = io.BytesIO()
-        page.render(scale=scale).to_pil().save(buffer, format="PNG")
+        page.render(scale=min(scale, MAX_SIDE / max(page.get_size()))).to_pil().save(buffer, format="PNG")
         pages.append(buffer.getvalue())
     return pages
 

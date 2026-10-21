@@ -14,7 +14,7 @@ from tarik.core.experio import (
     still_reading,
     test_mode_note,
 )
-from tarik.core.model import ask_model, scan_pages, tool_prompt
+from tarik.core.model import READER, ask_model, scan_pages, tool_prompt
 from tarik.core.queries import Q
 from tarik.core.words import normalized
 
@@ -35,7 +35,10 @@ def classify_pages(pages, what):
     )
     if result.get("category") not in ("achat", "vente", "rb"):
         log(f"{what}: unexpected category {result.get('category')!r}")
-        raise ToolError(f"{what} : echec, reessayez plus tard.")
+        raise ToolError(
+            f"{what} : {READER} n'a pas su dire si c'est une facture d'achat, de vente ou un releve bancaire ; "
+            "precisez-le dans votre message."
+        )
     return result["category"], str(result.get("reason") or "")
 
 

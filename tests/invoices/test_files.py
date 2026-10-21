@@ -61,3 +61,11 @@ def test_an_entries_file_experio_cannot_read_is_not_taken_again(db_cabinet, monk
     broken = add("fec.csv", data=b"JournalCode;Debit\nAC;10")
     assert setup.import_entries(557, broken)["status"] == "stop"
     assert files_to_process("s", entries=True)["files"] == []
+
+
+@pytest.mark.communication
+def test_a_message_asking_for_work_without_a_file_is_told_its_attachment_is_missing(db_cabinet):
+    from tarik.invoices.pipeline import NO_FILE
+
+    assert files_to_process("s", asked=True)["message"] == NO_FILE
+    assert files_to_process("s")["message"] == "0 fichier(s) a traiter."  # a follow-up says nothing

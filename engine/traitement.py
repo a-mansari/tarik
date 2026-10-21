@@ -255,7 +255,8 @@ async def sender(state: Run):
 
 
 async def files(state: Run):
-    result = await run_step(state, "files_to_process", session_id=state["call"]["session_id"])
+    # Reached only from a client's message (a follow-up resumes its drafts): no file is told to the client.
+    result = await run_step(state, "files_to_process", session_id=state["call"]["session_id"], asked=True)
     return {"files": result.get("files", []), "outcomes": [result]}
 
 

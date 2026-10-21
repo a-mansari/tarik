@@ -72,3 +72,21 @@ def test_experio_not_giving_the_dossiers_is_an_error_not_a_guess(monkeypatch):
     monkeypatch.setattr(search, "dossiers_or_none", lambda step: None)
     with pytest.raises(ToolError, match="liste des dossiers"):
         search.resolve_dossier("Atlas")
+
+
+@pytest.mark.communication
+def test_the_only_close_dossier_is_taken_and_the_client_told_which(resolve):
+    result = resolve("benali")  # only Cabinet Benali is close
+    assert result["status"] == "ok" and result["dossier_id"] == 5 and not result.get("routine")
+    assert "Cabinet Benali" in result["message"] and "« benali »" in result["message"]
+
+
+@pytest.mark.communication
+def test_dossiers_are_counted_by_state_their_names_only_when_asked(monkeypatch):
+    from tarik.dossiers import search
+
+    groups = [{"state": "active", "state_count": 339}, {"state": "archived", "state_count": 11}]
+    monkeypatch.setattr(search, "odoo_call", lambda *args, **kw: groups)
+    monkeypatch.setattr(search, "dossiers_or_none", lambda step: [{"id": 1, "name": "Cabinet Benali"}])
+    assert search.list_dossiers() == "350 dossiers : 339 actifs, 0 nouveaux, 11 archives."
+    assert "Cabinet Benali" in search.list_dossiers(names=True)

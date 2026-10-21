@@ -63,6 +63,10 @@ STEPS = {
 ORDER = list(STEPS)
 INVOICE_CHAIN = ORDER[ORDER.index("create_draft_invoice") :]  # an invoice's own steps, from its draft (Traitement)
 NOTHING = "Rien n'a ete traite."  # a run's summary when it did nothing (the Emails follow-up leaves it out)
+NO_FILE = (
+    "Aucune piece jointe n'est arrivee avec votre message : verifiez qu'elle est bien jointe (certaines "
+    "messageries la retirent) et renvoyez-la."
+)
 SETUP_STEPS = {
     "check_creator",
     "create_dossier",
@@ -434,16 +438,19 @@ def save_files(session_id: str = "", files: list | None = None) -> dict:
 
 
 @tool
-def files_to_process(session_id: str, entries: bool = False) -> dict:
+def files_to_process(session_id: str, entries: bool = False, asked: bool = False) -> dict:
     """The conversation's files not processed yet: its invoices and statements, or with
     ``entries`` its FEC and grand livre files. Picked here, not by the agent: it never
-    sees the files' numbers, so it can't show them to the client."""
+    sees the files' numbers, so it can't show them to the client. ``asked``: the client's
+    message asked for them, so none is said to the client (an attachment lost on the way)."""
     with cabinet_db() as db:
         rows = db.execute(
             Q.files_to_process,
             (session_id,),
         ).fetchall()
     own = [i for i, name in rows if name.lower().endswith(ENTRY_FILES) == entries]
+    if asked and not own:
+        return ok(NO_FILE, files=[])
     return ok(f"{len(own)} fichier(s) a traiter.", files=own)
 
 

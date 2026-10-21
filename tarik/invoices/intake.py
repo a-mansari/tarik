@@ -60,11 +60,12 @@ def identify_document(file_id: int) -> dict:
         if mime != "application/pdf" and not mime.startswith("image/"):
             raise ToolError(f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
         try:
-            pages = pdf_pages(as_pdf(mime, data))
+            pages = pdf_pages(as_pdf(mime, data), limit=1)
         except pypdfium2.PdfiumError:
             raise ToolError(f"{name} : PDF illisible.") from None
-        # shortcut: one decision per file from its first pages;
-        # a PDF mixing invoices and a statement needs splitting by kind.
+        # The first page decides: an invoice is often followed by its payment's proofs (a cheque, the bank's
+        # notice or account extract), which would make the whole file look like a statement.
+        # shortcut: a PDF mixing invoices and a statement needs splitting by kind.
         category, _ = classify_pages(pages, "Identification du document")
         kind = "statement" if category == "rb" else "invoice"
         db.execute(Q.set_file_kind, (kind, file_id))
