@@ -275,7 +275,8 @@ def run_summary(run_id: str) -> dict:
             continue
         where = section_of(*found[-1][:2])
         texts = [summary_text(key, *outcome[:3]) for outcome in shown if section_of(*outcome[:2]) == where]
-        sections[where] += texts if where == "question" else [joined(key, texts)]
+        # An invoice waits on one question, its latest (asked again in other words, it is still the one).
+        sections[where] += texts[-1:] if where == "question" else [joined(key, texts)]
     parts = []
     for name, lines in sections.items():
         if lines:

@@ -88,7 +88,8 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     (achat), a sale (vente) or a bank statement (rb, not an invoice at all).
     Sets the invoice's type when Experio has it wrong; writes nothing for a
     bank statement. ``invoice_type``: achat or vente as the client said (checked
-    by split_invoices); a scan that says otherwise stops the invoice."""
+    by split_invoices); a scan that says the other side stops the invoice, one the model reads as neither
+    (autre) takes the client's side."""
     invoice = require_invoice(
         invoice_id, ["state", "type", "company_id", "exercice_id", "bluejay_state", "document_pdf", "file_type"]
     )
@@ -102,6 +103,10 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
         category, reason = kept
     else:
         category, reason = classify_pages(scan_pages(invoice["document_pdf"]), "Classement de la facture")
+        _save_classification(invoice_id, category, reason)
+    if category == "autre" and invoice_type in CATEGORY_TO_TYPE:
+        # The client said which side it is (a customs slip booked as a purchase): their word, over the model's doubt.
+        category, reason = invoice_type, f"donnée comme {invoice_type} par vous ; {reason}"
         _save_classification(invoice_id, category, reason)
     if category in ("rb", "autre"):
         what = "un relevé bancaire" if category == "rb" else "un autre document"

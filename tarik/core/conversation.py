@@ -56,6 +56,14 @@ def mentions_attachment(message):
     return SKIPPED_NOTE not in (message or "") and ATTACHED.search(normalized(own_words(message))) is not None
 
 
+def without_subject(text):
+    """The client's ``text`` without the « Objet : … » line an email's subject heads it with (engine.emails), to quote
+    their answer back to them."""
+    text = (text or "").strip()
+    head, sep, rest = text.partition("\n\n")
+    return rest.strip() if sep and head.startswith("Objet : ") else text
+
+
 def own_words(message):
     """The client's own text in a message handed to the agent (str): without the files' names nor what an archive
     left out, which no client wrote ("ICE 001122334455667.pdf" is not an ICE they gave)."""

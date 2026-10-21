@@ -73,3 +73,16 @@ def test_a_draft_kept_until_the_client_says_to_post_it_waits_it_is_nothing_to_co
     held = "Facture 14 : importée et vérifiée, laissée en brouillon. Dites-moi quand la comptabiliser."
     record_step("r", "s", "hold_posting", {"status": "stop", "message": held, "invoice_id": 14})
     assert run_summary("r")["message"] == f"**En attente**\n- {held}"
+
+
+@pytest.mark.communication
+def test_an_invoice_waits_on_one_question_its_latest(db_cabinet):
+    for asked in (
+        "Facture 9 : « Objet : X » ne désigne pas un seul compte.",
+        "Facture 9 : « 6142 » ne désigne pas un seul compte.",
+    ):
+        record_step("r", "s", "assign_account", {"status": "question", "message": asked, "invoice_id": 9})
+    assert (
+        run_summary("r")["message"]
+        == "**Questions**\n1. QUESTION : Facture 9 : « 6142 » ne désigne pas un seul compte."
+    )

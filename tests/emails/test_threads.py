@@ -318,6 +318,14 @@ def test_the_client_never_reads_the_agent_s_question_marks():
 
 
 @pytest.mark.communication
+def test_an_answer_is_quoted_back_without_its_email_subject():
+    from tarik.core.conversation import without_subject
+
+    assert without_subject("Objet : Facture fournisseur\n\n6142 Voyages.") == "6142 Voyages."
+    assert without_subject("6142 Voyages.") == "6142 Voyages."
+
+
+@pytest.mark.communication
 def test_the_reply_email_ends_with_what_the_zip_left_out(monkeypatch):
     import asyncio
 

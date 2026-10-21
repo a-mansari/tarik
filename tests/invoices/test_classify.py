@@ -50,3 +50,10 @@ def test_a_draft_that_is_no_invoice_is_left_alone(asked):
     result = classify.classify_invoice(5)
     assert result["status"] == "stop" and "ce n'est pas une facture mais un autre document" in result["message"]
     assert asked["filled"] == []
+
+
+@pytest.mark.functionality
+def test_a_document_the_client_gave_as_a_purchase_is_one_even_when_the_model_doubts(asked):
+    asked["answer"] = "autre"  # a customs liquidation slip
+    result = classify.classify_invoice(5, "achat")
+    assert result["category"] == "achat" and result["status"] != "stop"

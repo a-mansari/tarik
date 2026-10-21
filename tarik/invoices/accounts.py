@@ -11,7 +11,7 @@ import re
 
 from tarik.core.app import ToolError, log, ok, question, step_tool, with_ids
 from tarik.core.config import TEST_MODE
-from tarik.core.conversation import client_messages, instructed
+from tarik.core.conversation import client_messages, instructed, without_subject
 from tarik.core.experio import (
     dry_run,
     fill_invoice,
@@ -224,6 +224,6 @@ def set_account(invoice_id, answer):
     if account:
         return apply_account(invoice, account["id"], f"demande du client : {answer.strip()}")
     return question(
-        f"Facture {invoice_id} : « {answer.strip()} » ne désigne pas un seul compte du dossier. "
+        f"Facture {invoice_id} : « {without_subject(answer)} » ne désigne pas un seul compte du dossier. "
         "Quel compte utiliser (code ou intitule) ?"
     )
