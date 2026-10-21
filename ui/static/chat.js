@@ -1,13 +1,14 @@
 // The Discussion page: a message and its files sent (files as base64 in JSON), then the conversation shown again at
 // each change of it while Tarik works (app.js: followChanges), as n8n's chat shows it: the message at once, each tool
-// as it runs, then the reply.
+// as it runs, then the reply. On the dashboard (data-opens), the first message folds the numbers away and the page
+// becomes the new conversation's, its address too, without loading another page.
 (() => {
   const form = document.getElementById("chat-form");
   if (!form) return;
   const failure = document.getElementById("chat-error");
   const button = form.querySelector("button");
   let following = null; // the conversation's changes, followed while Tarik works
-  const session = location.pathname.split("/").pop();
+  const session = form.dataset.send.split("/").pop();
 
   const base64 = (file) => new Promise((done, failed) => {
     const reader = new FileReader();
@@ -23,7 +24,7 @@
 
   // The conversation shown again from the server; true while its message is on its way.
   async function refresh() {
-    const answer = await fetch(`${location.pathname}?partial=1`).catch(() => null);
+    const answer = await fetch(`${form.dataset.send}?partial=1`).catch(() => null);
     if (!answer?.ok) return true; // a hiccup: asked again next time
     const talk = document.getElementById("talk");
     const near = talk.getBoundingClientRect().bottom <= window.innerHeight + 80; // following the end: kept there
@@ -65,6 +66,7 @@
       const found = await answer.json().catch(() => ({ error: "Réponse illisible du serveur." }));
       if (!answer.ok) throw new Error(found.error || "Message refusé.");
       form.reset();
+      if (form.dataset.opens) opened();
       follow();
     } catch (error) {
       busy(false);
@@ -72,6 +74,20 @@
       failure.hidden = false;
     }
   });
+
+  // The dashboard turned into the conversation it just opened: its numbers folded away, its address the
+  // conversation's own (a reload or a link shows it as such), the back button back to the dashboard.
+  function opened() {
+    delete form.dataset.opens;
+    document.getElementById("dashboard")?.classList.add("chatting");
+    history.pushState({ conversation: true }, "", form.dataset.send);
+    document.title = "Discussions · Tarik";
+    for (const link of document.querySelectorAll(".bar nav a")) { // the top bar on the page it now is
+      if (link.getAttribute("href") === "/ui/discussion") link.setAttribute("aria-current", "page");
+      else link.removeAttribute("aria-current");
+    }
+    window.addEventListener("popstate", () => location.reload());
+  }
 
   // The files chosen, by name, under the button that chose them.
   const chosen = document.getElementById("chosen");

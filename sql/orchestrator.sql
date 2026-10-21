@@ -2,6 +2,16 @@
 
 -- === Runs and steps (engine/runs.py) ===
 
+-- name: dashboard_metrics
+-- A cabinet's last days, for its dashboard: the runs started on their own (not those a step started), their
+-- average time and the share that failed among those ended, and its conversations (Chat and email).
+select count(*) filter (where parent_id is null),
+    avg(extract(epoch from ended_at - started_at)) filter (where parent_id is null and ended_at is not null),
+    count(*) filter (where parent_id is null and status = 'error')::float
+        / nullif(count(*) filter (where parent_id is null and ended_at is not null), 0),
+    count(distinct session_id) filter (where graph in ('discussion', 'fil'))
+from runs where cabinet = %s and started_at > now() - %s * interval '1 day'
+
 -- name: run_created
 -- A new run, queued; parent_id and parent_node when started in another run's step.
 insert into runs (id, graph, cabinet, session_id, thread_id, status, input, parent_id, parent_node)

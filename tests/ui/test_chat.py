@@ -97,3 +97,42 @@ def test_a_conversation_reads_as_where_it_stands():
     assert chat_pages.state("running", False) == "answering" and chat_pages.state("queued", True) == "answering"
     assert chat_pages.state("error", True) == "failed"
     assert chat_pages.state("done", True) == "waiting" and chat_pages.state("done", False) == "answered"
+
+
+@pytest.mark.parametrize(
+    ("metrics", "shown"),
+    [
+        ({"runs": 12, "seconds": 9.84, "failed": 0.125, "conversations": 3}, ["12", "9,8 s", "12,5 %", "3"]),
+        ({"runs": 40, "seconds": 125.0, "failed": 0.0, "conversations": 9}, ["40", "2 min 5 s", "0 %", "9"]),
+        ({"runs": 0, "seconds": None, "failed": None, "conversations": 0}, ["0", "—", "—", "0"]),
+    ],
+)
+def test_the_dashboard_shows_its_numbers_as_the_team_reads_them(metrics, shown, monkeypatch):
+    import re
+
+    from ui import pages
+
+    monkeypatch.setattr(pages, "CABINETS", {"cab_a"})
+    monkeypatch.setattr(pages, "display_name", lambda cabinet: "Cabinet A")  # no Experio asked
+    monkeypatch.setitem(pages.templates.env.globals, "display_name", pages.display_name)
+    user = {"email": "a@experio.ma", "name": "A", "role": "member"}
+    request = type(
+        "R",
+        (),
+        {"cookies": {}, "url": type("U", (), {"path": "/ui/accueil"})(), "state": type("S", (), {"user": user})()},
+    )
+    page = pages.templates.get_template("dashboard.html").render(
+        request=request(),
+        cabinet="cab_a",
+        metrics=metrics,
+        days=30,
+        new="chat-" + "0" * 32,
+        messages=[],
+        latest=None,
+        going=False,
+        accepted=".pdf",
+        max_files=10,
+        max_mb=20,
+    )
+    assert re.findall(r'<span class="value num">([^<]*)</span>', page) == shown
+    assert 'data-send="/ui/discussion/cab_a/chat-' in page and 'data-opens="yes"' in page

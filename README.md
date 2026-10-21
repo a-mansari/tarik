@@ -84,7 +84,8 @@ docker compose up --build -d
 | `GET` / `PUT` / `DELETE /graphs/<graph>/layout` | How the team arranged its canvas: read, saved, or forgotten. |
 
 The team's pages, each cabinet picked in the sidebar (under its name in Experio, its database beside it) and
-the pages showing that cabinet's: http://127.0.0.1:2024/ui/runs (runs), /ui/discussion (Discussions: every conversation, the ones written there and the email threads, read-only), /ui/workflows
+the pages showing that cabinet's: http://127.0.0.1:2024/ui/accueil (its dashboard: its last 30 days in four
+numbers, and a message to Tarik that opens a conversation in place), /ui/runs (runs), /ui/discussion (Discussions: every conversation, the ones written there and the email threads, read-only), /ui/workflows
 (workflows), /ui/prompts (the Logs LLM: each model call, what it was sent), /ui/contenu (what Tarik is told, edited with its history),
 /ui/cabinets (each cabinet's settings), /ui/comptes (the accounts), /ui/journal (who did what: logins, accounts,
 content, settings, layouts, runs started by hand; `engine/audit.py`, never a password or a link). Each person logs in with their own account, made

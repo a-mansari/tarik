@@ -5,7 +5,6 @@ show (a cookie, CHOSEN), each cabinet under its name in Experio with its databas
 import json
 import time
 from pathlib import Path
-from urllib.parse import quote
 
 from markdown_it import MarkdownIt
 from markupsafe import Markup
@@ -56,25 +55,19 @@ def chosen(request):
     return picked if picked in CABINETS else (min(CABINETS) if CABINETS else None)
 
 
-PER_CABINET = ("/ui/runs", "/ui/discussion", "/ui/prompts", "/ui/cabinets")  # a page of one cabinet's own things
+HOME = "/ui/accueil"  # the cabinet's dashboard: where logging in, the brand and picking a cabinet lead
 
 
 def sidebar(request):
-    """The sidebar's cabinets: [{name (its database), display, chosen, next}]. Picked on a page of one cabinet's own
-    things (a run, a conversation, its settings), the next page is that section's list for the cabinet picked."""
-    now, path = chosen(request), request.url.path
-    target = next((root for root in PER_CABINET if path.startswith(root)), path)
-    return [
-        {"name": c, "display": display_name(c), "chosen": c == now, "next": quote(target)} for c in sorted(CABINETS)
-    ]
+    """The sidebar's cabinets: [{name (its database), display, chosen}]."""
+    now = chosen(request)
+    return [{"name": c, "display": display_name(c), "chosen": c == now} for c in sorted(CABINETS)]
 
 
 async def choose(request: Request):
-    """A cabinet picked in the sidebar: kept in a cookie, back to the page it was picked from (its own address only)."""
-    cabinet, target = request.path_params["cabinet"], request.query_params.get("next") or "/ui/runs"
-    if not target.startswith("/") or target.startswith("//"):
-        target = "/ui/runs"
-    answer = RedirectResponse(target, status_code=303)
+    """A cabinet picked in the sidebar: kept in a cookie, then its dashboard."""
+    cabinet = request.path_params["cabinet"]
+    answer = RedirectResponse(HOME, status_code=303)
     if cabinet in CABINETS:
         answer.set_cookie(CHOSEN, cabinet, max_age=365 * 86400, httponly=True, samesite="lax")
     return answer
@@ -206,7 +199,7 @@ def shown_value(key, value):
 
 
 async def home(request: Request):
-    return RedirectResponse("/ui/runs")
+    return RedirectResponse(HOME)
 
 
 async def runs_page(request: Request):

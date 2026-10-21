@@ -121,9 +121,9 @@ def same_origin(request):
 
 async def login(request: Request):
     """The login page (GET), and logging in (POST): a session cookie, then back to the page asked for."""
-    target = request.query_params.get("next") or "/ui/runs"
+    target = request.query_params.get("next") or pages.HOME
     if not target.startswith("/") or target.startswith("//"):
-        target = "/ui/runs"  # never sent to another site
+        target = pages.HOME  # never sent to another site
     if request.method == "GET":
         return pages.login_page(request, target)
     if not same_origin(request):
@@ -337,6 +337,7 @@ app = Starlette(
         Route("/ui/workflows/{graph}", pages.workflow_page),
         Route("/", pages.home),
         Route("/ui", pages.home),
+        Route("/ui/accueil", chat_pages.dashboard_page),
         Route("/ui/runs", pages.runs_page),
         Route("/ui/runs/{run_id}", pages.run_page),
         Mount("/ui/static", StaticFiles(directory=pages.HERE / "static"), name="static"),

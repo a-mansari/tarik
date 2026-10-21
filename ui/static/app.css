@@ -437,3 +437,17 @@ html { scroll-padding-top: 4rem; }
 .to-top:hover { border-color: var(--accent); color: var(--accent); }
 .to-top[hidden] { display: none; }
 .read-only { margin-top: 1rem; }
+
+/* The dashboard: the cabinet's last days in four numbers, then a message to Tarik. Once it is sent the numbers fold
+   away and the conversation takes the page. */
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .8rem; max-height: 20rem; overflow: hidden; transition: max-height .45s ease, opacity .3s ease, margin .45s ease; }
+.metric { display: grid; gap: .2rem; padding: 1rem 1.1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--fg); text-decoration: none; }
+.metric:hover { border-color: var(--accent); }
+.metric .value { font-size: 1.9rem; font-weight: 700; line-height: 1.1; }
+.metric .what { color: var(--muted); font-size: .85rem; }
+.metric.bad .value { color: var(--bad); }
+.chat-start .ask { margin: 0 0 .4rem; transition: opacity .3s ease; }
+.dashboard:not(.chatting) #talk { display: none; }
+.dashboard.chatting .metrics { max-height: 0; opacity: 0; margin-block: -.55rem; }
+.dashboard.chatting #dashboard-what, .dashboard.chatting .ask { display: none; }
+@media (prefers-reduced-motion: reduce) { .metrics, .chat-start .ask { transition: none; } }

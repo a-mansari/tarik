@@ -1,0 +1,12 @@
+{# The message to Tarik and its files (chat.js): on a conversation's page, or on the dashboard where it opens one. #}
+{% from "icons.html" import icon %}
+  <form class="chat-form" id="chat-form" data-send="{{ send }}"{% if opens %} data-opens="yes"{% endif %}>
+    <textarea name="message" rows="3" maxlength="4000" placeholder="Votre message à Tarik (le dossier, achats ou ventes…)"></textarea>
+    <div class="chat-actions">
+      <label class="attach">{{ icon('attach') }}<span>Joindre des fichiers</span>
+        <input type="file" name="files" multiple accept="{{ accepted }}"></label>
+      <ul class="chosen" id="chosen" aria-live="polite"></ul>
+      <button type="submit" class="primary">Envoyer</button>
+    </div>
+    <p class="bad-text" id="chat-error" hidden></p>
+  </form>

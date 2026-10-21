@@ -13,7 +13,7 @@
   {% if signed %}
   <div class="frame">
   <aside class="sidebar" aria-label="Navigation">
-    <a class="brand" href="/ui/runs">Tarik</a>
+    <a class="brand" href="/ui/accueil">Tarik</a>
     <section>
       <h2>Général</h2>
       <nav>
@@ -27,7 +27,7 @@
       <h2>Cabinets</h2>
       <ul class="cabinets">
         {% for c in sidebar(request) %}
-        <li><a href="/ui/cabinet/{{ c.name }}?next={{ c.next }}" {% if c.chosen %}aria-current="true"{% endif %}>{{ cabinet_label(c.name) }}</a></li>
+        <li><a href="/ui/cabinet/{{ c.name }}" {% if c.chosen %}aria-current="true"{% endif %}>{{ cabinet_label(c.name) }}</a></li>
         {% else %}<li class="muted">Aucun cabinet.</li>{% endfor %}
       </ul>
     </section>
@@ -36,6 +36,7 @@
     <header class="bar">
       {# The pages of the cabinet picked in the sidebar: what differs from one cabinet to the next. #}
       <nav aria-label="Pages du cabinet">
+        {{ nav_link("/ui/accueil", "home", "Accueil") }}
         {{ nav_link("/ui/runs", "runs", "Exécutions") }}
         {{ nav_link("/ui/discussion", "chat", "Discussions") }}
         {{ nav_link("/ui/prompts", "prompts", "Logs LLM") }}
@@ -49,7 +50,7 @@
   </div>
   </div>
   {% else %}
-  <header class="bar"><a class="brand" href="/ui/runs">Tarik</a></header>
+  <header class="bar"><a class="brand" href="/ui/accueil">Tarik</a></header>
   <main class="page">{{ self.content() }}</main>
   {% endif %}
   <button type="button" class="to-top" id="to-top" hidden aria-label="Revenir en haut de la page">{{ icon("top", 18) }}</button>

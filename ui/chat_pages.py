@@ -217,3 +217,30 @@ async def send(request: Request):
     given = {"cabinet": cabinet, "session_id": session, "message": text, "files": [f["file_name"] for f in files]}
     run_id, _ = await runs.start("discussion", {"input": given, "cabinet": cabinet, "session_id": session})
     return JSONResponse({"run_id": run_id}, status_code=202)
+
+
+DAYS = 30  # the dashboard's period
+
+
+async def dashboard_page(request: Request):
+    """The cabinet picked: its last DAYS days in four numbers, and a message to Tarik that opens a new conversation
+    in place (chat.js)."""
+    cabinet = chosen(request)
+    metrics = None
+    if cabinet:
+        async with runs.pool.connection() as db:
+            count, seconds, failed, talks = await (await db.execute(Q.dashboard_metrics, (cabinet, DAYS))).fetchone()
+        metrics = {"runs": count, "seconds": seconds, "failed": failed, "conversations": talks}
+    context = {
+        "cabinet": cabinet,
+        "metrics": metrics,
+        "days": DAYS,
+        "new": f"chat-{uuid.uuid4().hex}",
+        "messages": [],
+        "latest": None,
+        "going": False,
+        "accepted": ",".join(FILE_TYPES),
+        "max_files": MAX_FILES,
+        "max_mb": MAX_FILE // (1024 * 1024),
+    }
+    return templates.TemplateResponse(request, "dashboard.html", context)

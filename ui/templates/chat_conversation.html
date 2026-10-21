@@ -12,16 +12,7 @@
 <section class="panel">
   {% include "chat_talk.html" %}
   {% if written %}
-  <form class="chat-form" id="chat-form" data-send="/ui/discussion/{{ cabinet }}/{{ session_id }}">
-    <textarea name="message" rows="3" maxlength="4000" placeholder="Votre message à Tarik (le dossier, achats ou ventes…)"></textarea>
-    <div class="chat-actions">
-      <label class="attach">{{ icon('attach') }}<span>Joindre des fichiers</span>
-        <input type="file" name="files" multiple accept="{{ accepted }}"></label>
-      <ul class="chosen" id="chosen" aria-live="polite"></ul>
-      <button type="submit" class="primary">Envoyer</button>
-    </div>
-    <p class="bad-text" id="chat-error" hidden></p>
-  </form>
+  {% set send = "/ui/discussion/" ~ cabinet ~ "/" ~ session_id %}{% include "chat_form.html" %}
   {% else %}<p class="muted read-only">Conversation d'un fil d'emails ou d'un workflow : elle se lit ici, on n'y écrit pas. Pour écrire à Tarik, ouvrez une nouvelle conversation dans Discussions.</p>{% endif %}
 </section>
 {% endblock %}

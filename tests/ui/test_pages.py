@@ -48,11 +48,9 @@ def test_the_pages_show_the_cabinet_picked_else_the_first(monkeypatch):
         ("cab_a", "Cabinet A", False),
         ("cab_b", "", True),
     ]
-    assert shown[0]["next"] == "/ui/discussion"  # another cabinet's conversation: back to the list, never the old one
-    assert pages.sidebar(picked("cab_a", "/ui/workflows/traitement"))[0]["next"] == "/ui/workflows/traitement"
 
 
-def test_picking_a_cabinet_keeps_it_and_goes_back_on_this_site_only(monkeypatch):
+def test_picking_a_cabinet_keeps_it_and_opens_its_dashboard(monkeypatch):
     import asyncio
 
     from starlette.requests import Request
@@ -73,6 +71,6 @@ def test_picking_a_cabinet_keeps_it_and_goes_back_on_this_site_only(monkeypatch)
         return asyncio.run(pages.choose(Request(scope)))
 
     answer = pick("cab_a", "/ui/prompts")
-    assert answer.headers["location"] == "/ui/prompts" and "tarik_cabinet=cab_a" in answer.headers["set-cookie"]
-    assert pick("cab_a", "//evil.example").headers["location"] == "/ui/runs"
+    assert answer.headers["location"] == "/ui/accueil" and "tarik_cabinet=cab_a" in answer.headers["set-cookie"]
+    assert pick("cab_a", "//evil.example").headers["location"] == "/ui/accueil"  # never another site
     assert "set-cookie" not in pick("cab_unknown", "/ui/runs").headers
