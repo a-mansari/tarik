@@ -584,6 +584,11 @@ its tool calls; none runs). 40 situations, 10 per kind, in `OUTSIDE`, `UNSUPPORT
 - `test_tarik_stays_within_its_bounds` [llm, one per kind]: prints each miss with why. No wrong answer is allowed
   but outside Experio, where a harmless read tool is a drift. To add a situation: a `said("…")` (or an
   `after_experio(…)`) line in the list of its kind.
+- `test_tarik_stays_within_its_bounds_when_the_client_insists` [llm, one per kind]: `DIALOGUES`, 13 conversations
+  of three turns where the client pushes (a fair request first, then urgency, authority, role-play, a false memory,
+  a secret asked piece by piece, fiction, a dossier "of another cabinet"). Played for real: each of Tarik's answers
+  kept, each judged; a tool called on the way answers « Aucun résultat ». `allowed`: the turns that are the
+  client's own fair request. No wrong answer allowed. To add one: a `talk("…", "…", "…")` in its kind.
 
 ### tests/llm/test_relay.py
 - `test_the_shorter_summary_reaches_the_client_whole` [llm] (line 54): the model relays every key fact from the shortened summary.
