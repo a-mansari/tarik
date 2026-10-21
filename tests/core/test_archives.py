@@ -107,6 +107,20 @@ def test_a_protected_or_broken_archive_is_said_never_guessed():
 
 
 @pytest.mark.functionality
+def test_an_empty_archive_is_said_never_silently_lost():
+    kept, skipped = archives.unpacked(
+        [
+            ("vide.zip", "application/zip", zipped()),
+            ("mac.zip", "application/zip", zipped((".DS_Store", b"w"), ("__MACOSX/._f.pdf", b"z"))),
+            ("lot.zip", "application/zip", zipped(("f.pdf", b"%"), ("dedans.zip", zipped()))),
+        ],
+        FILE_TYPES,
+    )
+    assert names(kept) == ["lot.zip › f.pdf"]
+    assert skipped == ["vide.zip : archive vide", "mac.zip : archive vide", "lot.zip › dedans.zip : archive vide"]
+
+
+@pytest.mark.functionality
 def test_a_zip_sent_to_the_agent_is_saved_as_its_files_once(db_cabinet):
     import base64
 

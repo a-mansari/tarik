@@ -44,7 +44,7 @@ def opened(name, data, accepted, budget, skipped, depth):
     except zipfile.BadZipFile, OSError, ValueError:
         skipped.append(f"{name} : archive illisible")
         return []
-    found = []
+    found, said = [], len(skipped)
     for member in members:
         inner = member.filename.replace("\\", "/")
         base = inner.rsplit("/", 1)[-1]
@@ -84,6 +84,8 @@ def opened(name, data, accepted, budget, skipped, depth):
         budget["files"] -= 1
         budget["bytes"] -= len(content)
         found.append((label, mimetypes.guess_type(base)[0] or "application/octet-stream", content))
+    if not found and len(skipped) == said:
+        skipped.append(f"{name} : archive vide")  # nothing kept nor left out: said, or the client hears nothing
     return found
 
 
