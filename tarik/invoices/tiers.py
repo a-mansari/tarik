@@ -8,11 +8,14 @@ tiers of the dossier resembles is created from the scan (its name, ICE and IF), 
 invoice screen's "Créer" does; a name close to existing tiers is asked about first.
 """
 
-from tarik.core.app import ToolError, ok, question, step_tool
+import re
+
+from tarik.core.app import ToolError, log, ok, question, step_tool
 from tarik.core.config import TIERS_MIN_SIMILARITY
 from tarik.core.conversation import chosen_among
 from tarik.core.experio import (
     dry_run,
+    experio_refusal,
     fill_invoice,
     in_dossier,
     invoice_context,
@@ -23,7 +26,7 @@ from tarik.core.experio import (
     require_invoice,
     test_mode_note,
 )
-from tarik.core.words import ICE_WRITTEN, normalized, ranked
+from tarik.core.words import ICE_WRITTEN, normalized, ranked, said
 from tarik.invoices.check import stored_check
 from tarik.invoices.classify import side_of
 from tarik.invoices.duplicates import FIELDS as DUPLICATE_FIELDS
@@ -110,7 +113,8 @@ def link(invoice, partner_id, kind):
         raise ToolError(f"Le tiers n° {partner_id} n'appartient pas au dossier de la facture {invoice['id']}.")
     name = partner[0]["name"]
     with refused(
-        f"tiers {invoice['id']} -> {partner_id}", f"Facture {invoice['id']} : Experio a refusé le tiers {name}."
+        f"tiers {invoice['id']} -> {partner_id}",
+        f"Facture {invoice['id']} : Experio a refusé le tiers {name} ({{reason}}).",
     ):
         if not invoice["partner_id"] or invoice["partner_id"][0] != partner_id:
             fill_invoice(invoice["id"], {"partner_id": partner_id}, context)
@@ -118,17 +122,48 @@ def link(invoice, partner_id, kind):
     return ok(f"{test_mode_note()}Facture {invoice['id']} : {SIDE[kind]['role']} {name}, {account}.")
 
 
-def create_tiers(invoice, name, kind):
+# Experio checks a new tiers' name, ICE and IF against the official registry; this is its answer when the registry
+# has nothing for them (a brand name with its company's ICE: "MIDAS" for AUDACE AUTO SARL's numbers).
+NOT_IN_REGISTRY = "aucune donnee n a pu etre recuperee"
+UNCHECKED = "sans verification"  # the client's words that create the tiers without the registry check
+
+
+def as_named(name):
+    """``name`` as a tiers is named: in capitals when its case is scrambled (a logo read as "mIDAS")."""
+    return name.upper() if re.search(r"[a-z][A-Z]", name) else name
+
+
+def create_tiers(invoice, name, kind, unchecked=False):
     """Create tiers ``name`` in the invoice's dossier for side ``kind`` (its ICE and IF as read on the scan, when
-    the scan named this tiers) as the invoice screen's "Créer" does, then link it: ok."""
+    the scan named this tiers) as the invoice screen's "Créer" does, then link it: ok. When the registry knows
+    nothing of that name and those numbers, the client is asked: the right name, or « sans vérification »
+    (``unchecked``: Experio's "Ignore ICE/IF Verification", ticked only on their word)."""
     side = SIDE[kind]
+    printed = invoice[side["printed"]]
+    name = as_named(name)
     values = {"name": name, "type": "company", "company_id": invoice["company_id"][0], side["side"]: True}
-    if name == invoice[side["printed"]]:
+    if printed and normalized(name) == normalized(printed):
         values.update({k: v for k, v in (("ice", invoice[side["ice"]]), ("vat", invoice[side["if"]])) if v})
+    if unchecked:
+        values["ignore_ice_if_verification"] = True
     if dry_run():
         return ok(f"{test_mode_note()}Facture {invoice['id']} : {side['role']} {name} serait créé dans le dossier.")
-    with refused(f"tiers créé {invoice['id']} {name}", f"Facture {invoice['id']} : Experio a refusé le tiers {name}."):
+    try:
         partner_id = odoo_call("exp.partner", "create", values, context=invoice_context(invoice))
+    except Exception as error:
+        reason = experio_refusal(error)
+        log(f"tiers cree {invoice['id']} {name}: {error}")
+        if NOT_IN_REGISTRY in normalized(reason) and not unchecked:
+            numbers = ", ".join(
+                f"{label} {values[key]}" for key, label in (("ice", "ICE"), ("vat", "IF")) if key in values
+            )
+            return question(
+                f"Facture {invoice['id']} : Experio ne trouve pas « {name} » au registre officiel"
+                + (f" avec {numbers}" if numbers else "")
+                + " (souvent une enseigne : la société porte un autre nom, voir le pied de la facture). Donnez le nom "
+                f"exact de la société, ou répondez « sans vérification » pour créer {name} sans vérifier l'ICE/IF."
+            )
+        raise ToolError(f"Facture {invoice['id']} : Experio a refusé le tiers {name} ({reason}).") from None
     result = link(invoice, partner_id, kind)
     return {**result, "message": result["message"].replace(f"{side['role']} {name},", f"{side['role']} {name} créé,")}
 
@@ -235,6 +270,11 @@ def choose_tiers(invoice_id, decision, answer, choices=None):
     chosen = chosen_among(decision, choices)
     if chosen:
         return link(invoice, chosen, side_of(invoice))
+    if said(UNCHECKED, normalized(answer or "")):  # the client's own words, never the agent's
+        kind = side_of(invoice)
+        name = invoice[SIDE[kind]["printed"]] or (stored_check(invoice_id) or (None, {}))[1].get("tier")
+        if name:
+            return create_tiers(invoice, name, kind, unchecked=True)
     decision = str(decision or "").strip()
     # Not one proposed: the name or ICE the client gave instead, as the agent read it, else their own words.
     an_id = decision.isdigit() and len(decision) < 15

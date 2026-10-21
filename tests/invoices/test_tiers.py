@@ -155,6 +155,51 @@ def test_a_tiers_nothing_resembles_is_created_from_the_scan(scanned):
     assert tiers.link_tiers(4)["status"] == "question" and not calls  # close names: asked, not created
 
 
+@pytest.mark.functionality
+def test_a_tiers_the_registry_does_not_know_is_asked_about_then_created_unchecked_on_the_client_s_word(
+    scanned, monkeypatch
+):
+    import xmlrpc.client
+
+    from tarik.invoices import tiers
+
+    invoice, calls = scanned
+    invoice.update({"supplier_name": "mIDAS", "detected_supplier_ice": "003401052000041"})
+    invoice["detected_supplier_if"] = "60106127"
+    registry = "Aucune donnée n'a pu être récupérée pour MIDAS avec IF 60106127 et ICE 003401052000041"
+
+    def odoo_call(model, method, values, **kw):
+        calls.append((model, method, values))
+        if not values.get("ignore_ice_if_verification"):
+            raise xmlrpc.client.Fault(2, registry)
+        return 56
+
+    monkeypatch.setattr(tiers, "odoo_call", odoo_call)
+    monkeypatch.setattr(tiers, "chosen_among", lambda decision, choices: None)
+    asked = tiers.link_tiers(4)
+    assert asked["status"] == "question" and "« MIDAS »" in asked["message"]  # its scrambled case put right
+    assert "ICE 003401052000041, IF 60106127" in asked["message"] and "sans vérification" in asked["message"]
+    assert calls[0][2]["name"] == "MIDAS"
+    calls.clear()
+    assert tiers.choose_tiers(4, "sans vérification", "Oui, créez-le sans vérification.")["status"] == "ok"
+    assert calls[0][2]["ignore_ice_if_verification"] is True and calls[0][2]["name"] == "MIDAS"
+
+
+@pytest.mark.communication
+def test_why_experio_refused_a_tiers_is_said(scanned, monkeypatch):
+    import xmlrpc.client
+
+    from tarik.core.app import ToolError
+    from tarik.invoices import tiers
+
+    def odoo_call(model, method, values, **kw):
+        raise xmlrpc.client.Fault(2, "Le nom du tiers est obligatoire")
+
+    monkeypatch.setattr(tiers, "odoo_call", odoo_call)
+    with pytest.raises(ToolError, match=r"refusé le tiers BETA SERVICES \(.*Le nom du tiers est obligatoire"):
+        tiers.link_tiers(4)
+
+
 @pytest.mark.security
 def test_test_mode_creates_no_tiers(scanned, monkeypatch):
     from tarik.invoices import tiers
