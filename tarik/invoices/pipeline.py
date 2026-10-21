@@ -211,8 +211,9 @@ SECTION_OF = {"ok": "done", "wait": "wait", "stop": "problem", "question": "ques
 QUESTION_MARK = "QUESTION : "  # what the agent recognizes a question by (its answer goes to Experio_repondre)
 
 
-def section_of(step, status):
-    if step == "check_duplicate" and status == "stop":
+def section_of(step, status, message=""):
+    # A duplicate: Experio's check, or a twin without tiers stopped before its tiers is asked about (link_tiers).
+    if status == "stop" and (step == "check_duplicate" or (step == "link_tiers" and " : doublon de " in message)):
         return "duplicate"
     if step == "hold_posting" and status == "stop":  # verified, left as a draft until the client says to post it
         return "wait"
@@ -271,10 +272,10 @@ def run_summary(run_id: str) -> dict:
         shown = [outcome for outcome in found if not outcome[3] or outcome is found[-1]]
         if key is None:  # a dossier's setup: each outcome in its own section, on its own line
             for step, status, message, _ in shown:
-                sections[section_of(step, status)].append(summary_text(key, step, status, message))
+                sections[section_of(step, status, message)].append(summary_text(key, step, status, message))
             continue
-        where = section_of(*found[-1][:2])
-        texts = [summary_text(key, *outcome[:3]) for outcome in shown if section_of(*outcome[:2]) == where]
+        where = section_of(*found[-1][:3])
+        texts = [summary_text(key, *outcome[:3]) for outcome in shown if section_of(*outcome[:3]) == where]
         # An invoice waits on one question, its latest (asked again in other words, it is still the one).
         sections[where] += texts[-1:] if where == "question" else [joined(key, texts)]
     parts = []

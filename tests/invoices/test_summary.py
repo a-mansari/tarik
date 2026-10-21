@@ -86,3 +86,10 @@ def test_an_invoice_waits_on_one_question_its_latest(db_cabinet):
         run_summary("r")["message"]
         == "**Questions**\n1. QUESTION : Facture 9 : « 6142 » ne désigne pas un seul compte."
     )
+
+
+@pytest.mark.communication
+def test_a_twin_stopped_before_its_tiers_is_a_duplicate_too(db_cabinet):
+    twin = "Facture 8 : doublon de la facture 7 (même numéro, date et montant), non traitée."
+    record_step("r", "s", "link_tiers", {"status": "stop", "message": twin, "invoice_id": 8})
+    assert run_summary("r")["message"] == f"**Doublons, non traités**\n- {twin}"
