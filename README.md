@@ -49,14 +49,14 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 | `engine/live.py` | What changed (a run, a cabinet's runs, a conversation), for the pages to refresh near real time: each holds one event stream and fetches only when something it shows changed, never while its tab is hidden. One server process. |
 | `engine/runs.py` | Every run and each of its steps, in Postgres (schema `orchestrator`); the agent's conversations next to them. |
 | `engine/agent.py` | The agent: instructions and tools' descriptions from the content's `agent.json`, its skills (`skills/*.md`), tool output from Experio tagged as untrusted data; its model (MiniMax-M3, a 1024-token thinking budget, this stack's own key). |
-| `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the Prompts page. |
+| `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the Logs LLM page (each call, its conversation and its run). |
 | `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
 | `api.py` | The Experio app's API: cabinets created, changed or deactivated, served at once (guide: `docs/experio-api.md`). |
 | `docs/tests.md` | Every test by category, and how to add a client situation to the live model tests. |
 | `engine/cabinet_settings.py`, `ui/settings_pages.py` | Each cabinet's own settings, read and changed on the Cabinets page, written to Vault with its own AppRole, each change kept. |
 | `engine/accounts.py`, `users.py` | The team's accounts (scrypt hashes), their role (admin or member) and sessions; made on the Comptes page (`ui/accounts_pages.py`, a one-time link to set the password) or by `users.py`. |
 | `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
-| `engine/traitement.py`, `dossier.py`, `emails.py`, `chat.py` | The workflows, as graphs (`chat.py`: the Discussion page's, and the asking shared with email threads). |
+| `engine/traitement.py`, `dossier.py`, `emails.py`, `chat.py` | The workflows, as graphs (`chat.py`: the Chat page's, and the asking shared with email threads). |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
 | `engine/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
 | `ui/` | The team's pages (French): `pages.py`, `content_pages.py` (Contenu), `chat_pages.py` (Discussion), their templates, a stylesheet, scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |
@@ -84,8 +84,8 @@ docker compose up --build -d
 | `GET` / `PUT` / `DELETE /graphs/<graph>/layout` | How the team arranged its canvas: read, saved, or forgotten. |
 
 The team's pages, each cabinet picked in the sidebar (under its name in Experio, its database beside it) and
-the pages showing that cabinet's: http://127.0.0.1:2024/ui/runs (runs), /ui/discussion (writing to Tarik), /ui/workflows
-(workflows), /ui/prompts (what the model was sent), /ui/contenu (what Tarik is told, edited with its history),
+the pages showing that cabinet's: http://127.0.0.1:2024/ui/runs (runs), /ui/discussion (the Chat: writing to Tarik, and reading any conversation), /ui/workflows
+(workflows), /ui/prompts (the Logs LLM: each model call, what it was sent), /ui/contenu (what Tarik is told, edited with its history),
 /ui/cabinets (each cabinet's settings), /ui/comptes (the accounts), /ui/journal (who did what: logins, accounts,
 content, settings, layouts, runs started by hand; `engine/audit.py`, never a password or a link). Each person logs in with their own account, made
 by an admin on the Comptes page (a one-time link, 72 h, for the person to choose their password; a new link for a
@@ -133,7 +133,7 @@ with every run live, step by step.
    a secret is never shown, only replaced; a change is written over the version the page showed only, kept (who,
    when, why, which settings; never a secret's value: table `settings_changes`) and in use at once.
 5. **Mail** — done: a cabinet switched over from the n8n stack; then the email test and `-m llm` again.
-6. **Chat with file upload** — done: the Discussion page, for the team (logged in), per cabinet. Each message, with
+6. **Chat with file upload** — done: the Chat page, for the team (logged in), per cabinet. Each message, with
    its files (the email's types, 10 per message, 20 MB each), is a run of the "Discussion" workflow: the files saved
    in the cabinet's schema first, then Tarik answers in the conversation's own thread, reminded of files left
    untaken as for an email. As in n8n's chat, each tool Tarik calls shows as it runs, then its reply (markdown, its

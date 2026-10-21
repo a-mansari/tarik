@@ -89,3 +89,15 @@ if (steps) {
     });
   }
 }
+
+// Back to the top of the page, offered once the page is scrolled down.
+const toTop = document.getElementById("to-top");
+if (toTop) {
+  const shown = () => { toTop.hidden = window.scrollY < 400; };
+  window.addEventListener("scroll", shown, { passive: true });
+  shown();
+  toTop.addEventListener("click", () => {
+    const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: 0, behavior: still ? "auto" : "smooth" });
+  });
+}

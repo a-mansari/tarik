@@ -1,23 +1,23 @@
 {% extends "base.html" %}
 {% from "icons.html" import cabinet as cabinet_label %}
-{% block title %}Prompts{% endblock %}
+{% block title %}Logs LLM{% endblock %}
 {% block content %}
 <div class="head">
   <div>
-    <h1>Prompts{% if cabinet %} · {{ cabinet_label(cabinet) }}{% endif %}</h1>
-    <p class="muted">Ce que Tarik a reçu à chaque appel du modèle : ses instructions, ses outils et toute la conversation. Gardés 30 jours. Ils contiennent les mots des clients : à ne pas partager.</p>
+    <h1>Logs LLM{% if cabinet %} · {{ cabinet_label(cabinet) }}{% endif %}</h1>
+    <p class="muted">Chaque appel du modèle par Tarik, le plus récent d'abord : ce qu'il a reçu (ses instructions, ses outils et toute la conversation), dans quelle conversation et quelle exécution. Gardés 30 jours. Ils contiennent les mots des clients : à ne pas partager.</p>
   </div>
 </div>
 <div class="table-wrap">
   <table class="runs">
-    <thead><tr><th>Dernier appel</th><th>Conversation</th><th>Agent</th><th>Appels</th></tr></thead>
+    <thead><tr><th>Appel</th><th>Conversation</th><th>Exécution</th><th>Messages reçus</th></tr></thead>
     <tbody>
-      {% for item in conversations %}
+      {% for call in calls %}
       <tr>
-        <td class="num">{{ item.last | when }}</td>
-        <td><a class="mono" href="/ui/prompts/{{ cabinet }}/{{ item.session_id | urlencode }}">{{ item.session_id }}</a></td>
-        <td>{{ item.agents | join(", ") }}</td>
-        <td class="num">{{ item.calls }}</td>
+        <td><a href="/ui/prompts/{{ cabinet }}/{{ call.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}">{{ call.at | when }}</a></td>
+        <td><a class="mono" href="/ui/discussion/{{ cabinet }}/{{ call.session_id | urlencode }}">{{ call.session_id }}</a></td>
+        <td>{% if call.run_id %}<a href="/ui/runs/{{ call.run_id }}">Conversation avec Tarik</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td class="num">{{ call.messages }}</td>
       </tr>
       {% else %}
       <tr><td colspan="4" class="muted">Aucun appel enregistré pour ce cabinet.</td></tr>
@@ -25,4 +25,5 @@
     </tbody>
   </table>
 </div>
+{% if older %}<p><a class="panel-button" href="/ui/prompts?before={{ older }}">Plus ancien</a></p>{% endif %}
 {% endblock %}

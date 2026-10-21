@@ -34,6 +34,8 @@ TABLES = {"calls": "tarik_prompt_calls", "parts": "tarik_prompt_parts"}
 def of(statement, cabinet):
     """``statement`` (sql/orchestrator.sql) on the cabinet's own prompt tables: its {calls} and {parts} named."""
     named = {key: sql.Identifier(cabinet, table) for key, table in TABLES.items() if f"{{{key}}}" in statement}
+    if "{runs}" in statement:  # the run store's own table, beside the cabinet's
+        named["runs"] = sql.Identifier(runs().SCHEMA, "runs")
     return sql.SQL(statement).format(**named)
 
 
@@ -114,17 +116,14 @@ async def logged(request, handler):
 # The UI's reads, for a cabinet this stack serves (CABINETS): never a name taken from the request as is.
 
 
-async def conversations(cabinet, limit=100):
-    """The cabinet's conversations with model calls, latest first: {session_id, calls, agents, last}."""
-
+async def listed(cabinet, before=None, limit=100):
+    """The cabinet's model calls, latest first, before call id ``before``: {id, agent, at, session_id, messages,
+    run_id} (the agent run it was made in, None when gone)."""
+    asked = {"cabinet": cabinet, "before": before or 2**31 - 1, "limit": limit}
     async with runs().pool.connection() as db:
-        rows = await (
-            await db.execute(
-                of(Q.prompt_conversations, cabinet),
-                (limit,),
-            )
-        ).fetchall()
-    return [{"session_id": s, "calls": n, "agents": agents, "last": last} for s, n, agents, last in rows]
+        rows = await (await db.execute(of(Q.prompt_calls_listed, cabinet), asked)).fetchall()
+    keys = ("id", "agent", "at", "session_id", "messages", "run_id")
+    return [{**dict(zip(keys, row, strict=True)), "run_id": row[5] and str(row[5])} for row in rows]
 
 
 async def calls(cabinet, session_id, since=None, until=None):

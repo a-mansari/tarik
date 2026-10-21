@@ -21,19 +21,27 @@ from tarik.core.queries import Q
 from tarik.emails.inbox import FILE_TYPES
 from ui.pages import chosen, templates
 
-SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations only: never an email thread's
+SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations: the only ones written to from here
+SHOWN = re.compile(r"[\w.@-]{1,120}")  # any conversation's id, to read it (an email thread's, a workflow's)
 MAX_FILES, MAX_FILE, MAX_TEXT = 10, 20 * 1024 * 1024, 4000  # files per message, bytes per file, characters
 
 
-def known(cabinet, session=None):
-    return cabinet in CABINETS and (session is None or SESSION.fullmatch(session))
+def known(cabinet, session=None, written=True):
+    """A cabinet served and, when given, a conversation of it: one of the page's own (``written``), else any to read."""
+    return cabinet in CABINETS and (session is None or (SESSION if written else SHOWN).fullmatch(session))
 
 
 async def conversations(cabinet):
-    """The cabinet's Discussion conversations, latest first: {session_id, last, status} of each one's latest message."""
+    """The cabinet's Chat conversations, latest first: their latest message's run {session_id, started, status...},
+    and the first message's words (``first``, cut) or its files."""
     found = {}
     for run in await runs.recent(cabinet, "discussion", 200):
         found.setdefault(run["session_id"], run)
+    async with runs.pool.connection() as db:
+        rows = await (await db.execute(Q.chat_first_messages, (cabinet, list(found)))).fetchall()
+    for session, message, files in rows:
+        words = " ".join((message or "").split())
+        found[session]["first"] = words[:90] + ("…" if len(words) > 90 else "") or ", ".join(files or [])
     return list(found.values())
 
 
@@ -97,11 +105,12 @@ async def conversation_page(request: Request):
     """One conversation: its messages, the message on its way, and the form; ``?partial=1`` its messages alone, which
     the page asks for again while Tarik works (its tools showing as they run)."""
     cabinet, session = request.path_params["cabinet"], request.path_params["session_id"]
-    if not known(cabinet, session):
+    if not known(cabinet, session, written=False):
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
     context = {
         "cabinet": cabinet,
         "session_id": session,
+        "written": bool(SESSION.fullmatch(session)),
         **await talk(cabinet, session),
         "accepted": ",".join(FILE_TYPES),
         "max_files": MAX_FILES,
@@ -115,7 +124,7 @@ async def download(request: Request):
     """A file the client sent in the conversation (``?nom=``), as sent: always downloaded, never opened in the page."""
     cabinet, session = request.path_params["cabinet"], request.path_params["session_id"]
     name = request.query_params.get("nom", "")
-    if not known(cabinet, session):
+    if not known(cabinet, session, written=False):
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
     files = sql.Identifier(cabinet, "tarik_files")
     async with runs.pool.connection() as db:

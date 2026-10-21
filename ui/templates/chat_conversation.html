@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% from "icons.html" import crumbs, icon %}
-{% block title %}Discussion{% endblock %}
+{% block title %}Chat{% endblock %}
 {% block content %}
-{{ crumbs("/ui/discussion", "Discussion", "chat", display_name(cabinet) or cabinet) }}
+{{ crumbs("/ui/discussion", "Chat", "chat", display_name(cabinet) or cabinet) }}
 <div class="head">
   <div>
     <h1>Conversation <span class="mono">{{ session_id }}</span></h1>
@@ -11,6 +11,7 @@
 </div>
 <section class="panel">
   {% include "chat_talk.html" %}
+  {% if written %}
   <form class="chat-form" id="chat-form" data-send="/ui/discussion/{{ cabinet }}/{{ session_id }}">
     <textarea name="message" rows="3" maxlength="4000" placeholder="Votre message à Tarik (le dossier, achats ou ventes…)"></textarea>
     <div class="chat-actions">
@@ -21,6 +22,7 @@
     </div>
     <p class="bad-text" id="chat-error" hidden></p>
   </form>
+  {% else %}<p class="muted read-only">Conversation d'un fil d'emails ou d'un workflow : elle se lit ici, on n'y écrit pas. Pour écrire à Tarik, ouvrez une nouvelle conversation dans le Chat.</p>{% endif %}
 </section>
 {% endblock %}
 {% block scripts %}<script src="{{ asset('chat.js') }}"></script>{% endblock %}

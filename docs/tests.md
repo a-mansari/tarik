@@ -447,7 +447,7 @@ Covers withholding answers checked against what Experio accepts.
 ## 8. ui (25 of the 30 tests have no category marker)
 
 ### tests/ui/test_chat.py
-Covers the Discussion page's messages.
+Covers the Chat page's messages.
 - `test_a_wrong_message_is_refused_before_anything_is_done` [param]: invalid chat messages are refused before saving or running.
 - `test_a_message_reads_as_written_with_its_files_and_reminders_left_out`: a saved message shows its text without files or reminders.
 - `test_tarik_s_turn_shows_its_tools_as_they_run_then_its_reply`: Tarik's turn streams its tool calls, then the reply.

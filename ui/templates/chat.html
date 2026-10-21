@@ -1,26 +1,27 @@
 {% extends "base.html" %}
 {% from "icons.html" import icon, cabinet as cabinet_label %}
-{% block title %}Discussion{% endblock %}
+{% block title %}Chat{% endblock %}
 {% block content %}
 <div class="head">
   <div>
-    <h1>Discussion{% if cabinet %} · {{ cabinet_label(cabinet) }}{% endif %}</h1>
+    <h1>Chat{% if cabinet %} · {{ cabinet_label(cabinet) }}{% endif %}</h1>
     <p class="muted">Écrire à Tarik comme un client du cabinet, avec ses factures ou relevés joints. Chaque message est une exécution, à suivre étape par étape.</p>
   </div>
   {% if cabinet %}<a class="primary" href="/ui/discussion/{{ cabinet }}/{{ new }}">{{ icon("plus") }}Nouvelle conversation</a>{% endif %}
 </div>
 <div class="table-wrap">
   <table class="runs">
-    <thead><tr><th>Dernier message</th><th>Conversation</th><th>État</th></tr></thead>
+    <thead><tr><th>Dernier message</th><th>Premier message</th><th>Conversation</th><th>État</th></tr></thead>
     <tbody>
       {% for item in conversations %}
       <tr>
         <td class="num">{{ item.started | when }}</td>
-        <td><a class="mono" href="/ui/discussion/{{ cabinet }}/{{ item.session_id }}">{{ item.session_id }}</a></td>
+        <td><a href="/ui/discussion/{{ cabinet }}/{{ item.session_id }}">{{ item.first or "(sans texte)" }}</a></td>
+        <td class="mono muted">{{ item.session_id }}</td>
         <td><span class="chip {{ item.status }}">{{ item.status | status_name }}</span></td>
       </tr>
       {% else %}
-      <tr><td colspan="3" class="muted">Aucune conversation pour ce cabinet.</td></tr>
+      <tr><td colspan="4" class="muted">Aucune conversation pour ce cabinet.</td></tr>
       {% endfor %}
     </tbody>
   </table>

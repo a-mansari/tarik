@@ -176,16 +176,20 @@ delete from {parts} p where p.created_at < now() - interval '1 day'
         where p.hash = c.system_hash or p.hash = c.tools_hash or p.hash = any(c.message_hashes)
     )
 
--- name: prompt_conversations
-select session_id, count(*), array_agg(distinct agent), max(created_at) from {calls}
-group by session_id order by 4 desc limit %s
-
 -- name: prompt_calls_of
 -- A conversation's model calls, in order, optionally those of one run's time.
 select id, agent, created_at, cardinality(message_hashes) from {calls} where session_id = %s
     and (%s::timestamptz is null or created_at >= %s)
     and (%s::timestamptz is null or created_at <= %s)
 order by id
+
+-- name: prompt_calls_listed
+-- The cabinet's model calls, latest first (before an id, paging back), each with the agent run it was made in.
+select c.id, c.agent, c.created_at, c.session_id, cardinality(c.message_hashes),
+    (select r.id from {runs} r where r.graph = 'agent' and r.cabinet = %(cabinet)s and r.session_id = c.session_id
+        and c.created_at >= r.started_at and c.created_at <= coalesce(r.ended_at, now())
+     order by r.started_at desc limit 1)
+from {calls} c where c.id < %(before)s order by c.id desc limit %(limit)s
 
 -- name: prompt_call
 select agent, created_at, session_id, system_hash, tools_hash, message_hashes from {calls} where id = %s
@@ -194,6 +198,11 @@ select agent, created_at, session_id, system_hash, tools_hash, message_hashes fr
 select hash, content from {parts} where hash = any(%s)
 
 -- === The Discussion page (ui/chat_pages.py), in a cabinet's schema ===
+
+-- name: chat_first_messages
+-- Each conversation's first message, as it was sent from the Chat page.
+select distinct on (session_id) session_id, input ->> 'message', input -> 'files' from runs
+where graph = 'discussion' and cabinet = %s and session_id = any(%s) order by session_id, started_at
 
 -- name: chat_file
 -- A file a client sent in a conversation, as sent: the first saved under that name, never a part cut out of it.

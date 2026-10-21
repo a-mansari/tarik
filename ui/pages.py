@@ -238,10 +238,12 @@ async def run_page(request: Request):
 
 
 async def prompts_page(request: Request):
-    """The conversations whose model calls were saved, of the cabinet picked in the sidebar."""
-    cabinet = chosen(request)
-    found = await prompts.conversations(cabinet) if cabinet else []
-    return templates.TemplateResponse(request, "prompts.html", {"cabinet": cabinet, "conversations": found})
+    """The LLM logs: each model call Tarik made for the cabinet picked in the sidebar, latest first, with its
+    conversation and its run; ``?before=`` pages back."""
+    cabinet, before = chosen(request), request.query_params.get("before", "")
+    found = await prompts.listed(cabinet, int(before) if before.isdigit() else None) if cabinet else []
+    context = {"cabinet": cabinet, "calls": found, "older": found[-1]["id"] if len(found) == 100 else None}
+    return templates.TemplateResponse(request, "prompts.html", context)
 
 
 async def prompt_calls_page(request: Request):
