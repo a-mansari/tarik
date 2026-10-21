@@ -7,8 +7,9 @@ import re
 
 import pypdfium2
 
+from tarik.core import gladden
 from tarik.core.app import ToolError, ok, question, routine, step_tool, stop
-from tarik.core.cabinets import cabinet_db
+from tarik.core.cabinets import cabinet_db, setting
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import client_messages
 from tarik.core.experio import dry_run, in_dossier, odoo_call, refused, require_dossier
@@ -18,6 +19,8 @@ from tarik.core.words import normalized
 from tarik.invoices.classify import classify_pages, client_side
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un releve bancaire"}
+# Gladden's types Tarik takes; any other (or none) leaves the file to the model.
+GLADDEN_KIND = {"invoice": "invoice", "bank": "statement"}
 # What Q.file_locked selects, in its order.
 FILE_COLUMNS = ("session_id", "file_name", "mime_type", "data", "kind", "invoice_id", "statement_id", "parent_id")
 
@@ -30,6 +33,13 @@ def require_kind(name, kind, wanted):
     if kind != wanted:
         other = "import_bank_statement" if kind == "statement" else "split_invoices puis create_draft_invoice"
         raise ToolError(f"{name} est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")
+
+
+def gladden_type(raw):
+    """Gladden's type for the first page of PDF ``raw``, or None: GLADDEN_URL or GLADDEN_CALLBACK_URL not set, or
+    no answer."""
+    url, callback_url = setting("GLADDEN_URL", ""), setting("GLADDEN_CALLBACK_URL", "")
+    return gladden.classify(url, split_pdf(raw, [2])[0][2], callback_url) if url and callback_url else None
 
 
 def file_row(db, file_id, *columns):
@@ -59,15 +69,18 @@ def identify_document(file_id: int) -> dict:
             return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
         if mime != "application/pdf" and not mime.startswith("image/"):
             raise ToolError(f"{name} : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
+        raw = as_pdf(mime, data)
         try:
-            pages = pdf_pages(as_pdf(mime, data), limit=1)
+            pages = pdf_pages(raw, limit=1)
         except pypdfium2.PdfiumError:
             raise ToolError(f"{name} : PDF illisible.") from None
         # The first page decides: an invoice is often followed by its payment's proofs (a cheque, the bank's
         # notice or account extract), which would make the whole file look like a statement.
         # shortcut: a PDF mixing invoices and a statement needs splitting by kind.
-        category, _ = classify_pages(pages, "Identification du document")
-        kind = "statement" if category == "rb" else "invoice"
+        kind = GLADDEN_KIND.get(gladden_type(raw))
+        if kind is None:
+            category, _ = classify_pages(pages, "Identification du document")
+            kind = "statement" if category == "rb" else "invoice"
         db.execute(Q.set_file_kind, (kind, file_id))
     return routine(f"{name} : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
 

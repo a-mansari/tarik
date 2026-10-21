@@ -228,6 +228,8 @@ SHARED_SETTINGS = frozenset(
         "MODEL_API_URL",  # secret/tarik/orchestrator, optional (the provider's Anthropic-style address)
         "CLAUDE_CODE_OAUTH_TOKEN",  # secret/tarik/orchestrator, optional: the claude CLI's login (`claude setup-token`)
         "EXPERIO_API_KEY",  # secret/tarik/orchestrator: what the Experio app shows to create, change or close cabinets
+        "GLADDEN_URL",  # optional: Experio's Gladden classifier (its runner's /gladden)
+        "GLADDEN_CALLBACK_URL",  # optional: this server's /gladden as Gladden reaches it
     ]
 )
 

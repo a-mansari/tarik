@@ -135,3 +135,37 @@ def test_a_pdf_cut_per_page_is_one_invoice_per_page_and_one_page_never_asked(db_
     assert cut["status"] == "ok" and len(cut["files"]) == 3 and file_id not in cut["files"]
     one = saved(db_cabinet, pdf(1), "s-one")
     assert split_invoices(file_id=one, invoice_type="achat", client_message="achat")["files"] == [one]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "callback_url, gladden_says, kind, model_asked",
+    [
+        ("https://tarik.example/gladden", "bank", "statement", False),
+        ("https://tarik.example/gladden", "invoice", "invoice", False),
+        ("https://tarik.example/gladden", None, "statement", True),  # no answer: the model decides
+        ("https://tarik.example/gladden", "receipt", "statement", True),  # a type Tarik doesn't take: the model
+        ("", "invoice", "statement", True),  # Gladden not set up: never sent
+    ],
+)
+def test_gladden_identifies_a_file_first_and_the_model_when_it_cant(
+    callback_url, gladden_says, kind, model_asked, monkeypatch
+):
+    from tarik.invoices import intake
+
+    sent, asked = [], []
+    db = FakeDb((None, "f.pdf", "application/pdf", pdf(3), None, None, None, None))
+    monkeypatch.setattr(intake, "cabinet_db", lambda: db)
+    settings = {"GLADDEN_URL": "https://runner.example/gladden", "GLADDEN_CALLBACK_URL": callback_url}
+    monkeypatch.setattr(intake, "setting", lambda key, default=None: settings[key])
+
+    def classify(url, raw, callback):
+        sent.append(len(pypdfium2.PdfDocument(raw)))
+        return gladden_says
+
+    monkeypatch.setattr(intake.gladden, "classify", classify)
+    monkeypatch.setattr(intake, "classify_pages", lambda pages, what: asked.append(len(pages)) or ("rb", ""))
+    answer = intake.identify_document(1)
+    assert answer["kind"] == kind and bool(asked) == model_asked
+    assert sent == ([1] if callback_url else [])  # the first page only, as the model sees it
+    assert db.queries[-1][1] == (kind, 1)

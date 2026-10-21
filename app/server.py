@@ -4,6 +4,7 @@ Postgres (engine/runs.py), the agent's conversations next to them. The tools (ta
 its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) starts runs for the mailboxes it answers.
 
   GET  /ok                        the server is up, and its graphs
+  POST /gladden/{token}           Gladden's callback (tarik/core/gladden.py), open: its random token is its key
   POST /runs/{graph}              {input, thread_id?, cabinet?, session_id?, wait?}: wait (default) answers the run
                                   with its output; wait=false answers its run_id at once, the run going on meanwhile
   GET  /runs                      the latest runs (?cabinet=, ?graph=, ?limit=)
@@ -17,10 +18,11 @@ its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) sta
   GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live; the
                                   Discussion page (ui/chat_pages.py), its messages sent with POST
 
-Every call but /ok, /login and the static files needs a session (the login page's cookie: app/users.py makes the
-accounts) or, for scripts (run.py), TARIK_GRAPH_TOKEN as a bearer token. A change (POST, PUT, DELETE) made with a
-session must come from these pages themselves (its Origin or Referer): another site cannot make it in someone's name.
-What changes everyone's Tarik needs an admin's session (admin_only): a member reads and talks to Tarik."""
+Every call but /ok, /login, Gladden's callbacks and the static files needs a session (the login page's cookie:
+app/users.py makes the accounts) or, for scripts (run.py), TARIK_GRAPH_TOKEN as a bearer token. A change (POST, PUT,
+DELETE) made with a session must come from these pages themselves (its Origin or Referer): another site cannot make
+it in someone's name. What changes everyone's Tarik needs an admin's session (admin_only): a member reads and talks
+to Tarik."""
 
 import asyncio
 import contextlib
@@ -41,6 +43,7 @@ from starlette.staticfiles import StaticFiles
 
 from app import accounts, api, audit, layouts
 from engine import agent, content, graphs, live, mail, prompts, runs
+from tarik.core import gladden
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.config import POSTGRES
 from tarik.core.experio import account
@@ -50,7 +53,8 @@ TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = make_conninfo(**POSTGRES)  # the tools' own Postgres settings
 
 
-OPEN = ("/ok", "/login", "/ui/static/", "/invitation/")  # an invitation's page: its one-time link is its key
+OPEN = ("/ok", "/login", "/ui/static/", "/invitation/", "/gladden/")  # an invitation's page and a Gladden
+# callback: their one-time token is their key
 COOKIE = "tarik_session"
 
 
@@ -156,6 +160,17 @@ async def logout(request: Request):
 
 async def ok(request: Request):
     return JSONResponse({"ok": True, "graphs": runs.NAMES})
+
+
+async def gladden_callback(request: Request):
+    """Gladden's classification of a document identify_document waits on; any other token is refused."""
+    try:
+        callback = await request.json()
+    except ValueError:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    if not isinstance(callback, dict) or not gladden.answered(request.path_params["token"], callback):
+        return JSONResponse({"error": "unknown token"}, status_code=404)
+    return JSONResponse({"ok": True})
 
 
 async def start(request: Request):
@@ -304,6 +319,7 @@ async def lifespan(app):
 app = Starlette(
     routes=[
         Route("/ok", ok),
+        Route("/gladden/{token}", gladden_callback, methods=["POST"]),
         Route("/api/cabinets", api.listing),
         Route("/api/cabinets", api.create, methods=["POST"]),
         Route("/api/cabinets/{name}", api.one, methods=["GET", "PATCH", "DELETE"]),
