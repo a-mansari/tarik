@@ -32,6 +32,7 @@ from tarik.core.words import normalized
 from tarik.invoices.check import stored_check
 from tarik.invoices.classify import side_of
 from tarik.invoices.journal import JOURNAL_FIELDS, check_journal, journal_stop
+from tarik.invoices.listing import SIDES
 
 CLASS = {"purchase": "6", "sale": "7"}
 
@@ -201,13 +202,18 @@ def searched(accounts, search):
 
 
 @tool
-def list_accounts(dossier_id: int, search: str = "") -> str:
+def list_accounts(dossier_id: int, search: str = "", side: str = "") -> str:
     """The dossier's accounts (plan comptable) whose code starts with ``search``, or whose label holds its words,
     even misspelled ("hotelrie", "transports"): one "code label" per line. One word or code per call: "transport ou
-    hotellerie" is two calls. Empty ``search``: all of them, at most 100."""
+    hotellerie" is two calls. ``side``: "achat" for a purchase's accounts only (class 6), "vente" for a sale's (class
+    7), empty for all classes; any other value is refused. Empty ``search``: all of them, at most 100."""
     dossier = require_dossier(dossier_id)
+    side = (side or "").strip()
+    if side and side not in SIDES:
+        raise ToolError(f"Type « {side} » inconnu : achat, vente, ou vide pour tous les comptes.")
+    in_class = [("code", "=like", CLASS[SIDES[side][0]] + "%")] if side else []
     with refused(f"list_accounts {dossier_id}", "Experio n'a pas pu donner le plan comptable."):
-        accounts = chart(dossier_id)
+        accounts = chart(dossier_id, *in_class)
     search = (search or "").strip()
     found = searched(accounts, search) if search else accounts
     if not found:

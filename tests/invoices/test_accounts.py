@@ -64,7 +64,7 @@ def test_the_agent_finds_accounts_by_code_or_misspelled_words(monkeypatch):
         *CHART,
     ]
     monkeypatch.setattr(accounts, "require_dossier", lambda dossier_id: "ALPHA")
-    monkeypatch.setattr(accounts, "chart", lambda company_id: chart)
+    monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: chart)
     assert (
         accounts.list_accounts(5, "hotelrie")
         == "1 compte(s) du dossier ALPHA :\n61436000 Frais d'hôtellerie et de restauration"
@@ -75,3 +75,16 @@ def test_the_agent_finds_accounts_by_code_or_misspelled_words(monkeypatch):
     assert accounts.list_accounts(5, "carburant") == "Aucun compte du dossier ALPHA ne correspond a « carburant »."
     assert accounts.searched(chart, "deplacement") == []  # not "placement"
     assert accounts.list_accounts(5).startswith("8 compte(s)")
+
+
+@pytest.mark.functionality
+def test_a_side_keeps_its_class_of_accounts_only_and_any_other_is_refused(monkeypatch):
+    asked = []
+    monkeypatch.setattr(accounts, "require_dossier", lambda dossier_id: "ALPHA")
+    monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: asked.append(domain) or CHART)
+    accounts.list_accounts(5, "achats", side="achat")
+    accounts.list_accounts(5, side="vente")
+    accounts.list_accounts(5)
+    assert asked == [(("code", "=like", "6%"),), (("code", "=like", "7%"),), ()]
+    with pytest.raises(accounts.ToolError, match="inconnu"):
+        accounts.list_accounts(5, side="charges")
