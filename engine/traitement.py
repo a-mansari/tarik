@@ -26,6 +26,7 @@ INPUTS = [
     "answer",
     "decision",
     "about",
+    "corrections",
     "invoice_type",
     "client_message",
     "tva_non_recuperable",

@@ -163,3 +163,17 @@ def test_a_corrected_invoice_is_never_also_taken_up_with_the_waiting_drafts():
     fix, drafts = traitement.resume_at(state)
     assert (fix.node, fix.arg["invoice_id"]) == ("fichier", 272470)
     assert drafts.node == "brouillons" and drafts.arg["call"]["skip_invoices"] == [272470]
+
+
+@pytest.mark.technical
+def test_every_argument_the_agent_gives_the_processing_tools_reaches_the_workflow():
+    from engine import agent, traitement
+
+    # The workflow keeps only its INPUTS: an argument missing there is dropped before any step reads it.
+    given = {
+        name
+        for tool in agent.TOOLS
+        if tool.name in ("Experio_traiter_fichiers", "Experio_repondre")
+        for name in tool.args
+    }
+    assert given - set(traitement.INPUTS) == set()
