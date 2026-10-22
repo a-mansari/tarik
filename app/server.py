@@ -8,8 +8,8 @@ its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) sta
   POST /runs/{graph}              {input, thread_id?, cabinet?, session_id?, wait?}: wait (default) answers the run
                                   with its output; wait=false answers its run_id at once, the run going on meanwhile
   GET  /runs                      the latest runs (?cabinet=, ?graph=, ?limit=)
-  GET  /runs/{run_id}             a run: its status, input, output or error, and its steps
-  GET  /runs/{run_id}/events      its steps as they end (server-sent events), from the first one
+  GET  /runs/{run_id}             a run: its status, input, output or error, and its steps (?after=: only its steps
+                                  after that one, and its status: what a page following it fetches at each change)
   GET  /runs/{run_id}/steps/{id}  one step's whole output
   GET  /graphs/{graph}            a workflow's shape for the canvas: its nodes, groups and edges
   GET|PUT|DELETE /graphs/{graph}/layout   how the team arranged its canvas (node places, edge bends and style)
@@ -203,28 +203,6 @@ async def one(request: Request):
     return JSONResponse(found) if found else JSONResponse({"error": "unknown run"}, status_code=404)
 
 
-async def events(request: Request):
-    run_id = request.path_params["run_id"]
-    if not await runs.run(run_id):
-        return JSONResponse({"error": "unknown run"}, status_code=404)
-
-    async def stream():
-        last, seen = 0, live.versions([("run", run_id)])
-        while True:  # the steps read only when the run changed (engine/live.py), else a sign of life every 25 s
-            steps, (status, error) = await runs.steps_after(run_id, last)
-            for found in steps:
-                last = found["id"]
-                yield f"event: step\ndata: {json.dumps(found, ensure_ascii=False)}\n\n"
-            if status in ("done", "error"):
-                yield f"event: end\ndata: {json.dumps({'status': status, 'error': error}, ensure_ascii=False)}\n\n"
-                return
-            while (now := await live.changed([("run", run_id)], seen)) is None:
-                yield ": still here\n\n"
-            seen = now
-
-    return StreamingResponse(stream(), media_type="text/event-stream")
-
-
 async def changes(request: Request):
     """The pages' live updates (server-sent events), for every page of a browser on one connection (app.js): a
     "change" each time something they show changes, a cabinet's runs (?cabinet=), a conversation (?session=) or a run
@@ -336,7 +314,6 @@ app = Starlette(
         Route("/runs", listing),
         Route("/runs/{graph}", start, methods=["POST"]),
         Route("/runs/{run_id}", one),
-        Route("/runs/{run_id}/events", events),
         Route("/runs/{run_id}/steps/{step_id}", step),
         Route("/graphs/{graph}", graph_shape),
         Route("/graphs/{graph}/layout", layout, methods=["GET", "PUT", "DELETE"]),

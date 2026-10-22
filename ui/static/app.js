@@ -22,8 +22,11 @@ window.liveHub = (() => {
   }
   const channel = new BroadcastChannel("tarik-live");
   const others = new Map(); // when this tab leads: tab -> the keys it follows
-  let leading = false, source = null, opened = "";
+  let leading = false, source = null, opened = "", gap = true; // gap: changes may have been missed (none followed)
   const say = () => channel.postMessage({ type: "keys", tab, keys: [...own.keys()] });
+  // A new key set: the new stream opens before the old one closes (both may tell the same change: a refresh more),
+  // so nothing is missed and no page refreshes.
+  // Only after a gap (this tab just took the lead) or a reconnection (the stream dropped) does every page refresh.
   const reopen = () => {
     if (!leading) { say(); return; }
     const keys = new Set(own.keys());
@@ -31,10 +34,17 @@ window.liveHub = (() => {
     const query = [...keys].sort().join("&");
     if (query === opened) return;
     opened = query;
-    source?.close();
-    source = query ? new EventSource(`/ui/live?${query}`) : null;
-    source?.addEventListener("open", () => { fire(own.keys()); channel.postMessage({ type: "opened" }); });
-    source?.addEventListener("change", (event) => {
+    const previous = source, missed = gap;
+    gap = false;
+    if (!query) { previous?.close(); source = null; return; }
+    const next = (source = new EventSource(`/ui/live?${query}`));
+    let opens = 0;
+    next.addEventListener("open", () => {
+      opens += 1;
+      if (opens === 1) previous?.close();
+      if (next === source && (missed || opens > 1)) { fire(own.keys()); channel.postMessage({ type: "opened" }); }
+    });
+    next.addEventListener("change", (event) => {
       const keys = keyed(event);
       fire(keys);
       channel.postMessage({ type: "change", keys });
@@ -85,7 +95,9 @@ window.followChanges = (query, refresh) => {
 // gets each step once, in order; ``on("end")`` once it has ended. Shared by the steps list and the canvas.
 window.followRun = (run) => {
   const listeners = { step: [], end: [] };
-  let last = 0, ended = false;
+  // From the last step the page already shows (rendered with it): only newer ones are fetched.
+  const shown = [...document.querySelectorAll("#steps li[data-id]")].map((item) => Number(item.dataset.id));
+  let last = Math.max(0, ...shown), ended = false;
   const read = async () => {
     const found = await (await fetch(`/runs/${run}?after=${last}`)).json();
     for (const step of found.steps || []) {

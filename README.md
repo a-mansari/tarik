@@ -79,8 +79,7 @@ docker compose up --build -d
 | `GET /ok` | The server is up, and its graphs. |
 | `POST /runs/<graph>` | `{input, thread_id?, cabinet?, session_id?, wait?}`. Waits for the run by default; `wait: false` answers its `run_id` at once. |
 | `GET /runs` | The latest runs (`?cabinet=`, `?graph=`, `?limit=`). |
-| `GET /runs/<run_id>` | A run: status, input, output or error, and its steps. |
-| `GET /runs/<run_id>/events` | Its steps as each one ends (server-sent events). |
+| `GET /runs/<run_id>` | A run: status, input, output or error, and its steps (`?after=<step id>`: only the newer steps, and its status). |
 | `GET /graphs/<graph>` | A workflow's shape for the canvas. |
 | `GET` / `PUT` / `DELETE /graphs/<graph>/layout` | How the team arranged its canvas: read, saved, or forgotten. |
 

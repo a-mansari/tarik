@@ -1,8 +1,8 @@
 """What changed, for the pages to follow Tarik near real time, as n8n's do, without asking the database again and
 again: each run created, each step recorded and each run ended counts one change for its run, its cabinet and its
-conversation (touched). A page holds one event stream (server.py: /ui/live, /runs/{id}/events) that sleeps until a
-change it shows happens, then fetches what it needs once; a page nobody looks at costs an idle connection and no
-query, however many are open.
+conversation (touched). A browser holds one event stream for all its pages (server.py: /ui/live, ui/static/app.js)
+that sleeps until a change one of them shows happens; that page then fetches what it needs once. A page nobody looks
+at costs no query, however many are open.
 
 shortcut: one server process (the changes live in its memory); several would need Postgres LISTEN/NOTIFY."""
 
