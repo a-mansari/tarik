@@ -144,7 +144,10 @@ async def log_in(email, password):
     async with runs.pool.connection() as db:
         row = await (await db.execute(Q.user_password, (email,))).fetchone()
         if not row or not row[0] or not matches(password, row[0]):  # no password yet: its invitation sets one
-            FAILURES[email] = (count + 1, time.monotonic())
+            now = time.monotonic()
+            for stale in [key for key, (_, at) in FAILURES.items() if now - at >= WAIT_SECONDS]:
+                del FAILURES[stale]  # past their wait: nothing to remember, the throttle never grows without end
+            FAILURES[email] = (count + 1, now)
             return None
         FAILURES.pop(email, None)
         token = secrets.token_urlsafe(32)

@@ -1,6 +1,10 @@
 """What a run was asked, as the run's page shows it: each input under its plain name, coded values in words, an email
 thread as its sender, subject and message, and nothing internal."""
 
+import asyncio
+
+import pytest
+
 from ui.pages import asked
 
 
@@ -76,3 +80,23 @@ def test_picking_a_cabinet_keeps_it_and_opens_its_dashboard(monkeypatch):
     assert answer.headers["location"] == "/ui/accueil" and "tarik_cabinet=cab_a" in answer.headers["set-cookie"]
     assert pick("cab_a", "//evil.example").headers["location"] == "/ui/accueil"  # never another site
     assert "set-cookie" not in pick("cab_unknown", "/ui/executions").headers
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "target", ["/%5Cevil.example", "/%5C%5Cevil.example", "//evil.example", "https://evil.example"]
+)
+def test_logging_in_never_leads_to_another_site(target):
+    from starlette.requests import Request
+
+    from app import server
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/login",
+        "headers": [],
+        "query_string": f"next={target}".encode(),
+    }
+    page = asyncio.run(server.login(Request(scope))).body.decode()
+    assert "evil.example" not in page and "/ui/accueil" in page  # browsers read « /\x » as « //x »

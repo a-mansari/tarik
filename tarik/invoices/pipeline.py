@@ -496,11 +496,12 @@ def answer_pending(session_id: str, answer: str, decision: str = "", about: str 
     result = apply_answer(item, answer, decision)
     if item.get("invoice_id"):
         corrections = account_corrections(session_id, answer, item["invoice_id"])
-        if not corrections and compte.strip():  # an account the agent read without a code (« frais de péage »)
-            target = corrected_invoice(session_id, answer, item["invoice_id"])
-            if target:
-                corrections = {target: compte.strip()}
-            else:
+        if compte.strip() and not given_codes(normalized(compte)):  # an account the agent read without a code
+            # Beside codes given to the others it names, it is the answered invoice's (« celle-ci en frais de péage »).
+            target = item["invoice_id"] if corrections else corrected_invoice(session_id, answer, item["invoice_id"])
+            if target and target not in corrections:
+                corrections[target] = compte.strip()
+            elif not target:
                 result["message"] += f" Le compte « {compte.strip()} » : précisez pour quelle facture."
         if corrections:  # [[invoice, account]]: a list, kept as it is through the workflow's state
             result["corrections"] = [[invoice_id, account] for invoice_id, account in sorted(corrections.items())]
@@ -509,8 +510,13 @@ def answer_pending(session_id: str, answer: str, decision: str = "", about: str 
 
 # An account code the client gives an invoice: after « compte » or « en » (« mettez-la en 6125 », « en compte
 # 61425000 »), never a bare number (a year, an amount, an invoice's number).
-CODE_GIVEN = re.compile(r"(?<![a-z0-9])(?:compte|en)\s+(?:compte\s+)?([1-7]\d{3,7})(?!\d)")
-CLAUSES = re.compile(r"[.;,!?\n]+")  # never « et »: « la 272469 et la 272471 en 6125 » is one instruction
+CODE_GIVEN = re.compile(  # « réglée en 3000 DH » is an amount
+    r"(?<![a-z0-9])(?<!reglee )(?<!payee )(?:compte|en)\s+(?:compte\s+)?([1-7]\d{3,7})(?!\d)"
+    r"(?!\s*(?:dh|mad|eur|euros?|dirhams?)\b)"
+)
+# Sentence punctuation only (followed by a space or the end): « FA.2025.0012 » or « 1.200,50 » stay whole; never « et »:
+# « la 272469 et la 272471 en 6125 » is one instruction.
+CLAUSES = re.compile(r"[.,](?=\s|$)|[;!?\n]+")
 
 
 def given_codes(clause):
@@ -522,7 +528,8 @@ def draft_names(session_id):
     """{draft id: [names a client may call it by]}: Tarik's number, the invoice's own number, its supplier."""
     with cabinet_db() as db:
         ids = [i for (i,) in db.execute(Q.drafts_of_session, (session_id,))]
-    drafts = odoo_call("exp.invoice", "read", ids, fields=["invoice_number", "partner_id"]) if ids else []
+    found = [("id", "in", ids)]  # search_read: a draft deleted in Experio since is left out, never an error
+    drafts = odoo_call("exp.invoice", "search_read", found, fields=["invoice_number", "partner_id"]) if ids else []
     names = {}
     for draft in drafts:
         found = [str(draft["id"]), normalized(draft["invoice_number"] or "")]

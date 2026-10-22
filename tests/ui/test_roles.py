@@ -82,3 +82,28 @@ def test_a_member_s_change_is_refused_before_it_reaches_the_page(monkeypatch):
 def test_an_admin_s_change_and_a_member_s_reading_go_through(monkeypatch):
     assert called("admin", "PUT", "/graphs/traitement/layout", monkeypatch) == (200, True)
     assert called("member", "GET", "/graphs/traitement/layout", monkeypatch) == (200, True)
+
+
+@pytest.mark.security
+def test_the_login_throttle_forgets_what_its_wait_is_over(monkeypatch):
+    import asyncio
+
+    from app import accounts
+
+    class Db:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, *args):
+            return self
+
+        async def fetchone(self):
+            return None  # no such account
+
+    monkeypatch.setattr(accounts.runs, "pool", type("Pool", (), {"connection": lambda self: Db()})())
+    monkeypatch.setattr(accounts, "FAILURES", {"old@x": (3, accounts.time.monotonic() - accounts.WAIT_SECONDS - 1)})
+    asyncio.run(accounts.log_in("new@x", "nope"))
+    assert set(accounts.FAILURES) == {"new@x"}  # a guess with a new address never grows it without end

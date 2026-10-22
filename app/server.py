@@ -125,7 +125,7 @@ def same_origin(request):
 async def login(request: Request):
     """The login page (GET), and logging in (POST): a session cookie, then back to the page asked for."""
     target = request.query_params.get("next") or pages.HOME
-    if not target.startswith("/") or target.startswith("//"):
+    if not target.startswith("/") or target.startswith(("//", "/\\")) or "\\" in target:  # « /\x » is « //x »
         target = pages.HOME  # never sent to another site
     if request.method == "GET":
         return pages.login_page(request, target)

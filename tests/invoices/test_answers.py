@@ -469,7 +469,17 @@ def three_drafts(db_cabinet, monkeypatch):
                 (invoice_id,),
             )
     rows = [{"id": i, "invoice_number": number, "partner_id": [1, name]} for i, (number, name) in read.items()]
-    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, ids, **kw: [r for r in rows if r["id"] in ids])
+    rows[2]["invoice_number"] = "CD.24.1122"  # a number with dots, kept whole in a clause
+
+    def odoo_call(model, method, domain, **kw):  # search_read by ids: a deleted draft (272450) is simply absent
+        return [row for row in rows if row["id"] in domain[0][2]]
+
+    monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) "
+            "values ('s', 'gone.pdf', 'application/pdf', '', 272450)"
+        )
 
 
 @pytest.mark.functionality
@@ -477,7 +487,7 @@ def three_drafts(db_cabinet, monkeypatch):
     "said, corrections",
     [
         ("Pour la 272469 : non. Et mettez la 272471 en compte 61425000 Transport sur achats.", {272471: "61425000"}),
-        ("Oui pour Station Service, et mettez la CD241122 en 61425000.", {272471: "61425000"}),  # its own number
+        ("Oui pour Station Service, et mettez la CD.24.1122 en 61425000.", {272471: "61425000"}),  # its own number
         ("Non, et mettez-la en 6125.", {272469: "6125"}),  # no invoice named: the one answered about
         ("Exercice 2025 pour la 272469, et pareil pour la 272471.", {}),  # a year is no account
         ("Le montant est 1200, la F2501964 aussi.", {}),  # nor an amount, nor an invoice's digits
@@ -485,6 +495,9 @@ def three_drafts(db_cabinet, monkeypatch):
         ("6125 en compte pour la 272469 ; en 61425000 pour Zhejiang.", {272471: "61425000"}),  # one code per clause
         ("Pour la 272469 non et mettez la 272471 en 61425000.", {272471: "61425000"}),  # beside the answered one
         ("Mettez la 272459 et la 272471 en 6125.", {}),  # several others in one clause: asked
+        ("Oui pour la 272469. Mettez la CD.24.1122 en 61425000.", {272471: "61425000"}),  # its number kept whole
+        ("Non, elle a été réglée en 3000 DH.", {}),  # an amount, not an account
+        ("Non, payée en 1500 le 3 mars.", {}),
     ],
 )
 def test_the_accounts_given_with_an_answer_go_each_to_the_invoice_its_clause_names(three_drafts, said, corrections):
@@ -506,3 +519,17 @@ def test_an_account_given_while_nothing_waits_still_goes_to_the_invoice_named(th
     result = pipeline.answer_pending("s", "Mettez la 272471 en compte 61425000.")
     assert result["next_step"] == "waiting_drafts" and result["corrections"] == [[272471, "61425000"]]
     assert "corrections" not in pipeline.answer_pending("s", "Mettez-la en 61425000.")  # which one? none answered
+
+
+@pytest.mark.functionality
+def test_the_agent_s_account_for_the_answered_invoice_is_kept_beside_a_code_given_another(three_drafts, monkeypatch):
+    monkeypatch.setattr(
+        pipeline,
+        "waiting_on",
+        lambda session_id: [{"invoice_id": 272469, "step": "settle_tva", "question": "q", "names": {"272469"}}],
+    )
+    monkeypatch.setattr(pipeline, "check_sender", lambda *a, **k: ok("ok"))
+    monkeypatch.setattr(pipeline, "apply_answer", lambda item, answer, decision: ok("appliqué"))
+    said = "Non, mettez celle-ci en frais de péage ; la 272471 en 61425000."
+    result = pipeline.answer_pending("s", said, "non", "272469", compte="frais de péage")
+    assert result["corrections"] == [[272469, "frais de péage"], [272471, "61425000"]]
