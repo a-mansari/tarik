@@ -464,3 +464,17 @@ def test_a_correction_naming_another_file_never_flips_the_statement_asked_about(
         pipeline.answer_pending("s", "Ce n'est pas un relevé, c'est une facture.", "")["next_step"]
         == "identify_document"
     )
+
+
+@pytest.mark.functionality
+def test_an_account_the_client_writes_for_another_invoice_reaches_it_without_the_agent(db_cabinet):
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
+            "('s', 'a.pdf', 'application/pdf', '', 272469), ('s', 'b.pdf', 'application/pdf', '', 272471)"
+        )
+    item = {"invoice_id": 272469}
+    said = "Pour la 272469 : non, pas de répartition. Et mettez la 272471 en compte 61425000 Transport sur achats."
+    assert pipeline.account_for_other("s", said, item) == 272471
+    assert pipeline.account_for_other("s", "Pour la 272469 : non. La 272471 est payée.", item) is None  # no account
+    assert pipeline.account_for_other("s", "Non, compte 61425000.", item) is None  # no other invoice named

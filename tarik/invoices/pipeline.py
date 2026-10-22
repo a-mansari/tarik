@@ -490,13 +490,33 @@ def answer_pending(session_id: str, answer: str, decision: str = "", about: str 
     if sender["status"] != "ok":  # recorded as check_sender's: the email workflow tells the manager, never the sender
         return {**sender, "step": "check_sender"}
     result = apply_answer(item, answer, decision)
-    if compte.strip() and item.get("invoice_id"):
+    if item.get("invoice_id") and not compte.strip() and (named := account_for_other(session_id, answer, item)):
+        compte = answer  # the client's own sentence: the account step reads the account in it (set_account)
+        result["corrected_invoice"] = named
+    elif compte.strip() and item.get("invoice_id"):
         target = corrected_invoice(session_id, answer, item["invoice_id"])
         if target:
             result["corrected_invoice"] = target
         else:
             result["message"] += f" Le compte « {compte.strip()} » : précisez pour quelle facture (son numéro)."
+    if result.get("corrected_invoice"):
+        result["corrected_compte"] = compte.strip()
     return result
+
+
+ACCOUNT_CODE = re.compile(r"(?<!\d)[1-7]\d{3,7}(?!\d)")  # an account code the client writes: 6125, 61425000
+
+
+def account_for_other(session_id, answer, item):
+    """The other draft of the conversation the client's answer names by its number together with an account code
+    (« oui pour la 272469, et mettez la 272471 en 61425000 »), when the agent passed no account: that one, else
+    None. Only the client's own words decide it."""
+    with cabinet_db() as db:
+        drafts = [i for (i,) in db.execute(Q.drafts_of_session, (session_id,))]
+    words = normalized(answer)
+    others = sorted({i for i in drafts if i != item["invoice_id"] and said(str(i), words)})
+    codes = [code for code in ACCOUNT_CODE.findall(words) if int(code) not in drafts]
+    return others[0] if len(others) == 1 and codes else None
 
 
 def corrected_invoice(session_id, answer, answered):

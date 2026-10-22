@@ -158,3 +158,14 @@ def test_an_account_correction_goes_through_even_when_its_answer_settles_nothing
     )
     state["outcomes"] = [{"status": "question", "invoice_id": 272471}]
     assert traitement.resume_at(state) == "resume"  # no correction: as before
+
+
+@pytest.mark.functionality
+def test_the_account_read_in_the_client_s_words_goes_with_the_invoice_they_named():
+    from engine import traitement
+
+    last = {"status": "ok", "next_step": "settle_exercice", "invoice_id": 272469, "corrected_invoice": 272471}
+    last["corrected_compte"] = "Et mettez la 272471 en compte 61425000."
+    state = {"call": {"session_id": "s", "compte": ""}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
+    sent = {s.arg["invoice_id"]: (s.arg["entry"], s.arg["call"]["compte"]) for s in traitement.resume_at(state)}
+    assert sent == {272469: ("settle_exercice", ""), 272471: ("assign_account", last["corrected_compte"])}

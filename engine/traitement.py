@@ -361,9 +361,10 @@ def resume_at(state: Run):
     following = last.get("next_step")
     corrected, answered = last.get("corrected_invoice"), last.get("invoice_id")
     call = with_dossier(state)
+    fixed = {**call, "compte": last.get("corrected_compte") or call.get("compte") or ""}  # the account it carries
     correction = Send(
         "fichier",
-        {"call": call, "run_id": state["run_id"], "entry": "assign_account", "invoice_id": corrected, "outcomes": []},
+        {"call": fixed, "run_id": state["run_id"], "entry": "assign_account", "invoice_id": corrected, "outcomes": []},
     )
     if last.get("status") != "ok" or not following:
         return [correction] if corrected else "resume"
@@ -381,7 +382,7 @@ def resume_at(state: Run):
         Send(
             "fichier",
             {
-                "call": call if corrected == answered else {**call, "compte": ""},
+                "call": fixed if corrected == answered else {**call, "compte": ""},
                 "run_id": state["run_id"],
                 "entry": following,
                 "invoice_id": answered,
