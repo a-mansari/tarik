@@ -19,7 +19,7 @@ from tarik.dossiers.setup import ask_banks, set_journal_bank
 from tarik.invoices.accounts import set_account
 from tarik.invoices.classify import client_side
 from tarik.invoices.exercice import settle_exercice
-from tarik.invoices.intake import client_kind, import_bank_statement, set_kind
+from tarik.invoices.intake import client_kind, file_named, import_bank_statement, set_kind
 from tarik.invoices.prepaid import settle_prepaid
 from tarik.invoices.tiers import choose_tiers
 from tarik.invoices.tva import settle_tva
@@ -376,13 +376,24 @@ def meant(waiting, about):
     return named[0] if len(named) == 1 else None
 
 
+def about_this_file(item, answer):
+    """True when the client's ``answer`` is about the statement ``item`` asks for: it names that file, or no other
+    file of its conversation (« douane.pdf n'est pas un relevé » is not about `releve.pdf`)."""
+    if file_named(item["file_name"], answer):
+        return True
+    with cabinet_db() as db:
+        names = [name for (name,) in db.execute(Q.other_file_names, (item["file_id"], item["file_id"]))]
+    return not any(file_named(name, answer) for name in names)
+
+
 def apply_answer(item, answer, decision):
     """Apply the client's ``answer`` (their own words) and the agent's ``decision`` (what it read in them) to waiting
     ``item`` (from waiting_on): the result of the call that takes it, with the step it answers and, when it went
     fine, the ``next_step`` the sequence resumes at. A oui / non question the decision doesn't settle is asked
     again."""
     if item["step"] == "import_bank_statement":
-        if client_kind(own_words(answer)) == "invoice":  # « ce n'est pas un relevé, c'est une facture »
+        # « ce n'est pas un relevé, c'est une facture », about this statement: never when it names another file only.
+        if client_kind(own_words(answer)) == "invoice" and about_this_file(item, answer):
             set_kind(item["file_id"], "invoice")
             told = f"`{item['file_name']}` : une facture, comme vous l'avez dit."
             sides = [side for side in ("achat", "vente") if client_side(side, answer)]  # « une facture d'achat »

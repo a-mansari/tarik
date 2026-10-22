@@ -437,3 +437,30 @@ def test_an_account_correction_with_an_answer_names_its_invoice(db_cabinet):
     assert pipeline.corrected_invoice("s", oui, 272469) == 272470  # the one named for the account
     assert pipeline.corrected_invoice("s", "Oui, et mettez-la en frais de péage.", 272469) == 272469  # the answered
     assert pipeline.corrected_invoice("s", "Mettez la 272470 et la 272471 en 6125.", 272469) is None  # which one?
+
+
+@pytest.mark.security
+def test_a_correction_naming_another_file_never_flips_the_statement_asked_about(answers, monkeypatch):
+    with cabinet_db() as db:
+        insert = (
+            "insert into tarik_files (session_id, file_name, mime_type, data, kind) values "
+            "('s', %s, 'application/pdf', '', %s) returning id"
+        )
+        statement = db.execute(insert, ("releve.pdf", "statement")).fetchone()[0]
+        db.execute(insert, ("douane.pdf", "invoice"))
+        db.execute(
+            "insert into tarik_results (run_id, session_id, file_id, dossier_id, step, status, message, choices) "
+            "values ('r', 's', %s, 557, 'import_bank_statement', 'question', 'releve.pdf : lequel ?', %s)",
+            (statement, '{"4": "BMCE - BMCE BANK"}'),
+        )
+    monkeypatch.setattr(pipeline, "import_bank_statement", lambda *args: ok("asked again"))
+    assert (
+        pipeline.answer_pending("s", "douane.pdf n'est pas un relevé, c'est une facture.", "")["message"]
+        == "asked again"
+    )
+    with cabinet_db() as db:
+        assert db.execute("select kind from tarik_files where id = %s", (statement,)).fetchone() == ("statement",)
+    assert (
+        pipeline.answer_pending("s", "Ce n'est pas un relevé, c'est une facture.", "")["next_step"]
+        == "identify_document"
+    )

@@ -415,3 +415,7 @@ delete from tarik_working where run_id = %s
 -- name: invoices_worked_on
 -- Of the invoices given, those a run is working on now (its claim refreshed in the last 30 minutes).
 select invoice_id from tarik_working where invoice_id = any(%s) and claimed_at >= now() - interval '30 minutes'
+
+-- name: other_file_names
+-- The names of the other files of a file's conversation.
+select file_name from tarik_files where session_id = (select session_id from tarik_files where id = %s) and id <> %s
