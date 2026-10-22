@@ -469,15 +469,19 @@ def answer_pending(session_id: str, answer: str, decision: str = "", about: str 
     for an exercice question, the journal_id chosen for a bank account, else empty. ``about``: with several
     questions waiting, the invoice's number or the statement's name the client answers. ``next_step`` says
     where the sequence resumes; with nothing waiting, the drafts Experio hadn't read yet are resumed. The
-    email's sender must have the dossier, as for any work on it. ``compte``: an account the client corrects in the
-    same message: ``corrected_invoice`` says which invoice it goes to (corrected_invoice)."""
+    email's sender must have the dossier, as for any work on it. ``corrections``: the accounts the client gives
+    invoices in the same message ([[invoice, account]], account_corrections), or ``compte`` the agent read there
+    without a code, for the invoice it names (corrected_invoice)."""
     answer = own_words(answer)
     waiting = waiting_on(session_id)
     if not waiting:
+        # Nothing asked: an account given here still goes to the invoice it names (none answered about).
+        corrections = {i: code for i, code in account_corrections(session_id, answer, None).items() if i}
         return ok(
             "Aucune question en attente : les factures a reprendre le sont.",
             next_step="waiting_drafts",
             step="answer_pending",
+            **({"corrections": [[i, code] for i, code in sorted(corrections.items())]} if corrections else {}),
         )
     item = meant(waiting, about)
     if not item:
@@ -490,42 +494,75 @@ def answer_pending(session_id: str, answer: str, decision: str = "", about: str 
     if sender["status"] != "ok":  # recorded as check_sender's: the email workflow tells the manager, never the sender
         return {**sender, "step": "check_sender"}
     result = apply_answer(item, answer, decision)
-    if item.get("invoice_id") and not compte.strip() and (named := account_for_other(session_id, answer, item)):
-        compte = answer  # the client's own sentence: the account step reads the account in it (set_account)
-        result["corrected_invoice"] = named
-    elif compte.strip() and item.get("invoice_id"):
-        target = corrected_invoice(session_id, answer, item["invoice_id"])
-        if target:
-            result["corrected_invoice"] = target
-        else:
-            result["message"] += f" Le compte « {compte.strip()} » : précisez pour quelle facture (son numéro)."
-    if result.get("corrected_invoice"):
-        result["corrected_compte"] = compte.strip()
+    if item.get("invoice_id"):
+        corrections = account_corrections(session_id, answer, item["invoice_id"])
+        if not corrections and compte.strip():  # an account the agent read without a code (« frais de péage »)
+            target = corrected_invoice(session_id, answer, item["invoice_id"])
+            if target:
+                corrections = {target: compte.strip()}
+            else:
+                result["message"] += f" Le compte « {compte.strip()} » : précisez pour quelle facture."
+        if corrections:  # [[invoice, account]]: a list, kept as it is through the workflow's state
+            result["corrections"] = [[invoice_id, account] for invoice_id, account in sorted(corrections.items())]
     return result
 
 
-ACCOUNT_CODE = re.compile(r"(?<!\d)[1-7]\d{3,7}(?!\d)")  # an account code the client writes: 6125, 61425000
+# An account code the client gives an invoice: after « compte » or « en » (« mettez-la en 6125 », « en compte
+# 61425000 »), never a bare number (a year, an amount, an invoice's number).
+CODE_GIVEN = re.compile(r"(?<![a-z0-9])(?:compte|en)\s+(?:compte\s+)?([1-7]\d{3,7})(?!\d)")
+CLAUSES = re.compile(r"[.;,!?\n]+")  # never « et »: « la 272469 et la 272471 en 6125 » is one instruction
 
 
-def account_for_other(session_id, answer, item):
-    """The other draft of the conversation the client's answer names by its number together with an account code
-    (« oui pour la 272469, et mettez la 272471 en 61425000 »), when the agent passed no account: that one, else
-    None. Only the client's own words decide it."""
+def given_codes(clause):
+    """The account codes ``clause`` (normalized) gives: « en 2025 » is a year, not an account."""
+    return [code for code in CODE_GIVEN.findall(clause) if not (len(code) == 4 and code.startswith("20"))]
+
+
+def draft_names(session_id):
+    """{draft id: [names a client may call it by]}: Tarik's number, the invoice's own number, its supplier."""
     with cabinet_db() as db:
-        drafts = [i for (i,) in db.execute(Q.drafts_of_session, (session_id,))]
-    words = normalized(answer)
-    others = sorted({i for i in drafts if i != item["invoice_id"] and said(str(i), words)})
-    codes = [code for code in ACCOUNT_CODE.findall(words) if int(code) not in drafts]
-    return others[0] if len(others) == 1 and codes else None
+        ids = [i for (i,) in db.execute(Q.drafts_of_session, (session_id,))]
+    drafts = odoo_call("exp.invoice", "read", ids, fields=["invoice_number", "partner_id"]) if ids else []
+    names = {}
+    for draft in drafts:
+        found = [str(draft["id"]), normalized(draft["invoice_number"] or "")]
+        found += supplier_names(draft["partner_id"][1]) if draft["partner_id"] else []
+        names[draft["id"]] = [name for name in found if len(name) >= 3]
+    return names
+
+
+def named_drafts(words, names):
+    """The drafts ``words`` (normalized) name."""
+    return sorted(i for i, found in names.items() if any(said(name, words) for name in found))
+
+
+def account_corrections(session_id, answer, answered):
+    """{invoice: account code} the client's own words give, clause by clause: a code after « compte » or « en », for
+    the one draft that clause names (by Tarik's number, the invoice's number or its supplier), or the one besides the
+    invoice answered about (« oui pour la 272469 et mettez la 272471 en 6125 »), else for the invoice answered about
+    (« et mettez-la en 6125 »). A clause naming several other drafts gives none: corrected_invoice then asks."""
+    clauses = [normalized(clause) for clause in CLAUSES.split(answer or "")]
+    coded = [(clause, given_codes(clause)) for clause in clauses]
+    if not any(codes for _, codes in coded):
+        return {}
+    names = draft_names(session_id)
+    corrections = {}
+    for clause, codes in coded:
+        if len(codes) != 1:
+            continue
+        named = named_drafts(clause, names)
+        others = [invoice_id for invoice_id in named if invoice_id != answered]
+        target = named[0] if len(named) == 1 else others[0] if len(others) == 1 else None if named else answered
+        if target:
+            corrections[target] = codes[0]
+    return corrections
 
 
 def corrected_invoice(session_id, answer, answered):
-    """The invoice an account correction sent with an answer goes to: the one other draft of the conversation the
-    client's words name by its number, else the one they answer about; None when they name several others."""
-    with cabinet_db() as db:
-        drafts = [i for (i,) in db.execute(Q.drafts_of_session, (session_id,))]
-    words = normalized(answer)
-    others = sorted({i for i in drafts if i != answered and said(str(i), words)})
+    """The invoice an account the agent read in an answer goes to: the one other draft of the conversation the
+    client's words name (Tarik's number, the invoice's number, its supplier), else the one they answer about; None
+    when they name several others."""
+    others = [i for i in named_drafts(normalized(answer), draft_names(session_id)) if i != answered]
     if len(others) > 1:
         return None
     return others[0] if others else answered

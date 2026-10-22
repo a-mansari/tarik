@@ -425,20 +425,6 @@ def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them
         assert pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message=said)["invoices"] == taken, said
 
 
-@pytest.mark.functionality
-def test_an_account_correction_with_an_answer_names_its_invoice(db_cabinet):
-    with cabinet_db() as db:
-        db.execute(
-            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
-            "('s', 'a.pdf', 'application/pdf', '', 272469), ('s', 'b.pdf', 'application/pdf', '', 272470), "
-            "('s', 'c.pdf', 'application/pdf', '', 272471)"
-        )
-    oui = "Oui pour la 272469, et mettez la 272470 en 61425000."
-    assert pipeline.corrected_invoice("s", oui, 272469) == 272470  # the one named for the account
-    assert pipeline.corrected_invoice("s", "Oui, et mettez-la en frais de péage.", 272469) == 272469  # the answered
-    assert pipeline.corrected_invoice("s", "Mettez la 272470 et la 272471 en 6125.", 272469) is None  # which one?
-
-
 @pytest.mark.security
 def test_a_correction_naming_another_file_never_flips_the_statement_asked_about(answers, monkeypatch):
     with cabinet_db() as db:
@@ -466,15 +452,57 @@ def test_a_correction_naming_another_file_never_flips_the_statement_asked_about(
     )
 
 
-@pytest.mark.functionality
-def test_an_account_the_client_writes_for_another_invoice_reaches_it_without_the_agent(db_cabinet):
+@pytest.fixture
+def three_drafts(db_cabinet, monkeypatch):
+    """A conversation's drafts 272459 (STATION SERVICE), 272469 (SRM-CS) and 272471 (ZHEJIANG), as Experio reads
+    them."""
+    read = {
+        272459: ("19138", "STATION SERVICE - 4411S002"),
+        272469: ("1579653218", "SRM-CS"),
+        272471: ("CD241122", "ZHEJIANG WUMA DRIVE"),
+    }
     with cabinet_db() as db:
-        db.execute(
-            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
-            "('s', 'a.pdf', 'application/pdf', '', 272469), ('s', 'b.pdf', 'application/pdf', '', 272471)"
-        )
-    item = {"invoice_id": 272469}
-    said = "Pour la 272469 : non, pas de répartition. Et mettez la 272471 en compte 61425000 Transport sur achats."
-    assert pipeline.account_for_other("s", said, item) == 272471
-    assert pipeline.account_for_other("s", "Pour la 272469 : non. La 272471 est payée.", item) is None  # no account
-    assert pipeline.account_for_other("s", "Non, compte 61425000.", item) is None  # no other invoice named
+        for invoice_id in read:
+            db.execute(
+                "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) "
+                "values ('s', 'f.pdf', 'application/pdf', '', %s)",
+                (invoice_id,),
+            )
+    rows = [{"id": i, "invoice_number": number, "partner_id": [1, name]} for i, (number, name) in read.items()]
+    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, ids, **kw: [r for r in rows if r["id"] in ids])
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "said, corrections",
+    [
+        ("Pour la 272469 : non. Et mettez la 272471 en compte 61425000 Transport sur achats.", {272471: "61425000"}),
+        ("Oui pour Station Service, et mettez la CD241122 en 61425000.", {272471: "61425000"}),  # its own number
+        ("Non, et mettez-la en 6125.", {272469: "6125"}),  # no invoice named: the one answered about
+        ("Exercice 2025 pour la 272469, et pareil pour la 272471.", {}),  # a year is no account
+        ("Le montant est 1200, la F2501964 aussi.", {}),  # nor an amount, nor an invoice's digits
+        ("Compte 6125 pour la 272469, comme pour la 272471 la dernière fois.", {272469: "6125"}),  # only mentioned
+        ("6125 en compte pour la 272469 ; en 61425000 pour Zhejiang.", {272471: "61425000"}),  # one code per clause
+        ("Pour la 272469 non et mettez la 272471 en 61425000.", {272471: "61425000"}),  # beside the answered one
+        ("Mettez la 272459 et la 272471 en 6125.", {}),  # several others in one clause: asked
+    ],
+)
+def test_the_accounts_given_with_an_answer_go_each_to_the_invoice_its_clause_names(three_drafts, said, corrections):
+    assert pipeline.account_corrections("s", said, 272469) == corrections
+
+
+@pytest.mark.functionality
+def test_an_account_read_by_the_agent_goes_to_the_invoice_named_even_by_its_supplier(three_drafts):
+    assert (
+        pipeline.corrected_invoice("s", "Oui, et mettez celle de Station Service en frais de péage.", 272469) == 272459
+    )
+    assert pipeline.corrected_invoice("s", "Oui, et mettez-la en frais de péage.", 272469) == 272469
+    assert pipeline.corrected_invoice("s", "Mettez Station Service et Zhejiang en frais de péage.", 272469) is None
+
+
+@pytest.mark.functionality
+def test_an_account_given_while_nothing_waits_still_goes_to_the_invoice_named(three_drafts, monkeypatch):
+    monkeypatch.setattr(pipeline, "waiting_on", lambda session_id: [])
+    result = pipeline.answer_pending("s", "Mettez la 272471 en compte 61425000.")
+    assert result["next_step"] == "waiting_drafts" and result["corrections"] == [[272471, "61425000"]]
+    assert "corrections" not in pipeline.answer_pending("s", "Mettez-la en 61425000.")  # which one? none answered

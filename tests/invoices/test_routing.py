@@ -117,30 +117,22 @@ def test_asked_to_post_the_drafts_are_posted_whatever_question_waits(monkeypatch
 
 @pytest.mark.functionality
 @pytest.mark.parametrize(
-    "compte, corrected, sent_to",
+    "corrections, sent_to",
     [
-        ("", None, [(7, "check_journal", "")]),  # the answer's own next step
-        ("frais de péage", 7, [(7, "assign_account", "frais de péage")]),  # its own account corrected: back to it
+        ([], [(7, "check_journal", "")]),  # the answer's own next step
+        ([[7, "frais de péage"]], [(7, "assign_account", "frais de péage")]),  # its own account: back to it
         # Another invoice's account: that one goes back to its account step, the answered one goes on without it.
-        ("61425000", 9, [(7, "check_journal", ""), (9, "assign_account", "61425000")]),
+        ([[9, "61425000"]], [(7, "check_journal", ""), (9, "assign_account", "61425000")]),
+        ([[7, "6125"], [9, "61425000"]], [(7, "assign_account", "6125"), (9, "assign_account", "61425000")]),
     ],
 )
-def test_an_account_corrected_with_an_answer_goes_to_the_invoice_it_names(compte, corrected, sent_to):
+def test_each_account_given_with_an_answer_goes_to_its_own_invoice(corrections, sent_to):
     from engine import traitement
 
-    last = {"status": "ok", "next_step": "check_journal", "invoice_id": 7, "corrected_invoice": corrected}
-    state = {"call": {"session_id": "s", "compte": compte}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
+    last = {"status": "ok", "next_step": "check_journal", "invoice_id": 7, "corrections": corrections}
+    state = {"call": {"session_id": "s", "compte": "x"}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
     sends = traitement.resume_at(state)
     assert [(s.arg["invoice_id"], s.arg["entry"], s.arg["call"]["compte"]) for s in sends] == sent_to
-
-
-@pytest.mark.communication
-def test_a_message_without_new_files_asks_only_its_own_conversation_s_questions():
-    from engine import traitement
-
-    # Never the questions other conversations left on the dossier: straight to this conversation's drafts.
-    assert traitement.each_file({"files": [], "outcomes": [{"status": "ok"}]}) == "brouillons"
-    assert "questions" not in traitement.graph.get_graph().nodes
 
 
 @pytest.mark.functionality
@@ -148,8 +140,8 @@ def test_an_account_correction_goes_through_even_when_its_answer_settles_nothing
     from engine import traitement
 
     # The agent sent the correction about 272471, whose own question (its exercice) the message does not answer.
-    last = {"status": "question", "invoice_id": 272471, "corrected_invoice": 272471}
-    state = {"call": {"session_id": "s", "compte": "61425000"}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
+    last = {"status": "question", "invoice_id": 272471, "corrections": [[272471, "61425000"]]}
+    state = {"call": {"session_id": "s", "compte": ""}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
     (sent,) = traitement.resume_at(state)
     assert (sent.arg["invoice_id"], sent.arg["entry"], sent.arg["call"]["compte"]) == (
         272471,
@@ -160,12 +152,12 @@ def test_an_account_correction_goes_through_even_when_its_answer_settles_nothing
     assert traitement.resume_at(state) == "resume"  # no correction: as before
 
 
-@pytest.mark.functionality
-def test_the_account_read_in_the_client_s_words_goes_with_the_invoice_they_named():
+@pytest.mark.technical
+def test_a_corrected_invoice_is_never_also_taken_up_with_the_waiting_drafts():
     from engine import traitement
 
-    last = {"status": "ok", "next_step": "settle_exercice", "invoice_id": 272469, "corrected_invoice": 272471}
-    last["corrected_compte"] = "Et mettez la 272471 en compte 61425000."
-    state = {"call": {"session_id": "s", "compte": ""}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
-    sent = {s.arg["invoice_id"]: (s.arg["entry"], s.arg["call"]["compte"]) for s in traitement.resume_at(state)}
-    assert sent == {272469: ("settle_exercice", ""), 272471: ("assign_account", last["corrected_compte"])}
+    last = {"status": "ok", "next_step": "waiting_drafts", "invoice_id": None, "corrections": [[272470, "6125"]]}
+    state = {"call": {"session_id": "s"}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
+    fix, drafts = traitement.resume_at(state)
+    assert (fix.node, fix.arg["invoice_id"]) == ("fichier", 272470)
+    assert drafts.node == "brouillons" and drafts.arg["call"]["skip_invoices"] == [272470]

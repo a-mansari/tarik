@@ -318,7 +318,9 @@ async def waiting(state: Run):
         invoice_type=call.get("invoice_type") or "",
         client_message=call.get("client_message") or "",
     )
-    return {"invoices": result.get("invoices", []), "outcomes": [result]}
+    skipped = set(call.get("skip_invoices") or [])  # taken up by their own branch of this run (resume_at)
+    invoices = [invoice_id for invoice_id in result.get("invoices", []) if invoice_id not in skipped]
+    return {"invoices": invoices, "outcomes": [result]}
 
 
 def each_draft(state: Run):
@@ -355,44 +357,37 @@ async def answer(state: Run):
 
 
 def resume_at(state: Run):
-    """Where the sequence resumes after the answer: its next step, the waiting drafts, or nowhere; and an account
-    corrected with it, on the invoice it names, even when the answer itself settled nothing."""
+    """Where the sequence resumes after the answer: its next step, the waiting drafts, or nowhere; and each account
+    the client gave an invoice with it (corrections), that invoice back to its account step, even when the answer
+    itself settled nothing."""
     last = state["outcomes"][-1]
     following = last.get("next_step")
-    corrected, answered = last.get("corrected_invoice"), last.get("invoice_id")
-    call = with_dossier(state)
-    fixed = {**call, "compte": last.get("corrected_compte") or call.get("compte") or ""}  # the account it carries
-    correction = Send(
-        "fichier",
-        {"call": fixed, "run_id": state["run_id"], "entry": "assign_account", "invoice_id": corrected, "outcomes": []},
-    )
+    corrections = {int(invoice_id): account for invoice_id, account in last.get("corrections") or []}
+    answered, call = last.get("invoice_id"), with_dossier(state)
+
+    def sent(invoice_id, entry):
+        payload = {"call": {**call, "compte": corrections.get(invoice_id, "")}, "run_id": state["run_id"]}
+        return Send("fichier", {**payload, "entry": entry, "invoice_id": invoice_id, "outcomes": []})
+
+    fixes = [sent(invoice_id, "assign_account") for invoice_id in corrections if invoice_id != answered]
     if last.get("status") != "ok" or not following:
-        return [correction] if corrected else "resume"
+        fixes += [sent(answered, "assign_account")] if answered in corrections else []
+        return fixes or "resume"
     if following == "waiting_drafts":
-        return [correction, Send("brouillons", state)] if corrected else "brouillons"
+        if answered in corrections:
+            fixes.append(sent(answered, "assign_account"))
+        if not fixes:
+            return "brouillons"
+        # The drafts taken up again leave the corrected ones to their own branch: never one invoice twice in a run.
+        skipped = {**state, "call": {**state["call"], "skip_invoices": sorted(corrections)}}
+        return [*fixes, Send("brouillons", skipped)]
     if following == "identify_document":  # the client said what the file is: it starts over from there
         call = {**state["call"], "dossier_id": last["dossier_id"], "invoice_type": last.get("invoice_type") or ""}
         return Send("fichier", {"call": call, "run_id": state["run_id"], "file_id": last["file_id"], "outcomes": []})
-    # An account the client corrected with their answer goes to the invoice it names (corrected_invoice): back to
-    # its account step. The invoice answered about goes on from its next step, without that account unless it is
-    # the one corrected.
-    if corrected == answered and following in INVOICE_CHAIN and position(following) > position("assign_account"):
+    # The invoice answered about goes on from its next step; back to its account step when the client gave it one.
+    if answered in corrections and following in INVOICE_CHAIN and position(following) > position("assign_account"):
         following = "assign_account"
-    sends = [
-        Send(
-            "fichier",
-            {
-                "call": fixed if corrected == answered else {**call, "compte": ""},
-                "run_id": state["run_id"],
-                "entry": following,
-                "invoice_id": answered,
-                "outcomes": [],
-            },
-        )
-    ]
-    if corrected and corrected != answered:
-        sends.append(correction)
-    return sends
+    return [sent(answered, following), *fixes]
 
 
 run = StateGraph(Run)
