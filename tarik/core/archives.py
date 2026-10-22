@@ -5,8 +5,9 @@ in it that Tarik takes, so every tool after sees ordinary files. A file keeps wh
 A zip comes from outside: nothing in it is trusted. Each file is read with a hard limit, whatever size the archive
 announces (a zip bomb stops at the limit); there are at most MAX_FILES of them and MAX_TOTAL bytes in all; a zip in
 the zip is opened too, one level only; a path is cut to its file name (« ../../x » is « x »); an encrypted file, a
-hidden one (« .DS_Store », « __MACOSX/ »), a type Tarik does not take and a text file that holds no entries (a
-note, a README: entries_like) are left out. What is left out is said (skipped), never silently lost."""
+hidden one (« .DS_Store », « __MACOSX/ ») and a type Tarik does not take are left out; so is a text file that
+holds no entries (a note, a README: entries_like), in a zip or sent alone. What is left out is said (skipped), never
+silently lost."""
 
 import io
 import mimetypes
@@ -25,12 +26,15 @@ def is_zip(name):
 
 def unpacked(files, accepted):
     """``files`` [(name, mime type, bytes)] with each zip replaced by the files in it whose name ends with one of
-    ``accepted``: (the files, [what was left out and why, in plain French])."""
+    ``accepted``, and any text file that holds no entries left out, sent alone or zipped: (the files, [what was
+    left out and why, in plain French])."""
     kept, skipped = [], []
     for name, mime, data in files:
         if is_zip(name):
             budget = {"files": MAX_FILES, "bytes": MAX_TOTAL}
             kept += opened(name, data, accepted, budget, skipped, depth=1)
+        elif name.lower().endswith(TEXT_ENTRIES) and not entries_like(data):
+            skipped.append(f"{name} : {NO_ENTRIES}")
         else:
             kept.append((name, mime, data))
     return kept, skipped
@@ -82,7 +86,7 @@ def opened(name, data, accepted, budget, skipped, depth):
             found += opened(label, content, accepted, budget, skipped, depth + 1)
             continue
         if base.lower().endswith(TEXT_ENTRIES) and not entries_like(content):
-            skipped.append(f"{label} : texte sans écritures comptables (ni FEC ni grand livre)")
+            skipped.append(f"{label} : {NO_ENTRIES}")
             continue
         budget["files"] -= 1
         budget["bytes"] -= len(content)
@@ -96,6 +100,7 @@ TOO_BIG = "too big"  # read's answer for a file over its limit, said by the call
 TEXT_ENTRIES = (".txt", ".csv")  # entries files that are plain text: a FEC, a grand livre exported as CSV
 SEPARATORS = "\t;|,"
 MIN_COLUMNS = 4  # a FEC has 18, a grand livre at least date, account, label, amount
+NO_ENTRIES = "texte sans écritures comptables (ni FEC ni grand livre)"
 
 
 def entries_like(data):

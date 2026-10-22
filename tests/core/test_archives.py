@@ -118,6 +118,19 @@ def test_a_text_file_in_a_zip_is_kept_only_when_it_holds_entries():
 
 
 @pytest.mark.functionality
+def test_a_text_file_sent_alone_is_kept_only_when_it_holds_entries():
+    fec = b"JournalCode|JournalLib|EcritureNum|CompteNum\nAC|Achats|1|6111\n"
+    files = [
+        ("FEC 2025.txt", "text/plain", fec),
+        ("lisez-moi.txt", "text/plain", b"Merci de traiter."),
+        ("f.pdf", "", b"%"),
+    ]
+    kept, skipped = archives.unpacked(files, FILE_TYPES)
+    assert names(kept) == ["FEC 2025.txt", "f.pdf"]
+    assert skipped == ["lisez-moi.txt : texte sans écritures comptables (ni FEC ni grand livre)"]
+
+
+@pytest.mark.functionality
 def test_an_empty_archive_is_said_never_silently_lost():
     kept, skipped = archives.unpacked(
         [
