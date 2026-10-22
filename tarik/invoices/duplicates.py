@@ -58,7 +58,8 @@ def without_tiers_twin(invoice, context):
     if not twins:
         return None
     return stop(
-        f"Facture {invoice['id']} : doublon de la facture {twins[0]} (même numéro, date et montant), non traitée."
+        f"Facture {invoice['id']} : doublon de la facture {twins[0]} (même numéro, date et montant), non traitée.",
+        duplicate=True,
     )
 
 
@@ -97,4 +98,4 @@ def check_duplicate(invoice_id: int) -> dict:
                     f"{', '.join(map(str, batch[1:]))} en sont des doublons."
                 )
             message = f"doublon du brouillon {batch[0]}, saisi avant"
-    return stop(f"Facture {invoice_id} : {message}, non traitée.")
+    return stop(f"Facture {invoice_id} : {message}, non traitée.", duplicate=True)

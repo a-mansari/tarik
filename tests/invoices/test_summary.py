@@ -91,7 +91,7 @@ def test_an_invoice_waits_on_one_question_its_latest(db_cabinet):
 @pytest.mark.communication
 def test_a_twin_stopped_before_its_tiers_is_a_duplicate_too(db_cabinet):
     twin = "Facture 8 : doublon de la facture 7 (même numéro, date et montant), non traitée."
-    record_step("r", "s", "link_tiers", {"status": "stop", "message": twin, "invoice_id": 8})
+    record_step("r", "s", "link_tiers", {"status": "stop", "message": twin, "invoice_id": 8, "duplicate": True})
     assert run_summary("r")["message"] == f"**Doublons, non traités**\n- {twin}"
 
 
@@ -105,3 +105,13 @@ def test_drafts_waiting_in_other_conversations_are_said_under_en_attente_with_th
     assert whole_example("Objet : Reprise\n\nReprenez les factures en attente.", False).startswith("reprenez ")
     assert whole_example("Relancez le traitement.", True).startswith("relancez ")
     assert whole_example("C'est réglé.", True).startswith("comptabilisez ")
+
+
+@pytest.mark.communication
+def test_a_file_s_different_questions_are_each_asked(db_cabinet):
+    cut = "`f.pdf` : ce PDF a 4 pages. Comment le découper ?"
+    side = "`f.pdf` : s'agit-il de factures d'achat ou de vente ?"
+    for asked, step in ((side, "split_invoices"), (cut, "split_invoices")):
+        record_step("r", "s", step, {"status": "question", "message": asked, "file_id": 3})
+    summary = run_summary("r")["message"]
+    assert side in summary and cut in summary

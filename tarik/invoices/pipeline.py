@@ -173,6 +173,10 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     the result's own); ``result``: that step's answer. A question becomes the invoice's pending question;
     an outcome at or after that step clears it."""
     step = origin if origin in STEPS else result.get("step") or origin
+    if result.get(
+        "duplicate"
+    ):  # found at its tiers step too (a twin without tiers): a duplicate's outcome all the same
+        step = "check_duplicate"
     status = result.get("status", "error")
     message = result.get("message") or result.get("error") or str(result)
     invoice_id, file_id, dossier_id = result.get("invoice_id"), result.get("file_id"), result.get("dossier_id")
@@ -213,8 +217,7 @@ QUESTION_MARK = "QUESTION : "  # what the agent recognizes a question by (its an
 
 
 def section_of(step, status, message=""):
-    # A duplicate: Experio's check, or a twin without tiers stopped before its tiers is asked about (link_tiers).
-    if status == "stop" and (step == "check_duplicate" or (step == "link_tiers" and " : doublon de " in message)):
+    if status == "stop" and step == "check_duplicate":  # record_step records every duplicate's stop at this step
         return "duplicate"
     if step == "hold_posting" and status == "stop":  # verified, left as a draft until the client says to post it
         return "wait"
@@ -279,8 +282,12 @@ def run_summary(run_id: str) -> dict:
             continue
         where = section_of(*found[-1][:3])
         texts = [summary_text(key, *outcome[:3]) for outcome in shown if section_of(*outcome[:3]) == where]
-        # An invoice waits on one question, its latest (asked again in other words, it is still the one).
-        sections[where] += texts[-1:] if where == "question" else [joined(key, texts)]
+        # An invoice waits on one question, its latest (asked again in other words, it is still the one); a file may
+        # wait on several different ones (how to cut it, which side): each is asked.
+        if where == "question":
+            sections[where] += texts[-1:] if key > 0 else texts
+        else:
+            sections[where].append(joined(key, texts))
     parts = []
     for name, lines in sections.items():
         if lines:
