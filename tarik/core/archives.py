@@ -5,8 +5,8 @@ in it that Tarik takes, so every tool after sees ordinary files. A file keeps wh
 A zip comes from outside: nothing in it is trusted. Each file is read with a hard limit, whatever size the archive
 announces (a zip bomb stops at the limit); there are at most MAX_FILES of them and MAX_TOTAL bytes in all; a zip in
 the zip is opened too, one level only; a path is cut to its file name (« ../../x » is « x »); an encrypted file, a
-hidden one (« .DS_Store », « __MACOSX/ ») and a type Tarik does not take are left out. What is left out is said
-(skipped), never silently lost."""
+hidden one (« .DS_Store », « __MACOSX/ »), a type Tarik does not take and a text file that holds no entries (a
+note, a README: entries_like) are left out. What is left out is said (skipped), never silently lost."""
 
 import io
 import mimetypes
@@ -81,6 +81,9 @@ def opened(name, data, accepted, budget, skipped, depth):
         if is_zip(base):
             found += opened(label, content, accepted, budget, skipped, depth + 1)
             continue
+        if base.lower().endswith(TEXT_ENTRIES) and not entries_like(content):
+            skipped.append(f"{label} : texte sans écritures comptables (ni FEC ni grand livre)")
+            continue
         budget["files"] -= 1
         budget["bytes"] -= len(content)
         found.append((label, mimetypes.guess_type(base)[0] or "application/octet-stream", content))
@@ -90,6 +93,19 @@ def opened(name, data, accepted, budget, skipped, depth):
 
 
 TOO_BIG = "too big"  # read's answer for a file over its limit, said by the caller with the limit it was over
+TEXT_ENTRIES = (".txt", ".csv")  # entries files that are plain text: a FEC, a grand livre exported as CSV
+SEPARATORS = "\t;|,"
+MIN_COLUMNS = 4  # a FEC has 18, a grand livre at least date, account, label, amount
+
+
+def entries_like(data):
+    """True when plain text ``data`` reads as a table of entries (a FEC, a grand livre): a header and at least one
+    row, split in MIN_COLUMNS columns or more by the same separator. A note or a README in a zip is not."""
+    text = data[:65536].decode("utf-8", "ignore") or data[:65536].decode("latin-1")
+    lines = [line for line in text.splitlines() if line.strip()][:5]
+    if len(lines) < 2:
+        return False
+    return any(all(line.count(sep) + 1 >= MIN_COLUMNS for line in lines[:2]) for sep in SEPARATORS)
 
 
 def read(archive, member, limit):

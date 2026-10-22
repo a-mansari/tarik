@@ -32,7 +32,8 @@ def names(kept):
 
 @pytest.mark.functionality
 def test_a_zip_becomes_the_files_in_it_tarik_takes():
-    data = zipped(("factures/f1.pdf", b"%PDF-1"), ("scan.png", b"png"), ("fec.csv", b"a;b"), ("virus.exe", b"MZ"))
+    fec = b"JournalCode;EcritureDate;CompteNum;Debit\nAC;20260101;6111;100\n"
+    data = zipped(("factures/f1.pdf", b"%PDF-1"), ("scan.png", b"png"), ("fec.csv", fec), ("virus.exe", b"MZ"))
     kept, skipped = archives.unpacked(
         [("lot.zip", "application/zip", data), ("seul.pdf", "application/pdf", b"%")], FILE_TYPES
     )
@@ -104,6 +105,16 @@ def test_a_protected_or_broken_archive_is_said_never_guessed():
         FILE_TYPES,
     )
     assert kept == [] and skipped == ["p.zip › f.pdf : protégé par un mot de passe", "cassé.zip : archive illisible"]
+
+
+@pytest.mark.functionality
+def test_a_text_file_in_a_zip_is_kept_only_when_it_holds_entries():
+    fec = "JournalCode\tJournalLib\tEcritureNum\tEcritureDate\tCompteNum\n" + "AC\tAchats\t1\t20260101\t6111\n"
+    ledger = "date;compte;libelle;debit;credit\n01/01/2026;6111;achat;100;0\n"
+    data = zipped(("fec.txt", fec.encode()), ("gl.csv", ledger.encode("latin-1")), ("notes.txt", b"bonjour"))
+    kept, skipped = archives.unpacked([("lot.zip", "application/zip", data)], FILE_TYPES)
+    assert names(kept) == ["lot.zip › fec.txt", "lot.zip › gl.csv"]
+    assert skipped == ["lot.zip › notes.txt : texte sans écritures comptables (ni FEC ni grand livre)"]
 
 
 @pytest.mark.functionality
