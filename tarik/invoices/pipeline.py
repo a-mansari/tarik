@@ -710,19 +710,17 @@ def asked_among(ids, dossier_id, client_message):
 
 
 def nothing_to_post(session_id, dossier_id):
-    """Why nothing is posted when the client asks to post: each draft of the dossier and what keeps it from being
-    posted (a question waiting for them, a draft Tarik did not import, where Tarik's sequence stopped it)."""
-    if not dossier_id:
-        return "Aucune facture laissée en brouillon dans cette conversation : rien à comptabiliser."
-    drafts = odoo_call(
-        "exp.invoice",
-        "search_read",
-        [("company_id", "=", dossier_id), ("state", "in", ["pending", "draft"])],
-        fields=["invoice_number"],
-        order="id",
-    )
+    """Why nothing is posted when the client asks to post: each draft of this conversation and what keeps it from
+    being posted (a question waiting for them, where Tarik's sequence stopped it). Other conversations' drafts are
+    only counted (waiting_drafts' hint), never listed here."""
+    with cabinet_db() as db:
+        mine = {i for (i,) in db.execute(Q.drafts_of_session, (session_id,))}
+        mine |= {row[0] for row in db.execute(Q.invoice_outcomes_of_session, (session_id,))}
+    domain = [("id", "in", sorted(mine)), ("state", "in", ["pending", "draft"])]
+    domain += [("company_id", "=", dossier_id)] if dossier_id else []
+    drafts = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number"], order="id") if mine else []
     if not drafts:
-        return "Aucun brouillon dans ce dossier : rien à comptabiliser."
+        return "Aucune facture laissée en brouillon dans cette conversation : rien à comptabiliser."
     ids = [draft["id"] for draft in drafts]
     with cabinet_db() as db:
         made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (ids,))}
@@ -746,4 +744,4 @@ def nothing_to_post(session_id, dossier_id):
             lines.append(f"- {name} : {messages[(draft['id'], furthest[draft['id']][0])]}")
         else:
             lines.append(f"- {name} : encore en cours de traitement")
-    return "Rien n'a été comptabilisé. Les brouillons du dossier :\n" + "\n".join(lines)
+    return "Rien n'a été comptabilisé. Les brouillons de cette conversation :\n" + "\n".join(lines)

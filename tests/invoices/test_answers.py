@@ -362,7 +362,7 @@ def test_when_nothing_is_to_be_posted_the_client_is_told_why(db_cabinet, monkeyp
 
 
 @pytest.mark.communication
-def test_a_draft_another_conversation_is_working_on_is_said_in_progress(db_cabinet, monkeypatch):
+def test_a_draft_another_run_is_working_on_is_said_in_progress(db_cabinet, monkeypatch):
     drafts = [{"id": 2, "invoice_number": "F-2"}]
     monkeypatch.setattr(
         pipeline, "odoo_call", lambda model, method, domain, **kw: drafts if method == "search_read" else []
@@ -370,9 +370,9 @@ def test_a_draft_another_conversation_is_working_on_is_said_in_progress(db_cabin
     with cabinet_db() as db:
         db.execute(
             "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
-            "('other', 'b.pdf', 'application/pdf', '', 2)"
+            "('s', 'b.pdf', 'application/pdf', '', 2)"  # this conversation's draft
         )
-    pipeline.record_step(
+    pipeline.record_step(  # run A (another conversation's, posting the whole dossier) is working on it
         "A", "other", "create_draft_invoice", {"status": "ok", "message": "brouillon 2 créé", "invoice_id": 2}
     )
     told = pipeline.waiting_drafts("s", held=True, dossier_id=5, run_id="B")["message"]
