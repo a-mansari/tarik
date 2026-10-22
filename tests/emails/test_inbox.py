@@ -4,7 +4,7 @@ from email.message import EmailMessage
 
 import pytest
 
-from tarik.emails.inbox import attachments, automatic, client_text
+from tarik.emails.inbox import attachments, automatic, client_text, without_signature
 
 
 @pytest.mark.functionality
@@ -71,6 +71,10 @@ def test_a_signature_s_images_are_no_words_of_the_client():
             "> 2. Quel exercice ?\nExercice 2025.",
             "Voici mes réponses.\n\nNon.\nExercice 2025.",
         ),
+        (  # Outlook's line of underscores over the earlier email
+            "achat\n\nAchraf Mansari\n________________________________\nDe : Tarik\nAncien texte.",
+            "achat\n\nAchraf Mansari",
+        ),
         (  # the earlier email unmarked after its header (Outlook): never the client's
             "Oui, comptabilisez.\n\nDe : Tarik\nEnvoyé : mardi\nObjet : Factures\n\nAncien texte, comptabilisez tout.",
             "Oui, comptabilisez.",
@@ -90,3 +94,21 @@ def test_an_html_list_keeps_one_line_per_item():
     mail["From"] = "client@example.com"
     mail.set_content("<ul><li>272459 : non</li><li>272471 : nouveau</li></ul>", subtype="html")
     assert client_text(mail) == "272459 : non\n272471 : nouveau"
+
+
+SIGNATURE = "\n\n[Achraf Mansari]\nAchraf Mansari\nStagiaire @Experio\n+212 610312891\nwww.experio.ma"
+
+
+@pytest.mark.functionality
+def test_the_signature_the_sender_s_other_emails_end_with_is_cut():
+    earlier = ["Merci d'ajouter cette facture au dossier tarik test" + SIGNATURE]
+    assert without_signature("utilisez transport ou hotelrie" + SIGNATURE, earlier) == "utilisez transport ou hotelrie"
+    assert without_signature("achat" + SIGNATURE, []) == "achat" + SIGNATURE  # their first email: nothing to compare
+    assert without_signature("Merci" + SIGNATURE, ["Merci" + SIGNATURE]) == "Merci" + SIGNATURE  # the same email again
+    assert without_signature("achat" + SIGNATURE, ["achat" + SIGNATURE, *earlier]) == "achat"
+
+
+@pytest.mark.security
+def test_the_client_s_own_words_are_never_taken_for_a_signature():
+    assert without_signature("achat\nTARIK TEST", ["vente\nachat\nTARIK TEST"]) == "achat\nTARIK TEST"  # 2 lines
+    assert without_signature(SIGNATURE.strip(), ["Bonjour" + SIGNATURE]) == SIGNATURE.strip()  # nothing would be left

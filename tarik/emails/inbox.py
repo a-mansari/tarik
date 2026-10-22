@@ -38,10 +38,11 @@ ACKNOWLEDGEMENT = (
 )
 
 # Where the client's own text stops and the quoted history begins: a line starting with "Le ... a écrit :",
-# "On ... wrote:", "-- Message d'origine" / "-- Original message", or a quoted header ("De :", "From:", "Envoyé :").
+# "On ... wrote:", "-- Message d'origine" / "-- Original message", a quoted header ("De :", "From:", "Envoyé :"), or
+# Outlook's line of underscores over it.
 QUOTE_START = re.compile(
     r"^\s*(le .{0,120} a [ée]crit\s*:|on .{0,120} wrote\s*:|-{2,}\s*(message d'origine|original message)"
-    r"|de\s*:\s|from\s*:\s|envoy[ée]\s*:\s)",
+    r"|de\s*:\s|from\s*:\s|envoy[ée]\s*:\s|_{10,}\s*$)",
     re.IGNORECASE,
 )
 # Where an HTML line ends: <br>, </p>, </div>, a list item's, a table row's, a heading's, a rule.
@@ -92,6 +93,27 @@ def client_text(message):
         if not line.lstrip().startswith(">"):  # a quoted line
             lines.append(line.rstrip())
     return BLANK_LINES.sub("\n\n", without_images("\n".join(lines))).strip()[:4000]
+
+
+SIGNATURE_LINES = 3  # a shorter block two emails end with is more likely the client's own words ("achat", a name)
+
+
+def without_signature(text, earlier):
+    """``text`` without the lines it ends with that one of the sender's ``earlier`` emails ends with too: their
+    signature (name, title, phone, links), at least SIGNATURE_LINES non-empty lines; never the whole text."""
+    lines = text.splitlines()
+    shared = 0
+    for other in earlier:
+        theirs = other.splitlines()
+        same = 0
+        while same < min(len(lines), len(theirs)) and lines[-1 - same].strip() == theirs[-1 - same].strip():
+            same += 1
+        if same < len(lines):  # the same email again (« achat » and the signature, twice) says nothing of where it ends
+            shared = max(shared, same)
+    kept, signature = lines[: len(lines) - shared], lines[len(lines) - shared :]
+    if sum(1 for line in signature if line.strip()) < SIGNATURE_LINES or not "".join(kept).strip():
+        return text
+    return "\n".join(kept).strip()
 
 
 def attachments(message):
@@ -238,12 +260,19 @@ def thread_item(db, thread_id, session_id, address, subject):
         (session_id,),
     )
     last_id, last_references, reply_to = last or ("", "", None)
+    # Their other emails, signature included: the body is kept whole, the signature cut where Tarik reads it.
+    theirs = db.execute(Q.emails_of_sender, (address,)).fetchall()
     return {
         "thread_id": thread_id,
         "session_id": session_id,
         "to": reply_to if reply_to and recipient_allowed(reply_to) else address,
         "subject": subject if subject.lower().startswith(("re:", "re :")) else f"Re: {subject}",
-        "message": "\n\n".join(body for _, body, _ in messages if body) or "(pas de texte)",
+        "message": "\n\n".join(
+            without_signature(body, [other for at, other in theirs if at != message_id])
+            for message_id, body, _ in messages
+            if body
+        )
+        or "(pas de texte)",
         "files": [name for (name,) in files],
         "skipped": [why for _, _, left in messages for why in left],
         "message_ids": [message_id for message_id, _, _ in messages],

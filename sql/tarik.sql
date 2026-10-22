@@ -286,6 +286,10 @@ insert into tarik_files (session_id, file_name, mime_type, data) values (%s, %s,
 select message_id, body, skipped from tarik_mail_messages where thread_id = %s and not handled
 order by received_at, uid
 
+-- name: emails_of_sender
+-- The sender's latest emails, in any thread: their signature is what they end with.
+select message_id, body from tarik_mail_messages where from_address = %s order by received_at desc limit 20
+
 -- name: last_message_of_thread
 -- A thread's last email: what the reply answers.
 select message_id, references_ids, reply_to from tarik_mail_messages where thread_id = %s
