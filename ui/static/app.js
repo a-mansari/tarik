@@ -36,7 +36,7 @@ window.liveHub = (() => {
     opened = query;
     const previous = source, missed = gap;
     gap = false;
-    if (!query) { previous?.close(); source = null; return; }
+    if (!query) { previous?.close(); source = null; gap = true; return; } // nothing followed: changes go unseen
     const next = (source = new EventSource(`/ui/live?${query}`));
     let opens = 0;
     next.addEventListener("open", () => {
