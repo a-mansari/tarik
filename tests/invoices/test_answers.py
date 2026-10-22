@@ -480,6 +480,9 @@ def three_drafts(db_cabinet, monkeypatch):
             "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) "
             "values ('s', 'gone.pdf', 'application/pdf', '', 272450)"
         )
+        # Another conversation's draft whose question waits in this one: it is this conversation's to name too.
+        db.execute("insert into tarik_pending (invoice_id, session_id, step, question) values (272463, 's', 'x', 'q')")
+    rows.append({"id": 272463, "invoice_number": "F-0125-2544243", "partner_id": [2, "ORANGE MAROC"]})
 
 
 @pytest.mark.functionality
@@ -498,6 +501,11 @@ def three_drafts(db_cabinet, monkeypatch):
         ("Oui pour la 272469. Mettez la CD.24.1122 en 61425000.", {272471: "61425000"}),  # its number kept whole
         ("Non, elle a été réglée en 3000 DH.", {}),  # an amount, not an account
         ("Non, payée en 1500 le 3 mars.", {}),
+        ("Non. La F-0999-1234567 en 61455000.", {}),
+        (
+            "Non. La F-0125-2544243 en 61455000.",
+            {272463: "61455000"},
+        ),  # asked about here, its files elsewhere  # an invoice Tarik does not know: never the answered one
     ],
 )
 def test_the_accounts_given_with_an_answer_go_each_to_the_invoice_its_clause_names(three_drafts, said, corrections):

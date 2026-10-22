@@ -517,6 +517,7 @@ CODE_GIVEN = re.compile(  # « réglée en 3000 DH » is an amount
 # Sentence punctuation only (followed by a space or the end): « FA.2025.0012 » or « 1.200,50 » stay whole; never « et »:
 # « la 272469 et la 272471 en 6125 » is one instruction.
 CLAUSES = re.compile(r"[.,](?=\s|$)|[;!?\n]+")
+REFERENCE = re.compile(r"(?<![0-9])\d{5,}(?![0-9])")  # a number long enough to be an invoice's (normalized words)
 
 
 def given_codes(clause):
@@ -525,9 +526,13 @@ def given_codes(clause):
 
 
 def draft_names(session_id):
-    """{draft id: [names a client may call it by]}: Tarik's number, the invoice's own number, its supplier."""
+    """{draft id: [names a client may call it by]}: Tarik's number, the invoice's own number, its supplier. The
+    conversation's drafts: made from its files, asked about in it, or worked on in it."""
     with cabinet_db() as db:
-        ids = [i for (i,) in db.execute(Q.drafts_of_session, (session_id,))]
+        ids = {i for (i,) in db.execute(Q.drafts_of_session, (session_id,))}
+        ids |= {row[0] for row in db.execute(Q.pending_of_session, (session_id,))}
+        ids |= {row[0] for row in db.execute(Q.invoice_outcomes_of_session, (session_id,))}
+    ids = sorted(ids)
     found = [("id", "in", ids)]  # search_read: a draft deleted in Experio since is left out, never an error
     drafts = odoo_call("exp.invoice", "search_read", found, fields=["invoice_number", "partner_id"]) if ids else []
     names = {}
@@ -559,7 +564,12 @@ def account_corrections(session_id, answer, answered):
             continue
         named = named_drafts(clause, names)
         others = [invoice_id for invoice_id in named if invoice_id != answered]
-        target = named[0] if len(named) == 1 else others[0] if len(others) == 1 else None if named else answered
+        # Naming no draft, the clause is about the invoice answered: unless it names an invoice Tarik does not know
+        # (« la F-0125-2544243 », not one of the conversation's): then it is about that one, never the answered.
+        unknown = not named and any(word not in codes for word in REFERENCE.findall(clause))
+        target = (
+            named[0] if len(named) == 1 else others[0] if len(others) == 1 else None if named or unknown else answered
+        )
         if target:
             corrections[target] = codes[0]
     return corrections
