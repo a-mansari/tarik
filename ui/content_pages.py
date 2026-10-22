@@ -228,14 +228,16 @@ async def import_contents(request: Request):
             if not isinstance(text, str) or not content.PATH.fullmatch(path):
                 raise ValueError(f"document inconnu : {path}")
             try:
-                content.checked(path, text)
+                content.checked(path, text, reshape=True)  # a newer stack's sections (a new tool's description)
             except ValueError as refusal:
                 raise ValueError(f"{path} : {refusal}") from None
     except (ValueError, KeyError, TypeError) as refusal:
         return JSONResponse({"error": str(refusal)}, status_code=400)
     saved, unchanged = [], []
     for path, text in sorted(documents.items()):
-        made = await content.save(runs.pool, path, text, author_of(request), f"Importé de {name}", create=True)
+        made = await content.save(
+            runs.pool, path, text, author_of(request), f"Importé de {name}", create=True, reshape=True
+        )
         (saved if made else unchanged).append(path)
     return JSONResponse({"saved": saved, "unchanged": unchanged})
 
