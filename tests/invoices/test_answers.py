@@ -418,6 +418,9 @@ def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them
         ("Comptabilisez la AB-2026-12 et la F-77.", [7, 8]),
         ("Comptabilisez toutes les factures de Midas.", [7]),  # filtered: a supplier's, not the whole dossier
         ("Comptabilisez-la.", []),  # this thread's: none held here
+        ("Comptabilisez les factures du dossier TEST.", []),  # naming the dossier is not asking for all of it
+        ("Comptabilisez toutes les factures du dossier TEST.", [7, 8]),
+        ("Comptabilisez toutes les factures du fournisseur Exelentia.", [8]),  # filtered, not the whole dossier
     ]:
         assert pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message=said)["invoices"] == taken, said
 

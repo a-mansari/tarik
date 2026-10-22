@@ -639,10 +639,9 @@ def waiting_drafts(
 
 
 # How a client asks for every draft of the dossier, whatever conversation left it (normalized words).
-WHOLE = re.compile(
-    r"(?<![a-z])(?:tout le dossier|(?:toutes|tous) (?:les|ses) (?:factures|brouillons)(?! (?:de|du|d) )"
-    r"|toutes celles du dossier|l ensemble (?:des factures|des brouillons|du dossier)"
-    r"|(?:factures|brouillons) du dossier)(?![a-z])"
+WHOLE = re.compile(  # « toutes les factures (du dossier) », never « les factures du dossier X » nor « … de MIDAS »
+    r"(?<![a-z])(?:tout le dossier|(?:toutes|tous) (?:les|ses) (?:factures|brouillons)(?: du dossier)?"
+    r"(?! (?:de|du|d|des) )|toutes celles du dossier|l ensemble (?:des factures|des brouillons|du dossier))(?![a-z])"
 )
 # The client's own verb, to say back how to ask for the whole dossier (normalized stem -> as written).
 VERBS = {"comptabilis": "comptabilisez", "repren": "reprenez", "relanc": "relancez", "termin": "terminez"}
