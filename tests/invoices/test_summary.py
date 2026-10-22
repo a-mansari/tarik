@@ -93,3 +93,15 @@ def test_a_twin_stopped_before_its_tiers_is_a_duplicate_too(db_cabinet):
     twin = "Facture 8 : doublon de la facture 7 (même numéro, date et montant), non traitée."
     record_step("r", "s", "link_tiers", {"status": "stop", "message": twin, "invoice_id": 8})
     assert run_summary("r")["message"] == f"**Doublons, non traités**\n- {twin}"
+
+
+@pytest.mark.communication
+def test_drafts_waiting_in_other_conversations_are_said_under_en_attente_with_the_client_s_verb(db_cabinet):
+    from tarik.invoices.pipeline import whole_example
+
+    told = "Rien à reprendre dans cette conversation. 3 brouillon(s) d'autres conversations attendent dans ce dossier."
+    record_step("r", "s", "waiting_drafts", {"status": "ok", "message": told, "tell": True})
+    assert run_summary("r")["message"] == f"**En attente**\n- {told}"
+    assert whole_example("Objet : Reprise\n\nReprenez les factures en attente.", False).startswith("reprenez ")
+    assert whole_example("Relancez le traitement.", True).startswith("relancez ")
+    assert whole_example("C'est réglé.", True).startswith("comptabilisez ")

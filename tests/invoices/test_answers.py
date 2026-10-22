@@ -391,8 +391,9 @@ def test_posting_takes_the_conversations_own_held_drafts_first(db_cabinet, monke
     pipeline.hold_posting(8, "another")
     assert pipeline.waiting_drafts("this", held=True, dossier_id=5)["invoices"] == [7]
     assert pipeline.waiting_drafts("new", held=True, dossier_id=5)["invoices"] == []
-    told = pipeline.waiting_drafts("new", held=True, dossier_id=5)["message"]
-    assert "2 brouillon(s) d'autres conversations attendent" in told and "toutes les factures du dossier" in told
+    told = pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message="Comptabilisez-les.")["message"]
+    assert "2 brouillon(s) d'autres conversations attendent" in told
+    assert "« comptabilisez toutes les factures du dossier »" in told
     assert pipeline.waiting_drafts(
         "new", held=True, dossier_id=5, client_message="Comptabilisez toutes les factures du dossier."
     )["invoices"] == [7, 8]

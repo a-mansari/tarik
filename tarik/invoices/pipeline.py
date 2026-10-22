@@ -218,6 +218,8 @@ def section_of(step, status, message=""):
         return "duplicate"
     if step == "hold_posting" and status == "stop":  # verified, left as a draft until the client says to post it
         return "wait"
+    if step == "waiting_drafts" and status in ("ok", "stop"):  # what waits: nothing to post, drafts elsewhere
+        return "wait"
     return SECTION_OF.get(status, "problem")
 
 
@@ -604,7 +606,8 @@ def waiting_drafts(
             waiting = sorted(i for (i,) in db.execute(Q.claim_invoices, (waiting, run_id)).fetchall())
     hint = (
         f" {elsewhere_left} brouillon(s) d'autres conversations attendent dans ce dossier : écrivez "
-        f"« {WHOLE_EXAMPLE} », ou nommez-les (numéro de facture ou fournisseur), pour les reprendre aussi."
+        f"« {whole_example(client_message, held)} », ou nommez-les (numéro de facture ou fournisseur), pour les "
+        "reprendre aussi."
         if elsewhere_left and not waiting
         else ""
     )
@@ -621,7 +624,18 @@ WHOLE = re.compile(
     r"|toutes celles du dossier|l ensemble (?:des factures|des brouillons|du dossier)"
     r"|(?:factures|brouillons) du dossier)(?![a-z])"
 )
-WHOLE_EXAMPLE = "comptabilisez toutes les factures du dossier"
+# The client's own verb, to say back how to ask for the whole dossier (normalized stem -> as written).
+VERBS = {"comptabilis": "comptabilisez", "repren": "reprenez", "relanc": "relancez", "termin": "terminez"}
+
+
+def whole_example(client_message, held):
+    """« <their verb> toutes les factures du dossier »: the verb the client wrote (comptabilisez, reprenez…), else
+    the one their request means."""
+    words = normalized(own_words(client_message))
+    verb = next((said for stem, said in VERBS.items() if re.search(rf"(?<![a-z]){stem}", words)), None)
+    return f"{verb or ('comptabilisez' if held else 'reprenez')} toutes les factures du dossier"
+
+
 # Words too common in suppliers' names to name one on their own (normalized).
 GENERIC = {"maroc", "societe", "ste", "sarl", "services", "service", "international", "group", "groupe", "station"}
 
