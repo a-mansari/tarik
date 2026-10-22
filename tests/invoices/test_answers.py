@@ -475,6 +475,7 @@ def three_drafts(db_cabinet, monkeypatch):
         return [row for row in rows if row["id"] in domain[0][2]]
 
     monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
+    monkeypatch.setattr(pipeline, "check_sender", lambda session_id, dossier_id=0, invoice_id=0: ok("ok"))
     with cabinet_db() as db:
         db.execute(
             "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) "
@@ -487,57 +488,85 @@ def three_drafts(db_cabinet, monkeypatch):
 
 @pytest.mark.functionality
 @pytest.mark.parametrize(
-    "said, corrections",
-    [
-        ("Pour la 272469 : non. Et mettez la 272471 en compte 61425000 Transport sur achats.", {272471: "61425000"}),
-        ("Oui pour Station Service, et mettez la CD.24.1122 en 61425000.", {272471: "61425000"}),  # its own number
-        ("Non, et mettez-la en 6125.", {272469: "6125"}),  # no invoice named: the one answered about
-        ("Exercice 2025 pour la 272469, et pareil pour la 272471.", {}),  # a year is no account
-        ("Le montant est 1200, la F2501964 aussi.", {}),  # nor an amount, nor an invoice's digits
-        ("Compte 6125 pour la 272469, comme pour la 272471 la dernière fois.", {272469: "6125"}),  # only mentioned
-        ("6125 en compte pour la 272469 ; en 61425000 pour Zhejiang.", {272471: "61425000"}),  # one code per clause
-        ("Pour la 272469 non et mettez la 272471 en 61425000.", {272471: "61425000"}),  # beside the answered one
-        ("Mettez la 272459 et la 272471 en 6125.", {}),  # several others in one clause: asked
-        ("Oui pour la 272469. Mettez la CD.24.1122 en 61425000.", {272471: "61425000"}),  # its number kept whole
-        ("Non, elle a été réglée en 3000 DH.", {}),  # an amount, not an account
-        ("Non, payée en 1500 le 3 mars.", {}),
-        ("Non. La F-0999-1234567 en 61455000.", {}),
+    "said, read, fixed",
+    [  # what the client wrote, what the agent read in it ([{facture, compte}]), what is applied
         (
-            "Non. La F-0125-2544243 en 61455000.",
+            "Pour la 272469 : non. Et mettez la 272471 en compte 61425000 Transport sur achats.",
+            [{"facture": "272471", "compte": "61425000 Transport sur achats"}],
+            {272471: "61425000 Transport sur achats"},
+        ),
+        (
+            "Oui pour Station Service, et mettez la CD.24.1122 en 61425000.",
+            [{"facture": "CD.24.1122", "compte": "61425000"}],
+            {272471: "61425000"},
+        ),
+        ("Non, et mettez-la en 6125.", [{"facture": "", "compte": "6125"}], {272469: "6125"}),  # the one answered
+        (
+            "Non, et mettez celle-ci en frais de péage.",
+            [{"facture": "celle-ci", "compte": "frais de péage"}],
+            {272469: "frais de péage"},
+        ),
+        (
+            "Oui, la Station Service en frais de péage.",
+            [{"facture": "Station Service", "compte": "frais de péage"}],
+            {272459: "frais de péage"},
+        ),
+        (
+            "Pour la 272469 : non. La F-0125-2544243 en 61455000.",
+            [{"facture": "F-0125-2544243", "compte": "61455000"}],
             {272463: "61455000"},
-        ),  # asked about here, its files elsewhere  # an invoice Tarik does not know: never the answered one
+        ),  # asked here
+        ("Non. La F-0999-1234567 en 61455000.", [{"facture": "F-0999-1234567", "compte": "61455000"}], {}),  # unknown
+        ("Non, elle est récupérable.", [{"facture": "272471", "compte": "61425000"}], {}),  # not the client's words
+        ("Non, mettez la 272466 en 6125.", [{"facture": "272466", "compte": "6125"}], {}),  # not this conversation's
+        (
+            "Non, mettez celle-ci en Entretien et réparations ; la 272471 en 61425000.",
+            [{"facture": "", "compte": "Entretien et réparations"}, {"facture": "272471", "compte": "61425000"}],
+            {272469: "Entretien et réparations", 272471: "61425000"},
+        ),
     ],
 )
-def test_the_accounts_given_with_an_answer_go_each_to_the_invoice_its_clause_names(three_drafts, said, corrections):
-    assert pipeline.account_corrections("s", said, 272469) == corrections
+def test_the_accounts_the_agent_reads_are_applied_only_as_the_client_wrote_them(three_drafts, said, read, fixed):
+    assert pipeline.verified_corrections("s", said, read, 272469)[0] == fixed
 
 
-@pytest.mark.functionality
-def test_an_account_read_by_the_agent_goes_to_the_invoice_named_even_by_its_supplier(three_drafts):
-    assert (
-        pipeline.corrected_invoice("s", "Oui, et mettez celle de Station Service en frais de péage.", 272469) == 272459
-    )
-    assert pipeline.corrected_invoice("s", "Oui, et mettez-la en frais de péage.", 272469) == 272469
-    assert pipeline.corrected_invoice("s", "Mettez Station Service et Zhejiang en frais de péage.", 272469) is None
+@pytest.mark.security
+def test_an_account_for_an_invoice_of_a_dossier_the_sender_may_not_work_on_is_never_applied(three_drafts, monkeypatch):
+    refused = {"status": "stop", "message": "pas autorisé"}
+    monkeypatch.setattr(pipeline, "check_sender", lambda session_id, dossier_id=0, invoice_id=0: refused)
+    said = "Oui. La 272471 en 61425000."
+    assert pipeline.verified_corrections("s", said, [{"facture": "272471", "compte": "61425000"}], 272469)[0] == {}
+
+
+@pytest.mark.communication
+def test_an_account_whose_invoice_is_not_found_is_said_left_unchanged(three_drafts):
+    said = "Non. La F-0999-1234567 en 61455000."
+    _, notes = pipeline.verified_corrections("s", said, [{"facture": "F-0999-1234567", "compte": "61455000"}], 272469)
+    assert notes == ["Le compte « 61455000 » : précisez pour quelle facture (son numéro), je n'ai rien changé."]
 
 
 @pytest.mark.functionality
 def test_an_account_given_while_nothing_waits_still_goes_to_the_invoice_named(three_drafts, monkeypatch):
     monkeypatch.setattr(pipeline, "waiting_on", lambda session_id: [])
-    result = pipeline.answer_pending("s", "Mettez la 272471 en compte 61425000.")
+    read = [{"facture": "272471", "compte": "61425000"}]
+    result = pipeline.answer_pending("s", "Mettez la 272471 en compte 61425000.", corrections=read)
     assert result["next_step"] == "waiting_drafts" and result["corrections"] == [[272471, "61425000"]]
-    assert "corrections" not in pipeline.answer_pending("s", "Mettez-la en 61425000.")  # which one? none answered
+    none = pipeline.answer_pending("s", "Mettez-la en 61425000.", corrections=[{"facture": "", "compte": "61425000"}])
+    assert "corrections" not in none and "précisez pour quelle facture" in none["message"]  # none answered about
 
 
 @pytest.mark.functionality
-def test_the_agent_s_account_for_the_answered_invoice_is_kept_beside_a_code_given_another(three_drafts, monkeypatch):
+@pytest.mark.parametrize("said, decision, confirmed", [("Oui", "oui", True), ("Non, pas ce compte", "non", False)])
+def test_an_account_to_confirm_is_applied_on_a_clear_oui_only(said, decision, confirmed, monkeypatch):
+    seen = []
     monkeypatch.setattr(
-        pipeline,
-        "waiting_on",
-        lambda session_id: [{"invoice_id": 272469, "step": "settle_tva", "question": "q", "names": {"272469"}}],
+        pipeline, "confirm_account", lambda i, account, yes: seen.append((i, account, yes)) or ok("fait")
     )
-    monkeypatch.setattr(pipeline, "check_sender", lambda *a, **k: ok("ok"))
-    monkeypatch.setattr(pipeline, "apply_answer", lambda item, answer, decision: ok("appliqué"))
-    said = "Non, mettez celle-ci en frais de péage ; la 272471 en 61425000."
-    result = pipeline.answer_pending("s", said, "non", "272469", compte="frais de péage")
-    assert result["corrections"] == [[272469, "frais de péage"], [272471, "61425000"]]
+    item = {
+        "invoice_id": 272471,
+        "step": "assign_account",
+        "question": "q",
+        "choices": {"245390": "61425000 Transport"},
+    }
+    pipeline.apply_answer(item, said, decision)
+    assert seen == [(272471, 245390, confirmed)]

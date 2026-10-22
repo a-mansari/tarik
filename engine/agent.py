@@ -9,6 +9,7 @@ import hashlib
 import html
 import json
 import re
+from typing import TypedDict
 
 from langchain.agents import create_agent
 from langchain.tools import ToolRuntime, tool
@@ -201,16 +202,27 @@ async def traiter_fichiers(
     return await run_workflow("traitement", runtime, inputs)
 
 
+class Correction(TypedDict):
+    """An account the client gives an invoice in their answer, in their own words."""
+
+    facture: str  # the invoice as they name it: « 272471 », « FC254867 », « Station Service »; empty for « celle-ci »
+    compte: str  # the account as they write it: « 61425000 », « 61425000 Transport sur achats », « frais de péage »
+
+
 @tool("Experio_repondre", description=DESCRIBED_LATER)
 async def repondre(
-    runtime: ToolRuntime, decision: str = "", about: str = "", compte: str = "", comptabiliser: str = ""
+    runtime: ToolRuntime,
+    decision: str = "",
+    about: str = "",
+    corrections: list[Correction] | None = None,
+    comptabiliser: str = "",
 ) -> str:
     inputs = {
         "mode": "answer",
         "answer": client_message(runtime),
         "decision": decision,
         "about": about,
-        "compte": compte,  # an account the client corrects with their answer: the account step runs again
+        "corrections": [dict(correction) for correction in corrections or []],  # checked against their words
         "comptabiliser": comptabiliser,
     }
     return await run_workflow("traitement", runtime, inputs)

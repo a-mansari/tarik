@@ -56,3 +56,37 @@ def test_a_signature_s_images_are_no_words_of_the_client():
     )
     text = client_text(mail)
     assert "[" not in text.replace("[1]", "") and "Voila ma facture" in text and "+212 663-785382" in text
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "body, said",
+    [
+        (  # below the quote
+            "Le mar. 21 oct. 2026, Tarik a écrit :\n> Quel compte bancaire ?\n\nBMCE, merci.",
+            "BMCE, merci.",
+        ),
+        (  # between its lines
+            "Voici mes réponses.\n\nLe mar. 21 oct. 2026, Tarik a écrit :\n> 1. TVA récupérable ?\nNon.\n"
+            "> 2. Quel exercice ?\nExercice 2025.",
+            "Voici mes réponses.\n\nNon.\nExercice 2025.",
+        ),
+        (  # the earlier email unmarked after its header (Outlook): never the client's
+            "Oui, comptabilisez.\n\nDe : Tarik\nEnvoyé : mardi\nObjet : Factures\n\nAncien texte, comptabilisez tout.",
+            "Oui, comptabilisez.",
+        ),
+    ],
+)
+def test_what_the_client_writes_below_or_between_a_quote_is_theirs(body, said):
+    mail = EmailMessage()
+    mail["From"] = "client@example.com"
+    mail.set_content(body)
+    assert client_text(mail) == said
+
+
+@pytest.mark.functionality
+def test_an_html_list_keeps_one_line_per_item():
+    mail = EmailMessage()
+    mail["From"] = "client@example.com"
+    mail.set_content("<ul><li>272459 : non</li><li>272471 : nouveau</li></ul>", subtype="html")
+    assert client_text(mail) == "272459 : non\n272471 : nouveau"

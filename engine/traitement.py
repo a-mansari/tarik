@@ -82,7 +82,12 @@ def extra(tool, call, run_id):
         "wait_until_read": {"run_id": run_id},
         "correct_invoice": {"payment_method": call.get("mode_paiement") or "", **words},
         "classify_invoice": {"invoice_type": call.get("invoice_type") or ""},
-        "assign_account": {"answer": call.get("compte") or "", "session_id": call["session_id"], **words},
+        "assign_account": {
+            "answer": call.get("compte") or "",
+            "session_id": call["session_id"],
+            "confirm": call.get("confirmer") is True,
+            **words,
+        },
         "settle_tva": {"answer": call.get("tva_non_recuperable") or ""},
         "settle_withholding": {"answer": call.get("retenue") or "", **words},
         "settle_prepaid": {"answer": call.get("repartir") or ""},
@@ -351,7 +356,7 @@ async def answer(state: Run):
         answer=call.get("answer") or call.get("client_message") or "",
         decision=str(call.get("decision") or ""),
         about=str(call.get("about") or ""),
-        compte=call.get("compte") or "",
+        corrections=call.get("corrections") or [],
     )
     return {"outcomes": [result]}
 
@@ -366,7 +371,9 @@ def resume_at(state: Run):
     answered, call = last.get("invoice_id"), with_dossier(state)
 
     def sent(invoice_id, entry):
-        payload = {"call": {**call, "compte": corrections.get(invoice_id, "")}, "run_id": state["run_id"]}
+        # Another invoice than the one answered about: its account is asked to be confirmed, never applied as is.
+        given = {"compte": corrections.get(invoice_id, ""), "confirmer": invoice_id != answered}
+        payload = {"call": {**call, **given}, "run_id": state["run_id"]}
         return Send("fichier", {**payload, "entry": entry, "invoice_id": invoice_id, "outcomes": []})
 
     fixes = [sent(invoice_id, "assign_account") for invoice_id in corrections if invoice_id != answered]

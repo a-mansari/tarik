@@ -133,6 +133,8 @@ def test_each_account_given_with_an_answer_goes_to_its_own_invoice(corrections, 
     state = {"call": {"session_id": "s", "compte": "x"}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
     sends = traitement.resume_at(state)
     assert [(s.arg["invoice_id"], s.arg["entry"], s.arg["call"]["compte"]) for s in sends] == sent_to
+    # Another invoice than the one answered: its account is to confirm; the answered one's is applied.
+    assert all(s.arg["call"]["confirmer"] is (s.arg["invoice_id"] != 7) for s in sends)
 
 
 @pytest.mark.functionality

@@ -130,7 +130,9 @@ def _model_choice(invoice, kind, designation):
 
 
 @step_tool
-def assign_account(invoice_id: int, answer: str = "", client_message: str = "", session_id: str = "") -> dict:
+def assign_account(
+    invoice_id: int, answer: str = "", client_message: str = "", session_id: str = "", confirm: bool = False
+) -> dict:
     """Give a draft invoice its account (Compte): the one the client named with
     the invoice (``answer``, taken only when the client wrote it, in ``client_message`` or an earlier message of
     the conversation ``session_id``: set_account), else the one Experio memorized for its tiers, else the one
@@ -141,7 +143,7 @@ def assign_account(invoice_id: int, answer: str = "", client_message: str = "", 
     said_before = client_messages(session_id, client_message) if session_id else [client_message]
     told = instructed(answer, "\n".join(said_before))
     if told:
-        return set_account(invoice_id, told)
+        return set_account(invoice_id, told, confirm)
     if (answer or "").strip():
         return question(
             f"Facture {invoice_id} : quel compte voulez-vous exactement (code ou intitulé) ? "
@@ -217,18 +219,35 @@ def account_meant(accounts, answer):
 
 
 @with_ids
-def set_account(invoice_id, answer):
+def set_account(invoice_id, answer, confirm=False):
     """Put the account the client asked for on a draft invoice (their answer to assign_account's question): a code
     ("6111", "61110000") or a label ("achats de marchandises") on its own, else read from their sentence. When it
-    names none clearly, the question again."""
+    names none clearly, the question again. ``confirm``: an account they gave for this invoice while answering about
+    another: it is asked to be confirmed (oui / non), never applied on their sentence alone."""
     if not (answer or "").strip():
         raise ToolError("answer manquant : le code ou l'intitulé donne par le client.")
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     accounts = chart(invoice["company_id"][0])
     account = resolve_account(accounts, answer) or account_meant(accounts, answer)
+    if account and confirm:
+        label = f"{account['code']} {account['name']}"
+        return question(
+            f"Facture {invoice['invoice_number'] or invoice_id} : je la passe en compte {label}, comme vous l'avez "
+            "demandé ? oui / non",
+            choices={account["id"]: label},
+        )
     if account:
         return apply_account(invoice, account["id"], f"demande du client : {answer.strip()}")
     return question(
         f"Facture {invoice_id} : « {without_subject(answer)} » ne désigne pas un seul compte du dossier. "
         "Quel compte utiliser (code ou intitulé) ?"
     )
+
+
+@with_ids
+def confirm_account(invoice_id, account_id, confirmed):
+    """The client's oui / non (``confirmed``) to the account set_account asked them to confirm (``account_id``)."""
+    if not confirmed:
+        return question(f"Facture {invoice_id} : quel compte utiliser alors (code ou intitulé) ?")
+    invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
+    return apply_account(invoice, account_id, "confirmé par le client")

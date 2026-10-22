@@ -44,7 +44,8 @@ QUOTE_START = re.compile(
     r"|de\s*:\s|from\s*:\s|envoy[ée]\s*:\s)",
     re.IGNORECASE,
 )
-LINE_END_TAG = re.compile(r"<(br|/p|/div)[^>]*>", re.IGNORECASE)  # <br>, </p> or </div>: where an HTML line ends
+# Where an HTML line ends: <br>, </p>, </div>, a list item's, a table row's, a heading's, a rule.
+LINE_END_TAG = re.compile(r"<(br|hr|/p|/div|/li|/tr|/h[1-6])[^>]*>", re.IGNORECASE)
 HIDDEN = re.compile(r"<(style|script)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)  # a style or script element
 BLANK_LINES = re.compile(r"\n{3,}")  # more than one blank line in a row
 # Where an email's text shows an image it holds inline (a signature's logo, icons): « [Image] », « [logo.png] »,
@@ -76,15 +77,18 @@ def connect():
 
 def client_text(message):
     """The client's own words: the plain text (or the HTML without its tags), the quoted history and the inline
-    images' marks cut off."""
+    images' marks cut off. What they write below a « > » quote, or between its lines, is theirs too."""
     part = message.get_body(preferencelist=("plain", "html"))
     text = part.get_content() if part else ""
     if part and part.get_content_type() == "text/html":
         text = strip_tags(HIDDEN.sub("", LINE_END_TAG.sub("\n", text)))
-    lines = []
-    for line in text.splitlines():
+    lines, all_lines = [], text.splitlines()
+    for at, line in enumerate(all_lines):
         if QUOTE_START.match(line):
-            break
+            following = next((later for later in all_lines[at + 1 :] if later.strip()), "")
+            if not following.lstrip().startswith(">"):
+                break  # the earlier email follows unmarked (Outlook): nothing after it is the client's
+            continue  # « Le … a écrit : » over a « > » quote: the client may answer below it, or between its lines
         if not line.lstrip().startswith(">"):  # a quoted line
             lines.append(line.rstrip())
     return BLANK_LINES.sub("\n\n", without_images("\n".join(lines))).strip()[:4000]

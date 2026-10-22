@@ -29,7 +29,9 @@ def test_the_files_names_handed_with_a_message_are_not_the_clients_words():
 @pytest.mark.functionality
 def test_the_account_the_client_named_goes_on_the_invoice_first(monkeypatch):
     applied = []
-    monkeypatch.setattr(accounts, "set_account", lambda invoice_id, answer: applied.append(answer) or {"status": "ok"})
+    monkeypatch.setattr(
+        accounts, "set_account", lambda invoice_id, answer, confirm=False: applied.append(answer) or {"status": "ok"}
+    )
     monkeypatch.setattr(
         accounts, "require_draft_invoice", lambda *a, **k: pytest.fail("not asked without an instruction")
     )
@@ -49,7 +51,9 @@ def test_an_account_correction_made_in_an_earlier_message_is_applied(monkeypatch
     from tarik.core.conversation import remember_client_message
 
     applied = []
-    monkeypatch.setattr(accounts, "set_account", lambda invoice_id, answer: applied.append(answer) or {"status": "ok"})
+    monkeypatch.setattr(
+        accounts, "set_account", lambda invoice_id, answer, confirm=False: applied.append(answer) or {"status": "ok"}
+    )
     remember_client_message("s", "Nouveau. Et ce n'est pas du téléphone : mettez-la en frais de déplacement / péage.")
     later = "Oui, comptabilisez la facture 272391 maintenant."
     assert accounts.assign_account(3, "frais de déplacement / péage", later, "s")["status"] == "ok"
@@ -66,3 +70,14 @@ def test_the_payment_method_the_client_gave_wins_over_the_scan(monkeypatch):
     correct.correct_invoice(3, "virement", "reglee par virement")
     correct.correct_invoice(3, "virement", "reglee en especes")  # the agent's word is not the client's: the scan's
     assert seen == ["virement", "especes"]
+
+
+@pytest.mark.security
+def test_an_account_given_for_another_invoice_is_asked_to_be_confirmed_never_applied(monkeypatch):
+    invoice = {"invoice_number": "CD241122", "company_id": [904, "D"]}
+    monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: invoice)
+    monkeypatch.setattr(accounts, "chart", lambda company_id: [{"id": 9, "code": "61425000", "name": "Transport"}])
+    monkeypatch.setattr(accounts, "apply_account", lambda *a: pytest.fail("never applied before the client confirms"))
+    asked = accounts.set_account(272471, "61425000", confirm=True)
+    assert asked["status"] == "question" and asked["choices"] == {9: "61425000 Transport"}
+    assert "je la passe en compte 61425000 Transport" in asked["message"] and asked["message"].endswith("oui / non")
