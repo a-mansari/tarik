@@ -177,3 +177,24 @@ def test_every_argument_the_agent_gives_the_processing_tools_reaches_the_workflo
         for name in tool.args
     }
     assert given - set(traitement.INPUTS) == set()
+
+
+@pytest.mark.security
+def test_drafts_taken_up_again_never_get_this_message_s_instructions():
+    from engine import traitement
+
+    call = {"session_id": "s", "compte": "61330000", "retenue": "sans", "comptabiliser": "oui"}
+    state = {
+        "call": call,
+        "run_id": "r",
+        "dossier_id": 5,
+        "invoices": [272469, 272470],
+        "corrections": [[272471, "61330000"]],
+    }
+    sends = {s.arg["invoice_id"]: (s.arg["entry"], s.arg["call"]) for s in traitement.each_draft(state)}
+    for resumed in (272469, 272470):  # never the account the client gave 272471
+        entry, given = sends[resumed]
+        assert entry == "wait_until_read" and given["compte"] == "" and given["retenue"] == ""
+        assert given["comptabiliser"] == "oui"  # « comptabilisez » is for them too
+    assert sends[272471][0] == "assign_account" and sends[272471][1]["compte"] == "61330000"
+    assert sends[272471][1]["confirmer"] is True

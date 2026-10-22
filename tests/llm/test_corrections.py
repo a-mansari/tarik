@@ -42,7 +42,24 @@ def case(said, about, corrections):
     return {"skill": "Réponse à une question", "messages": messages, "expected": expected, "said": said}
 
 
+def alone(said, corrections):
+    """The client corrects an invoice's account with nothing waiting (its invoices processed, held as drafts)."""
+    given = {"dossier": "TEST FIRST EQUIPEMENT 2", "invoice_type": "achat"}
+    held = (
+        "**En attente**\n- Facture 272459 : importée et vérifiée, laissée en brouillon. Dites-moi quand la "
+        "comptabiliser."
+    )
+    messages = after(
+        "Voici les factures d'achat du dossier TEST FIRST EQUIPEMENT 2.", "Experio_traiter_fichiers", given, held, said
+    )
+    expected = {"about": "", "corrections": corrections}
+    return {"skill": "Traitement des documents", "messages": messages, "expected": expected, "said": said}
+
+
 CASES = [
+    # Nothing waiting: a correction alone goes to Experio_repondre's corrections, never the processing tool's compte.
+    alone("Et mettez la 272459 en compte 61330000, s'il vous plaît.", [("272459", "61330000")]),
+    alone("Ce n'est pas du téléphone : mettez la 272459 en frais de péage.", [("272459", "peage")]),
     # Another invoice's account beside the answer: by Tarik's number, its own number, its supplier's.
     case(
         "Pour la 272459 : non, la TVA est récupérable. Et mettez la 272471 en compte 61425000 Transport sur achats.",

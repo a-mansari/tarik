@@ -52,6 +52,7 @@ class Run(Outcomes, total=False):
     dossier_id: int  # the dossier found from the name the client gave (resolve_dossier)
     files: list
     invoices: list
+    corrections: list  # [[invoice, account]] the client gave drafts taken up again (waiting_drafts)
     message: str  # the run's summary: the workflow's answer
 
 
@@ -323,29 +324,38 @@ async def waiting(state: Run):
         run_id=state["run_id"],
         invoice_type=call.get("invoice_type") or "",
         client_message=call.get("client_message") or "",
+        compte=call.get("compte") or "",
     )
     skipped = set(call.get("skip_invoices") or [])  # taken up by their own branch of this run (resume_at)
     invoices = [invoice_id for invoice_id in result.get("invoices", []) if invoice_id not in skipped]
-    return {"invoices": invoices, "outcomes": [result]}
+    return {"invoices": invoices, "corrections": result.get("corrections") or [], "outcomes": [result]}
+
+
+# What a client gives « with their invoices »: for the invoices of this message, never a draft taken up again.
+MESSAGE_INSTRUCTIONS = ("compte", "tva_non_recuperable", "retenue", "repartir", "mode_paiement", "exercice")
 
 
 def each_draft(state: Run):
-    """Each draft to take up again goes back to the reading step."""
-    if not state.get("invoices"):
+    """Each draft to take up again goes back to the reading step, without this message's instructions (they are
+    for the invoices sent with it); one the client gave an account to (corrections), back to its account step, that
+    account to confirm."""
+    corrections = {int(invoice_id): account for invoice_id, account in state.get("corrections") or []}
+    if not state.get("invoices") and not corrections:
         return "resume"
-    return [
-        Send(
+    resumed = {**with_dossier(state), **dict.fromkeys(MESSAGE_INSTRUCTIONS, "")}
+
+    def sent(invoice_id, call, entry):
+        return Send(
             "fichier",
-            {
-                "call": with_dossier(state),
-                "run_id": state["run_id"],
-                "entry": "wait_until_read",
-                "invoice_id": invoice_id,
-                "outcomes": [],
-            },
+            {"call": call, "run_id": state["run_id"], "entry": entry, "invoice_id": invoice_id, "outcomes": []},
         )
-        for invoice_id in state["invoices"]
+
+    sends = [sent(i, resumed, "wait_until_read") for i in state.get("invoices", []) if i not in corrections]
+    sends += [
+        sent(i, {**resumed, "compte": account, "confirmer": True}, "assign_account")
+        for i, account in corrections.items()
     ]
+    return sends
 
 
 async def answer(state: Run):

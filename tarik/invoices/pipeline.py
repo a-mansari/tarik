@@ -647,6 +647,7 @@ def waiting_drafts(
     run_id: str = "",
     invoice_type: str = "",
     client_message: str = "",
+    compte: str = "",
 ) -> dict:
     """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
     waiting on Experio (still reading) or failed (an Experio or model timeout), or nothing was recorded for it (a
@@ -660,7 +661,8 @@ def waiting_drafts(
     Experio since is posted again. When they ask to post and nothing is to be, the answer says why (a stop).
     ``run_id``: the run taking them up, which claims them: a draft another run is still working on is left to it.
     ``invoice_type``: the side the client now gives (achat, vente): a draft its classification stopped (not an
-    invoice, the other side) is classified again with it."""
+    invoice, the other side) is classified again with it. ``compte``: an account the agent read with no file sent: a
+    correction for the one draft of the conversation the client's words name (``corrections``), to be confirmed."""
     sided = stopped and bool(client_side(invoice_type, " ".join(client_messages(session_id, ""))))  # their words
     with cabinet_db() as db:
         rows = db.execute(
@@ -709,6 +711,9 @@ def waiting_drafts(
     if waiting and run_id:
         with cabinet_db() as db:
             waiting = sorted(i for (i,) in db.execute(Q.claim_invoices, (waiting, run_id)).fetchall())
+    corrections = drafts_corrected(session_id, client_message, compte)
+    if corrections:
+        return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting, corrections=corrections)
     hint = (
         f" {elsewhere_left} brouillon(s) d'autres conversations attendent dans ce dossier : écrivez "
         f"« {whole_example(client_message, held)} », ou nommez-les (numéro de facture ou fournisseur), pour les "
@@ -721,6 +726,19 @@ def waiting_drafts(
     if hint:
         return ok("Rien à reprendre dans cette conversation." + hint, invoices=[], tell=True)
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
+
+
+def drafts_corrected(session_id, client_message, compte):
+    """An account the agent read with no file sent (processing tool's compte), as a correction: [[invoice, account]]
+    for the one draft of the conversation the client's own words name, checked as any correction; else []."""
+    if not compte.strip():
+        return []
+    words = own_words(client_message)
+    named = named_drafts(normalized(words), draft_names(session_id))
+    if len(named) != 1:
+        return []
+    fixes, _ = verified_corrections(session_id, words, [{"facture": str(named[0]), "compte": compte}], None)
+    return [[invoice_id, account] for invoice_id, account in sorted(fixes.items())]
 
 
 # How a client asks for every draft of the dossier, whatever conversation left it (normalized words).

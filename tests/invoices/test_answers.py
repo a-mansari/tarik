@@ -570,3 +570,11 @@ def test_an_account_to_confirm_is_applied_on_a_clear_oui_only(said, decision, co
     }
     pipeline.apply_answer(item, said, decision)
     assert seen == [(272471, 245390, confirmed)]
+
+
+@pytest.mark.security
+def test_an_account_given_to_the_processing_tool_goes_only_to_the_draft_named(three_drafts):
+    said = "Objet : Factures\n\nMettez la 272471 en compte 61425000, s'il vous plaît."
+    assert pipeline.drafts_corrected("s", said, "61425000") == [[272471, "61425000"]]
+    assert pipeline.drafts_corrected("s", "Mettez-les en 61425000.", "61425000") == []  # none named: none changed
+    assert pipeline.drafts_corrected("s", "La 272471 et la 272469 en 61425000.", "61425000") == []  # which one?
