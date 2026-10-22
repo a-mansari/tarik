@@ -102,12 +102,21 @@ def test_lines_not_read_in_full_or_not_adding_up_are_never_split():
 
 
 @pytest.mark.communication
-def test_a_scan_owing_nothing_is_no_invoice_and_nothing_is_written(monkeypatch):
+def test_a_scan_owing_nothing_keeps_what_experio_captured(monkeypatch):
     from tarik.invoices import correct
 
-    monkeypatch.setattr(correct, "require_draft_invoice", lambda *a, **k: {"refund": False, "payment_method_id": False})
-    monkeypatch.setattr(correct, "fill_invoice", lambda *a: pytest.fail("nothing is written"))
+    written = []
+    monkeypatch.setattr(correct, "fill_invoice", lambda invoice_id, changes, context: written.append(changes) or {})
+    monkeypatch.setattr(correct, "invoice_context", lambda invoice: {})
     for total in (0.0, -600.0):  # a hotel's folio once paid: Total 0,00, Paiement -600, Solde -600
-        monkeypatch.setattr(correct, "stored_check", lambda invoice_id, t=total: (True, {"amount_total": t}, []))
+        check = (True, {"amount_total": total, "amount_untaxed": 0.0, "is_credit_note": True}, [])
+        bad = [flag("amount_untaxed", 600, 0.0), flag("amount_total", 600, total)]
+        monkeypatch.setattr(correct, "stored_check", lambda invoice_id, c=(*check[:2], bad): c)
+        for captured in (0.0, False):  # Experio has no amount either: nothing to import
+            monkeypatch.setattr(correct, "require_draft_invoice", lambda *a, c=captured, **k: {"amount_total": c})
+            result = correct.correct_invoice(3)
+            assert result["status"] == "stop" and "justificatif de paiement, pas une facture" in result["message"]
+        monkeypatch.setattr(correct, "require_draft_invoice", lambda *a, **k: {"amount_total": 600.0, "refund": False})
         result = correct.correct_invoice(3)
-        assert result["status"] == "stop" and "justificatif de paiement, pas une facture" in result["message"]
+        assert result["status"] != "stop" and "montants gardés tels que saisis par Experio" in result["message"]
+    assert not written  # no amount, no credit note written over Experio's 600

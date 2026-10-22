@@ -115,11 +115,19 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
     """Correct a draft invoice from its check: writes what check_invoice read on
     the scan over the fields Experio captured differently (amounts, number,
     date, credit note, multi-TVA, currency, payment method), then lets Experio
-    rebuild its TVA lines. Call check_invoice first. A scan whose total is 0 or less is
-    no invoice (a payment's receipt): stopped, nothing written. ``payment_method``: the one the
-    client wrote with the invoice (especes, cheque, virement, effet, prelevement,
-    compensation), over the scan's; taken only when ``client_message`` holds it."""
-    fields = ["state", "company_id", "exercice_id", "refund", "amount_tax_non_recoverable", "payment_method_id"]
+    rebuild its TVA lines. Call check_invoice first. A scan whose total is 0 or less (a payment's
+    receipt) keeps the amounts Experio captured; stopped, nothing written, when Experio has none
+    either. ``payment_method``: the one the client wrote with the invoice (especes, cheque, virement, effet,
+    prelevement, compensation), over the scan's; taken only when ``client_message`` holds it."""
+    fields = [
+        "state",
+        "company_id",
+        "exercice_id",
+        "refund",
+        "amount_tax_non_recoverable",
+        "payment_method_id",
+        "amount_total",
+    ]
     invoice = require_draft_invoice(invoice_id, [*fields, "currency_id"], "être corrigee")
     check = stored_check(invoice_id)
     if not check:
@@ -127,15 +135,23 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
     readable, extracted, bad_fields = check
     if not readable:
         return ok(f"Facture {invoice_id} : scan illisible, rien à corriger.")
-    if extracted.get("amount_total") is not None and extracted["amount_total"] <= 0:
-        # A hotel's folio after payment, a receipt: nothing owed, which Experio refuses to record anyway.
-        return stop(
-            f"Facture {invoice_id} : le document ne porte aucun montant a payer (total "
-            f"{extracted['amount_total']:.2f}) : c'est sans doute un justificatif de paiement, pas une facture. "
-            "Rien n'a été comptabilisé ; envoyez la facture elle-même, avec ses montants."
-        )
-    changes = planned_changes(extracted, bad_fields, invoice)
     notes = []
+    if extracted.get("amount_total") is not None and extracted["amount_total"] <= 0:
+        # A hotel's folio after payment, a receipt: nothing owed on the scan. Keep the amounts Experio captured,
+        # if any (Experio refuses to record a total of 0).
+        if (invoice.get("amount_total") or 0) <= 0:
+            return stop(
+                f"Facture {invoice_id} : le document ne porte aucun montant a payer (total "
+                f"{extracted['amount_total']:.2f}) : c'est sans doute un justificatif de paiement, pas une facture. "
+                "Rien n'a été comptabilisé ; envoyez la facture elle-même, avec ses montants."
+            )
+        extracted = {
+            k: v
+            for k, v in extracted.items()
+            if not k.startswith("amount_") and k not in ("tva_lines", "is_credit_note")
+        }
+        notes.append("montants gardés tels que saisis par Experio, le scan ne porte aucun montant à payer")
+    changes = planned_changes(extracted, bad_fields, invoice)
     with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé la correction."):
         _currency((extracted.get("currency") or "MAD").upper(), changes, notes)
         told = instructed(payment_method, client_message)
