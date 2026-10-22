@@ -306,3 +306,21 @@ def test_a_screenshot_gladden_calls_an_invoice_never_becomes_a_draft(monkeypatch
     monkeypatch.setattr(intake, "gladden_type", lambda raw: "invoice")
     monkeypatch.setattr(intake, "classify_pages", lambda pages, what: ("autre", "une capture d'écran d'un logiciel"))
     assert intake.identify_document(1)["kind"] == "other"
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "name, said, named",
+    [
+        ("douane.pdf", "douane n'est pas un relevé", True),
+        ("facture.pdf", "la facture n'est pas un relevé", False),  # a common word: names no file
+        ("facture.pdf", "facture.pdf n'est pas un relevé", True),  # written whole, with its extension
+        ("lot.zip › releve.pdf", "la facture n'est pas un relevé", False),
+        ("scan 12.pdf", "le scan 12 est une facture", False),
+        ("Mars MIDAS.pdf", "mars midas n'est pas un relevé", True),
+    ],
+)
+def test_a_file_is_named_by_its_own_words_never_by_a_common_one(name, said, named):
+    from tarik.invoices.intake import file_named
+
+    assert file_named(name, said) is named

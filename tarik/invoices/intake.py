@@ -41,6 +41,43 @@ def require_kind(name, kind, wanted):
         raise ToolError(f"`{name}` est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")
 
 
+# Words a file's name is often made of, which the client writes about anything (normalized): a stem of these only
+# (« facture », « releve 2 », « scan ») names no file unless written whole, with its extension.
+COMMON_NAME_WORDS = {
+    "facture",
+    "factures",
+    "releve",
+    "releves",
+    "scan",
+    "scans",
+    "document",
+    "documents",
+    "doc",
+    "docs",
+    "image",
+    "photo",
+    "capture",
+    "fichier",
+    "piece",
+    "pieces",
+    "invoice",
+    "statement",
+    "pdf",
+    "copie",
+    "img",
+}
+
+
+def file_named(name, words):
+    """True when the client's ``words`` name file ``name`` (a zip's member by its own name): written whole, with its
+    extension, or by a stem with a word of its own (« douane », « mars midas »)."""
+    base = name.split(" › ")[-1]
+    stem = normalized(base.rsplit(".", 1)[0])
+    words = normalized(words)
+    distinctive = any(not word.isdigit() and word not in COMMON_NAME_WORDS for word in stem.split())
+    return said(normalized(base), words) or (distinctive and said(stem, words))
+
+
 def client_kind(text):
     """The kind ("invoice" or "statement") the client's own ``text`` gives a file they sent, or None (neither, or
     both said)."""
@@ -104,7 +141,7 @@ def identify_document(file_id: int, client_message: str = "") -> dict:
         # Only a correction: of a file already identified, which the client names (a new file's kind is read, a
         # message's "voici une facture et le relevé" never decides it for each of its files).
         words = own_words(client_message)
-        named = kind and said(normalized(name.split(" › ")[-1].rsplit(".", 1)[0]), normalized(words))
+        named = kind and file_named(name, words)
         said_kind = client_kind(words) if named else None
         if said_kind and said_kind != kind and not invoice_id and not statement_id:
             db.execute(Q.set_file_kind, (said_kind, file_id))
