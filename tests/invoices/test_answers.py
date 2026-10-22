@@ -420,3 +420,17 @@ def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them
         ("Comptabilisez-la.", []),  # this thread's: none held here
     ]:
         assert pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message=said)["invoices"] == taken, said
+
+
+@pytest.mark.functionality
+def test_an_account_correction_with_an_answer_names_its_invoice(db_cabinet):
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
+            "('s', 'a.pdf', 'application/pdf', '', 272469), ('s', 'b.pdf', 'application/pdf', '', 272470), "
+            "('s', 'c.pdf', 'application/pdf', '', 272471)"
+        )
+    oui = "Oui pour la 272469, et mettez la 272470 en 61425000."
+    assert pipeline.corrected_invoice("s", oui, 272469) == 272470  # the one named for the account
+    assert pipeline.corrected_invoice("s", "Oui, et mettez-la en frais de péage.", 272469) == 272469  # the answered
+    assert pipeline.corrected_invoice("s", "Mettez la 272470 et la 272471 en 6125.", 272469) is None  # which one?

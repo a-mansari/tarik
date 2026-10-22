@@ -349,6 +349,7 @@ async def answer(state: Run):
         answer=call.get("answer") or call.get("client_message") or "",
         decision=str(call.get("decision") or ""),
         about=str(call.get("about") or ""),
+        compte=call.get("compte") or "",
     )
     return {"outcomes": [result]}
 
@@ -364,19 +365,29 @@ def resume_at(state: Run):
     if following == "identify_document":  # the client said what the file is: it starts over from there
         call = {**state["call"], "dossier_id": last["dossier_id"], "invoice_type": last.get("invoice_type") or ""}
         return Send("fichier", {"call": call, "run_id": state["run_id"], "file_id": last["file_id"], "outcomes": []})
-    # An account the client corrected with their answer: the invoice goes back to its account step, past it already.
-    if state["call"].get("compte") and following in INVOICE_CHAIN and position(following) > position("assign_account"):
+    # An account the client corrected with their answer goes to the invoice it names (corrected_invoice): back to
+    # its account step. The invoice answered about goes on from its next step, without that account unless it is
+    # the one corrected.
+    corrected, answered = last.get("corrected_invoice"), last["invoice_id"]
+    call = with_dossier(state)
+    if corrected == answered and following in INVOICE_CHAIN and position(following) > position("assign_account"):
         following = "assign_account"
-    return Send(
-        "fichier",
-        {
-            "call": with_dossier(state),
-            "run_id": state["run_id"],
-            "entry": following,
-            "invoice_id": last["invoice_id"],
-            "outcomes": [],
-        },
-    )
+    sends = [
+        Send(
+            "fichier",
+            {
+                "call": call if corrected == answered else {**call, "compte": ""},
+                "run_id": state["run_id"],
+                "entry": following,
+                "invoice_id": answered,
+                "outcomes": [],
+            },
+        )
+    ]
+    if corrected and corrected != answered:
+        entry = {"call": call, "run_id": state["run_id"], "entry": "assign_account", "invoice_id": corrected}
+        sends.append(Send("fichier", {**entry, "outcomes": []}))
+    return sends
 
 
 run = StateGraph(Run)

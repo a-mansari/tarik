@@ -443,7 +443,7 @@ def route_message(session_id: str, mode: str = "files") -> dict:
 
 
 @tool
-def answer_pending(session_id: str, answer: str, decision: str = "", about: str = "") -> dict:
+def answer_pending(session_id: str, answer: str, decision: str = "", about: str = "", compte: str = "") -> dict:
     """Apply the client's answer (their own words) to what this conversation waits on: an invoice's question
     (tiers, account, TVA, withholding, prepaid, exercice) or a statement's bank account. ``decision`` is what
     the agent read in that answer: "oui" or "non" for a oui / non question, the id of the tiers chosen among
@@ -451,7 +451,8 @@ def answer_pending(session_id: str, answer: str, decision: str = "", about: str 
     for an exercice question, the journal_id chosen for a bank account, else empty. ``about``: with several
     questions waiting, the invoice's number or the statement's name the client answers. ``next_step`` says
     where the sequence resumes; with nothing waiting, the drafts Experio hadn't read yet are resumed. The
-    email's sender must have the dossier, as for any work on it."""
+    email's sender must have the dossier, as for any work on it. ``compte``: an account the client corrects in the
+    same message: ``corrected_invoice`` says which invoice it goes to (corrected_invoice)."""
     answer = own_words(answer)
     waiting = waiting_on(session_id)
     if not waiting:
@@ -470,7 +471,26 @@ def answer_pending(session_id: str, answer: str, decision: str = "", about: str 
     sender = check_sender(session_id, dossier_id=item.get("dossier_id", 0), invoice_id=item.get("invoice_id", 0))
     if sender["status"] != "ok":  # recorded as check_sender's: the email workflow tells the manager, never the sender
         return {**sender, "step": "check_sender"}
-    return apply_answer(item, answer, decision)
+    result = apply_answer(item, answer, decision)
+    if compte.strip() and item.get("invoice_id"):
+        target = corrected_invoice(session_id, answer, item["invoice_id"])
+        if target:
+            result["corrected_invoice"] = target
+        else:
+            result["message"] += f" Le compte « {compte.strip()} » : précisez pour quelle facture (son numéro)."
+    return result
+
+
+def corrected_invoice(session_id, answer, answered):
+    """The invoice an account correction sent with an answer goes to: the one other draft of the conversation the
+    client's words name by its number, else the one they answer about; None when they name several others."""
+    with cabinet_db() as db:
+        drafts = [i for (i,) in db.execute(Q.drafts_of_session, (session_id,))]
+    words = normalized(answer)
+    others = sorted({i for i in drafts if i != answered and said(str(i), words)})
+    if len(others) > 1:
+        return None
+    return others[0] if others else answered
 
 
 @tool

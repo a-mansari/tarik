@@ -117,23 +117,21 @@ def test_asked_to_post_the_drafts_are_posted_whatever_question_waits(monkeypatch
 
 @pytest.mark.functionality
 @pytest.mark.parametrize(
-    "compte, entry",
+    "compte, corrected, sent_to",
     [
-        ("", "check_journal"),  # the answer's own next step
-        ("frais de péage", "assign_account"),  # an account corrected with the answer: its step runs again
+        ("", None, [(7, "check_journal", "")]),  # the answer's own next step
+        ("frais de péage", 7, [(7, "assign_account", "frais de péage")]),  # its own account corrected: back to it
+        # Another invoice's account: that one goes back to its account step, the answered one goes on without it.
+        ("61425000", 9, [(7, "check_journal", ""), (9, "assign_account", "61425000")]),
     ],
 )
-def test_an_account_corrected_with_an_answer_sends_the_invoice_back_to_its_account_step(compte, entry):
+def test_an_account_corrected_with_an_answer_goes_to_the_invoice_it_names(compte, corrected, sent_to):
     from engine import traitement
 
-    state = {
-        "call": {"session_id": "s", "compte": compte},
-        "run_id": "r",
-        "dossier_id": 5,
-        "outcomes": [{"status": "ok", "next_step": "check_journal", "invoice_id": 7}],
-    }
-    sent = traitement.resume_at(state)
-    assert sent.arg["entry"] == entry and sent.arg["invoice_id"] == 7
+    last = {"status": "ok", "next_step": "check_journal", "invoice_id": 7, "corrected_invoice": corrected}
+    state = {"call": {"session_id": "s", "compte": compte}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
+    sends = traitement.resume_at(state)
+    assert [(s.arg["invoice_id"], s.arg["entry"], s.arg["call"]["compte"]) for s in sends] == sent_to
 
 
 @pytest.mark.communication
