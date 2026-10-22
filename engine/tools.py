@@ -25,7 +25,6 @@ QUIET_WHEN_OK = {
     "save_files",
     "files_to_process",
     "waiting_drafts",
-    "dossier_questions",
     "waiting_setups",
     "check_sender",
     "check_creator",

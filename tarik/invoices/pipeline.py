@@ -168,8 +168,8 @@ def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
 
 @tool
 def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict:
-    """Record a step's outcome for this run. ``origin``: the step tool that ran, or what asked (dossier_questions:
-    the step is the result's own); ``result``: that step's answer. A question becomes the invoice's pending question;
+    """Record a step's outcome for this run. ``origin``: the step tool that ran, or what asked (the step is then
+    the result's own); ``result``: that step's answer. A question becomes the invoice's pending question;
     an outcome at or after that step clears it."""
     step = origin if origin in STEPS else result.get("step") or origin
     status = result.get("status", "error")
@@ -354,45 +354,6 @@ def waiting_on(session_id):
             if name  # still without its bank
         ]
     )
-
-
-@tool
-def dossier_questions(session_id: str, dossier_id: int) -> dict:
-    """The invoice questions other conversations left waiting on the dossier ``dossier_id``'s drafts, for the client
-    who asks about that dossier in a new conversation (the workflow records each one as this run's question:
-    record_step then keeps it as this conversation's pending question, so their answer finds it). Never the
-    conversation's own, and none while one of its own questions or held drafts waits; a draft deleted or posted
-    since, or of another dossier, is left out. Each: {invoice_id,
-    step (the one it waits at), message, choices}."""
-    with cabinet_db() as db:
-        busy = db.execute(
-            Q.session_busy,
-            (session_id, session_id),
-        ).fetchone()
-        rows = (
-            []
-            if busy
-            else db.execute(
-                Q.pending_of_other_sessions,
-                (session_id,),
-            ).fetchall()
-        )
-    ids = [invoice_id for invoice_id, *_ in rows]
-    here = (
-        set(
-            odoo_call(
-                "exp.invoice", "search", [("id", "in", ids), ("state", "=", "draft"), ("company_id", "=", dossier_id)]
-            )
-        )
-        if ids and dossier_id
-        else set()
-    )
-    questions = [
-        {"invoice_id": i, "step": step, "message": text, "choices": choices}
-        for i, step, text, choices in rows
-        if i in here
-    ]
-    return ok(f"{len(questions)} question(s) en attente sur ce dossier.", questions=questions)
 
 
 def meant(waiting, about):

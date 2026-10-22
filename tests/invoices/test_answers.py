@@ -314,33 +314,6 @@ def test_stopped_drafts_are_resumed_only_when_the_client_asks(db_cabinet, monkey
 
 
 @pytest.mark.functionality
-def test_a_dossiers_waiting_questions_are_reached_from_a_new_conversation(db_cabinet, monkeypatch):
-    asked = []
-
-    def search(model, method, domain, **kw):
-        asked.append(domain)
-        return [i for i in domain[0][2] if i != 3]  # invoice 3 was posted since
-
-    monkeypatch.setattr(pipeline, "odoo_call", search)
-    with cabinet_db() as db:
-        for invoice_id, session in [(1, "old"), (2, "other"), (3, "old")]:
-            db.execute(
-                "insert into tarik_pending (invoice_id, session_id, step, question) "
-                "values (%s, %s, 'settle_tva', 'Q ?')",
-                (invoice_id, session),
-            )
-    found = pipeline.dossier_questions("new", 5)["questions"]
-    assert [q["invoice_id"] for q in found] == [1, 2]  # not a posted one (3)
-    assert ("company_id", "=", 5) in asked[-1] and pipeline.dossier_questions("new", 0)["questions"] == []
-    # Recorded as this run's question, it becomes this conversation's: its answer finds it.
-    pipeline.record_step("r", "new", "dossier_questions", {"status": "question", "message": "Q ?", **found[0]})
-    assert [item["invoice_id"] for item in pipeline.waiting_on("new")] == [1]
-    assert pipeline.waiting_on("old") == []
-    # While one of its own waits, no other conversation's question is brought in: it would take the reply.
-    assert pipeline.dossier_questions("new", 5)["questions"] == []
-
-
-@pytest.mark.functionality
 def test_a_draft_tarik_posted_and_experio_shows_as_draft_again_is_posted_again(db_cabinet, monkeypatch):
     """Experio decides what is a draft: an invoice Tarik posted, put back to draft in Experio since, is posted when
     the client asks, from any conversation, for its dossier only."""

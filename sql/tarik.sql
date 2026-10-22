@@ -179,16 +179,6 @@ select invoice_id, step, question, choices from tarik_pending where session_id =
 -- The pending questions of invoices deleted or posted since: nothing can answer them any more.
 delete from tarik_pending where invoice_id = any(%s)
 
--- name: session_busy
--- This conversation's own question or held draft: another's question would take the reply meant for it.
-select 1 from tarik_pending where session_id = %s union all
-select 1 from tarik_held where session_id = %s and not released limit 1
-
--- name: pending_of_other_sessions
--- The pending invoice questions other conversations left, oldest first.
-select invoice_id, step, question, choices from tarik_pending where session_id <> %s
-order by created_at
-
 -- name: new_files_of_session
 -- The files that came since the conversation's last run recorded anything: not yet taken by any step, not cut
 -- parts, not a dossier's entries (those go to the dossier workflow).

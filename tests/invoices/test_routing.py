@@ -134,3 +134,12 @@ def test_an_account_corrected_with_an_answer_sends_the_invoice_back_to_its_accou
     }
     sent = traitement.resume_at(state)
     assert sent.arg["entry"] == entry and sent.arg["invoice_id"] == 7
+
+
+@pytest.mark.communication
+def test_a_message_without_new_files_asks_only_its_own_conversation_s_questions():
+    from engine import traitement
+
+    # Never the questions other conversations left on the dossier: straight to this conversation's drafts.
+    assert traitement.each_file({"files": [], "outcomes": [{"status": "ok"}]}) == "brouillons"
+    assert "questions" not in traitement.graph.get_graph().nodes

@@ -291,37 +291,16 @@ async def files(state: Run):
 
 
 def each_file(state: Run):
-    """One file run per new file; none: the dossier's waiting questions, then the drafts left waiting."""
+    """One file run per new file; none: the drafts left waiting. Only this conversation's questions are asked in it,
+    never those other conversations left on the dossier."""
     if failed(state):
         return "resume"  # the files could not be listed: recorded, nothing more
     if not state["files"]:
-        return "questions"
+        return "brouillons"
     return [
         Send("fichier", {"call": with_dossier(state), "run_id": state["run_id"], "file_id": file_id, "outcomes": []})
         for file_id in state["files"]
     ]
-
-
-async def questions(state: Run):
-    """The questions other conversations left on this dossier's invoices, asked again here: each recorded as this
-    run's question, which makes it this conversation's (record_step), so the summary asks it and the answer finds it."""
-    call = state["call"]
-    found = await run_step(
-        state,
-        "dossier_questions",
-        session_id=call["session_id"],
-        dossier_id=state["dossier_id"],
-    )
-    for question in found.get("questions", []):
-        await run_tool(
-            call["cabinet"],
-            "record_step",
-            run_id=state["run_id"],
-            session_id=call["session_id"],
-            origin="dossier_questions",
-            result={"status": "question", **question},
-        )
-    return {}
 
 
 async def waiting(state: Run):
@@ -406,7 +385,6 @@ run.add_node("dossier", dossier_found)
 run.add_node("expediteur", sender)
 run.add_node("fichiers", files)
 run.add_node("fichier", FILE)
-run.add_node("questions", questions)
 run.add_node("brouillons", waiting)
 run.add_node("reponse", answer)
 run.add_node("resume", summary)
@@ -416,8 +394,7 @@ run.add_conditional_edges("debut", *ok_or_summary("aiguillage"))
 run.add_conditional_edges("aiguillage", by_route, ["dossier", "reponse", "brouillons"])
 run.add_conditional_edges("dossier", *ok_or_summary("expediteur"))
 run.add_conditional_edges("expediteur", *ok_or_summary("fichiers"))
-run.add_conditional_edges("fichiers", each_file, ["fichier", "questions", "resume"])
-run.add_edge("questions", "brouillons")
+run.add_conditional_edges("fichiers", each_file, ["fichier", "brouillons", "resume"])
 run.add_conditional_edges("brouillons", each_draft, ["fichier", "resume"])
 run.add_conditional_edges("reponse", resume_at, ["fichier", "brouillons", "resume"])
 run.add_edge("fichier", "resume")
