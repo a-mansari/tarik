@@ -120,3 +120,11 @@ def test_a_scan_owing_nothing_keeps_what_experio_captured(monkeypatch):
         result = correct.correct_invoice(3)
         assert result["status"] != "stop" and "montants gardés tels que saisis par Experio" in result["message"]
     assert not written  # no amount, no credit note written over Experio's 600
+
+
+@pytest.mark.functionality
+def test_a_draft_stopped_for_no_amount_is_taken_up_again_when_asked():
+    from tarik.invoices.pipeline import resumable
+
+    assert resumable("correct_invoice", "stop", stopped=True)
+    assert not resumable("correct_invoice", "stop", stopped=False)  # an automatic follow-up never retries it

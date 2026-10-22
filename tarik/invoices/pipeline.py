@@ -614,9 +614,10 @@ def files_to_process(session_id: str, entries: bool = False, asked: bool = False
     return ok(f"{len(own)} fichier(s) a traiter.", files=own)
 
 
-# The stops a client's "reprenez" retries: a dossier setting or an Experio check the cabinet may have fixed since.
+# The stops a client's "reprenez" retries: a dossier setting or an Experio check the cabinet may have fixed since
+# (correct_invoice: no amount, the scan's nor Experio's, until the team types one in Experio).
 # A duplicate, a type or a draft kept unposted (hold_posting) is the client's call, not a setting.
-FIXABLE_STOPS = {"assign_account", "check_journal", "configure_cabinet", "post_invoice"}
+FIXABLE_STOPS = {"assign_account", "check_journal", "configure_cabinet", "correct_invoice", "post_invoice"}
 
 
 def resumable(step, status, stopped, sided=False):
