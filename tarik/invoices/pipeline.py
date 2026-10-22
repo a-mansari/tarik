@@ -622,6 +622,16 @@ WHOLE = re.compile(
     r"|(?:factures|brouillons) du dossier)(?![a-z])"
 )
 WHOLE_EXAMPLE = "comptabilisez toutes les factures du dossier"
+# Words too common in suppliers' names to name one on their own (normalized).
+GENERIC = {"maroc", "societe", "ste", "sarl", "services", "service", "international", "group", "groupe", "station"}
+
+
+def supplier_names(name):
+    """How a client may name supplier ``name``: whole, or by its first distinctive word (« VALADE » for « GR VALADE
+    LOGISTIQUE »)."""
+    whole = normalized(name.split(" - ")[0])
+    first = next((word for word in whole.split() if len(word) >= 4 and word not in GENERIC), "")
+    return [whole, first]
 
 
 def asked_among(ids, dossier_id, client_message):
@@ -642,7 +652,7 @@ def asked_among(ids, dossier_id, client_message):
     named = []
     for draft in drafts:
         names = [str(draft["id"]), normalized(draft["invoice_number"] or "")]
-        names.append(normalized(draft["partner_id"][1].split(" - ")[0]) if draft["partner_id"] else "")
+        names += supplier_names(draft["partner_id"][1]) if draft["partner_id"] else []
         if any(len(name) >= 3 and said(name, words) for name in names):
             named.append(draft["id"])
     return sorted(named)

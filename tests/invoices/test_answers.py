@@ -412,6 +412,8 @@ def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them
     pipeline.hold_posting(8, "another")
     for said, taken in [
         ("Comptabilisez la facture MIDAS.", [7]),
+        ("Comptabilisez celle d'Exelentia.", [8]),  # by its first distinctive word
+        ("Comptabilisez celles du Maroc.", []),  # a word too common to name a supplier
         ("Comptabilisez la AB-2026-12 et la F-77.", [7, 8]),
         ("Comptabilisez toutes les factures de Midas.", [7]),  # filtered: a supplier's, not the whole dossier
         ("Comptabilisez-la.", []),  # this thread's: none held here
