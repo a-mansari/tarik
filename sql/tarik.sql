@@ -78,7 +78,7 @@ select pg_advisory_xact_lock(hashtext(md5(%s)))
 -- name: statement_of_same_content
 -- The bank statement already imported into the dossier from a file of the very same content, another file.
 select f.statement_id from tarik_files f join tarik_results r on r.file_id = f.id
-where f.statement_id is not null and md5(f.data) = md5(%s) and r.step = 'import_bank_statement'
+where f.statement_id is not null and f.content_md5 = md5(%s) and r.step = 'import_bank_statement'
 and r.status = 'ok' and r.dossier_id = %s and f.id <> %s order by f.id limit 1
 
 -- name: set_file_statement

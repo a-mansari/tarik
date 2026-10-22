@@ -19,6 +19,9 @@ create table if not exists tarik_files (
 -- The agent's attachment id: its files are saved once, however many times the sequence runs.
 alter table tarik_files add column if not exists source_id text;
 create unique index if not exists tarik_files_source on tarik_files (session_id, source_id);
+-- The file's content hash, kept by Postgres: a statement sent again is found by it, never by hashing every file.
+alter table tarik_files add column if not exists content_md5 text generated always as (md5(data)) stored;
+create index if not exists tarik_files_statement_content on tarik_files (content_md5) where statement_id is not null;
 -- A file's kinds: dropped and added again at each start, so a new kind applies to old schemas too.
 alter table tarik_files drop constraint if exists tarik_files_kind_check;
 alter table tarik_files add constraint tarik_files_kind_check
