@@ -49,7 +49,14 @@ def model(cabinet):
 # What each tool says to the model is content (agent.json), read at each agent's making (described()); the read
 # tools themselves are these, defined below (read_tool).
 DESCRIBED_LATER = "(décrit dans agent.json)"
-READ_TOOLS = ("experio_connection", "list_dossiers", "find_dossier", "list_invoices", "list_collaborators")
+READ_TOOLS = (
+    "experio_connection",
+    "list_dossiers",
+    "find_dossier",
+    "list_invoices",
+    "list_collaborators",
+    "list_accounts",
+)
 
 
 def skills():
@@ -130,6 +137,9 @@ def read_tool(tool_name):
         dossier_id: int, runtime: ToolRuntime, status: str = "", limit: int = 20, side: str = ""
     ) -> str:
         return await reading(runtime, tool_name, dossier_id=dossier_id, status=status, limit=limit, side=side)
+
+    async def list_accounts(dossier_id: int, runtime: ToolRuntime, search: str = "") -> str:
+        return await reading(runtime, tool_name, dossier_id=dossier_id, search=search)
 
     function = locals()[tool_name]
     # Described by the tool's own docstring (tarik/), kept in content/agent.json to be edited.

@@ -8,8 +8,9 @@ billed among the dossier's real accounts.
 """
 
 import re
+from difflib import SequenceMatcher
 
-from tarik.core.app import ToolError, log, ok, question, step_tool, with_ids
+from tarik.core.app import ToolError, log, ok, question, step_tool, tool, with_ids
 from tarik.core.config import TEST_MODE
 from tarik.core.conversation import client_messages, instructed, without_subject
 from tarik.core.experio import (
@@ -21,11 +22,13 @@ from tarik.core.experio import (
     odoo_json,
     refresh,
     refused,
+    require_dossier,
     require_draft_invoice,
     require_invoice,
     test_mode_note,
 )
 from tarik.core.model import ask_model, tool_prompt
+from tarik.core.words import normalized
 from tarik.invoices.check import stored_check
 from tarik.invoices.classify import side_of
 from tarik.invoices.journal import JOURNAL_FIELDS, check_journal, journal_stop
@@ -177,6 +180,40 @@ def assign_account(
     if not account:
         return question(account_question(invoice, designation))
     return apply_account(invoice, account["id"], reason)
+
+
+def searched(accounts, search):
+    """The ``accounts`` ``search`` names: a code's start, or words each close to one of the label's (misspelled,
+    accents or plural aside: "hotelrie" finds "Hôtellerie"). Words under 3 letters ("de", "ou") count for nothing."""
+    code = search.replace(" ", "")
+    if code.isdigit():
+        return [a for a in accounts if a["code"].startswith(code)]
+    wanted = [word for word in normalized(search).split() if len(word) >= 3]
+
+    def close(word, label):
+        # the same first letter: "deplacement" is not "placement", though they look 90 % alike
+        return any(
+            found.startswith(word) or (found[0] == word[0] and SequenceMatcher(None, word, found).ratio() >= 0.8)
+            for found in label
+        )
+
+    return [a for a in accounts if wanted and all(close(w, normalized(a["name"]).split()) for w in wanted)]
+
+
+@tool
+def list_accounts(dossier_id: int, search: str = "") -> str:
+    """The dossier's accounts (plan comptable) whose code starts with ``search``, or whose label holds its words,
+    even misspelled ("hotelrie", "transports"): one "code label" per line. One word or code per call: "transport ou
+    hotellerie" is two calls. Empty ``search``: all of them, at most 100."""
+    dossier = require_dossier(dossier_id)
+    with refused(f"list_accounts {dossier_id}", "Experio n'a pas pu donner le plan comptable."):
+        accounts = chart(dossier_id)
+    search = (search or "").strip()
+    found = searched(accounts, search) if search else accounts
+    if not found:
+        return f"Aucun compte du dossier {dossier} ne correspond a « {search} »."
+    more = " (les 100 premiers : precisez la recherche)" if len(found) > 100 else ""
+    return f"{len(found)} compte(s) du dossier {dossier}{more} :\n" + listing(found[:100])
 
 
 def resolve_account(accounts, answer):

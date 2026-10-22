@@ -53,3 +53,25 @@ def test_a_code_start_the_client_wrote_is_theirs_not_the_models(monkeypatch):
     assert account_meant(travel, "Mettez 6143, 2 factures") is None
     assert account_meant(travel, "61431 voyages")["id"] == 9
     assert account_meant(travel, "Voyages et déplacements")["id"] == 9  # no code written: the model's
+
+
+@pytest.mark.functionality
+def test_the_agent_finds_accounts_by_code_or_misspelled_words(monkeypatch):
+    chart = [
+        {"id": 9, "code": "61421000", "name": "Transports sur achats"},
+        {"id": 10, "code": "61436000", "name": "Frais d'hôtellerie et de restauration"},
+        {"id": 11, "code": "35000000", "name": "Titres et valeurs de placement"},
+        *CHART,
+    ]
+    monkeypatch.setattr(accounts, "require_dossier", lambda dossier_id: "ALPHA")
+    monkeypatch.setattr(accounts, "chart", lambda company_id: chart)
+    assert (
+        accounts.list_accounts(5, "hotelrie")
+        == "1 compte(s) du dossier ALPHA :\n61436000 Frais d'hôtellerie et de restauration"
+    )
+    assert "61421000" in accounts.list_accounts(5, "transport")
+    assert [a["id"] for a in accounts.searched(chart, "6111")] == [1]
+    assert [a["id"] for a in accounts.searched(chart, "achats de marchandises")] == [1, 2, 3]
+    assert accounts.list_accounts(5, "carburant") == "Aucun compte du dossier ALPHA ne correspond a « carburant »."
+    assert accounts.searched(chart, "deplacement") == []  # not "placement"
+    assert accounts.list_accounts(5).startswith("8 compte(s)")
