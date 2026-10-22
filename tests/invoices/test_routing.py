@@ -141,3 +141,20 @@ def test_a_message_without_new_files_asks_only_its_own_conversation_s_questions(
     # Never the questions other conversations left on the dossier: straight to this conversation's drafts.
     assert traitement.each_file({"files": [], "outcomes": [{"status": "ok"}]}) == "brouillons"
     assert "questions" not in traitement.graph.get_graph().nodes
+
+
+@pytest.mark.functionality
+def test_an_account_correction_goes_through_even_when_its_answer_settles_nothing():
+    from engine import traitement
+
+    # The agent sent the correction about 272471, whose own question (its exercice) the message does not answer.
+    last = {"status": "question", "invoice_id": 272471, "corrected_invoice": 272471}
+    state = {"call": {"session_id": "s", "compte": "61425000"}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
+    (sent,) = traitement.resume_at(state)
+    assert (sent.arg["invoice_id"], sent.arg["entry"], sent.arg["call"]["compte"]) == (
+        272471,
+        "assign_account",
+        "61425000",
+    )
+    state["outcomes"] = [{"status": "question", "invoice_id": 272471}]
+    assert traitement.resume_at(state) == "resume"  # no correction: as before
