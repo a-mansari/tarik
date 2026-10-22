@@ -45,14 +45,14 @@ def _non_recoverable(invoice, answer):
 
 
 def _tax_lines(invoice_id, context):
-    """The invoice's TVA lines once Experio rebuilt them, as "<HT> HT a <rate> % (<tax>)" for each untaxed line."""
+    """The invoice's TVA lines once Experio rebuilt them, as "<HT> HT à <rate> % (<tax>)" for each untaxed line."""
     line_ids = odoo_call("exp.invoice", "read", [invoice_id], fields=["tva_line_ids"], context=context)[0][
         "tva_line_ids"
     ]
     fields = ["line_type", "tax_id", "tax_rate", "amount_ht", "amount_tva"]
     lines = odoo_call("exp.invoice.line", "read", line_ids, fields=fields, context=context) if line_ids else []
     return [
-        f"{line['amount_ht']} HT a {line['tax_rate']} % ({line['tax_id'][1] if line['tax_id'] else 'sans taxe'})"
+        f"{line['amount_ht']} HT à {line['tax_rate']} % ({line['tax_id'][1] if line['tax_id'] else 'sans taxe'})"
         for line in lines
         if line["line_type"] == "untaxed"
     ]

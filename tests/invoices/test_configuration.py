@@ -54,7 +54,7 @@ def test_experios_own_detection_runs_only_when_its_check_blocks(experio):
     assert [c[1] for c in experio["calls"]].count("create_tax_ids") == 1
     assert ("res.company", "auto_detect_settings") in experio["calls"]
     assert result["message"] == (
-        "Facture 3 : detection automatique des parametres du dossier lancee, 3 taxe(s) créée(s) : plus rien ne bloque "
+        "Facture 3 : détection automatique des paramètres du dossier lancée, 3 taxe(s) créée(s) : plus rien ne bloque "
         "la comptabilisation."
     )
     experio["before"], experio["calls"] = [], []
@@ -70,7 +70,7 @@ def test_what_still_blocks_stops_the_invoice_the_dossier_s_settings_apart_from_t
     result = configuration.configure_cabinet(3)
     assert result["status"] == "stop"
     assert result["message"].endswith(
-        "Pas comptabilisable en l'état. A regler par le cabinet dans la Configuration du dossier : The configuration "
+        "Pas comptabilisable en l'état. À régler par le cabinet dans la Configuration du dossier : The configuration "
         "of local supplier journal is not defined. Sur la facture elle-même, Experio signale : Le montant TTC de la "
         "facture doit être strictement positif."
     )
@@ -95,7 +95,7 @@ def test_an_amount_the_invoice_carries_turns_its_switch_on_with_its_account(expe
     assert "retenue de garantie active(s) dans le dossier" in result["message"]
     # no 6149 account for the prorata, no 6167 for the stamp: the cabinet's, named
     assert result["message"].endswith(
-        "A regler par le cabinet dans la Configuration du dossier : prorata : compte à choisir ; "
+        "À régler par le cabinet dans la Configuration du dossier : prorata : compte à choisir ; "
         "timbre : compte à choisir."
     )
     experio["calls"].clear()

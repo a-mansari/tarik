@@ -33,7 +33,7 @@ def through(invoice_id, tiers, account):
         ),
         ("check_duplicate", "ok", f"Facture {invoice_id} : pas de doublon dans le dossier.", True),
         ("assign_account", "ok", f"Facture {invoice_id} : compte {account} (compte memorise pour ce tiers).", False),
-        ("settle_tva", "ok", f"Facture {invoice_id} : TVA recuperable. Lignes : 1000.0 HT a 20.0 % (TVA 20%).", True),
+        ("settle_tva", "ok", f"Facture {invoice_id} : TVA recuperable. Lignes : 1000.0 HT à 20.0 % (TVA 20%).", True),
         ("check_journal", "ok", f"Facture {invoice_id} : journal Achats.", True),
         ("settle_withholding", "ok", f"Facture {invoice_id} : sans retenue a la source.", True),
         ("settle_prepaid", "ok", f"Facture {invoice_id} : pas de periode sur plusieurs mois, rien a repartir.", True),
@@ -65,7 +65,7 @@ def outcomes():
         ),
     ]
     special = through(28, "SHELL MAROC", "6142 Voyages et deplacements")
-    special[8] = ("settle_tva", "ok", "Facture 28 : TVA non recuperable. Lignes : 500.0 HT a 10.0 % (TVA 10%).", False)
+    special[8] = ("settle_tva", "ok", "Facture 28 : TVA non recuperable. Lignes : 500.0 HT à 10.0 % (TVA 10%).", False)
     special[12] = (
         "settle_exercice",
         "ok",

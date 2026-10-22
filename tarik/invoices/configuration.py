@@ -141,8 +141,8 @@ def configure_cabinet(invoice_id: int) -> dict:
         return routine(f"Facture {invoice_id} : le dossier a les parametres necessaires.")
     if dry_run():
         return ok(
-            f"{TEST_MODE}Facture {invoice_id} : Experio signale {' ; '.join(before)} La detection automatique des "
-            "parametres du dossier serait lancee."
+            f"{TEST_MODE}Facture {invoice_id} : Experio signale {' ; '.join(before)} La détection automatique des "
+            "paramètres du dossier serait lancée."
         )
     with refused(f"configure_cabinet {invoice_id}", f"Facture {invoice_id} : Experio a refusé le paramétrage."):
         taxes = tax_count(company_id)
@@ -157,7 +157,7 @@ def configure_cabinet(invoice_id: int) -> dict:
         if values and not save_settings(company_id, values, context):
             cabinet, names = [*names, *cabinet], []
         after = checked(invoice_id, context)
-    done = f"Facture {invoice_id} : detection automatique des parametres du dossier lancee"
+    done = f"Facture {invoice_id} : détection automatique des paramètres du dossier lancée"
     done += f", {made} taxe(s) créée(s)" if made else ""
     done += f", {', '.join(names)} active(s) dans le dossier" if names else ""
     settings = [text for level, text in after if level == "cgnc"]
@@ -167,7 +167,7 @@ def configure_cabinet(invoice_id: int) -> dict:
         return ok(f"{done} : plus rien ne bloque la comptabilisation.")
     told = []
     if settings:
-        told.append("A regler par le cabinet dans la Configuration du dossier : " + listed(settings))
+        told.append("À régler par le cabinet dans la Configuration du dossier : " + listed(settings))
     if refused_here:
         told.append("Sur la facture elle-même, Experio signale : " + listed(refused_here))
     return stop(f"{done}. Pas comptabilisable en l'état. " + " ".join(told))
