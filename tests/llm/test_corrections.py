@@ -56,7 +56,69 @@ def alone(said, corrections):
     return {"skill": "Traitement des documents", "messages": messages, "expected": expected, "said": said}
 
 
+def loaded(skill, call_id):
+    """The agent's load_skill of ``skill`` and its result: the skill's instructions as they are now, as the agent
+    shows them (engine.agent.current_skills)."""
+    from engine.agent import skills
+
+    instructions = next(text for name, _, text in skills() if name == skill)
+    return [
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": call_id, "name": "load_skill", "input": {"name": skill}}],
+        },
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": call_id, "content": instructions}]},
+    ]
+
+
+def resumed(said, corrections):
+    """The client corrects an invoice's account later in the thread, as in X3: both skills loaded on earlier turns,
+    its invoices answered and held as drafts, nothing waiting, the agent's very own start (no skill given)."""
+    given = {"dossier": "TEST FIRST EQUIPEMENT 2", "invoice_type": "achat", "comptabiliser": "oui"}
+    held = (
+        "**En attente**\n- Facture 272471 : importée et vérifiée, laissée en brouillon. Dites-moi quand la "
+        "comptabiliser.\n\n**À corriger**\n- Facture 272469 : Pas comptabilisable en l'état. Experio signale : la "
+        "somme du HT, TVA, debours... etc. doit être égale au montant TTC."
+    )
+    subject = "Objet : Trois factures\n\n"
+    messages = [
+        {
+            "role": "user",
+            "content": f"{subject}Voici trois factures d'achat. Dossier : TEST FIRST EQUIPEMENT 2. Une "
+            "fois vérifiées, comptabilisez-les.",
+        },
+        *loaded("Traitement des documents", "call_1"),
+        {
+            "role": "assistant",
+            "content": [{"type": "tool_use", "id": "call_2", "name": "Experio_traiter_fichiers", "input": given}],
+        },
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_2", "content": WAITING}]},
+        {"role": "assistant", "content": WAITING},
+        {"role": "user", "content": f"{subject}Exercice 2025 pour la 272471, comme facture antérieure."},
+        *loaded("Réponse à une question", "call_3"),
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "call_4",
+                    "name": "Experio_repondre",
+                    "input": {"decision": "Exercice 2025", "about": "272471"},
+                }
+            ],
+        },
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_4", "content": held}]},
+        {"role": "assistant", "content": held},
+        {"role": "user", "content": subject + said},
+    ]
+    expected = {"about": "", "corrections": corrections}
+    return {"skill": None, "messages": messages, "expected": expected, "said": said, "follow": True}
+
+
 CASES = [
+    # Later in the thread, nothing waiting and no skill loaded this turn (X3): still Experio_repondre's corrections.
+    resumed("Mettez la 272471 en compte 61330000, s'il vous plaît.", [("272471", "61330000")]),
+    resumed("Finalement la 272471 va en Entretien et réparations.", [("272471", "entretien")]),
     # Nothing waiting: a correction alone goes to Experio_repondre's corrections, never the processing tool's compte.
     alone("Et mettez la 272459 en compte 61330000, s'il vous plaît.", [("272459", "61330000")]),
     alone("Ce n'est pas du téléphone : mettez la 272459 en frais de péage.", [("272459", "peage")]),

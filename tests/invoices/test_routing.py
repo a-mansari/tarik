@@ -198,3 +198,19 @@ def test_drafts_taken_up_again_never_get_this_message_s_instructions():
         assert given["comptabiliser"] == "oui"  # « comptabilisez » is for them too
     assert sends[272471][0] == "assign_account" and sends[272471][1]["compte"] == "61330000"
     assert sends[272471][1]["confirmer"] is True
+
+
+def test_a_skill_loaded_on_an_earlier_turn_is_shown_as_it_is_now(monkeypatch):
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    from engine import agent
+
+    monkeypatch.setattr(agent, "skills", lambda: [("Traitement des documents", "", "now")])
+    called = AIMessage(
+        "", tool_calls=[{"id": "c1", "name": "load_skill", "args": {"name": "Traitement des documents"}}]
+    )
+    other = ToolMessage("Facture 272471 : en attente", tool_call_id="c2")
+    messages = [HumanMessage("Voici"), called, ToolMessage("then", tool_call_id="c1"), other]
+    shown = agent.current_skills(messages)
+    assert [m.content for m in shown] == ["Voici", "", "now", "Facture 272471 : en attente"]
+    assert messages[2].content == "then"  # the conversation itself is left as it was

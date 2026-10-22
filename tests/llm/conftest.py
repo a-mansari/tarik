@@ -72,25 +72,29 @@ def ask():
 
 @pytest.fixture(scope="session")
 def decide(ask):
-    """decide(skill, messages) -> the first tool call the model makes ({"name", "input"}), or None."""
+    """decide(skill, messages) -> the first tool call the model makes ({"name", "input"}), or None. ``follow``: a
+    load_skill is followed as the agent does, the call made with that skill loaded is the one returned."""
 
-    def call(skill, messages):
+    def call(skill, messages, follow=False):
         content = ask(skill, messages)[0]["content"]
-        return next((block for block in content if block["type"] == "tool_use"), None)
+        first = next((block for block in content if block["type"] == "tool_use"), None)
+        if follow and first and first["name"] == "load_skill":
+            return call(first["input"].get("name"), messages)
+        return first
 
     return call
 
 
 @pytest.fixture(scope="session")
 def measure(decide):
-    """measure(cases, judge): each case ({skill, messages, expected, said}) run REPEAT times, judged by
-    ``judge(call, expected)`` as "right", "asked again" (no decision: the client is asked again) or "wrong" (a
+    """measure(cases, judge): each case ({skill, messages, expected, said, follow?: see decide}) run REPEAT times,
+    judged by ``judge(call, expected)`` as "right", "asked again" (no decision: the client is asked again) or "wrong" (a
     decision the client did not make). Prints the cases missed and returns (accuracy, wrong rate, misses)."""
 
     def run(cases, judge):
         runs = [case for case in cases for _ in range(REPEAT)]
         with ThreadPoolExecutor(max_workers=3) as pool:
-            calls = list(pool.map(lambda case: decide(case["skill"], case["messages"]), runs))
+            calls = list(pool.map(lambda case: decide(case["skill"], case["messages"], case.get("follow")), runs))
         verdicts = [(case, call, judge(call, case["expected"])) for case, call in zip(runs, calls, strict=True)]
         misses = [(case["said"], case["expected"], call and call["input"], verdict) for case, call, verdict in verdicts]
         misses = [miss for miss in misses if miss[3] != "right"]

@@ -12,6 +12,7 @@ import re
 from typing import TypedDict
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import wrap_model_call
 from langchain.tools import ToolRuntime, tool
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
@@ -347,6 +348,30 @@ def load_skill(name: str) -> str:
     return "Compétence inconnue : " + ", ".join(skill_name for skill_name, _, _ in skills())
 
 
+def current_skills(messages):
+    """``messages`` with each skill loaded on an earlier turn as it is now: its load_skill result stays in the
+    conversation as the skill was then, and would hold over an edit made since (corrections sent to the processing
+    tool in thread X3, 2026-10-22)."""
+    loaded = {
+        call["id"]: call["args"].get("name", "")
+        for m in messages
+        for call in getattr(m, "tool_calls", None) or []
+        if call["name"] == "load_skill"
+    }
+    return [
+        m.model_copy(update={"content": load_skill.func(loaded[m.tool_call_id])})
+        if getattr(m, "tool_call_id", None) in loaded
+        else m
+        for m in messages
+    ]
+
+
+@wrap_model_call
+async def skills_now(request, handler):
+    """The agent's middleware: the model sees the skills loaded earlier as they are now (current_skills)."""
+    return await handler(request.override(messages=current_skills(request.messages)))
+
+
 def system_prompt():
     listed = "\n".join(f"- « {name} » : {description}" for name, description, _ in skills())
     rules = f"<built_in_rules>\n- {UNTRUSTED_RULE}\n</built_in_rules>"  # first: they hold over everything after
@@ -384,5 +409,5 @@ def make_agent(config=None, chat=None):
         system_prompt=system_prompt(),
         name=f"Tarik - {cabinet_of(config)}",
         checkpointer=CHECKPOINTER,
-        middleware=[prompts.logged],  # each model call's prompt saved (Prompts page)
+        middleware=[skills_now, prompts.logged],  # each model call's prompt saved (Prompts page), as the model saw it
     )
