@@ -278,12 +278,17 @@ def test_an_invoice_stays_a_verified_draft_until_the_client_says_to_post_it(db_c
     assert pipeline.waiting_drafts("s")["invoices"] == []  # a stop is not resumed...
     assert pipeline.waiting_drafts("s", held=True)["invoices"] == [7]  # ...unless they now ask to post
     assert pipeline.waiting_drafts("other", held=True)["invoices"] == []  # another conversation needs the dossier
-    # ...in any conversation, for the dossier: only its drafts
-    assert pipeline.waiting_drafts("other", held=True, dossier_id=5)["invoices"] == [7]
+    assert pipeline.waiting_drafts("other", held=True, dossier_id=5)["invoices"] == []  # ...and to ask for it
+    # ...in any conversation, when they ask for the whole dossier: only its drafts
+    assert pipeline.waiting_drafts(
+        "other", held=True, dossier_id=5, client_message="Comptabilisez toutes les factures du dossier."
+    )["invoices"] == [7]
     assert ("company_id", "in", [5]) in searched[-1]
     assert pipeline.hold_posting(7, "s", "oui")["status"] == "ok"
     assert pipeline.hold_posting(7, "s")["status"] == "ok"  # kept for the runs resumed after a question
-    nothing = pipeline.waiting_drafts("other", held=True, dossier_id=5)
+    nothing = pipeline.waiting_drafts(
+        "other", held=True, dossier_id=5, client_message="Comptabilisez toutes les factures du dossier."
+    )
     assert nothing["invoices"] == [] and nothing["status"] == "stop"  # nothing left to post, and they are told
     assert pipeline.hold_posting(7, "s", "non")["status"] == "stop"  # taken back
 
@@ -308,7 +313,9 @@ def test_stopped_drafts_are_resumed_only_when_the_client_asks(db_cabinet, monkey
         pipeline.record_step("r", session, step, {"status": status, "message": "m", "invoice_id": invoice_id})
     assert pipeline.waiting_drafts("s")["invoices"] == []  # a follow-up never retries a stop
     assert pipeline.waiting_drafts("s", stopped=True)["invoices"] == [1]  # this conversation's, asked for
-    assert pipeline.waiting_drafts("new", stopped=True, dossier_id=5)["invoices"] == [1, 4]  # the dossier's
+    assert pipeline.waiting_drafts("new", stopped=True, dossier_id=5)["invoices"] == []  # others': only if asked
+    reprenez = "Reprenez toutes les factures du dossier."
+    assert pipeline.waiting_drafts("new", stopped=True, dossier_id=5, client_message=reprenez)["invoices"] == [1, 4]
     assert ("company_id", "in", [5]) in searched[-1]
     assert pipeline.waiting_drafts("new", stopped=True)["invoices"] == []  # no dossier: nothing from elsewhere
 
@@ -317,10 +324,16 @@ def test_stopped_drafts_are_resumed_only_when_the_client_asks(db_cabinet, monkey
 def test_a_draft_tarik_posted_and_experio_shows_as_draft_again_is_posted_again(db_cabinet, monkeypatch):
     """Experio decides what is a draft: an invoice Tarik posted, put back to draft in Experio since, is posted when
     the client asks, from any conversation, for its dossier only."""
-    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain, **kw: domain[0][2])  # all drafts
+    # All still drafts; the dossier's drafts listed when nothing is to be posted: none.
+    monkeypatch.setattr(
+        pipeline, "odoo_call", lambda model, method, domain, **kw: [] if method == "search_read" else domain[0][2]
+    )
     for step in ("hold_posting", "post_invoice"):
         pipeline.record_step("r", "earlier", step, {"status": "ok", "message": "m", "invoice_id": 9})
-    assert pipeline.waiting_drafts("new", held=True, dossier_id=5)["invoices"] == [9]
+    assert pipeline.waiting_drafts("new", held=True, dossier_id=5)["invoices"] == []  # not asked for
+    assert pipeline.waiting_drafts(
+        "new", held=True, dossier_id=5, client_message="Comptabilisez toutes les factures du dossier."
+    )["invoices"] == [9]
     assert pipeline.waiting_drafts("new", held=True)["invoices"] == []  # without a dossier: never another's
 
 
@@ -369,9 +382,38 @@ def test_a_draft_another_conversation_is_working_on_is_said_in_progress(db_cabin
 @pytest.mark.functionality
 def test_posting_takes_the_conversations_own_held_drafts_first(db_cabinet, monkeypatch):
     """ "Comptabilisez-la" in a thread is about that thread's invoice: the dossier's drafts held in other
-    conversations are taken only when this one holds none."""
-    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain, **kw: domain[0][2])  # all drafts
+    conversations are taken only when the client asks for the whole dossier, or names them."""
+    # All still drafts; the dossier's drafts listed when nothing is to be posted: none.
+    monkeypatch.setattr(
+        pipeline, "odoo_call", lambda model, method, domain, **kw: [] if method == "search_read" else domain[0][2]
+    )
     pipeline.hold_posting(7, "this")
     pipeline.hold_posting(8, "another")
     assert pipeline.waiting_drafts("this", held=True, dossier_id=5)["invoices"] == [7]
-    assert pipeline.waiting_drafts("new", held=True, dossier_id=5)["invoices"] == [7, 8]
+    assert pipeline.waiting_drafts("new", held=True, dossier_id=5)["invoices"] == []
+    told = pipeline.waiting_drafts("new", held=True, dossier_id=5)["message"]
+    assert "2 brouillon(s) d'autres conversations attendent" in told and "toutes les factures du dossier" in told
+    assert pipeline.waiting_drafts(
+        "new", held=True, dossier_id=5, client_message="Comptabilisez toutes les factures du dossier."
+    )["invoices"] == [7, 8]
+
+
+@pytest.mark.security
+def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them(db_cabinet, monkeypatch):
+    drafts = {7: ("F-77", [1, "MIDAS - 4411M005"]), 8: ("AB-2026-12", [2, "EXELENTIA INTERNATIONAL TRANS"])}
+
+    def odoo_call(model, method, domain, **kw):
+        if method == "search_read" and domain[0][0] == "id":
+            return [{"id": i, "invoice_number": drafts[i][0], "partner_id": drafts[i][1]} for i in domain[0][2]]
+        return [] if method == "search_read" else domain[0][2]  # nothing to post: the dossier's drafts, none
+
+    monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
+    pipeline.hold_posting(7, "another")
+    pipeline.hold_posting(8, "another")
+    for said, taken in [
+        ("Comptabilisez la facture MIDAS.", [7]),
+        ("Comptabilisez la AB-2026-12 et la F-77.", [7, 8]),
+        ("Comptabilisez toutes les factures de Midas.", [7]),  # filtered: a supplier's, not the whole dossier
+        ("Comptabilisez-la.", []),  # this thread's: none held here
+    ]:
+        assert pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message=said)["invoices"] == taken, said

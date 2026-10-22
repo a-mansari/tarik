@@ -316,6 +316,7 @@ async def waiting(state: Run):
         stopped=call.get("mode") != "resume",
         run_id=state["run_id"],
         invoice_type=call.get("invoice_type") or "",
+        client_message=call.get("client_message") or "",
     )
     return {"invoices": result.get("invoices", []), "outcomes": [result]}
 

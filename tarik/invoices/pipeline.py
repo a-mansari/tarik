@@ -3,6 +3,7 @@ Experio's reading, recording each step's outcome, pending questions and the clie
 
 import base64
 import json
+import re
 import time
 
 from tarik.core.app import ok, question, routine, step_tool, stop, tool, wait
@@ -12,7 +13,7 @@ from tarik.core.config import ENTRY_FILES, FILE_TYPES, READ_WAIT, READING, TEST_
 from tarik.core.conversation import chosen_among, client_messages, own_words, yes_no
 from tarik.core.experio import odoo_call, require_invoice
 from tarik.core.queries import Q
-from tarik.core.words import normalized
+from tarik.core.words import normalized, said
 from tarik.dossiers.people import check_sender
 from tarik.dossiers.setup import ask_banks, set_journal_bank
 from tarik.invoices.accounts import set_account
@@ -538,14 +539,16 @@ def waiting_drafts(
     stopped: bool = False,
     run_id: str = "",
     invoice_type: str = "",
+    client_message: str = "",
 ) -> dict:
     """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
     waiting on Experio (still reading) or failed (an Experio or model timeout), or nothing was recorded for it (a
     run cut short: the server restarted). Every later step runs again; a question or a stop is not resumed here,
     except what the client asks for. ``held``: the drafts they asked to leave unposted (they now ask to post).
     ``stopped``: the drafts a fixable setting stopped (FIXABLE_STOPS: the cabinet has fixed it since, they ask to
-    resume). Both also reach the dossier ``dossier_id``'s drafts from any conversation, since the client may ask in
-    a new email thread; never an automatic follow-up's. A draft deleted or posted in Experio since is left alone.
+    resume). Both reach the dossier ``dossier_id``'s drafts from other conversations only when the client's own
+    words (``client_message``) ask for the whole dossier or name those drafts (asked_among); never an automatic
+    follow-up's. A draft deleted or posted in Experio since is left alone.
     Experio decides what is a draft: with ``held`` and a dossier, a draft Tarik posted that was put back to draft in
     Experio since is posted again. When they ask to post and nothing is to be, the answer says why (a stop).
     ``run_id``: the run taking them up, which claims them: a draft another run is still working on is left to it.
@@ -573,17 +576,23 @@ def waiting_drafts(
     waiting = [i for i, (step, status) in mine.items() if resumable(step, status, stopped, sided)]
     # shortcut: a draft of a run still going also has no outcome yet; one conversation runs one at a time
     waiting += [invoice_id for (invoice_id,) in drafts if invoice_id not in mine]
+    # The conversation's own held drafts, always; the dossier's from other conversations (stopped by a setting, held,
+    # or posted and put back to draft since) only when the client asks for them: the whole dossier, or by name.
+    waiting += [invoice_id for invoice_id, owner in kept if owner == session_id]
+    others = set()
     if dossier_id and stopped:
-        found = furthest_outcomes(elsewhere).items()
-        waiting += [i for i, (step, status) in found if resumable(step, status, True)]
-    # The conversation's own held drafts; the dossier's from other conversations only when it has none ("postez-la"
-    # in a thread is about that thread's invoice, never every invoice held in the dossier).
-    own = [invoice_id for invoice_id, owner in kept if owner == session_id]
-    waiting += own
-    if not own and dossier_id:
-        waiting += [invoice_id for invoice_id, owner in kept if owner != session_id]
+        others |= {i for i, (step, status) in furthest_outcomes(elsewhere).items() if resumable(step, status, True)}
+    if dossier_id and held:
+        others |= {invoice_id for invoice_id, owner in kept if owner != session_id}
         # Posted by Tarik, still a draft in Experio only when someone put it back (the domain below keeps the drafts).
-        waiting += [i for i, outcome in furthest_outcomes(reposted).items() if outcome == ("post_invoice", "ok")]
+        others |= {i for i, outcome in furthest_outcomes(reposted).items() if outcome == ("post_invoice", "ok")}
+    others -= set(waiting) | set(mine)
+    if others:  # still drafts of this dossier, whatever conversation (or dossier) left them
+        domain = [("id", "in", sorted(others)), ("state", "in", ["pending", "draft"]), ("company_id", "=", dossier_id)]
+        others = set(odoo_call("exp.invoice", "search", domain))
+    asked = asked_among(others, dossier_id, client_message) if others else []
+    waiting += asked
+    elsewhere_left = len(others) - len(asked)
     if waiting:
         domain = [("id", "in", sorted(set(waiting))), ("state", "in", ["pending", "draft"])]
         # What came from any conversation is limited to this dossier's.
@@ -593,9 +602,50 @@ def waiting_drafts(
     if waiting and run_id:
         with cabinet_db() as db:
             waiting = sorted(i for (i,) in db.execute(Q.claim_invoices, (waiting, run_id)).fetchall())
+    hint = (
+        f" {elsewhere_left} brouillon(s) d'autres conversations attendent dans ce dossier : écrivez "
+        f"« {WHOLE_EXAMPLE} », ou nommez-les (numéro de facture ou fournisseur), pour les reprendre aussi."
+        if elsewhere_left and not waiting
+        else ""
+    )
     if held and not waiting:
-        return stop(nothing_to_post(session_id, dossier_id), invoices=[])
+        return stop(nothing_to_post(session_id, dossier_id) + hint, invoices=[])
+    if hint:
+        return ok("Rien à reprendre dans cette conversation." + hint, invoices=[], tell=True)
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
+
+
+# How a client asks for every draft of the dossier, whatever conversation left it (normalized words).
+WHOLE = re.compile(
+    r"(?<![a-z])(?:tout le dossier|(?:toutes|tous) (?:les|ses) (?:factures|brouillons)(?! (?:de|du|d) )"
+    r"|toutes celles du dossier|l ensemble (?:des factures|des brouillons|du dossier)"
+    r"|(?:factures|brouillons) du dossier)(?![a-z])"
+)
+WHOLE_EXAMPLE = "comptabilisez toutes les factures du dossier"
+
+
+def asked_among(ids, dossier_id, client_message):
+    """Of the dossier's drafts ``ids`` other conversations left, those the client's own words ask for: all of them
+    (« toutes les factures du dossier »), else those they name by Tarik's draft number, their invoice number or
+    their supplier; none otherwise. Never a model's reading: what was left elsewhere is the client's call."""
+    words = normalized(own_words(client_message))
+    if not words:
+        return []
+    if WHOLE.search(words):
+        return sorted(ids)
+    drafts = odoo_call(
+        "exp.invoice",
+        "search_read",
+        [("id", "in", sorted(ids)), ("company_id", "=", dossier_id)],
+        fields=["invoice_number", "partner_id"],
+    )
+    named = []
+    for draft in drafts:
+        names = [str(draft["id"]), normalized(draft["invoice_number"] or "")]
+        names.append(normalized(draft["partner_id"][1].split(" - ")[0]) if draft["partner_id"] else "")
+        if any(len(name) >= 3 and said(name, words) for name in names):
+            named.append(draft["id"])
+    return sorted(named)
 
 
 def nothing_to_post(session_id, dossier_id):
