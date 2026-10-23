@@ -6,9 +6,9 @@ import threading
 import httpx
 import pytest
 
-from tarik.core import experio
-from tarik.core.app import ToolError
-from tarik.core.experio import expected_uid, require_dossier, require_invoice
+from engine.tools.core import experio
+from engine.tools.core.app import ToolError
+from engine.tools.core.experio import expected_uid, require_dossier, require_invoice
 
 
 @pytest.mark.security
@@ -35,7 +35,7 @@ def test_tarik_user_id_is_locked():
 
 @pytest.mark.security
 def test_seeing_what_experio_would_fill_saves_nothing(db_cabinet, monkeypatch):
-    from tarik.core import experio
+    from engine.tools.core import experio
 
     written = []
 

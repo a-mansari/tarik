@@ -2,7 +2,7 @@
 
 import pytest
 
-from tarik.invoices import classify
+from engine.tools.invoices import classify
 
 
 @pytest.fixture

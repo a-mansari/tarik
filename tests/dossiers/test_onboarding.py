@@ -6,11 +6,11 @@ from datetime import datetime
 import openpyxl
 import pytest
 
-from tarik.core.app import ToolError
-from tarik.core.cabinets import cabinet_db
-from tarik.dossiers import identity
-from tarik.dossiers.identity import ICE_WRITTEN, IF_WRITTEN, as_written, client_wrote, confirmed
-from tarik.dossiers.setup import entries_kind, file_text, sheet_text
+from engine.tools.core.app import ToolError
+from engine.tools.core.cabinets import cabinet_db
+from engine.tools.dossiers import identity
+from engine.tools.dossiers.identity import ICE_WRITTEN, IF_WRITTEN, as_written, client_wrote, confirmed
+from engine.tools.dossiers.setup import entries_kind, file_text, sheet_text
 
 HEAD = "JournalCode;JournalLib;EcritureNum;EcritureDate;CompteNum;CompteLib;EcritureLib;Debit;Credit"
 

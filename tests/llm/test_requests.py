@@ -5,7 +5,7 @@ searched for « TEST », then read « dossier HTML » as a web folder and refuse
 
 import pytest
 
-from tarik.core.words import normalized
+from engine.tools.core.words import normalized
 
 MIN_RIGHT, MAX_WRONG = 0.9, 0.05
 

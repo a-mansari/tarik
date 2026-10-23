@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.core.config import TIERS_MIN_SIMILARITY
-from tarik.core.words import similarity
+from engine.tools.core.config import TIERS_MIN_SIMILARITY
+from engine.tools.core.words import similarity
 
 TIERS = [
     {"id": 7, "name": "ATLAS DE ROULEMENT - 12345678"},
@@ -32,7 +32,7 @@ CHOICES = {"7": "ATLAS DE ROULEMENT", "8": "ATLAS TRANSPORT"}  # as record_step 
 @pytest.fixture
 def chosen(monkeypatch):
     """choose_tiers on invoice 4 of dossier 778 (TIERS): the tiers it links, else its question."""
-    from tarik.invoices import tiers
+    from engine.tools.invoices import tiers
 
     invoice = {"id": 4, "company_id": [778, "D"], "type": "purchase", "partner_id": False}
     monkeypatch.setattr(tiers, "require_draft_invoice", lambda invoice_id, fields, what, read: invoice)
@@ -58,7 +58,7 @@ def test_the_agent_chooses_among_the_tiers_proposed_only(chosen):
 
 @pytest.mark.functionality
 def test_a_proposed_tiers_is_named_by_its_id_or_its_name():
-    from tarik.core.conversation import chosen_among
+    from engine.tools.core.conversation import chosen_among
 
     assert chosen_among("7", CHOICES) == chosen_among("id 7", CHOICES) == chosen_among("n° 7", CHOICES) == 7
     assert chosen_among("atlas transport", CHOICES) == 8  # its name as proposed
@@ -80,7 +80,7 @@ def test_another_tiers_the_client_names_is_searched_or_linked_by_its_ice(chosen)
     "autofill, said", [(True, "serait créé par Experio"), (False, "le cabinet les attribue lui-même")]
 )
 def test_test_mode_creates_no_wizard_in_experio(monkeypatch, autofill, said):
-    from tarik.invoices import tiers
+    from engine.tools.invoices import tiers
 
     def odoo_call(model, method, *args, **kw):
         assert method == "read", f"test mode wrote to Experio: {model}.{method}"
@@ -98,7 +98,7 @@ def test_test_mode_creates_no_wizard_in_experio(monkeypatch, autofill, said):
 @pytest.fixture
 def scanned(monkeypatch):
     """link_tiers on a purchase whose scan names a supplier Experio did not find: what Experio is asked."""
-    from tarik.invoices import tiers
+    from engine.tools.invoices import tiers
 
     invoice = {
         "id": 4,
@@ -133,7 +133,7 @@ def scanned(monkeypatch):
 
 @pytest.mark.functionality
 def test_a_tiers_nothing_resembles_is_created_from_the_scan(scanned):
-    from tarik.invoices import tiers
+    from engine.tools.invoices import tiers
 
     invoice, calls = scanned
     result = tiers.link_tiers(4)
@@ -161,7 +161,7 @@ def test_a_tiers_the_registry_does_not_know_is_asked_about_then_created_unchecke
 ):
     import xmlrpc.client
 
-    from tarik.invoices import tiers
+    from engine.tools.invoices import tiers
 
     invoice, calls = scanned
     invoice.update({"supplier_name": "mIDAS", "detected_supplier_ice": "003401052000041"})
@@ -189,8 +189,8 @@ def test_a_tiers_the_registry_does_not_know_is_asked_about_then_created_unchecke
 def test_why_experio_refused_a_tiers_is_said(scanned, monkeypatch):
     import xmlrpc.client
 
-    from tarik.core.app import ToolError
-    from tarik.invoices import tiers
+    from engine.tools.core.app import ToolError
+    from engine.tools.invoices import tiers
 
     def odoo_call(model, method, values, **kw):
         raise xmlrpc.client.Fault(2, "Le nom du tiers est obligatoire")
@@ -202,7 +202,7 @@ def test_why_experio_refused_a_tiers_is_said(scanned, monkeypatch):
 
 @pytest.mark.security
 def test_test_mode_creates_no_tiers(scanned, monkeypatch):
-    from tarik.invoices import tiers
+    from engine.tools.invoices import tiers
 
     invoice, calls = scanned
     monkeypatch.setattr(tiers, "dry_run", lambda: True)
@@ -211,7 +211,7 @@ def test_test_mode_creates_no_tiers(scanned, monkeypatch):
 
 @pytest.mark.functionality
 def test_a_supplier_only_the_check_read_proposes_the_closest_tiers_never_creates(scanned, monkeypatch):
-    from tarik.invoices import tiers
+    from engine.tools.invoices import tiers
 
     invoice, calls = scanned
     invoice["supplier_name"] = False  # Experio's reading left it empty (invoice 272383)
@@ -242,7 +242,7 @@ def test_a_supplier_only_the_check_read_proposes_the_closest_tiers_never_creates
     ],
 )
 def test_only_a_tiers_of_the_very_same_name_is_linked_and_the_client_told(scanned, monkeypatch, tiers_found, linked):
-    from tarik.invoices import tiers
+    from engine.tools.invoices import tiers
 
     invoice, calls = scanned
     found = [*tiers_found, {"id": 9, "name": "BETA SERVICES SARL"}]
@@ -258,7 +258,7 @@ def test_only_a_tiers_of_the_very_same_name_is_linked_and_the_client_told(scanne
 
 @pytest.mark.security
 def test_a_tiers_already_set_is_kept_over_the_one_detected(scanned, monkeypatch):
-    from tarik.invoices import tiers
+    from engine.tools.invoices import tiers
 
     invoice, calls = scanned
     invoice.update(partner_id=[5, "SET BY HAND"], detected_supplier_id=[6, "DETECTED"])

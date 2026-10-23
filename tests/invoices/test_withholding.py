@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.invoices import withholding
-from tarik.invoices.withholding import described, local_withholding_answer, withholding_answer
+from engine.tools.invoices import withholding
+from engine.tools.invoices.withholding import described, local_withholding_answer, withholding_answer
 
 
 @pytest.fixture

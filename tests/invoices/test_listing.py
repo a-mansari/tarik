@@ -2,9 +2,9 @@
 
 import pytest
 
-from tarik.core.app import ToolError
-from tarik.invoices import listing
-from tarik.invoices.listing import label
+from engine.tools.core.app import ToolError
+from engine.tools.invoices import listing
+from engine.tools.invoices.listing import label
 
 
 @pytest.mark.functionality
@@ -52,7 +52,7 @@ def test_each_invoice_has_one_status():
 
 @pytest.mark.communication
 def test_amounts_have_two_decimals():
-    from tarik.invoices.listing import amount
+    from engine.tools.invoices.listing import amount
 
     assert amount(999.9960000000001) == "1 000.00"
     assert amount(12000) == "12 000.00" and amount(85.72) == "85.72" and amount(None) == "0.00"

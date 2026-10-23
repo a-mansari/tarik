@@ -3,7 +3,7 @@
 import pytest
 
 from engine import mail as watcher
-from tarik.core import cabinets
+from engine.tools.core import cabinets
 
 
 @pytest.fixture

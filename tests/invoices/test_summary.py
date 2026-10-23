@@ -3,7 +3,7 @@ sections the client reads in order (Fait, En attente, Doublons, À corriger, Que
 
 import pytest
 
-from tarik.invoices.pipeline import record_step, run_summary
+from engine.tools.invoices.pipeline import record_step, run_summary
 from tests import runs
 
 
@@ -12,7 +12,7 @@ def test_the_same_failure_on_two_invoices_names_each_one(db_cabinet):
     for invoice_id in (
         11,
         12,
-    ):  # what engine.tools.step records for a failed step: its error, with the invoice it was given
+    ):  # what engine.calls.step records for a failed step: its error, with the invoice it was given
         record_step(
             "r",
             "s",
@@ -97,7 +97,7 @@ def test_a_twin_stopped_before_its_tiers_is_a_duplicate_too(db_cabinet):
 
 @pytest.mark.communication
 def test_drafts_waiting_in_other_conversations_are_said_under_en_attente_with_the_client_s_verb(db_cabinet):
-    from tarik.invoices.pipeline import whole_example
+    from engine.tools.invoices.pipeline import whole_example
 
     told = "Rien à reprendre dans cette conversation. 3 brouillon(s) d'autres conversations attendent dans ce dossier."
     record_step("r", "s", "waiting_drafts", {"status": "ok", "message": told, "tell": True})

@@ -3,8 +3,8 @@ journal asked and set, and an onboarding that waits for the files until the clie
 
 import pytest
 
-from tarik.dossiers import setup
-from tarik.dossiers.setup import bank_named, file_kind
+from engine.tools.dossiers import setup
+from engine.tools.dossiers.setup import bank_named, file_kind
 
 BANKS = [
     {"id": 3, "name": "CREDIT IMMOBILIER ET HOTELIER (CIH)"},

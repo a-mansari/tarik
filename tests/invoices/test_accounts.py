@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.invoices import accounts
-from tarik.invoices.accounts import account_meant, resolve_account
+from engine.tools.invoices import accounts
+from engine.tools.invoices.accounts import account_meant, resolve_account
 
 CHART = [
     {"id": 1, "code": "61110000", "name": "Achats de marchandises"},

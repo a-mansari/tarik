@@ -1,4 +1,4 @@
-"""The agent's model through the Claude Code CLI (tarik/core/claude_code.py): a LangChain chat model whose tool
+"""The agent's model through the Claude Code CLI (engine/tools/core/claude_code.py): a LangChain chat model whose tool
 calls the CLI writes as structured output, its own tools off, so LangGraph still runs every tool, keeps the
 conversation and logs each call as it does for the API. The conversation goes in as one message, its turns written
 out, its images and PDFs kept as content blocks."""
@@ -12,8 +12,8 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 
-from tarik.core import claude_code
-from tarik.core.cabinets import using
+from engine.tools.core import claude_code
+from engine.tools.core.cabinets import using
 
 PROTOCOL = """
 

@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.core import conversation
-from tarik.invoices import tva
+from engine.tools.core import conversation
+from engine.tools.invoices import tva
 
 
 @pytest.fixture

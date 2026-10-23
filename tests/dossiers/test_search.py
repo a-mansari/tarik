@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.core.config import MIN_SIMILARITY
-from tarik.core.words import similarity
+from engine.tools.core.config import MIN_SIMILARITY
+from engine.tools.core.words import similarity
 
 DOSSIERS = [
     "STE ALLIANCE GENIE CIVIL SARL",
@@ -38,7 +38,7 @@ def test_unrelated_names_stay_below_the_threshold():
 @pytest.fixture
 def resolve(monkeypatch):
     """resolve_dossier over the fictional DOSSIERS, with Experio's listing replaced."""
-    from tarik.dossiers import search
+    from engine.tools.dossiers import search
 
     monkeypatch.setattr(
         search, "dossiers_or_none", lambda step: [{"id": i, "name": n} for i, n in enumerate(DOSSIERS, 1)]
@@ -66,8 +66,8 @@ def test_a_name_that_is_not_one_dossier_asks_the_client_and_gives_no_id(resolve)
 
 @pytest.mark.technical
 def test_experio_not_giving_the_dossiers_is_an_error_not_a_guess(monkeypatch):
-    from tarik.core.app import ToolError
-    from tarik.dossiers import search
+    from engine.tools.core.app import ToolError
+    from engine.tools.dossiers import search
 
     monkeypatch.setattr(search, "dossiers_or_none", lambda step: None)
     with pytest.raises(ToolError, match="liste des dossiers"):
@@ -83,7 +83,7 @@ def test_the_only_close_dossier_is_taken_and_the_client_told_which(resolve):
 
 @pytest.mark.communication
 def test_dossiers_are_counted_by_state_their_names_only_when_asked(monkeypatch):
-    from tarik.dossiers import search
+    from engine.tools.dossiers import search
 
     groups = [{"state": "active", "state_count": 339}, {"state": "archived", "state_count": 11}]
     monkeypatch.setattr(search, "odoo_call", lambda *args, **kw: groups)

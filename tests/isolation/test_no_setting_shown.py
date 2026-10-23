@@ -9,10 +9,10 @@ from xmlrpc.server import SimpleXMLRPCRequestHandler, SimpleXMLRPCServer
 
 import pytest
 
+from engine.tools.core import experio
+from engine.tools.core.app import TOOLS
+from engine.tools.core.cabinets import POSTGRES, cabinet_db, using
 from shared import A, call_text
-from tarik.core import experio
-from tarik.core.app import TOOLS
-from tarik.core.cabinets import POSTGRES, cabinet_db, using
 
 LEAKS = {  # a marker in every setting: none may show in anything a tool returns
     "ODOO_USER": "leak-odoo-user",

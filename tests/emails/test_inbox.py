@@ -4,7 +4,7 @@ from email.message import EmailMessage
 
 import pytest
 
-from tarik.emails.inbox import attachments, automatic, client_text, without_signature
+from engine.tools.emails.inbox import attachments, automatic, client_text, without_signature
 
 
 @pytest.mark.functionality

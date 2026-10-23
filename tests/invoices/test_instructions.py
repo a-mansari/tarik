@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.core.conversation import files_of, handed, instructed, own_words
-from tarik.invoices import accounts, correct
+from engine.tools.core.conversation import files_of, handed, instructed, own_words
+from engine.tools.invoices import accounts, correct
 
 
 @pytest.mark.security
@@ -48,7 +48,7 @@ def test_the_account_the_client_named_goes_on_the_invoice_first(monkeypatch):
 
 @pytest.mark.functionality
 def test_an_account_correction_made_in_an_earlier_message_is_applied(monkeypatch, db_cabinet):
-    from tarik.core.conversation import remember_client_message
+    from engine.tools.core.conversation import remember_client_message
 
     applied = []
     monkeypatch.setattr(

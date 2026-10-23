@@ -6,8 +6,8 @@ from email.message import EmailMessage
 
 import pytest
 
-from tarik.core.cabinets import cabinet_db
-from tarik.emails import inbox
+from engine.tools.core.cabinets import cabinet_db
+from engine.tools.emails import inbox
 
 CHEF, COLLEAGUE, OUTSIDER = "chef@cabinet.ma", "comptable@cabinet.ma", "x@gmail.com"
 
@@ -291,7 +291,7 @@ def test_what_an_emailed_zip_left_out_is_told_in_the_reply(mailbox):
     import io
     import zipfile
 
-    from tarik.core.conversation import left_out
+    from engine.tools.core.conversation import left_out
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
@@ -311,7 +311,7 @@ def test_what_an_emailed_zip_left_out_is_told_in_the_reply(mailbox):
 
 @pytest.mark.communication
 def test_the_client_never_reads_the_agent_s_question_marks():
-    from tarik.core.conversation import for_client
+    from engine.tools.core.conversation import for_client
 
     reply = "**Questions**\n1. QUESTION : Facture 12 : la TVA est-elle non récupérable ? oui / non"
     assert for_client(reply) == "**Questions**\n1. Facture 12 : la TVA est-elle non récupérable ? oui / non"
@@ -319,7 +319,7 @@ def test_the_client_never_reads_the_agent_s_question_marks():
 
 @pytest.mark.communication
 def test_an_answer_is_quoted_back_without_its_email_subject():
-    from tarik.core.conversation import without_subject
+    from engine.tools.core.conversation import without_subject
 
     assert without_subject("Objet : Facture fournisseur\n\n6142 Voyages.") == "6142 Voyages."
     assert without_subject("6142 Voyages.") == "6142 Voyages."

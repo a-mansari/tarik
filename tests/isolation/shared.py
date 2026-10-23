@@ -1,13 +1,13 @@
 """What the cabinet isolation tests share besides their fixtures (conftest.py): the two throwaway cabinets' names,
-the files a conversation saves, and one tool call as the graphs make it (engine/tools.py)."""
+the files a conversation saves, and one tool call as the graphs make it (engine/calls.py)."""
 
 import asyncio
 import base64
 import time
 
-from engine.tools import ToolFailure, call
-from tarik.core.app import TOOLS, tool
-from tarik.core.cabinets import current
+from engine.calls import ToolFailure, call
+from engine.tools.core.app import TOOLS, tool
+from engine.tools.core.cabinets import current
 from tests import testdb
 
 A, B = testdb.schema("a"), testdb.schema("b")  # in the test database, named for this run

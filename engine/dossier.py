@@ -8,8 +8,8 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from engine.tools import failed, ok_or_summary, run_step, sender_checked, started, summary
-from tarik.dossiers.identity import EDITABLE
+from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, summary
+from engine.tools.dossiers.identity import EDITABLE
 
 INPUTS = [
     "mode",

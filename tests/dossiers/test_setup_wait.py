@@ -3,8 +3,8 @@ time allows, else left waiting for a follow-up; a refused import never leaves it
 
 import pytest
 
-from tarik.core.cabinets import cabinet_db
-from tarik.dossiers import setup
+from engine.tools.core.cabinets import cabinet_db
+from engine.tools.dossiers import setup
 
 
 @pytest.fixture
