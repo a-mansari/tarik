@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from ui.pages import asked
+from app.pages.runs import asked
 
 
 def test_a_workflow_s_inputs_read_in_plain_words():
@@ -42,13 +42,13 @@ def picked(cookie, path="/ui/executions"):
 
 
 def test_the_pages_show_the_cabinet_picked_else_the_first(monkeypatch):
-    from ui import pages
+    from app import pages
 
-    monkeypatch.setattr(pages, "CABINETS", {"cab_b", "cab_a"})
-    monkeypatch.setattr(pages, "display_name", lambda cabinet: {"cab_a": "Cabinet A"}.get(cabinet, ""))
-    assert pages.chosen(picked("cab_b")) == "cab_b"
-    assert pages.chosen(picked("cab_gone")) == "cab_a" and pages.chosen(picked(None)) == "cab_a"
-    shown = pages.sidebar(picked("cab_b", "/ui/discussion/chat-1"))
+    monkeypatch.setattr(pages.runs, "CABINETS", {"cab_b", "cab_a"})
+    monkeypatch.setattr(pages.runs, "display_name", lambda cabinet: {"cab_a": "Cabinet A"}.get(cabinet, ""))
+    assert pages.runs.chosen(picked("cab_b")) == "cab_b"
+    assert pages.runs.chosen(picked("cab_gone")) == "cab_a" and pages.runs.chosen(picked(None)) == "cab_a"
+    shown = pages.runs.sidebar(picked("cab_b", "/ui/discussion/chat-1"))
     assert [(c["name"], c["display"], c["chosen"]) for c in shown] == [
         ("cab_a", "Cabinet A", False),
         ("cab_b", "", True),
@@ -60,16 +60,16 @@ def test_picking_a_cabinet_keeps_it(monkeypatch):
 
     from starlette.requests import Request
 
-    from ui import pages
+    from app import pages
 
-    monkeypatch.setattr(pages, "CABINETS", {"cab_a"})
+    monkeypatch.setattr(pages.runs, "CABINETS", {"cab_a"})
 
     def pick(cabinet):
         async def receive():
             return {"type": "http.request", "body": json.dumps({"cabinet": cabinet}).encode()}
 
         scope = {"type": "http", "method": "POST", "path": "/ui/api/cabinet", "headers": [], "query_string": b""}
-        return asyncio.run(pages.choose(Request(scope, receive)))
+        return asyncio.run(pages.runs.choose(Request(scope, receive)))
 
     answer = pick("cab_a")
     assert answer.status_code == 200 and "tarik_cabinet=cab_a" in answer.headers["set-cookie"]
@@ -123,24 +123,24 @@ def answered(handler, path_params=None, query=b"", cookie=None):
 
 
 def test_the_runs_list_gives_each_run_its_time_as_read(monkeypatch):
-    from ui import pages
+    from app import pages
 
     async def recent(cabinet, graph, limit):
         return [{"run_id": "r1", "graph": "agent", "started": "2026-10-20T09:33:22+00:00", "depth": 0}]
 
-    monkeypatch.setattr(pages, "CABINETS", {"cab_a"})
-    monkeypatch.setattr(pages.runs, "recent", recent)
-    status, shown = answered(pages.runs_page, cookie="cab_a")
+    monkeypatch.setattr(pages.runs, "CABINETS", {"cab_a"})
+    monkeypatch.setattr(pages.runs.runs, "recent", recent)
+    status, shown = answered(pages.runs.runs_page, cookie="cab_a")
     assert (
         status == 200
         and shown["cabinet"] == "cab_a"
-        and shown["runs"][0]["when"] == pages.runs.when("2026-10-20T09:33:22+00:00")
+        and shown["runs"][0]["when"] == pages.runs.runs.when("2026-10-20T09:33:22+00:00")
     )
 
 
 @pytest.mark.security
 def test_a_run_s_conversation_reaches_the_page_only_as_the_server_s_markdown(monkeypatch):
-    from ui import pages
+    from app import pages
 
     async def run(run_id):
         if run_id != "r1":
@@ -161,13 +161,13 @@ def test_a_run_s_conversation_reaches_the_page_only_as_the_server_s_markdown(mon
             "steps": [],
         }
 
-    monkeypatch.setattr(pages.runs, "run", run)
-    assert answered(pages.run_page, {"run_id": "gone"})[0] == 404
-    status, shown = answered(pages.run_page, {"run_id": "r1"})
+    monkeypatch.setattr(pages.runs.runs, "run", run)
+    assert answered(pages.runs.run_page, {"run_id": "gone"})[0] == 404
+    status, shown = answered(pages.runs.run_page, {"run_id": "r1"})
     client, tarik = shown["conversation"]
     assert (
         status == 200
-        and shown["run"]["when"] == pages.runs.when("2026-10-20T09:33:22+00:00")
+        and shown["run"]["when"] == pages.runs.runs.when("2026-10-20T09:33:22+00:00")
         and shown["prompts"] == []
     )
     assert "<script>" not in client["text_html"] and "<strong>bonjour</strong>" in client["text_html"]
@@ -176,7 +176,7 @@ def test_a_run_s_conversation_reaches_the_page_only_as_the_server_s_markdown(mon
 
 @pytest.mark.security
 def test_a_conversation_s_model_calls_are_only_the_chosen_cabinet_s(monkeypatch):
-    from ui import pages
+    from app import pages
 
     asked = []
 
@@ -184,9 +184,11 @@ def test_a_conversation_s_model_calls_are_only_the_chosen_cabinet_s(monkeypatch)
         asked.append(cabinet)
         return []
 
-    monkeypatch.setattr(pages, "CABINETS", set())
-    monkeypatch.setattr(pages.prompts, "calls", calls)
-    assert answered(pages.prompt_calls_page, {"session_id": "s"}, cookie="cab_a")[0] == 404  # no cabinet served
-    monkeypatch.setattr(pages, "CABINETS", {"cab_a"})
-    assert answered(pages.prompt_calls_page, {"session_id": "s"}, cookie="cab_other")[0] == 404  # none of its calls
+    monkeypatch.setattr(pages.runs, "CABINETS", set())
+    monkeypatch.setattr(pages.runs.prompts, "calls", calls)
+    assert answered(pages.runs.prompt_calls_page, {"session_id": "s"}, cookie="cab_a")[0] == 404  # no cabinet served
+    monkeypatch.setattr(pages.runs, "CABINETS", {"cab_a"})
+    assert (
+        answered(pages.runs.prompt_calls_page, {"session_id": "s"}, cookie="cab_other")[0] == 404
+    )  # none of its calls
     assert asked == ["cab_a"]  # the cabinet served, never the cookie's name as is

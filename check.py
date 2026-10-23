@@ -12,11 +12,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app import audit
+from app.pages.runs import HIDDEN
 from engine import agent, chat, content, dossier, graphs, traitement
 from engine.content import AGENT, LABELS
 from engine.tools import TOOLS
 from tarik.invoices.pipeline import INVOICE_CHAIN
-from ui.pages import HIDDEN
 
 ENGINE = Path(__file__).parent / "engine"
 TOOL_ARGUMENT = {"step": 3, "run_step": 1, "call": 1, "run_tool": 1}  # where each caller takes the tool's name

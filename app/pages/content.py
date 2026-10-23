@@ -9,8 +9,8 @@ from datetime import UTC, datetime
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from app.pages.runs import graph_name, page
 from engine import content, runs
-from ui.pages import graph_name, page
 
 SEP = "|"  # a JSON field's path in a form: keys joined
 

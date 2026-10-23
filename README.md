@@ -54,13 +54,13 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 | `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
 | `app/api.py` | The Experio app's API: cabinets created, changed or deactivated, served at once (guide: `docs/experio-api.md`). |
 | `docs/tests.md` | Every test by category, and how to add a client situation to the live model tests. |
-| `app/cabinet_settings.py`, `ui/settings_pages.py` | Each cabinet's own settings, read and changed on the Cabinets page, written to Vault with its own AppRole, each change kept. |
-| `app/accounts.py`, `app/users.py` | The team's accounts (scrypt hashes), their role (admin or member) and sessions; made on the Comptes page (`ui/accounts_pages.py`, a one-time link to set the password) or by `app/users.py`. |
+| `app/cabinet_settings.py`, `app/pages/settings.py` | Each cabinet's own settings, read and changed on the Cabinets page, written to Vault with its own AppRole, each change kept. |
+| `app/accounts.py`, `app/users.py` | The team's accounts (scrypt hashes), their role (admin or member) and sessions; made on the Comptes page (`app/pages/accounts.py`, a one-time link to set the password) or by `app/users.py`. |
 | `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
 | `engine/traitement.py`, `dossier.py`, `emails.py`, `chat.py` | The workflows, as graphs (`chat.py`: the Discussions page's, and the asking shared with email threads). |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
 | `app/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
-| `ui/` | The team's pages' data (French), as JSON under `/ui/api/`: `pages.py`, `content_pages.py` (Contenu), `chat_pages.py` (Discussion), the settings, accounts and logs. |
+| `app/pages/` | The team's pages' data (French), as JSON under `/ui/api/`: `runs.py` (runs, workflows, LLM calls), `chat.py` (Discussion), `content.py` (Tarik prompts), `settings.py`, `accounts.py`, `journal.py`. |
 | `web/` | The team's pages: a Vue 3 app (Vite, vue-router; the canvas with Cytoscape.js and dagre, MIT), built into `web/dist` (`cd web && npm ci && npm run build`), served by the server under `/ui/`. |
 | `tests/` | The tools' and the isolation tests (`python -m pytest`; the real model's with `-m llm`). |
 | `check.py` | Every tool a graph calls exists; every step drawn is described. |

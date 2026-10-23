@@ -6,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from app import accounts, audit
-from ui.pages import page
+from app.pages.runs import page
 
 
 async def form_of(request, most=10):

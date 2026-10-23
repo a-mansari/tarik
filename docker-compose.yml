@@ -29,7 +29,6 @@ services:
       - ./engine:/app/engine
       - ./tarik:/app/tarik
       - ./sql:/app/sql
-      - ./ui:/app/ui
       - ./web/dist:/app/web/dist # the pages, built on this machine: cd web && npm run build
       - ./tests:/app/tests
       - ./pytest.ini:/app/pytest.ini

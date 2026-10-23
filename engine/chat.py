@@ -1,8 +1,8 @@
-"""The Discussion page's conversations with Tarik (ui/chat): each message a run of the "Discussion" workflow, the
-cabinet's agent answering in the conversation's own thread. Its files are saved in the cabinet's schema before the
-run (save_files), as the mail watcher saves an email's: the run's input names them, never holds them. As in n8n's
-chat, whoever writes is the team (logged in to these pages): no sender to check. Also the agent's asking for the
-email threads (engine/emails.py)."""
+"""The Discussion page's conversations with Tarik (app/pages/chat.py): each message a run of the "Discussion" workflow,
+the cabinet's agent answering in the conversation's own thread. Its files are saved in the cabinet's schema before
+the run (save_files), as the mail watcher saves an email's: the run's input names them, never holds them. As in
+n8n's chat, whoever writes is the team (logged in to these pages): no sender to check. Also the agent's asking for
+the email threads (engine/emails.py)."""
 
 import time
 from typing import TypedDict
