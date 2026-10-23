@@ -119,7 +119,7 @@ LISTED = [
 @pytest.fixture
 def comptes(monkeypatch):
     """The Comptes page's handler over accounts in memory: an invitation's token is "abc"; the audit kept aside."""
-    from ui import accounts_pages
+    from app import pages
 
     recorded = []
 
@@ -140,8 +140,8 @@ def comptes(monkeypatch):
     monkeypatch.setattr(accounts, "listed", listed)
     monkeypatch.setattr(accounts, "invite", invite)
     monkeypatch.setattr(accounts, "set_role", set_role)
-    monkeypatch.setattr(accounts_pages.audit, "record", record)
-    return accounts_pages.accounts_page, recorded
+    monkeypatch.setattr(pages.accounts.audit, "record", record)
+    return pages.accounts.accounts_page, recorded
 
 
 def test_the_comptes_page_lists_each_account_and_shows_a_new_link_once(comptes):
@@ -167,7 +167,7 @@ def test_a_refused_action_is_answered_with_its_reason(comptes):
 
 @pytest.mark.security
 def test_an_invitation_s_page_takes_the_password_twice_from_its_own_site_only(monkeypatch):
-    from ui import accounts_pages
+    from app import pages
 
     accepted = []
 
@@ -183,8 +183,8 @@ def test_an_invitation_s_page_takes_the_password_twice_from_its_own_site_only(mo
 
     monkeypatch.setattr(accounts, "invited", invited)
     monkeypatch.setattr(accounts, "accept", accept)
-    monkeypatch.setattr(accounts_pages.audit, "record", record)
-    handler = accounts_pages.invitation_page
+    monkeypatch.setattr(pages.accounts.audit, "record", record)
+    handler = pages.accounts.invitation_page
     assert asked(handler, path_params={"token": "old"}) == (404, {"gone": True})
     status, data = asked(handler, path_params={"token": "abc"})
     assert status == 200 and data["found"] == {"email": "b@experio.ma", "name": "B"} and data["min"] == 12
@@ -218,8 +218,7 @@ def test_the_journal_keeps_who_did_what_latest_first_and_filters_it(monkeypatch)
 def test_the_journal_page_sends_each_entry_with_its_time_and_the_filters(monkeypatch):
     from datetime import UTC, datetime
 
-    from app import audit
-    from ui import journal_pages
+    from app import audit, pages
 
     at = datetime(2026, 10, 20, 18, 0, tzinfo=UTC)
     entries = [
@@ -240,12 +239,12 @@ def test_the_journal_page_sends_each_entry_with_its_time_and_the_filters(monkeyp
         return entries, ["a@experio.ma", "x@ailleurs.ma"]
 
     monkeypatch.setattr(audit, "listed", listed)
-    status, data = asked(journal_pages.journal_page, query=b"action=settings_saved&actor=a%40experio.ma&before=9")
+    status, data = asked(pages.journal.journal_page, query=b"action=settings_saved&actor=a%40experio.ma&before=9")
     assert status == 200 and asked_for == [("settings_saved", "a@experio.ma", 9, 100)]
     assert data["entries"][0]["at"].startswith("20/10 ") and data["entries"][0]["detail"]["note"] == "passage en réel"
     assert data["action"] == "settings_saved" and data["actor"] == "a@experio.ma" and data["older"] is None
     assert ["settings_saved", audit_words("settings_saved")] in data["actions"]
-    asked(journal_pages.journal_page, query=b"action=nope&before=x")
+    asked(pages.journal.journal_page, query=b"action=nope&before=x")
     assert asked_for[-1] == (None, None, None, 100)  # an unknown action or a page not a number: not taken
 
 

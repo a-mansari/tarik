@@ -15,7 +15,7 @@ its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) sta
   GET|PUT|DELETE /graphs/{graph}/layout   how the team arranged its canvas (node places, edge bends and style)
   /api/cabinets...                the Experio app's API (app/api.py): cabinets created, changed, closed
   GET  /ui/live                   the pages' live updates (server-sent events, engine/live.py)
-  GET  /ui/api/...                each page's data, as JSON (ui/*_pages.py): the runs, each run step by step, the
+  GET  /ui/api/...                each page's data, as JSON (app/pages/): the runs, each run step by step, the
                                   Discussion (its messages sent with POST), the content, the settings, the accounts
   GET  /ui/..., /login            the team's pages: the Vue app built from web/ (web/dist), the same for each address
 
@@ -42,13 +42,12 @@ from starlette.responses import JSONResponse, RedirectResponse, StreamingRespons
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from app import accounts, api, audit, layouts
+from app import accounts, api, audit, layouts, pages
 from engine import agent, content, graphs, live, mail, prompts, runs
 from tarik.core import gladden
 from tarik.core.cabinets import CABINETS, VAULT_ENABLED, create_schemas, misplaced_in_vault, using, vault_settings
 from tarik.core.config import POSTGRES
 from tarik.core.experio import account
-from ui import accounts_pages, chat_pages, content_pages, journal_pages, pages, settings_pages
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = make_conninfo(**POSTGRES)  # the tools' own Postgres settings
@@ -126,9 +125,9 @@ def same_origin(request):
 
 def return_to(request):
     """The page asked for (?next=), one of these pages; else HOME: never sent to another site."""
-    target = request.query_params.get("next") or pages.HOME
+    target = request.query_params.get("next") or pages.runs.HOME
     if not target.startswith("/") or target.startswith(("//", "/\\")) or "\\" in target:  # « /\x » is « //x »
-        return pages.HOME
+        return pages.runs.HOME
     return target
 
 
@@ -269,7 +268,7 @@ async def layout(request: Request):
 async def prompt(request: Request):
     """One model call's whole prompt, of the cabinet picked in the sidebar (the UI opens it when asked: it holds the
     clients' words)."""
-    cabinet = pages.chosen(request)
+    cabinet = pages.runs.chosen(request)
     found = await prompts.prompt(cabinet, int(request.path_params["call_id"])) if cabinet else None
     if found is None:
         return JSONResponse({"error": "unknown call"}, status_code=404)
@@ -305,7 +304,7 @@ async def lifespan(app):
     await runs.end_cut_off()
     await content.setup(runs.pool)
     mail.start(asyncio.get_running_loop())
-    threading.Thread(target=pages.warm_names, daemon=True).start()  # the sidebar's names, read off the first pages
+    threading.Thread(target=pages.runs.warm_names, daemon=True).start()  # the sidebar's names, read off the first pages
     async with AsyncPostgresSaver.from_conn_string(f"{DATABASE} options='-c search_path={runs.SCHEMA}'") as saver:
         await saver.setup()
         agent.CHECKPOINTER = saver
@@ -322,8 +321,8 @@ app = Starlette(
         Route("/api/cabinets/{name}", api.one, methods=["GET", "PATCH", "DELETE"]),
         Route("/ui/api/login", login, methods=["POST"]),
         Route("/ui/api/logout", logout, methods=["POST"]),
-        Route("/ui/api/me", pages.me),
-        Route("/ui/api/cabinet", pages.choose, methods=["POST"]),
+        Route("/ui/api/me", pages.runs.me),
+        Route("/ui/api/cabinet", pages.runs.choose, methods=["POST"]),
         Route("/runs", listing),
         Route("/runs/{graph}", start, methods=["POST"]),
         Route("/runs/{run_id}", one),
@@ -331,32 +330,32 @@ app = Starlette(
         Route("/graphs/{graph}", graph_shape),
         Route("/graphs/{graph}/layout", layout, methods=["GET", "PUT", "DELETE"]),
         Route("/prompts/{call_id:int}", prompt),
-        Route("/ui/api/llm-calls", pages.prompts_page),
-        Route("/ui/api/llm-calls/{session_id}", pages.prompt_calls_page),
-        Route("/ui/api/invitation/{token}", accounts_pages.invitation_page, methods=["GET", "POST"]),
-        Route("/ui/api/comptes", accounts_pages.accounts_page, methods=["GET", "POST"]),
-        Route("/ui/api/logs-serveur", journal_pages.journal_page),
+        Route("/ui/api/llm-calls", pages.runs.prompts_page),
+        Route("/ui/api/llm-calls/{session_id}", pages.runs.prompt_calls_page),
+        Route("/ui/api/invitation/{token}", pages.accounts.invitation_page, methods=["GET", "POST"]),
+        Route("/ui/api/comptes", pages.accounts.accounts_page, methods=["GET", "POST"]),
+        Route("/ui/api/logs-serveur", pages.journal.journal_page),
         Route("/ui/live", changes),
-        Route("/ui/api/settings", settings_pages.cabinet_page, methods=["GET", "POST"]),
-        Route("/ui/api/tarik-prompts", content_pages.contents_page),
-        Route("/ui/api/tarik-prompts-export", content_pages.export_contents),
-        Route("/ui/api/tarik-prompts-import", content_pages.import_contents, methods=["POST"]),
-        Route("/ui/api/tarik-prompts/{path:path}", content_pages.content_page, methods=["GET", "POST"]),
-        Route("/ui/api/discussion", chat_pages.chat_page),
-        Route("/ui/api/discussion/{session_id}", chat_pages.conversation_page),
-        Route("/ui/api/discussion/{session_id}", chat_pages.send, methods=["POST"]),
-        Route("/ui/api/discussion/{session_id}/fichier", chat_pages.download),
-        Route("/ui/api/workflows", pages.workflows_page),
-        Route("/ui/api/workflows/{graph}", pages.workflow_page),
-        Route("/ui/api/accueil", chat_pages.dashboard_page),
-        Route("/ui/api/executions", pages.runs_page),
-        Route("/ui/api/executions/{run_id}", pages.run_page),
-        Mount("/ui/assets", StaticFiles(directory=pages.WEB / "assets", check_dir=False), name="assets"),
-        Route("/", pages.home),
-        Route("/login", pages.shell),
-        Route("/invitation/{token}", pages.shell),
-        Route("/ui", pages.shell),
-        Route("/ui/{rest:path}", pages.shell),
+        Route("/ui/api/settings", pages.settings.cabinet_page, methods=["GET", "POST"]),
+        Route("/ui/api/tarik-prompts", pages.content.contents_page),
+        Route("/ui/api/tarik-prompts-export", pages.content.export_contents),
+        Route("/ui/api/tarik-prompts-import", pages.content.import_contents, methods=["POST"]),
+        Route("/ui/api/tarik-prompts/{path:path}", pages.content.content_page, methods=["GET", "POST"]),
+        Route("/ui/api/discussion", pages.chat.chat_page),
+        Route("/ui/api/discussion/{session_id}", pages.chat.conversation_page),
+        Route("/ui/api/discussion/{session_id}", pages.chat.send, methods=["POST"]),
+        Route("/ui/api/discussion/{session_id}/fichier", pages.chat.download),
+        Route("/ui/api/workflows", pages.runs.workflows_page),
+        Route("/ui/api/workflows/{graph}", pages.runs.workflow_page),
+        Route("/ui/api/accueil", pages.chat.dashboard_page),
+        Route("/ui/api/executions", pages.runs.runs_page),
+        Route("/ui/api/executions/{run_id}", pages.runs.run_page),
+        Mount("/ui/assets", StaticFiles(directory=pages.runs.WEB / "assets", check_dir=False), name="assets"),
+        Route("/", pages.runs.home),
+        Route("/login", pages.runs.shell),
+        Route("/invitation/{token}", pages.runs.shell),
+        Route("/ui", pages.runs.shell),
+        Route("/ui/{rest:path}", pages.runs.shell),
     ],
     middleware=[Middleware(Guard)],
     lifespan=lifespan,

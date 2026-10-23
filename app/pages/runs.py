@@ -19,7 +19,7 @@ from tarik.core.queries import Q
 from tarik.emails.sending import cabinet_name
 
 HERE = Path(__file__).parent
-WEB = HERE.parent / "web" / "dist"  # the pages, built (web/: npm run build)
+WEB = HERE.parents[1] / "web" / "dist"  # the pages, built (web/: npm run build)
 
 
 def page(context, status_code=200):

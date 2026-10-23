@@ -145,9 +145,9 @@ def asked(handler, method="GET", body=None, path_params=None):
 @pytest.fixture
 def settings_page(vault, monkeypatch):
     """The Réglages page's handler over the fake Vault, its cabinet cabinet_a, a secret's change in its history."""
-    from ui import settings_pages
+    from app import pages
 
-    monkeypatch.setattr(settings_pages, "chosen", lambda request: "cabinet_a")
+    monkeypatch.setattr(pages.settings, "chosen", lambda request: "cabinet_a")
     monkeypatch.setattr(cabinet_settings.model, "chosen_adapter", lambda cabinet: "minimax")
     vault_data = {**BEFORE, "IMAP_PASSWORD": "mailbox-secret"}
     monkeypatch.setattr(
@@ -167,8 +167,8 @@ def settings_page(vault, monkeypatch):
         ]
 
     monkeypatch.setattr(cabinet_settings, "history", history)
-    monkeypatch.setattr(settings_pages.runs, "pool", Pool())
-    return settings_pages.cabinet_page
+    monkeypatch.setattr(pages.settings.runs, "pool", Pool())
+    return pages.settings.cabinet_page
 
 
 @pytest.mark.security

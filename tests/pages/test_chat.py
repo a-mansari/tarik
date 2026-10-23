@@ -8,9 +8,9 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from starlette.requests import Request
 
+from app import pages
 from engine.chat import REMINDER
 from tarik.core.conversation import FILES_NOTE
-from ui import chat_pages, pages
 
 SESSION = "chat-" + "0" * 32
 
@@ -28,7 +28,7 @@ def sent(payload, cabinet="cabinet_a", session=SESSION, shown=None):
         "headers": [(b"content-length", str(len(body)).encode()), (b"cookie", f"tarik_cabinet={cabinet}".encode())],
         "path_params": {"session_id": session},
     }
-    answer = asyncio.run(chat_pages.send(Request(scope, receive)))
+    answer = asyncio.run(pages.chat.send(Request(scope, receive)))
     return answer.status_code, json.loads(answer.body).get("error", "")
 
 
@@ -38,16 +38,16 @@ def pdf(name="facture.pdf", data=b"%PDF-1.4"):
 
 @pytest.fixture(autouse=True)
 def one_cabinet(monkeypatch):
-    monkeypatch.setattr(chat_pages, "CABINETS", frozenset({"cabinet_a"}))
-    monkeypatch.setattr(pages, "CABINETS", frozenset({"cabinet_a"}))
+    monkeypatch.setattr(pages.chat, "CABINETS", frozenset({"cabinet_a"}))
+    monkeypatch.setattr(pages.runs, "CABINETS", frozenset({"cabinet_a"}))
 
 
 def test_a_message_from_a_page_of_another_cabinet_than_the_one_picked_is_refused(monkeypatch):
     async def never(*args, **kwargs):
         raise AssertionError("nothing is saved or run in the cabinet picked since")
 
-    monkeypatch.setattr(chat_pages, "call", never)
-    monkeypatch.setattr(chat_pages.runs, "start", never)
+    monkeypatch.setattr(pages.chat, "call", never)
+    monkeypatch.setattr(pages.chat.runs, "start", never)
     status, error = sent({"message": "Bonjour"}, "cabinet_a", SESSION, shown="cabinet_b")
     assert status == 400 and "autre cabinet" in error
 
@@ -69,15 +69,15 @@ def test_a_wrong_message_is_refused_before_anything_is_done(payload, cabinet, se
     async def never(*args, **kwargs):
         raise AssertionError("nothing is saved or run for a refused message")
 
-    monkeypatch.setattr(chat_pages, "call", never)
-    monkeypatch.setattr(chat_pages.runs, "start", never)
+    monkeypatch.setattr(pages.chat, "call", never)
+    monkeypatch.setattr(pages.chat.runs, "start", never)
     status, error = sent(payload, cabinet, session)
     assert status == 400 and why in error
 
 
 @pytest.mark.communication
 def test_a_refusal_names_every_cap_exceeded_and_how_to_stay_under_it(monkeypatch):
-    monkeypatch.setattr(chat_pages, "MAX_FILE", chat_pages.MB)
+    monkeypatch.setattr(pages.chat, "MAX_FILE", pages.chat.MB)
     status, error = sent({"files": [pdf("gros.pdf", b"x" * 1_600_000), pdf("notes.docx")]}, "cabinet_a", SESSION)
     assert status == 400 and error.startswith("Rien n'a été envoyé :")
     assert "- gros.pdf : 1,5 Mo, 1 Mo au plus par fichier. Envoyez-le compressé" in error
@@ -85,20 +85,20 @@ def test_a_refusal_names_every_cap_exceeded_and_how_to_stay_under_it(monkeypatch
 
 
 def test_the_limits_listed_are_the_ones_checked():
-    shown = dict(chat_pages.LIMITS)
-    assert f"{chat_pages.MAX_FILES} fichiers au plus" in shown["Par message"]
-    assert f"{chat_pages.MAX_FILE // chat_pages.MB} Mo au plus" in shown["Par fichier"]
+    shown = dict(pages.chat.LIMITS)
+    assert f"{pages.chat.MAX_FILES} fichiers au plus" in shown["Par message"]
+    assert f"{pages.chat.MAX_FILE // pages.chat.MB} Mo au plus" in shown["Par fichier"]
     assert "ZIP" in shown["Types acceptés"] and "100 fichiers et 200 Mo" in shown["Archive ZIP"]
 
 
 def test_a_message_reads_as_written_with_its_files_and_reminders_left_out():
-    assert chat_pages.said(HumanMessage(f"Voici{FILES_NOTE}a.pdf, b.png")) == {
+    assert pages.chat.said(HumanMessage(f"Voici{FILES_NOTE}a.pdf, b.png")) == {
         "who": "Client",
         "text": "Voici",
         "files": ["a.pdf", "b.png"],
         "skipped": [],
     }
-    assert chat_pages.said(HumanMessage(f"Voici{FILES_NOTE}a.pdf{REMINDER}")) is None
+    assert pages.chat.said(HumanMessage(f"Voici{FILES_NOTE}a.pdf{REMINDER}")) is None
 
 
 def test_tarik_s_turn_shows_its_tools_as_they_run_then_its_reply(monkeypatch):
@@ -108,23 +108,23 @@ def test_tarik_s_turn_shows_its_tools_as_they_run_then_its_reply(monkeypatch):
 
     calls = [{"id": "1", "name": "Experio_find_dossier", "args": {}}, {"id": "2", "name": "Experio_list", "args": {}}]
     saved = [HumanMessage("Bonjour"), AIMessage("", tool_calls=calls), ToolMessage("ok", tool_call_id="1")]
-    monkeypatch.setattr(chat_pages.agent, "CHECKPOINTER", Memory())
-    turn = asyncio.run(chat_pages.messages("s"))[-1]
+    monkeypatch.setattr(pages.chat.agent, "CHECKPOINTER", Memory())
+    turn = asyncio.run(pages.chat.messages("s"))[-1]
     assert [tool["state"] for tool in turn["tools"]] == ["done", "running"] and not turn["text"]
     saved += [ToolMessage("non", tool_call_id="2", status="error"), AIMessage("**Fait.**")]
-    turn = asyncio.run(chat_pages.messages("s"))[-1]
+    turn = asyncio.run(pages.chat.messages("s"))[-1]
     assert [tool["state"] for tool in turn["tools"]] == ["done", "failed"] and turn["text"] == "**Fait.**"
 
 
 def test_a_reply_s_markdown_is_shown_without_its_html():
-    shown = pages.markdown("**Fait** <img src=x onerror=alert(1)> [x](javascript:alert(1))")
+    shown = pages.runs.markdown("**Fait** <img src=x onerror=alert(1)> [x](javascript:alert(1))")
     assert "<strong>Fait</strong>" in shown and "<img" not in shown and 'href="javascript' not in shown
 
 
 def test_a_conversation_reads_as_where_it_stands():
-    assert chat_pages.state("running", False) == "answering" and chat_pages.state("queued", True) == "answering"
-    assert chat_pages.state("error", True) == "failed"
-    assert chat_pages.state("done", True) == "waiting" and chat_pages.state("done", False) == "answered"
+    assert pages.chat.state("running", False) == "answering" and pages.chat.state("queued", True) == "answering"
+    assert pages.chat.state("error", True) == "failed"
+    assert pages.chat.state("done", True) == "waiting" and pages.chat.state("done", False) == "answered"
 
 
 @pytest.mark.parametrize(
@@ -136,18 +136,18 @@ def test_a_conversation_reads_as_where_it_stands():
     ],
 )
 def test_the_dashboard_shows_its_numbers_as_the_team_reads_them(metrics, shown, monkeypatch):
-    readable = chat_pages.readable(metrics)
+    readable = pages.chat.readable(metrics)
     assert [readable[key] for key in ("runs", "seconds", "failed", "conversations")] == shown
     assert readable["bad"] == bool(metrics["failed"])
 
     async def numbers(cabinet):
         return metrics
 
-    monkeypatch.setattr(chat_pages, "metrics_of", numbers)
+    monkeypatch.setattr(pages.chat, "metrics_of", numbers)
     scope = {"type": "http", "headers": [(b"cookie", b"tarik_cabinet=cabinet_a")]}
-    page = json.loads(asyncio.run(chat_pages.dashboard_page(Request(scope))).body)
+    page = json.loads(asyncio.run(pages.chat.dashboard_page(Request(scope))).body)
     assert page["cabinet"] == "cabinet_a" and page["metrics"] == readable
-    assert chat_pages.SESSION.fullmatch(page["new"]) and page["checks"]["max_files"] == chat_pages.MAX_FILES
+    assert pages.chat.SESSION.fullmatch(page["new"]) and page["checks"]["max_files"] == pages.chat.MAX_FILES
 
 
 def test_the_dashboard_s_numbers_are_read_once_per_change_for_every_viewer(monkeypatch):
@@ -175,15 +175,15 @@ def test_the_dashboard_s_numbers_are_read_once_per_change_for_every_viewer(monke
 
             return Db()
 
-    monkeypatch.setattr(chat_pages.runs, "pool", Pool())
-    monkeypatch.setattr(chat_pages, "NUMBERS", {})
+    monkeypatch.setattr(pages.chat.runs, "pool", Pool())
+    monkeypatch.setattr(pages.chat, "NUMBERS", {})
 
     async def check():
-        seen = [await chat_pages.metrics_of("cab_m") for _ in range(5)]  # five dashboards open on the cabinet
+        seen = [await pages.chat.metrics_of("cab_m") for _ in range(5)]  # five dashboards open on the cabinet
         assert len(asked) == 1 and all(numbers["runs"] == 1 for numbers in seen)
         live.touched("run-m", "cab_m", "chat-m")  # a run changes: the next look reads again, once
-        assert (await chat_pages.metrics_of("cab_m"))["runs"] == 2
-        assert (await chat_pages.metrics_of("cab_m"))["runs"] == 2 and len(asked) == 2
+        assert (await pages.chat.metrics_of("cab_m"))["runs"] == 2
+        assert (await pages.chat.metrics_of("cab_m"))["runs"] == 2 and len(asked) == 2
 
     asyncio.run(check())
 
@@ -192,13 +192,15 @@ def test_what_an_archive_left_out_shows_under_the_message():
     from tarik.core.conversation import handed
 
     text = handed("Voici", ["lot.zip › f.pdf"], ["lot.zip › notes.docx : type non pris en charge"])
-    shown = chat_pages.said(HumanMessage(text))
+    shown = pages.chat.said(HumanMessage(text))
     assert shown["text"] == "Voici" and shown["files"] == ["lot.zip › f.pdf"]
     assert shown["skipped"] == ["lot.zip › notes.docx : type non pris en charge"]
 
 
 def test_a_client_message_reads_as_markdown_with_its_html_and_unsafe_links_left_inert():
-    shown = str(pages.markdown("**urgent**\n- facture 12\n\n<script>alert(1)</script> [lien](javascript:alert(1))"))
+    shown = str(
+        pages.runs.markdown("**urgent**\n- facture 12\n\n<script>alert(1)</script> [lien](javascript:alert(1))")
+    )
     assert "<strong>urgent</strong>" in shown and "<li>facture 12</li>" in shown
     assert "<script>" not in shown and 'href="javascript:' not in shown
 
@@ -208,15 +210,15 @@ def test_a_conversation_s_words_reach_the_page_only_as_the_server_s_markdown(mon
         said = {"who": "Client", "text": "**urgent** <script>alert(1)</script>", "files": [], "skipped": []}
         return {"messages": [said, {"who": "Tarik", "tools": [], "text": ""}], "latest": None, "going": False}
 
-    monkeypatch.setattr(chat_pages, "talk", talk)
+    monkeypatch.setattr(pages.chat, "talk", talk)
     scope = {
         "type": "http",
         "headers": [(b"cookie", b"tarik_cabinet=cabinet_a")],
         "path_params": {"session_id": SESSION},
     }
-    page = json.loads(asyncio.run(chat_pages.conversation_page(Request(scope))).body)
+    page = json.loads(asyncio.run(pages.chat.conversation_page(Request(scope))).body)
     client, tarik = page["messages"]
     assert "<strong>urgent</strong>" in client["text_html"] and "<script>" not in client["text_html"]
     assert tarik["text_html"] == "" and page["written"] is True
     scope["path_params"] = {"session_id": "../etc"}
-    assert asyncio.run(chat_pages.conversation_page(Request(scope))).status_code == 404
+    assert asyncio.run(pages.chat.conversation_page(Request(scope))).status_code == 404
