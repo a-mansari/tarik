@@ -99,21 +99,23 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
     key = setting("MODEL_API_KEY", "")
     if not key:
         raise ToolError(f"{what} : le modele n'est pas encore configure.")
-    png = [{"type": "base64", "media_type": "image/png", "data": base64.b64encode(page).decode()} for page in pages]
-    images = [{"type": "image", "source": source} for source in png]
-    content = [*images, {"type": "text", "text": instruction}]
+    blocks = [*images_of(pages), {"type": "text", "text": instruction}]
     try:
+        body = {
+            "model": model_name(),
+            "max_tokens": 16384,  # the thinking included: M3 thinks as long as it needs, 1k to 8k tokens
+            "system": system,
+            "messages": [{"role": "user", "content": blocks}],
+        }
+        if think:
+            body["thinking"] = {"type": "adaptive"}
+        else:
+            body["temperature"] = 0
         answer = HTTP.post(
             setting("MODEL_API_URL", MODEL_URL).rstrip("/") + "/v1/messages",
             timeout=MODEL_TIMEOUT,
             headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
-            json={
-                "model": model_name(),
-                "max_tokens": 16384,  # the thinking included: M3 thinks as long as it needs, 1k to 8k tokens
-                "system": system,
-                "messages": [{"role": "user", "content": content}],
-                **({"thinking": {"type": "adaptive"}} if think else {"temperature": 0}),
-            },
+            json=body,
         )
         answer.raise_for_status()
         text = "".join(block.get("text", "") for block in answer.json()["content"])
@@ -131,16 +133,24 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
 
 def ask_claude_code(system, pages, instruction, what, keys):
     """ask_model through the Claude Code CLI (it does not think on demand: ``think`` has no use here)."""
-    png = [{"type": "base64", "media_type": "image/png", "data": base64.b64encode(page).decode()} for page in pages]
-    content = [*({"type": "image", "source": source} for source in png), {"type": "text", "text": instruction}]
+    blocks = [*images_of(pages), {"type": "text", "text": instruction}]
     try:
-        return json_answer(claude_code.ask(system, content), keys)
+        return json_answer(claude_code.ask(system, blocks), keys)
     except claude_code.ClaudeCodeError as error:
         log(f"{what}: {error}")
         raise ToolError(f"{what} : {READER} est indisponible ; reessayez dans quelques minutes.") from None
     except ValueError as error:
         log(f"{what}: {error!r}")
         raise ToolError(f"{what} : {READER} a donne une reponse illisible ; reessayez dans quelques minutes.") from None
+
+
+def images_of(pages):
+    """``pages`` (PNG bytes) as Anthropic image blocks, in order."""
+    images = []
+    for page in pages:
+        source = {"type": "base64", "media_type": "image/png", "data": base64.b64encode(page).decode()}
+        images.append({"type": "image", "source": source})
+    return images
 
 
 # Who failed, said to the client: Tarik's own reading service, not Experio, and not the file's reception.
@@ -175,8 +185,9 @@ def pdf_pages(raw, limit=MAX_PAGES, scale=SCALE):
     side at most MAX_SIDE pixels."""
     pages = []
     for page in list(pypdfium2.PdfDocument(raw))[:limit]:
+        fitting = min(scale, MAX_SIDE / max(page.get_size()))  # the longest side at most MAX_SIDE
         buffer = io.BytesIO()
-        page.render(scale=min(scale, MAX_SIDE / max(page.get_size()))).to_pil().save(buffer, format="PNG")
+        page.render(scale=fitting).to_pil().save(buffer, format="PNG")
         pages.append(buffer.getvalue())
     return pages
 

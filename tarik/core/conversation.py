@@ -16,8 +16,12 @@ SKIPPED_NOTE = "\n\nFichiers laissés de côté : "
 def handed(message, files, skipped=()):
     """The client's ``message``, the names of their ``files`` (list) and what an archive of theirs left out
     (``skipped``: tarik.core.archives' notes), as one text handed to the agent."""
-    text = (message or NO_TEXT) + (FILES_NOTE + ", ".join(files) if files else "")
-    return text + (SKIPPED_NOTE + " ; ".join(skipped) if skipped else "")
+    text = message or NO_TEXT
+    if files:
+        text += FILES_NOTE + ", ".join(files)
+    if skipped:
+        text += SKIPPED_NOTE + " ; ".join(skipped)
+    return text
 
 
 def left_out(skipped):
@@ -100,8 +104,10 @@ def chosen_among(decision, choices):
         decision = decision.removeprefix(prefix)
     if decision in choices:
         return int(decision)
-    named = [key for key, name in choices.items() if name == decision]
-    return int(named[0]) if len(named) == 1 else None
+    matches = [key for key, name in choices.items() if name == decision]
+    if len(matches) != 1:
+        return None
+    return int(matches[0])
 
 
 def instructed(value, client_message):

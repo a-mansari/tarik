@@ -104,17 +104,24 @@ def rpc(path):
     """Experio's XML-RPC endpoint ``path`` (a ServerProxy), every call given up after RPC_TIMEOUT seconds. One per
     thread and path, kept: a run makes hundreds of calls, each on the same connection instead of a new TLS one."""
     proxies = _proxies.__dict__.setdefault("by_path", {})
-    if (ODOO_URL, path) not in proxies:
-        base = xmlrpc.client.SafeTransport if ODOO_URL.startswith("https") else xmlrpc.client.Transport
+    endpoint = (ODOO_URL, path)
+    if endpoint not in proxies:
+        transport = _timed_transport()
+        proxies[endpoint] = xmlrpc.client.ServerProxy(f"{ODOO_URL}{path}", transport=transport, allow_none=True)
+    return proxies[endpoint]
 
-        class Timed(base):
-            def make_connection(self, host):
-                connection = super().make_connection(host)
-                connection.timeout = RPC_TIMEOUT
-                return connection
 
-        proxies[(ODOO_URL, path)] = xmlrpc.client.ServerProxy(f"{ODOO_URL}{path}", transport=Timed(), allow_none=True)
-    return proxies[(ODOO_URL, path)]
+def _timed_transport():
+    """An XML-RPC transport for ODOO_URL (HTTPS or not) whose connections give up after RPC_TIMEOUT seconds."""
+    base = xmlrpc.client.SafeTransport if ODOO_URL.startswith("https") else xmlrpc.client.Transport
+
+    class Timed(base):
+        def make_connection(self, host):
+            connection = super().make_connection(host)
+            connection.timeout = RPC_TIMEOUT
+            return connection
+
+    return Timed()
 
 
 def once_more_if_cut(read, label, call):
@@ -134,9 +141,8 @@ def login():
     database, expected, user, key = account()
     if _logins.get((ODOO_URL, database, user, key)) == expected:
         return expected
-    uid = once_more_if_cut(
-        True, "login", lambda: rpc("/xmlrpc/2/common").authenticate(database, user, key, {})
-    )  # checks the key, writes nothing
+    # Checks the key, writes nothing: a read.
+    uid = once_more_if_cut(True, "login", lambda: rpc("/xmlrpc/2/common").authenticate(database, user, key, {}))
     if not uid:
         raise PermissionError(f"login refused for {user} on {database}")
     if uid != expected:
@@ -241,7 +247,10 @@ def require_draft_invoice(invoice_id, fields, what="etre modifiee", read=False):
     unless Experio has finished reading it too (``fields`` then holds bluejay_state)."""
     invoice = require_invoice(invoice_id, fields)
     require_draft(invoice_id, invoice, what)
-    if read and (waiting := still_reading(invoice)):
+    if not read:
+        return invoice
+    waiting = still_reading(invoice)
+    if waiting:
         raise ToolError(waiting["message"])
     return invoice
 
@@ -272,7 +281,10 @@ def invoice_context(invoice):
 
 def account_code(invoice):
     """The code of ``invoice``'s account ("6136" of "6136 Honoraires"), "" without one."""
-    return (invoice["account_id"] or [0, ""])[1].split(" ")[0]
+    if not invoice["account_id"]:
+        return ""
+    name = invoice["account_id"][1]  # [id, "6136 Honoraires"]
+    return name.split(" ")[0]
 
 
 def refresh(invoice_id, context):
@@ -292,11 +304,14 @@ def misplaced_journals(company_id, fields):
     if ids:
         found = odoo_call("exp.journal", "search_read", [("id", "in", ids)], fields=["company_id"])
         owners = {journal["id"]: journal["company_id"][0] for journal in found}
-    return {
-        field: company[field] and company[field][1]
-        for field in fields
-        if not company[field] or owners.get(company[field][0]) != company_id
-    }
+    misplaced = {}
+    for field in fields:
+        journal = company[field]  # [id, name], or False when unset
+        if not journal:
+            misplaced[field] = journal
+        elif owners.get(journal[0]) != company_id:
+            misplaced[field] = journal[1]
+    return misplaced
 
 
 def checked(invoice_id, context):
@@ -331,16 +346,39 @@ def _form():
     form = _forms.setdefault(current(), {})
     if not form:
         meta = odoo_call("exp.invoice", "fields_get", [], attributes=["type", "store", "readonly"])
-        form["types"] = {
-            name: field["type"]
-            for name, field in meta.items()
-            if field.get("store")
-            and field["type"] not in FORM_SKIP
-            and not name.startswith("__")
-            and name not in TECHNICAL
-        }
+        form["types"] = {name: field["type"] for name, field in meta.items() if _sent_back(name, field)}
         form["editable"] = {name for name, field in meta.items() if not field.get("readonly")}
     return form
+
+
+def _sent_back(name, field):
+    """True when the form sends field ``name`` (its fields_get ``field``) back: stored, of a type it can send, and
+    neither technical nor internal (__...)."""
+    if not field.get("store") or field["type"] in FORM_SKIP:
+        return False
+    return not name.startswith("__") and name not in TECHNICAL
+
+
+def _form_values(invoice_id, types, context):
+    """The invoice's form values ({field: value}) for the fields in ``types``, as the form sends them back."""
+    record = odoo_call("exp.invoice", "read", [invoice_id], fields=list(types), context=context)[0]
+    values = {}
+    for name, value in record.items():
+        if name not in types:
+            continue
+        # A many2one reads as [id, name] and is written as its id.
+        values[name] = value[0] if types[name] == "many2one" and value else value
+    return values
+
+
+def _type_in(invoice_id, values, name, types, context):
+    """``values`` (the form's, ``name`` just typed in) updated with what Experio's onchange fills after it."""
+    spec = {field: {} for field in types}
+    answer = odoo_json("exp.invoice", "onchange", [invoice_id], values, [name], spec, context=context)
+    filled = (answer or {}).get("value") or {}
+    for key, new in filled.items():
+        if key in types:
+            values[key] = new.get("id") if isinstance(new, dict) else new
 
 
 def fill_invoice(invoice_id, changes, context, save=True):
@@ -350,21 +388,12 @@ def fill_invoice(invoice_id, changes, context, save=True):
     that ends up changed, Experio's included."""
     form = _form()
     types = form["types"]
-    record = odoo_call("exp.invoice", "read", [invoice_id], fields=list(types), context=context)[0]
-    # A many2one reads as [id, name] and is written as its id.
-    values = {
-        name: (value[0] if types[name] == "many2one" and value else value)
-        for name, value in record.items()
-        if name in types
-    }
+    values = _form_values(invoice_id, types, context)
     start = dict(values)
-    spec = {name: {} for name in types}
     for name, value in changes.items():
         values[name] = value
-        answer = odoo_json("exp.invoice", "onchange", [invoice_id], values, [name], spec, context=context)
-        for key, new in ((answer or {}).get("value") or {}).items():
-            if key in types:
-                values[key] = new.get("id") if isinstance(new, dict) else new
+        _type_in(invoice_id, values, name, types, context)
+
     changed = {
         name: value
         for name, value in values.items()
