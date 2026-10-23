@@ -5,13 +5,18 @@ import { useRoute } from "vue-router";
 import { send } from "../api.js";
 
 const route = useRoute();
-const email = ref(""), password = ref(""), failed = ref(false);
+const email = ref("");
+const password = ref("");
+const failed = ref(false);
 
 async function login() {
   const next = route.query.next || "";
-  const answer = await send(`/login?next=${encodeURIComponent(next)}`, { email: email.value, password: password.value },
-    "POST", { keepOnLogin: true });
-  if (!answer.ok) { failed.value = true; return; }
+  const body = { email: email.value, password: password.value };
+  const answer = await send(`/login?next=${encodeURIComponent(next)}`, body, "POST", { keepOnLogin: true });
+  if (!answer.ok) {
+    failed.value = true;
+    return;
+  }
   location.assign(answer.data.next); // the whole app again, with the session
 }
 </script>

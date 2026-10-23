@@ -4,13 +4,14 @@ exported to a file, or imported from one. -->
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { API, send, session, usePage } from "../api.js";
+import { API, plural, send, session, usePage } from "../api.js";
 import ContentImport from "../components/ContentImport.vue";
 import ContentStatus from "../components/ContentStatus.vue";
 import Icon from "../components/Icon.vue";
 import PageState from "../components/PageState.vue";
 
-const route = useRoute(), router = useRouter();
+const route = useRoute();
+const router = useRouter();
 const here = computed(() => `/tarik-prompts/${route.params.path}`);
 const { data, status, loading, reload } = usePage((r) => {
   const shown = r.query.version ? `?version=${encodeURIComponent(r.query.version)}` : "";
@@ -18,29 +19,55 @@ const { data, status, loading, reload } = usePage((r) => {
 });
 
 // The fields as they are typed, which cards are open, which were typed in; set again from each reading.
-const values = ref({}), opens = ref([]), edited = ref([]);
-const note = ref(""), error = ref(null), saved = ref(null), busy = ref(false), told = ref(null), form = ref(null);
+const values = ref({});
+const opens = ref([]);
+const edited = ref([]);
+const note = ref("");
+const error = ref(null);
+const saved = ref(null);
+const busy = ref(false);
+const told = ref(null);
+const form = ref(null);
 
-const touched = (section) => (data.value.compare ? section.fields.filter((f) => f.key in data.value.compare.fields).length : 0);
+// How many of a section's fields the version shown changed (0 when no version is shown).
+function touched(section) {
+  if (!data.value.compare) return 0;
+  return section.fields.filter((f) => f.key in data.value.compare.fields).length;
+}
 const changeOf = (f) => data.value.compare?.fields[f.key];
 const count = (text) => `${text.length.toLocaleString("fr-FR")} caractères`;
+
+// The version shown changed something, and it can be gone back to (an admin, not the version in service).
+const compareChanged = computed(() => Object.keys(data.value.compare.fields).length > 0);
+const canRestore = computed(() => {
+  const { compare, versions } = data.value;
+  return versions.length && compare.id !== versions[0].id && session.admin;
+});
+
+// A document with one card shows it open; a version shown opens the cards it changed; else the first.
+function startsOpen(page, section, i) {
+  if (page.sections.length === 1 || touched(section) > 0) return true;
+  return !page.compare && i === 0;
+}
 
 watch(data, (page) => {
   if (!page?.sections) return;
   values.value = Object.fromEntries(page.sections.flatMap((s) => s.fields.map((f) => [f.key, f.value])));
-  // A document with one card shows it open; a version shown opens the cards it changed; else the first.
-  opens.value = page.sections.map((s, i) => page.sections.length === 1 || touched(s) > 0 || (!page.compare && i === 0));
+  opens.value = page.sections.map((section, i) => startsOpen(page, section, i));
   edited.value = page.sections.map(() => false);
   nextTick(fitAll);
 });
 
 // Each text area as tall as its text; a closed card's areas have no height to measure: sized when it opens.
+const BORDERS_PX = 2; // the area's top and bottom borders, beyond its scrollHeight
 function fit(area) {
   area.style.height = "auto";
-  area.style.height = `${area.scrollHeight + 2}px`;
+  area.style.height = `${area.scrollHeight + BORDERS_PX}px`;
 }
 function fitAll() {
-  form.value?.querySelectorAll("textarea").forEach((area) => area.offsetParent && fit(area));
+  form.value?.querySelectorAll("textarea").forEach((area) => {
+    if (area.offsetParent) fit(area);
+  });
 }
 function toggled(i, event) {
   opens.value[i] = event.target.open;
@@ -49,15 +76,23 @@ function toggled(i, event) {
 onMounted(() => window.addEventListener("resize", fitAll));
 onBeforeUnmount(() => window.removeEventListener("resize", fitAll));
 
-const cleared = () => { saved.value = null; error.value = null; };
-const allCards = (open) => { opens.value = opens.value.map(() => open); nextTick(fitAll); };
+function cleared() {
+  saved.value = null;
+  error.value = null;
+}
+function allCards(open) {
+  opens.value = opens.value.map(() => open);
+  nextTick(fitAll);
+}
+
+const refusal = (answer) => answer.data?.error || `erreur ${answer.status}`;
 
 async function save() {
   busy.value = true;
   const answer = await send(here.value, { fields: values.value, note: note.value });
   busy.value = false;
   if (!answer.ok) {
-    error.value = answer.data?.error || `erreur ${answer.status}`;
+    error.value = refusal(answer);
     saved.value = null;
     allCards(true);
     return;
@@ -73,7 +108,7 @@ async function restore() {
   const answer = await send(here.value, { action: "restore", version: data.value.compare.id });
   busy.value = false;
   if (!answer.ok) {
-    error.value = answer.data?.error || `erreur ${answer.status}`;
+    error.value = refusal(answer);
     return;
   }
   await router.push(`/ui/tarik-prompts/${route.params.path}`);
@@ -85,7 +120,11 @@ async function restore() {
 <template>
   <PageState v-if="!data?.sections" :status="status" :loading="loading" />
   <template v-else>
-    <nav class="crumbs" aria-label="Fil d'Ariane"><RouterLink to="/ui/tarik-prompts"><Icon name="content" :size="14" />Tarik prompts</RouterLink><Icon name="next" :size="14" /><span aria-current="page">{{ data.title }}</span></nav>
+    <nav class="crumbs" aria-label="Fil d'Ariane">
+      <RouterLink to="/ui/tarik-prompts"><Icon name="content" :size="14" />Tarik prompts</RouterLink>
+      <Icon name="next" :size="14" />
+      <span aria-current="page">{{ data.title }}</span>
+    </nav>
     <div class="head"><div>
       <h1>{{ data.title }}</h1>
       <p class="what">{{ data.what }}</p>
@@ -99,27 +138,52 @@ async function restore() {
     <div v-if="data.compare" class="panel compare-banner">
       <p><b>Version {{ data.compare.id }}</b> :
         <template v-if="data.compare.first">la première, rien à comparer.</template>
-        <template v-else-if="Object.keys(data.compare.fields).length">ce qu'elle a changé est montré dans chaque section concernée, à gauche du champ en service (→).</template>
+        <template v-else-if="compareChanged">ce qu'elle a changé est montré dans chaque section concernée, à gauche du champ en service (→).</template>
         <template v-else>elle n'a rien changé.</template>
         Les champs gardent le texte en service.</p>
       <div class="panel-actions">
-        <button v-if="data.versions.length && data.compare.id !== data.versions[0].id && session.admin" type="button" class="primary" :disabled="busy" @click="restore">Revenir à cette version</button>
+        <button v-if="canRestore" type="button" class="primary" :disabled="busy" @click="restore">Revenir à cette version</button>
         <RouterLink class="panel-button" :to="`/ui/tarik-prompts/${data.path}`" @click="cleared">Fermer</RouterLink>
       </div>
     </div>
     <div class="flow content-flow">
       <form id="content-form" ref="form" class="content-form" @submit.prevent="save">
         <fieldset class="plain" :disabled="!session.admin">
-          <div v-if="data.sections.length > 1" class="card-tools"><button type="button" @click="allCards(true)">Tout déplier</button><button type="button" @click="allCards(false)">Tout replier</button></div>
+          <div v-if="data.sections.length > 1" class="card-tools">
+            <button type="button" @click="allCards(true)">Tout déplier</button>
+            <button type="button" @click="allCards(false)">Tout replier</button>
+          </div>
           <!-- One card per section; closed cards' fields are still sent. -->
-          <details v-for="(section, i) in data.sections" :key="i" :class="['panel', 'card', { touched: touched(section), changed: edited[i] }]" :open="opens[i]" @toggle="toggled(i, $event)" @input="edited[i] = true">
+          <details
+            v-for="(section, i) in data.sections"
+            :key="i"
+            :class="['panel', 'card', { touched: touched(section), changed: edited[i] }]"
+            :open="opens[i]"
+            @toggle="toggled(i, $event)"
+            @input="edited[i] = true"
+          >
             <summary>
               <span class="card-title">{{ section.title || data.title }}</span>
               <span class="card-meta">
-                <span v-if="touched(section)" class="chip wait">{{ touched(section) }} changé{{ touched(section) > 1 ? "s" : "" }} en version {{ data.compare.id }}</span>
-                <span class="muted">{{ section.fields.length }} champ{{ section.fields.length > 1 ? "s" : "" }}</span>
-                <a class="card-action" :href="`${API}${here}?export=${i}`" download :data-tip="data.tips.section_export" :aria-description="data.tips.section_export" @click.stop>Exporter</a>
-                <ContentImport v-if="session.admin" class="card-action" :to="here" :tip="data.tips.section_import" @done="(answer) => told?.tell(answer)">Importer</ContentImport>
+                <span v-if="touched(section)" class="chip wait">
+                  {{ touched(section) }} changé{{ plural(touched(section)) }} en version {{ data.compare.id }}
+                </span>
+                <span class="muted">{{ section.fields.length }} champ{{ plural(section.fields.length) }}</span>
+                <a
+                  class="card-action"
+                  :href="`${API}${here}?export=${i}`"
+                  download
+                  :data-tip="data.tips.section_export"
+                  :aria-description="data.tips.section_export"
+                  @click.stop
+                >Exporter</a>
+                <ContentImport
+                  v-if="session.admin"
+                  class="card-action"
+                  :to="here"
+                  :tip="data.tips.section_import"
+                  @done="(answer) => told?.tell(answer)"
+                >Importer</ContentImport>
               </span>
             </summary>
             <div class="card-body">
@@ -128,19 +192,36 @@ async function restore() {
                   <!-- The version's change (old) beside the text in service (new), an arrow from one to the other. -->
                   <div class="field">
                     <span>{{ f.label }} : changé en version {{ data.compare.id }}</span>
-                    <div class="field-diff"><p class="diff"><template v-for="([kind, part], j) in changeOf(f).parts" :key="j"><ins v-if="kind === '+'">{{ part }}</ins><del v-else-if="kind === '-'">{{ part }}</del><template v-else>{{ part }}</template></template></p></div>
+                    <div class="field-diff">
+                      <p class="diff">
+                        <template v-for="([kind, part], j) in changeOf(f).parts" :key="j">
+                          <ins v-if="kind === '+'">{{ part }}</ins>
+                          <del v-else-if="kind === '-'">{{ part }}</del>
+                          <template v-else>{{ part }}</template>
+                        </template>
+                      </p>
+                    </div>
                     <small class="count num">{{ changeOf(f).before }} → {{ changeOf(f).after }} caractères</small>
                   </div>
                   <span class="arrow" aria-hidden="true">→</span>
                   <label class="field">
                     <span>{{ f.label }} : en service</span>
-                    <template v-if="f.long"><textarea v-model="values[f.key]" :name="f.key" rows="3" @input="fit($event.target)"></textarea><small class="count num" aria-live="off">{{ count(values[f.key]) }}</small></template>
-                    <template v-else><input v-model="values[f.key]" :name="f.key"><small class="count num">{{ count(values[f.key]) }}</small></template>
+                    <template v-if="f.long">
+                      <textarea v-model="values[f.key]" :name="f.key" rows="3" @input="fit($event.target)"></textarea>
+                      <small class="count num" aria-live="off">{{ count(values[f.key]) }}</small>
+                    </template>
+                    <template v-else>
+                      <input v-model="values[f.key]" :name="f.key">
+                      <small class="count num">{{ count(values[f.key]) }}</small>
+                    </template>
                   </label>
                 </div>
                 <label v-else class="field">
                   <span>{{ f.label }}</span>
-                  <template v-if="f.long"><textarea v-model="values[f.key]" :name="f.key" rows="3" @input="fit($event.target)"></textarea><small class="count num" aria-live="off">{{ count(values[f.key]) }}</small></template>
+                  <template v-if="f.long">
+                    <textarea v-model="values[f.key]" :name="f.key" rows="3" @input="fit($event.target)"></textarea>
+                    <small class="count num" aria-live="off">{{ count(values[f.key]) }}</small>
+                  </template>
                   <input v-else v-model="values[f.key]" :name="f.key">
                 </label>
               </template>
@@ -151,7 +232,15 @@ async function restore() {
       <div class="side-column">
         <section v-if="session.admin" class="panel save-card" aria-label="Enregistrer">
           <h2>Enregistrer</h2>
-          <label class="field"><span>Pourquoi ce changement (gardé dans l'historique)</span><textarea v-model="note" maxlength="300" rows="2" placeholder="ex. : demander l'exercice avant le compte"></textarea></label>
+          <label class="field">
+            <span>Pourquoi ce changement (gardé dans l'historique)</span>
+            <textarea
+              v-model="note"
+              maxlength="300"
+              rows="2"
+              placeholder="ex. : demander l'exercice avant le compte"
+            ></textarea>
+          </label>
           <button type="submit" form="content-form" class="primary" :disabled="busy">Enregistrer</button>
         </section>
         <aside class="side panel">

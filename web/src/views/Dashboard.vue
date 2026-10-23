@@ -4,7 +4,7 @@ back button back here). -->
 <script setup>
 import { useRouter } from "vue-router";
 
-import { session, usePage } from "../api.js";
+import { pickedCabinet, usePage } from "../api.js";
 import { useLive } from "../live.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import ChatForm from "../components/ChatForm.vue";
@@ -12,7 +12,7 @@ import PageState from "../components/PageState.vue";
 
 const router = useRouter();
 const { data, status, loading, reload } = usePage(() => "/accueil");
-const picked = session.cabinets.find((cabinet) => cabinet.chosen)?.name;
+const picked = pickedCabinet();
 if (picked) useLive(`cabinet=${encodeURIComponent(picked)}`, reload);
 
 const opened = (answer) =>
@@ -37,8 +37,14 @@ const opened = (answer) =>
     </section>
     <section class="panel chat-start">
       <h2 class="ask">Écrire à Tarik</h2>
-      <ChatForm :session="data.new" :cabinet="data.cabinet" :checks="data.checks" :accepted="data.accepted"
-        :limits="data.limits" @sent="opened" />
+      <ChatForm
+        :session="data.new"
+        :cabinet="data.cabinet"
+        :checks="data.checks"
+        :accepted="data.accepted"
+        :limits="data.limits"
+        @sent="opened"
+      />
     </section>
   </div>
 </template>

@@ -20,9 +20,15 @@ function toLogin() {
   if (location.pathname !== "/login") location.assign(`/login?next=${encodeURIComponent(here)}`);
 }
 
+// A page's path ("/runs") as the API's ("/ui/api/runs"); a full or already-API path as it is.
+function apiPath(path) {
+  if (path.startsWith("/") && !path.startsWith(API)) return `${API}${path}`;
+  return path;
+}
+
 // A JSON answer and its status; a lost session sends the page to the login.
 export async function read(path, options = {}) {
-  const answer = await fetch(path.startsWith("/") && !path.startsWith(API) ? `${API}${path}` : path, options);
+  const answer = await fetch(apiPath(path), options);
   if (answer.status === 401 && !options.keepOnLogin) toLogin();
   const type = answer.headers.get("content-type") || "";
   const data = type.includes("json") ? await answer.json() : null;
@@ -43,14 +49,19 @@ export function send(path, body, method = "POST", options = {}) {
 // A page's data from ``path()`` (a function of the route), read again when it changes; ``reload`` reads it again.
 export function usePage(path) {
   const route = useRoute();
-  const data = ref(null), status = ref(0), loading = ref(true);
+  const data = ref(null);
+  const status = ref(0);
+  const loading = ref(true);
   const reload = async () => {
     const found = await read(path(route));
     status.value = found.status;
     if (found.data !== null) data.value = found.data;
     loading.value = false;
   };
-  watch(() => path(route), () => { loading.value = true; reload(); }, { immediate: true });
+  watch(() => path(route), () => {
+    loading.value = true;
+    reload();
+  }, { immediate: true });
   return { data, status, loading, reload };
 }
 
@@ -59,3 +70,16 @@ export const graphName = (graph) => session.labels.graphs?.[graph] || graph;
 export const graphDescription = (graph) => session.labels.descriptions?.graphs?.[graph] || "";
 export const statusName = (status) => session.labels.statuses?.[status] || status;
 export const stepName = (graph, node) => session.labels.steps?.[graph]?.[node] || node;
+
+// The cabinet picked in the sidebar (its database name), and a cabinet's name in Experio (undefined if unknown).
+export const pickedCabinet = () => session.cabinets.find((cabinet) => cabinet.chosen)?.name;
+export const cabinetDisplay = (name) => session.cabinets.find((cabinet) => cabinet.name === name)?.display;
+
+// Words the pages share: a plural's "s", an account's role, lines as a "- " list.
+export const plural = (count) => (count > 1 ? "s" : "");
+export const roleName = (role) => (role === "admin" ? "Administrateur" : "Membre");
+export const bulleted = (lines) => lines.map((line) => `- ${line}`).join("\n");
+
+// A model call's place on its conversation's LLM Calls page: opened and scrolled to.
+export const callLink = (sessionId, call) =>
+  `/ui/llm-calls/${encodeURIComponent(sessionId)}?call=${call}#call-${call}`;

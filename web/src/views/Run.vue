@@ -3,24 +3,25 @@ made, and its steps, each added as it ends while the run goes on; once it has en
 <script setup>
 import { computed, onUnmounted, shallowRef, watch } from "vue";
 
-import { graphName, statusName, stepName, usePage } from "../api.js";
+import { callLink, graphName, plural, statusName, stepName, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import CanvasGraph from "../components/CanvasGraph.vue";
 import Icon from "../components/Icon.vue";
 import PageState from "../components/PageState.vue";
 import RunSteps from "../components/RunSteps.vue";
 import RunTalk from "../components/RunTalk.vue";
-import { followRun } from "../live.js";
+import { followRun, stillGoing } from "../live.js";
 
 const { data, status, loading, reload } = usePage((route) => `/executions/${encodeURIComponent(route.params.run)}`);
 const run = computed(() => data.value?.run);
+// The client's messages earlier in the conversation, answered by other runs.
 const asks = computed(() => (data.value?.earlier || []).filter((entry) => entry.who === "Client").length);
 
 // The run going on, followed once for the steps list and the canvas together; its end reads the page again (its
 // outcome: what the client reads, the conversation).
 const events = shallowRef(null);
 watch(run, (found) => {
-  if (events.value || !found || !["queued", "running"].includes(found.status)) return;
+  if (events.value || !found || !stillGoing(found.status)) return;
   const last = Math.max(0, ...found.steps.map((step) => step.id));
   events.value = followRun(found.run_id, last).on("end", reload);
 }, { immediate: true });
@@ -30,18 +31,36 @@ onUnmounted(() => events.value?.close());
 <template>
   <PageState v-if="!data" :status="status" :loading="loading" />
   <template v-else>
-    <nav class="crumbs" aria-label="Fil d'Ariane"><RouterLink to="/ui/executions"><Icon name="runs" :size="14" />Exécutions</RouterLink><Icon
-      name="next" :size="14" /><span aria-current="page">{{ graphName(run.graph) }}</span></nav>
+    <nav class="crumbs" aria-label="Fil d'Ariane">
+      <RouterLink to="/ui/executions"><Icon name="runs" :size="14" />Exécutions</RouterLink>
+      <Icon name="next" :size="14" />
+      <span aria-current="page">{{ graphName(run.graph) }}</span>
+    </nav>
     <div class="head">
       <div>
         <h1>{{ graphName(run.graph) }}</h1>
-        <p class="muted">Cabinet <b><CabinetLabel :name="run.cabinet" /></b> · discussion <span class="mono">{{ run.session_id }}</span> · début {{ run.when }}</p>
+        <p class="muted">Cabinet <b><CabinetLabel :name="run.cabinet" /></b>
+          · discussion <span class="mono">{{ run.session_id }}</span>
+          · début {{ run.when }}</p>
         <div v-if="run.parent_id || run.children.length" class="run-links">
-          <RouterLink v-if="run.parent_id" class="run-link" :to="`/ui/executions/${run.parent_id}`"><Icon name="up" />
-            <span><small>Lancée par</small><b>{{ graphName(run.parent_graph) }}</b><small v-if="run.parent_node">étape « {{ stepName(run.parent_graph, run.parent_node) }} »</small></span></RouterLink>
-          <RouterLink v-for="child in run.children" :key="child.run_id" class="run-link" :to="`/ui/executions/${child.run_id}`"><Icon name="down" />
+          <RouterLink v-if="run.parent_id" class="run-link" :to="`/ui/executions/${run.parent_id}`">
+            <Icon name="up" />
+            <span>
+              <small>Lancée par</small>
+              <b>{{ graphName(run.parent_graph) }}</b>
+              <small v-if="run.parent_node">étape « {{ stepName(run.parent_graph, run.parent_node) }} »</small>
+            </span>
+          </RouterLink>
+          <RouterLink
+            v-for="child in run.children"
+            :key="child.run_id"
+            class="run-link"
+            :to="`/ui/executions/${child.run_id}`"
+          >
+            <Icon name="down" />
             <span><small>A lancé</small><b>{{ graphName(child.graph) }}</b><small>{{ child.when }}</small></span>
-            <span :class="`chip ${child.status}`">{{ statusName(child.status) }}</span></RouterLink>
+            <span :class="`chip ${child.status}`">{{ statusName(child.status) }}</span>
+          </RouterLink>
         </div>
       </div>
       <div class="state">
@@ -70,7 +89,8 @@ onUnmounted(() => events.value?.close());
       <h2>La discussion</h2>
       <template v-if="data.earlier.length">
         <details class="earlier">
-          <summary>Plus tôt dans la discussion : {{ asks }} message{{ asks > 1 ? "s" : "" }} du client, répondu{{ asks > 1 ? "s" : "" }} par d'autres exécutions</summary>
+          <summary>Plus tôt dans la discussion : {{ asks }} message{{ plural(asks) }} du client,
+            répondu{{ plural(asks) }} par d'autres exécutions</summary>
           <RunTalk :entries="data.earlier" />
         </details>
         <p class="muted">Cette exécution répond au dernier message ; ses appels et ses étapes, ci-dessous, sont les siens.</p>
@@ -82,9 +102,12 @@ onUnmounted(() => events.value?.close());
       <h2>Ce que Tarik a reçu</h2>
       <p class="muted">Chaque appel du modèle pendant cette exécution : ses instructions, ses outils et la discussion, tels qu'envoyés.</p>
       <ul class="runs-side">
-        <li v-for="(call, index) in data.prompts" :key="call.id"><RouterLink
-          :to="`/ui/llm-calls/${encodeURIComponent(run.session_id)}?call=${call.id}#call-${call.id}`"><span class="num">{{ call.when }} · Appel {{ index + 1 }}</span><span
-          class="muted">{{ call.messages }} message(s)</span></RouterLink></li>
+        <li v-for="(call, index) in data.prompts" :key="call.id">
+          <RouterLink :to="callLink(run.session_id, call.id)">
+            <span class="num">{{ call.when }} · Appel {{ index + 1 }}</span>
+            <span class="muted">{{ call.messages }} message(s)</span>
+          </RouterLink>
+        </li>
       </ul>
     </section>
 

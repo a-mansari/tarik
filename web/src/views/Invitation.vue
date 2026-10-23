@@ -6,14 +6,16 @@ import { useRoute, useRouter } from "vue-router";
 
 import { send, usePage } from "../api.js";
 
-const route = useRoute(), router = useRouter();
+const route = useRoute();
+const router = useRouter();
 const { data, status, loading } = usePage((r) => `/invitation/${encodeURIComponent(r.params.token)}`);
-const password = ref(""), again = ref("");
+const password = ref("");
+const again = ref("");
 const capitalized = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
 async function choose() {
-  const answer = await send(`/invitation/${encodeURIComponent(route.params.token)}`,
-    { password: password.value, again: again.value }, "POST", { keepOnLogin: true });
+  const body = { password: password.value, again: again.value };
+  const answer = await send(`/invitation/${encodeURIComponent(route.params.token)}`, body, "POST", { keepOnLogin: true });
   if (answer.ok && answer.data?.next) return router.push(answer.data.next);
   if (answer.data) data.value = answer.data;
   status.value = answer.status;
@@ -32,8 +34,14 @@ async function choose() {
       <p class="muted">Pour <b>{{ data.found.name }}</b> ({{ data.found.email }}). {{ data.min }} caractères au moins. Ce lien ne sert qu'une fois.</p>
       <p v-if="data.error" class="bad-text" role="alert">{{ capitalized(data.error) }}.</p>
       <form @submit.prevent="choose">
-        <label class="field"><span>Mot de passe</span><input v-model="password" type="password" name="password" :minlength="data.min" required autocomplete="new-password"></label>
-        <label class="field"><span>Encore</span><input v-model="again" type="password" name="again" :minlength="data.min" required autocomplete="new-password"></label>
+        <label class="field">
+          <span>Mot de passe</span>
+          <input v-model="password" type="password" name="password" :minlength="data.min" required autocomplete="new-password">
+        </label>
+        <label class="field">
+          <span>Encore</span>
+          <input v-model="again" type="password" name="again" :minlength="data.min" required autocomplete="new-password">
+        </label>
         <button type="submit" class="primary">Enregistrer</button>
       </form>
     </template>

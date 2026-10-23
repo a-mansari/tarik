@@ -21,8 +21,20 @@ const groupTip = (tip, name) => tip.replace("{group}", name);
         <p class="muted">Ce que Tarik dit et ce qu'on lui dit, le même pour tous les cabinets pour l'instant, modifiable sans toucher au code. Chaque modification est gardée (qui, quand, pourquoi) et peut être annulée en un clic. Elle s'applique au message suivant. Le contenu vit dans la base de données : exportez-le pour le garder ou le copier vers une autre installation.</p>
       </div>
       <div class="panel-actions">
-        <a class="panel-button" :href="`${API}/tarik-prompts-export`" download :data-tip="data.tips.all_export" :aria-description="data.tips.all_export">Exporter tout</a>
-        <ContentImport v-if="session.admin" class="panel-button" to="/tarik-prompts-import" :tip="data.tips.all_import" @done="(answer) => told?.tell(answer)">Importer un export</ContentImport>
+        <a
+          class="panel-button"
+          :href="`${API}/tarik-prompts-export`"
+          download
+          :data-tip="data.tips.all_export"
+          :aria-description="data.tips.all_export"
+        >Exporter tout</a>
+        <ContentImport
+          v-if="session.admin"
+          class="panel-button"
+          to="/tarik-prompts-import"
+          :tip="data.tips.all_import"
+          @done="(answer) => told?.tell(answer)"
+        >Importer un export</ContentImport>
       </div>
     </div>
     <ContentStatus ref="told" @saved="reload" />
@@ -31,13 +43,28 @@ const groupTip = (tip, name) => tip.replace("{group}", name);
       <div class="group-head">
         <h2>{{ group.name }}</h2>
         <span class="panel-actions">
-          <a class="card-action" :href="`${API}/tarik-prompts-export?group=${group.key}`" download :data-tip="groupTip(data.tips.group_export, group.name)" :aria-description="groupTip(data.tips.group_export, group.name)">Exporter</a>
-          <ContentImport v-if="session.admin" class="card-action" to="/tarik-prompts-import" :tip="groupTip(data.tips.group_import, group.name)" @done="(answer) => told?.tell(answer)">Importer</ContentImport>
+          <a
+            class="card-action"
+            :href="`${API}/tarik-prompts-export?group=${group.key}`"
+            download
+            :data-tip="groupTip(data.tips.group_export, group.name)"
+            :aria-description="groupTip(data.tips.group_export, group.name)"
+          >Exporter</a>
+          <ContentImport
+            v-if="session.admin"
+            class="card-action"
+            to="/tarik-prompts-import"
+            :tip="groupTip(data.tips.group_import, group.name)"
+            @done="(answer) => told?.tell(answer)"
+          >Importer</ContentImport>
         </span>
       </div>
       <ul class="runs-side">
         <li v-for="document in group.documents" :key="document.path">
-          <RouterLink :to="`/ui/tarik-prompts/${document.path}`"><span>{{ document.title }}</span><span class="muted"><template v-if="document.change">{{ document.change.author }} · {{ document.change.at }}</template></span></RouterLink>
+          <RouterLink :to="`/ui/tarik-prompts/${document.path}`">
+            <span>{{ document.title }}</span>
+            <span class="muted"><template v-if="document.change">{{ document.change.author }} · {{ document.change.at }}</template></span>
+          </RouterLink>
         </li>
         <li v-if="!group.documents.length" class="muted">Aucun document.</li>
       </ul>

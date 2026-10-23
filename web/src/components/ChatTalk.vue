@@ -2,6 +2,7 @@
 tools it called (done, failed, or still going) before its reply, and Tarik typing while its run goes on. Words only as
 the server's markdown (*_html). Patched in place at each refresh: a tools list left open stays open. -->
 <script setup>
+import { plural } from "../api.js";
 import ChatAvatar from "./ChatAvatar.vue";
 import Icon from "./Icon.vue";
 
@@ -15,7 +16,10 @@ const props = defineProps({
 const fileLink = (name) =>
   `/ui/api/discussion/${encodeURIComponent(props.session)}/fichier?nom=${encodeURIComponent(name)}`;
 const running = (entry) => entry.tools.filter((tool) => tool.state === "running");
-const plural = (count) => (count > 1 ? "s" : "");
+const runLink = () => `/ui/executions/${props.latest.run_id}`;
+// Tarik typing: under its last turn, or alone once the client has spoken (or nothing is said yet).
+const typingAfter = (index) => props.going && index === props.messages.length - 1;
+const typingAlone = () => props.going && (!props.messages.length || props.messages.at(-1).who === "Client");
 const mark = { done: "✓", failed: "✕" };
 const stateWords = { done: "terminé", failed: "en échec" };
 </script>
@@ -52,17 +56,21 @@ const stateWords = { done: "terminé", failed: "en échec" };
             </ul>
           </details>
           <div v-if="entry.text_html" class="reply" v-html="entry.text_html" />
-          <p v-if="going && index === messages.length - 1" class="typing"><span class="dots" aria-label="Tarik répond"><i></i><i></i><i></i></span>
-            <RouterLink class="muted" :to="`/ui/executions/${latest.run_id}`">suivre l'exécution</RouterLink></p>
+          <p v-if="typingAfter(index)" class="typing">
+            <span class="dots" aria-label="Tarik répond"><i></i><i></i><i></i></span>
+            <RouterLink class="muted" :to="runLink()">suivre l'exécution</RouterLink>
+          </p>
         </li>
       </template>
-      <li v-if="going && (!messages.length || messages.at(-1).who === 'Client')" class="tarik">
+      <li v-if="typingAlone()" class="tarik">
         <span class="who"><ChatAvatar kind="tarik" />Tarik</span>
-        <p class="typing"><span class="dots" aria-label="Tarik répond"><i></i><i></i><i></i></span>
-          <RouterLink class="muted" :to="`/ui/executions/${latest.run_id}`">suivre l'exécution</RouterLink></p>
+        <p class="typing">
+          <span class="dots" aria-label="Tarik répond"><i></i><i></i><i></i></span>
+          <RouterLink class="muted" :to="runLink()">suivre l'exécution</RouterLink>
+        </p>
       </li>
     </ol>
     <p v-if="latest?.status === 'error'" class="bad-text">Le dernier message a échoué : <RouterLink
-      :to="`/ui/executions/${latest.run_id}`">voir l'exécution</RouterLink>. Renvoyez-le.</p>
+      :to="runLink()">voir l'exécution</RouterLink>. Renvoyez-le.</p>
   </div>
 </template>
