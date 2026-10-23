@@ -113,7 +113,9 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
     now = time.monotonic()
     for old in [run for run, deadline in READ_DEADLINES.items() if deadline < now - 3600]:
         del READ_DEADLINES[old]
-    deadline = READ_DEADLINES.setdefault(run_id, now + READ_WAIT) if run_id else now + READ_WAIT
+    deadline = now + READ_WAIT
+    if run_id:
+        deadline = READ_DEADLINES.setdefault(run_id, deadline)
     while require_invoice(invoice_id, ["bluejay_state"])["bluejay_state"] in READING:
         if time.monotonic() >= deadline:
             return wait(f"Facture {invoice_id} : Experio la lit encore, elle sera reprise a votre prochain message.")
@@ -173,9 +175,8 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     the result's own); ``result``: that step's answer. A question becomes the invoice's pending question;
     an outcome at or after that step clears it."""
     step = origin if origin in STEPS else result.get("step") or origin
-    if result.get(
-        "duplicate"
-    ):  # found at its tiers step too (a twin without tiers): a duplicate's outcome all the same
+    # Found at its tiers step too (a twin without tiers): a duplicate's outcome all the same.
+    if result.get("duplicate"):
         step = "check_duplicate"
     status = result.get("status", "error")
     message = result.get("message") or result.get("error") or str(result)
@@ -234,17 +235,28 @@ def summary_text(key, step, status, message):
     if status == "question":
         return QUESTION_MARK + text
     if status not in SECTION_OF:
-        head, sep, rest = text.partition(" : ")
-        problem = f"problème à l'étape {STEPS.get(step, step)}"
-        return f"{head} : {problem} : {rest}" if sep and head.lower().startswith("facture") else f"{problem} : {text}"
+        return with_problem(step, text)
     return text
+
+
+def with_problem(step, text):
+    """``text`` saying at which step it failed: after its « Facture N : » when it has one, else first."""
+    problem = f"problème à l'étape {STEPS.get(step, step)}"
+    head, sep, rest = text.partition(" : ")
+    if sep and head.lower().startswith("facture"):
+        return f"{head} : {problem} : {rest}"
+    return f"{problem} : {text}"
 
 
 def joined(key, texts):
     """An invoice's (or file's) outcomes as one sentence: the first whole, the next ones without the « Facture N : »
     they each start with."""
     head = f"facture {key} : "
-    parts = [text if i == 0 or not text.lower().startswith(head) else text[len(head) :] for i, text in enumerate(texts)]
+    parts = texts[:1]
+    for text in texts[1:]:
+        if text.lower().startswith(head):
+            text = text[len(head) :]
+        parts.append(text)
     return "; ".join(part.rstrip(". ") for part in parts) + "."
 
 
@@ -263,16 +275,28 @@ def run_summary(run_id: str) -> dict:
         db.execute(Q.release_invoices, (run_id,))  # the run is over: its invoices are free for another
     if not rows:
         return ok(NOTHING)
+    test = any(message.startswith(TEST_MODE) for _, _, _, message, _ in rows)
+    text = summary_sections(sections_of(outcomes_by_key(rows)))
+    return ok((TEST_MODE + "\n\n" if test else "") + text)
+
+
+def outcomes_by_key(rows):
+    """{key: [(step, status, message, routine)]}: each invoice's (or file's) outcomes of ``rows``, in the sequence's
+    order, each said once; a dossier's setup under the key None."""
     # In the sequence's order, whatever order the rows were recorded in (invoices of one run are interleaved).
     rows = sorted(rows, key=lambda row: position(row[1]))
-    test = any(message.startswith(TEST_MODE) for _, _, _, message, _ in rows)
     outcomes, seen = {}, set()
-    for key, step, status, message, unread in rows:
+    for key, step, status, message, is_routine in rows:
         if step in SETUP_STEPS:
             key = None  # a dossier's setup is one block, its imports in it in order
         if (key, step, message) not in seen:
             seen.add((key, step, message))
-            outcomes.setdefault(key, []).append((step, status, message, unread))
+            outcomes.setdefault(key, []).append((step, status, message, is_routine))
+    return outcomes
+
+
+def sections_of(outcomes):
+    """{section: [lines]}: each invoice (or file) of ``outcomes`` as a line in the section of where it stands."""
     sections = {name: [] for name in SECTIONS}
     for key, found in outcomes.items():
         shown = [outcome for outcome in found if not outcome[3] or outcome is found[-1]]
@@ -284,18 +308,27 @@ def run_summary(run_id: str) -> dict:
         texts = [summary_text(key, *outcome[:3]) for outcome in shown if section_of(*outcome[:3]) == where]
         # An invoice waits on one question, its latest (asked again in other words, it is still the one); a file may
         # wait on several different ones (how to cut it, which side): each is asked.
-        if where == "question":
-            sections[where] += texts[-1:] if key > 0 else texts
-        else:
+        if where != "question":
             sections[where].append(joined(key, texts))
+        elif key > 0:
+            sections[where] += texts[-1:]
+        else:
+            sections[where] += texts
+    return sections
+
+
+def summary_sections(sections):
+    """The non-empty ``sections`` as the client reads them: a heading, then its lines (questions numbered)."""
     parts = []
     for name, lines in sections.items():
-        if lines:
-            marks = [f"{i}." if name == "question" else "-" for i in range(1, len(lines) + 1)]
-            parts.append(
-                SECTIONS[name] + "\n" + "\n".join(f"{mark} {line}" for mark, line in zip(marks, lines, strict=True))
-            )
-    return ok((TEST_MODE + "\n\n" if test else "") + "\n\n".join(parts))
+        if not lines:
+            continue
+        if name == "question":
+            items = [f"{i}. {line}" for i, line in enumerate(lines, start=1)]
+        else:
+            items = [f"- {line}" for line in lines]
+        parts.append(SECTIONS[name] + "\n" + "\n".join(items))
+    return "\n\n".join(parts)
 
 
 def journal_name(journal_id):
@@ -323,20 +356,33 @@ def waiting_on(session_id):
         gone = [i for i in ids if i not in drafts]
         if gone:
             db.execute(Q.delete_pending_of_invoices, (gone,))
-    return (
-        [
-            {
-                "invoice_id": i,
-                "step": step,
-                "question": text,
-                "label": f"facture {i}",
-                "names": {str(i)},
-                "choices": choices,
-            }
-            for i, step, text, choices in invoices
-            if i in drafts
-        ]
-        + [
+    return invoice_questions(invoices, drafts) + statement_questions(statements) + bank_questions(banks)
+
+
+def invoice_questions(invoices, drafts):
+    """waiting_on's items for the invoices' pending questions, those still ``drafts`` only."""
+    items = []
+    for i, step, text, choices in invoices:
+        if i in drafts:
+            items.append(
+                {
+                    "invoice_id": i,
+                    "step": step,
+                    "question": text,
+                    "label": f"facture {i}",
+                    "names": {str(i)},
+                    "choices": choices,
+                }
+            )
+    return items
+
+
+def statement_questions(statements):
+    """waiting_on's items for the bank statements asked their bank account."""
+    items = []
+    for f, d, text, name, choices in statements:
+        stem = name.rsplit(".", 1)[0]
+        items.append(
             {
                 "file_id": f,
                 "dossier_id": d,
@@ -344,12 +390,21 @@ def waiting_on(session_id):
                 "question": text,
                 "label": f"relevé {name}",
                 "file_name": name,
-                "names": {normalized(name), normalized(name.rsplit(".", 1)[0])},
+                "names": {normalized(name), normalized(stem)},
                 "choices": choices,
             }
-            for f, d, text, name, choices in statements
-        ]
-        + [
+        )
+    return items
+
+
+def bank_questions(banks):
+    """waiting_on's items for the bank journals asked their bank, those still without it only."""
+    items = []
+    for d, j, text, choices in banks:
+        name = journal_name(j)
+        if not name:  # given its bank since
+            continue
+        items.append(
             {
                 "dossier_id": d,
                 "journal_id": j,
@@ -359,11 +414,8 @@ def waiting_on(session_id):
                 "names": {normalized(name), f"journal {j}"},
                 "choices": choices,
             }
-            for d, j, text, choices in banks
-            for name in [journal_name(j)]
-            if name  # still without its bank
-        ]
-    )
+        )
+    return items
 
 
 def meant(waiting, about):
@@ -392,49 +444,58 @@ def apply_answer(item, answer, decision):
     fine, the ``next_step`` the sequence resumes at. A oui / non question the decision doesn't settle is asked
     again."""
     if item["step"] == "import_bank_statement":
-        # « ce n'est pas un relevé, c'est une facture », about this statement: never when it names another file only.
-        if client_kind(own_words(answer)) == "invoice" and about_this_file(item, answer):
-            set_kind(item["file_id"], "invoice")
-            told = f"`{item['file_name']}` : une facture, comme vous l'avez dit."
-            sides = [side for side in ("achat", "vente") if client_side(side, answer)]  # « une facture d'achat »
-            return {
-                **ok(told),
-                "step": "import_bank_statement",
-                "file_id": item["file_id"],
-                "dossier_id": item["dossier_id"],
-                "invoice_type": sides[0] if len(sides) == 1 else "",
-                "next_step": "identify_document",
-            }
-        chosen = chosen_among(decision, item["choices"]) or 0  # 0: the question is asked again
-        imported = import_bank_statement(item["file_id"], item["dossier_id"], chosen)
-        return {**imported, "step": "import_bank_statement"}
+        return answer_statement(item, answer, decision)
     if item["step"] == "ask_banks":
         bank = chosen_among(decision, item["choices"])
         if not bank:
             return {**ask_banks(item["dossier_id"]), "step": "ask_banks"}  # asked again, the same journal first
         return {**set_journal_bank(item["dossier_id"], item["journal_id"], bank), "step": "ask_banks"}
-    apply, following = ANSWERS[item["step"]], ORDER[position(item["step"]) + 1]
+    result = answer_invoice(item, answer, decision)
+    if result["status"] == "ok":
+        result["next_step"] = ORDER[position(item["step"]) + 1]
+    return {**result, "invoice_id": item["invoice_id"], "step": item["step"]}
+
+
+def answer_statement(item, answer, decision):
+    """apply_answer for a statement asked its bank account: the file is an invoice after all when the client says
+    so, else the statement is imported into the account chosen (or the question asked again)."""
+    # « ce n'est pas un relevé, c'est une facture », about this statement: never when it names another file only.
+    if client_kind(own_words(answer)) == "invoice" and about_this_file(item, answer):
+        set_kind(item["file_id"], "invoice")
+        told = f"`{item['file_name']}` : une facture, comme vous l'avez dit."
+        sides = [side for side in ("achat", "vente") if client_side(side, answer)]  # « une facture d'achat »
+        return {
+            **ok(told),
+            "step": "import_bank_statement",
+            "file_id": item["file_id"],
+            "dossier_id": item["dossier_id"],
+            "invoice_type": sides[0] if len(sides) == 1 else "",
+            "next_step": "identify_document",
+        }
+    chosen = chosen_among(decision, item["choices"]) or 0  # 0: the question is asked again
+    imported = import_bank_statement(item["file_id"], item["dossier_id"], chosen)
+    return {**imported, "step": "import_bank_statement"}
+
+
+def answer_invoice(item, answer, decision):
+    """apply_answer for an invoice's question: the result of the call that takes the answer (ANSWERS)."""
+    step = item["step"]
+    apply = ANSWERS[step]
     proposed = item.get("choices") or {}
-    if item["step"] == "assign_account" and len(proposed) == 1:  # an account to confirm (set_account, confirm)
+    if step == "assign_account" and len(proposed) == 1:  # an account to confirm (set_account, confirm)
         settled = yes_no(decision) if yes_no(decision) is not None else yes_no(answer)
         if settled is not None:
-            result = confirm_account(item["invoice_id"], int(next(iter(proposed))), settled)
-            if result["status"] == "ok":
-                result["next_step"] = following
-            return {**result, "invoice_id": item["invoice_id"], "step": item["step"]}
-    if item["step"] == "link_tiers":
-        result = apply(item["invoice_id"], decision, answer, item["choices"])  # the tiers the question proposed
-    elif item["step"] == "settle_exercice":  # the client's date, or the exercice chosen
-        result = apply(item["invoice_id"], answer, decision)
-    elif item["step"] in DECIDED and yes_no(decision) is None and yes_no(answer) is None:
-        result = question(f"Réponse non comprise. {item['question']}")
-    else:
-        # A plain "oui" or "non" is read here when the agent left the decision empty (it chose another tool).
-        settled = decision if yes_no(decision) is not None else answer
-        result = apply(item["invoice_id"], settled if item["step"] in DECIDED else answer)
-    if result["status"] == "ok":
-        result["next_step"] = following
-    return {**result, "invoice_id": item["invoice_id"], "step": item["step"]}
+            return confirm_account(item["invoice_id"], int(next(iter(proposed))), settled)
+    if step == "link_tiers":
+        return apply(item["invoice_id"], decision, answer, item["choices"])  # the tiers the question proposed
+    if step == "settle_exercice":  # the client's date, or the exercice chosen
+        return apply(item["invoice_id"], answer, decision)
+    if step not in DECIDED:
+        return apply(item["invoice_id"], answer)
+    if yes_no(decision) is None and yes_no(answer) is None:
+        return question(f"Réponse non comprise. {item['question']}")
+    # A plain "oui" or "non" is read here when the agent left the decision empty (it chose another tool).
+    return apply(item["invoice_id"], decision if yes_no(decision) is not None else answer)
 
 
 def new_files(session_id):
@@ -460,11 +521,14 @@ def route_message(session_id: str, mode: str = "files") -> dict:
     stays one."""
     if mode == "resume":
         return ok("Suite du traitement.", route="resume")
-    waiting, fresh = bool(waiting_on(session_id)), new_files(session_id) > 0 or awaiting_split(session_id) > 0
+    waiting = bool(waiting_on(session_id))
+    fresh = new_files(session_id) > 0 or awaiting_split(session_id) > 0
     if waiting:
         route = "both" if fresh else "answer"
+    elif fresh or mode not in ("files", "answer"):
+        route = "files"
     else:
-        route = "files" if fresh else mode if mode in ("files", "answer") else "files"
+        route = mode
     return ok(f"Aiguillage : {route}.", route=route)
 
 
@@ -487,12 +551,14 @@ def answer_pending(
     if not waiting:
         # Nothing asked: an account given here still goes to the invoice it names (none answered about).
         fixes, notes = verified_corrections(session_id, answer, corrections or [], None)
-        return ok(
+        result = ok(
             "Aucune question en attente : les factures a reprendre le sont." + "".join(f" {note}" for note in notes),
             next_step="waiting_drafts",
             step="answer_pending",
-            **({"corrections": [[i, account] for i, account in sorted(fixes.items())]} if fixes else {}),
         )
+        if fixes:
+            result["corrections"] = as_pairs(fixes)
+        return result
     item = meant(waiting, about)
     if not item:
         questions = "\n".join(f"- {entry['label']} : {entry['question']}" for entry in waiting)
@@ -506,9 +572,14 @@ def answer_pending(
     result = apply_answer(item, answer, decision)
     fixes, notes = verified_corrections(session_id, answer, corrections or [], item.get("invoice_id"))
     result["message"] = result.get("message", "") + "".join(f" {note}" for note in notes)
-    if fixes:  # [[invoice, account]]: a list, kept as it is through the workflow's state
-        result["corrections"] = [[invoice_id, account] for invoice_id, account in sorted(fixes.items())]
+    if fixes:
+        result["corrections"] = as_pairs(fixes)
     return result
+
+
+def as_pairs(fixes):
+    """{invoice: account} as [[invoice, account]], by invoice: a list, kept as it is through the workflow's state."""
+    return [[invoice_id, account] for invoice_id, account in sorted(fixes.items())]
 
 
 # How a client points at the invoice they answer about (normalized): « mettez-la », « celle-ci ».
@@ -534,7 +605,9 @@ def verified_corrections(session_id, answer, corrections, answered):
     number, the invoice's number, its supplier), on a dossier the sender has. Never a model's guess."""
     if not corrections:
         return {}, []
-    words, names, fixes, notes = normalized(answer), draft_names(session_id), {}, []
+    words = normalized(answer)
+    names = draft_names(session_id)
+    fixes, notes = {}, []
     for correction in corrections:
         correction = correction if isinstance(correction, dict) else {}
         reference = str(correction.get("facture") or "").strip()
@@ -563,14 +636,18 @@ def draft_names(session_id):
         ids |= {row[0] for row in db.execute(Q.pending_of_session, (session_id,))}
         ids |= {row[0] for row in db.execute(Q.invoice_outcomes_of_session, (session_id,))}
     ids = sorted(ids)
-    found = [("id", "in", ids)]  # search_read: a draft deleted in Experio since is left out, never an error
-    drafts = odoo_call("exp.invoice", "search_read", found, fields=["invoice_number", "partner_id"]) if ids else []
-    names = {}
-    for draft in drafts:
-        found = [str(draft["id"]), normalized(draft["invoice_number"] or "")]
-        found += supplier_names(draft["partner_id"][1]) if draft["partner_id"] else []
-        names[draft["id"]] = [name for name in found if len(name) >= 3]
-    return names
+    domain = [("id", "in", ids)]  # search_read: a draft deleted in Experio since is left out, never an error
+    drafts = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number", "partner_id"]) if ids else []
+    return {draft["id"]: names_of(draft) for draft in drafts}
+
+
+def names_of(draft):
+    """The names a client may call ``draft`` by (of three letters or more): Tarik's number, the invoice's own
+    number, its supplier's."""
+    names = [str(draft["id"]), normalized(draft["invoice_number"] or "")]
+    if draft["partner_id"]:
+        names += supplier_names(draft["partner_id"][1])
+    return [name for name in names if len(name) >= 3]
 
 
 def named_drafts(words, names):
@@ -715,18 +792,24 @@ def waiting_drafts(
     corrections = drafts_corrected(session_id, client_message, compte)
     if corrections:
         return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting, corrections=corrections)
-    hint = (
-        f" {elsewhere_left} brouillon(s) d'autres conversations attendent dans ce dossier : écrivez "
-        f"« {whole_example(client_message, held)} », ou nommez-les (numéro de facture ou fournisseur), pour les "
-        "reprendre aussi."
-        if elsewhere_left and not waiting
-        else ""
-    )
+    hint = elsewhere_hint(elsewhere_left, client_message, held) if not waiting else ""
     if held and not waiting:
         return stop(nothing_to_post(session_id, dossier_id) + hint, invoices=[])
     if hint:
         return ok("Rien à reprendre dans cette conversation." + hint, invoices=[], tell=True)
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
+
+
+def elsewhere_hint(count, client_message, held):
+    """What the client is told of the ``count`` drafts other conversations left in the dossier: how to ask for them
+    too. Empty when there are none."""
+    if not count:
+        return ""
+    return (
+        f" {count} brouillon(s) d'autres conversations attendent dans ce dossier : écrivez "
+        f"« {whole_example(client_message, held)} », ou nommez-les (numéro de facture ou fournisseur), pour les "
+        "reprendre aussi."
+    )
 
 
 def drafts_corrected(session_id, client_message, compte):
@@ -739,7 +822,7 @@ def drafts_corrected(session_id, client_message, compte):
     if len(named) != 1:
         return []
     fixes, _ = verified_corrections(session_id, words, [{"facture": str(named[0]), "compte": compte}], None)
-    return [[invoice_id, account] for invoice_id, account in sorted(fixes.items())]
+    return as_pairs(fixes)
 
 
 # How a client asks for every draft of the dossier, whatever conversation left it (normalized words).
@@ -755,7 +838,7 @@ def whole_example(client_message, held):
     """« <their verb> toutes les factures du dossier »: the verb the client wrote (comptabilisez, reprenez…), else
     the one their request means."""
     words = normalized(own_words(client_message))
-    verb = next((said for stem, said in VERBS.items() if re.search(rf"(?<![a-z]){stem}", words)), None)
+    verb = next((written for stem, written in VERBS.items() if re.search(rf"(?<![a-z]){stem}", words)), None)
     return f"{verb or ('comptabilisez' if held else 'reprenez')} toutes les factures du dossier"
 
 
@@ -786,12 +869,7 @@ def asked_among(ids, dossier_id, client_message):
         [("id", "in", sorted(ids)), ("company_id", "=", dossier_id)],
         fields=["invoice_number", "partner_id"],
     )
-    named = []
-    for draft in drafts:
-        names = [str(draft["id"]), normalized(draft["invoice_number"] or "")]
-        names += supplier_names(draft["partner_id"][1]) if draft["partner_id"] else []
-        if any(len(name) >= 3 and said(name, words) for name in names):
-            named.append(draft["id"])
+    named = [draft["id"] for draft in drafts if any(said(name, words) for name in names_of(draft))]
     return sorted(named)
 
 
@@ -803,7 +881,8 @@ def nothing_to_post(session_id, dossier_id):
         mine = {i for (i,) in db.execute(Q.drafts_of_session, (session_id,))}
         mine |= {row[0] for row in db.execute(Q.invoice_outcomes_of_session, (session_id,))}
     domain = [("id", "in", sorted(mine)), ("state", "in", ["pending", "draft"])]
-    domain += [("company_id", "=", dossier_id)] if dossier_id else []
+    if dossier_id:
+        domain.append(("company_id", "=", dossier_id))
     drafts = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number"], order="id") if mine else []
     if not drafts:
         return "Aucune facture laissée en brouillon dans cette conversation : rien à comptabiliser."

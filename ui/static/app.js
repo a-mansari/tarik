@@ -42,7 +42,11 @@ window.liveHub = (() => {
     next.addEventListener("open", () => {
       opens += 1;
       if (opens === 1) previous?.close();
-      if (next === source && (missed || opens > 1)) { fire(own.keys()); channel.postMessage({ type: "opened" }); }
+      const reconnected = opens > 1;
+      if (next === source && (missed || reconnected)) {
+        fire(own.keys());
+        channel.postMessage({ type: "opened" });
+      }
     });
     next.addEventListener("change", (event) => {
       const keys = keyed(event);
@@ -69,7 +73,13 @@ window.liveHub = (() => {
     if (!own.has(key)) own.set(key, new Set());
     own.get(key).add(listener);
     reopen();
-    return { close() { own.get(key)?.delete(listener); if (!own.get(key)?.size) own.delete(key); reopen(); } };
+    return { close: () => unfollow(key, listener, reopen) };
+  }
+
+  function unfollow(key, listener, reopen) {
+    own.get(key)?.delete(listener);
+    if (!own.get(key)?.size) own.delete(key);
+    reopen();
   }
 
   function keyed(event) { // the change's [kind, id] pairs, as the keys followed
@@ -223,4 +233,8 @@ if (toTop) {
 
 // On a phone the pages' menu scrolls sideways: it opens on the page shown.
 const currentPage = document.querySelector(".bar nav a[aria-current='page']");
-if (currentPage) currentPage.parentElement.scrollLeft = currentPage.offsetLeft - currentPage.parentElement.offsetLeft - 16;
+if (currentPage) {
+  const menu = currentPage.parentElement;
+  const gutter = 16; // px left showing before it
+  menu.scrollLeft = currentPage.offsetLeft - menu.offsetLeft - gutter;
+}

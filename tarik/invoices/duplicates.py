@@ -69,7 +69,8 @@ def check_duplicate(invoice_id: int) -> dict:
     tiers and date; or same number, date and total when one has no tiers yet).
     Call it once the tiers is set. A duplicate must not be processed any further."""
     invoice = require_invoice(invoice_id, FIELDS)
-    if twin := without_tiers_twin(invoice, invoice_context(invoice)):
+    twin = without_tiers_twin(invoice, invoice_context(invoice))
+    if twin:
         return twin
     if not invoice["invoice_number"] or not invoice["partner_id"]:
         return ok(

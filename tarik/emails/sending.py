@@ -123,6 +123,15 @@ def cabinet_name():
     return _names[current()]
 
 
+def block_kind(line):
+    """The kind of block a line belongs to: "ol" (a numbered item), "ul" (a list item) or "p"."""
+    if NUMBERED.match(line):
+        return "ol"
+    if BULLET.match(line):
+        return "ul"
+    return "p"
+
+
 def blocks(body):
     """The message as paragraphs and lists, cleaned of HTML tags and Markdown headings and rules:
     [("p", [lines]) | ("ul", [items]) | ("ol", [items])]."""
@@ -132,7 +141,7 @@ def blocks(body):
         if RULE.fullmatch(line) or not line.strip():  # a rule or a blank line ends a block
             found.append(None)
             continue
-        kind = "ol" if NUMBERED.match(line) else "ul" if BULLET.match(line) else "p"
+        kind = block_kind(line)
         text = BULLET.sub("", line) if kind != "p" else line.strip()
         if found and found[-1] and found[-1][0] == kind:
             found[-1][1].append(text)
@@ -174,7 +183,9 @@ def plain_block(kind, lines):
     """One block as plain text: a list's items with "- ", a numbered one's with their number."""
     if kind == "ol":
         return "\n".join(f"{i}. {inline_text(line)}" for i, line in enumerate(lines, 1))
-    return "\n".join(f"- {inline_text(line)}" if kind == "ul" else inline_text(line) for line in lines)
+    if kind == "ul":
+        return "\n".join(f"- {inline_text(line)}" for line in lines)
+    return "\n".join(inline_text(line) for line in lines)
 
 
 def html_block(kind, lines):

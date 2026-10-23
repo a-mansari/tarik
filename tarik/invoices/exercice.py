@@ -89,15 +89,13 @@ def book_late(invoice_id, company_id, exercice):
     """Book the invoice as a late invoice (facture anterieure) in open ``exercice``: ok, with a warning when the
     dossier has no late-invoice account."""
     head = test_mode_note()
-    account = odoo_call("res.company", "read", [company_id], fields=["old_invoice_account_id"])[0][
-        "old_invoice_account_id"
-    ]
-    warning = (
-        ""
-        if account
-        else " Aucun compte de factures anterieures dans le dossier (Configuration > Achat > "
-        "General Achat) : le compte actuel est garde."
-    )
+    company = odoo_call("res.company", "read", [company_id], fields=["old_invoice_account_id"])[0]
+    warning = ""
+    if not company["old_invoice_account_id"]:
+        warning = (
+            " Aucun compte de factures anterieures dans le dossier (Configuration > Achat > "
+            "General Achat) : le compte actuel est garde."
+        )
     if not dry_run():
         with refused(
             f"settle_exercice {invoice_id}", f"Facture {invoice_id} : Experio a refusé la facture antérieure."
@@ -167,6 +165,7 @@ def settle_exercice(invoice_id: int, answer: str = "", decision: str = "") -> di
     choice = exercice_choice(decision, opens)
     if not choice:
         return question(f"Réponse non comprise. Facture {invoice_id} : {asked(invoice, opens)}")
-    if choice[0] == "old":
-        return book_late(invoice_id, company_id, choice[1])
+    how, exercice = choice
+    if how == "old":
+        return book_late(invoice_id, company_id, exercice)
     return new_exercice(invoice_id, invoice, opens)

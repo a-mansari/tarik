@@ -106,22 +106,26 @@ def state(status, waiting):
     return "waiting" if waiting else "answered"
 
 
+async def waiting_for_client(cabinet, sessions):
+    """Those of ``sessions`` whose client Tarik waits for (a question asked, drafts to post once told to): a set."""
+    tables = {key: sql.Identifier(cabinet, f"tarik_{key}") for key in ("pending", "held")}
+    query = sql.SQL(Q.sessions_waiting_for_client).format(**tables)
+    async with runs.pool.connection() as db:
+        rows = await (await db.execute(query, (sessions, sessions))).fetchall()
+    return {row[0] for row in rows}
+
+
 async def conversations(cabinet):
     """The cabinet's conversations, from the Discussions page and by email, latest first: their latest message's run
     {session_id, started, status, graph...}, how the client writes (``medium``: chat or email), the first message's
     words (``first``, cut, else its files) and for an email its subject and sender."""
-    latest = [run for graph in MEDIUMS for run in await runs.recent(cabinet, graph, 200)]
+    latest = []
+    for graph in MEDIUMS:
+        latest += await runs.recent(cabinet, graph, 200)
     found = {}
     for run in sorted(latest, key=lambda run: run["started"], reverse=True):
         found.setdefault(run["session_id"], {**run, "medium": MEDIUMS[run["graph"]]})
-    tables = {key: sql.Identifier(cabinet, f"tarik_{key}") for key in ("pending", "held")}
-    async with runs.pool.connection() as db:
-        waiting = {
-            row[0]
-            for row in await (
-                await db.execute(sql.SQL(Q.sessions_waiting_for_client).format(**tables), (list(found), list(found)))
-            ).fetchall()
-        }
+    waiting = await waiting_for_client(cabinet, list(found))
     for session, run in found.items():
         run["state"] = state(run["status"], session in waiting)
     for session, opening in (await openings(cabinet, list(found))).items():
@@ -150,7 +154,8 @@ async def messages(session):
     shown, called = [], {}  # tool call id -> its line in the turn
     for message in (saved or {}).get("channel_values", {}).get("messages", []):
         if message.type == "human":
-            if entry := said(message):
+            entry = said(message)
+            if entry:
                 shown.append(entry)
         elif message.type == "ai":
             if not shown or shown[-1]["who"] != "Tarik":
@@ -166,22 +171,31 @@ async def messages(session):
     return shown
 
 
+async def on_its_way(latest, shown):
+    """The client's message of the run ``latest`` still going, as sent, while Tarik's memory does not have it yet
+    (not the last of the client's messages ``shown``); else None."""
+    given = (await runs.run(latest["run_id"]))["input"] or {}
+    clients = [entry for entry in shown if entry["who"] == "Client"]
+    if clients and clients[-1]["text"].strip() == (given.get("message") or "").strip():
+        return None
+    return {
+        "who": "Client",
+        "text": given.get("message", ""),
+        "files": given.get("files", []),
+        "skipped": given.get("skipped", []),
+    }
+
+
 async def talk(cabinet, session):
     """What the conversation shows: its messages, and the message on its way (its Discussion run still going), its
     client's words shown at once, before Tarik's memory has them."""
     shown = await messages(session)
-    latest = next(iter([r for r in await conversations(cabinet) if r["session_id"] == session]), None)
+    latest = next((run for run in await conversations(cabinet) if run["session_id"] == session), None)
     going = bool(latest and latest["status"] in ("queued", "running"))
     if going and latest["medium"] == "chat":  # an email thread's message is in Tarik's memory once its run asks
-        given = (await runs.run(latest["run_id"]))["input"] or {}
-        clients = [entry for entry in shown if entry["who"] == "Client"]
-        if not clients or clients[-1]["text"].strip() != (given.get("message") or "").strip():
-            pending = {
-                "text": given.get("message", ""),
-                "files": given.get("files", []),
-                "skipped": given.get("skipped", []),
-            }
-            shown.append({"who": "Client", **pending})
+        pending = await on_its_way(latest, shown)
+        if pending:
+            shown.append(pending)
     return {"messages": shown, "latest": latest, "going": going}
 
 
@@ -268,7 +282,8 @@ async def send(request: Request):
         return refused("Un autre cabinet a été choisi depuis l'ouverture de la page : rechargez-la.")
     if not text and not files:
         return refused("Écrivez un message ou joignez un fichier.")
-    if exceeded := problems(text, files):
+    exceeded = problems(text, files)
+    if exceeded:
         return refused("Rien n'a été envoyé :\n" + "\n".join(f"- {line}" for line in exceeded))
     # A zip, replaced by the files in it Tarik takes; what it leaves out is told to the person who sent it.
     found, skipped = unpacked([(f["file_name"], f["mime_type"], f["data"]) for f in files], FILE_TYPES)
@@ -302,9 +317,10 @@ async def metrics_of(cabinet):
     """The cabinet's last DAYS days in four numbers: read once for each change of the cabinet (engine/live.py), and
     kept for every dashboard open on it, however many follow it."""
     version = live.versions([("cabinet", cabinet)])
-    kept = NUMBERS.get(cabinet)
-    if kept and kept[0] == version and time.monotonic() - kept[1] < KEPT_SECONDS:
-        return kept[2]
+    if cabinet in NUMBERS:
+        read_version, read_at, kept = NUMBERS[cabinet]
+        if read_version == version and time.monotonic() - read_at < KEPT_SECONDS:
+            return kept
     async with runs.pool.connection() as db:
         count, seconds, failed, talks = await (await db.execute(Q.dashboard_metrics, (cabinet, DAYS))).fetchone()
     metrics = {"runs": count, "seconds": seconds, "failed": failed, "conversations": talks}

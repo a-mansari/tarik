@@ -24,10 +24,15 @@ def prepaid_period(start, end):
     months, else None."""
     if not (start and end and len(start) == len(end) == 10 and start < end):
         return None
-    months = (int(end[:4]) - int(start[:4])) * 12 + int(end[5:7]) - int(start[5:7]) + 1
+    months = month_number(end) - month_number(start) + 1
     if months < 2:
         return None
     return {"prepaid_start_date": start, "prepaid_end_date": end, "prepaid_months": months}
+
+
+def month_number(day):
+    """``day`` (YYYY-MM-DD) as a count of months, to subtract one from another."""
+    return int(day[:4]) * 12 + int(day[5:7])  # its year, then its month
 
 
 @step_tool

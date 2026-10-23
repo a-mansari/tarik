@@ -79,17 +79,23 @@ def _vault_read(method, path):
     return vault_request(method, path, vault_token(VAULT_APPROLE, _vault_state))
 
 
+def _vault_field(method, path, key):
+    """``key`` in the "data" of Vault's answer to ``method`` on ``path``; None when the path or the key is missing."""
+    answer = _vault_read(method, path) or {}
+    return (answer.get("data") or {}).get(key)
+
+
 def read_vault():
     """Vault's vault_settings: (the shared ones, {cabinet: its own})."""
-    shared = ((_vault_read("GET", "/v1/secret/data/tarik/shared") or {}).get("data") or {}).get("data") or {}
-    own = ((_vault_read("GET", "/v1/secret/data/tarik/orchestrator") or {}).get("data") or {}).get("data") or {}
+    shared = _vault_field("GET", "/v1/secret/data/tarik/shared", "data") or {}
+    own = _vault_field("GET", "/v1/secret/data/tarik/orchestrator", "data") or {}
     shared = {**shared, **own}
-    listed = ((_vault_read("LIST", "/v1/secret/metadata/tarik/cabinets") or {}).get("data") or {}).get("keys") or []
-    cabinets = {
-        name: _vault_read("GET", f"/v1/secret/data/tarik/cabinets/{name}")["data"]["data"]
-        for name in listed
-        if not name.endswith("/")
-    }
+    listed = _vault_field("LIST", "/v1/secret/metadata/tarik/cabinets", "keys") or []
+    cabinets = {}
+    for name in listed:
+        if name.endswith("/"):
+            continue
+        cabinets[name] = _vault_read("GET", f"/v1/secret/data/tarik/cabinets/{name}")["data"]["data"]
     return shared, cabinets
 
 
@@ -156,7 +162,8 @@ def served():
     """The cabinets to serve now: Vault's cabinet paths, but the deactivated ones (the tests: TARIK_CABINETS)."""
     if not VAULT_ENABLED:
         return cabinet_names(os.getenv("TARIK_CABINETS"))
-    return cabinet_names(",".join(name for name, own in vault_settings(wait=60)[1].items() if active(own)))
+    _shared, cabinets = vault_settings(wait=60)
+    return cabinet_names(",".join(name for name, own in cabinets.items() if active(own)))
 
 
 # The cabinets served, one set changed in place (reload_cabinets) so that every module that imported it sees a
@@ -239,10 +246,11 @@ def source():
     if not VAULT_ENABLED:
         return os.environ
     shared, cabinets = vault_settings()
-    return {
-        **shared,
-        **{f"{name.upper()}__{key}": value for name, own in cabinets.items() for key, value in own.items()},
-    }
+    every = dict(shared)
+    for name, own in cabinets.items():
+        for key, value in own.items():
+            every[f"{name.upper()}__{key}"] = value
+    return every
 
 
 def setting(key, default=None):
@@ -267,16 +275,14 @@ def misplaced_in_vault(shared, cabinets, environ=os.environ):
     """With Vault: a setting under the wrong path, unknown, or still in the environment, where it
     would be a second copy. The server refuses to start with any."""
     found = [f"tarik/shared:{key}" for key in shared if key not in SHARED_SETTINGS]
-    found += [
-        f"tarik/cabinets/{name}:{key}" for name, own in cabinets.items() for key in own if key not in CABINET_SETTINGS
-    ]
+    for name, own in cabinets.items():
+        found += [f"tarik/cabinets/{name}:{key}" for key in own if key not in CABINET_SETTINGS]
     known = CABINET_SETTINGS | SHARED_SETTINGS
     # TARIK_CABINETS, a setting (<KEY>) or a cabinet's own (<CABINET>__<KEY>), set in the environment.
-    found += [
-        name
-        for name, value in environ.items()
-        if value and (name == "TARIK_CABINETS" or name in known or name.partition("__")[2] in known)
-    ]
+    for name, value in environ.items():
+        _cabinet, _, key = name.partition("__")
+        if value and (name == "TARIK_CABINETS" or name in known or key in known):
+            found.append(name)
     return sorted(found)
 
 

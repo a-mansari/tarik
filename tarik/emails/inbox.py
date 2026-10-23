@@ -76,13 +76,19 @@ def connect():
         yield box
 
 
-def client_text(message):
-    """The client's own words: the plain text (or the HTML without its tags), the quoted history and the inline
-    images' marks cut off. What they write below a « > » quote, or between its lines, is theirs too."""
+def body_text(message):
+    """The email's body as text: its plain text, or its HTML without its tags ("" without either)."""
     part = message.get_body(preferencelist=("plain", "html"))
-    text = part.get_content() if part else ""
-    if part and part.get_content_type() == "text/html":
+    if not part:
+        return ""
+    text = part.get_content()
+    if part.get_content_type() == "text/html":
         text = strip_tags(HIDDEN.sub("", LINE_END_TAG.sub("\n", text)))
+    return text
+
+
+def unquoted_lines(text):
+    """The lines of ``text`` that are not quoted history: no « > » line, nothing after an unmarked earlier email."""
     lines, all_lines = [], text.splitlines()
     for at, line in enumerate(all_lines):
         if QUOTE_START.match(line):
@@ -92,10 +98,25 @@ def client_text(message):
             continue  # « Le … a écrit : » over a « > » quote: the client may answer below it, or between its lines
         if not line.lstrip().startswith(">"):  # a quoted line
             lines.append(line.rstrip())
+    return lines
+
+
+def client_text(message):
+    """The client's own words: the plain text (or the HTML without its tags), the quoted history and the inline
+    images' marks cut off. What they write below a « > » quote, or between its lines, is theirs too."""
+    lines = unquoted_lines(body_text(message))
     return BLANK_LINES.sub("\n\n", without_images("\n".join(lines))).strip()[:4000]
 
 
 SIGNATURE_LINES = 3  # a shorter block two emails end with is more likely the client's own words ("achat", a name)
+
+
+def same_ending(lines, theirs):
+    """How many lines ``lines`` and ``theirs`` end with alike (spaces aside)."""
+    same = 0
+    while same < min(len(lines), len(theirs)) and lines[-1 - same].strip() == theirs[-1 - same].strip():
+        same += 1
+    return same
 
 
 def without_signature(text, earlier):
@@ -104,13 +125,11 @@ def without_signature(text, earlier):
     lines = text.splitlines()
     shared = 0
     for other in earlier:
-        theirs = other.splitlines()
-        same = 0
-        while same < min(len(lines), len(theirs)) and lines[-1 - same].strip() == theirs[-1 - same].strip():
-            same += 1
+        same = same_ending(lines, other.splitlines())
         if same < len(lines):  # the same email again (« achat » and the signature, twice) says nothing of where it ends
             shared = max(shared, same)
-    kept, signature = lines[: len(lines) - shared], lines[len(lines) - shared :]
+    cut = len(lines) - shared
+    kept, signature = lines[:cut], lines[cut:]
     if sum(1 for line in signature if line.strip()) < SIGNATURE_LINES or not "".join(kept).strip():
         return text
     return "\n".join(kept).strip()
@@ -123,7 +142,8 @@ def attachments(message):
     found, other = [], []
     for part in message.iter_attachments():
         name = part.get_filename() or ""
-        if part.get_content_maintype() == "image" and part.get_content_disposition() == "inline" or not name:
+        inline_image = part.get_content_maintype() == "image" and part.get_content_disposition() == "inline"
+        if inline_image or not name:
             continue
         if not name.lower().endswith((*FILE_TYPES, ".zip")):
             other.append(f"{name} : type non pris en charge")
@@ -144,6 +164,12 @@ def automatic(message):
     )
 
 
+def without_nul(text):
+    """``text`` without NUL characters: Postgres text never holds one, and one in an email would stop every reading
+    at it."""
+    return text.replace("\x00", "")
+
+
 class UnreadableEmail(Exception):
     """An email Python can't read (an unknown charset, a broken header): skipped, never tried again."""
 
@@ -156,11 +182,12 @@ def read_email(message_id, message):
         reply_to = parseaddr(message.get("Reply-To", ""))[1].lower() or sender
         subject = str(message.get("Subject", "") or "").strip()
         linked = MESSAGE_ID.findall(f"{message.get('In-Reply-To', '')} {message.get('References', '')}")
-        text, (files, skipped), auto = client_text(message), attachments(message), automatic(message)
-        # Postgres text never holds a NUL: one in an email would stop every reading at it.
-        sender, reply_to, subject, text = (value.replace("\x00", "") for value in (sender, reply_to, subject, text))
-        files = [(name.replace("\x00", ""), mime, data) for name, mime, data in files]
-        skipped = [why.replace("\x00", "") for why in skipped]
+        text = without_nul(client_text(message))
+        files, skipped = attachments(message)
+        auto = automatic(message)
+        sender, reply_to, subject = without_nul(sender), without_nul(reply_to), without_nul(subject)
+        files = [(without_nul(name), mime, data) for name, mime, data in files]
+        skipped = [without_nul(why) for why in skipped]
     except Exception as error:
         raise UnreadableEmail(f"{message_id}: {type(error).__name__}: {error}") from None
     return sender, reply_to, subject, linked, text, files, skipped, auto
@@ -203,6 +230,12 @@ def thread_of(db, linked, sender, subject, reason, message_id):
     return row[0]
 
 
+def own_addresses():
+    """Tarik's own addresses (SMTP_FROM, SMTP_USER, IMAP_USER), lowercased."""
+    own = (parseaddr(setting("SMTP_FROM", ""))[1], setting("SMTP_USER", ""), setting("IMAP_USER", ""))
+    return {address.lower() for address in own if address}
+
+
 def store(db, uid, message):
     """Record one email in its sender's thread (found by In-Reply-To and References), with its files.
     Who wrote is the From address alone: Reply-To is only where the reply may go. A reply from someone
@@ -213,8 +246,7 @@ def store(db, uid, message):
     if db.execute(Q.mail_message_exists, (message_id,)).fetchone():
         return
     sender, reply_to, subject, linked, text, files, skipped, auto = read_email(message_id, message)
-    own = (parseaddr(setting("SMTP_FROM", ""))[1], setting("SMTP_USER", ""), setting("IMAP_USER", ""))
-    if sender in {address.lower() for address in own if address}:
+    if sender in own_addresses():
         return  # Tarik's own reply, when the folder holds the sent copies
     reason, unauthorized = refusal(sender, auto)
     thread_id = thread_of(db, linked, sender, subject, reason, message_id)
@@ -243,6 +275,17 @@ def store(db, uid, message):
     return {"sender": sender, "subject": subject, "reason": unauthorized} if unauthorized else None
 
 
+def unanswered_text(messages, theirs):
+    """The client's unanswered ``messages`` as one message, each without the signature their other emails
+    (``theirs``) end with too; "(pas de texte)" when none has text."""
+    bodies = []
+    for message_id, body, _ in messages:
+        if body:
+            others = [other for at, other in theirs if at != message_id]
+            bodies.append(without_signature(body, others))
+    return "\n\n".join(bodies) or "(pas de texte)"
+
+
 def thread_item(db, thread_id, session_id, address, subject):
     """A claimed thread as the workflow works on it (dict): where the reply goes, its subject, the client's
     unanswered emails as one message, the files waiting, and what the reply answers (the thread's last email).
@@ -262,19 +305,17 @@ def thread_item(db, thread_id, session_id, address, subject):
     last_id, last_references, reply_to = last or ("", "", None)
     # Their other emails, signature included: the body is kept whole, the signature cut where Tarik reads it.
     theirs = db.execute(Q.emails_of_sender, (address,)).fetchall()
+    skipped = []
+    for _, _, left in messages:  # what each email's zips left out
+        skipped.extend(left)
     return {
         "thread_id": thread_id,
         "session_id": session_id,
         "to": reply_to if reply_to and recipient_allowed(reply_to) else address,
         "subject": subject if subject.lower().startswith(("re:", "re :")) else f"Re: {subject}",
-        "message": "\n\n".join(
-            without_signature(body, [other for at, other in theirs if at != message_id])
-            for message_id, body, _ in messages
-            if body
-        )
-        or "(pas de texte)",
+        "message": unanswered_text(messages, theirs),
         "files": [name for (name,) in files],
-        "skipped": [why for _, _, left in messages for why in left],
+        "skipped": skipped,
         "message_ids": [message_id for message_id, _, _ in messages],
         "follow_up": not messages,
         "in_reply_to": last_id,
@@ -345,15 +386,26 @@ def last_read(db, uidvalidity, newest):
     return None
 
 
+def uids_after(box, last):
+    """The folder's uids after ``last``, in order."""
+    found = box.uid("search", None, f"UID {last + 1}:*")[1][0]  # (status, [b"uid uid ..."])
+    uids = [int(uid) for uid in found.split()]
+    return sorted(uid for uid in uids if uid > last)  # "n:*" also returns the last email when there's nothing new
+
+
+def fetched(box, uid):
+    """Email ``uid``'s raw bytes, read without marking it read; None when the server gave none."""
+    data = box.uid("fetch", str(uid), "(BODY.PEEK[])")[1]  # (status, data): the email is the tuple in data
+    return next((part[1] for part in data if isinstance(part, tuple)), None)
+
+
 def store_new(box, db, last):
     """Store each email after uid ``last``, each committed before the next; returns the manager's alerts. An
     unreadable email is skipped for good; any other failure stops here, for the next reading to go on."""
-    uids = [int(uid) for uid in box.uid("search", None, f"UID {last + 1}:*")[1][0].split()]
     alerts = []
-    for uid in sorted(u for u in uids if u > last):  # "n:*" also returns the last email when there's nothing new
+    for uid in uids_after(box, last):
         try:
-            data = box.uid("fetch", str(uid), "(BODY.PEEK[])")[1]  # read without marking it read
-            raw = next((part[1] for part in data if isinstance(part, tuple)), None)
+            raw = fetched(box, uid)
             with db.transaction():  # a failed email leaves nothing half-written
                 alert = store(db, uid, message_from_bytes(raw, policy=policy.default)) if raw else None
         except (UnreadableEmail, psycopg.DataError) as error:  # this email can't be stored: never tried again
@@ -369,14 +421,19 @@ def store_new(box, db, last):
     return alerts
 
 
+def folder_number(box, code):
+    """The number the server gave for ``code`` (UIDVALIDITY, UIDNEXT) when the folder was opened."""
+    return int(box.response(code)[1][0])  # (code, [b"number"])
+
+
 def read_mailbox():
     """Store the mailbox's new emails in their threads (without changing anything there), and return
     what the cabinet's manager must hear of: the refused senders. Run by the mail watcher (engine/mail.py), never by a
     workflow: however many emails wait, no run waits on it. The first reading only notes where the mailbox
     stands: earlier emails are left alone."""
     with connect() as box, cabinet_db() as db:
-        uidvalidity = int(box.response("UIDVALIDITY")[1][0])
-        newest = int(box.response("UIDNEXT")[1][0]) - 1
+        uidvalidity = folder_number(box, "UIDVALIDITY")
+        newest = folder_number(box, "UIDNEXT") - 1
         # This cabinet's reading lock, held until db closes: the watcher's wake-up and its tick may overlap.
         if not db.execute(Q.try_mailbox_lock, (f"read_mailbox {current()}",)).fetchone()[0]:
             return []
@@ -408,9 +465,12 @@ def acknowledge_thread(thread_id: str) -> dict:
             Q.thread_to_acknowledge,
             (thread_id,),
         ).fetchone()
-        if not row or not row[3]:
+        if not row:
             return ok("Pas d'accuse de reception : fil deja suivi.", sent=False)
-        item = thread_item(db, thread_id, *row[:3])
+        session_id, address, subject, to_acknowledge = row
+        if not to_acknowledge:
+            return ok("Pas d'accuse de reception : fil deja suivi.", sent=False)
+        item = thread_item(db, thread_id, session_id, address, subject)
     result = send_email(item["to"], item["subject"], ACKNOWLEDGEMENT, item["in_reply_to"], item["references"])
     with cabinet_db() as db:
         db.execute(Q.set_thread_acknowledged, (thread_id,))
@@ -487,6 +547,24 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
     return ok(f"Manager prevenu : {sender}.")
 
 
+def thread_state(db, thread_id, session):
+    """Where the thread stands after Tarik's reply: "new" (an email came in during this run), "waiting" (for the
+    client), "follow_up" (drafts to take up again or dossiers to finish, FOLLOW_UP_MINUTES at most) or "done"."""
+    newer = db.execute(Q.thread_has_unhandled, (thread_id,)).fetchone()
+    waiting = db.execute(Q.session_has_pending, session).fetchone()
+    if newer:
+        return "new"
+    if waiting:
+        return "waiting"
+    if not (waiting_setups(session[0])["dossiers"] or drafts_to_resume(session[0])):
+        return "done"
+    until = db.execute(
+        Q.follow_up_still_open,
+        (FOLLOW_UP_MINUTES, thread_id),
+    ).fetchone()[0]
+    return "follow_up" if until else "done"
+
+
 @tool
 def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "", sent_id: str = "") -> dict:
     """After Tarik's reply: its emails are answered, and the thread waits for the client
@@ -504,16 +582,7 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
             set_aside(db, thread_id, "error", reason or "reponse non envoyee")
             return ok("Fil mis de cote : reponse non envoyee.")
         db.execute(Q.handle_mail_messages, (list(message_ids),))
-        newer = db.execute(Q.thread_has_unhandled, (thread_id,)).fetchone()
-        waiting = db.execute(Q.session_has_pending, session).fetchone()
-        state = "new" if newer else "waiting" if waiting else "done"  # new: an email came in during this run
-        # Something left for a follow-up: drafts to take up again, or dossiers to finish.
-        if state == "done" and (waiting_setups(session[0])["dossiers"] or drafts_to_resume(session[0])):
-            until = db.execute(
-                Q.follow_up_still_open,
-                (FOLLOW_UP_MINUTES, thread_id),
-            ).fetchone()[0]
-            state = "follow_up" if until else "done"
+        state = thread_state(db, thread_id, session)
         db.execute(
             Q.finish_mail_thread,
             (state, state, FOLLOW_UP_MINUTES, thread_id),

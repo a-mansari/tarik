@@ -67,8 +67,8 @@ def readings(value):
     # Spaces (narrow and non-breaking ones too), "%" and a trailing currency are no part of the number.
     text = re.sub(r"[\s  %]|dhs?$|mad$|dirhams?$", "", str(value).lower())
     if "," in text and "." in text:  # both: the last one is the decimal point, in either style
-        decimal = "," if text.rfind(",") > text.rfind(".") else "."
-        text = text.replace("." if decimal == "," else ",", "").replace(",", ".")
+        thousands = "." if text.rfind(",") > text.rfind(".") else ","
+        text = text.replace(thousands, "").replace(",", ".")
         return [float(text)] if re.fullmatch(r"-?\d+(\.\d+)?", text) else []  # digits, maybe a decimal part
     found = set()
     for mark in ",.":
@@ -101,4 +101,7 @@ WRITTEN = re.compile(r"\d{1,3}(?:[   .,]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?")
 
 def written_numbers(text):
     """Every value the numbers of a text may mean: "capital 100 000,50 DH" -> [100000.5], "1,005" -> [1.005, 1005]."""
-    return [reading for found in WRITTEN.findall(text or "") for reading in readings(found)]
+    values = []
+    for number in WRITTEN.findall(text or ""):
+        values += readings(number)
+    return values

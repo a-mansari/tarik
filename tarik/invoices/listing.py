@@ -65,7 +65,8 @@ def list_invoices(dossier_id: int, status: str = "", limit: int = 20, side: str 
             limit=limit,
             fields=["invoice_number", "invoice_date", "partner_id", "amount_total", "state", "payment_state"],
         )
-    what = " ".join(word for word in ("facture(s)", SIDES.get(side, ("", ""))[1], wanted) if word)
+    side_words = SIDES[side][1] if side else ""
+    what = " ".join(word for word in ("facture(s)", side_words, wanted) if word)
     if not found:
         return ok(f"Aucune {what.replace('(s)', '')} dans le dossier {dossier}.")
     lines = [line(invoice) for invoice in found]

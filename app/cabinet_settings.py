@@ -48,6 +48,8 @@ assert set(FIELDS) - {IN_POSTGRES} == cabinets.CABINET_SETTINGS - {"ACTIVE"}
 # As tarik.emails.sending reads the list: an address, an @domain, or a pattern with "*" ("test.*@experio.ma", "*").
 RECIPIENT = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+|@[^@\s,]+\.[^@\s,]+|[^\s,]*\*[^\s,]*")
 
+SECRETS = {key for key, kind in FIELDS.items() if kind == "secret"}
+
 _lock = threading.Lock()
 _token = {"token": "", "token_until": 0.0}
 
@@ -86,9 +88,12 @@ def checked(key, value):
         raise ValueError(f"{key} n'est pas une adresse email (sans espace autour)")
     if kind == "sender" and not EMAIL.fullmatch(parseaddr(value)[1]):
         raise ValueError(f"{key} n'est pas un expéditeur (« Nom <adresse> » ou une adresse)")
+    if kind != "recipients":
+        return
     # The recipients, each entry as Tarik reads it: split at the commas, its spaces left out, an empty one skipped.
-    wrong = [e.strip() for e in value.split(",") if e.strip() and not RECIPIENT.fullmatch(e.strip())]
-    if kind == "recipients" and wrong:
+    entries = [entry.strip() for entry in value.split(",")]
+    wrong = [entry for entry in entries if entry and not RECIPIENT.fullmatch(entry)]
+    if wrong:
         raise ValueError(f"{key} : ni adresse, ni @domaine, ni motif avec * : {', '.join(wrong)}")
 
 
@@ -105,7 +110,8 @@ def changed(before, given):
             continue
         if kind != "secret":
             checked(key, value)
-        if value != (before.get(key) or (next(iter(ADAPTERS)) if kind == "adapter" else "")):  # unset: the first
+        unset = next(iter(ADAPTERS)) if kind == "adapter" else ""  # an adapter unset: the first
+        if value != (before.get(key) or unset):
             found[key] = value
     return found
 
@@ -115,6 +121,13 @@ def _vault(method, path, **kwargs):
     with _lock:
         token = cabinets.vault_token(ROLE, _token)
     return cabinets.vault_request(method, path, token, **kwargs)
+
+
+def recorded(key, before, after):
+    """One setting's change as settings_changes keeps it: {key, before, after}, a secret's values never."""
+    if key in SECRETS:
+        return {"key": key, "before": None, "after": None}
+    return {"key": key, "before": before, "after": after}
 
 
 MOVED = "ces réglages ont changé depuis l'ouverture de la page : rechargez-la et recommencez"
@@ -144,11 +157,7 @@ async def save(pool, cabinet, given, seen, author, note="", active=None):
         except httpx.HTTPStatusError as error:
             raise ValueError(MOVED) from error
         version = written["data"]["version"]
-    secret = {key for key, kind in FIELDS.items() if kind == "secret"}
-    changes = [
-        {"key": key, "before": None if key in secret else data.get(key, ""), "after": None if key in secret else value}
-        for key, value in found.items()
-    ]
+    changes = [recorded(key, data.get(key, ""), value) for key, value in found.items()]
     async with pool.connection() as db:
         if IN_POSTGRES in found:
             await db.execute(Q.model_adapter_set, (cabinet, found[IN_POSTGRES]))
@@ -161,10 +170,12 @@ async def save(pool, cabinet, given, seen, author, note="", active=None):
 def complete(given):
     """A new cabinet's settings from ``given``, each checked as typed (a secret as is): every one Tarik needs present,
     DRY_RUN 1 (simulation) unless given. ValueError (in plain French) otherwise; unknown keys are refused too."""
-    if unknown := sorted(set(given) - set(FIELDS)):
+    unknown = sorted(set(given) - set(FIELDS))
+    if unknown:
         raise ValueError(f"réglages inconnus : {', '.join(unknown)}")
     found = changed({}, {"DRY_RUN": "1", **given})
-    if missing := [key for key in FIELDS if key not in OPTIONAL and not found.get(key)]:
+    missing = [key for key in FIELDS if key not in OPTIONAL and not found.get(key)]
+    if missing:
         raise ValueError(f"réglages manquants : {', '.join(missing)}")
     return found
 
@@ -182,8 +193,7 @@ async def create(pool, cabinet, given, author):
         )
     except httpx.HTTPStatusError as error:
         raise ValueError("ce cabinet existe déjà") from error
-    secret = {key for key, kind in FIELDS.items() if kind == "secret"}
-    changes = [{"key": key, "before": None, "after": None if key in secret else value} for key, value in data.items()]
+    changes = [recorded(key, None, value) for key, value in data.items()]
     async with pool.connection() as db:
         if IN_POSTGRES in data:
             await db.execute(Q.model_adapter_set, (cabinet, data[IN_POSTGRES]))

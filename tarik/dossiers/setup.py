@@ -198,11 +198,9 @@ def entries_kind(text, separator):
         return "fec"
     headers = [normalized(h).replace(" ", "") for h in rows[0]]
     column = next((i for i, h in enumerate(headers) if h in ACCOUNT_HEADERS), None)
-    accounts = [
-        r[column].strip()
-        for r in rows[1:]
-        if column is not None and column < len(r) and r[column].strip()[:1].isdigit()
-    ]
+    accounts = []
+    if column is not None:
+        accounts = [r[column].strip() for r in rows[1:] if column < len(r) and r[column].strip()[:1].isdigit()]
     if len(accounts) >= 20:
         backwards = sum(1 for x, y in itertools.pairwise(accounts) if y < x)
         return "grand livre" if backwards / len(accounts) < 0.02 else "fec"
@@ -263,7 +261,10 @@ def previewed(file_id, name, text, context, model="experio.history"):
 def columns(preview, target):
     """The Experio field of each column of ``preview``, as the import screen suggests them, with the ``target``'s
     MANUAL_COLUMNS filling the gaps a user maps by hand (False: column not imported)."""
-    fields = [(preview["matches"].get(str(i)) or [False])[0] for i in range(len(preview["headers"]))]
+    fields = []
+    for i in range(len(preview["headers"])):
+        suggested = preview["matches"].get(str(i))  # the screen's suggestions for column i, best first
+        fields.append(suggested[0] if suggested else False)
     for i, header in enumerate(preview["headers"]):
         guess = MANUAL_COLUMNS[target].get(normalized(header))
         if not fields[i] and guess and guess not in fields:
@@ -285,12 +286,22 @@ KIND_WORDS = {  # what the agent (the client's words) calls a file -> its kind
 }
 
 
+def told_kind(kind):
+    """The kind the agent's ``kind`` (the client's words) names, or None."""
+    wanted = normalized(kind or "")
+    if wanted in KIND_WORDS:
+        return KIND_WORDS[wanted]
+    for word, found in KIND_WORDS.items():
+        if said(word, wanted):
+            return found
+    return None
+
+
 def file_kind(kind, text):
     """What the file is, for Experio's import screens: "fec", "grand livre", "plan", "journaux", "fournisseurs",
     "clients"; None when nothing tells (the client is asked). As the agent said (``kind``, the client's words),
     else from the file's headers."""
-    wanted = normalized(kind or "")
-    told = KIND_WORDS.get(wanted) or next((found for word, found in KIND_WORDS.items() if said(word, wanted)), None)
+    told = told_kind(kind)
     if told:
         return told
     separator = separator_of(text)
@@ -323,13 +334,14 @@ def bank_named(text, banks):
     the new ones (BANK_ALIASES)."""
     words = normalized(text or "")
     for old, new in BANK_ALIASES.items():
-        words = words.replace(old, new) if said(old, words) else words
+        if said(old, words):
+            words = words.replace(old, new)
     given = {w for w in words.split() if len(w) >= 2 and w not in GENERIC_BANK_WORDS}
     best, score = None, (0, 0)
     for bank in banks:
         own = [w for w in normalized(bank["name"]).split() if w not in GENERIC_BANK_WORDS]
         matched = [max((len(g) for g in given if w.startswith(g)), default=0) for w in own]
-        hit = (sum(matched), -sum(1 for m in matched if not m))
+        hit = (sum(matched), -sum(1 for m in matched if not m))  # letters matched, then fewest words unmatched
         if hit[0] and hit > score:
             best, score = bank, hit
     return best
@@ -355,6 +367,28 @@ def with_bank_names(text, separator):
 def errors_of(answer):
     """The error messages (list of str) in an execute_import ``answer``."""
     return [m.get("message", "") for m in answer.get("messages") or [] if m.get("type") == "error"]
+
+
+def tested(file_id, name, label, arguments, context):
+    """Experio's test of the import (execute_import's dry run): its answer; Refused when it finds errors."""
+    with refused(f"import_entries {file_id} test", f"{label} {name} refuse par Experio : {{reason}}", Refused):
+        test = odoo_json("base_import.import", "execute_import", *arguments, True, context=context)
+    errors = errors_of(test)
+    if errors:
+        raise Refused(
+            f"{label} {name} refuse par le test Experio ({len(errors)} erreur(s)) : " + " | ".join(errors[:3])
+        )
+    return test
+
+
+def imported(file_id, name, label, arguments, context):
+    """The import itself: Experio's answer; Refused when it reports errors."""
+    with refused(f"import_entries {file_id}", f"{label} {name} : Experio a refuse l'import ({{reason}}).", Refused):
+        result = odoo_json("base_import.import", "execute_import", *arguments, False, context=context)
+    errors = errors_of(result)
+    if errors:
+        raise Refused(f"{label} {name} refuse par Experio : " + " | ".join(errors[:3]))
+    return result
 
 
 @step_tool
@@ -393,24 +427,14 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         if target == "ecritures":
             label = "Grand livre" if gl else "FEC"
         arguments = ([import_id], fields, headers, options)
-        with refused(f"import_entries {file_id} test", f"{label} {name} refuse par Experio : {{reason}}", Refused):
-            test = odoo_json("base_import.import", "execute_import", *arguments, True, context=context)
-        errors = errors_of(test)
-        if errors:
-            raise Refused(
-                f"{label} {name} refuse par le test Experio ({len(errors)} erreur(s)) : " + " | ".join(errors[:3])
-            )
+        test = tested(file_id, name, label, arguments, context)
         if dry_run():
             lines = len(test.get("ids") or [])
             return ok(
                 f"{TEST_MODE}{label} {name} : test Experio reussi ({lines} lignes), rien n'est importe.",
                 file_id=file_id,
             )
-        with refused(f"import_entries {file_id}", f"{label} {name} : Experio a refuse l'import ({{reason}}).", Refused):
-            result = odoo_json("base_import.import", "execute_import", *arguments, False, context=context)
-        errors = errors_of(result)
-        if errors:
-            raise Refused(f"{label} {name} refuse par Experio : " + " | ".join(errors[:3]))
+        result = imported(file_id, name, label, arguments, context)
     except Refused as refusal:
         taken(file_id)
         setup_waits(dossier_id)
@@ -549,17 +573,23 @@ def lines_ready_in(dossier_id, context):
 def complete_stepper(company, context):
     """Walks the stepper to its last phase and presses "Enregistrer et terminer" with ``company``'s journals and
     tiers prefixes (the defaults where it has none)."""
-    for phase in range(1, 9):
+    for phase in range(1, 9):  # its 8 phases
+        following = min(phase + 1, 8)  # the last phase stays the current one
         state = {
-            "current_phase": min(phase + 1, 8),
+            "current_phase": following,
             "completed_phases": list(range(1, phase + 1)),
-            "visited_phases": list(range(1, min(phase + 1, 8) + 1)),
+            "visited_phases": list(range(1, following + 1)),
         }
         odoo_json("res.company", "set_configuration_stepper_state", state, context=context)
     config = {key: company[key] and company[key][0] for key in STEPPER_JOURNALS}
     config.update({key: company[key] or prefix for key, prefix in STEPPER_PREFIXES.items()})
     odoo_json("res.company", "save_validation_config", config, context=context)
     odoo_json("res.company", "complete_onboarding", context=context)  # its write hands the waiting lines over
+
+
+def entries_count(dossier_id, context):
+    """How many entries lines were imported into the dossier."""
+    return odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id)], context=context)
 
 
 def setup_missing(dossier_id, context):
@@ -600,9 +630,7 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     if not company["show_onboarding"]:
         setup_waits(dossier_id)
         return ok(f"Dossier {dossier} : integration deja terminee, Experio traite les ecritures des leur import.")
-    if not finish and not odoo_call(
-        "experio.history", "search_count", [("company_id", "=", dossier_id)], context=context
-    ):
+    if not finish and not entries_count(dossier_id, context):
         setup_waits(dossier_id)  # nothing to wait for: the client's next files, or their word
         missing = setup_missing(dossier_id, context)
         lacking = f" Il manque : {', '.join(missing)}." if missing else ""
@@ -610,7 +638,10 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
             f"Dossier {dossier} : integration en attente de vos fichiers.{lacking} Envoyez-les (plan comptable, "
             "journaux, fournisseurs, clients), ou dites que tout est envoye pour terminer l'integration."
         )
-    notes = [note for note in (exercice_note(dossier_id, dossier),) if note]
+    notes = []
+    exercice = exercice_note(dossier_id, dossier)
+    if exercice:
+        notes.append(exercice)
     if dry_run():
         return ok(f"{TEST_MODE}Dossier {dossier} : integration terminee ({', '.join(notes + ['stepper termine'])}).")
     pause = lines_ready_in(dossier_id, context)
@@ -625,11 +656,12 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     ):
         complete_stepper(company, context)
     setup_waits(dossier_id)
-    waiting = odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id)], context=context)
+    waiting = entries_count(dossier_id, context)
     notes.append(
         f"{waiting} ligne(s) d'ecritures transmises au traitement d'Experio" if waiting else "aucune ecriture importee"
     )
-    if foreign := other_dossiers_journals(dossier_id):
+    foreign = other_dossiers_journals(dossier_id)
+    if foreign:
         notes.append(
             f"a regler : {foreign} sont ceux d'un autre dossier, creer ou importer les journaux du dossier "
             "(Configuration > Comptabilite > Journaux)"
@@ -740,7 +772,8 @@ def setup_status(dossier_id: int) -> dict:
     missing = [label for key, label in POSTING_SETTINGS.items() if not company[key]]
     if missing:
         parts.append("a parametrer avant de comptabiliser : " + ", ".join(missing))
-    if foreign := other_dossiers_journals(dossier_id):
+    foreign = other_dossiers_journals(dossier_id)
+    if foreign:
         parts.append(f"reglages sur les journaux d'un autre dossier (a creer ou importer) : {foreign}")
     if company["show_onboarding"]:
         parts.append("integration pas encore terminee")

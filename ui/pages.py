@@ -28,14 +28,15 @@ NAMES, TRIED = {}, {}  # cabinet: its name in Experio; cabinet: when Experio las
 RETRY_SECONDS = 300
 
 
+def failed_lately(cabinet):
+    """Whether Experio failed to give the cabinet's name less than RETRY_SECONDS ago."""
+    return time.monotonic() - TRIED.get(cabinet, -RETRY_SECONDS) < RETRY_SECONDS
+
+
 def display_name(cabinet):
     """The cabinet's name in Experio (its company), "" while Experio can't give it: asked again RETRY_SECONDS after a
     failure, so a page never waits on Experio twice in a row."""
-    if (
-        cabinet in CABINETS
-        and cabinet not in NAMES
-        and time.monotonic() - TRIED.get(cabinet, -RETRY_SECONDS) >= RETRY_SECONDS
-    ):
+    if cabinet in CABINETS and cabinet not in NAMES and not failed_lately(cabinet):
         with using(cabinet):
             found = cabinet_name()
         if found:
@@ -54,7 +55,9 @@ def warm_names():
 def chosen(request):
     """The cabinet the pages show: the one picked in the sidebar, else the first; None without any."""
     picked = request.cookies.get(CHOSEN)
-    return picked if picked in CABINETS else (min(CABINETS) if CABINETS else None)
+    if picked in CABINETS:
+        return picked
+    return min(CABINETS) if CABINETS else None
 
 
 HOME = "/ui/accueil"  # the cabinet's dashboard: where logging in, the brand and picking a cabinet lead
@@ -122,6 +125,14 @@ def asset(path):
 templates.env.globals.update(asset=asset)  # a follow-up's Traitement steps too
 
 
+def thinking_of(content):
+    """Tarik's thinking in a message's content (its thinking blocks joined), "" without any."""
+    if not isinstance(content, list):
+        return ""
+    blocks = [part for part in content if isinstance(part, dict) and part.get("type") == "thinking"]
+    return "\n".join(part.get("thinking", "") for part in blocks)
+
+
 def conversation(messages):
     """The agent's messages as the team reads them: who said what, the tools Tarik called and what they answered,
     Tarik's thinking kept apart (shown on demand)."""
@@ -132,15 +143,7 @@ def conversation(messages):
             shown.append({"who": "Client", "text": text_of(message.get("content"))})
         elif kind == "ai":
             content = message.get("content")
-            thinking = (
-                "\n".join(
-                    part.get("thinking", "")
-                    for part in content
-                    if isinstance(part, dict) and part.get("type") == "thinking"
-                )
-                if isinstance(content, list)
-                else ""
-            )
+            thinking = thinking_of(content)
             calls = [
                 {"name": call["name"], "args": json.dumps(call.get("args") or {}, ensure_ascii=False)}
                 for call in message.get("tool_calls") or []
@@ -175,7 +178,8 @@ def asked(run):
     given = run["input"] or {}
     if run["graph"] == "agent":
         messages = given.get("messages") or []
-        return {LABELS["inputs"].get("message", "Message"): text_of(messages[-1].get("content")) if messages else ""}
+        last = text_of(messages[-1].get("content")) if messages else ""
+        return {LABELS["inputs"].get("message", "Message"): last}
     found = given.get("call") or given
     if isinstance(found.get("thread"), dict):
         thread = found["thread"]
@@ -219,16 +223,18 @@ async def run_page(request: Request):
     if not found:
         return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
     output = found["output"] or {}
+    is_agent = found["graph"] == "agent"
+    shown = conversation(output.get("messages")) if is_agent else []
+    calls = []  # the model calls of this run: its conversation's, while it ran
+    if is_agent and found["cabinet"] in CABINETS:
+        calls = await prompts.calls(found["cabinet"], found["session_id"], found["started"], found["ended"])
     context = {
         "run": found,
         "asked": asked(found),
-        "summary": output.get("message") if found["graph"] != "agent" else None,
-        **ran_here(conversation(output.get("messages")) if found["graph"] == "agent" else []),
+        "summary": None if is_agent else output.get("message"),
+        **ran_here(shown),
         "labels": LABELS,
-        # The model calls of this run: its conversation's, while it ran.
-        "prompts": await prompts.calls(found["cabinet"], found["session_id"], found["started"], found["ended"])
-        if found["graph"] == "agent" and found["cabinet"] in CABINETS
-        else [],
+        "prompts": calls,
     }
     return templates.TemplateResponse(request, "run.html", context)
 
@@ -241,7 +247,9 @@ async def openings(cabinet, sessions):
     found = {}
     for session, message, files, subject, sender in rows:
         words = " ".join((message or "").split())
-        first = words[:90] + ("…" if len(words) > 90 else "") or ", ".join(files or [])
+        if len(words) > 90:
+            words = words[:90] + "…"
+        first = words or ", ".join(files or [])
         found[session] = {"first": first, "subject": subject, "sender": sender}
     return found
 

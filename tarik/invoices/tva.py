@@ -46,9 +46,8 @@ def _non_recoverable(invoice, answer):
 
 def _tax_lines(invoice_id, context):
     """The invoice's TVA lines once Experio rebuilt them, as "<HT> HT à <rate> % (<tax>)" for each untaxed line."""
-    line_ids = odoo_call("exp.invoice", "read", [invoice_id], fields=["tva_line_ids"], context=context)[0][
-        "tva_line_ids"
-    ]
+    invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=["tva_line_ids"], context=context)[0]
+    line_ids = invoice["tva_line_ids"]
     fields = ["line_type", "tax_id", "tax_rate", "amount_ht", "amount_tva"]
     lines = odoo_call("exp.invoice.line", "read", line_ids, fields=fields, context=context) if line_ids else []
     return [
@@ -97,8 +96,14 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
         taxed = _tax_lines(invoice_id, context)
     # Only the TVA is said here: what else Experio refuses on the invoice is configure_cabinet's and post_invoice's.
     body = f"{test_mode_note()}Facture {invoice_id} : TVA {'non récupérable' if non_recoverable else 'récupérable'}"
-    body += (f", {', '.join(notes)}" if notes and not non_recoverable else "") + ". "
-    body += ("Lignes : " + "; ".join(taxed) + ".") if taxed else "Pas encore de ligne de TVA."
-    body += (" Taxes du dossier : " + " ; ".join(taxes) + ".") if taxes else ""
+    if notes and not non_recoverable:
+        body += f", {', '.join(notes)}"
+    body += ". "
+    if taxed:
+        body += "Lignes : " + "; ".join(taxed) + "."
+    else:
+        body += "Pas encore de ligne de TVA."
+    if taxes:
+        body += " Taxes du dossier : " + " ; ".join(taxes) + "."
     told = non_recoverable or notes or taxes  # what the client should know: else routine
     return ok(body) if told else routine(body)

@@ -65,7 +65,12 @@ def tva_account(company_id, side, immo, taxes):
     if used:
         account_id, name = used.most_common(1)[0][0]
         return {"id": account_id, "code": name.split(" ")[0]}
-    prefixes = ("4455",) if side == "sale" else ("34551",) if immo else ("34552", "3455")
+    if side == "sale":
+        prefixes = ("4455",)
+    elif immo:
+        prefixes = ("34551",)
+    else:
+        prefixes = ("34552", "3455")
     for prefix in prefixes:
         domain = [("company_id", "=", company_id), ("code", "=like", f"{prefix}%")]
         if prefix == "3455":

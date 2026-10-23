@@ -71,6 +71,39 @@ MAX_SHOWN = 15
 # --- A list of dossiers from a spreadsheet ---
 
 
+def header_columns(name, header):
+    """The spreadsheet's columns ({index: key of COLUMNS}) from its ``header`` row; ToolError, in French, when a
+    REQUIRED one is missing."""
+    by_header = {normalized(alias): key for key, aliases in COLUMNS.items() for alias in aliases}
+    columns = {i: by_header[normalized(h)] for i, h in enumerate(header) if normalized(h) in by_header}
+    missing = [LABELS[key] for key in REQUIRED if key not in columns.values()]
+    if missing:
+        raise ToolError(
+            f"{name} : il manque des colonnes dans la premiere ligne : {', '.join(missing)}. "
+            "Les colonnes attendues sont : Nom, Type, ICE, IF, Mode de declaration (puis Pays, Ville, Code postal, "
+            "RAS TVA, facultatives)."
+        )
+    return columns
+
+
+def read_row(line, cells, columns):
+    """One spreadsheet row (its ``cells``, at ``line``) as a dossier, its words read as Experio's values."""
+    given = {key: (cells[i].strip() if i < len(cells) else "") for i, key in columns.items()}
+    given = {key: given.get(key, "") for key in COLUMNS}
+    return {
+        "line": line,
+        **given,
+        "folder_type": TYPE_WORDS.get(normalized(given["folder_type"])),
+        "declaration_mode": MODE_WORDS.get(normalized(given["declaration_mode"])),
+        "ras_tva": YES_NO.get(normalized(given["ras_tva"])) if given["ras_tva"] else None,
+        "ice": given["ice"].replace(" ", "").zfill(15) if given["ice"].strip().isdigit() else given["ice"],
+        "vat": given["vat"].replace(" ", ""),
+        "folder_type_given": given["folder_type"],
+        "declaration_mode_given": given["declaration_mode"],
+        "ras_tva_given": given["ras_tva"],
+    }
+
+
 def read_rows(name, mime, data):
     """The spreadsheet's dossiers as [{line, name, folder_type, ice, vat, declaration_mode, country, city, zip,
     ras_tva}] (the words as given kept under <key>_given). ToolError, in French, when it can't be read."""
@@ -82,33 +115,9 @@ def read_rows(name, mime, data):
     table = [row for row in csv.reader(io.StringIO(text), delimiter=separator_of(text)) if any(row)]
     if not table:
         raise ToolError(f"{name} : le fichier est vide.")
-    by_header = {normalized(alias): key for key, aliases in COLUMNS.items() for alias in aliases}
-    columns = {i: by_header[normalized(h)] for i, h in enumerate(table[0]) if normalized(h) in by_header}
-    missing = [LABELS[key] for key in REQUIRED if key not in columns.values()]
-    if missing:
-        raise ToolError(
-            f"{name} : il manque des colonnes dans la premiere ligne : {', '.join(missing)}. "
-            "Les colonnes attendues sont : Nom, Type, ICE, IF, Mode de declaration (puis Pays, Ville, Code postal, "
-            "RAS TVA, facultatives)."
-        )
-    rows = []
-    for line, cells in enumerate(table[1:], start=2):
-        given = {key: (cells[i].strip() if i < len(cells) else "") for i, key in columns.items()}
-        given = {key: given.get(key, "") for key in COLUMNS}
-        rows.append(
-            {
-                "line": line,
-                **given,
-                "folder_type": TYPE_WORDS.get(normalized(given["folder_type"])),
-                "declaration_mode": MODE_WORDS.get(normalized(given["declaration_mode"])),
-                "ras_tva": YES_NO.get(normalized(given["ras_tva"])) if given["ras_tva"] else None,
-                "ice": given["ice"].replace(" ", "").zfill(15) if given["ice"].strip().isdigit() else given["ice"],
-                "vat": given["vat"].replace(" ", ""),
-                "folder_type_given": given["folder_type"],
-                "declaration_mode_given": given["declaration_mode"],
-                "ras_tva_given": given["ras_tva"],
-            }
-        )
+    header, body = table[0], table[1:]
+    columns = header_columns(name, header)
+    rows = [read_row(line, cells, columns) for line, cells in enumerate(body, start=2)]  # line 1 is the header
     if not rows:
         raise ToolError(f"{name} : aucune ligne de dossier sous l'en-tete.")
     return rows
@@ -126,6 +135,32 @@ def country_of(term):
     return None
 
 
+def field_problems(row, where):
+    """What is wrong with the row's own values (type, ICE, IF, mode, country, RAS TVA), one French line each; the
+    country found is noted in ``row`` (country_id, country_name)."""
+    problems = []
+    if not row["folder_type"]:
+        problems.append(f"{where} : type « {row['folder_type_given']} » inconnu ({', '.join(FOLDER_TYPES.values())})")
+    if row["ice"] and not ICE_WRITTEN.fullmatch(row["ice"]):
+        problems.append(f"{where} : ICE « {row['ice']} » incorrect (15 chiffres)")
+    if row["vat"] and not row["vat"].isdigit():
+        problems.append(f"{where} : IF « {row['vat']} » incorrect (chiffres uniquement)")
+    if not row["declaration_mode"]:
+        problems.append(
+            f"{where} : mode de declaration « {row['declaration_mode_given']} » inconnu "
+            f"({', '.join(DECLARATION_MODES.values())})"
+        )
+    if row["country"]:
+        country = country_of(row["country"])
+        if country:
+            row["country_id"], row["country_name"] = country["id"], country["name"]
+        else:
+            problems.append(f"{where} : pays « {row['country']} » inconnu")
+    if row["ras_tva_given"] and row["ras_tva"] is None:
+        problems.append(f"{where} : RAS TVA « {row['ras_tva_given']} » incompris (oui ou non)")
+    return problems
+
+
 def problems_of(rows):
     """Everything wrong with the rows, one French line per problem; [] when every row can be created. Duplicates
     are looked for inside the file and in Experio, by name and by ICE or IF, as create_dossier does."""
@@ -136,38 +171,18 @@ def problems_of(rows):
         if not row["name"]:
             problems.append(f"{where} : le nom est vide")
             continue
-        if not row["folder_type"]:
-            problems.append(
-                f"{where} : type « {row['folder_type_given']} » inconnu ({', '.join(FOLDER_TYPES.values())})"
-            )
-        if row["ice"] and not ICE_WRITTEN.fullmatch(row["ice"]):
-            problems.append(f"{where} : ICE « {row['ice']} » incorrect (15 chiffres)")
-        if row["vat"] and not row["vat"].isdigit():
-            problems.append(f"{where} : IF « {row['vat']} » incorrect (chiffres uniquement)")
-        if not row["declaration_mode"]:
-            problems.append(
-                f"{where} : mode de declaration « {row['declaration_mode_given']} » inconnu "
-                f"({', '.join(DECLARATION_MODES.values())})"
-            )
-        if row["country"]:
-            country = country_of(row["country"])
-            if country:
-                row["country_id"], row["country_name"] = country["id"], country["name"]
-            else:
-                problems.append(f"{where} : pays « {row['country']} » inconnu")
-        if row["ras_tva_given"] and row["ras_tva"] is None:
-            problems.append(f"{where} : RAS TVA « {row['ras_tva_given']} » incompris (oui ou non)")
+        problems += field_problems(row, where)
         key = normalized(row["name"])
         if key in seen_names:
             problems.append(f"{where} : en double avec la ligne {seen_names[key]}")
         seen_names.setdefault(key, row["line"])
         if key in existing:
             problems.append(f"{where} : le dossier {existing[key]} existe deja")
-        ids = real_ids((("ice", row["ice"]), ("vat", row["vat"])))
         if row["ice"] and row["ice"] not in PLACEHOLDER_IDS:
             if row["ice"] in seen_ices:
                 problems.append(f"{where} : meme ICE que la ligne {seen_ices[row['ice']]}")
             seen_ices.setdefault(row["ice"], row["line"])
+        ids = real_ids((("ice", row["ice"]), ("vat", row["vat"])))
         same = having(ids) if ids else []
         if same:
             problems.append(f"{where} : l'ICE ou l'IF est deja celui du dossier {same[0]['name']}")
@@ -182,7 +197,8 @@ def row_recap(row):
         f"IF {row['vat'] or 'non renseigne'}",
         DECLARATION_MODES[row["declaration_mode"]],
     ]
-    place = ", ".join(x for x in (" ".join(x for x in (row["zip"], row["city"]) if x), row.get("country_name")) if x)
+    town = " ".join(x for x in (row["zip"], row["city"]) if x)
+    place = ", ".join(x for x in (town, row.get("country_name")) if x)
     if place:
         parts.append(place)
     if row["ras_tva"] is not None:
@@ -275,6 +291,20 @@ def profiles(profile_type):
     return {p["name"]: p["id"] for p in found}
 
 
+def person_recap(label, dossier, given, chosen, existing):
+    """What the client checks before the person is created (or, ``existing``, attached)."""
+    if existing:
+        return (
+            f"Le {label} {existing['name']} existe deja ({existing['login']}). Avant de le rattacher, verifiez :\n"
+            f"- Dossier : {dossier}\n- Profil : {chosen}"
+        )
+    tel = f"- Telephone : {given['phone']}\n" if given.get("phone") else ""
+    return (
+        f"Avant de creer ce {label}, verifiez ces informations :\n- Nom : {given['name']}\n"
+        f"- E-mail : {given['email']}\n{tel}- Profil : {chosen}\n- Dossier : {dossier}"
+    )
+
+
 def user_by_email(email, employee_type):
     """The collaborateur or client whose login or email is ``email`` ({id, name, login}), or None."""
     found = users_by_email(email, [employee_type], ["id", "name", "login"], 1)
@@ -309,27 +339,19 @@ def create_person(
     with refused(f"create_person {kind}", "Experio n'a pas pu lire les profils."):
         known = profiles(profile_type)
     chosen = next((p for p in known if normalized(p) == normalized(profile)), None) if profile else None
-    missing = [
-        text
-        for key, text in (("name", "son nom"), ("email", "son e-mail"), ("profile", f"son profil ({', '.join(known)})"))
-        if not (given.get(key) if key != "profile" else chosen)
-    ]
+    missing = []
+    if not given.get("name"):
+        missing.append("son nom")
+    if not given.get("email"):
+        missing.append("son e-mail")
+    if not chosen:
+        missing.append(f"son profil ({', '.join(known)})")
     if missing:
         unread = f" ({', '.join(not_written)} : pas ecrit par le client)" if not_written else ""
         return question(f"Pour creer ce {label} sur le dossier {dossier}, il me faut {' et '.join(missing)}.{unread}")
     with refused(f"create_person {given['email']}", "Experio n'a pas pu verifier cet utilisateur."):
         existing = user_by_email(given["email"], employee_type)
-    if existing:
-        recap = (
-            f"Le {label} {existing['name']} existe deja ({existing['login']}). Avant de le rattacher, verifiez :\n"
-            f"- Dossier : {dossier}\n- Profil : {chosen}"
-        )
-    else:
-        tel = f"- Telephone : {given['phone']}\n" if given.get("phone") else ""
-        recap = (
-            f"Avant de creer ce {label}, verifiez ces informations :\n- Nom : {given['name']}\n"
-            f"- E-mail : {given['email']}\n{tel}- Profil : {chosen}\n- Dossier : {dossier}"
-        )
+    recap = person_recap(label, dossier, given, chosen, existing)
     if not confirmed(session_id, client_confirmed, "vous confirmez", given["email"]):
         return question(f"{recap}\nVous confirmez ? oui / non")
     if dry_run():
@@ -346,8 +368,9 @@ def create_person(
                 "email": given["email"],
                 "employee_type": employee_type,
                 "exp_profile_id": known[chosen],
-                **({"phone": given["phone"]} if given.get("phone") else {}),
             }
+            if given.get("phone"):
+                values["phone"] = given["phone"]
             user_id = odoo_json("res.users", "create", values)
         attach_user(user_id, dossier_id, known[chosen], employee_type)
     made = "rattache" if existing else "cree et rattache"

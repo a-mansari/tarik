@@ -26,7 +26,9 @@ with "tool_calls" empty. The tools:
 
 
 def answer_schema(names):
-    name = {"type": "string", **({"enum": names} if names else {})}
+    name = {"type": "string"}
+    if names:
+        name["enum"] = names
     return {
         "type": "object",
         "properties": {

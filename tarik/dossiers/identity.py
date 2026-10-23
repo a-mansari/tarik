@@ -86,8 +86,8 @@ def as_written(value, written, current=None):
     latest message, by default ``written``)."""
     current = written if current is None else current
     value = str(value if value is not None else "").strip()
-    if value.endswith(".0") and value[:-2].isdigit():
-        value = value[:-2]
+    if value.endswith(".0") and value.removesuffix(".0").isdigit():
+        value = value.removesuffix(".0")
     if value.isdigit():
         same = [number for number in written if number.lstrip("0") == value.lstrip("0")]
         return same[0] if same else value
@@ -115,10 +115,12 @@ def client_wrote(key, value, words):
         return any(abs(amount - written) < 0.005 for written in written_numbers(words))
     if key in IDENTIFIERS:
         number = re.sub(r"\.0+$", "", str(value)).replace(" ", "")  # a trailing ".0" a float left
-        # Else every number in the text, the spaces, dots and commas between its digits removed (100 000 -> 100000).
-        found = LABELLED[key].findall(joined(words)) if key in LABELLED else re.findall(r"\d+", joined(words, " .,  "))
         if number in PLACEHOLDER_IDS:  # Experio's "not known yet", too short for ICE_WRITTEN
             return said(number, normalized(words))
+        if key in LABELLED:
+            found = LABELLED[key].findall(joined(words))
+        else:  # every number in the text, the spaces, dots and commas between its digits removed (100 000 -> 100000)
+            found = re.findall(r"\d+", joined(words, " .,  "))
         return number.isdigit() and number in found
     if key == "folder_type":
         return any(said(word, normalized(words)) for word in TYPE_WORDS.get(value, ()))
@@ -180,7 +182,10 @@ def client_ids(ice, if_number, words, client_message):
     if_number = written_id(if_number, IF_WRITTEN, words, client_message)
     given = (("ice", "ICE", ice), ("if_number", "IF", if_number))
     left_out = [label for key, label, value in given if value and not client_wrote(key, value, words)]
-    ice, if_number = ("" if "ICE" in left_out else ice), ("" if "IF" in left_out else if_number)
+    if "ICE" in left_out:
+        ice = ""
+    if "IF" in left_out:
+        if_number = ""
     note = f" Non repris, le client ne l'a pas ecrit : {', '.join(left_out)}." if left_out else ""
     return ice, if_number, note
 
@@ -188,14 +193,11 @@ def client_ids(ice, if_number, words, client_message):
 def created_here(session_id, name):
     """The dossier ({id, name}) named ``name`` this conversation already created, or None."""
     with cabinet_db() as db:
-        created = [
-            dossier_id
-            for (dossier_id,) in db.execute(
-                Q.dossiers_created_in_session,
-                (session_id,),
-            )
-        ]
-    for dossier in odoo_call("res.company", "read", created, fields=["name"]) if created else []:
+        rows = db.execute(Q.dossiers_created_in_session, (session_id,))
+        created = [dossier_id for (dossier_id,) in rows]
+    if not created:
+        return None
+    for dossier in odoo_call("res.company", "read", created, fields=["name"]):
         if normalized(dossier["name"]) == normalized(name):
             return dossier
     return None
@@ -266,7 +268,9 @@ def create_dossier(
         if not confirmed(session_id, client_confirmed, "sans cette verification", name):
             return question(SKIP_QUESTION.format(what=f"la creation du dossier {name}"))
         values["ignore_ice_if_verification"] = True
-    values.update({key: value.strip() for key, value in (("ice", ice), ("vat", if_number)) if value and value.strip()})
+    for field, value in (("ice", ice), ("vat", if_number)):
+        if value and value.strip():
+            values[field] = value.strip()
     if dry_run():
         return ok(f"{TEST_MODE}Le dossier {name} serait cree.{not_taken}")
     with refused(f"create_dossier {name}", f"Experio refuse de creer le dossier {name} : {{reason}}"):
@@ -289,6 +293,22 @@ def given(arguments):
     }
 
 
+def new_value(key, value):
+    """The value Experio is given for ``key``: a capital as a number, a name with single spaces."""
+    if key == "capital":
+        return as_number(value)
+    if key == "name":
+        return " ".join(value.split())
+    return value
+
+
+def changed(key, old, new):
+    """Is ``new`` another value than the dossier's ``old`` one? A capital is compared as a number."""
+    if (old or "") == new:
+        return False
+    return not (key == "capital" and float(old or 0) == new)
+
+
 def changes_to(dossier_id, asked):
     """The dossier's current values of the ``asked`` fields ({Experio field: value}) and the changes
     ({Experio field: new value}) that differ from them."""
@@ -297,8 +317,8 @@ def changes_to(dossier_id, asked):
     changes = {}
     for key, value in asked.items():
         field = EDITABLE[key][0]
-        new = as_number(value) if key == "capital" else (" ".join(value.split()) if key == "name" else value)
-        if (current.get(field) or "") != new and not (key == "capital" and float(current.get(field) or 0) == new):
+        new = new_value(key, value)
+        if changed(key, current.get(field), new):
             changes[field] = new
     return current, changes
 
@@ -385,11 +405,12 @@ def update_dossier(
         if not confirmed(session_id, client_confirmed, "sans cette verification", dossier):
             return question(SKIP_QUESTION.format(what=f"la modification du dossier {dossier}"))
         changes["ignore_ice_if_verification"] = True
-    shown = " ; ".join(
-        f"{label} : {current.get(field) or 'vide'} -> {changes[field]}"
-        for field, label in (EDITABLE[key] for key in written)
-        if field in changes
-    )
+    each = []
+    for key in written:
+        field, label = EDITABLE[key]
+        if field in changes:
+            each.append(f"{label} : {current.get(field) or 'vide'} -> {changes[field]}")
+    shown = " ; ".join(each)
     if dry_run():
         return ok(f"{TEST_MODE}Le dossier {dossier} serait modifie : {shown}.{unchanged}")
     with refused(f"update_dossier {dossier_id}", f"Experio refuse de modifier le dossier {dossier} : {{reason}}"):

@@ -43,7 +43,7 @@ def ask(system, content, schema=None):
             raise ClaudeCodeError("the claude CLI is not installed in this image") from None
         except subprocess.TimeoutExpired:
             raise ClaudeCodeError(f"no answer from the claude CLI in {MODEL_TIMEOUT} s") from None
-    result = next((event for event in map(parsed, done.stdout.splitlines()) if event.get("type") == "result"), None)
+    result = result_event(done.stdout)
     if result is None:
         raise ClaudeCodeError(f"claude CLI exited {done.returncode}: {done.stderr[-500:] or done.stdout[-500:]}")
     if result.get("is_error"):
@@ -53,6 +53,15 @@ def ask(system, content, schema=None):
             raise ClaudeCodeError(f"claude CLI gave no structured answer: {str(result.get('result'))[:300]}")
         return result["structured_output"]
     return result.get("result") or ""
+
+
+def result_event(output):
+    """The "result" event (dict) among the CLI's stream-json ``output`` lines, None without one."""
+    for line in output.splitlines():
+        event = parsed(line)
+        if event.get("type") == "result":
+            return event
+    return None
 
 
 def parsed(line):

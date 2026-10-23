@@ -62,7 +62,8 @@ def post_invoice(invoice_id: int) -> dict:
         return routine(f"Facture {invoice_id} : déjà comptabilisée.")
     if invoice["state"] != "draft":
         return stop(f"Facture {invoice_id} : en état {invoice['state']}, elle ne peut pas être comptabilisée.")
-    if role := missing_compte_tiers(invoice):
+    role = missing_compte_tiers(invoice)
+    if role:
         return stop(
             f"Facture {invoice_id} : pas comptabilisée, son tiers n'a pas de Compte Tiers {role} : le cabinet doit "
             "l'attribuer dans Experio (fiche du tiers), puis me dire de la comptabiliser."
