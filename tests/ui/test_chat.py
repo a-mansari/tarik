@@ -136,32 +136,18 @@ def test_a_conversation_reads_as_where_it_stands():
     ],
 )
 def test_the_dashboard_shows_its_numbers_as_the_team_reads_them(metrics, shown, monkeypatch):
-    import re
+    readable = chat_pages.readable(metrics)
+    assert [readable[key] for key in ("runs", "seconds", "failed", "conversations")] == shown
+    assert readable["bad"] == bool(metrics["failed"])
 
-    from ui import pages
+    async def numbers(cabinet):
+        return metrics
 
-    monkeypatch.setattr(pages, "CABINETS", {"cab_a"})
-    monkeypatch.setattr(pages, "display_name", lambda cabinet: "Cabinet A")  # no Experio asked
-    monkeypatch.setitem(pages.templates.env.globals, "display_name", pages.display_name)
-    user = {"email": "a@experio.ma", "name": "A", "role": "member"}
-    request = type(
-        "R",
-        (),
-        {"cookies": {}, "url": type("U", (), {"path": "/ui/accueil"})(), "state": type("S", (), {"user": user})()},
-    )
-    page = pages.templates.get_template("dashboard.html").render(
-        request=request(),
-        cabinet="cab_a",
-        metrics=metrics,
-        days=30,
-        new="chat-" + "0" * 32,
-        messages=[],
-        latest=None,
-        going=False,
-        **chat_pages.FORM,
-    )
-    assert re.findall(r'<span class="value num">([^<]*)</span>', page) == shown
-    assert 'data-send="/ui/discussion/chat-' in page and 'data-cabinet="cab_a"' in page and 'data-opens="yes"' in page
+    monkeypatch.setattr(chat_pages, "metrics_of", numbers)
+    scope = {"type": "http", "headers": [(b"cookie", b"tarik_cabinet=cabinet_a")]}
+    page = json.loads(asyncio.run(chat_pages.dashboard_page(Request(scope))).body)
+    assert page["cabinet"] == "cabinet_a" and page["metrics"] == readable
+    assert chat_pages.SESSION.fullmatch(page["new"]) and page["checks"]["max_files"] == chat_pages.MAX_FILES
 
 
 def test_the_dashboard_s_numbers_are_read_once_per_change_for_every_viewer(monkeypatch):
@@ -215,3 +201,22 @@ def test_a_client_message_reads_as_markdown_with_its_html_and_unsafe_links_left_
     shown = str(pages.markdown("**urgent**\n- facture 12\n\n<script>alert(1)</script> [lien](javascript:alert(1))"))
     assert "<strong>urgent</strong>" in shown and "<li>facture 12</li>" in shown
     assert "<script>" not in shown and 'href="javascript:' not in shown
+
+
+def test_a_conversation_s_words_reach_the_page_only_as_the_server_s_markdown(monkeypatch):
+    async def talk(cabinet, session):
+        said = {"who": "Client", "text": "**urgent** <script>alert(1)</script>", "files": [], "skipped": []}
+        return {"messages": [said, {"who": "Tarik", "tools": [], "text": ""}], "latest": None, "going": False}
+
+    monkeypatch.setattr(chat_pages, "talk", talk)
+    scope = {
+        "type": "http",
+        "headers": [(b"cookie", b"tarik_cabinet=cabinet_a")],
+        "path_params": {"session_id": SESSION},
+    }
+    page = json.loads(asyncio.run(chat_pages.conversation_page(Request(scope))).body)
+    client, tarik = page["messages"]
+    assert "<strong>urgent</strong>" in client["text_html"] and "<script>" not in client["text_html"]
+    assert tarik["text_html"] == "" and page["written"] is True
+    scope["path_params"] = {"session_id": "../etc"}
+    assert asyncio.run(chat_pages.conversation_page(Request(scope))).status_code == 404

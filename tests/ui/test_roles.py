@@ -12,14 +12,14 @@ from app import server
 @pytest.mark.parametrize(
     ("method", "path"),
     [
-        ("GET", "/ui/settings"),
-        ("POST", "/ui/tarik-prompts/agent.json"),
-        ("POST", "/ui/tarik-prompts-import"),
+        ("GET", "/ui/api/settings"),
+        ("POST", "/ui/api/tarik-prompts/agent.json"),
+        ("POST", "/ui/api/tarik-prompts-import"),
         ("PUT", "/graphs/traitement/layout"),
         ("DELETE", "/graphs/traitement/layout"),
         ("POST", "/runs/traitement"),
-        ("GET", "/ui/comptes"),
-        ("GET", "/ui/logs-serveur"),
+        ("GET", "/ui/api/comptes"),
+        ("GET", "/ui/api/logs-serveur"),
     ],
 )
 def test_what_changes_everyone_s_tarik_is_an_admin_s(method, path):
@@ -29,13 +29,13 @@ def test_what_changes_everyone_s_tarik_is_an_admin_s(method, path):
 @pytest.mark.parametrize(
     ("method", "path"),
     [
-        ("GET", "/ui/executions"),
-        ("GET", "/ui/tarik-prompts/agent.json"),
-        ("GET", "/ui/tarik-prompts-export"),
+        ("GET", "/ui/api/executions"),
+        ("GET", "/ui/api/tarik-prompts/agent.json"),
+        ("GET", "/ui/api/tarik-prompts-export"),
         ("GET", "/graphs/traitement/layout"),
-        ("GET", "/ui/discussion/chat-" + "0" * 32),
-        ("POST", "/ui/discussion/chat-" + "0" * 32),
-        ("POST", "/logout"),
+        ("GET", "/ui/api/discussion/chat-" + "0" * 32),
+        ("POST", "/ui/api/discussion/chat-" + "0" * 32),
+        ("POST", "/ui/api/logout"),
     ],
 )
 def test_reading_and_talking_to_tarik_are_every_member_s(method, path):
@@ -77,6 +77,11 @@ def called(role, method, path, monkeypatch):
 def test_a_member_s_change_is_refused_before_it_reaches_the_page(monkeypatch):
     assert called("member", "PUT", "/graphs/traitement/layout", monkeypatch) == (403, False)
     assert called("member", "POST", "/runs/traitement", monkeypatch) == (403, False)
+
+
+def test_a_member_never_reads_an_admin_s_page_s_data(monkeypatch):
+    assert called("member", "GET", "/ui/api/settings", monkeypatch) == (403, False)
+    assert called("member", "GET", "/ui/settings", monkeypatch) == (200, True)  # the app alone: no data in it
 
 
 def test_an_admin_s_change_and_a_member_s_reading_go_through(monkeypatch):

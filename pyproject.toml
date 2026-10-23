@@ -2,7 +2,7 @@
 [tool.ruff]
 line-length = 120
 target-version = "py314"
-extend-exclude = ["ui/static/vendor"]
+extend-exclude = ["web/node_modules"]
 
 [tool.ruff.lint]
 # pycodestyle, pyflakes, import order, modern idioms, likely bugs, simpler comprehensions and conditions.
