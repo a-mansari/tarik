@@ -82,9 +82,8 @@ class Guard:
         scope.setdefault("state", {})
         if scope["path"].startswith("/api/"):  # the Experio app's: its key only, never a session nor the scripts' token
             if not experio_key_shown(request):
-                return await JSONResponse({"error": "clé de l'API Experio absente ou fausse"}, status_code=401)(
-                    scope, receive, send
-                )
+                answer = JSONResponse({"error": "clé de l'API Experio absente ou fausse"}, status_code=401)
+                return await answer(scope, receive, send)
             scope["state"]["user"] = {"email": api.ACTOR, "name": "Experio", "role": "api"}
             return await self.app(scope, receive, send)
         if TOKEN and hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {TOKEN}"):
@@ -111,7 +110,11 @@ class Guard:
 
 def experio_key_shown(request):
     """The request shows the Experio app's key (Vault: EXPERIO_API_KEY) as its Bearer token. No key set: refused."""
-    key = vault_settings()[0].get("EXPERIO_API_KEY", "") if VAULT_ENABLED else os.getenv("EXPERIO_API_KEY", "")
+    if VAULT_ENABLED:
+        shared, _ = vault_settings()
+        key = shared.get("EXPERIO_API_KEY", "")
+    else:
+        key = os.getenv("EXPERIO_API_KEY", "")
     return bool(key) and hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {key}")
 
 
@@ -122,11 +125,17 @@ def same_origin(request):
     return source == own or source.startswith(own + "/")
 
 
-async def login(request: Request):
-    """The login page (GET), and logging in (POST): a session cookie, then back to the page asked for."""
+def return_to(request):
+    """The page asked for (?next=), one of these pages; else HOME: never sent to another site."""
     target = request.query_params.get("next") or pages.HOME
     if not target.startswith("/") or target.startswith(("//", "/\\")) or "\\" in target:  # « /\x » is « //x »
-        target = pages.HOME  # never sent to another site
+        return pages.HOME
+    return target
+
+
+async def login(request: Request):
+    """The login page (GET), and logging in (POST): a session cookie, then back to the page asked for."""
+    target = return_to(request)
     if request.method == "GET":
         return pages.login_page(request, target)
     if not same_origin(request):
@@ -193,12 +202,14 @@ async def listing(request: Request):
 
 
 async def one(request: Request):
-    run_id, after = request.path_params["run_id"], request.query_params.get("after", "")
+    run_id = request.path_params["run_id"]
+    after = request.query_params.get("after", "")
     if after.isdigit():  # only its steps after that one, and where it stands: a page following it (app.js)
         steps, state = await runs.steps_after(run_id, int(after))
         if state is None:
             return JSONResponse({"error": "unknown run"}, status_code=404)
-        return JSONResponse({"steps": steps, "status": state[0], "error": state[1]})
+        status, error = state
+        return JSONResponse({"steps": steps, "status": status, "error": error})
     found = await runs.run(run_id)
     return JSONResponse(found) if found else JSONResponse({"error": "unknown run"}, status_code=404)
 
@@ -210,7 +221,8 @@ async def changes(request: Request):
     The page then fetches what it shows. Nothing is read from the database here."""
     query = request.query_params
     keys = [("cabinet", name) for name in query.getlist("cabinet") if name in CABINETS]
-    keys += [(kind, value) for kind in ("session", "run") for value in query.getlist(kind) if value]
+    for kind in ("session", "run"):
+        keys += [(kind, value) for value in query.getlist(kind) if value]
     if not keys:
         return JSONResponse({"error": "nothing to follow"}, status_code=400)
 
