@@ -1,0 +1,22 @@
+# Content exports
+
+Prompt changes made on one stack, for the others. Prompts live in each stack's Postgres (`engine/content.py`), so a
+change made on the Contenu page reaches no other stack by itself.
+
+- `tarik-contenu-corrections-20261022.json`: the four documents changed on 2026-10-21/22 (`agent.json`,
+  `skills/traitement-documents.md`, `skills/reponse-question.md`, `tools/classify-document.md`): reply sections,
+  the classifier's « autre », `Experio_repondre`'s `compte` and `comptabiliser`, questions and retries kept to the
+  conversation. Import it on the stack's Contenu page: each document becomes a new version, undoable there.
+- `tarik-contenu-corrections-20261022.diff`: the same changes, before and after, to make them by hand on a stack whose
+  own copies differ.
+
+- `tarik-contenu-list-accounts-20261022.json` (and its `.diff`, against the export above): every document changed on
+  2026-10-22 after that export (`agent.json`, `skills/reponse-question.md`, `skills/traitement-documents.md`,
+  `tools/check-invoice.md`): `Experio_list_accounts` and its `side` (commits 69b9dab, 71dd2ab), the close accounts added
+  to a repeated account question, `Experio_repondre`'s `corrections` [{facture, compte}] in place of `compte`, an
+  account correction of an invoice already processed sent to `Experio_repondre`, and a payment line (Visa, CB) never
+  taken for the designation. Import it once the stack runs commit 71dd2ab or later: before, the import is refused (it
+  names a tool or a field the stack lacks).
+
+`agent.json` is imported whole, its `model` (MiniMax-M3) included: set the stack's own model back afterwards if it
+uses another one. A stack that edited one of these documents itself loses that edit on import: apply the diff instead.

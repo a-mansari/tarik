@@ -1,88 +1,53 @@
+# Tarik: the server (the graphs, the agent, the tools, the mail watcher, the UI), its Postgres (runs, conversations,
+# each cabinet's schema) and Vault (Tarik's settings and secrets, vault/; read-only for the server, but the Cabinets page's own role). Its .env (from
+# .env.example, never in git) gives POSTGRES_PASSWORD and ODOO_URL:
+#   docker compose up --build -d
+# The project keeps the name sarnec-n8n, and the database its volume: the names of the stacks they came from (Vault's
+# data is in sarnec-n8n_vault_data). The n8n implementation is retired (branch main); its data backed up, not here.
+name: sarnec-n8n
+
 services:
-  n8n:
-    build: ./n8n # n8n 2.43.5 with Tarik's patches (n8n/patch.js)
+  server:
+    build: .
+    command: ["python", "-m", "app"] # as the image's own, for an image built before app/ held the server
     restart: unless-stopped
     ports:
-      - "127.0.0.1:5678:5678" # local only, not exposed on the LAN
-    env_file: .env
-    # Public resolvers: right after a restart the host's DNS sometimes failed (EAI_AGAIN api.minimax.io).
-    # Service names (tarik-mcp, postgres) still resolve through Docker's own DNS.
-    dns: [1.1.1.1, 8.8.8.8]
+      - "127.0.0.1:2024:2024" # app/server.py, local only
     environment:
-      GENERIC_TIMEZONE: Africa/Casablanca
-      TZ: Africa/Casablanca
-      N8N_HOST: localhost
-      N8N_PROTOCOL: http
-      WEBHOOK_URL: http://localhost:5678/
-      N8N_DIAGNOSTICS_ENABLED: "false"
-      N8N_PERSONALIZATION_ENABLED: "false"
-      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
-      # How long an agent's workflow tool may run (n8n/patch.js; n8n's own is 2 minutes). Under ask_agent's 600 s
-      # wait for an email's answer; Tarik's run budgets (workflows/build_tarik_*.py, READ_WAIT) stay under it.
-      TARIK_AGENT_TOOL_TIMEOUT_MS: "300000"
-      # n8n's own data (workflows, credentials, agents, conversations, executions) in Postgres, not
-      # SQLite: one writer at a time doesn't hold with an agent per cabinet. Uploaded files stay in the volume.
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: postgres
-      DB_POSTGRESDB_DATABASE: ${N8N_POSTGRES_DB}
-      DB_POSTGRESDB_USER: ${POSTGRES_USER}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
-      # Where the agents' prompts are saved (tarik_prompt_calls and tarik_prompt_parts in each cabinet's schema; n8n/patch.js), and for how long.
-      TARIK_POSTGRES_DB: ${POSTGRES_DB}
-      TARIK_PROMPTS_KEEP_DAYS: "30"
-    depends_on: [postgres]
-    volumes:
-      - n8n_data:/home/node/.n8n
-
-  # Tarik's Experio tools over MCP, one address per cabinet: http://tarik-mcp:8000/c/<cabinet>/mcp. Not exposed to the host.
-  tarik-mcp: &tarik
-    build: ./mcp
-    restart: unless-stopped
-    # Only what Tarik's code reads, never the whole .env: its N8N_ENCRYPTION_KEY would open n8n's credentials
-    # to a container that reads strangers' PDFs and emails.
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      ODOO_URL: ${ODOO_URL}
-      TARIK_CALLS_PER_CABINET: ${TARIK_CALLS_PER_CABINET:-10}
-      TARIK_CALLS_TOTAL: ${TARIK_CALLS_TOTAL:-40}
-      N8N_MCP_API_URL: http://n8n:5678/mcp-server/http # n8n as reached on Docker's network, whatever .env says for the host
       VAULT_ADDR: http://vault:8200
-    volumes:
-      - ./vault/.local/approle:/run/vault:ro # tarik-mcp's AppRole: it may only read secret/tarik/*
-      - ./instructions/tools:/instructions/tools:ro # the prompts the tools give the model
-    depends_on: [vault]
+      TARIK_DEFAULT_CABINET: experio_cabinet_8
+      ODOO_URL: ${ODOO_URL}
+      POSTGRES_HOST: db
+      POSTGRES_DB: tarik
+      POSTGRES_USER: tarik
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TARIK_PROMPTS_KEEP_DAYS: "30"
+    volumes: # the code, mounted (a change needs a restart, not a build); never vault/ nor .env
+      - ./check.py:/app/check.py
+      - ./run.py:/app/run.py
+      - ./app:/app/app
+      - ./engine:/app/engine
+      - ./tarik:/app/tarik
+      - ./sql:/app/sql
+      - ./ui:/app/ui
+      - ./tests:/app/tests
+      - ./pytest.ini:/app/pytest.ini
+      - ./pyproject.toml:/app/pyproject.toml
+      - ./vault/.local/approle:/run/vault:ro # the AppRole: it may only read secret/tarik/*
+      - ./vault/.local/settings-approle:/run/vault-settings:ro # the Cabinets page's: each cabinet's own settings only
+    depends_on: [db, vault]
     dns: [1.1.1.1, 8.8.8.8]
 
-  # Wakes "Tarik - Emails" for each cabinet with a Tarik mailbox: as soon as an email arrives (IMAP IDLE),
-  # and every 15 minutes in case one was missed. Each wake-up names its cabinet (mcp/watcher.py).
-  tarik-mail-watch:
-    <<: *tarik
-    command: ["python", "watcher.py"]
-
-  # The prompts n8n's agents were sent, to read at http://localhost:8081 (mcp/prompts.py). Read-only, local only.
-  tarik-prompts:
-    <<: *tarik
-    command: ["python", "prompts.py"]
-    ports:
-      - "127.0.0.1:8081:8081"
-
-  # Tarik's data (database POSTGRES_DB: one schema per cabinet, mcp/tarik/core/cabinet.sql) and n8n's own
-  # (database N8N_POSTGRES_DB). Not exposed to the host.
-  postgres:
+  db:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: tarik
+      POSTGRES_USER: tarik
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      N8N_POSTGRES_DB: ${N8N_POSTGRES_DB} # for the setup's createdb (README)
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data
 
-  # Tarik's secrets and per-cabinet settings (vault/): secret/tarik/shared and secret/tarik/cabinets/<cabinet>.
-  # Local only, unsealed at start by vault/start.sh; on the public server, a real Vault takes its place.
   vault:
     image: hashicorp/vault:1.18.3
     restart: unless-stopped
@@ -95,9 +60,10 @@ services:
       - ./vault/setup.sh:/vault/config/setup.sh:ro
       - ./vault/.local/unseal:/vault/unseal # unseal key and root token: this machine only, never in git
       - ./vault/.local/approle:/vault/approle
+      - ./vault/.local/settings-approle:/vault/settings-approle
       - vault_data:/vault/file
 
 volumes:
-  n8n_data:
-  postgres_data:
+  db_data:
+    name: orchestrator_db_data # its data, from when it was the orchestrator's stack
   vault_data:

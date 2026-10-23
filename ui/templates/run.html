@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% from "icons.html" import crumbs, icon, cabinet as cabinet_label %}
+{% from "avatar.html" import avatar %}
+{% block title %}{{ run.graph | graph_name }}{% endblock %}
+{% block page_class %} wide{% endblock %}
+{% block content %}
+{{ crumbs("/ui/executions", "Exécutions", "runs", run.graph | graph_name) }}
+<div class="head">
+  <div>
+    <h1>{{ run.graph | graph_name }}</h1>
+    <p class="muted">Cabinet <b>{{ cabinet_label(run.cabinet) }}</b> · discussion <span class="mono">{{ run.session_id }}</span> · début {{ run.started | when }}</p>
+    {% if run.parent_id or run.children %}
+    <div class="run-links">
+      {% if run.parent_id %}
+      <a class="run-link" href="/ui/executions/{{ run.parent_id }}">{{ icon('up') }}
+        <span><small>Lancée par</small><b>{{ run.parent_graph | graph_name }}</b>{% if run.parent_node %}<small>étape « {{ step_name(run.parent_graph, run.parent_node) }} »</small>{% endif %}</span></a>
+      {% endif %}
+      {% for child in run.children %}
+      <a class="run-link" href="/ui/executions/{{ child.run_id }}">{{ icon('down') }}
+        <span><small>A lancé</small><b>{{ child.graph | graph_name }}</b><small>{{ child.when }}</small></span>
+        <span class="chip {{ child.status }}">{{ child.status | status_name }}</span></a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  <div class="state">
+    <span class="chip big {{ run.status }}" id="run-status">{{ run.status | status_name }}</span>
+    <span class="num muted" id="run-seconds">{{ run.seconds }} s</span>
+  </div>
+</div>
+
+{% if run.error %}<div class="panel bad"><b>L'exécution a échoué.</b> {{ run.error }}</div>{% endif %}
+
+{% with graph = run.graph, run_id = run.run_id %}{% include "canvas.html" %}{% endwith %}
+
+<section class="panel">
+  <h2>Ce qui a été demandé</h2>
+  <dl class="pairs">
+    {% for key, value in asked.items() %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}
+  </dl>
+</section>
+
+{% if summary %}
+<section class="panel accent">
+  <h2>Ce que le client lit</h2>
+  <pre class="said">{{ summary }}</pre>
+</section>
+{% endif %}
+
+{% macro bubbles(entries) %}
+  <ol class="talk bubbles">
+    {% for entry in entries %}
+    <li class="{% if entry.who == 'Client' %}client{% elif entry.tool %}tool{% else %}tarik{% endif %}">
+      <span class="who">{{ avatar('client' if entry.who == 'Client' else 'tool' if entry.tool else 'tarik') }}{{ entry.who }}</span>
+      {% if entry.thinking %}<details class="thinking"><summary>Sa réflexion</summary><pre>{{ entry.thinking }}</pre></details>{% endif %}
+      {% if entry.calls %}<ul class="calls">{% for call in entry.calls %}<li>Utilise <b>{{ call.name }}</b> <span class="mono">{{ call.args }}</span></li>{% endfor %}</ul>{% endif %}
+      {% if entry.text %}{% if entry.tool %}<details><summary>Réponse de l'outil</summary><pre>{{ entry.text }}</pre></details>{% else %}<div class="reply">{{ entry.text | markdown }}</div>{% endif %}{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+{% endmacro %}
+{% if conversation %}
+<section class="panel">
+  <h2>La discussion</h2>
+  {% if earlier %}
+  {% set asks = earlier | selectattr("who", "equalto", "Client") | list | length %}
+  <details class="earlier">
+    <summary>Plus tôt dans la discussion : {{ asks }} message{{ 's' if asks > 1 }} du client, répondu{{ 's' if asks > 1 }} par d'autres exécutions</summary>
+    {{ bubbles(earlier) }}
+  </details>
+  <p class="muted">Cette exécution répond au dernier message ; ses appels et ses étapes, ci-dessous, sont les siens.</p>
+  {% endif %}
+  {{ bubbles(conversation) }}
+</section>
+{% endif %}
+
+{% if prompts %}
+<section class="panel">
+  <h2>Ce que Tarik a reçu</h2>
+  <p class="muted">Chaque appel du modèle pendant cette exécution : ses instructions, ses outils et la discussion, tels qu'envoyés.</p>
+  <ul class="runs-side">
+    {% for call in prompts %}<li><a href="/ui/llm-calls/{{ run.session_id | urlencode }}?call={{ call.id }}#call-{{ call.id }}"><span class="num">{{ call.at | when }} · Appel {{ loop.index }}</span><span class="muted">{{ call.messages }} message(s)</span></a></li>{% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h2>Les étapes</h2>
+  <p class="muted">Dans l'ordre où elles se sont terminées. Ouvrez une étape pour voir tout ce qu'elle a produit.</p>
+  <ol class="steps" id="steps" data-run="{{ run.run_id }}" data-graph="{{ run.graph }}" data-live="{{ 'yes' if run.status in ('queued', 'running') else '' }}">
+    {% for step in run.steps %}
+    <li style="--depth: {{ step.path.count('|') + (1 if step.path else 0) }}" data-id="{{ step.id }}">
+      <details data-step="{{ step.id }}">
+        <summary>
+          <span class="time num">{{ step.at | when }}</span>
+          <span class="name">{{ step_name(run.graph, step.node) }}</span>
+          {% if step.status %}<span class="chip {{ step.status }}">{{ step.status | status_name }}</span>{% endif %}
+          <span class="line">{{ step.summary }}</span>
+        </summary>
+        <pre class="detail">…</pre>
+      </details>
+    </li>
+    {% else %}
+    <li class="empty">Pas encore d'étape.</li>
+    {% endfor %}
+  </ol>
+</section>
+<script id="labels" type="application/json">{{ labels | tojson }}</script>
+{% endblock %}
+{% block scripts %}{% include "canvas_scripts.html" %}{% endblock %}

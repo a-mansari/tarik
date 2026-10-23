@@ -5,14 +5,20 @@ language you write in, in short sentences.
 
 ## Where to reach it
 
-| | Chat | Email |
-|---|---|---|
-| Where | The cabinet's agent, "Tarik - <cabinet>", in n8n's Agents section | The cabinet's own Tarik mailbox |
-| Files accepted | Images and PDFs only, about 1 MB each | PDF, images, CSV, TXT, XLSX: any size the mail server accepts |
-| Who may use it | People with access to the agent in n8n | Only the cabinet's whitelisted addresses (`@experio.ma`, `@sarnec.com`, …), as the email's From says; for an existing dossier, a collaborator (or one of Experio's own staff) who has that dossier in Experio. A colleague replying in your thread gets their own answer. |
-| When it answers | Right away | Within seconds of the email arriving (15 minutes at most) |
+By email, at the cabinet's own Tarik mailbox:
 
-Send FEC and grand livre files, and large scans, **by email**: the chat drops them without a word.
+- **Files accepted**: PDF, images, CSV, TXT, XLSX, any size the mail server accepts. A **ZIP** is opened and the files
+  in it are processed as if sent one by one (a zip inside it too, not deeper; password-protected files, and types
+  Tarik does not take, are left out, and the
+  reply says which and why).
+- **Who may use it**: only the cabinet's whitelisted addresses (`@experio.ma`, `@sarnec.com`, …), as the email's
+  From says; for an existing dossier, a collaborator (or one of Experio's own staff) who has that dossier in Experio.
+  A colleague replying in your thread gets their own answer.
+- **When it answers**: within seconds of the email arriving (15 minutes at most).
+
+Or, for the team, on the **Discussion** page of Tarik's pages (logged in): pick the cabinet, start a conversation,
+write and attach files (same types as email, 10 per message, 20 MB each). Tarik answers on the page; each message
+links to its run, step by step. No sender check there: whoever is logged in writes.
 
 ## What Tarik can do
 
@@ -27,7 +33,8 @@ sale (issued by the dossier to its own customer): say which, or Tarik asks befor
 each file: it recognises an invoice or a statement,
 splits a PDF holding several invoices, creates each draft, checks what Experio read against the scan
 and corrects it, then settles the tiers, account, TVA, journal, withholding tax, prepaid charges and
-fiscal year, and posts it. When a step needs you (which account? which fiscal year?), it asks.
+fiscal year, and leaves it as a verified draft: it is posted only when you ask ("comptabilisez"), in the same
+message or later. When a step needs you (which account? which fiscal year?), it asks.
 
 **Create a dossier**, from its name alone; ICE, IF and type when you give them. It refuses an ICE or IF
 another dossier already has, and asks first when a dossier has a very similar name. It can copy the
@@ -51,7 +58,6 @@ capital, CNSS number or address. Only the fields you ask for change, only to the
 - Changing anything else in a dossier: its configuration, accounts, journals, collaborators, currency.
 - Deleting a dossier or an invoice: Experio can only archive a dossier, and a posted invoice can't
   simply be deleted.
-- FEC or grand livre files through the chat (use email).
 
 ## How to write to Tarik
 
@@ -81,8 +87,7 @@ yourself; it never completes, corrects or guesses one. An ICE has 15 digits, lea
 **For a new dossier, the name is enough.** Tarik creates it at once and does not ask for the ICE or IF
 first; give them in the same message when you have them. Say "personne physique" for a person.
 
-**Attach the files to the message that asks for them.** In the chat, attach invoices (PDF or photos)
-and say for which dossier; by email, attach them to the email.
+**Attach the files to the email that asks for them**, and say for which dossier.
 
 **Some things only happen when you write them yourself**, on purpose:
 - Creating or modifying a dossier **without** Experio's ICE/IF check: ask for it ("créez-le sans
@@ -95,8 +100,8 @@ request at a time makes each step easy to follow.
 
 ## Good to know
 
-- **Tarik remembers the conversation**, not other conversations: start a new chat, or a new email
-  thread, for an unrelated request.
+- **Tarik remembers the conversation**, not other conversations: start a new email thread for an
+  unrelated request.
 - **Each cabinet's Tarik only sees that cabinet**: its dossiers, files and history. Nothing is shared
   between cabinets.
 - **A dossier Tarik creates is real.** Experio can't delete a dossier, only archive it: test on test

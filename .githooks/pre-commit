@@ -1,0 +1,5 @@
+#!/bin/sh
+# The style check (ruff's linter and formatter, as pyproject.toml sets them) before each commit, run in the server
+# container, where ruff is installed and the code is mounted. Enabled once per clone: git config core.hooksPath .githooks
+exec docker compose exec -T server sh -c \
+    'python -m ruff check --no-cache . && python -m ruff format --check --no-cache . || { echo "run: docker compose exec server python -m ruff format . (and fix what ruff check reports)"; exit 1; }'
