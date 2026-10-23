@@ -57,7 +57,9 @@
     ];
   }
 
-  const nodeOf = (step) => (step.path ? step.path.split("|").join(":") + ":" : "") + step.node;
+  // A part's path ("a|b") as the prefix of its nodes' ids ("a:b:"); "" for the top level.
+  const prefixOf = (path) => (path ? path.split("|").join(":") + ":" : "");
+  const nodeOf = (step) => prefixOf(step.path) + step.node;
 
   function text(tag, className, value) {
     const node = document.createElement(tag);
@@ -70,10 +72,15 @@
   // Outcomes from worst to best: a collapsed group takes the worst of the steps inside it.
   const SEVERITY = ["error", "stop", "question", "wait", "ok", ""];
   const worst = (statuses) => SEVERITY.find((s) => statuses.includes(s)) ?? "ok";
+  const RUNNING = ["queued", "running"]; // a run's statuses while it goes on
 
   async function draw(container) {
-    const graph = container.dataset.graph, run = container.dataset.run || "", panel = document.getElementById(container.dataset.panel);
+    const graph = container.dataset.graph;
+    const run = container.dataset.run || "";
+    const panel = document.getElementById(container.dataset.panel);
     const labels = JSON.parse(document.getElementById("labels")?.textContent || "{}");
+    const statusLabel = (status) => labels.statuses?.[status] || status;
+    const stepLabel = (step) => labels.steps?.[graph]?.[step.node] || labels.steps?.traitement?.[step.node] || step.node;
     const shape = await (await fetch(`/graphs/${graph}`)).json();
     const groups = new Map(shape.nodes.filter((n) => n.kind === "group").map((n) => [n.id, n]));
     const parentOf = new Map(shape.nodes.map((n) => [n.id, n.parent || null]));
@@ -154,6 +161,8 @@
       return shown;
     }
     const stepCount = (group) => shape.nodes.filter((n) => n.kind === "step" && inside(n.id, group)).length;
+    const foldedDisplay = (label, group) => `▸ ${label}\n${stepCount(group)} étapes`;
+    const allOpened = () => [...groups.keys()].every((g) => opened.has(g));
 
     function build() {
       cy.elements().remove();
@@ -161,7 +170,7 @@
       const collapsed = (n) => n.kind === "group";
       cy.add(visible.map((n) => ({
         data: { ...n, parent: undefined, kind: collapsed(n) ? "subflow" : n.kind,
-          display: collapsed(n) ? `▸ ${n.label}\n${stepCount(n.id)} étapes` : n.label },
+          display: collapsed(n) ? foldedDisplay(n.label, n.id) : n.label },
       })));
       const seen = new Map();
       for (const e of shape.edges) {
@@ -219,31 +228,44 @@
         return;
       }
       if (saved.style === "bezier") {
-        // Out of the side of the source that faces the target, into the side of the target that faces the source:
-        // left/right when the cards are further apart sideways, top/bottom when further apart up and down. Its pull is
-        // half the gap between the two sides, never less than 30, so the S stretches and flattens with the distance.
-        const source = edge.source(), target = edge.target(), s = source.position(), t = target.position();
-        const sideways = Math.abs(t.x - s.x) - (source.width() + target.width()) / 2;
-        const upright = Math.abs(t.y - s.y) - (source.height() + target.height()) / 2;
-        const across = sideways >= upright;
-        const dir = across ? Math.sign(t.x - s.x) || 1 : Math.sign(t.y - s.y) || 1;
-        const reach = Math.max(30, (across ? sideways : upright) / 2);
-        const out = across ? { x: s.x + dir * source.width() / 2, y: s.y } : { x: s.x, y: s.y + dir * source.height() / 2 };
-        const into = across ? { x: t.x - dir * target.width() / 2, y: t.y } : { x: t.x, y: t.y - dir * target.height() / 2 };
-        const controls = across
-          ? [{ x: out.x + dir * reach, y: out.y }, { x: into.x - dir * reach, y: into.y }]
-          : [{ x: out.x, y: out.y + dir * reach }, { x: into.x, y: into.y - dir * reach }];
-        // cytoscape's angles: 0deg up, 90deg right, 180deg down, 270deg left.
-        const exit = across ? (dir > 0 ? "90deg" : "270deg") : (dir > 0 ? "180deg" : "0deg");
-        const entry = across ? (dir > 0 ? "270deg" : "90deg") : (dir > 0 ? "0deg" : "180deg");
-        const r = relative(edge, controls);
-        edge.style({
-          "curve-style": "unbundled-bezier", "edge-distances": "node-position", "control-point-weights": r.weights,
-          "control-point-distances": r.distances, "source-endpoint": exit, "target-endpoint": entry,
-        });
+        edge.style(bezierStyle(edge));
         return;
       }
       edge.style("curve-style", saved.style || "straight");
+    }
+
+    // cytoscape's angles for an edge's ends: 0deg up, 90deg right, 180deg down, 270deg left.
+    const ANGLE = { up: "0deg", right: "90deg", down: "180deg", left: "270deg" };
+
+    // A curved edge: out of the side of the source that faces the target, into the side of the target that faces the
+    // source: left/right when the cards are further apart sideways, top/bottom when further apart up and down. Its pull
+    // is half the gap between the two sides, never less than 30, so the S stretches and flattens with the distance.
+    function bezierStyle(edge) {
+      const source = edge.source(), target = edge.target(), s = source.position(), t = target.position();
+      const sideways = Math.abs(t.x - s.x) - (source.width() + target.width()) / 2;
+      const upright = Math.abs(t.y - s.y) - (source.height() + target.height()) / 2;
+      const across = sideways >= upright;
+      const dir = across ? Math.sign(t.x - s.x) || 1 : Math.sign(t.y - s.y) || 1;
+      const reach = Math.max(30, (across ? sideways : upright) / 2);
+      let out, into, controls, exit, entry;
+      if (across) {
+        out = { x: s.x + dir * source.width() / 2, y: s.y };
+        into = { x: t.x - dir * target.width() / 2, y: t.y };
+        controls = [{ x: out.x + dir * reach, y: out.y }, { x: into.x - dir * reach, y: into.y }];
+        exit = dir > 0 ? ANGLE.right : ANGLE.left;
+        entry = dir > 0 ? ANGLE.left : ANGLE.right;
+      } else {
+        out = { x: s.x, y: s.y + dir * source.height() / 2 };
+        into = { x: t.x, y: t.y - dir * target.height() / 2 };
+        controls = [{ x: out.x, y: out.y + dir * reach }, { x: into.x, y: into.y - dir * reach }];
+        exit = dir > 0 ? ANGLE.down : ANGLE.up;
+        entry = dir > 0 ? ANGLE.up : ANGLE.down;
+      }
+      const r = relative(edge, controls);
+      return {
+        "curve-style": "unbundled-bezier", "edge-distances": "node-position", "control-point-weights": r.weights,
+        "control-point-distances": r.distances, "source-endpoint": exit, "target-endpoint": entry,
+      };
     }
 
     // Where an edge's bends and style are kept: under the whole graph's edge it stands for (all parts open), never
@@ -289,22 +311,23 @@
       }
       cy.elements().not("[kind = 'handle'], [kind = 'ghost']").addClass("dim").removeClass("ran ok question wait stop error now");
       const byShown = new Map(); // node on screen -> the steps that ran in it (inside it, for a collapsed group)
-      for (const [id, list] of steps) {
+      for (const [id, ran] of steps) {
         const shown = shownAs(id);
         if (!byShown.has(shown)) byShown.set(shown, []);
-        byShown.get(shown).push([id, list]);
+        byShown.get(shown).push([id, ran]);
       }
       for (const [shown, entries] of byShown) {
         const node = cy.getElementById(shown);
         if (!node.length) continue;
-        const all = entries.flatMap(([, list]) => list);
-        const status = node.data("kind") === "subflow" ? worst(all.map((s) => s.status || "ok")) : all[all.length - 1].status || "ok";
+        const all = entries.flatMap(([, ran]) => ran);
+        const folded = node.data("kind") === "subflow";
+        const status = folded ? worst(all.map((s) => s.status || "ok")) : all[all.length - 1].status || "ok";
         node.removeClass("dim").addClass(`ran ${status}`);
         // How many times it ran: a step's own count; a collapsed group's, the most any of its first-level steps ran.
-        const times = node.data("kind") === "subflow"
-          ? Math.max(...entries.filter(([id]) => parentOf.get(id) === shown).map(([, list]) => list.length), 1)
+        const times = folded
+          ? Math.max(...entries.filter(([id]) => parentOf.get(id) === shown).map(([, ran]) => ran.length), 1)
           : all.length;
-        const base = node.data("kind") === "subflow" ? `▸ ${node.data("label")}\n${stepCount(shown)} étapes` : node.data("label");
+        const base = folded ? foldedDisplay(node.data("label"), shown) : node.data("label");
         node.data("display", times > 1 ? `${base}\n×${times}` : base);
         node.ancestors().removeClass("dim").addClass("ran");
       }
@@ -339,8 +362,10 @@
     let focus = ""; // the lane shown alone ("": all of them)
     let moment = null; // the moment replayed up to (null: the whole run)
 
+    const focusedSteps = () => (focus ? focused(focus) : sequence);
+
     function shown() {
-      const list = focus ? focused(focus) : sequence;
+      const list = focusedSteps();
       if (moment == null) return { list, now: [], ended: finished };
       const all = moments(list), upto = Math.min(moment, all.length - 1);
       return { list: all.slice(0, upto + 1).flat(), now: all[upto] || [], ended: false };
@@ -389,15 +414,22 @@
             // thread by its address; else its kind and rank.
             const words = mine.filter((step) => step.lane === lane).map((step) => step.summary || "").join(" ");
             const label = part?.label || path;
-            const found_ = words.match(/[\w-]+\.(pdf|png|jpe?g|xlsx?|csv|txt)/i)?.[0] || words.match(/Facture (\d+)/)?.[0]
-              || words.match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/)?.[0] || String(index);
-            const name = found_.toLowerCase().startsWith(label.toLowerCase()) ? found_ : `${label} — ${found_}`;
+            const named = nameIn(words) || String(index);
+            const name = named.toLowerCase().startsWith(label.toLowerCase()) ? named : `${label} — ${named}`;
             const status = worst(mine.map((step) => step.status || "ok"));
             found.push({ lane, depth: path.split("|").length, label, name, status, first: mine[0]?.id || 0 });
           }
         }
       }
       return found.sort((a, b) => a.depth - b.depth || a.first - b.first);
+    }
+
+    // A file name, an invoice number or an email address in an instance's own summaries, the first found in that order.
+    function nameIn(words) {
+      const file = words.match(/[\w-]+\.(pdf|png|jpe?g|xlsx?|csv|txt)/i)?.[0];
+      const invoice = words.match(/Facture (\d+)/)?.[0];
+      const address = words.match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/)?.[0];
+      return file || invoice || address;
     }
 
     // One instance's steps, and the way to it and on from it in the parts around it: in each, the steps that led to the
@@ -436,8 +468,8 @@
       for (const step of now.filter((s) => !groups.has(nodeOf(s)))) {
         const li = document.createElement("li");
         li.append(text("span", "num muted", step.when));
-        li.append(text("b", "", labels.steps?.[graph]?.[step.node] || labels.steps?.traitement?.[step.node] || step.node));
-        if (step.status) li.append(text("span", `chip ${step.status}`, labels.statuses?.[step.status] || step.status));
+        li.append(text("b", "", stepLabel(step)));
+        if (step.status) li.append(text("span", `chip ${step.status}`, statusLabel(step.status)));
         if (step.summary) li.append(text("span", "", step.summary));
         box.append(li);
       }
@@ -451,18 +483,22 @@
       const all = text("option", "", "Tout");
       all.value = "";
       select.replaceChildren(all, ...found.map((i) => {
-        const option = text("option", "", `${"  ".repeat(i.depth - 1)}${i.name} · ${labels.statuses?.[i.status] || i.status}`);
+        const option = text("option", "", `${"  ".repeat(i.depth - 1)}${i.name} · ${statusLabel(i.status)}`);
         option.value = i.lane;
         option.selected = i.lane === focus;
         return option;
       }));
       // One position per moment, then one more at the end: the whole run, landed on its end.
-      const count = moments(focus ? focused(focus) : sequence).length;
+      const count = moments(focusedSteps()).length;
       range.max = count;
       range.value = moment == null ? count : Math.min(moment, count - 1);
-      document.getElementById("moment-label").textContent =
-        moment == null ? `Toute l'exécution (${count} moment${count > 1 ? "s" : ""})` : `Moment ${Number(range.value) + 1} / ${count}`;
+      document.getElementById("moment-label").textContent = momentLabel(count, Number(range.value));
       document.getElementById("moment-all").disabled = moment == null;
+    }
+
+    function momentLabel(count, position) {
+      if (moment == null) return `Toute l'exécution (${count} moment${count > 1 ? "s" : ""})`;
+      return `Moment ${position + 1} / ${count}`;
     }
 
     function wire() {
@@ -496,8 +532,8 @@
       const rounds = !list.some((s) => s.round == null); // recorded with their rounds: parallel branches apart
       const went = new Set();
       went.from = new Map(); // step id -> the step that led to it (null: the part's start)
-      for (const list of lanes.values()) {
-        const prefix = list[0].path ? list[0].path.split("|").join(":") + ":" : "";
+      for (const laneSteps of lanes.values()) {
+        const prefix = prefixOf(laneSteps[0].path);
         const start = `${prefix}__start__`, end = `${prefix}__end__`;
         const ends = (step) => {
           const id = nodeOf(step);
@@ -505,7 +541,7 @@
         };
         const before = []; // [step, its way out] in the order they ended
         const led = new Set(); // steps that led to another
-        for (const step of list) {
+        for (const step of laneSteps) {
           const [into, out] = ends(step);
           // What led to it: a step of the round before (or, without rounds, the latest step) with an edge to it.
           const candidates = before.filter(([s]) => !rounds || s.round === step.round - 1).reverse();
@@ -593,7 +629,7 @@
       if (started.length) {
         const links = text("div", "panel-actions");
         for (const child of started) {
-          const link = text("a", "panel-button", `${labels.graphs?.[child.graph] || child.graph} · ${child.when} · ${labels.statuses?.[child.status] || child.status}`);
+          const link = text("a", "panel-button", `${labels.graphs?.[child.graph] || child.graph} · ${child.when} · ${statusLabel(child.status)}`);
           link.href = `/ui/executions/${child.run_id}`;
           links.append(link);
         }
@@ -604,8 +640,8 @@
         const li = document.createElement("li");
         const head = text("div", "head-line");
         head.append(text("span", "num muted", step.when));
-        if (group) head.append(text("b", "", labels.steps?.[graph]?.[step.node] || labels.steps?.traitement?.[step.node] || step.node));
-        if (step.status) head.append(text("span", `chip ${step.status}`, labels.statuses?.[step.status] || step.status));
+        if (group) head.append(text("b", "", stepLabel(step)));
+        if (step.status) head.append(text("span", `chip ${step.status}`, statusLabel(step.status)));
         li.append(head);
         if (step.summary) li.append(text("p", "", step.summary));
         const details = document.createElement("details");
@@ -690,11 +726,16 @@
     cy.on("dbltap", "node[kind = 'handle']", (event) => {
       const edge = cy.getElementById(event.target.data("edge"));
       edgeLayout(edge).points.splice(event.target.data("index"), 1);
+      redrawEdge(edge);
+    });
+
+    // An edge's bend points changed: drawn again, its handles and panel too.
+    function redrawEdge(edge) {
       drawEdge(edge);
       showHandles(edge);
       showEdge(edge);
       changed();
-    });
+    }
 
     function showEdge(edge) {
       if (!panel) return;
@@ -715,10 +756,10 @@
         const points = saved.points, s = edge.source().position(), t = edge.target().position();
         const from = points.length ? points[points.length - 1] : s; // halfway between the last point and the target
         points.push({ x: snap((from.x + t.x) / 2), y: snap((from.y + t.y) / 2) });
-        drawEdge(edge); showHandles(edge); showEdge(edge); changed();
+        redrawEdge(edge);
       }));
       if (saved.points.length) {
-        bends.append(button("Retirer les points", () => { saved.points = []; drawEdge(edge); showHandles(edge); showEdge(edge); changed(); }));
+        bends.append(button("Retirer les points", () => { saved.points = []; redrawEdge(edge); }));
       }
       panel.append(text("p", "", `Points de passage : ${saved.points.length}`), bends);
       panel.append(text("p", "muted", "Faites glisser un point pour déplacer la liaison ; double-cliquez dessus pour le retirer."));
@@ -768,14 +809,14 @@
     function foldState() {
       if (!foldButton) return;
       foldButton.hidden = !groups.size;
-      const all = groups.size && [...groups.keys()].every((g) => opened.has(g));
+      const all = groups.size && allOpened();
       foldButton.classList.toggle("folding", Boolean(all));
       const label = all ? "Tout replier" : "Tout déplier";
       foldButton.setAttribute("aria-label", label);
       foldButton.dataset.tip = all ? "Tout replier : refermer chaque sous-workflow" : "Tout déplier : ouvrir chaque sous-workflow";
     }
     foldButton?.addEventListener("click", () => {
-      if ([...groups.keys()].every((g) => opened.has(g))) opened.clear();
+      if (allOpened()) opened.clear();
       else for (const g of groups.keys()) opened.add(g);
       build(); // the view stays as it is, as when one is folded or opened
       foldState();
@@ -786,11 +827,11 @@
     if (run) {
       const found = await (await fetch(`/runs/${run}`)).json();
       children = found.children || [];
-      finished = !["queued", "running"].includes(found.status);
+      finished = !RUNNING.includes(found.status);
       (found.steps || []).forEach(add);
       wire();
       controls();
-      if (["queued", "running"].includes(found.status)) {
+      if (!finished) {
         const events = (window.runEvents ||= window.followRun(run)); // shared with the steps list
         events.on("step", (step) => { add(step); controls(); paint(); });
         events.on("end", () => { finished = true; paint(); });

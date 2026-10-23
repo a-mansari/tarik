@@ -59,56 +59,55 @@ def field(key, label, value, long=True, hint=""):
     return {"key": SEP.join(key), "label": label, "value": value, "long": long, "hint": hint}
 
 
+def agent_sections(data):
+    """agent.json's sections: Tarik's instructions, then how each tool is presented to it."""
+    tools = [field(["tools", name], name, value) for name, value in data["tools"].items()]
+    read_tools = [field(["read_tools", name], f"Experio_{name}", value) for name, value in data["read_tools"].items()]
+    return [
+        {"title": "Instructions", "fields": [field(["instructions"], "Instructions de Tarik", data["instructions"])]},
+        {"title": "Outils de traitement", "fields": tools},
+        {"title": "Outils de lecture d'Experio", "fields": read_tools},
+    ]
+
+
+def graph_fields(data, graph, name):
+    """labels.json's fields of one workflow: its name and what it does, then each step's name and what it does."""
+    fields = [
+        field(["graphs", graph], "Nom du workflow", name, long=False),
+        field(["descriptions", "graphs", graph], "Ce qu'il fait", data["descriptions"]["graphs"].get(graph, "")),
+    ]
+    for step, step_name in data["steps"].get(graph, {}).items():
+        fields.append(field(["steps", graph, step], f"Étape {step} : nom", step_name, long=False, hint=step))
+        described = data["descriptions"]["steps"].get(graph, {}).get(step)
+        if described is not None:
+            fields.append(field(["descriptions", "steps", graph, step], f"Étape {step} : ce qu'elle fait", described))
+    return fields
+
+
+def labels_sections(data):
+    """labels.json's sections: one per workflow, then the states."""
+    found = []
+    for graph, name in data["graphs"].items():
+        found.append({"title": graph_name(graph), "fields": graph_fields(data, graph, name)})
+    statuses = [field(["statuses", key], key, value, long=False) for key, value in data["statuses"].items()]
+    found.append({"title": "États", "fields": statuses})
+    return found
+
+
 def sections(path, text):
     """The document as form sections: [{title, fields: [{key, label, value, long, hint}]}]."""
     if path == "agent.json":
-        data = json.loads(text)
-        return [
-            {
-                "title": "Instructions",
-                "fields": [field(["instructions"], "Instructions de Tarik", data["instructions"])],
-            },
-            {
-                "title": "Outils de traitement",
-                "fields": [field(["tools", name], name, value) for name, value in data["tools"].items()],
-            },
-            {
-                "title": "Outils de lecture d'Experio",
-                "fields": [
-                    field(["read_tools", name], f"Experio_{name}", value) for name, value in data["read_tools"].items()
-                ],
-            },
-        ]
+        return agent_sections(json.loads(text))
     if path == "labels.json":
-        data = json.loads(text)
-        found = []
-        for graph, name in data["graphs"].items():
-            fields = [
-                field(["graphs", graph], "Nom du workflow", name, long=False),
-                field(
-                    ["descriptions", "graphs", graph], "Ce qu'il fait", data["descriptions"]["graphs"].get(graph, "")
-                ),
-            ]
-            for step, step_name in data["steps"].get(graph, {}).items():
-                fields.append(field(["steps", graph, step], f"Étape {step} : nom", step_name, long=False, hint=step))
-                described = data["descriptions"]["steps"].get(graph, {}).get(step)
-                if described is not None:
-                    fields.append(
-                        field(["descriptions", "steps", graph, step], f"Étape {step} : ce qu'elle fait", described)
-                    )
-            found.append({"title": graph_name(graph), "fields": fields})
-        found.append(
-            {
-                "title": "États",
-                "fields": [field(["statuses", key], key, value, long=False) for key, value in data["statuses"].items()],
-            }
-        )
-        return found
+        return labels_sections(json.loads(text))
     meta, body = content.front_matter(text)
     fields = [field(["body"], "Texte", body.strip("\n"))]
     if "description" in meta:
         fields.insert(0, field(["description"], "Quand Tarik la charge (sa description)", meta["description"]))
     return [{"title": "", "fields": fields}]
+
+
+ROOTS = ("instructions", "tools", "read_tools", "graphs", "steps", "statuses", "descriptions")  # a JSON form's fields
 
 
 def rebuilt(path, form):
@@ -118,9 +117,7 @@ def rebuilt(path, form):
     if path.endswith(".json"):
         data = json.loads(old)
         for key, value in values.items():
-            if not key.startswith(
-                ("instructions", "tools", "read_tools", "graphs", "steps", "statuses", "descriptions")
-            ):
+            if not key.startswith(ROOTS):
                 continue
             *parents, last = key.split(SEP)
             target = data
@@ -135,7 +132,8 @@ def rebuilt(path, form):
         meta["description"] = " ".join(values["description"].split())
     body = values.get("body", body).strip("\n")
     end = "\n" if old.endswith("\n") else ""  # as the document was: a prompt may be followed by more text
-    return "---\n" + "\n".join(f"{key}: {value}" for key, value in meta.items()) + "\n---\n" + body + end
+    header = "\n".join(f"{key}: {value}" for key, value in meta.items())
+    return "---\n" + header + "\n---\n" + body + end
 
 
 CONTEXT = 40  # words kept around each change
@@ -213,7 +211,8 @@ async def export_contents(request: Request):
     belongs = GROUPS[key][1] if key in GROUPS else (lambda path: True)
     documents = {path: content.text(path) for path in content.documents() if belongs(path)}
     data = {"format": BUNDLE, "exported_at": datetime.now(UTC).isoformat(timespec="seconds"), "documents": documents}
-    return download(data, f"tarik-contenu{'-' + key if key in GROUPS else ''}-{datetime.now(UTC):%Y%m%d}.json")
+    group = f"-{key}" if key in GROUPS else ""
+    return download(data, f"tarik-contenu{group}-{datetime.now(UTC):%Y%m%d}.json")
 
 
 async def import_contents(request: Request):
@@ -221,7 +220,8 @@ async def import_contents(request: Request):
     any is saved: one refused, none saved. {saved: [...], unchanged: [...]} or {error}."""
     try:
         data = json.loads(await request.body())
-        documents, name = data["documents"], str(data.get("file") or "un export")[:80]
+        documents = data["documents"]
+        name = str(data.get("file") or "un export")[:80]
         if data.get("format") != BUNDLE or not isinstance(documents, dict):
             raise ValueError("ce fichier n'est pas un export du contenu de Tarik")
         for path, text in documents.items():
@@ -238,7 +238,10 @@ async def import_contents(request: Request):
         made = await content.save(
             runs.pool, path, text, author_of(request), f"Importé de {name}", create=True, reshape=True
         )
-        (saved if made else unchanged).append(path)
+        if made:
+            saved.append(path)
+        else:
+            unchanged.append(path)
     return JSONResponse({"saved": saved, "unchanged": unchanged})
 
 
@@ -266,9 +269,33 @@ async def import_section(request, path):
 
 
 async def contents_page(request: Request):
-    changes_ = await content.last_changes(runs.pool)
-    listed = [(key, name, [(path, title(path), changes_.get(path)) for path in paths]) for key, name, paths in groups()]
+    last = await content.last_changes(runs.pool)
+    listed = []
+    for key, name, paths in groups():
+        listed.append((key, name, [(path, title(path), last.get(path)) for path in paths]))
     return templates.TemplateResponse(request, "contents.html", {"groups": listed, "empty": not content.documents()})
+
+
+def card_download(path, text, index):
+    """Card ``index`` of the document (its fields) as a file to download; None when it has no such card."""
+    cards = sections(path, text)
+    if index >= len(cards):
+        return None
+    card = cards[index]
+    fields = {f["key"]: f["value"] for f in card["fields"]}
+    data = {"format": SECTION, "document": path, "section": card["title"] or title(path), "fields": fields}
+    stem = path.replace("/", "-").rsplit(".", 1)[0]
+    return download(data, f"{stem}-{index + 1}.json")
+
+
+async def compared(path, shown):
+    """What version ``shown`` (its id, as text) changed, for the page: {id, first, fields}; None for no such version."""
+    if not shown or not shown.isdigit():
+        return None
+    after, before = await content.version(runs.pool, path, int(shown))
+    if after is None:
+        return None
+    return {"id": int(shown), "first": before is None, "fields": changes(path, before, after)}
 
 
 async def content_page(request: Request):
@@ -280,20 +307,17 @@ async def content_page(request: Request):
     error, text = None, content.text(path)
     exported = request.query_params.get("export")
     if exported is not None and exported.isdigit():  # one card's fields, as a file
-        cards = sections(path, text)
-        if int(exported) < len(cards):
-            card = cards[int(exported)]
-            fields = {f["key"]: f["value"] for f in card["fields"]}
-            data = {"format": SECTION, "document": path, "section": card["title"] or title(path), "fields": fields}
-            name = f"{path.replace('/', '-').rsplit('.', 1)[0]}-{int(exported) + 1}.json"
-            return download(data, name)
+        card = card_download(path, text, int(exported))
+        if card is not None:
+            return card
     if request.method == "POST" and request.headers.get("content-type", "").startswith("application/json"):
         return await import_section(request, path)
     if request.method == "POST":
         form = parse_qs((await request.body()).decode(), keep_blank_values=True, max_num_fields=500)
         note = form.pop("note", [""])[0]
+        restoring = form.get("action", [""])[0] == "restore"
         try:
-            if form.get("action", [""])[0] == "restore":
+            if restoring:
                 old, _ = await content.version(runs.pool, path, int(form["version"][0]))
                 if old is None:
                     raise ValueError("version inconnue")
@@ -302,19 +326,15 @@ async def content_page(request: Request):
             else:
                 new = rebuilt(path, {key: value for key, value in form.items() if key != "action"})
             changed = await content.save(runs.pool, path, new, author, note)
-            return RedirectResponse(f"/ui/tarik-prompts/{quote(path)}?saved={'1' if changed else '0'}", status_code=303)
+            saved = "1" if changed else "0"
+            return RedirectResponse(f"/ui/tarik-prompts/{quote(path)}?saved={saved}", status_code=303)
         except (ValueError, KeyError) as refusal:
             error = str(refusal)
-            if form.get("action", [""])[0] != "restore":
+            if not restoring:
                 with contextlib.suppress(ValueError, KeyError):
                     text = rebuilt(path, form)  # the form shown again as it was sent, to be corrected
     versions = await content.history(runs.pool, path)
-    shown = request.query_params.get("version")
-    compare = None
-    if shown and shown.isdigit():
-        after, before = await content.version(runs.pool, path, int(shown))
-        if after is not None:
-            compare = {"id": int(shown), "first": before is None, "fields": changes(path, before, after)}
+    compare = await compared(path, request.query_params.get("version"))
     context = {
         "path": path,
         "title": title(path),
