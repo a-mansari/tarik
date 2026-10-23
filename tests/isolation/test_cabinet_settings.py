@@ -2,10 +2,10 @@
 
 import pytest
 
+from engine.tools.core import experio
+from engine.tools.core.cabinets import current, setting, using
+from engine.tools.emails import sending
 from shared import A, B
-from tarik.core import experio
-from tarik.core.cabinets import current, setting, using
-from tarik.emails import sending
 
 
 @pytest.mark.security

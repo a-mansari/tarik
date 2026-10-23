@@ -14,9 +14,9 @@ import asyncio
 import threading
 import time
 
-from tarik.core.app import log
-from tarik.core.cabinets import CABINETS, setting, using
-from tarik.emails.inbox import connect, notify_manager, read_mailbox, threads_waiting
+from engine.tools.core.app import log
+from engine.tools.core.cabinets import CABINETS, setting, using
+from engine.tools.emails.inbox import connect, notify_manager, read_mailbox, threads_waiting
 
 RENEW_SECONDS = 25 * 60
 RUNNING = set()  # (cabinet, job name) of each watch and tick thread alive

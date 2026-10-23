@@ -8,11 +8,11 @@ Slow and billed: python -m pytest -m llm -s (-s shows the cases missed and the s
 
 import pytest
 
-from tarik.core.conversation import chosen_among, yes_no
-from tarik.core.words import normalized
-from tarik.invoices.exercice import exercice_choice
-from tarik.invoices.listing import STATUSES
-from tarik.invoices.pipeline import meant
+from engine.tools.core.conversation import chosen_among, yes_no
+from engine.tools.core.words import normalized
+from engine.tools.invoices.exercice import exercice_choice
+from engine.tools.invoices.listing import STATUSES
+from engine.tools.invoices.pipeline import meant
 
 MIN_RIGHT = 0.9
 MAX_WRONG = 0.05

@@ -2,7 +2,7 @@
 
 import pytest
 
-from tarik.invoices import duplicates
+from engine.tools.invoices import duplicates
 
 INVOICE = {
     "id": 30,

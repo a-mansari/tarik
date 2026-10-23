@@ -2,7 +2,7 @@
 
 import pytest
 
-from tarik.invoices.correct import planned_changes
+from engine.tools.invoices.correct import planned_changes
 from tests.fakes import flag
 
 
@@ -103,7 +103,7 @@ def test_lines_not_read_in_full_or_not_adding_up_are_never_split():
 
 @pytest.mark.communication
 def test_a_scan_owing_nothing_keeps_what_experio_captured(monkeypatch):
-    from tarik.invoices import correct
+    from engine.tools.invoices import correct
 
     written = []
     monkeypatch.setattr(correct, "fill_invoice", lambda invoice_id, changes, context: written.append(changes) or {})
@@ -124,7 +124,7 @@ def test_a_scan_owing_nothing_keeps_what_experio_captured(monkeypatch):
 
 @pytest.mark.functionality
 def test_a_draft_stopped_for_no_amount_is_taken_up_again_when_asked():
-    from tarik.invoices.pipeline import resumable
+    from engine.tools.invoices.pipeline import resumable
 
     assert resumable("correct_invoice", "stop", stopped=True)
     assert not resumable("correct_invoice", "stop", stopped=False)  # an automatic follow-up never retries it

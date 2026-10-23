@@ -8,7 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import httpx
 import pytest
 
-from tarik.core import cabinets
+from engine.tools.core import cabinets
 
 SECRETS = {
     "shared": {"IMAP_HOST": "mail.example.ma", "SMTP_HOST": "smtp.example.ma"},
@@ -160,9 +160,9 @@ def test_settings_in_the_wrong_place_stop_the_server():
     )
     assert cabinets.misplaced_in_vault(*bad) == sorted(
         [
-            "tarik/shared:ODOO_PASSWORD",
-            "tarik/cabinets/experio_cabinet_8:IMAP_HOST",
-            "tarik/cabinets/experio_cabinet_8:TYPO",
+            "tools/shared:ODOO_PASSWORD",
+            "tools/cabinets/experio_cabinet_8:IMAP_HOST",
+            "tools/cabinets/experio_cabinet_8:TYPO",
             "IMAP_PASSWORD",
             "EXPERIO_CABINET_8__ODOO_UID",
             "TARIK_CABINETS",

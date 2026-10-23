@@ -7,10 +7,10 @@ import time
 
 import pytest
 
-from engine.tools import call
+from engine.calls import call
+from engine.tools.core import cabinets, experio
+from engine.tools.core.cabinets import cabinet_db, cabinet_names, current, setting, using
 from shared import A, B
-from tarik.core import cabinets, experio
-from tarik.core.cabinets import cabinet_db, cabinet_names, current, setting, using
 
 
 @pytest.mark.security

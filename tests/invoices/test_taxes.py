@@ -2,7 +2,7 @@
 
 import pytest
 
-from tarik.invoices import taxes
+from engine.tools.invoices import taxes
 
 WATER = {  # a water bill at 10 %, in a dossier made from a FEC: TVA 0 % and 20 % purchase taxes only
     "type": "purchase",

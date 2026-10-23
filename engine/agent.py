@@ -1,5 +1,5 @@
 """Tarik, the cabinet's agent: its instructions and tools' descriptions (content/agent.json), its skills
-(content/skills/), its read tools (tarik/) and the workflow tools (the graphs), on its model (model(): MiniMax-M3
+(content/skills/), its read tools (engine/tools/) and the workflow tools (the graphs), on its model (model(): MiniMax-M3
 with a thinking budget, at the provider's Anthropic-style address, with this stack's own key, Vault
 secret/tarik/orchestrator).
 What every workflow tool is given besides the model's arguments (the conversation, its files, the client's words,
@@ -18,12 +18,12 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
 
 from engine import content, prompts
+from engine.calls import ToolFailure, call
 from engine.claude_code import ChatClaudeCode
 from engine.content import AGENT
 from engine.settings import cabinet_of, session_of
-from engine.tools import ToolFailure, call
-from tarik.core.cabinets import setting, using
-from tarik.core.model import MODEL_URL, adapter
+from engine.tools.core.cabinets import setting, using
+from engine.tools.core.model import MODEL_URL, adapter
 
 
 def model(cabinet):
@@ -146,7 +146,7 @@ def read_tool(tool_name):
         return await reading(runtime, tool_name, dossier_id=dossier_id, search=search, side=side)
 
     function = locals()[tool_name]
-    # Described by the tool's own docstring (tarik/), kept in content/agent.json to be edited.
+    # Described by the tool's own docstring (engine/tools/), kept in content/agent.json to be edited.
     return tool(f"Experio_{tool_name}", description=DESCRIBED_LATER)(function)
 
 

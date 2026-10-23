@@ -1,5 +1,5 @@
-"""Checks the graphs and the content against each other: every tool a graph or the agent calls exists (tarik/), the
-stack's content has every document the code reads (each tool's prompt, each tool's description), every step the
+"""Checks the graphs and the content against each other: every tool a graph or the agent calls exists (engine/tools/),
+the stack's content has every document the code reads (each tool's prompt, each tool's description), every step the
 canvas draws has its plain description, and every input a workflow is given its name (labels.json) and a place in
 the workflow's INPUTS. Run in the container: python check.py (exit 1 on a gap)."""
 
@@ -11,12 +11,12 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from app import audit
-from app.pages.runs import HIDDEN
 from engine import agent, chat, content, dossier, graphs, traitement
+from engine.calls import TOOLS
 from engine.content import AGENT, LABELS
-from engine.tools import TOOLS
-from tarik.invoices.pipeline import INVOICE_CHAIN
+from engine.tools.invoices.pipeline import INVOICE_CHAIN
+from server import audit
+from server.api.runs import HIDDEN
 
 ENGINE = Path(__file__).parent / "engine"
 TOOL_ARGUMENT = {"step": 3, "run_step": 1, "call": 1, "run_tool": 1}  # where each caller takes the tool's name
@@ -40,7 +40,7 @@ def missing_content():
     """What the code reads that the stack's content lacks: a tool's prompt, or a tool's description."""
     prompts = {
         name
-        for path in Path("tarik").rglob("*.py")
+        for path in Path("engine/tools").rglob("*.py")
         for name in re.findall(r'tool_prompt\("([a-z-]+)"\)', path.read_text())
     }
     gaps = [
@@ -79,7 +79,7 @@ def unnamed():
 
 def dropped():
     """Every argument an agent's workflow tool takes reaches its workflow, and is one the workflow keeps (its INPUTS):
-    engine.tools.started keeps only those, any other is dropped without a word. Each tool is called with its
+    engine.calls.started keeps only those, any other is dropped without a word. Each tool is called with its
     run_workflow replaced, to see what it hands over."""
     kept = {"traitement": traitement.INPUTS, "dossier": dossier.INPUTS}
     handed = []

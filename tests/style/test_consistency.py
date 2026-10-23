@@ -48,9 +48,9 @@ def test_skills_and_instructions_name_only_the_agents_tools():
 
 @pytest.mark.style
 def test_each_tool_prompt_is_read_by_the_tool_its_file_names():
-    code = ROOT / "tarik"
-    loaded = {  # prompt name -> the module loading it
-        name: str(path.relative_to(ROOT))
+    code = ROOT / "engine" / "tools"
+    loaded = {  # prompt name -> the module loading it, from the tools' root (the header predates tools/'s name)
+        name: str(path.relative_to(code))
         for path in code.rglob("*.py")
         for name in re.findall(r'tool_prompt\("([a-z-]+)"\)', path.read_text())
     }
@@ -61,11 +61,11 @@ def test_each_tool_prompt_is_read_by_the_tool_its_file_names():
     }
     assert sorted(loaded) == sorted(files), "a prompt file no tool reads, or a tool reading a missing one"
     for name, text in files.items():
-        assert f"({loaded[name]})" in text.split("\n---\n", 1)[0], f"{name}.md: used_by names another file"
+        assert f"/{loaded[name]})" in text.split("\n---\n", 1)[0], f"{name}.md: used_by names another file"
 
 
-# A statement's start inside a Python string: the app's SQL lives in sql/*.sql only (tarik.core.queries), the tests'
-# own fixtures aside.
+# A statement's start inside a Python string: the app's SQL lives in engine/sql/*.sql only (engine.tools.core.queries),
+# the tests' own fixtures aside.
 EMBEDDED = re.compile(
     r"[\"']\s*(select|insert into|update \w+ set|delete from|create (table|schema|index)|alter table|with \w+ as)\b"
 )
@@ -80,13 +80,13 @@ def test_no_sql_in_python():
         for number, line in enumerate(path.read_text().splitlines(), 1)
         if EMBEDDED.search(line)
     ]
-    assert not found, "SQL hors de sql/ : " + ", ".join(found)
+    assert not found, "SQL hors de engine/sql/ : " + ", ".join(found)
 
 
 @pytest.mark.style
 def test_skipped_files_are_said_once_by_the_code_never_repeated_by_the_agent():
-    """tarik.core.conversation.left_out ends every email with what was left out: the instructions must not have the
-    agent say it too (a duplicate block in every such reply)."""
+    """engine.tools.core.conversation.left_out ends every email with what was left out: the instructions must not
+    have the agent say it too (a duplicate block in every such reply)."""
     from engine import agent
 
     assert "dis-le-lui toujours dans ta réponse" not in agent.AGENT["instructions"]

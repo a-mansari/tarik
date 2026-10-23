@@ -1,5 +1,5 @@
 """Where this stack finds its content and its default cabinet. Every setting (Vault: the shared ones, the
-orchestrator's own, each cabinet's) is read through tarik.core.cabinets.setting, within a cabinet."""
+orchestrator's own, each cabinet's) is read through engine.tools.core.cabinets.setting, within a cabinet."""
 
 import os
 

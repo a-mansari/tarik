@@ -9,7 +9,7 @@ Slow and billed: python -m pytest -m llm tests/llm/test_corrections.py -s."""
 
 import pytest
 
-from tarik.core.words import normalized
+from engine.tools.core.words import normalized
 from tests.llm.test_decisions import after
 
 MIN_RIGHT = 0.9

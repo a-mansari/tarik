@@ -7,7 +7,7 @@ import uuid
 
 import psycopg
 
-from tarik.core import cabinets
+from engine.tools.core import cabinets
 
 DATABASE = "tarik_test"
 RUN = uuid.uuid4().hex[:8]  # the process id is 1 in every container: no use here

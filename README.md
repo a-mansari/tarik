@@ -19,7 +19,7 @@ psycopg (LGPL, as an unmodified library). Check the licence of every new depende
 From n8n it takes only ideas (its canvas, runs step by step, sub-workflows, the prompt log, untrusted data); nothing
 of the n8n stack runs in it:
 
-- **Its tools** (`tarik/`): every Experio step, mail and file, forked from tarik-mcp (branch `main`, retired) and called in-process (no MCP
+- **Its tools** (`engine/tools/`): every Experio step, mail and file, forked from tarik-mcp (branch `main`, retired) and called in-process (no MCP
   hop), each call inside its cabinet (`using(cabinet)`): a run names its cabinet once, never the model. Free of n8n's
   workarounds: no 5-minute tool cap to dodge, steps recorded as they end.
 - **Its content**, in its Postgres only (table `content_versions`): the agent's instructions and tools' descriptions,
@@ -39,29 +39,29 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 
 | Path | What |
 |---|---|
-| `app/server.py` (`python -m app`) | The HTTP API; checks every cabinet and makes its schema at start. |
+| `server/server.py` (`python -m server`) | The HTTP API; checks every cabinet and makes its schema at start. |
 | `docker-compose.yml` | The server, its Postgres and Vault. |
 | `vault/` | Vault's configuration and setup. |
 | `docs/using-tarik.md` | For the cabinets: what Tarik can do, and how to write to it. |
-| `sql/` | Every SQL statement, named (`-- name: ...`), read as `Q.<name>` (`tarik/core/queries.py`); no SQL in the Python. |
-| `tarik/` | The tools (`TOOLS`, registered by `@tool` / `@step_tool`), Experio, mail, the vision model. |
-| `app/` | What the pages, the Experio API and `app/users.py` stand on, besides the workflows: accounts (`accounts.py`), the Journal (`audit.py`), each cabinet's settings in Vault (`cabinet_settings.py`), the canvases' layouts (`layouts.py`). `engine/` never imports it but to record a content change in the Journal. |
-| `engine/tools.py` | One tool call: in a worker thread, in its cabinet, at most 10 at once per cabinet; a refusal's text kept for the client, a crash logged and told plainly; a step's outcome recorded for the run's summary. |
+| `engine/sql/` | Every SQL statement, named (`-- name: ...`), read as `Q.<name>` (`engine/tools/core/queries.py`); no SQL in the Python. |
+| `engine/tools/` | The tools (`TOOLS`, registered by `@tool` / `@step_tool`), Experio, mail, the vision model. |
+| `server/` | What the pages, the Experio API and `server/users.py` stand on, besides the workflows: accounts (`accounts.py`), the Journal (`audit.py`), each cabinet's settings in Vault (`cabinet_settings.py`), the canvases' layouts (`layouts.py`). `engine/` never imports it but to record a content change in the Journal. |
+| `engine/calls.py` | One tool call: in a worker thread, in its cabinet, at most 10 at once per cabinet; a refusal's text kept for the client, a crash logged and told plainly; a step's outcome recorded for the run's summary. |
 | `engine/live.py` | What changed (a run, a cabinet's runs, a conversation), for the pages to refresh near real time: each holds one event stream and fetches only when something it shows changed, never while its tab is hidden. One server process. |
 | `engine/runs.py` | Every run and each of its steps, in Postgres (schema `orchestrator`); the agent's conversations next to them. |
 | `engine/agent.py` | The agent: instructions and tools' descriptions from the content's `agent.json`, its skills (`skills/*.md`), tool output from Experio tagged as untrusted data; its model (MiniMax-M3, a 1024-token thinking budget, this stack's own key). |
 | `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the LLM Calls page (each call, its conversation and its run). |
 | `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
-| `app/api.py` | The Experio app's API: cabinets created, changed or deactivated, served at once (guide: `docs/experio-api.md`). |
+| `server/experio_api.py` | The Experio app's API: cabinets created, changed or deactivated, served at once (guide: `docs/experio-api.md`). |
 | `docs/tests.md` | Every test by category, and how to add a client situation to the live model tests. |
-| `app/cabinet_settings.py`, `app/pages/settings.py` | Each cabinet's own settings, read and changed on the Cabinets page, written to Vault with its own AppRole, each change kept. |
-| `app/accounts.py`, `app/users.py` | The team's accounts (scrypt hashes), their role (admin or member) and sessions; made on the Comptes page (`app/pages/accounts.py`, a one-time link to set the password) or by `app/users.py`. |
+| `server/cabinet_settings.py`, `server/api/settings.py` | Each cabinet's own settings, read and changed on the Cabinets page, written to Vault with its own AppRole, each change kept. |
+| `server/accounts.py`, `server/users.py` | The team's accounts (scrypt hashes), their role (admin or member) and sessions; made on the Comptes page (`server/api/accounts.py`, a one-time link to set the password) or by `server/users.py`. |
 | `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
 | `engine/traitement.py`, `dossier.py`, `emails.py`, `chat.py` | The workflows, as graphs (`chat.py`: the Discussions page's, and the asking shared with email threads). |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
-| `app/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
-| `app/pages/` | The team's pages' data (French), as JSON under `/ui/api/`: `runs.py` (runs, workflows, LLM calls), `chat.py` (Discussion), `content.py` (Tarik prompts), `settings.py`, `accounts.py`, `journal.py`. |
-| `web/` | The team's pages: a Vue 3 app (Vite, vue-router; the canvas with Cytoscape.js and dagre, MIT), built into `web/dist` (`cd web && npm ci && npm run build`), served by the server under `/ui/`. |
+| `server/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
+| `server/api/` | The team's pages' data (French), as JSON under `/ui/api/`: `runs.py` (runs, workflows, LLM calls), `chat.py` (Discussion), `content.py` (Tarik prompts), `settings.py`, `accounts.py`, `journal.py`. |
+| `server/web/` | The team's pages: a Vue 3 app (Vite, vue-router; the canvas with Cytoscape.js and dagre, MIT), built into `server/web/dist` (`cd server/web && npm ci && npm run build`), served by the server under `/ui/`. |
 | `tests/` | The tools' and the isolation tests (`python -m pytest`; the real model's with `-m llm`). |
 | `check.py` | Every tool a graph calls exists; every step drawn is described. |
 | `run.py` | Run a graph from a terminal and watch it step by step. |
@@ -89,13 +89,13 @@ the pages showing that cabinet's: http://127.0.0.1:2024/ui/accueil (its dashboar
 numbers, and a message to Tarik that opens a conversation in place), /ui/executions (runs), /ui/discussion (Discussions: every conversation, the ones written there and the email threads, read-only), /ui/workflows
 (workflows), /ui/llm-calls (LLM Calls: each model call, what it was sent), /ui/tarik-prompts (Tarik prompts: what Tarik is told, edited with its history),
 /ui/cabinets (each cabinet's settings), /ui/comptes (the accounts), /ui/logs-serveur (the Logs serveur page, who did what: logins, accounts,
-content, settings, layouts, runs started by hand; `app/audit.py`, never a password or a link). Each person logs in with their own account, made
+content, settings, layouts, runs started by hand; `server/audit.py`, never a password or a link). Each person logs in with their own account, made
 by an admin on the Comptes page (a one-time link, 72 h, for the person to choose their password; a new link for a
-forgotten one) or in the container: `python -m app.users add <email> "<name>"` (the password is asked; `disable` closes
+forgotten one) or in the container: `python -m server.users add <email> "<name>"` (the password is asked; `disable` closes
 one). The last admin can be neither made a member nor closed. A new account is a member: it
-reads every page and writes to Tarik on Discussion. An admin (`python -m app.users role <email> admin`) also changes what
+reads every page and writes to Tarik on Discussion. An admin (`python -m server.users role <email> admin`) also changes what
 everyone's Tarik uses: the content, the cabinets' settings (read too), the canvases' layout, and starts runs by hand.
-The server refuses these to a member (`admin_only` in `app/server.py`), whatever a page shows.
+The server refuses these to a member (`admin_only` in `server/server.py`), whatever a page shows.
 
 Every call but `/ok` and the login page needs a session, or for scripts `TARIK_GRAPH_TOKEN` as a bearer token. A
 change made with a session must come from the pages themselves (Origin checked). Graphs: `agent`, `traitement`,
@@ -128,11 +128,11 @@ with every run live, step by step.
    keeps the arrangement in Postgres (table `layouts`, one per workflow, shared by the team); "Disposition
    automatique" forgets it. On each run's page and on each workflow's page with its recent runs. Each step explained
    in plain words in its panel.
-4. **Login, then content in the UI, with history** — done: each person's account (`app/users.py`); the agent's
+4. **Login, then content in the UI, with history** — done: each person's account (`server/users.py`); the agent's
    instructions and tools' descriptions, its skills, the tools' prompts and the pages' words, each as a plain form;
    every change kept (who, when, why), each version's changes shown, any version brought back in one click; a change
    naming a tool Tarik lacks, emptying a text or reshaping a document is refused. Then each cabinet's own settings,
-   on the Cabinets page (`app/cabinet_settings.py`): its Experio login, its mailbox, who may receive Tarik's emails,
+   on the Cabinets page (`server/cabinet_settings.py`): its Experio login, its mailbox, who may receive Tarik's emails,
    simulation or real writes (confirmed first). Vault stays their only home, written with the page's own AppRole
    (`tarik-settings`: read and update `secret/tarik/cabinets/*` only, never the shared settings nor a new cabinet);
    a secret is never shown, only replaced; a change is written over the version the page showed only, kept (who,

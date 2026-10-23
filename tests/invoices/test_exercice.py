@@ -2,7 +2,7 @@
 
 import pytest
 
-from tarik.invoices.exercice import exercice_choice, given_date
+from engine.tools.invoices.exercice import exercice_choice, given_date
 
 OPENS = [
     {"id": 1, "name": "Exercice 2024", "date_start": "2024-01-01", "date_end": "2024-12-31"},
@@ -31,7 +31,7 @@ def test_the_date_given_is_one_full_date():
 @pytest.mark.functionality
 def test_an_exercice_covering_the_date_is_linked_whatever_the_answer(monkeypatch):
     """The cabinet opened the year by hand between the question and the answer: the invoice goes there."""
-    from tarik.invoices import exercice
+    from engine.tools.invoices import exercice
 
     invoice = {
         "state": "draft",

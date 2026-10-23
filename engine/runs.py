@@ -20,7 +20,7 @@ from psycopg_pool import AsyncConnectionPool
 from engine import agent, graphs, live
 from engine.content import LABELS
 from engine.settings import DEFAULT_CABINET
-from tarik.core.queries import Q
+from engine.tools.core.queries import Q
 
 SCHEMA = "orchestrator"
 NAMES = sorted([*graphs.COMPILED, "agent"])  # the agent: made per run

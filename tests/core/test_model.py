@@ -6,9 +6,9 @@ import httpx
 import pytest
 from PIL import Image
 
-from tarik.core import model
-from tarik.core.app import ToolError
-from tarik.core.config import MAX_SIDE
+from engine.tools.core import model
+from engine.tools.core.app import ToolError
+from engine.tools.core.config import MAX_SIDE
 
 
 @pytest.mark.functionality

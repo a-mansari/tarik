@@ -2,10 +2,10 @@
 
 import pytest
 
-from tarik.core.app import ok, stop
-from tarik.core.cabinets import cabinet_db
-from tarik.core.conversation import yes_no
-from tarik.invoices import exercice, pipeline
+from engine.tools.core.app import ok, stop
+from engine.tools.core.cabinets import cabinet_db
+from engine.tools.core.conversation import yes_no
+from engine.tools.invoices import exercice, pipeline
 
 
 @pytest.fixture

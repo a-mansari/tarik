@@ -1,8 +1,8 @@
-"""The Discussion page's conversations with Tarik (app/pages/chat.py): each message a run of the "Discussion" workflow,
-the cabinet's agent answering in the conversation's own thread. Its files are saved in the cabinet's schema before
-the run (save_files), as the mail watcher saves an email's: the run's input names them, never holds them. As in
-n8n's chat, whoever writes is the team (logged in to these pages): no sender to check. Also the agent's asking for
-the email threads (engine/emails.py)."""
+"""The Discussion page's conversations with Tarik (server/api/chat.py): each message a run of the "Discussion"
+workflow, the cabinet's agent answering in the conversation's own thread. Its files are saved in the cabinet's
+schema before the run (save_files), as the mail watcher saves an email's: the run's input names them, never holds
+them. As in n8n's chat, whoever writes is the team (logged in to these pages): no sender to check. Also the agent's
+asking for the email threads (engine/emails.py)."""
 
 import time
 from typing import TypedDict
@@ -10,11 +10,11 @@ from typing import TypedDict
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 
-from engine.tools import within
-from tarik.core.conversation import for_client, handed, remember_client_message
-from tarik.emails.inbox import untaken
+from engine.calls import within
+from engine.tools.core.conversation import for_client, handed, remember_client_message
+from engine.tools.emails.inbox import untaken
 
-# Files no tool took after the reply mean the files tool did not run (tarik.emails.inbox.untaken): the agent is
+# Files no tool took after the reply mean the files tool did not run (engine.tools.emails.inbox.untaken): the agent is
 # asked again with a reminder, ASK_TRIES asks at most, none after QUICK seconds; the last reply is given.
 ASK_TRIES, QUICK = 3, 200
 REMINDER = "\n\nRappel : ces fichiers n'ont pas ete traites. Traitez-les maintenant si rien ne manque."
@@ -48,7 +48,7 @@ class Chat(Steps, total=False):
     session_id: str
     message: str
     files: list  # the names of the files saved with the message
-    skipped: list  # what a zip of the message held that Tarik does not take, and why (tarik.core.archives)
+    skipped: list  # what a zip of the message held that Tarik does not take, and why (engine.tools.core.archives)
 
 
 async def ask(state: Chat):

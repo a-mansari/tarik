@@ -7,10 +7,10 @@ import pypdfium2
 import pytest
 from PIL import Image
 
-from engine.tools import ToolFailure, call
-from tarik.core.app import ToolError
-from tarik.core.queries import Q
-from tarik.invoices.intake import require_kind, split_pdf
+from engine.calls import ToolFailure, call
+from engine.tools.core.app import ToolError
+from engine.tools.core.queries import Q
+from engine.tools.invoices.intake import require_kind, split_pdf
 from tests.fakes import FakeDb
 
 
@@ -52,7 +52,7 @@ def test_a_file_is_identified_before_anything_is_made_from_it():
 
 @pytest.mark.security
 def test_test_mode_creates_no_draft_and_imports_no_statement(monkeypatch):
-    from tarik.invoices import intake
+    from engine.tools.invoices import intake
 
     def odoo_call(model, method, *args, **kw):
         if method == "search_read":  # the dossier's bank journals
@@ -105,13 +105,13 @@ def pdf(count):
     ],
 )
 def test_how_a_pdf_is_cut_is_the_client_s_word(said, choice):
-    from tarik.invoices.intake import split_choice
+    from engine.tools.invoices.intake import split_choice
 
     assert split_choice(["Voici les factures d'achat de TARIK TEST", said]) == choice
 
 
 def saved(db_cabinet, data, session="s-split"):
-    from tarik.core.cabinets import cabinet_db
+    from engine.tools.core.cabinets import cabinet_db
 
     with cabinet_db() as db:
         (file_id,) = db.execute(
@@ -124,7 +124,7 @@ def saved(db_cabinet, data, session="s-split"):
 
 @pytest.mark.functionality
 def test_a_pdf_of_several_pages_waits_for_the_client_to_say_how_to_cut_it(db_cabinet):
-    from tarik.invoices.intake import split_invoices
+    from engine.tools.invoices.intake import split_invoices
 
     file_id = saved(db_cabinet, pdf(3))
     asked = split_invoices(file_id=file_id, invoice_type="achat", client_message="Voici les factures d'achat")
@@ -135,7 +135,7 @@ def test_a_pdf_of_several_pages_waits_for_the_client_to_say_how_to_cut_it(db_cab
 
 @pytest.mark.functionality
 def test_a_pdf_cut_per_page_is_one_invoice_per_page_and_one_page_never_asked(db_cabinet):
-    from tarik.invoices.intake import split_invoices
+    from engine.tools.invoices.intake import split_invoices
 
     file_id = saved(db_cabinet, pdf(3), "s-pages")
     cut = split_invoices(file_id=file_id, invoice_type="achat", client_message="achat, une facture par page")
@@ -158,7 +158,7 @@ def test_a_pdf_cut_per_page_is_one_invoice_per_page_and_one_page_never_asked(db_
 def test_gladden_identifies_a_file_first_and_the_model_when_it_cant(
     callback_url, gladden_says, kind, model_asked, monkeypatch
 ):
-    from tarik.invoices import intake
+    from engine.tools.invoices import intake
 
     sent, asked = [], []
     db = FakeDb((None, "f.pdf", "application/pdf", pdf(3), None, None, None, None))
@@ -192,7 +192,7 @@ def test_gladden_identifies_a_file_first_and_the_model_when_it_cant(
     ],
 )
 def test_what_the_client_says_a_file_is_is_read_from_their_words_only(said, kind):
-    from tarik.invoices.intake import client_kind
+    from engine.tools.invoices.intake import client_kind
 
     assert client_kind(said) == kind
 
@@ -207,7 +207,7 @@ def test_what_the_client_says_a_file_is_is_read_from_their_words_only(said, kind
     ],
 )
 def test_the_client_corrects_a_file_s_kind_until_it_is_imported(message, imported, kind, monkeypatch):
-    from tarik.invoices import intake
+    from engine.tools.invoices import intake
 
     db = FakeDb(("s", "douane.pdf", "application/pdf", pdf(1), "statement", None, imported, None))
     monkeypatch.setattr(intake, "cabinet_db", lambda: db)
@@ -218,7 +218,7 @@ def test_the_client_corrects_a_file_s_kind_until_it_is_imported(message, importe
 
 @pytest.mark.functionality
 def test_a_document_that_is_neither_invoice_nor_statement_is_said_and_left_alone(monkeypatch):
-    from tarik.invoices import intake
+    from engine.tools.invoices import intake
 
     db = FakeDb((None, "contrat leasing.pdf", "application/pdf", pdf(2), None, None, None, None))
     monkeypatch.setattr(intake, "cabinet_db", lambda: db)
@@ -232,8 +232,8 @@ def test_a_document_that_is_neither_invoice_nor_statement_is_said_and_left_alone
 
 @pytest.mark.functionality
 def test_a_statement_sent_again_is_not_imported_twice_in_its_dossier(db_cabinet, monkeypatch):
-    from tarik.core.cabinets import cabinet_db
-    from tarik.invoices import intake
+    from engine.tools.core.cabinets import cabinet_db
+    from engine.tools.invoices import intake
 
     with cabinet_db() as db:
         insert = (
@@ -260,7 +260,7 @@ def test_a_statement_sent_again_is_not_imported_twice_in_its_dossier(db_cabinet,
 
 @pytest.mark.functionality
 def test_a_leasing_schedule_gladden_calls_a_statement_is_set_aside_by_the_model(monkeypatch):
-    from tarik.invoices import intake
+    from engine.tools.invoices import intake
 
     db = FakeDb((None, "echeancier.pdf", "application/pdf", pdf(1), None, None, None, None))
     monkeypatch.setattr(intake, "cabinet_db", lambda: db)
@@ -283,7 +283,7 @@ def test_a_leasing_schedule_gladden_calls_a_statement_is_set_aside_by_the_model(
     ],
 )
 def test_the_bank_account_the_client_names_takes_the_statement(said, journal, monkeypatch):
-    from tarik.invoices import intake
+    from engine.tools.invoices import intake
 
     usable = [
         {"id": 3245, "name": "BMCE", "bank_id": [1, "BANK OF AFRICA (BMCE)"]},
@@ -297,7 +297,7 @@ def test_the_bank_account_the_client_names_takes_the_statement(said, journal, mo
 
 @pytest.mark.functionality
 def test_a_screenshot_gladden_calls_an_invoice_never_becomes_a_draft(monkeypatch):
-    from tarik.invoices import intake
+    from engine.tools.invoices import intake
 
     buffer = io.BytesIO()
     Image.new("RGB", (300, 200), "white").save(buffer, format="PNG")
@@ -321,6 +321,6 @@ def test_a_screenshot_gladden_calls_an_invoice_never_becomes_a_draft(monkeypatch
     ],
 )
 def test_a_file_is_named_by_its_own_words_never_by_a_common_one(name, said, named):
-    from tarik.invoices.intake import file_named
+    from engine.tools.invoices.intake import file_named
 
     assert file_named(name, said) is named

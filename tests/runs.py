@@ -5,8 +5,8 @@ outcome as its tool words it and marks it (routine or not), recorded by record_s
 
 from unittest import mock
 
-from tarik.invoices import pipeline
-from tarik.invoices.pipeline import record_step
+from engine.tools.invoices import pipeline
+from engine.tools.invoices.pipeline import record_step
 from tests.fakes import FakeDb
 
 POSTED = (21, 22, 23, 24, 25)  # all the way to posting, nothing special

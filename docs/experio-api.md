@@ -1,7 +1,7 @@
 # Tarik's API for the Experio app
 
 The Experio app tells Tarik when a cabinet is created, changed or closed. Tarik serves the cabinet (or stops) at
-once, without a restart. Code: `app/api.py`.
+once, without a restart. Code: `server/experio_api.py`.
 
 ## Access
 

@@ -2,7 +2,7 @@
 
 import pytest
 
-from tarik.dossiers import people
+from engine.tools.dossiers import people
 
 USERS = [
     {"login": "chef@cabinet.ma", "email": "", "employee_type": "employee", "name": "Chef", "company_ids": [7]},

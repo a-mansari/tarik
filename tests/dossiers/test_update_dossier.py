@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.core.app import ToolError
-from tarik.dossiers import identity as onboarding
+from engine.tools.core.app import ToolError
+from engine.tools.dossiers import identity as onboarding
 
 CURRENT = {
     "name": "Gecafisc",

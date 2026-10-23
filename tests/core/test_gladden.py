@@ -6,7 +6,7 @@ import httpx
 import pytest
 from starlette.testclient import TestClient
 
-from tarik.core import gladden
+from engine.tools.core import gladden
 
 RUNNER = "https://runner.example/gladden"
 
@@ -49,7 +49,7 @@ def test_no_callback_or_no_runner_means_no_type(monkeypatch):
 
 @pytest.mark.security
 def test_the_open_callback_route_takes_only_a_token_waiting_on_it():
-    from app.server import app
+    from server.server import app
 
     client = TestClient(app)  # no lifespan: only the route is under test
     callback = {"params": {"results": {"type": "invoice"}}}

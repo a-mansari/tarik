@@ -14,8 +14,8 @@ import httpx
 import pytest
 from langchain_anthropic.chat_models import convert_to_anthropic_tool
 
-from tarik.core.cabinets import setting, using
-from tarik.core.model import MODEL_URL, model_name
+from engine.tools.core.cabinets import setting, using
+from engine.tools.core.model import MODEL_URL, model_name
 
 CABINET = os.getenv("TARIK_TEST_CABINET", "experio_cabinet_8")
 REPEAT = int(os.getenv("REPEAT", "1"))
