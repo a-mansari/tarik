@@ -21,7 +21,7 @@ import httpx
 from engine.tools.core.app import log
 
 # Cloudflare in front of the runner refuses some clients' default User-Agent (error 1010, Python's urllib among them).
-HEADERS: Final = {"User-Agent": "tools/1.0"}
+HEADERS: Final = {"User-Agent": "tarik/1.0"}
 WAIT: Final = 60  # seconds for the callback; the test runner answered in 5 to 30
 
 # The documents waiting for their callback, in this process (the server's tools run in it): token -> (event, results).
