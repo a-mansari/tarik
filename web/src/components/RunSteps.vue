@@ -13,7 +13,10 @@ const props = defineProps({
 });
 
 const list = ref([]);
-watch(() => props.steps, (steps) => { list.value = [...steps]; }, { immediate: true }); // read again: the server's
+// The page read again: the server's steps.
+watch(() => props.steps, (steps) => {
+  list.value = [...steps];
+}, { immediate: true });
 watch(() => props.events, (events) => {
   events?.on("step", (step) => {
     if (!list.value.some((shown) => shown.id === step.id)) list.value.push({ ...step, arrived: true });
@@ -23,7 +26,8 @@ watch(() => props.events, (events) => {
 const depth = (step) => (step.path ? step.path.split("|").length : 0);
 
 // A step's whole output, fetched the first time it is opened.
-const details = reactive({}), loaded = new Set();
+const details = reactive({});
+const loaded = new Set();
 async function load(step, event) {
   if (!event.target.open || loaded.has(step)) return;
   loaded.add(step);

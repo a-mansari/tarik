@@ -3,7 +3,7 @@ each change of the cabinet's runs. A type picked shows one workflow's. -->
 <script setup>
 import { useRoute, useRouter } from "vue-router";
 
-import { graphName, session, statusName, usePage } from "../api.js";
+import { graphName, pickedCabinet, statusName, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import PageState from "../components/PageState.vue";
 import { useLive } from "../live.js";
@@ -12,7 +12,7 @@ const route = useRoute();
 const router = useRouter();
 const { data, status, loading, reload } = usePage((at) =>
   at.query.graph ? `/executions?graph=${encodeURIComponent(at.query.graph)}` : "/executions");
-const cabinet = session.cabinets.find((shown) => shown.chosen)?.name;
+const cabinet = pickedCabinet();
 if (cabinet) useLive(`cabinet=${encodeURIComponent(cabinet)}`, reload);
 
 const pick = (event) => router.push({ query: event.target.value ? { graph: event.target.value } : {} });
@@ -41,8 +41,12 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
         <tbody>
           <tr v-for="run in data.runs" :key="run.run_id" :class="{ child: run.depth }">
             <td class="num">{{ run.when }}</td>
-            <td :style="{ '--depth': run.depth }"><template v-if="run.depth"><span class="under" aria-hidden="true">↳</span> <span
-              class="sr-only">Lancée par l'exécution au-dessus :</span></template><RouterLink :to="`/ui/executions/${run.run_id}`">{{ graphName(run.graph) }}</RouterLink></td>
+            <td :style="{ '--depth': run.depth }">
+              <template v-if="run.depth">
+                <span class="under" aria-hidden="true">↳</span> <span class="sr-only">Lancée par l'exécution au-dessus :</span>
+              </template>
+              <RouterLink :to="`/ui/executions/${run.run_id}`">{{ graphName(run.graph) }}</RouterLink>
+            </td>
             <td><RouterLink class="mono" :to="`/ui/discussion/${encodeURIComponent(run.session_id)}`">{{ run.session_id }}</RouterLink></td>
             <td><span :class="`chip ${run.status}`">{{ statusName(run.status) }}</span></td>
             <td class="num">{{ run.seconds }} s<template v-if="!run.ended"> …</template></td>

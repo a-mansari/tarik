@@ -1,14 +1,14 @@
 <!-- The LLM Calls page: each model call Tarik made for the cabinet picked in the sidebar, latest first, with its
 conversation and its run; read again at each change of the cabinet; "Plus ancien" pages back (?before=). -->
 <script setup>
-import { session, usePage } from "../api.js";
+import { callLink, pickedCabinet, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import PageState from "../components/PageState.vue";
 import { useLive } from "../live.js";
 
 const { data, status, loading, reload } = usePage((route) =>
   route.query.before ? `/llm-calls?before=${encodeURIComponent(route.query.before)}` : "/llm-calls");
-const cabinet = session.cabinets.find((shown) => shown.chosen)?.name;
+const cabinet = pickedCabinet();
 if (cabinet) useLive(`cabinet=${encodeURIComponent(cabinet)}`, reload);
 </script>
 
@@ -26,9 +26,15 @@ if (cabinet) useLive(`cabinet=${encodeURIComponent(cabinet)}`, reload);
         <thead><tr><th>Appel</th><th>Discussion</th><th>Exécution</th><th>Messages reçus</th></tr></thead>
         <tbody>
           <tr v-for="call in data.calls" :key="call.id">
-            <td><RouterLink :to="`/ui/llm-calls/${encodeURIComponent(call.session_id)}?call=${call.id}#call-${call.id}`">{{ call.when }}</RouterLink></td>
-            <td><RouterLink :to="`/ui/discussion/${encodeURIComponent(call.session_id)}`">{{ data.titles[call.session_id] || "(sans texte)" }}</RouterLink></td>
-            <td><RouterLink v-if="call.run_id" :to="`/ui/executions/${call.run_id}`">Discussion avec Tarik</RouterLink><span v-else class="muted">—</span></td>
+            <td><RouterLink :to="callLink(call.session_id, call.id)">{{ call.when }}</RouterLink></td>
+            <td>
+              <RouterLink :to="`/ui/discussion/${encodeURIComponent(call.session_id)}`">{{
+                data.titles[call.session_id] || "(sans texte)" }}</RouterLink>
+            </td>
+            <td>
+              <RouterLink v-if="call.run_id" :to="`/ui/executions/${call.run_id}`">Discussion avec Tarik</RouterLink>
+              <span v-else class="muted">—</span>
+            </td>
             <td class="num">{{ call.messages }}</td>
           </tr>
           <tr v-if="!data.calls.length"><td colspan="4" class="muted">Aucun appel enregistré pour ce cabinet.</td></tr>

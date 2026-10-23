@@ -12,21 +12,30 @@ const route = useRoute();
 const router = useRouter();
 const signed = computed(() => Boolean(session.user) && !route.meta.open);
 
-const general = computed(() => [
-  { href: "/ui/workflows", icon: "workflows", words: "Workflows" },
-  { href: "/ui/tarik-prompts", icon: "content", words: "Tarik prompts" },
-  ...(session.admin ? [
-    { href: "/ui/comptes", icon: "accounts", words: "Comptes" },
-    { href: "/ui/logs-serveur", icon: "journal", words: "Logs serveur" },
-  ] : []),
-]);
-const cabinetPages = computed(() => [
-  { href: "/ui/accueil", icon: "home", words: "Accueil" },
-  { href: "/ui/executions", icon: "runs", words: "Exécutions" },
-  { href: "/ui/discussion", icon: "chat", words: "Discussions" },
-  { href: "/ui/llm-calls", icon: "prompts", words: "LLM Calls" },
-  ...(session.admin ? [{ href: "/ui/settings", icon: "settings", words: "Réglages" }] : []),
-]);
+// The sidebar's general pages and the cabinet's pages; an admin's own pages at the end of each.
+const general = computed(() => {
+  const links = [
+    { href: "/ui/workflows", icon: "workflows", words: "Workflows" },
+    { href: "/ui/tarik-prompts", icon: "content", words: "Tarik prompts" },
+  ];
+  if (session.admin) {
+    links.push(
+      { href: "/ui/comptes", icon: "accounts", words: "Comptes" },
+      { href: "/ui/logs-serveur", icon: "journal", words: "Logs serveur" },
+    );
+  }
+  return links;
+});
+const cabinetPages = computed(() => {
+  const links = [
+    { href: "/ui/accueil", icon: "home", words: "Accueil" },
+    { href: "/ui/executions", icon: "runs", words: "Exécutions" },
+    { href: "/ui/discussion", icon: "chat", words: "Discussions" },
+    { href: "/ui/llm-calls", icon: "prompts", words: "LLM Calls" },
+  ];
+  if (session.admin) links.push({ href: "/ui/settings", icon: "settings", words: "Réglages" });
+  return links;
+});
 const current = (href) => route.path.startsWith(href);
 
 // A cabinet picked in the sidebar: kept by the server (a cookie), then its dashboard, every page reading it again.
@@ -44,8 +53,11 @@ async function logout() {
 }
 
 // Back to the top of the page, offered once the page is scrolled down.
+const TOP_OFFERED_PX = 400; // scrolled this far down, the button shows
 const scrolled = ref(false);
-const onScroll = () => { scrolled.value = window.scrollY >= 400; };
+function onScroll() {
+  scrolled.value = window.scrollY >= TOP_OFFERED_PX;
+}
 onMounted(() => window.addEventListener("scroll", onScroll, { passive: true }));
 onUnmounted(() => window.removeEventListener("scroll", onScroll));
 function toTop() {
@@ -55,11 +67,11 @@ function toTop() {
 
 // On a phone the pages' menu scrolls sideways: it opens on the page shown.
 const menu = ref(null);
+const MENU_GUTTER_PX = 16; // left showing before the page shown
 watch(() => route.path, async () => {
   await nextTick();
   const shown = menu.value?.querySelector("a[aria-current='page']");
-  const gutter = 16; // px left showing before it
-  if (shown) menu.value.scrollLeft = shown.offsetLeft - menu.value.offsetLeft - gutter;
+  if (shown) menu.value.scrollLeft = shown.offsetLeft - menu.value.offsetLeft - MENU_GUTTER_PX;
 }, { immediate: true });
 </script>
 

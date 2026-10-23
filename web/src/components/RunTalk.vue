@@ -4,7 +4,10 @@ called and what they answered, its thinking on demand. -->
 import RunAvatar from "./RunAvatar.vue";
 
 defineProps({ entries: { type: Array, required: true } });
-const kind = (entry) => (entry.who === "Client" ? "client" : entry.tool ? "tool" : "tarik");
+function kind(entry) {
+  if (entry.who === "Client") return "client";
+  return entry.tool ? "tool" : "tarik";
+}
 </script>
 
 <template>

@@ -3,10 +3,11 @@ at a time, paged back. -->
 <script setup>
 import { useRoute, useRouter } from "vue-router";
 
-import { graphName, usePage } from "../api.js";
+import { graphName, roleName, usePage } from "../api.js";
 import PageState from "../components/PageState.vue";
 
-const route = useRoute(), router = useRouter();
+const route = useRoute();
+const router = useRouter();
 const { data, status, loading } = usePage((r) => `/logs-serveur?${new URLSearchParams(r.query)}`);
 
 // A filter picked: the page again with it (and from the latest).
@@ -17,7 +18,13 @@ function filter(name, value) {
   router.push({ path: "/ui/logs-serveur", query });
 }
 
-const older = () => ({ path: "/ui/logs-serveur", query: { before: data.value.older, ...(data.value.action ? { action: data.value.action } : {}), ...(data.value.actor ? { actor: data.value.actor } : {}) } });
+// The page before: older entries, the same filters kept.
+function older() {
+  const query = { before: data.value.older };
+  if (data.value.action) query.action = data.value.action;
+  if (data.value.actor) query.actor = data.value.actor;
+  return { path: "/ui/logs-serveur", query };
+}
 </script>
 
 <template>
@@ -56,7 +63,11 @@ const older = () => ({ path: "/ui/logs-serveur", query: { before: data.value.old
               <template v-else-if="e.action === 'layout_saved' || e.action === 'layout_reset'">{{ graphName(e.target) }}</template>
               <template v-else>{{ e.target }}</template>
             </td>
-            <td><template v-if="e.detail.keys?.length">{{ e.detail.keys.join(", ") }}</template><template v-if="e.detail.role">{{ e.detail.role === 'admin' ? 'Administrateur' : 'Membre' }}</template><template v-if="e.detail.note"> « {{ e.detail.note }} »</template></td>
+            <td>
+              <template v-if="e.detail.keys?.length">{{ e.detail.keys.join(", ") }}</template>
+              <template v-if="e.detail.role">{{ roleName(e.detail.role) }}</template>
+              <template v-if="e.detail.note"> « {{ e.detail.note }} »</template>
+            </td>
           </tr>
           <tr v-if="!data.entries.length"><td colspan="5" class="muted">Rien pour l'instant.</td></tr>
         </tbody>

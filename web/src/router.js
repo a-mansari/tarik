@@ -30,4 +30,6 @@ export const router = createRouter({
   scrollBehavior: (to, from, saved) => saved || { top: 0 },
 });
 
-router.afterEach((to) => { document.title = `${to.meta.title || "Tarik"} · Tarik`; });
+router.afterEach((to) => {
+  document.title = `${to.meta.title || "Tarik"} · Tarik`;
+});
