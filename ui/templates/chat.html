@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "icons.html" import icon, cabinet as cabinet_label %}
+{% block title %}Discussions{% endblock %}
+{% block content %}
+<div class="head">
+  <div>
+    <h1>Discussions{% if cabinet %} · {{ cabinet_label(cabinet) }}{% endif %}</h1>
+    <p class="muted">Toutes les discussions avec Tarik, la plus récente d'abord : celles écrites ici, comme un client du cabinet avec ses factures ou relevés joints, et les fils d'emails des clients, à lire seulement. Chaque message est une exécution, à suivre étape par étape.</p>
+  </div>
+  {% if cabinet %}<a class="primary" href="/ui/discussion/{{ new }}">{{ icon("plus") }}Nouvelle discussion</a>{% endif %}
+</div>
+<div class="table-wrap">
+  <table class="runs">
+    <thead><tr><th>Dernier message</th><th>Canal</th><th>Premier message</th><th>État</th></tr></thead>
+    <tbody id="conversations"{% if cabinet %} data-follow="cabinet={{ cabinet | urlencode }}"{% endif %}>
+      {% for item in conversations %}
+      <tr>
+        <td class="num">{{ item.started | when }}</td>
+        <td>{% if item.medium == 'email' %}<span class="chip">{{ icon("mail", 13) }} Email</span>{% else %}<span class="chip ok">{{ icon("chat", 13) }} Chat</span>{% endif %}</td>
+        <td><a href="/ui/discussion/{{ item.session_id | urlencode }}">{% if item.subject %}<b>{{ item.subject }}</b> · {% endif %}{{ item.first or "(sans texte)" }}</a>{% if item.sender %}<br><span class="muted">{{ item.sender }}</span>{% endif %}</td>
+        <td><span class="chip {{ {'answering': 'running', 'failed': 'error', 'waiting': 'question', 'answered': 'ok'}[item.state] }}">{{ labels.conversation_states[item.state] }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">Aucune discussion pour ce cabinet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

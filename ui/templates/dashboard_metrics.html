@@ -1,0 +1,7 @@
+{# The dashboard's four numbers: on the page, and alone at each change of the cabinet (app.js). #}
+<section class="metrics" id="metrics" data-cabinet="{{ cabinet }}" aria-label="Les {{ days }} derniers jours">
+  <div class="metric"><span class="value num">{{ metrics.runs }}</span><span class="what">exécutions</span></div>
+  <div class="metric"><span class="value num">{% if metrics.seconds is none %}—{% elif metrics.seconds < 60 %}{{ '%.1f' | format(metrics.seconds) | replace('.', ',') }} s{% else %}{{ (metrics.seconds // 60) | int }} min {{ (metrics.seconds % 60) | round | int }} s{% endif %}</span><span class="what">durée moyenne</span></div>
+  <div class="metric{% if metrics.failed %} bad{% endif %}"><span class="value num">{% if metrics.failed is none %}—{% else %}{{ (metrics.failed * 100) | round(1) | replace('.0', '') | replace('.', ',') }} %{% endif %}</span><span class="what">en échec</span></div>
+  <div class="metric"><span class="value num">{{ metrics.conversations }}</span><span class="what">discussions</span></div>
+</section>

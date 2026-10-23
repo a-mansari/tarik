@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Mot de passe{% endblock %}
+{% block content %}
+<section class="panel login">
+  {% if gone %}
+  <h1>Lien plus valable</h1>
+  <p>Ce lien a déjà servi ou a expiré. Demandez-en un nouveau à un administrateur.</p>
+  {% else %}
+  <h1>Choisir votre mot de passe</h1>
+  <p class="muted">Pour <b>{{ found.name }}</b> ({{ found.email }}). {{ min }} caractères au moins. Ce lien ne sert qu'une fois.</p>
+  {% if error %}<p class="bad-text" role="alert">{{ error | capitalize }}.</p>{% endif %}
+  <form method="post">
+    <label class="field"><span>Mot de passe</span><input type="password" name="password" minlength="{{ min }}" required autocomplete="new-password"></label>
+    <label class="field"><span>Encore</span><input type="password" name="again" minlength="{{ min }}" required autocomplete="new-password"></label>
+    <button type="submit" class="primary">Enregistrer</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

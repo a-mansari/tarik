@@ -1,0 +1,57 @@
+"""The tests set their settings in the environment: Vault is left out, but by the tests of the real model
+(tests/llm), which read its key from it. Their data lives in the test database
+(testdb.py), never the cabinets' own; db_cabinet is a throwaway cabinet there, shared by the whole run and
+emptied before and after each test. The content (instructions, skills, tools' prompts) is the stack's own, read
+from its Postgres once: the tools and the content checks test what is in use."""
+
+import pytest
+
+from engine import content
+from tarik.core import cabinets, model
+from tests import testdb
+
+content.load()
+
+DB_CABINET = testdb.schema("db")
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _test_database():
+    """The test database ready and this run's lock held, for the whole run."""
+    held = testdb.start()
+    yield
+    held.close()
+
+
+@pytest.fixture(autouse=True)
+def settings_from_the_environment(request, monkeypatch):
+    """Settings from the environment and data in the test database; tests/llm alone uses Vault (the model's key)."""
+    if "tests/llm/" not in str(request.path):
+        monkeypatch.setattr(cabinets, "VAULT_ENABLED", False)
+        monkeypatch.setitem(cabinets.POSTGRES, "dbname", testdb.DATABASE)
+    # The orchestrator's table cabinet_models is not in the test database.
+    monkeypatch.setattr(model, "chosen_adapter", lambda cabinet: "")
+
+
+@pytest.fixture(scope="session")
+def _db_schema(_test_database):
+    """One throwaway cabinet schema for the whole run, made once (its tables from sql/cabinet_schema.sql)."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(cabinets, "CABINETS", frozenset({DB_CABINET}))
+        patch.setitem(cabinets.POSTGRES, "dbname", testdb.DATABASE)
+        cabinets.create_schemas()
+    yield
+    testdb.drop(DB_CABINET)
+
+
+@pytest.fixture
+def db_cabinet(_db_schema, monkeypatch):
+    """The test runs in that cabinet, emptied before and after it: tests never see each other's rows, even
+    after a run cut short."""
+    monkeypatch.setattr(cabinets, "CABINETS", frozenset({DB_CABINET}))
+    testdb.empty(DB_CABINET)
+    try:
+        with cabinets.using(DB_CABINET):
+            yield DB_CABINET
+    finally:
+        testdb.empty(DB_CABINET)

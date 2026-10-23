@@ -1,0 +1,60 @@
+{% from "icons.html" import icon, cabinet as cabinet_label %}
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Tarik{% endblock %} · Tarik</title>
+  <link rel="stylesheet" href="{{ asset('app.css') }}">
+</head>
+<body>
+  {% set signed = request.state.user is defined and request.state.user %}
+  {% macro nav_link(href, name, words) %}<a href="{{ href }}" {% if request.url.path.startswith(href) %}aria-current="page"{% endif %}>{{ icon(name) }}{{ words }}</a>{% endmacro %}
+  {% if signed %}
+  <div class="frame">
+  <aside class="sidebar" aria-label="Navigation">
+    <a class="brand" href="/ui/accueil">Tarik</a>
+    <section>
+      <h2>Général</h2>
+      <nav>
+        {{ nav_link("/ui/workflows", "workflows", "Workflows") }}
+        {{ nav_link("/ui/tarik-prompts", "content", "Tarik prompts") }}
+        {% if is_admin(request) %}{{ nav_link("/ui/comptes", "accounts", "Comptes") }}
+        {{ nav_link("/ui/logs-serveur", "journal", "Logs serveur") }}{% endif %}
+      </nav>
+    </section>
+    <section>
+      <h2>Cabinets</h2>
+      <ul class="cabinets">
+        {% for c in sidebar(request) %}
+        <li><form method="post" action="/ui/cabinet"><button name="cabinet" value="{{ c.name }}" {% if c.chosen %}aria-current="true"{% endif %}>{{ cabinet_label(c.name) }}</button></form></li>
+        {% else %}<li class="muted">Aucun cabinet.</li>{% endfor %}
+      </ul>
+    </section>
+  </aside>
+  <div class="column">
+    <header class="bar">
+      {# The pages of the cabinet picked in the sidebar: what differs from one cabinet to the next. #}
+      <nav aria-label="Pages du cabinet">
+        {{ nav_link("/ui/accueil", "home", "Accueil") }}
+        {{ nav_link("/ui/executions", "runs", "Exécutions") }}
+        {{ nav_link("/ui/discussion", "chat", "Discussions") }}
+        {{ nav_link("/ui/llm-calls", "prompts", "LLM Calls") }}
+        {% if is_admin(request) %}{{ nav_link("/ui/settings", "settings", "Réglages") }}{% endif %}
+      </nav>
+      <form class="who" method="post" action="/logout"><span>{{ request.state.user.name }}</span><button type="submit">Se déconnecter</button></form>
+    </header>
+    <main class="page{% block page_class %}{% endblock %}">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  </div>
+  {% else %}
+  <header class="bar"><a class="brand" href="/ui/accueil">Tarik</a></header>
+  <main class="page">{{ self.content() }}</main>
+  {% endif %}
+  <button type="button" class="to-top" id="to-top" hidden aria-label="Revenir en haut de la page">{{ icon("top", 18) }}</button>
+  <script src="{{ asset('app.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

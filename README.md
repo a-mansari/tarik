@@ -1,362 +1,154 @@
-# sarnec-n8n
+# Tarik
 
-Tarik, Experio's accounting assistant, built on n8n.
+Tarik, Experio's accounting assistant. A client writes to Tarik and sends invoices or bank statements, or asks for a
+new dossier with its FEC; Tarik finds the dossier, then a fixed sequence puts each document into Experio (draft,
+check against the scan, correction, tiers, duplicate, account, TVA, journal, withholding, prepaid charges, fiscal
+year, the dossier's settings), posted when the client asks. When a step needs the client, Tarik asks, and the
+sequence resumes from there with the answer. What it can do, and how to write to it: [docs/using-tarik.md](docs/using-tarik.md).
 
-A client writes to Tarik (each cabinet's own n8n agent, by chat or by email) and sends invoices
-or bank statements, or asks for a new dossier with its FEC. Tarik finds the dossier,
-then a fixed sequence puts each document into Experio: draft, check against the scan,
-correction, tiers, duplicate, account, TVA, journal, withholding, prepaid charges,
-fiscal year, the dossier's settings and posting. When a step needs the client, Tarik asks, and the sequence
-resumes from there with the answer.
+Built on LangGraph's MIT-licensed parts, with n8n's strengths built on top: an agent core that runs every workflow
+without n8n's limits, and a UI any colleague can read, follow and change without reading code.
 
-Documentation: [architecture](docs/architecture.md), [tools and workflows](docs/tools-and-workflows.md),
-[using Tarik](docs/using-tarik.md) (what it can do, and how to write to it), [repository guide](docs/repository-guide.md)
-(every file and folder, for a developer joining).
+Why: n8n's Sustainable Use License allows internal use only, and LangGraph's own server (`langgraph-api`, behind
+`langgraph dev` and Studio) is Elastic-2.0. Tarik is to be offered to cabinets as a hosted service, so this stack uses
+neither: only `langgraph`, `langgraph-checkpoint(-postgres)` and LangChain (MIT), starlette and uvicorn (BSD), and
+psycopg (LGPL, as an unmodified library). Check the licence of every new dependency.
 
-## How it is built
+## A stack of its own
 
-| Part | What it does |
-|------|--------------|
-| n8n Agents section | Tarik: one native agent per cabinet, "Tarik - <cabinet's name>" (MiniMax-M3). It only finds the dossier, lists invoices and hands the work over to the workflows below. All are made from `workflows/tarik-agent.json` and the skills in `instructions/skills/` by `workflows/build_tarik_agents.py`, which lists the cabinets: edit those, not the agents in n8n. |
-| `workflows/tarik-emails.json` | Every cabinet's mailbox, woken per cabinet by `tarik-mail-watch`: each email thread is answered by that cabinet's agent (`ask_agent`, through n8n's MCP `call_agent`, in the thread's own conversation). |
-| `workflows/tarik-dossier.json` | A dossier's creation and setup: create it, copy a model dossier's configuration, import its FEC or grand livre, or its setup files (plan comptable, journaux, fournisseurs, clients) through Experio's import screens, ask the bank of each bank journal, finish the onboarding (once the client says every setup file was sent, when there is no FEC). In mode `update` (`modifier_dossier`): changing an existing dossier's identity fields (name, type, ICE, IF, RC, patente, T.S.C, capital, CNSS, address), only to values the client wrote. Modes `dossiers`, `person`, `archive` (`importer_dossiers`, `creer_acces`, `archiver_dossier`): a spreadsheet of dossiers created, a collaborateur or client created and put on a dossier, a dossier archived, each after the client's yes to what was read back. |
-| `workflows/tarik-traitement.json` | The fixed sequence, one n8n node per step. Called by the agent (`traiter_fichiers`, mode `files`; `repondre`, mode `answer`) and by "Tarik - Emails" (mode `resume`). |
-| `mcp/` | The steps themselves: Python tools served over MCP (`tarik-mcp` container), in the `tarik` package (see below). They use Experio's own wizards and onchanges, never a parallel logic. |
-| `n8n/` | n8n 2.43.5 patched (`patch.js`): an agent's workflow tool may run `TARIK_AGENT_TOOL_TIMEOUT_MS` (5 minutes, not n8n's fixed 2); a native agent's workflow tool input fixed to `{{threadId}}` gets the conversation's id, one fixed to `{{attachments}}` its attached files, and one fixed to `{{clientMessage}}` the client's latest message word for word (the dossier tools take only values from the client's own words), from n8n, not from the model. "Tarik - Traitement" and "Tarik - Dossier" save those files (`save_files`, once each by `source_id`). n8n's MCP `call_agent` also takes `newSession`, so an email thread's conversation has the thread's own id. The build fails if an n8n upgrade moves a patched line. |
-| `mcp/tarik/core/cabinet.sql` | One cabinet's tables (received files, check results, step results, pending questions, dossiers left waiting, mail, the client's messages), created in that cabinet's own Postgres schema. |
+From n8n it takes only ideas (its canvas, runs step by step, sub-workflows, the prompt log, untrusted data); nothing
+of the n8n stack runs in it:
 
-Rules the tools keep:
+- **Its tools** (`tarik/`): every Experio step, mail and file, forked from tarik-mcp (branch `main`, retired) and called in-process (no MCP
+  hop), each call inside its cabinet (`using(cabinet)`): a run names its cabinet once, never the model. Free of n8n's
+  workarounds: no 5-minute tool cap to dodge, steps recorded as they end.
+- **Its content**, in its Postgres only (table `content_versions`): the agent's instructions and tools' descriptions,
+  the skills, the tools' prompts, the UI's words. Edited on the Contenu page, with its history; exported and imported
+  there (all of it, a group, or one section) to keep it or to fill another stack. No file holds it: back up the
+  database, or keep an export. `docs/using-tarik.md` is for the cabinets.
+- **Its Postgres** (service `db`): runs, conversations, layouts (schema `orchestrator`) and each cabinet's schema.
+- **Its model key**: Vault `secret/tarik/orchestrator` (`MODEL_API_KEY`, `MODEL_API_URL` optional).
+- **Its mail watcher** (`engine/mail.py`), for every cabinet with a mailbox of its own (`IMAP_USER`).
+- **Its Vault** (service `vault`): read-only for Tarik, an AppRole on `secret/tarik/*`, and the Cabinets page's own,
+  which may only update `secret/tarik/cabinets/*`; both set up by `vault/setup.sh`.
 
-- Odoo, its URL, database and user are never shown to the agent or the client: it is "Experio".
-- Every dossier tool needs a real dossier id and fails without one. Each cabinet is locked
-  by its exact database name and Tarik's user id there (its `ODOO_UID`).
-- A cabinet's `DRY_RUN=1` (default): drafts and bank statements are created, but nothing else is written and nothing is posted.
-  Replies then start with "MODE TEST".
+The n8n implementation it replaced (branch `main`) was retired on 2026-10-20: its stack stopped and removed, its data
+backed up outside the repository. Only the cabinets' Experio is outside this stack.
 
-## Deterministic steps and LLM steps
+## Layout
 
-Every step in the workflows is a plain MCP Client node with fixed parameters: no model chooses a tool or its
-arguments there. A model is used in two places only: the agent, and some tools that call the model themselves
-(`ask_model` in `mcp/tarik/invoices/`; the tool's output can then vary).
+| Path | What |
+|---|---|
+| `app/server.py` (`python -m app`) | The HTTP API; checks every cabinet and makes its schema at start. |
+| `docker-compose.yml` | The server, its Postgres and Vault. |
+| `vault/` | Vault's configuration and setup. |
+| `docs/using-tarik.md` | For the cabinets: what Tarik can do, and how to write to it. |
+| `sql/` | Every SQL statement, named (`-- name: ...`), read as `Q.<name>` (`tarik/core/queries.py`); no SQL in the Python. |
+| `tarik/` | The tools (`TOOLS`, registered by `@tool` / `@step_tool`), Experio, mail, the vision model. |
+| `app/` | What the pages, the Experio API and `app/users.py` stand on, besides the workflows: accounts (`accounts.py`), the Journal (`audit.py`), each cabinet's settings in Vault (`cabinet_settings.py`), the canvases' layouts (`layouts.py`). `engine/` never imports it but to record a content change in the Journal. |
+| `engine/tools.py` | One tool call: in a worker thread, in its cabinet, at most 10 at once per cabinet; a refusal's text kept for the client, a crash logged and told plainly; a step's outcome recorded for the run's summary. |
+| `engine/live.py` | What changed (a run, a cabinet's runs, a conversation), for the pages to refresh near real time: each holds one event stream and fetches only when something it shows changed, never while its tab is hidden. One server process. |
+| `engine/runs.py` | Every run and each of its steps, in Postgres (schema `orchestrator`); the agent's conversations next to them. |
+| `engine/agent.py` | The agent: instructions and tools' descriptions from the content's `agent.json`, its skills (`skills/*.md`), tool output from Experio tagged as untrusted data; its model (MiniMax-M3, a 1024-token thinking budget, this stack's own key). |
+| `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the LLM Calls page (each call, its conversation and its run). |
+| `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
+| `app/api.py` | The Experio app's API: cabinets created, changed or deactivated, served at once (guide: `docs/experio-api.md`). |
+| `docs/tests.md` | Every test by category, and how to add a client situation to the live model tests. |
+| `app/cabinet_settings.py`, `ui/settings_pages.py` | Each cabinet's own settings, read and changed on the Cabinets page, written to Vault with its own AppRole, each change kept. |
+| `app/accounts.py`, `app/users.py` | The team's accounts (scrypt hashes), their role (admin or member) and sessions; made on the Comptes page (`ui/accounts_pages.py`, a one-time link to set the password) or by `app/users.py`. |
+| `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
+| `engine/traitement.py`, `dossier.py`, `emails.py`, `chat.py` | The workflows, as graphs (`chat.py`: the Discussions page's, and the asking shared with email threads). |
+| `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
+| `app/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
+| `ui/` | The team's pages (French): `pages.py`, `content_pages.py` (Contenu), `chat_pages.py` (Discussion), their templates, a stylesheet, scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |
+| `tests/` | The tools' and the isolation tests (`python -m pytest`; the real model's with `-m llm`). |
+| `check.py` | Every tool a graph calls exists; every step drawn is described. |
+| `run.py` | Run a graph from a terminal and watch it step by step. |
 
-- **Agent** (LLM): the `Tarik` node in "Tarik - Emails" and the cabinet's native agent. It reads the email,
-  chooses which workflow to call and with what inputs, and writes the reply.
-- **Tool with a model call**, in "Tarik - Traitement":
+## Run it
 
-  | Tool | Model reads |
-  |------|-------------|
-  | `identify_document` | the first pages: invoice or bank statement (skipped when the file's kind is already stored) |
-  | `split_invoices` | the PDF's pages: where each invoice starts |
-  | `check_invoice` | the scan, compared with what Experio captured |
-  | `classify_invoice` | the scan: the invoice's category |
-  | `assign_account` | the invoice: the account (skipped when a memorised account or a simulation settles it) |
-  | `settle_withholding` | the client's reply, only when there is one |
-  | `answer_pending` | the client's answer, only when it needs reading (account, withholding) |
-
-- **Deterministic** (no model call): every Switch, Code, Merge and sub-workflow node; all of "Tarik - Dossier"
-  (creation, setup and the `update` mode); in "Tarik - Emails" everything but the agent; in "Tarik - Traitement" `check_sender`,
-  `files_to_process`, `import_bank_statement`, `create_draft_invoice`, `wait_until_read`, `correct_invoice`,
-  `link_tiers`, `check_duplicate`, `settle_tva`, `check_journal`, `settle_prepaid`, `settle_exercice`,
-  `post_invoice`, `waiting_drafts`. They still depend on Experio's data and timing.
-
-This is read from the code (which tools call `ask_model`): when you add a tool that calls the model, add it here.
-
-## Seeing what the agent is sent
-
-n8n assembles the agent's prompt (its rules, the instructions, the skills, the conversation so far, the tools) at each
-model call. `n8n/patch.js` saves every call in the cabinet's schema: the call holds only the hashes of its system text,
-its tools and its messages, and each distinct one is stored once (`tarik_prompt_parts`), so a conversation's growing
-history is not stored again at every call, and the viewer builds the full prompt from them (`tarik_prompt_calls`; files
-left out; calls kept `TARIK_PROMPTS_KEEP_DAYS` days, 30 by default). Read them at
-<http://localhost:8081> (`tarik-prompts`, `mcp/prompts.py`): cabinet, conversation (an email thread's id, or the chat's),
-then each call. The prompts hold the clients' words: the page is read-only and published on this machine only.
-
-## Why not n8n Data Tables
-
-Tarik keeps all its state in Postgres, one schema per cabinet, and does not use n8n's Data Tables. They are
-scoped to an n8n project, not to a cabinet, their total size across the instance is capped (set with
-`N8N_DATA_TABLES_MAX_SIZE_BYTES`; the n8n docs call them suited to light storage), and Code nodes can't read them. Our state
-is relational and large (PDFs, check results, pending questions, mail) and written by the Python tools, so
-n8n nodes would only add a second place for it. Worth revisiting only if non-developers need to edit a small list
-(cabinets, allowed senders) in the n8n UI.
-
-## Cabinets
-
-One Tarik serves several cabinets, and never mixes them. A cabinet is named by its exact
-Experio database (`experio_cabinet_8`): its Vault path, `secret/tarik/cabinets/<cabinet>`. That name is also:
-
-- **its address**: `tarik-mcp` answers at `http://tarik-mcp:8000/c/<cabinet>/mcp` only, and every
-  call runs for that cabinet (`mcp/server.py`). There is no address without a cabinet, and the
-  server is stateless, so no session carries one cabinet's call into another's.
-- **its settings**, in that Vault path: its own Experio login (`ODOO_UID`, `ODOO_USER`, `ODOO_PASSWORD`),
-  `DRY_RUN`, its mailbox's credentials and addresses (`IMAP_USER`, `IMAP_PASSWORD`, `SMTP_USER`,
-  `SMTP_PASSWORD`, `SMTP_FROM`, `MAIL_MANAGER`, `MAIL_ALLOWED_RECIPIENTS`), its agent (`AGENT_ID`).
-  What every cabinet shares is in `secret/tarik/shared`: the mail server (`IMAP_HOST`, `IMAP_PORT`,
-  `IMAP_FOLDER`, `SMTP_HOST`, `SMTP_PORT`, `MAIL_CERT_SHA256`), n8n's MCP token (`N8N_MCP_API_TOKEN`),
-  the model's address and key (`MODEL_API_URL`, `MODEL_API_KEY`; its name is the one chosen for the agents in n8n,
-  asked of n8n by `model_name`, so every tool uses the agents' model). Each setting is one or the other (`CABINET_SETTINGS`, `SHARED_SETTINGS` in
-  `tarik/core/cabinets.py`): one in the wrong place, or also in the container's environment, stops the server. No setting
-  is ever shown to the agent.
-- **its data**: a Postgres schema of the same name. A tool's connection only sees that schema.
-
-Workflows and agents pass the cabinet as a fixed value, never chosen by a model: "Tarik - Traitement",
-"Tarik - Dossier" and "Tarik - Emails" take it as their `cabinet` input; each cabinet's native agent has its own
-MCP address and its own fixed `cabinet` tool input.
-
-Each cabinet has its own Tarik mailbox (its `IMAP_USER`, `IMAP_PASSWORD`, `SMTP_*` in Vault).
-`tarik-mail-watch` watches every cabinet that has one: the moment an email arrives (IMAP IDLE), and every
-15 minutes in case one was missed, it stores the new emails in their threads, tells the manager of refused
-senders, and wakes "Tarik - Emails" for that cabinet when a thread waits for an answer; the webhook only
-answers its `X-Tarik-Webhook` header, the secret both share (`MAIL_WEBHOOK_SECRET` in Vault, the n8n
-credential "Tarik mail webhook"; change both together). The workflow is
-one for all cabinets: each run works in the cabinet the watcher named, every step at its address,
-and the reply comes from that cabinet's own agent. An email thread's conversation id includes its
-cabinet, as n8n's conversation ids are shared by every agent. Every cabinet's
-`MAIL_ALLOWED_RECIPIENTS` is `@experio.ma,@sarnec.com,achraf.mansari.1@gmail.com`: Tarik writes to
-those addresses only, and only answers senders among them.
-
-n8n stops an agent's workflow tool after 300 s (`TARIK_AGENT_TOOL_TIMEOUT_MS`, patched; n8n's own is 120 s),
-so a processing run stops itself after 240 s: the invoices still going wait at the step they reached. A new
-dossier's onboarding waits until its imported lines are a minute old (Experio's rule): when the run's 260 s
-would not cover that, the dossier is left waiting
-(`tarik_setups`). When Tarik's reply leaves drafts or a dossier waiting, the thread is followed up for 30
-minutes: once Experio has read the drafts (a dossier: at the next tick, every 15 minutes), the watcher's tick wakes
-"Tarik - Emails", which takes them up again without the agent ("Tarik - Traitement", then "Tarik - Dossier",
-each in mode `resume`, no time limit) and sends the outcome in the thread.
-
-To add a cabinet: give Tarik a user in that cabinet's Experio, add the cabinet to `CABINETS` in
-`workflows/build_tarik_agents.py` and run it (`python3 workflows/build_tarik_agents.py`: it creates
-the cabinet's agent, updates the others, and prints each `AGENT_ID`), write its settings to Vault
-(`AGENT_ID` and `MAIL_ALLOWED_RECIPIENTS` included, see Vault below), then
-`docker compose up -d --force-recreate tarik-mcp tarik-mail-watch`: the watcher picks up its mailbox. Its schema is created at start;
-a cabinet missing a setting stops the server instead of starting half configured.
-
-Tool calls wait their turn: at most `TARIK_CALLS_PER_CABINET` at once for one cabinet (10), so one
-cabinet's long batch never holds up the others, and `TARIK_CALLS_TOTAL` in all (40).
-
-`mcp/tests/isolation/` checks the isolation against the real Postgres and over HTTP,
-with two throwaway cabinets: names, scopes, settings, threads, schemas, addresses, 200 overlapping
-calls, the call caps, and every tool's answers, with Experio unreachable, empty, refusing or
-logging in the wrong user, for any setting. `mcp/tests/n8n/test_agent_memory.py` checks, on the
-running n8n with the real model, that two agents never share memory nor conversations; it needs
-n8n's MCP server on (Settings > n8n MCP) and its token in Vault (`N8N_MCP_API_TOKEN`), and skips without.
-`mcp/tests/n8n/test_at_the_end.py` runs "Tarik - Test Merge" (`TarikMergeTest01`, imported like the
-other workflows) to check n8n still runs "Résumé" after every step: run it after each n8n upgrade.
-These live tests run only when asked:
+Its `.env` (never in git, from `.env.example`) gives `POSTGRES_PASSWORD` and `ODOO_URL`; `.env.example` also lists
+every setting it reads from Vault.
 
 ```bash
-python3 mcp/tests/run.py -m live
+docker compose up --build -d
 ```
 
-`mcp/tests/llm/test_relay.py` compares, on the same model, the reply a client gets from a ten-invoice run's summary
-as it was (every step) and as it is now: every fact must reach them, and the reply's length, time and tokens are
-printed. `mcp/tests/llm/` also measures the decisions the agent makes from the client's replies on the real model (Vault's
-`MODEL_API_*`, the agents' MiniMax-M3), shown Tarik's instructions, skills and tools as the agents have them: what
-it reads as oui or non, which proposed tiers the client chose, a clear yes to a confirmation, the invoices' filter.
-Each kind must be right on average (90 %) and almost never decide what the client did not (5 %, never for a
-confirmation). The tool calls are only read: nothing reaches n8n or Experio. Run them after changing the agent's
-instructions or skills, `REPEAT` times each case for a steadier average (`-s` shows each miss). The model thinks,
-as the agents' does; `THINKING=off` measures it without (2026-10-17, REPEAT=3: 3 decisions the client did not make
-without thinking, none with it):
+| Call | What it does |
+|---|---|
+| `GET /ok` | The server is up, and its graphs. |
+| `POST /runs/<graph>` | `{input, thread_id?, cabinet?, session_id?, wait?}`. Waits for the run by default; `wait: false` answers its `run_id` at once. |
+| `GET /runs` | The latest runs (`?cabinet=`, `?graph=`, `?limit=`). |
+| `GET /runs/<run_id>` | A run: status, input, output or error, and its steps (`?after=<step id>`: only the newer steps, and its status). |
+| `GET /graphs/<graph>` | A workflow's shape for the canvas. |
+| `GET` / `PUT` / `DELETE /graphs/<graph>/layout` | How the team arranged its canvas: read, saved, or forgotten. |
 
-```bash
-REPEAT=3 python3 mcp/tests/run.py -m llm -s
-```
+The team's pages, each cabinet picked in the sidebar (under its name in Experio, its database beside it) and
+the pages showing that cabinet's: http://127.0.0.1:2024/ui/accueil (its dashboard: its last 30 days in four
+numbers, and a message to Tarik that opens a conversation in place), /ui/executions (runs), /ui/discussion (Discussions: every conversation, the ones written there and the email threads, read-only), /ui/workflows
+(workflows), /ui/llm-calls (LLM Calls: each model call, what it was sent), /ui/tarik-prompts (Tarik prompts: what Tarik is told, edited with its history),
+/ui/cabinets (each cabinet's settings), /ui/comptes (the accounts), /ui/logs-serveur (the Logs serveur page, who did what: logins, accounts,
+content, settings, layouts, runs started by hand; `app/audit.py`, never a password or a link). Each person logs in with their own account, made
+by an admin on the Comptes page (a one-time link, 72 h, for the person to choose their password; a new link for a
+forgotten one) or in the container: `python -m app.users add <email> "<name>"` (the password is asked; `disable` closes
+one). The last admin can be neither made a member nor closed. A new account is a member: it
+reads every page and writes to Tarik on Discussion. An admin (`python -m app.users role <email> admin`) also changes what
+everyone's Tarik uses: the content, the cabinets' settings (read too), the canvases' layout, and starts runs by hand.
+The server refuses these to a member (`admin_only` in `app/server.py`), whatever a page shows.
 
-## Instructions
+Every call but `/ok` and the login page needs a session, or for scripts `TARIK_GRAPH_TOKEN` as a bearer token. A
+change made with a session must come from the pages themselves (Origin checked). Graphs: `agent`, `traitement`,
+`dossier`, `emails`. In the container: `python run.py <graph> '<input json>' [--thread name]`, `python check.py`,
+`python -m pytest`.
 
-What the model is told is in `instructions/`: `skills/` for the agent (below), `tools/` for the prompts the
-Python tools give the model (one file per prompt, front matter `used_by`: the tool and the file reading it, then
-the prompt, sent word for word). Only a short answer shape (a few lines saying which JSON to answer with) stays
-next to the code that reads the answer. The container mounts `instructions/tools/`, so a prompt
-changed there applies on the next restart, no rebuild. A style test checks each file is read by the file it names.
+Before each commit, `.githooks/pre-commit` runs the style check (ruff, as `pyproject.toml` sets it) in the server
+container. Enable it once per clone: `git config core.hooksPath .githooks`.
 
-## Skills
+## Plan
 
-n8n keeps an agent's skills (instructions it loads when a request matches) per agent. They are
-written once, one file per skill in `instructions/skills/` (front matter `name`, `description`, then
-the instructions), and `workflows/build_tarik_agents.py` gives every agent the same copy, found by
-name, updated in place, and removed from all agents when its file goes.
+What non-technical colleagues change is content, not logic: the agent's instructions and skills, the tools' prompts
+and questions, cabinets' settings. Workflows stay Python, reviewed by developers, and the UI shows them as diagrams
+with every run live, step by step.
 
-Four skills, each a whole process in plain decisions ("If ... → do ..."), its steps and a short
-"never" list: "Nouveau dossier" (a new dossier, or a FEC or grand livre for one), "Modification de
-dossier", "Traitement des documents" (invoices and bank statements) and "Réponse à une question" (the
-client's answer to a question Tarik asked while processing them). The base instructions keep the rules that always hold,
-and send each case to its skill: "charge la compétence ... et suis-la, dans ce même tour".
+1. **Engine and server** — done: the four graphs, the agent with its memory in Postgres, runs and steps kept and
+   streamed live; parity with the n8n workflows checked step by step (2026-10-20), then the stack made its own.
+2. **Runs in the UI** — done: the runs of each cabinet (refreshed on their own), each run step by step as it happens,
+   in plain words (what was asked, what the client reads, each step's outcome, its whole output on demand), and for
+   the agent the conversation with its thinking and the tools it used; the exact prompt of each model call (Prompts).
+   What a run was asked reads in plain words too: each input under its name, a coded value in words (labels.json:
+   inputs, input_values; `check.py` fails on an input without its name), an email thread as its sender and subject.
+3. **Workflows in the UI** — done: each workflow drawn as a canvas, as n8n draws one (steps left to right, a file or
+   an invoice as a framed group, conditional paths dashed; pan, zoom, "Au début", "Tout voir"); a run painted over it,
+   live while it goes on (each step coloured by its outcome, ×n when it ran for several invoices); a click on a step
+   opens what it did in that run. A sub-workflow (a file, an invoice, Traitement inside an email follow-up) shows as
+   one node, as n8n shows one, coloured by the worst outcome inside it; double-click (or "Déplier") opens it in place.
+   The canvas is a map on a 20 px grid: steps dragged snap to it, an edge takes bend points (dragged, snapped,
+   removed with a double-click) and a route style (right angles, straight, curved), and "Enregistrer la disposition"
+   keeps the arrangement in Postgres (table `layouts`, one per workflow, shared by the team); "Disposition
+   automatique" forgets it. On each run's page and on each workflow's page with its recent runs. Each step explained
+   in plain words in its panel.
+4. **Login, then content in the UI, with history** — done: each person's account (`app/users.py`); the agent's
+   instructions and tools' descriptions, its skills, the tools' prompts and the pages' words, each as a plain form;
+   every change kept (who, when, why), each version's changes shown, any version brought back in one click; a change
+   naming a tool Tarik lacks, emptying a text or reshaping a document is refused. Then each cabinet's own settings,
+   on the Cabinets page (`app/cabinet_settings.py`): its Experio login, its mailbox, who may receive Tarik's emails,
+   simulation or real writes (confirmed first). Vault stays their only home, written with the page's own AppRole
+   (`tarik-settings`: read and update `secret/tarik/cabinets/*` only, never the shared settings nor a new cabinet);
+   a secret is never shown, only replaced; a change is written over the version the page showed only, kept (who,
+   when, why, which settings; never a secret's value: table `settings_changes`) and in use at once.
+5. **Mail** — done: a cabinet switched over from the n8n stack; then the email test and `-m llm` again.
+6. **Chat with file upload** — done: the Discussions page, for the team (logged in), per cabinet. Each message, with
+   its files (the email's types, 10 per message, 20 MB each), is a run of the "Discussion" workflow: the files saved
+   in the cabinet's schema first, then Tarik answers in the conversation's own thread, reminded of files left
+   untaken as for an email. As in n8n's chat, each tool Tarik calls shows as it runs, then its reply (markdown, its
+   raw HTML never kept), and each file sent can be downloaded again. No sender is checked: whoever is logged in
+   writes.
 
-A skill names tools by the agent's own tool names (`Experio_parametrer_dossier`, `Experio_traiter_fichiers`,
-`Experio_find_dossier`), never by a workflow's id or name: the agent's configuration maps each tool to its
-workflow, with the values the model never sets (cabinet, conversation, client's message). The build
-refuses a skill naming a tool or field the agents do not have.
+## Lessons kept from the first port
 
-Tested on GECAFISC (2026-10-15, dry run, MiniMax-M3): 10 new-dossier requests and 10 document
-requests all ended right (the dossier set up with every field right; the right dossier processed
-once; the client asked when the dossier was unclear), and 2 unrelated requests loaded no skill.
-`allowedTools` in a skill is not enforced by n8n 2.43: a skill never restricts tools; the workflows
-and MCP tools do.
-
-## Vault
-
-Tarik's secrets and per-cabinet settings are in Vault (`vault/`), not in `.env`. Locally, a Vault
-container (`vault` in `docker-compose.yml`, file storage in the `vault_data` volume) unseals itself
-at start with the key `vault/setup.sh` keeps in `vault/.local/` (git-ignored, this machine only).
-`tarik-mcp` logs in with its AppRole (`vault/.local/approle/`, mounted read-only), whose policy only
-reads `secret/tarik/*`; it reads Vault at start and every 5 minutes, so a changed secret applies
-without a restart, and carries on with the last values while Vault is out.
-
-Once, on a new machine:
-
-```bash
-docker compose up -d vault
-docker compose exec -T -e HOST_UID=$(id -u) vault sh /vault/config/setup.sh
-```
-
-Then write the settings:
-
-```bash
-docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault vault kv put secret/tarik/shared IMAP_HOST=... N8N_MCP_API_TOKEN=...
-docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault vault kv put secret/tarik/cabinets/experio_cabinet_8 ODOO_UID=... AGENT_ID=...
-```
-
-A cabinet not ready yet waits under `secret/tarik/pending/<cabinet>`, which `tarik-mcp` never reads: every
-cabinet under `secret/tarik/cabinets/` must be fully set, or the server doesn't start. Its settings are there,
-empty but `AGENT_ID`; fill them in with `kv patch`, then move it and restart (here for `experio_cabinet_158`):
-
-```bash
-docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault vault kv patch secret/tarik/pending/experio_cabinet_158 ODOO_UID=... ODOO_USER=... ODOO_PASSWORD=...
-docker compose exec -T vault sh -c 'export VAULT_ADDR=http://127.0.0.1:8200 VAULT_TOKEN=$(cat /vault/unseal/root_token) C=experio_cabinet_158; vault kv get -format=json -field=data secret/tarik/pending/$C > /tmp/c.json && vault kv put secret/tarik/cabinets/$C @/tmp/c.json && vault kv metadata delete secret/tarik/pending/$C; rm -f /tmp/c.json'
-docker compose restart tarik-mcp tarik-mail-watch
-```
-
-`kv patch` changes one setting and keeps the others. Vault's own page is at http://127.0.0.1:8200
-(the root token logs in). On the public server, use a real Vault instead: TLS, its own unseal
-(operators' key shares or a KMS, never a key file next to it), and the same paths, policy and role.
-
-## Setup
-
-1. Copy `.env.example` to `.env` and fill it in (Postgres password, n8n encryption key, Experio's
-   URL), and set up Vault with Tarik's settings (see Vault). n8n keeps its own data in Postgres too
-   (database `N8N_POSTGRES_DB`), created once by:
-
-   ```bash
-   docker compose up -d postgres
-   docker compose exec postgres sh -c 'createdb -U "$POSTGRES_USER" "$N8N_POSTGRES_DB"'
-   ```
-2. Start everything:
-
-   ```bash
-   docker compose up -d --build
-   ```
-
-3. Create the n8n credential the agents use, with this exact id. For example, from a JSON file
-   copied into the n8n container, then deleted:
-
-   ```json
-   [
-     {"id": "MiniMaxNative001", "name": "MiniMax", "type": "minimaxApi",
-      "data": {"apiKey": "<MODEL_API_KEY>", "region": "international"}}
-   ]
-   ```
-
-   ```bash
-   docker compose exec n8n n8n import:credentials --input=/tmp/credentials.json
-   ```
-
-4. Deploy the workflows (see below).
-5. Turn on n8n's MCP server (Settings > n8n MCP), put its token in Vault (`N8N_MCP_API_TOKEN` in
-   `secret/tarik/shared`), and create each cabinet's agent (see Cabinets). Its chat is in the Agents section.
-
-## Changing a workflow
-
-The workflow JSON files are generated. Edit the builder, not the JSON:
-
-```bash
-python3 workflows/build_tarik_traitement.py
-```
-
-```bash
-python3 workflows/build_tarik_dossier.py
-```
-
-`workflows/steps.py` holds what the builders share.
-
-Then deploy. Importing a workflow unpublishes it, so publish it again and restart n8n:
-
-```bash
-docker compose cp workflows/tarik-traitement.json n8n:/tmp/tarik-traitement.json
-docker compose exec n8n n8n import:workflow --input=/tmp/tarik-traitement.json
-docker compose exec n8n n8n publish:workflow --id=TarikTraitement1
-docker compose restart n8n
-```
-
-Same for `tarik-dossier.json` (id `TarikDossier0001`) and `tarik-emails.json` (id `TarikEmails00001`). To check the published version is the
-new one, export the workflow (`n8n export:workflow --id=...`): `versionId` must equal
-`activeVersionId`.
-
-## Changing a tool
-
-The tools live in `mcp/tarik/`, one package per kind of work, and their tests in
-`mcp/tests/`, in the same tree:
-
-| Package | What it holds |
-|---------|---------------|
-| `tarik/core/` | The values shared by every module: services, timeouts, Experio's codes, thresholds (`config`), the MCP server, step results and the log (`app`), names, words and numbers as clients write them (`words`), the cabinets, the current one and their settings in Vault (`cabinets`), Experio calls, guards, test mode and the connection check (`experio`), the client's own words in a conversation (`conversation`), the vision model and the documents' pages (`model`). |
-| `tarik/invoices/` | "Tarik - Traitement": one module per step, in sequence order, `pipeline` for its bookkeeping, `listing` for `list_invoices`. |
-| `tarik/dossiers/` | Finding dossiers (`search`), creating and modifying one (`identity`), its setup: configuration, entries, onboarding (`setup`), collaborators and who may work on which dossier (`people`). |
-| `tarik/emails/` | "Tarik - Emails": reading the mailbox (`inbox`), the agent's reply (`agent`), sending replies (`sending`). |
-
-`mcp/server.py` and `mcp/watcher.py` are the two entry points (the MCP server, the IMAP
-IDLE watcher of every cabinet's mailbox: `python watcher.py`). Edit a module, run the tests that
-cover what you changed (in a throwaway container on your working copy), then rebuild the containers:
-
-```bash
-python3 mcp/tests/run.py
-```
-
-```bash
-docker compose up -d --build --force-recreate tarik-mcp tarik-mail-watch
-```
-
-The Python code has one style: ruff's formatter and linter for Python 3.14, lines of 120 at most
-(`pyproject.toml`; `tests/style` checks it). To apply it:
-
-```bash
-docker compose run --rm --no-deps --user "$(id -u):$(id -g)" -v "$PWD:/repo" -w /repo tarik-mcp sh -c "ruff check --no-cache --fix . && ruff format --no-cache ."
-```
-
-`run.py` picks the tests that import the changed files; `--all` runs every test, `-m <category>` one
-category. Each test has one: `security`, `functionality`, `communication`, `technical`, `style` (lint,
-workflows rebuilt from their scripts, tool names), `live` (the real n8n and model, only with `-m live`), `llm`
-(the real model's decisions, only with `-m llm`).
-
-A new tool is registered by importing its module in `mcp/server.py` (`TOOL_MODULES`). To give it to the
-agent, add it to the Experio MCP server's tool list in the agent's configuration; to make it a
-step of the sequence, add it to `CHAIN` in `workflows/build_tarik_traitement.py` and to
-`STEPS` in `mcp/tarik/invoices/pipeline.py`. Its tests go in the matching file under `mcp/tests/`.
-
-## New dossiers
-
-The name is enough: Tarik creates the dossier at once, with the ICE and IF only when the client wrote
-them, and asks first only when a dossier has a very similar name, or before skipping Experio's ICE/IF
-check (Experio can't delete a dossier, only archive it). A model dossier's configuration, when the client
-names one, is copied before the entries are imported, because the copy rewrites every setting and would
-erase what the import detected. The import (FEC or grand livre, CSV, TXT or Excel) goes through
-Experio's Importation screen, which creates the missing accounts, journals, tiers and fiscal years.
-Finishing the onboarding hands the entries to Experio's processing.
-
-## Real posting
-
-Set that cabinet's `DRY_RUN` to `0` in Vault; it applies within 5 minutes, or at once after a restart:
-
-```bash
-docker compose exec -e VAULT_TOKEN="$(cat vault/.local/unseal/root_token)" vault vault kv patch secret/tarik/cabinets/experio_cabinet_8 DRY_RUN=0
-docker compose restart tarik-mcp
-```
-
-A posted invoice can't simply be deleted in Experio: test on a test dossier.
-
-## Following a run
-
-- n8n, Executions: one run of "Tarik - Traitement" per batch of files or answer, one node per step.
-- Postgres `tarik_results`: each step's outcome, by run and invoice. `tarik_pending`: the open questions.
-- `docker compose logs tarik-mcp`: what Experio refused, in full (the agent only gets a short message).
+- The model needs its thinking budget: without it the agent decides what the client did not (`-m llm`: 3 % wrong
+  decisions without, 1 % with).
+- An answer's outcome is recorded under the step it answers, or a question asked again can never be answered.
+- A step's own arguments are positional: a tool may take a `run_id` of its own.
+- Tool output from Experio reaches the model as untrusted data (n8n's guard, rebuilt).
+- Two invoices of one message run one after another: side by side, both could create the same new tiers.

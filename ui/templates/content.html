@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% from "icons.html" import crumbs, icon %}
+{% block title %}{{ title }}{% endblock %}
+{% block page_class %} wide{% endblock %}
+{% block content %}
+{{ crumbs("/ui/tarik-prompts", "Tarik prompts", "content", title) }}
+<div class="head"><div>
+  <h1>{{ title }}</h1>
+  <p class="what">{{ what }}</p>
+  {% if model %}<p class="muted">Modèle : <b>{{ model }}</b> (se change dans le code, pas ici).</p>{% endif %}
+</div></div>
+{% if not is_admin(request) %}<div class="panel" role="status">Lecture seule : seul un administrateur modifie le contenu.</div>{% endif %}
+{% if error %}<div class="panel bad" role="alert"><b>Non enregistré :</b> {{ error }}. Corrigez puis enregistrez à nouveau.</div>{% endif %}
+{% if saved == '1' %}<div class="panel accent" role="status">Enregistré. Tarik l'utilise dès le message suivant.</div>{% elif saved == '0' %}<div class="panel" role="status">Rien n'a changé : aucune nouvelle version.</div>{% endif %}
+<div class="panel" id="import-status" role="status" hidden></div>
+{% if compare %}
+<div class="panel compare-banner">
+  <p><b>Version {{ compare.id }}</b> : {% if compare.first %}la première, rien à comparer.{% elif compare.fields %}ce qu'elle a changé est montré dans chaque section concernée, à gauche du champ en service (→).{% else %}elle n'a rien changé.{% endif %}
+  Les champs gardent le texte en service.</p>
+  <div class="panel-actions">
+    {% if versions and compare.id != versions[0].id and is_admin(request) %}
+    <form method="post"><input type="hidden" name="action" value="restore"><input type="hidden" name="version" value="{{ compare.id }}"><button type="submit" class="primary">Revenir à cette version</button></form>
+    {% endif %}
+    <a class="panel-button" href="/ui/tarik-prompts/{{ path }}">Fermer</a>
+  </div>
+</div>
+{% endif %}
+<div class="flow content-flow">
+  <form class="content-form" method="post" id="content-form">
+    <fieldset class="plain" {% if not is_admin(request) %}disabled{% endif %}>
+    {% if sections | length > 1 %}
+    <div class="card-tools"><button type="button" data-cards="open">Tout déplier</button><button type="button" data-cards="close">Tout replier</button></div>
+    {% endif %}
+    {% for section in sections %}
+    {# One card per section; a document with one section shows it open, and a version shown opens the cards it
+       changed. Closed cards' fields are still sent. #}
+    {% set touched = compare and section.fields | selectattr("key", "in", compare.fields) | list | length %}
+    <details class="panel card{% if touched %} touched{% endif %}" {% if sections | length == 1 or error or touched or (not compare and loop.first) %}open{% endif %}>
+      <summary>
+        <span class="card-title">{{ section.title or title }}</span>
+        <span class="card-meta">
+          {% if touched %}<span class="chip wait">{{ touched }} changé{{ 's' if touched > 1 }} en version {{ compare.id }}</span>{% endif %}
+          <span class="muted">{{ section.fields | length }} champ{{ 's' if section.fields | length > 1 }}</span>
+          <a class="card-action" href="?export={{ loop.index0 }}" download data-tip="{{ tips.section_export }}" aria-description="{{ tips.section_export }}">Exporter</a>
+          {% if is_admin(request) %}<button type="button" class="card-action" data-import="/ui/tarik-prompts/{{ path }}" data-tip="{{ tips.section_import }}" aria-description="{{ tips.section_import }}">Importer</button>{% endif %}
+        </span>
+      </summary>
+      <div class="card-body">
+        {% for f in section.fields %}
+        {% set change = compare.fields[f.key] if compare and f.key in compare.fields else None %}
+        {% if change %}<div class="field-pair">
+        {# The version's change (old) beside the text in service (new), an arrow from one to the other. #}
+        <div class="field">
+          <span>{{ f.label }} : changé en version {{ compare.id }}</span>
+          <div class="field-diff"><p class="diff">{% for kind, part in change.parts %}{% if kind == '+' %}<ins>{{ part }}</ins>{% elif kind == '-' %}<del>{{ part }}</del>{% else %}{{ part }}{% endif %}{% endfor %}</p></div>
+          <small class="count num">{{ change.before }} → {{ change.after }} caractères</small>
+        </div>
+        <span class="arrow" aria-hidden="true">→</span>
+        {% endif %}
+        <label class="field">
+          <span>{{ f.label }}{% if change %} : en service{% endif %}</span>
+          {% if f.long %}<textarea name="{{ f.key }}" rows="3">{{ f.value }}</textarea>
+          <small class="count num" aria-live="off">{{ f.value | length }} caractères</small>
+          {% else %}<input name="{{ f.key }}" value="{{ f.value }}">{% if change %}<small class="count num">{{ f.value | length }} caractères</small>{% endif %}{% endif %}
+        </label>
+        {% if change %}</div>{% endif %}
+        {% endfor %}
+      </div>
+    </details>
+    {% endfor %}
+    </fieldset>
+  </form>
+  <div class="side-column">
+    {# Outside the form, tied to it by form="content-form": the right column, above the history, always in view. #}
+    {% if is_admin(request) %}<section class="panel save-card" aria-label="Enregistrer">
+      <h2>Enregistrer</h2>
+      <label class="field"><span>Pourquoi ce changement (gardé dans l'historique)</span><textarea name="note" form="content-form" maxlength="300" rows="2" placeholder="ex. : demander l'exercice avant le compte"></textarea></label>
+      <button type="submit" form="content-form" class="primary">Enregistrer</button>
+    </section>{% endif %}
+  <aside class="side panel">
+    <h2>Historique</h2>
+    <p class="muted">Cliquez sur une version pour voir, dans chaque section, ce qu'elle a changé.</p>
+    <ol class="versions">
+      {% for v in versions %}
+      <li{% if compare and compare.id == v.id %} aria-current="true"{% endif %}><a href="?version={{ v.id }}">
+        <span class="num">{{ v.at | when }}</span> <b>{{ v.author.split(' <')[0] }}</b>{% if loop.first %} <span class="chip ok">en service</span>{% endif %}
+        {% if v.note %}<span class="muted">{{ v.note }}</span>{% endif %}
+      </a></li>
+      {% endfor %}
+    </ol>
+  </aside>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ asset('import.js') }}"></script>
+<script>
+  // Every card at once; a card whose field was changed shows it, so nothing edited hides in a closed card.
+  document.querySelectorAll("[data-cards]").forEach((button) => button.addEventListener("click", () => {
+    document.querySelectorAll("details.card").forEach((card) => { card.open = button.dataset.cards === "open"; });
+  }));
+  document.querySelectorAll("details.card").forEach((card) => card.addEventListener("input", () => card.classList.add("changed")));
+
+  // Each text area as tall as its text, and its count of characters, kept up as it is typed in. A closed card's
+  // areas have no height to measure: sized when it opens.
+  function fit(area) {
+    area.style.height = "auto";
+    area.style.height = `${area.scrollHeight + 2}px`;
+    area.nextElementSibling.textContent = `${area.value.length.toLocaleString("fr-FR")} caractères`;
+  }
+  const areas = document.querySelectorAll(".content-form textarea");
+  areas.forEach((area) => { area.addEventListener("input", () => fit(area)); fit(area); });
+  document.querySelectorAll("details.card").forEach((card) => card.addEventListener("toggle", () => {
+    if (card.open) card.querySelectorAll("textarea").forEach(fit);
+  }));
+  window.addEventListener("resize", () => areas.forEach((area) => area.offsetParent && fit(area)));
+</script>
+{% endblock %}
