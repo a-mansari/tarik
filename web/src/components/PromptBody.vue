@@ -15,18 +15,36 @@ function part(p) {
   if (typeof p === "string") return { as: "said", body: p };
   switch (p.type) {
     case "text": return { as: "said", body: p.text };
-    case "reasoning": case "thinking": return { as: "folded", className: "thinking", title: "Sa réflexion", body: p.text ?? p.thinking };
-    case "tool-call": case "tool_use": return { as: "line", body: `Utilise ${p.toolName ?? p.name} ${json(p.input ?? p.args ?? {})}` };
-    case "tool-result": return { as: "folded", title: `Réponse de ${p.toolName ?? "l'outil"}`, body: json(p.output ?? p.result) };
-    default: return { as: "folded", title: p.type || "Partie", body: json(p) };
+    case "reasoning":
+    case "thinking":
+      return { as: "folded", className: "thinking", title: "Sa réflexion", body: p.text ?? p.thinking };
+    case "tool-call":
+    case "tool_use":
+      return { as: "line", body: `Utilise ${p.toolName ?? p.name} ${json(p.input ?? p.args ?? {})}` };
+    case "tool-result":
+      return { as: "folded", title: `Réponse de ${p.toolName ?? "l'outil"}`, body: json(p.output ?? p.result) };
+    default:
+      return { as: "folded", title: p.type || "Partie", body: json(p) };
   }
+}
+
+// A message's content as a list of parts: a list as it is, a single part in one, none as none.
+function partsOf(content) {
+  if (Array.isArray(content)) return content;
+  return content ? [content] : [];
+}
+
+// The bubble's class: a tool's answer, the client's words, or Tarik's.
+function bubbleClass(role, who) {
+  if (role === "tool") return "tool";
+  return who === "Client" ? "client" : "tarik";
 }
 
 function message(m) {
   if (typeof m === "string") return { plain: m }; // a part removed since
   const role = m.role || "?";
   const who = WHO[role] || role;
-  const parts = Array.isArray(m.content) ? m.content : m.content ? [m.content] : [];
+  const parts = partsOf(m.content);
   let shown;
   if (role === "tool") {
     const body = parts.map((p) => (typeof p === "string" ? p : p.text ?? json(p))).join("\n");
@@ -35,8 +53,10 @@ function message(m) {
     shown = parts.map(part);
   }
   const called = parts.some((p) => p?.type === "tool_use"); // LangChain keeps a call in both places
-  if (!called) for (const call of m.tool_calls || []) shown.push({ as: "line", body: `Utilise ${call.name} ${json(call.args)}` });
-  return { className: role === "tool" ? "tool" : who === "Client" ? "client" : "tarik", who, kind: KIND[who] || "system", parts: shown };
+  if (!called) {
+    for (const call of m.tool_calls || []) shown.push({ as: "line", body: `Utilise ${call.name} ${json(call.args)}` });
+  }
+  return { className: bubbleClass(role, who), who, kind: KIND[who] || "system", parts: shown };
 }
 </script>
 

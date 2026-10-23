@@ -6,7 +6,7 @@ and its form when it is one of the page's own. -->
 import { computed, nextTick, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
-import { session, usePage } from "../api.js";
+import { bulleted, cabinetDisplay, pickedCabinet, session, usePage } from "../api.js";
 import { useLive } from "../live.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import ChatForm from "../components/ChatForm.vue";
@@ -19,14 +19,14 @@ const talkId = route.params.session;
 const { data, status, loading, reload } = usePage(() =>
   talkId ? `/discussion/${encodeURIComponent(talkId)}` : "/discussion");
 
-const picked = session.cabinets.find((cabinet) => cabinet.chosen)?.name;
+const picked = pickedCabinet();
 if (talkId) useLive(`session=${encodeURIComponent(talkId)}`, reload);
 else if (picked) useLive(`cabinet=${encodeURIComponent(picked)}`, reload);
 
-const shownName = computed(() =>
-  session.cabinets.find((cabinet) => cabinet.name === data.value?.cabinet)?.display || data.value?.cabinet);
+const shownName = computed(() => cabinetDisplay(data.value?.cabinet) || data.value?.cabinet);
 const chips = { answering: "running", failed: "error", waiting: "question", answered: "ok" };
 const stateName = (state) => session.labels.conversation_states?.[state] || state;
+const talkLink = (item) => `/ui/discussion/${encodeURIComponent(item.session_id)}`;
 
 // What a zip left out of the dashboard's first message, told here once the page is the conversation's.
 const skipped = history.state?.skipped || [];
@@ -34,15 +34,20 @@ const skipped = history.state?.skipped || [];
 // Tarik done answering: the message box ready for the next one.
 const form = ref(null);
 watch(() => data.value?.going, async (going, was) => {
-  if (was && !going) { await nextTick(); form.value?.focus(); }
+  if (!was || going) return;
+  await nextTick();
+  form.value?.focus();
 });
 </script>
 
 <template>
   <PageState v-if="!data" :status="status" :loading="loading" />
   <template v-else-if="talkId">
-    <nav class="crumbs" aria-label="Fil d'Ariane"><RouterLink to="/ui/discussion"><Icon name="chat" :size="14" />Discussions</RouterLink><Icon
-      name="next" :size="14" /><span aria-current="page">{{ shownName }}</span></nav>
+    <nav class="crumbs" aria-label="Fil d'Ariane">
+      <RouterLink to="/ui/discussion"><Icon name="chat" :size="14" />Discussions</RouterLink>
+      <Icon name="next" :size="14" />
+      <span aria-current="page">{{ shownName }}</span>
+    </nav>
     <div class="head">
       <div>
         <h1>Discussion</h1>
@@ -51,9 +56,18 @@ watch(() => data.value?.going, async (going, was) => {
     </div>
     <section class="panel">
       <ChatTalk :session="data.session_id" :messages="data.messages" :latest="data.latest" :going="data.going" />
-      <p v-if="skipped.length" class="bad-text">Fichiers laissés de côté :{{ "\n" + skipped.map((line) => `- ${line}`).join("\n") }}</p>
-      <ChatForm v-if="data.written" ref="form" :session="data.session_id" :cabinet="data.cabinet" :checks="data.checks"
-        :accepted="data.accepted" :limits="data.limits" :busy="data.going" @sent="reload" />
+      <p v-if="skipped.length" class="bad-text">Fichiers laissés de côté :{{ "\n" + bulleted(skipped) }}</p>
+      <ChatForm
+        v-if="data.written"
+        ref="form"
+        :session="data.session_id"
+        :cabinet="data.cabinet"
+        :checks="data.checks"
+        :accepted="data.accepted"
+        :limits="data.limits"
+        :busy="data.going"
+        @sent="reload"
+      />
       <p v-else class="muted read-only">Discussion d'un fil d'emails ou d'un workflow : elle se lit ici, on n'y écrit pas. Pour écrire à Tarik, ouvrez une nouvelle discussion dans Discussions.</p>
     </section>
   </template>
@@ -71,10 +85,15 @@ watch(() => data.value?.going, async (going, was) => {
         <tbody>
           <tr v-for="item in data.conversations" :key="item.session_id">
             <td class="num">{{ item.started }}</td>
-            <td><span v-if="item.medium === 'email'" class="chip"><Icon name="mail" :size="13" /> Email</span><span v-else
-              class="chip ok"><Icon name="chat" :size="13" /> Chat</span></td>
-            <td><RouterLink :to="`/ui/discussion/${encodeURIComponent(item.session_id)}`"><template v-if="item.subject"><b>{{ item.subject }}</b> · </template>{{ item.first || "(sans texte)" }}</RouterLink><template
-              v-if="item.sender"><br><span class="muted">{{ item.sender }}</span></template></td>
+            <td>
+              <span v-if="item.medium === 'email'" class="chip"><Icon name="mail" :size="13" /> Email</span>
+              <span v-else class="chip ok"><Icon name="chat" :size="13" /> Chat</span>
+            </td>
+            <td>
+              <RouterLink :to="talkLink(item)"><template v-if="item.subject"><b>{{ item.subject }}</b> · </template>{{
+                item.first || "(sans texte)" }}</RouterLink>
+              <template v-if="item.sender"><br><span class="muted">{{ item.sender }}</span></template>
+            </td>
             <td><span class="chip" :class="chips[item.state]">{{ stateName(item.state) }}</span></td>
           </tr>
           <tr v-if="!data.conversations.length"><td colspan="4" class="muted">Aucune discussion pour ce cabinet.</td></tr>

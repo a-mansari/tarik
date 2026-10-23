@@ -22,11 +22,12 @@ function pick() {
       const error = answer.data?.error || `erreur ${answer.status}`;
       return emit("done", { text: `Import refusé, rien n'a été enregistré : ${error}`, bad: true });
     }
+    // One document's import answers saved: true; a whole export's, the documents saved.
     const saved = answer.data.saved === true ? 1 : (answer.data.saved || []).length;
-    emit("done", {
-      text: saved ? `Importé : ${saved} nouvelle(s) version(s). Rechargement…` : "Rien n'a changé : le contenu était déjà celui-là.",
-      saved,
-    });
+    const text = saved
+      ? `Importé : ${saved} nouvelle(s) version(s). Rechargement…`
+      : "Rien n'a changé : le contenu était déjà celui-là.";
+    emit("done", { text, saved });
   });
   picker.click();
 }

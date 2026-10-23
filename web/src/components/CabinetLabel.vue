@@ -2,10 +2,10 @@
 <script setup>
 import { computed } from "vue";
 
-import { session } from "../api.js";
+import { cabinetDisplay } from "../api.js";
 
 const props = defineProps({ name: { type: String, required: true } });
-const shown = computed(() => session.cabinets.find((cabinet) => cabinet.name === props.name)?.display || "");
+const shown = computed(() => cabinetDisplay(props.name) || "");
 </script>
 
 <template>
