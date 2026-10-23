@@ -52,7 +52,8 @@ INVOICE_FIELDS = [
 def account_question(invoice, designation):
     """What the client reads when no account fits ``designation`` (str or None: illegible)."""
     total = f"{invoice['amount_total']} DH TTC" if invoice["amount_total"] else None
-    about = ", ".join(str(x) for x in ((invoice["partner_id"] or [0, None])[1], total) if x)
+    partner = invoice["partner_id"][1] if invoice["partner_id"] else None
+    about = ", ".join(str(x) for x in (partner, total) if x)
     facture = f"Facture {invoice['invoice_number'] or invoice['id']}" + (f" ({about})" if about else "")
     why = (
         f"je n'ai pas pu choisir le compte pour « {designation} »"
@@ -158,7 +159,8 @@ def assign_account(
         return ok(f"Facture {invoice_id} : compte déjà renseigné, {account_label(invoice['account_id'][0])}.")
     # Without the dossier's own journal Experio cannot propose any account, and says so obscurely: an invoice made
     # before the dossier had journals still sits on another dossier's, which check_journal moves to its own.
-    if refusal := journal_stop(invoice_id, require_invoice(invoice_id, JOURNAL_FIELDS)):
+    refusal = journal_stop(invoice_id, require_invoice(invoice_id, JOURNAL_FIELDS))
+    if refusal:
         return refusal
     check_journal(invoice_id)
     kind = side_of(invoice)

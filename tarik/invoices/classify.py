@@ -126,8 +126,7 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
         return routine(already, category=category)
     require_draft(invoice_id, invoice, "changer de type")
     with refused(f"classify_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé le changement de type."):
-        fill_invoice(
-            invoice_id, {"type": wanted}, invoice_context(invoice)
-        )  # Experio's onchange on type runs, as on screen
+        # Experio's onchange on type runs, as on screen.
+        fill_invoice(invoice_id, {"type": wanted}, invoice_context(invoice))
     changed = "le type passerait a" if test_mode_note() else "type change en"
     return ok(f"{test_mode_note()}Facture {invoice_id} : {category} ({reason}), {changed} {wanted}.", category=category)

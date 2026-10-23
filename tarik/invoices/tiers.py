@@ -95,9 +95,8 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
         return NO_AUTOFILL.format(role=role)
     wizard = "exp.invoice.partner.account.wizard"
     wizard_id = odoo_call(wizard, "create", {"invoice_id": invoice_id}, context=context)
-    code = odoo_call(wizard, "read", [wizard_id], fields=["third_party_account"], context=context)[0][
-        "third_party_account"
-    ]
+    proposed = odoo_call(wizard, "read", [wizard_id], fields=["third_party_account"], context=context)[0]
+    code = proposed["third_party_account"]
     if not code:
         return NO_AUTOFILL.format(role=role)
     odoo_json(wizard, "action_confirm", [wizard_id], context=context)
@@ -143,7 +142,10 @@ def create_tiers(invoice, name, kind, unchecked=False):
     name = as_named(name)
     values = {"name": name, "type": "company", "company_id": invoice["company_id"][0], side["side"]: True}
     if printed and normalized(name) == normalized(printed):
-        values.update({k: v for k, v in (("ice", invoice[side["ice"]]), ("vat", invoice[side["if"]])) if v})
+        if invoice[side["ice"]]:
+            values["ice"] = invoice[side["ice"]]
+        if invoice[side["if"]]:
+            values["vat"] = invoice[side["if"]]
     if unchecked:
         values["ignore_ice_if_verification"] = True
     if dry_run():
@@ -203,23 +205,31 @@ def link_tiers(invoice_id: int) -> dict:
         # Experio read no name, the check may have: the dossier's tiers with its ICE, then the closest by name, proposed
         # with a lower bar, never created from it (a name read whole, "ORDRE DES EXPERTS COMPTABLES - CONSEIL
         # REGIONAL...", is 62 % like the tiers' "STE L ORDRE DES EXPERTS COMPTABLES").
-        extracted = (stored_check(invoice_id) or (None, {}))[1]
+        extracted = checked_values(invoice_id)
         read = extracted.get("tier")
         if not read:
             return question(f"Facture {invoice_id} : aucun {role} détecté sur le scan. Quel est son nom ?")
-        if same := same_name(invoice, read, kind):
+        same = same_name(invoice, read, kind)
+        if same:
             return same
         phrase, choices = find_tiers(invoice_id, read, READ_MIN_SIMILARITY, extracted.get("ice"))
         ask = phrase if choices else f"{phrase} Faut-il le créer sous ce nom, ou est-ce un autre tiers (nom ou ICE) ?"
         return question(
             f"Facture {invoice_id} : Experio n'a pas lu de {role} ; le scan indique « {read} ». {ask}", choices=choices
         )
-    if same := same_name(invoice, printed, kind):
+    same = same_name(invoice, printed, kind)
+    if same:
         return same
     phrase, choices = find_tiers(invoice_id, printed)
     if not choices:  # nothing of the dossier resembles it: a new tiers, as the screen's "Créer"
         return create_tiers(invoice, printed, kind)
     return question(f"Facture {invoice_id} : {role} « {printed} » introuvable par ICE/IF. {phrase}", choices=choices)
+
+
+def checked_values(invoice_id):
+    """What the check read on the scan (dict), empty when the invoice is not checked yet."""
+    check = stored_check(invoice_id)
+    return check[1] if check else {}
 
 
 def same_name(invoice, name, kind):
@@ -233,12 +243,12 @@ def same_name(invoice, name, kind):
     result = link(invoice, same[0]["id"], kind)
     near = [p["name"] for _, p in ranked(name, found, TIERS_MIN_SIMILARITY, top=4) if p["id"] != same[0]["id"]]
     warned = f" Attention, tiers aux noms proches dans le dossier : {', '.join(near)}." if near else ""
-    said = (
+    told = (
         f"Facture {invoice['id']} : {SIDE[kind]['role']} « {name} » non reconnu par ICE/IF, relié au tiers du dossier "
         f"de même nom « {same[0]['name']} » (id {same[0]['id']}).{warned} S'il n'est pas le bon, un collaborateur du "
         "cabinet le change dans Experio. "
     )
-    return {**result, "message": said + result["message"]}
+    return {**result, "message": told + result["message"]}
 
 
 def find_tiers(invoice_id, name, minimum=TIERS_MIN_SIMILARITY, ice=None):
@@ -249,7 +259,8 @@ def find_tiers(invoice_id, name, minimum=TIERS_MIN_SIMILARITY, ice=None):
     company_id = require_invoice(invoice_id, ["company_id"])["company_id"][0]
     found = dossier_tiers(company_id)
     same_ice = [(1.0, p) for p in found if ice and p["ice"] == ice]
-    by_name = [pair for pair in ranked(name, found, minimum) if pair[1] not in [p for _, p in same_ice]]
+    with_ice = [p for _, p in same_ice]
+    by_name = [(score, p) for score, p in ranked(name, found, minimum) if p not in with_ice]
     close = (same_ice + by_name)[:5]
     if not close:
         return f"Aucun tiers du dossier ne ressemble à « {name} ».", {}
@@ -272,7 +283,7 @@ def choose_tiers(invoice_id, decision, answer, choices=None):
         return link(invoice, chosen, side_of(invoice))
     if said(UNCHECKED, normalized(answer or "")):  # the client's own words, never the agent's
         kind = side_of(invoice)
-        name = invoice[SIDE[kind]["printed"]] or (stored_check(invoice_id) or (None, {}))[1].get("tier")
+        name = invoice[SIDE[kind]["printed"]] or checked_values(invoice_id).get("tier")
         if name:
             return create_tiers(invoice, name, kind, unchecked=True)
     decision = str(decision or "").strip()

@@ -76,7 +76,8 @@ def check_journal(invoice_id: int) -> dict:
     if chosen_by_dossier(invoice):
         journal = (invoice["journal_id"] or [0, "non renseigné"])[1]
         return routine(f"Facture {invoice_id} : journal {journal} (choix propre au dossier).")
-    if refusal := journal_stop(invoice_id, invoice):
+    refusal = journal_stop(invoice_id, invoice)
+    if refusal:
         return refusal
     field = SETTING[(invoice["type"], bool(invoice["is_local_invoice"]))][0]
     expected = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=[field])[0][field]
