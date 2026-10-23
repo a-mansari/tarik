@@ -2,7 +2,7 @@
 
 import pytest
 
-from tarik.invoices.prepaid import prepaid_period
+from engine.tools.invoices.prepaid import prepaid_period
 
 
 @pytest.mark.functionality

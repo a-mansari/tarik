@@ -9,10 +9,10 @@ name: sarnec-n8n
 services:
   server:
     build: .
-    command: ["python", "-m", "app"] # as the image's own, for an image built before app/ held the server
+    command: ["python", "-m", "server"] # as the image's own, for an image built before server/ held the server
     restart: unless-stopped
     ports:
-      - "127.0.0.1:2024:2024" # app/server.py, local only
+      - "127.0.0.1:2024:2024" # server/server.py, local only
     environment:
       VAULT_ADDR: http://vault:8200
       TARIK_DEFAULT_CABINET: experio_cabinet_8
@@ -25,11 +25,8 @@ services:
     volumes: # the code, mounted (a change needs a restart, not a build); never vault/ nor .env
       - ./check.py:/app/check.py
       - ./run.py:/app/run.py
-      - ./app:/app/app
+      - ./server:/app/server
       - ./engine:/app/engine
-      - ./tarik:/app/tarik
-      - ./sql:/app/sql
-      - ./web/dist:/app/web/dist # the pages, built on this machine: cd web && npm run build
       - ./tests:/app/tests
       - ./pytest.ini:/app/pytest.ini
       - ./pyproject.toml:/app/pyproject.toml

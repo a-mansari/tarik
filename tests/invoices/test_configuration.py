@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.core import experio as experio_calls
-from tarik.invoices import configuration
+from engine.tools.core import experio as experio_calls
+from engine.tools.invoices import configuration
 
 
 @pytest.fixture

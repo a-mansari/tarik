@@ -2,7 +2,7 @@
 
 import pytest
 
-from tarik.invoices.classify import client_side
+from engine.tools.invoices.classify import client_side
 
 
 @pytest.mark.security

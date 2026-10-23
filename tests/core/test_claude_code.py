@@ -10,8 +10,8 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.tools import tool
 
 from engine.claude_code import ChatClaudeCode
-from tarik.core import cabinets, claude_code, model
-from tarik.core.app import ToolError
+from engine.tools.core import cabinets, claude_code, model
+from engine.tools.core.app import ToolError
 
 
 def fake_cli(tmp_path, monkeypatch, result):

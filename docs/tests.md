@@ -61,7 +61,7 @@ By marker:
 | style | 6 (5 in style/, plus test_content's line-break test) |
 | llm | 8 |
 | live | 0 |
-| no marker | 25 (all in pages/) |
+| no marker | 25 (all in api/) |
 
 The marked tests add up to 242, plus 25 unmarked, for 267 in total.
 
@@ -70,7 +70,7 @@ The marked tests add up to 242, plus 25 unmarked, for 267 in total.
 ## 2. core
 
 ### tests/core/test_content.py
-Covers the UI-edited content (engine/content.py, app/pages/content.py): round-trip forms and refused breaking changes.
+Covers the UI-edited content (engine/content.py, server/api/content.py): round-trip forms and refused breaking changes.
 - `test_a_form_sent_back_unchanged_is_the_same_document` [functionality, param over documents]: an unchanged form gives back the exact original document.
 - `test_a_field_changed_changes_that_field_only` [functionality]: editing one field leaves all other fields untouched.
 - `test_a_change_that_would_break_its_reader_is_refused` [security, param]: unknown tools, a bad header, an empty body, a model change, extra keys or bad JSON are refused.
@@ -155,7 +155,7 @@ Covers code and content consistency: ruff, tool names in skills, prompt files, n
 - `test_one_format` [style]: `ruff format` reports no files to reformat.
 - `test_skills_and_instructions_name_only_the_agents_tools` [style]: skills reference only real tool names and their arguments.
 - `test_each_tool_prompt_is_read_by_the_tool_its_file_names` [style]: each tools/*.md prompt is used by its named tool.
-- `test_no_sql_in_python` [style]: SQL lives in sql/ files, never inline in Python.
+- `test_no_sql_in_python` [style]: SQL lives in engine/sql/ files, never inline in Python.
 
 ---
 
@@ -393,7 +393,7 @@ Covers invoice list filters.
 - `test_amounts_have_two_decimals` [communication]: listed amounts are shown with two decimals.
 
 ### tests/invoices/test_pipeline_messages.py
-Covers what a step failure tells the client (engine/tools.py).
+Covers what a step failure tells the client (engine/calls.py).
 - `test_a_refusal_reaches_the_client_word_for_word` [communication]: a step's refusal text reaches the client unchanged.
 - `test_missing_or_unknown_arguments_are_told_plainly` [communication]: bad tool arguments produce a plain-language message.
 - `test_a_crash_is_told_plainly_and_its_details_stay_in_the_log` [communication]: a crash shows a plain message, with details kept in the log.
@@ -446,15 +446,15 @@ Covers withholding answers checked against what Experio accepts.
 
 ## 8. ui (25 of the 30 tests have no category marker)
 
-### tests/ui/test_chat.py
+### tests/api/test_chat.py
 Covers the Discussions page's messages.
 - `test_a_wrong_message_is_refused_before_anything_is_done` [param]: invalid chat messages are refused before saving or running.
 - `test_a_message_reads_as_written_with_its_files_and_reminders_left_out`: a saved message shows its text without files or reminders.
 - `test_tarik_s_turn_shows_its_tools_as_they_run_then_its_reply`: Tarik's turn streams its tool calls, then the reply.
 - `test_a_reply_s_markdown_is_shown_without_its_html`: reply Markdown is rendered with raw HTML stripped.
 
-### tests/ui/test_experio_api.py
-Covers the Experio app's API (app/api.py) against a Vault in memory.
+### tests/api/test_experio_api.py
+Covers the Experio app's API (server/experio_api.py) against a Vault in memory.
 - `test_a_new_cabinet_needs_every_setting_tarik_uses`: a create with settings missing or unknown is refused, nothing written.
 - `test_a_new_cabinet_is_written_in_simulation_unless_told_and_never_twice`: a new cabinet starts in DRY_RUN 1; a bad name is refused.
 - `test_a_deactivated_cabinet_comes_back_with_its_other_keys_kept`: a create on a deactivated cabinet reactivates it, other keys kept.
@@ -462,19 +462,19 @@ Covers the Experio app's API (app/api.py) against a Vault in memory.
 - `test_a_delete_deactivates_and_keeps_the_settings`: a delete sets ACTIVE 0 and keeps every setting.
 - `test_only_the_experio_key_opens_the_api` [security]: no key, a wrong key or no key in Vault: 401.
 
-### tests/ui/test_pages.py
+### tests/api/test_pages.py
 Covers how a run's page shows what the run was asked.
 - `test_a_workflow_s_inputs_read_in_plain_words`: run inputs are shown with plain names and readable values.
 - `test_an_email_thread_reads_as_its_sender_subject_and_message`: an email-run input shows its sender, subject and message.
 
-### tests/ui/test_roles.py
+### tests/api/test_roles.py
 Covers member vs admin rights.
 - `test_what_changes_everyone_s_tarik_is_an_admin_s` [param]: content, settings, layout and manual runs are admin-only.
 - `test_reading_and_talking_to_tarik_are_every_member_s` [param]: every member can read pages and chat.
 - `test_a_member_s_change_is_refused_before_it_reaches_the_page`: the server refuses a member's change before the page handler.
 - `test_an_admin_s_change_and_a_member_s_reading_go_through`: admin changes and member reads both succeed.
 
-### tests/ui/test_settings.py
+### tests/api/test_settings.py
 Covers cabinet settings edited from the Cabinets page and written to Vault.
 - `test_a_setting_tarik_could_not_use_is_refused` [param]: setting values Tarik could not use are rejected.
 - `test_the_recipients_take_what_tarik_reads`: the recipients field accepts the format Tarik actually parses.
@@ -485,7 +485,7 @@ Covers cabinet settings edited from the Cabinets page and written to Vault.
 - `test_a_page_older_than_vault_s_version_changes_nothing`: a stale form version is rejected without writing.
 - `test_the_page_renders_a_saved_change_and_never_a_secret`: the page shows saved changes but never secret values.
 
-### tests/ui/test_team_accounts.py
+### tests/api/test_team_accounts.py
 Covers admin-made accounts, one-time links, the last admin, and the audit journal.
 - `test_an_invited_account_sets_its_password_once_through_its_link` [security]: an invite link sets the password exactly once.
 - `test_a_new_link_replaces_the_old_one_and_closing_kills_it` [security]: a new link invalidates the old one, and closing the account kills it.
@@ -554,7 +554,7 @@ Shared builders:
 | `test_the_statement_goes_to_the_bank_account_the_client_chose`: the statement goes to the chosen bank account | `BANKS` lines 265-274 (8) | `BANK_QUESTION` line 260, `BANK_CHOICES` line 264 | `processing` | `bank` line 277: `chosen_among(decision, BANK_CHOICES)` | a journal id (41, 42, 43), or `0` for no choice |
 | `test_a_reply_goes_to_the_question_it_answers`: the reply goes to the question it answers | `ABOUT` lines 302-309 (6) | `TWO_QUESTIONS` line 293, `WAITING` line 298 | `processing` | `about` line 312: `meant(WAITING, call.input["about"])` | the invoice id (11 or 12), or `None` |
 
-That is 67 scenario cases in total, each multiplied by REPEAT. The judges reuse the server's own parsers (`tarik.core.conversation.yes_no` / `chosen_among`, `tarik.invoices.exercice.exercice_choice`, `tarik.invoices.listing.STATUSES`, `tarik.invoices.pipeline.meant`, `tarik.core.words.normalized`). So "right" means "the server would apply what the client meant".
+That is 67 scenario cases in total, each multiplied by REPEAT. The judges reuse the server's own parsers (`engine.tools.core.conversation.yes_no` / `chosen_among`, `engine.tools.invoices.exercice.exercice_choice`, `engine.tools.invoices.listing.STATUSES`, `engine.tools.invoices.pipeline.meant`, `engine.tools.core.words.normalized`). So "right" means "the server would apply what the client meant".
 
 **Judge convention**, the same in every judge:
 - No call: "right" if the expected value is empty or None, else "asked again".

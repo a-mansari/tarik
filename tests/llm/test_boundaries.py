@@ -17,8 +17,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from tarik.core.cabinets import CABINET_SETTINGS, SHARED_SETTINGS
-from tarik.core.words import normalized
+from engine.tools.core.cabinets import CABINET_SETTINGS, SHARED_SETTINGS
+from engine.tools.core.words import normalized
 from tests.llm.conftest import REPEAT
 
 WRITES = {

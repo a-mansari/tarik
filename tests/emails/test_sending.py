@@ -5,9 +5,9 @@ from email.utils import parsedate_to_datetime
 
 import pytest
 
-from tarik.core.app import ToolError
-from tarik.emails import sending
-from tarik.emails.sending import recipient_allowed, render, send_email
+from engine.tools.core.app import ToolError
+from engine.tools.emails import sending
+from engine.tools.emails.sending import recipient_allowed, render, send_email
 
 
 @pytest.mark.security

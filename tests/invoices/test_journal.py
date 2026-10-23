@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.core.app import ToolError
-from tarik.invoices import journal
+from engine.tools.core.app import ToolError
+from engine.tools.invoices import journal
 
 INVOICE = {
     "state": "draft",
@@ -73,7 +73,7 @@ def test_another_dossiers_journal_stops_the_invoice(experio):
 
 @pytest.mark.functionality
 def test_no_account_is_looked_up_without_the_dossiers_journal(experio, monkeypatch):
-    from tarik.invoices import accounts
+    from engine.tools.invoices import accounts
 
     draft = {"account_id": False, "type": "purchase"}
     monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: draft)
@@ -85,7 +85,7 @@ def test_no_account_is_looked_up_without_the_dossiers_journal(experio, monkeypat
 
 @pytest.mark.functionality
 def test_an_invoice_made_before_the_dossiers_journals_is_moved_to_them_first(experio, monkeypatch):
-    from tarik.invoices import accounts
+    from engine.tools.invoices import accounts
 
     moved = []
     monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: {"account_id": False, "type": "purchase"})

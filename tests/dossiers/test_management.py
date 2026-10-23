@@ -2,9 +2,9 @@
 
 import pytest
 
-from tarik.core.app import ToolError
-from tarik.dossiers import management
-from tarik.dossiers.management import problems_of, read_rows
+from engine.tools.core.app import ToolError
+from engine.tools.dossiers import management
+from engine.tools.dossiers.management import problems_of, read_rows
 
 HEAD = "Nom;Type;ICE;IF;Mode de declaration;Ville;RAS TVA"
 

@@ -3,8 +3,8 @@ isolation tests share."""
 
 import pytest
 
+from engine.tools.core import cabinets
 from shared import A, B
-from tarik.core import cabinets
 from tests import testdb
 
 

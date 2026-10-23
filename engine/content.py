@@ -14,10 +14,10 @@ import re
 
 import psycopg
 
-import tarik.core.model
-from tarik.core.config import POSTGRES
-from tarik.core.model import front_matter
-from tarik.core.queries import Q
+import engine.tools.core.model
+from engine.tools.core.config import POSTGRES
+from engine.tools.core.model import front_matter
+from engine.tools.core.queries import Q
 
 PATH = re.compile(r"(agent|labels)\.json|(skills|tools)/[a-z0-9-]+\.md")  # the documents there can be
 LATEST = {}  # path: its latest text (this process serves every edit, so this is always current)
@@ -37,7 +37,7 @@ def text(path):
 
 # The two JSON documents, as dicts read everywhere; filled and changed in place by each latest version.
 AGENT, LABELS = {}, {}
-tarik.core.model.SOURCE = text  # the tools read their prompts and the model's name from here
+engine.tools.core.model.SOURCE = text  # the tools read their prompts and the model's name from here
 
 
 def applied(path):
@@ -85,7 +85,7 @@ async def save(pool, path, new, author, note="", create=False, reshape=False):
         await db.execute(Q.content_saved, (path, new, author, noted(note)))
     LATEST[path] = new
     applied(path)
-    from app import audit  # audit uses the run store, which imports the graphs, which read this content
+    from server import audit  # audit uses the run store, which imports the graphs, which read this content
 
     await audit.record(author, "content_saved", path, note=noted(note))
     return True

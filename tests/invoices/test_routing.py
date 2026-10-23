@@ -2,8 +2,8 @@
 
 import pytest
 
-from tarik.core.cabinets import cabinet_db
-from tarik.invoices import pipeline
+from engine.tools.core.cabinets import cabinet_db
+from engine.tools.invoices import pipeline
 
 
 @pytest.fixture

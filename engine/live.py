@@ -1,6 +1,6 @@
 """What changed, for the pages to follow Tarik near real time, as n8n's do, without asking the database again and
 again: each run created, each step recorded and each run ended counts one change for its run, its cabinet and its
-conversation (touched). A browser holds one event stream for all its pages (server.py: /ui/live, web/src/live.js)
+conversation (touched). A browser holds one event stream for all its pages (server.py: /ui/live, server/web/src/live.js)
 that sleeps until a change one of them shows happens; that page then fetches what it needs once. A page nobody looks
 at costs no query, however many are open.
 

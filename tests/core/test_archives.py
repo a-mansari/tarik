@@ -1,13 +1,13 @@
-"""Zip files clients send (tarik.core.archives): each replaced by the files in it Tarik takes, nothing in it trusted:
-a path cut to its name, sizes read never believed, a zip in a zip opened once, what is left out said."""
+"""Zip files clients send (engine.tools.core.archives): each replaced by the files in it Tarik takes, nothing in it
+trusted: a path cut to its name, sizes read never believed, a zip in a zip opened once, what is left out said."""
 
 import io
 import zipfile
 
 import pytest
 
-from tarik.core import archives
-from tarik.core.config import FILE_TYPES
+from engine.tools.core import archives
+from engine.tools.core.config import FILE_TYPES
 
 
 def zipped(*entries, flags=0):
@@ -148,7 +148,7 @@ def test_an_empty_archive_is_said_never_silently_lost():
 def test_a_zip_sent_to_the_agent_is_saved_as_its_files_once(db_cabinet):
     import base64
 
-    from tarik.invoices.pipeline import save_files
+    from engine.tools.invoices.pipeline import save_files
 
     data = base64.b64encode(zipped(("f1.pdf", b"1"), ("f2.pdf", b"2"))).decode()
     files = [{"id": "zip-1", "file_name": "lot.zip", "mime_type": "application/zip", "data": data}]
