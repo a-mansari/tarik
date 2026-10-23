@@ -15,7 +15,6 @@ from starlette.responses import JSONResponse, Response
 
 from engine import agent, live, runs
 from engine.chat import REMINDER
-from engine.content import LABELS
 from engine.tools import call
 from tarik.core import archives
 from tarik.core.archives import unpacked
@@ -23,7 +22,7 @@ from tarik.core.cabinets import CABINETS
 from tarik.core.config import FILE_TYPES, MAX_PAGES
 from tarik.core.conversation import SKIPPED_NOTE, files_of, own_words
 from tarik.core.queries import Q
-from ui.pages import chosen, openings, templates
+from ui.pages import chosen, markdown, openings, page
 
 SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations: the only ones written to from here
 SHOWN = re.compile(r"[\w.@-]{1,120}")  # any conversation's id, to read it (an email thread's, a workflow's)
@@ -45,7 +44,7 @@ LIMITS = [
     ("Photos", "toute taille : redressées et réduites pour la lecture"),
     ("Lecture", f"les {MAX_PAGES} premières pages d'une facture donnent ses informations"),
 ]
-# What the page needs to show the limits and check them before sending (chat_form.html, chat.js).
+# What the page needs to show the limits and check them before sending (web/src/components/ChatForm.vue).
 FORM = {
     "accepted": ",".join(ACCEPTED),
     "limits": LIMITS,
@@ -65,7 +64,7 @@ def megabytes(size):
 
 def problems(text, files):
     """Each cap ``text`` and ``files`` exceed, in plain French: which one, by how much, and how to stay under it.
-    chat.js says the same before sending; this is what holds."""
+    ChatForm.vue says the same before sending; this is what holds."""
     found = []
     if len(text) > MAX_TEXT:
         found.append(f"Message de {len(text)} caractères : {MAX_TEXT} au plus. Raccourcissez-le.")
@@ -202,30 +201,39 @@ async def talk(cabinet, session):
 async def chat_page(request: Request):
     """The conversations of the cabinet picked in the sidebar, and a new one to start."""
     cabinet = chosen(request)
-    context = {
-        "cabinet": cabinet,
-        "conversations": await conversations(cabinet) if cabinet else [],
-        "labels": LABELS,
-        "new": f"chat-{uuid.uuid4().hex}",
-    }
-    return templates.TemplateResponse(request, "chat.html", context)
+    found = await conversations(cabinet) if cabinet else []
+    return page(
+        {
+            "cabinet": cabinet,
+            "conversations": [{**item, "started": runs.when(item["started"])} for item in found],
+            "new": f"chat-{uuid.uuid4().hex}",
+        }
+    )
+
+
+def rendered(shown):
+    """The messages with their words as the page shows them: markdown rendered here, its HTML never kept."""
+    return [{**entry, "text_html": str(markdown(entry["text"])) if entry["text"] else ""} for entry in shown]
 
 
 async def conversation_page(request: Request):
-    """One conversation: its messages, the message on its way, and the form; ``?partial=1`` its messages alone, which
-    the page asks for again while Tarik works (its tools showing as they run). The cabinet picked in the sidebar's."""
+    """One conversation: its messages, the message on its way, and the form's limits; the page reads it again at
+    each change of the conversation while Tarik works (its tools showing as they run). The cabinet picked in the
+    sidebar's."""
     cabinet, session = chosen(request), request.path_params["session_id"]
     if not known(cabinet, session, written=False):
-        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
-    context = {
-        "cabinet": cabinet,
-        "session_id": session,
-        "written": bool(SESSION.fullmatch(session)),
-        **await talk(cabinet, session),
-        **FORM,
-    }
-    template = "chat_talk.html" if request.query_params.get("partial") else "chat_conversation.html"
-    return templates.TemplateResponse(request, template, context)
+        return page({"error": "Discussion introuvable."}, 404)
+    talked = await talk(cabinet, session)
+    return page(
+        {
+            "cabinet": cabinet,
+            "session_id": session,
+            "written": bool(SESSION.fullmatch(session)),
+            **talked,
+            "messages": rendered(talked["messages"]),
+            **FORM,
+        }
+    )
 
 
 async def download(request: Request):
@@ -233,12 +241,12 @@ async def download(request: Request):
     cabinet, session = chosen(request), request.path_params["session_id"]
     name = request.query_params.get("nom", "")
     if not known(cabinet, session, written=False):
-        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+        return page({"error": "Discussion introuvable."}, 404)
     files = sql.Identifier(cabinet, "tarik_files")
     async with runs.pool.connection() as db:
         found = await (await db.execute(sql.SQL(Q.chat_file).format(files=files), (session, name))).fetchone()
     if not found:
-        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+        return page({"error": "Fichier introuvable."}, 404)
     file_name, mime_type, data = found
     headers = {
         "Content-Disposition": f"attachment; filename*=UTF-8''{quote(file_name)}",
@@ -328,23 +336,29 @@ async def metrics_of(cabinet):
     return metrics
 
 
-async def dashboard_page(request: Request):
-    """The cabinet picked: its last DAYS days in four numbers, kept up to date as runs happen (``?partial=metrics``:
-    the numbers alone, which the page asks for at each change of the cabinet), and a message to Tarik that opens a
-    new conversation in place (chat.js)."""
-    cabinet = chosen(request)
-    metrics = await metrics_of(cabinet) if cabinet else None
-    if request.query_params.get("partial") == "metrics":
-        context = {"cabinet": cabinet, "metrics": metrics, "days": DAYS}
-        return templates.TemplateResponse(request, "dashboard_metrics.html", context)
-    context = {
-        "cabinet": cabinet,
-        "metrics": metrics,
-        "days": DAYS,
-        "new": f"chat-{uuid.uuid4().hex}",
-        "messages": [],
-        "latest": None,
-        "going": False,
-        **FORM,
+def readable(metrics):
+    """The four numbers as the team reads them: a mean duration in s or min s, a share failed in %, "—" for none;
+    ``bad`` when some failed."""
+    seconds, failed = metrics["seconds"], metrics["failed"]
+    if seconds is None:
+        duration = "—"
+    elif seconds < 60:
+        duration = f"{seconds:.1f} s".replace(".", ",")
+    else:
+        duration = f"{int(seconds // 60)} min {round(seconds % 60)} s"
+    share = "—" if failed is None else f"{round(failed * 100, 1):g} %".replace(".", ",")
+    return {
+        "runs": str(metrics["runs"]),
+        "seconds": duration,
+        "failed": share,
+        "conversations": str(metrics["conversations"]),
+        "bad": bool(failed),
     }
-    return templates.TemplateResponse(request, "dashboard.html", context)
+
+
+async def dashboard_page(request: Request):
+    """The cabinet picked: its last DAYS days in four numbers, read again by the page at each change of the cabinet,
+    and a message to Tarik that opens a new conversation (``new``) with the form's limits."""
+    cabinet = chosen(request)
+    metrics = readable(await metrics_of(cabinet)) if cabinet else None
+    return page({"cabinet": cabinet, "metrics": metrics, "days": DAYS, "new": f"chat-{uuid.uuid4().hex}", **FORM})

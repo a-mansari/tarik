@@ -1,18 +1,16 @@
 """The content pages: everything the team may change without touching code (engine/content.py), each document as a
 plain form, its history (who, when, why), what each version changed, and going back to one in a click."""
 
-import contextlib
 import difflib
 import json
 import re
 from datetime import UTC, datetime
-from urllib.parse import parse_qs, quote
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse, RedirectResponse, Response
+from starlette.responses import JSONResponse, Response
 
 from engine import content, runs
-from ui.pages import graph_name, templates
+from ui.pages import graph_name, page
 
 SEP = "|"  # a JSON field's path in a form: keys joined
 
@@ -108,11 +106,14 @@ def sections(path, text):
 
 
 ROOTS = ("instructions", "tools", "read_tools", "graphs", "steps", "statuses", "descriptions")  # a JSON form's fields
+MAX_FIELDS = 500
 
 
 def rebuilt(path, form):
-    """The document's new text from the form's fields, on top of its latest version."""
-    values = {key: values[0].replace("\r\n", "\n") for key, values in form.items()}
+    """The document's new text from the form's fields ({key: text}), on top of its latest version."""
+    if not isinstance(form, dict) or len(form) > MAX_FIELDS or not all(isinstance(v, str) for v in form.values()):
+        raise ValueError("un formulaire illisible")
+    values = {key: value.replace("\r\n", "\n") for key, value in form.items()}
     old = content.text(path)
     if path.endswith(".json"):
         data = json.loads(old)
@@ -195,7 +196,6 @@ TIPS = {  # what each button is for, and its file's format, shown when it is hov
     "section_import": "Charge un fichier exporté de cette même section (JSON « tarik-contenu-section »). Ses champs "
     "remplacent ceux en service et forment une nouvelle version, vérifiée avant d'être enregistrée.",
 }
-templates.env.globals["tips"] = TIPS
 
 
 def download(data, name):
@@ -250,17 +250,16 @@ def author_of(request):
     return f"{user['name']} <{user['email']}>"
 
 
-async def import_section(request, path):
+async def import_section(request, path, data):
     """One card's fields from its export, over the document's latest version: a new version, or {error}."""
     try:
-        data = json.loads(await request.body())
         if data.get("format") != SECTION or data.get("document") != path or not isinstance(data.get("fields"), dict):
             raise ValueError("ce fichier n'est pas l'export d'une section de ce document")
-        form = {f["key"]: [f["value"]] for section in sections(path, content.text(path)) for f in section["fields"]}
+        form = {f["key"]: f["value"] for section in sections(path, content.text(path)) for f in section["fields"]}
         unknown = [key for key in data["fields"] if key not in form]
         if unknown:
             raise ValueError(f"champs inconnus : {', '.join(unknown)}")
-        form |= {key: [str(value)] for key, value in data["fields"].items()}
+        form |= {key: str(value) for key, value in data["fields"].items()}
         note = f"Importé : {data.get('section') or 'une section'} ({str(data.get('file') or 'un export')[:80]})"
         made = await content.save(runs.pool, path, rebuilt(path, form), author_of(request), note)
     except (ValueError, KeyError, TypeError) as refusal:
@@ -272,8 +271,16 @@ async def contents_page(request: Request):
     last = await content.last_changes(runs.pool)
     listed = []
     for key, name, paths in groups():
-        listed.append((key, name, [(path, title(path), last.get(path)) for path in paths]))
-    return templates.TemplateResponse(request, "contents.html", {"groups": listed, "empty": not content.documents()})
+        documents = [{"path": path, "title": title(path), "change": shown(last.get(path))} for path in paths]
+        listed.append({"key": key, "name": name, "documents": documents})
+    return page({"groups": listed, "empty": not content.documents(), "tips": TIPS})
+
+
+def shown(change):
+    """A version's author (their name only) and time, as the pages read them; None for none."""
+    if change is None:
+        return None
+    return {**change, "author": change["author"].split(" <")[0], "at": runs.when(change["at"])}
 
 
 def card_download(path, text, index):
@@ -299,51 +306,54 @@ async def compared(path, shown):
 
 
 async def content_page(request: Request):
-    """A document's form (GET), saved (POST), or one of its versions restored (POST action=restore)."""
+    """A document's form (GET), saved (POST {fields, note}), one of its versions restored (POST {action: "restore",
+    version, note}), or one card's fields imported (POST its export): {saved} or {error}."""
     path = request.path_params["path"]
     if path not in content.documents():
-        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
-    author = author_of(request)
-    error, text = None, content.text(path)
+        return page({"error": "document inconnu"}, 404)
+    text = content.text(path)
     exported = request.query_params.get("export")
     if exported is not None and exported.isdigit():  # one card's fields, as a file
         card = card_download(path, text, int(exported))
         if card is not None:
             return card
-    if request.method == "POST" and request.headers.get("content-type", "").startswith("application/json"):
-        return await import_section(request, path)
     if request.method == "POST":
-        form = parse_qs((await request.body()).decode(), keep_blank_values=True, max_num_fields=500)
-        note = form.pop("note", [""])[0]
-        restoring = form.get("action", [""])[0] == "restore"
-        try:
-            if restoring:
-                old, _ = await content.version(runs.pool, path, int(form["version"][0]))
-                if old is None:
-                    raise ValueError("version inconnue")
-                note = note or f"Retour à la version {form['version'][0]}"
-                new = old
-            else:
-                new = rebuilt(path, {key: value for key, value in form.items() if key != "action"})
-            changed = await content.save(runs.pool, path, new, author, note)
-            saved = "1" if changed else "0"
-            return RedirectResponse(f"/ui/tarik-prompts/{quote(path)}?saved={saved}", status_code=303)
-        except (ValueError, KeyError) as refusal:
-            error = str(refusal)
-            if not restoring:
-                with contextlib.suppress(ValueError, KeyError):
-                    text = rebuilt(path, form)  # the form shown again as it was sent, to be corrected
-    versions = await content.history(runs.pool, path)
-    compare = await compared(path, request.query_params.get("version"))
+        return await saved(request, path)
+    versions = [shown(v) for v in await content.history(runs.pool, path)]
     context = {
         "path": path,
         "title": title(path),
         "what": what(path),
         "sections": sections(path, text),
         "versions": versions,
-        "compare": compare,
-        "error": error,
-        "saved": request.query_params.get("saved"),
+        "compare": await compared(path, request.query_params.get("version")),
         "model": json.loads(text)["model"] if path == "agent.json" else None,
+        "tips": TIPS,
     }
-    return templates.TemplateResponse(request, "content.html", context, status_code=400 if error else 200)
+    return page(context)
+
+
+async def saved(request, path):
+    """The form's fields as a new version, or an old version again: {saved: whether a version was made} or {error}."""
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            raise ValueError("un formulaire illisible")
+    except ValueError as refusal:
+        return JSONResponse({"error": str(refusal)}, status_code=400)
+    if "format" in data:
+        return await import_section(request, path, data)
+    note = str(data.get("note") or "")
+    try:
+        if data.get("action") == "restore":
+            old, _ = await content.version(runs.pool, path, int(data["version"]))
+            if old is None:
+                raise ValueError("version inconnue")
+            note = note or f"Retour à la version {data['version']}"
+            new = old
+        else:
+            new = rebuilt(path, data.get("fields"))
+        changed = await content.save(runs.pool, path, new, author_of(request), note)
+    except (ValueError, KeyError, TypeError) as refusal:
+        return JSONResponse({"error": str(refusal)}, status_code=400)
+    return JSONResponse({"saved": changed})

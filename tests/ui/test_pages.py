@@ -2,6 +2,7 @@
 thread as its sender, subject and message, and nothing internal."""
 
 import asyncio
+import json
 
 import pytest
 
@@ -54,7 +55,7 @@ def test_the_pages_show_the_cabinet_picked_else_the_first(monkeypatch):
     ]
 
 
-def test_picking_a_cabinet_keeps_it_and_opens_its_dashboard(monkeypatch):
+def test_picking_a_cabinet_keeps_it(monkeypatch):
     import asyncio
 
     from starlette.requests import Request
@@ -63,40 +64,129 @@ def test_picking_a_cabinet_keeps_it_and_opens_its_dashboard(monkeypatch):
 
     monkeypatch.setattr(pages, "CABINETS", {"cab_a"})
 
-    def pick(cabinet, target):
+    def pick(cabinet):
         async def receive():
-            return {"type": "http.request", "body": f"cabinet={cabinet}".encode()}
+            return {"type": "http.request", "body": json.dumps({"cabinet": cabinet}).encode()}
 
-        scope = {
-            "type": "http",
-            "method": "POST",
-            "path": "/ui/cabinet",
-            "headers": [],
-            "query_string": f"next={target}".encode(),
-        }
+        scope = {"type": "http", "method": "POST", "path": "/ui/api/cabinet", "headers": [], "query_string": b""}
         return asyncio.run(pages.choose(Request(scope, receive)))
 
-    answer = pick("cab_a", "/ui/llm-calls")
-    assert answer.headers["location"] == "/ui/accueil" and "tarik_cabinet=cab_a" in answer.headers["set-cookie"]
-    assert pick("cab_a", "//evil.example").headers["location"] == "/ui/accueil"  # never another site
-    assert "set-cookie" not in pick("cab_unknown", "/ui/executions").headers
+    answer = pick("cab_a")
+    assert answer.status_code == 200 and "tarik_cabinet=cab_a" in answer.headers["set-cookie"]
+    refused = pick("cab_unknown")
+    assert refused.status_code == 400 and "set-cookie" not in refused.headers
 
 
 @pytest.mark.security
 @pytest.mark.parametrize(
     "target", ["/%5Cevil.example", "/%5C%5Cevil.example", "//evil.example", "https://evil.example"]
 )
-def test_logging_in_never_leads_to_another_site(target):
+def test_logging_in_never_leads_to_another_site(target, monkeypatch):
     from starlette.requests import Request
 
     from app import server
 
+    async def log_in(email, password):
+        return "token"
+
+    async def record(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(server.accounts, "log_in", log_in)
+    monkeypatch.setattr(server.audit, "record", record)
+
+    async def receive():
+        return {"type": "http.request", "body": b'{"email": "a@experio.ma", "password": "p"}'}
+
     scope = {
         "type": "http",
-        "method": "GET",
-        "path": "/login",
-        "headers": [],
+        "method": "POST",
+        "path": "/ui/api/login",
+        "headers": [(b"host", b"tarik"), (b"origin", b"http://tarik")],
         "query_string": f"next={target}".encode(),
+        "scheme": "http",
+        "server": ("tarik", 80),
     }
-    page = asyncio.run(server.login(Request(scope))).body.decode()
-    assert "evil.example" not in page and "/ui/accueil" in page  # browsers read « /\x » as « //x »
+    answer = json.loads(asyncio.run(server.login(Request(scope, receive))).body)
+    assert answer["next"] == "/ui/accueil"  # browsers read « /\x » as « //x »
+
+
+def answered(handler, path_params=None, query=b"", cookie=None):
+    """A page's JSON and status, from ``handler`` called as the pages' app calls it."""
+    from starlette.requests import Request
+
+    headers = [(b"cookie", f"tarik_cabinet={cookie}".encode())] if cookie else []
+    scope = {"type": "http", "method": "GET", "path": "/ui/api/x", "headers": headers, "query_string": query}
+    scope["path_params"] = path_params or {}
+    answer = asyncio.run(handler(Request(scope)))
+    return answer.status_code, json.loads(answer.body)
+
+
+def test_the_runs_list_gives_each_run_its_time_as_read(monkeypatch):
+    from ui import pages
+
+    async def recent(cabinet, graph, limit):
+        return [{"run_id": "r1", "graph": "agent", "started": "2026-10-20T09:33:22+00:00", "depth": 0}]
+
+    monkeypatch.setattr(pages, "CABINETS", {"cab_a"})
+    monkeypatch.setattr(pages.runs, "recent", recent)
+    status, shown = answered(pages.runs_page, cookie="cab_a")
+    assert (
+        status == 200
+        and shown["cabinet"] == "cab_a"
+        and shown["runs"][0]["when"] == pages.runs.when("2026-10-20T09:33:22+00:00")
+    )
+
+
+@pytest.mark.security
+def test_a_run_s_conversation_reaches_the_page_only_as_the_server_s_markdown(monkeypatch):
+    from ui import pages
+
+    async def run(run_id):
+        if run_id != "r1":
+            return None
+        messages = [
+            {"type": "human", "content": "<script>alert(1)</script> **bonjour**"},
+            {"type": "ai", "content": "[lien](javascript:alert(1))", "tool_calls": []},
+        ]
+        return {
+            "run_id": "r1",
+            "graph": "agent",
+            "cabinet": "elsewhere",
+            "session_id": "s",
+            "input": {"messages": []},
+            "output": {"messages": messages},
+            "started": "2026-10-20T09:33:22+00:00",
+            "ended": None,
+            "steps": [],
+        }
+
+    monkeypatch.setattr(pages.runs, "run", run)
+    assert answered(pages.run_page, {"run_id": "gone"})[0] == 404
+    status, shown = answered(pages.run_page, {"run_id": "r1"})
+    client, tarik = shown["conversation"]
+    assert (
+        status == 200
+        and shown["run"]["when"] == pages.runs.when("2026-10-20T09:33:22+00:00")
+        and shown["prompts"] == []
+    )
+    assert "<script>" not in client["text_html"] and "<strong>bonjour</strong>" in client["text_html"]
+    assert "href" not in tarik["text_html"]  # an unsafe link left as words
+
+
+@pytest.mark.security
+def test_a_conversation_s_model_calls_are_only_the_chosen_cabinet_s(monkeypatch):
+    from ui import pages
+
+    asked = []
+
+    async def calls(cabinet, session):
+        asked.append(cabinet)
+        return []
+
+    monkeypatch.setattr(pages, "CABINETS", set())
+    monkeypatch.setattr(pages.prompts, "calls", calls)
+    assert answered(pages.prompt_calls_page, {"session_id": "s"}, cookie="cab_a")[0] == 404  # no cabinet served
+    monkeypatch.setattr(pages, "CABINETS", {"cab_a"})
+    assert answered(pages.prompt_calls_page, {"session_id": "s"}, cookie="cab_other")[0] == 404  # none of its calls
+    assert asked == ["cab_a"]  # the cabinet served, never the cookie's name as is

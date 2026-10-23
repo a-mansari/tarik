@@ -1,0 +1,20 @@
+{
+  "name": "tarik-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "cytoscape": "3.30.2",
+    "cytoscape-dagre": "2.5.0",
+    "dagre": "0.8.5",
+    "vue": "3.5.43",
+    "vue-router": "5.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.9",
+    "vite": "8.3.4"
+  }
+}
