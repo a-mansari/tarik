@@ -82,47 +82,39 @@ async def save(pool, path, new, author, note="", create=False, reshape=False):
     if new == LATEST.get(path):
         return False
     async with pool.connection() as db:
-        await db.execute(
-            Q.content_saved,
-            (path, new, author, note.strip()[:300]),
-        )
+        await db.execute(Q.content_saved, (path, new, author, noted(note)))
     LATEST[path] = new
     applied(path)
     from app import audit  # audit uses the run store, which imports the graphs, which read this content
 
-    await audit.record(author, "content_saved", path, note=note.strip()[:300])
+    await audit.record(author, "content_saved", path, note=noted(note))
     return True
+
+
+def noted(note):
+    """A version's note as it is kept: trimmed, 300 characters at most."""
+    return note.strip()[:300]
 
 
 async def retire(pool, path, author, note):
     """A document no code reads any more, retired: an empty last version, so it is no longer one (content_latest),
     its history kept. Code only, when the code that read it goes."""
     async with pool.connection() as db:
-        await db.execute(Q.content_saved, (path, "", author, note.strip()[:300]))
+        await db.execute(Q.content_saved, (path, "", author, noted(note)))
     LATEST.pop(path, None)
 
 
 async def history(pool, path, limit=50):
     """The document's versions, latest first: {id, author, note, at}."""
     async with pool.connection() as db:
-        rows = await (
-            await db.execute(
-                Q.content_history,
-                (path, limit),
-            )
-        ).fetchall()
+        rows = await (await db.execute(Q.content_history, (path, limit))).fetchall()
     return [{"id": i, "author": author, "note": note, "at": at} for i, author, note, at in rows]
 
 
 async def version(pool, path, version_id):
     """One version's text, and the one before it (None for the first): (text, previous)."""
     async with pool.connection() as db:
-        rows = await (
-            await db.execute(
-                Q.content_version,
-                (path, version_id),
-            )
-        ).fetchall()
+        rows = await (await db.execute(Q.content_version, (path, version_id))).fetchall()
     if not rows:
         return None, None
     return rows[0][0], rows[1][0] if len(rows) > 1 else None
@@ -161,26 +153,41 @@ def unknown_names(words):
     return sorted(set(re.findall(r"\b[A-Za-z]+(?:_[a-z]+)+\b", words)) - known)
 
 
+def names_known(words):
+    """ValueError when ``words`` name a tool or argument the agent does not have (unknown_names)."""
+    wrong = unknown_names(words)
+    if wrong:
+        raise ValueError(f"nomme des outils ou champs que Tarik n'a pas : {', '.join(wrong)}")
+
+
 def checked(path, new, reshape=False):
     """ValueError, in plain French, when ``new`` would break what reads the document ``path``. A new document (an
     import into a new stack) has no earlier version to keep the shape of: only its own form is checked."""
     old = LATEST.get(path)
     if path.endswith(".json"):
-        try:
-            parsed = json.loads(new)
-        except ValueError:
-            raise ValueError("ce n'est plus un JSON valide") from None
-        if old is not None and not reshape:
-            same_shape(json.loads(old), parsed)
-            if path == "agent.json" and parsed["model"] != json.loads(old)["model"]:
-                raise ValueError("le modèle ne se modifie pas ici")
-        elif path == "agent.json" and not {"model", "instructions", "tools", "read_tools"} <= set(parsed):
-            raise ValueError("il manque des rubriques (model, instructions, tools, read_tools)")
-        if path == "agent.json":
-            words = parsed["instructions"] + " " + " ".join(parsed["tools"].values())
-            if wrong := unknown_names(words):
-                raise ValueError(f"nomme des outils ou champs que Tarik n'a pas : {', '.join(wrong)}")
-        return
+        checked_json(path, old, new, reshape)
+    else:
+        checked_markdown(path, old, new)
+
+
+def checked_json(path, old, new, reshape):
+    """checked() for a JSON document: still JSON, its shape kept (unless ``reshape``), agent.json's model too."""
+    try:
+        parsed = json.loads(new)
+    except ValueError:
+        raise ValueError("ce n'est plus un JSON valide") from None
+    if old is not None and not reshape:
+        same_shape(json.loads(old), parsed)
+        if path == "agent.json" and parsed["model"] != json.loads(old)["model"]:
+            raise ValueError("le modèle ne se modifie pas ici")
+    elif path == "agent.json" and not {"model", "instructions", "tools", "read_tools"} <= set(parsed):
+        raise ValueError("il manque des rubriques (model, instructions, tools, read_tools)")
+    if path == "agent.json":
+        names_known(parsed["instructions"] + " " + " ".join(parsed["tools"].values()))
+
+
+def checked_markdown(path, old, new):
+    """checked() for a skill or a tool's prompt: a text, its header kept but for the description."""
     meta, body = front_matter(new)
     old_meta = front_matter(old)[0] if old is not None else meta
     if not body.strip():
@@ -189,5 +196,5 @@ def checked(path, new, reshape=False):
         raise ValueError("l'en-tête ne se modifie pas ici, sauf la description")
     if not meta.get("description", "x").strip():
         raise ValueError("la description est vide")
-    if path.startswith("skills/") and (wrong := unknown_names(body + " " + meta.get("description", ""))):
-        raise ValueError(f"nomme des outils ou champs que Tarik n'a pas : {', '.join(wrong)}")
+    if path.startswith("skills/"):
+        names_known(body + " " + meta.get("description", ""))

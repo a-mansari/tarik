@@ -43,9 +43,8 @@ def wake_tarik(cabinet, why):
     from engine import runs  # runs imports the graphs, which import the tools: here, once all are loaded
 
     try:
-        asyncio.run_coroutine_threadsafe(
-            runs.start("emails", {"input": {"cabinet": cabinet}, "cabinet": cabinet}), LOOP
-        ).result(30)
+        started = runs.start("emails", {"input": {"cabinet": cabinet}, "cabinet": cabinet})
+        asyncio.run_coroutine_threadsafe(started, LOOP).result(30)
         if why:
             log(f"{cabinet}: {why}, Emails run started")
     except Exception as error:  # the next tick tries again

@@ -77,27 +77,45 @@ def outcome_of(update, node=""):
 def raw_outcome(update):
     if not isinstance(update, dict):
         return "", ""
-    last = update.get("last") or ((update.get("outcomes") or [None])[-1])
-    status = last.get("status", "") if isinstance(last, dict) else ""
-    line = (last or {}).get("message", "") if isinstance(last, dict) else ""
+    outcomes = update.get("outcomes")
+    last = update.get("last") or (outcomes[-1] if outcomes else None)
+    status, line = "", ""
+    if isinstance(last, dict):
+        status, line = last.get("status", ""), last.get("message", "")
     if update.get("message"):  # a run's summary
         line = update["message"]
     messages = update.get("messages") or []
-    if messages and not line:  # the agent: the tools it calls, what it says, or what a tool answered
-        message = messages[-1]
-        calls = getattr(message, "tool_calls", None)
-        if calls:
-            line = "Utilise " + ", ".join(call["name"] for call in calls)
-        elif getattr(message, "type", "") == "tool":
-            line = readable(message.text if isinstance(message.text, str) else message.text())
-        else:
-            line = str(getattr(message, "text", "") or "")
-    if not line:  # an email thread's step: what it says (emails.Steps), in the order a person reads it
-        refusal = update.get("refusal") or {}
-        said = [update.get(key) for key in ("error", "sent", "manager", "acknowledged", "reply")]
-        line = next((text for text in [*said, refusal.get("message")] if isinstance(text, str) and text), "")
-        status = status or ("error" if update.get("error") else "stop" if refusal.get("refused") else "")
+    if messages and not line:
+        line = agent_line(messages[-1])
+    if not line:
+        status, line = thread_outcome(update, status)
     return status, " ".join(str(line).split())[:300]
+
+
+def agent_line(message):
+    """The agent's step in one line: the tools it calls, what it says, or what a tool answered."""
+    calls = getattr(message, "tool_calls", None)
+    if calls:
+        return "Utilise " + ", ".join(call["name"] for call in calls)
+    if getattr(message, "type", "") == "tool":
+        return readable(message.text if isinstance(message.text, str) else message.text())
+    return str(getattr(message, "text", "") or "")
+
+
+def thread_outcome(update, status):
+    """An email thread's step: its status (``status`` when it has one) and what it says (emails.Steps), in the
+    order a person reads it."""
+    refusal = update.get("refusal") or {}
+    said = [update.get(key) for key in ("error", "sent", "manager", "acknowledged", "reply")]
+    said.append(refusal.get("message"))
+    line = next((text for text in said if isinstance(text, str) and text), "")
+    if status:
+        return status, line
+    if update.get("error"):
+        return "error", line
+    if refusal.get("refused"):
+        return "stop", line
+    return "", line
 
 
 async def open_store(conninfo):
@@ -166,7 +184,10 @@ async def nested(name, given, cabinet, session, thread=None, node=None):
 
 def configurable_of(cabinet, session, thread):
     """What a run's graph is configured with: its cabinet, its conversation, and the agent's thread when it has one."""
-    return {"cabinet": cabinet, "session_id": session, **({"thread_id": thread} if thread else {})}
+    configurable = {"cabinet": cabinet, "session_id": session}
+    if thread:
+        configurable["thread_id"] = thread
+    return configurable
 
 
 def graph_of(name, configurable):
@@ -185,9 +206,8 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
     inner = {}  # a part's path ("facture", "fichier|facture") -> the status of the last step that ran inside it
     rounds = {}  # (namespace, node) -> the round its latest task started in
     running = RUNNING.set(run_id)
-    async with (
-        slots or contextlib.nullcontext()
-    ):  # shortcut: one process's runs at once (20); several servers would need a shared queue
+    # shortcut: one process's runs at once (20); several servers would need a shared queue
+    async with slots or contextlib.nullcontext():
         async with pool.connection() as db:
             await db.execute(Q.run_running, (run_id,))
         try:  # the agent made here too: no model configured fails the run, never leaves it queued
@@ -204,27 +224,7 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
                 elif mode == "values" and not namespace:
                     output = data
                 elif mode == "updates":
-                    path = "|".join(part.split(":")[0] for part in namespace)
-                    async with pool.connection() as db:
-                        for node, update in (data or {}).items():
-                            step_status, line = outcome_of(update, node)
-                            own = f"{path}|{node}" if path else node
-                            if own in inner:  # a part ending: it reads as the last step inside it did
-                                step_status = inner[own]
-                            inner[path] = step_status
-                            await db.execute(
-                                Q.step_recorded,
-                                (
-                                    run_id,
-                                    path,
-                                    "|".join(namespace),
-                                    rounds.get((namespace, node)),
-                                    node,
-                                    step_status,
-                                    line,
-                                    capped(update),
-                                ),
-                            )
+                    await recorded(run_id, namespace, data, rounds, inner)
                     live.touched(run_id, cabinet, session)
         except Exception as caught:  # the run's own failure: kept for whoever looks, the server goes on
             status, error, failure = "error", f"{type(caught).__name__}: {caught}", caught
@@ -238,43 +238,51 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
     return output, failure
 
 
+async def recorded(run_id, namespace, data, rounds, inner):
+    """Each node's update in ``data`` recorded as a step of the run, in the part ``namespace`` names. ``inner`` and
+    ``rounds`` as execute() keeps them."""
+    path = "|".join(part.split(":")[0] for part in namespace)
+    async with pool.connection() as db:
+        for node, update in (data or {}).items():
+            step_status, line = outcome_of(update, node)
+            own = f"{path}|{node}" if path else node
+            if own in inner:  # a part ending: it reads as the last step inside it did
+                step_status = inner[own]
+            inner[path] = step_status
+            lane = "|".join(namespace)
+            step = (run_id, path, lane, rounds.get((namespace, node)), node, step_status, line, capped(update))
+            await db.execute(Q.step_recorded, step)
+
+
+RUN_KEYS = (
+    "run_id",
+    "graph",
+    "cabinet",
+    "session_id",
+    "thread_id",
+    "status",
+    "input",
+    "output",
+    "error",
+    "started",
+    "ended",
+    "parent_id",
+    "parent_node",
+)
+
+
 async def run(run_id):
     """A run as the API shows it, its steps included; None when unknown."""
     async with pool.connection() as db:
-        found = await (
-            await db.execute(
-                Q.run_found,
-                (run_id,),
-            )
-        ).fetchone()
+        found = await (await db.execute(Q.run_found, (run_id,))).fetchone()
         if not found:
             return None
+        shown = dict(zip(RUN_KEYS, found, strict=True))
         steps = await (await db.execute(Q.steps_after, (run_id, 0))).fetchall()  # every step: their ids start at 1
-        children = await (
-            await db.execute(
-                Q.run_children,
-                (run_id,),
-            )
-        ).fetchall()
+        children = await (await db.execute(Q.run_children, (run_id,))).fetchall()
         parent = None
-        if found[11]:
-            parent = await (await db.execute(Q.run_graph, (found[11],))).fetchone()
-    keys = (
-        "run_id",
-        "graph",
-        "cabinet",
-        "session_id",
-        "thread_id",
-        "status",
-        "input",
-        "output",
-        "error",
-        "started",
-        "ended",
-        "parent_id",
-        "parent_node",
-    )
-    shown = dict(zip(keys, found, strict=True))
+        if shown["parent_id"]:
+            parent = await (await db.execute(Q.run_graph, (shown["parent_id"],))).fetchone()
     shown["run_id"] = str(shown["run_id"])
     shown["parent_id"] = shown["parent_id"] and str(shown["parent_id"])
     shown["parent_graph"] = parent and parent[0]
@@ -293,6 +301,7 @@ async def run(run_id):
 async def recent(cabinet=None, graph=None, limit=50):
     """The latest runs started on their own, newest first, each with the runs started in its steps (and theirs) right
     after it, indented by depth: what the runs list shows. A graph filter lists that graph's runs, children too."""
+    keys = ("run_id", "graph", "cabinet", "session_id", "status", "error", "started", "ended")
     async with pool.connection() as db:
         asked = {"cabinet": cabinet or None, "graph": graph or None, "limit": limit}
         rows = await (await db.execute(Q.runs_recent, asked)).fetchall()
@@ -301,17 +310,19 @@ async def recent(cabinet=None, graph=None, limit=50):
         while level and not graph:
             found = await (await db.execute(Q.runs_under, (level,))).fetchall()
             for row in found:
-                below.setdefault(row[8], []).append(row)
+                parent_id = row[len(keys)]  # Q.runs_under's rows: a run's fields, then its parent's id
+                below.setdefault(parent_id, []).append(row)
             level = [row[0] for row in found]
-    keys = ("run_id", "graph", "cabinet", "session_id", "status", "error", "started", "ended")
 
     def shown(row, depth):
+        fields = dict(zip(keys, row[: len(keys)], strict=True))
+        started, ended = fields["started"], fields["ended"]
         return {
-            **dict(zip(keys, row[:8], strict=True)),
-            "run_id": str(row[0]),
-            "started": row[6].isoformat(),
-            "ended": row[7] and row[7].isoformat(),
-            "seconds": round((row[7] or datetime.now(UTC)).timestamp() - row[6].timestamp(), 1),
+            **fields,
+            "run_id": str(fields["run_id"]),
+            "started": started.isoformat(),
+            "ended": ended and ended.isoformat(),
+            "seconds": round((ended or datetime.now(UTC)).timestamp() - started.timestamp(), 1),
             "depth": depth,
         }
 
@@ -330,12 +341,7 @@ async def recent(cabinet=None, graph=None, limit=50):
 async def steps_after(run_id, after):
     """The run's steps after step id ``after``, and whether the run has ended."""
     async with pool.connection() as db:
-        steps = await (
-            await db.execute(
-                Q.steps_after,
-                (run_id, after),
-            )
-        ).fetchall()
+        steps = await (await db.execute(Q.steps_after, (run_id, after))).fetchall()
         state = await (await db.execute(Q.run_state, (run_id,))).fetchone()
     return shown_steps(steps), state
 

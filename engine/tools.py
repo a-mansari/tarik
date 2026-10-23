@@ -80,7 +80,9 @@ async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a
     if not (tool in QUIET_WHEN_OK and result.get("status") == "ok" and not result.get("tell")):
         # An answer's outcome is the step it answers (answer_pending says which): recorded under answer_pending, a
         # question asked again could never be answered.
-        origin = result.get("step") or tool if tool == "answer_pending" else tool
+        origin = tool
+        if tool == "answer_pending":
+            origin = result.get("step") or tool
         await call(cabinet, "record_step", run_id=run_id, session_id=session, origin=origin, result=result)
     return result
 
