@@ -48,7 +48,8 @@ def missing_content():
         for name in sorted(prompts)
         if f"tools/{name}.md" not in content.LATEST
     ]
-    described = {**{f"Experio_{n}": v for n, v in AGENT.get("read_tools", {}).items()}, **AGENT.get("tools", {})}
+    described = {f"Experio_{name}": text for name, text in AGENT.get("read_tools", {}).items()}
+    described.update(AGENT.get("tools", {}))
     gaps += [
         f"agent.json describes no {tool.name}"
         for tool in agent.TOOLS
@@ -81,19 +82,20 @@ def dropped():
     engine.tools.started keeps only those, any other is dropped without a word. Each tool is called with its
     run_workflow replaced, to see what it hands over."""
     kept = {"traitement": traitement.INPUTS, "dossier": dossier.INPUTS}
-    handed, runtime = [], SimpleNamespace(state={"messages": []}, config={"configurable": {}})
+    handed = []
+    runtime = SimpleNamespace(state={"messages": []}, config={"configurable": {}})
 
     async def handing(name, runtime, inputs):
         handed.append((name, {**inputs, **agent.fixed(runtime)}))
 
-    gaps, run_workflow = [], agent.run_workflow
+    gaps = []
+    run_workflow = agent.run_workflow
     agent.run_workflow = handing
     try:
         for tool in agent.TOOLS:
             if not tool.coroutine or tool.coroutine.__name__ in agent.READ_TOOLS:
                 continue  # load_skill, and the read tools: no workflow
-            parameters = inspect.signature(tool.coroutine).parameters
-            arguments = {n: 0 if p.default is p.empty else p.default for n, p in parameters.items() if n != "runtime"}
+            arguments = sample_arguments(tool.coroutine)
             asyncio.run(tool.coroutine(runtime=runtime, **arguments))
             name, inputs = handed[-1]
             gaps += [f"{tool.name}: {key} not handed to {name}" for key in arguments if key not in inputs]
@@ -103,13 +105,24 @@ def dropped():
     return gaps
 
 
+def sample_arguments(coroutine):
+    """{argument: its default, else 0} for every argument of a tool's ``coroutine`` but its runtime."""
+    arguments = {}
+    for name, parameter in inspect.signature(coroutine).parameters.items():
+        if name != "runtime":
+            arguments[name] = 0 if parameter.default is parameter.empty else parameter.default
+    return arguments
+
+
 if __name__ == "__main__":
     content.load()
     gaps = [f"{where}: no tool {name}" for name, where in called().items() if name not in TOOLS]
     gaps += missing_content() + undescribed() + unnamed() + dropped()
+    if gaps:
+        print("\n".join(gaps))
+        sys.exit(1)
     print(
-        "\n".join(gaps)
-        or f"ok: {len(called())} tools called, all exist; the content has all it needs; every step described, "
+        f"ok: {len(called())} tools called, all exist; the content has all it needs; every step described, "
         "every input named and kept"
     )
-    sys.exit(1 if gaps else 0)
+    sys.exit(0)

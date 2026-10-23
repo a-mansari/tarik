@@ -25,11 +25,13 @@ async def accounts_page(request: Request):
         me = request.state.user["email"]
         try:
             if action == "add":
-                token = await accounts.invite(email, form.get("name", ""), form.get("role", "member"))
-                link, done = token, f"Compte créé pour {email.strip().lower()}."
-                await audit.record(me, "account_invited", email.strip().lower(), role=form.get("role", "member"))
+                role = form.get("role", "member")
+                link = await accounts.invite(email, form.get("name", ""), role)
+                done = f"Compte créé pour {email.strip().lower()}."
+                await audit.record(me, "account_invited", email.strip().lower(), role=role)
             elif action == "link":
-                link, done = await accounts.new_link(email), f"Nouveau lien pour {email}."
+                link = await accounts.new_link(email)
+                done = f"Nouveau lien pour {email}."
                 await audit.record(me, "account_link", email)
             elif action == "role":
                 await accounts.set_role(email, form.get("role", ""))

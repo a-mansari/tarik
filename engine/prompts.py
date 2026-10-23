@@ -132,12 +132,8 @@ async def calls(cabinet, session_id, since=None, until=None):
     """A conversation's model calls, in order (optionally those of one run's time): {id, agent, at, messages}."""
 
     async with runs().pool.connection() as db:
-        rows = await (
-            await db.execute(
-                of(Q.prompt_calls_of, cabinet),
-                (session_id, since, since, until, until),
-            )
-        ).fetchall()
+        asked = (session_id, since, since, until, until)
+        rows = await (await db.execute(of(Q.prompt_calls_of, cabinet), asked)).fetchall()
     return [{"id": i, "agent": agent, "at": at, "messages": n} for i, agent, at, n in rows]
 
 
@@ -145,23 +141,12 @@ async def prompt(cabinet, call_id):
     """One call's whole prompt: {agent, at, session_id, system, tools, messages}, or None."""
 
     async with runs().pool.connection() as db:
-        row = await (
-            await db.execute(
-                of(Q.prompt_call, cabinet),
-                (call_id,),
-            )
-        ).fetchone()
+        row = await (await db.execute(of(Q.prompt_call, cabinet), (call_id,))).fetchone()
         if not row:
             return None
         agent, at, session, system, tools, hashes = row
-        found = dict(
-            await (
-                await db.execute(
-                    of(Q.prompt_parts_of, cabinet),
-                    ([system, tools, *hashes],),
-                )
-            ).fetchall()
-        )
+        parts = await (await db.execute(of(Q.prompt_parts_of, cabinet), ([system, tools, *hashes],))).fetchall()
+        found = dict(parts)
     missing = "[effacé]"  # a part removed since (the keeping period)
     return {
         "agent": agent,

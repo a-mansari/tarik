@@ -74,11 +74,7 @@ def opened(name, data, accepted, budget, skipped, depth):
         limit = min(MAX_FILE, budget["bytes"])
         content, why = read(archive, member, limit)
         if why == TOO_BIG:
-            why = (
-                f"plus de {MAX_FILE // MB} Mo une fois décompressé ({MAX_FILE // MB} Mo au plus par fichier)"
-                if limit == MAX_FILE
-                else f"l'archive dépasse {MAX_TOTAL // MB} Mo décompressés (envoyez-le dans une autre archive)"
-            )
+            why = too_big(limit)
         if why:
             skipped.append(f"{label} : {why}")
             continue
@@ -96,6 +92,13 @@ def opened(name, data, accepted, budget, skipped, depth):
     return found
 
 
+def too_big(limit):
+    """Why a file over ``limit`` bytes is left out: over MAX_FILE itself, or over what was left of MAX_TOTAL."""
+    if limit == MAX_FILE:
+        return f"plus de {MAX_FILE // MB} Mo une fois décompressé ({MAX_FILE // MB} Mo au plus par fichier)"
+    return f"l'archive dépasse {MAX_TOTAL // MB} Mo décompressés (envoyez-le dans une autre archive)"
+
+
 TOO_BIG = "too big"  # read's answer for a file over its limit, said by the caller with the limit it was over
 TEXT_ENTRIES = (".txt", ".csv")  # entries files that are plain text: a FEC, a grand livre exported as CSV
 SEPARATORS = "\t;|,"
@@ -106,11 +109,12 @@ NO_ENTRIES = "texte sans écritures comptables (ni FEC ni grand livre)"
 def entries_like(data):
     """True when plain text ``data`` reads as a table of entries (a FEC, a grand livre): a header and at least one
     row, split in MIN_COLUMNS columns or more by the same separator. A note or a README in a zip is not."""
-    text = data[:65536].decode("utf-8", "ignore") or data[:65536].decode("latin-1")
-    lines = [line for line in text.splitlines() if line.strip()][:5]
-    if len(lines) < 2:
+    start = data[:65536]  # the first 64 KB hold the header and rows enough
+    text = start.decode("utf-8", "ignore") or start.decode("latin-1")
+    header_and_row = [line for line in text.splitlines() if line.strip()][:2]
+    if len(header_and_row) < 2:
         return False
-    return any(all(line.count(sep) + 1 >= MIN_COLUMNS for line in lines[:2]) for sep in SEPARATORS)
+    return any(all(line.count(sep) + 1 >= MIN_COLUMNS for line in header_and_row) for sep in SEPARATORS)
 
 
 def read(archive, member, limit):

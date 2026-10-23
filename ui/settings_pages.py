@@ -24,26 +24,22 @@ SECTIONS = {
 assert sorted(key for keys in SECTIONS.values() for key in keys) == sorted(cabinet_settings.FIELDS)
 
 
+def field(key, value, words):
+    """One setting as the page shows it: {key, kind, optional, name, description, value}."""
+    return {
+        "key": key,
+        "kind": cabinet_settings.FIELDS[key],
+        "optional": key in cabinet_settings.OPTIONAL,
+        "name": words.get(key, {}).get("name", key),
+        "description": words.get(key, {}).get("description", ""),
+        "value": value,
+    }
+
+
 def fields(data):
     """The sections with their fields: [(title, [{key, kind, name, description, value}])]."""
     values, words = cabinet_settings.shown(data), LABELS.get("settings", {})
-    return [
-        (
-            title,
-            [
-                {
-                    "key": key,
-                    "kind": cabinet_settings.FIELDS[key],
-                    "optional": key in cabinet_settings.OPTIONAL,
-                    "name": words.get(key, {}).get("name", key),
-                    "description": words.get(key, {}).get("description", ""),
-                    "value": values[key],
-                }
-                for key in keys
-            ],
-        )
-        for title, keys in SECTIONS.items()
-    ]
+    return [(title, [field(key, values[key], words) for key in keys]) for title, keys in SECTIONS.items()]
 
 
 async def cabinet_page(request: Request):

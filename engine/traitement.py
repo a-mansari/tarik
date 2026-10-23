@@ -131,6 +131,11 @@ PHASES = {
 assert [tool for steps in PHASES.values() for tool in steps] == INVOICE_CHAIN, "the phases must hold the chain in order"
 
 
+def after(items, index):
+    """The item after ``items[index]``; END after the last."""
+    return items[index + 1] if index + 1 < len(items) else END
+
+
 def ok_then(following):
     """Each step (and phase) only when the one before says ok; a question, stop, wait or error ends the invoice's run.
     Its two ways out named, so the drawn graph shows the sequence (LangGraph cannot see inside the lambda)."""
@@ -142,17 +147,22 @@ def phase(name, steps):
     graph = StateGraph(Invoice, input_schema=Given, output_schema=Done)
     for index, tool in enumerate(steps):
         graph.add_node(tool, invoice_step(tool))
-        graph.add_conditional_edges(tool, *ok_then(steps[index + 1] if index + 1 < len(steps) else END))
+        graph.add_conditional_edges(tool, *ok_then(after(steps, index)))
     graph.add_conditional_edges(START, lambda s: s["entry"] if s["entry"] in steps else steps[0], steps)
     return graph.compile(name=name)
+
+
+def entry_phase(state: Given):
+    """The phase holding the run's entry step."""
+    return next(name for name, steps in PHASES.items() if state["entry"] in steps)
 
 
 invoice = StateGraph(Invoice, input_schema=Given, output_schema=Outcomes)
 names = list(PHASES)
 for index, name in enumerate(names):
     invoice.add_node(name, phase(name, PHASES[name]))
-    invoice.add_conditional_edges(name, *ok_then(names[index + 1] if index + 1 < len(names) else END))
-invoice.add_conditional_edges(START, lambda s: next(n for n in names if s["entry"] in PHASES[n]), names)
+    invoice.add_conditional_edges(name, *ok_then(after(names, index)))
+invoice.add_conditional_edges(START, entry_phase, names)
 INVOICE = invoice.compile(name="facture")
 
 
@@ -199,43 +209,30 @@ def after_identify(state: File):
     return "releve" if last.get("kind") == "statement" else "decoupage"
 
 
+def invoice_run(state: File, entry, **document):
+    """An invoice's run in the file's: started at step ``entry``, on ``document`` (its file_id or invoice_id)."""
+    return Send(
+        "facture", {"call": state["call"], "run_id": state["run_id"], "entry": entry, **document, "outcomes": []}
+    )
+
+
 def drafts(state: File):
     """One invoice run per invoice cut out of the file, from its draft."""
     if state["last"].get("status") != "ok":
         return END
-    return [
-        Send(
-            "facture",
-            {
-                "call": state["call"],
-                "run_id": state["run_id"],
-                "entry": "create_draft_invoice",
-                "file_id": file_id,
-                "outcomes": [],
-            },
-        )
-        for file_id in state["last"]["files"]
-    ]
+    return [invoice_run(state, "create_draft_invoice", file_id=file_id) for file_id in state["last"]["files"]]
 
 
 def split_drafts(state: File):
     """The drafts Experio split off the document (a bill holding several: wait_until_read's split_off), each through
     its invoice's steps once, after the draft Tarik made."""
     done = {outcome.get("invoice_id") for outcome in state["outcomes"]}
-    found = [i for outcome in state["outcomes"] for i in outcome.get("split_off") or [] if i not in done]
-    return [
-        Send(
-            "facture",
-            {
-                "call": state["call"],
-                "run_id": state["run_id"],
-                "entry": "wait_until_read",
-                "invoice_id": invoice_id,
-                "outcomes": [],
-            },
-        )
-        for invoice_id in dict.fromkeys(found)
-    ] or END
+    found = []
+    for outcome in state["outcomes"]:
+        found += [invoice_id for invoice_id in outcome.get("split_off") or [] if invoice_id not in done]
+    if not found:
+        return END
+    return [invoice_run(state, "wait_until_read", invoice_id=invoice_id) for invoice_id in dict.fromkeys(found)]
 
 
 file = StateGraph(File, output_schema=Outcomes)
@@ -256,12 +253,10 @@ FILE = file.compile(name="fichier")  # a document: drawn once, whatever brought 
 async def aiguillage(state: Run):
     """Where the message goes, from what the database knows (route_message); without it, the mode decides."""
     call = state["call"]
+    mode = call.get("mode") or "files"
     try:
-        route = (
-            await run_tool(
-                call["cabinet"], "route_message", session_id=call["session_id"], mode=call.get("mode") or "files"
-            )
-        )["route"]
+        found = await run_tool(call["cabinet"], "route_message", session_id=call["session_id"], mode=mode)
+        route = found["route"]
     except Exception:
         route = call.get("mode")
     if route == "answer" and call.get("comptabiliser") == "oui":
@@ -389,7 +384,8 @@ def resume_at(state: Run):
 
     fixes = [sent(invoice_id, "assign_account") for invoice_id in corrections if invoice_id != answered]
     if last.get("status") != "ok" or not following:
-        fixes += [sent(answered, "assign_account")] if answered in corrections else []
+        if answered in corrections:
+            fixes.append(sent(answered, "assign_account"))
         return fixes or "resume"
     if following == "waiting_drafts":
         if answered in corrections:

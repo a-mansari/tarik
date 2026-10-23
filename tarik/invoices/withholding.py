@@ -85,7 +85,8 @@ def local_withholding_answer(reply):
     if answer.get("retenue") is False:
         return {"retenue": False, "local_withholding_percentage": False, "tax_withholding_percentage": "0"}
     try:
-        is_ir, tva = rate(answer.get("is_ir")), rate(answer.get("tva", 0)) or 0
+        is_ir = rate(answer.get("is_ir"))
+        tva = rate(answer.get("tva", 0)) or 0
     except ValueError:
         return None
     if (
@@ -114,10 +115,10 @@ def described(values):
     if not values.get("retenue"):
         return "sans retenue à la source"
     if "foreign_withholding" in values:
-        who = {"supplier": "à la charge du fournisseur", "society": "à la charge de la société"}.get(
-            values["foreign_withholding"], ""
-        )
-        return f"retenue étrangère {who}" + ("" if values.get("local_service", True) else ", service rendu hors Maroc")
+        payers = {"supplier": "à la charge du fournisseur", "society": "à la charge de la société"}
+        who = payers.get(values["foreign_withholding"], "")
+        abroad = "" if values.get("local_service", True) else ", service rendu hors Maroc"
+        return f"retenue étrangère {who}{abroad}"
     rates = [f"IS/IR {values['local_withholding_percentage']} %"] if values.get("local_withholding_percentage") else []
     if values.get("tax_withholding_percentage") not in (None, False, "0"):
         rates.append(f"TVA {values['tax_withholding_percentage']} %")
@@ -149,13 +150,15 @@ def _rule(invoice, kind, answer):
     else (None, values)."""
     invoice_id, tier = invoice["id"], invoice["partner_id"][1]
     if answer:
-        values = (withholding_answer if kind == "foreign" else local_withholding_answer)(answer)
+        values = withholding_answer(answer) if kind == "foreign" else local_withholding_answer(answer)
         if values is None:
             return question(f"Facture {invoice_id} : réponse non comprise, {QUESTIONS[kind]}"), None
         return None, values
     if kind == "foreign":
         values = _last_foreign_rule(invoice)
-        return (None, values) if values else (question(f"Facture de {tier} : {QUESTIONS['foreign']}"), None)
+        if values:
+            return None, values
+        return question(f"Facture de {tier} : {QUESTIONS['foreign']}"), None
     if not account_code(invoice).startswith(LOCAL_RAS_ACCOUNTS):
         return routine(f"Facture {invoice_id} : sans retenue à la source."), None
     return question(f"Facture de {tier} : {QUESTIONS['local']}"), None

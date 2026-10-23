@@ -101,7 +101,8 @@ async def create(request: Request):
 async def change(request, cabinet):
     try:
         _, settings = await payload(request)
-        if unknown := sorted(set(settings) - set(cabinet_settings.FIELDS)):
+        unknown = sorted(set(settings) - set(cabinet_settings.FIELDS))
+        if unknown:
             raise ValueError(f"réglages inconnus : {', '.join(unknown)}")
         keys = await cabinet_settings.save(runs.pool, cabinet, settings, None, ACTOR, "Experio")
     except LookupError as error:

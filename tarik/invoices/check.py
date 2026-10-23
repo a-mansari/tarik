@@ -166,9 +166,9 @@ def _captured(invoice):
     partner = invoice["partner_id"]
     stored = {name: invoice.get(name) for name in CAPTURED}
     stored["tier"] = partner[1] if partner else None
-    stored["ice"] = (
-        (odoo_call("exp.partner", "read", [partner[0]], fields=["ice"])[0]["ice"] or None) if partner else None
-    )
+    stored["ice"] = None
+    if partner:
+        stored["ice"] = odoo_call("exp.partner", "read", [partner[0]], fields=["ice"])[0]["ice"] or None
     return stored
 
 

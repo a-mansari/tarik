@@ -51,7 +51,8 @@ def classify(url, pdf, callback_url, wait=WAIT):
         if not event.wait(wait):
             log(f"gladden: no answer in {wait} s")
             return None
-        return _waiting[token][1].get("type") or None
+        _event, results = _waiting[token]
+        return results.get("type") or None
     except httpx.HTTPError as error:
         log(f"gladden: {type(error).__name__}: {error}")
         return None
@@ -64,7 +65,8 @@ def answered(token, callback):
     waiting = _waiting.get(token)
     if waiting is None:
         return False
-    results = (callback.get("params") or {}).get("results") or {}
-    waiting[1].update(type=results.get("type"), sub_type=results.get("sub_type"))
-    waiting[0].set()
+    event, results = waiting
+    given = (callback.get("params") or {}).get("results") or {}
+    results.update(type=given.get("type"), sub_type=given.get("sub_type"))
+    event.set()
     return True

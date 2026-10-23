@@ -44,7 +44,9 @@ def list_collaborators() -> str:
             "res.users", "search_read", [("employee_type", "=", "employee")], order="name", fields=USER_FIELDS
         )
         profile_ids = sorted({user["exp_profile_id"][0] for user in users if user["exp_profile_id"]})
-        profiles = profile_ids and odoo_call("exp.user.profile", "read", profile_ids, fields=["management_group"])
+        profiles = []
+        if profile_ids:
+            profiles = odoo_call("exp.user.profile", "read", profile_ids, fields=["management_group"])
         levels = {profile["id"]: profile["management_group"] or "none" for profile in profiles}  # "none", "user"...
         managers = {user["id"]: odoo_call("res.users", "user_is_manager", [user["id"]]) for user in users}
     lines = [collaborator_line(user, levels, managers[user["id"]]) for user in users]

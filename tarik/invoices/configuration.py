@@ -90,6 +90,22 @@ def account_by_code(company_id, prefixes):
     return None
 
 
+def ignored_abroad(amount, purchase):
+    """True when Experio ignores ``amount`` on a foreign invoice: the stamp, a purchase's deductions, an advance."""
+    if amount == "amount_stamp":
+        return True
+    return amount in FOREIGN_IGNORED and (purchase or amount == "advance_amount")
+
+
+def amount_fields():
+    """The dossier's switch and account fields AMOUNTS names, sorted."""
+    fields = set()
+    for _, *sides in AMOUNTS.values():
+        for switch, account, _ in sides:
+            fields |= {field for field in (switch, account) if field}
+    return sorted(fields)
+
+
 def settings_needed(invoice, company):
     """What the invoice's amounts need the dossier to have and it hasn't: ({company field: value}, [names set],
     [names whose account only the cabinet can choose])."""
@@ -97,9 +113,7 @@ def settings_needed(invoice, company):
     values, names, cabinet = {}, [], []
     for amount, (name, supplier, customer) in AMOUNTS.items():
         switch, account, prefixes = supplier if purchase else customer
-        ignored = foreign and (
-            amount == "amount_stamp" or (amount in FOREIGN_IGNORED and (purchase or amount == "advance_amount"))
-        )
+        ignored = foreign and ignored_abroad(amount, purchase)
         if not invoice[amount] or not account or ignored:
             continue
         if not company[account]:
@@ -151,15 +165,16 @@ def configure_cabinet(invoice_id: int) -> dict:
             odoo_json("exp.account", "create_tax_ids", tva_accounts, context=context)
         odoo_json("res.company", "auto_detect_settings", [company_id], context=context)  # Configuration's button
         made = tax_count(company_id) - taxes
-        fields = sorted({f for _, *sides in AMOUNTS.values() for s in sides for f in s[:2] if f})
-        company = odoo_call("res.company", "read", [company_id], fields=fields, context=context)[0]
+        company = odoo_call("res.company", "read", [company_id], fields=amount_fields(), context=context)[0]
         values, names, cabinet = settings_needed(invoice, company)
         if values and not save_settings(company_id, values, context):
             cabinet, names = [*names, *cabinet], []
         after = checked(invoice_id, context)
     done = f"Facture {invoice_id} : détection automatique des paramètres du dossier lancée"
-    done += f", {made} taxe(s) créée(s)" if made else ""
-    done += f", {', '.join(names)} active(s) dans le dossier" if names else ""
+    if made:
+        done += f", {made} taxe(s) créée(s)"
+    if names:
+        done += f", {', '.join(names)} active(s) dans le dossier"
     settings = [text for level, text in after if level == "cgnc"]
     settings += [f"{name} : compte à choisir" for name in cabinet]
     refused_here = [text for level, text in after if level != "cgnc"]

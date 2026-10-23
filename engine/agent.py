@@ -92,19 +92,23 @@ def attachments(runtime):
     sequence runs."""
     files = []
     for message in runtime.state["messages"]:
-        if isinstance(message, HumanMessage) and isinstance(message.content, list):
-            for part in message.content:
-                if isinstance(part, dict) and part.get("type") == "file" and part.get("data"):
-                    digest = hashlib.sha256(part["data"].encode()).hexdigest()[:32]
-                    files.append(
-                        {
-                            "id": digest,
-                            "file_name": part.get("file_name", digest),
-                            "mime_type": part.get("mime_type", "application/pdf"),
-                            "data": part["data"],
-                        }
-                    )
+        if not (isinstance(message, HumanMessage) and isinstance(message.content, list)):
+            continue
+        for part in message.content:
+            if isinstance(part, dict) and part.get("type") == "file" and part.get("data"):
+                files.append(attached(part))
     return files
+
+
+def attached(part):
+    """A file content part as the workflow tools are given it, its id the data's hash."""
+    digest = hashlib.sha256(part["data"].encode()).hexdigest()[:32]
+    return {
+        "id": digest,
+        "file_name": part.get("file_name", digest),
+        "mime_type": part.get("mime_type", "application/pdf"),
+        "data": part["data"],
+    }
 
 
 def fixed(runtime):
@@ -161,7 +165,8 @@ SOURCE = "Experio"
 
 def untrusted(text, tool_name):
     """``text``, a read tool's output, as the model is handed it."""
-    content = re.sub(r"<(\s*/\s*untrusted_data)", r"&lt;\1", INVISIBLE.sub("", text), flags=re.IGNORECASE)
+    visible = INVISIBLE.sub("", text)
+    content = re.sub(r"<(\s*/\s*untrusted_data)", r"&lt;\1", visible, flags=re.IGNORECASE)  # no closing tag inside
     source, label = (html.escape(value, quote=True) for value in (SOURCE, tool_name))
     return f'<untrusted_data source="{source}" label="{label}">\n{content}\n</untrusted_data>'
 
@@ -171,7 +176,9 @@ async def reading(runtime, tool_name, **arguments):
         result = await call(cabinet_of(runtime.config), tool_name, **arguments)
     except ToolFailure as failure:
         return untrusted(str(failure), tool_name)
-    return untrusted(result if isinstance(result, str) else json.dumps(result, ensure_ascii=False), tool_name)
+    if not isinstance(result, str):
+        result = json.dumps(result, ensure_ascii=False)
+    return untrusted(result, tool_name)
 
 
 async def run_workflow(name, runtime, call_inputs):
@@ -362,18 +369,17 @@ def current_skills(messages):
     """``messages`` with each skill loaded on an earlier turn as it is now: its load_skill result stays in the
     conversation as the skill was then, and would hold over an edit made since (corrections sent to the processing
     tool in thread X3, 2026-10-22)."""
-    loaded = {
-        call["id"]: call["args"].get("name", "")
-        for m in messages
-        for call in getattr(m, "tool_calls", None) or []
-        if call["name"] == "load_skill"
-    }
-    return [
-        m.model_copy(update={"content": load_skill.func(loaded[m.tool_call_id])})
-        if getattr(m, "tool_call_id", None) in loaded
-        else m
-        for m in messages
-    ]
+    loaded = {}  # load_skill's call id -> the skill it loaded
+    for message in messages:
+        for tool_call in getattr(message, "tool_calls", None) or []:
+            if tool_call["name"] == "load_skill":
+                loaded[tool_call["id"]] = tool_call["args"].get("name", "")
+    now = []
+    for message in messages:
+        if getattr(message, "tool_call_id", None) in loaded:
+            message = message.model_copy(update={"content": load_skill.func(loaded[message.tool_call_id])})
+        now.append(message)
+    return now
 
 
 @wrap_model_call

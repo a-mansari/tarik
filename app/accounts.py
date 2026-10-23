@@ -135,6 +135,12 @@ async def accept(token, password):
     return row[0]
 
 
+def forget_waited(now):
+    """The failures past their wait forgotten: nothing to remember, the throttle never grows without end."""
+    for stale in [key for key, (_, at) in FAILURES.items() if now - at >= WAIT_SECONDS]:
+        del FAILURES[stale]
+
+
 async def log_in(email, password):
     """A new session's token for this email and password, or None (wrong, closed, or too many tries)."""
     email = email.strip().lower()
@@ -145,8 +151,7 @@ async def log_in(email, password):
         row = await (await db.execute(Q.user_password, (email,))).fetchone()
         if not row or not row[0] or not matches(password, row[0]):  # no password yet: its invitation sets one
             now = time.monotonic()
-            for stale in [key for key, (_, at) in FAILURES.items() if now - at >= WAIT_SECONDS]:
-                del FAILURES[stale]  # past their wait: nothing to remember, the throttle never grows without end
+            forget_waited(now)
             FAILURES[email] = (count + 1, now)
             return None
         FAILURES.pop(email, None)
@@ -165,12 +170,7 @@ async def user_of(token):
     if not token:
         return None
     async with runs.pool.connection() as db:
-        row = await (
-            await db.execute(
-                Q.session_user,
-                (digest(token),),
-            )
-        ).fetchone()
+        row = await (await db.execute(Q.session_user, (digest(token),))).fetchone()
     return {"email": row[0], "name": row[1], "role": row[2]} if row else None
 
 

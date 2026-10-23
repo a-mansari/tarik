@@ -95,8 +95,12 @@ def set_kind(file_id, kind):
 def gladden_type(raw):
     """Gladden's type for the first page of PDF ``raw``, or None: GLADDEN_URL or GLADDEN_CALLBACK_URL not set, or
     no answer."""
-    url, callback_url = setting("GLADDEN_URL", ""), setting("GLADDEN_CALLBACK_URL", "")
-    return gladden.classify(url, split_pdf(raw, [2])[0][2], callback_url) if url and callback_url else None
+    url = setting("GLADDEN_URL", "")
+    callback_url = setting("GLADDEN_CALLBACK_URL", "")
+    if not url or not callback_url:
+        return None
+    _, _, first_page = split_pdf(raw, [2])[0]  # page 1 alone, as its own PDF
+    return gladden.classify(url, first_page, callback_url)
 
 
 def file_row(db, file_id, *columns):
@@ -185,9 +189,9 @@ def split_choice(messages):
     """``by_page`` or ``by_document``, as the client's latest message that says one (and only one) of them; else
     None: the client is asked."""
     for message in reversed(messages):
-        said = {choice for choice, words in SPLIT_WORDS.items() if re.search(rf"\b(?:{words})\b", normalized(message))}
-        if len(said) == 1:
-            return said.pop()
+        found = {choice for choice, words in SPLIT_WORDS.items() if re.search(rf"\b(?:{words})\b", normalized(message))}
+        if len(found) == 1:
+            return found.pop()
     return None
 
 
@@ -244,8 +248,8 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
             db, file_id, "session_id", "file_name", "mime_type", "data", "invoice_id", "kind", "parent_id"
         )
         require_kind(name, kind, "invoice")
-        said = client_messages(session_id, client_message)
-        if not client_side(invoice_type, " ".join(said)):
+        messages = client_messages(session_id, client_message)
+        if not client_side(invoice_type, " ".join(messages)):
             return question(f"`{name}` : s'agit-il de factures d'achat ou de vente ? Rien n'a été créé.")
         parts = db.execute(Q.cut_parts_of_file, (file_id,)).fetchall()
         if parts:
@@ -261,7 +265,7 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
             return ok(f"`{name}` : PDF illisible, 1 document, fichier n° {file_id}.", files=[file_id])
         if count == 1:
             return one
-        choice = split_choice(said)
+        choice = split_choice(messages)
         if choice is None:
             return question(SPLIT_QUESTION.format(name=name, count=count))
         if choice == "by_document":
@@ -356,9 +360,12 @@ def bank_names(journal):
     (« BANK OF AFRICA (BMCE) »), and the bank's usual other names."""
     bank = journal["bank_id"][1] if journal["bank_id"] else ""
     plain = re.sub(r"\([^)]*\)", " ", bank)  # « BANK OF AFRICA (BMCE) » is also « BANK OF AFRICA »
-    names = {normalized(journal["name"]), *(normalized(part) for part in (*bank.split(" - "), *plain.split(" - ")))}
+    parts = [*bank.split(" - "), *plain.split(" - ")]
+    names = {normalized(journal["name"]), *(normalized(part) for part in parts)}
     names |= {normalized(sigle) for sigle in re.findall(r"\(([^)]+)\)", bank)}
-    names |= {alias for known, aliases in BANK_ALIASES.items() if said(known, normalized(bank)) for alias in aliases}
+    for known, aliases in BANK_ALIASES.items():
+        if said(known, normalized(bank)):
+            names.update(aliases)
     return {name for name in names if name}
 
 
@@ -380,15 +387,16 @@ def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
             f"Le dossier {dossier} n'a aucun journal de banque utilisable{unset} : a configurer par le cabinet."
         )
     if not journal_id:
-        if len(usable) > 1 and (named := journal_named(usable, own_words(client_message))):
+        if len(usable) == 1:
+            return usable[0]
+        named = journal_named(usable, own_words(client_message))
+        if named:
             return named
-        if len(usable) > 1:
-            listed = ", ".join(f"{j['name']} - {j['bank_id'][1]} (n° {j['id']})" for j in usable)
-            return question(
-                f"`{name}` : le dossier {dossier} a plusieurs comptes bancaires, lequel ? {listed}",
-                choices={j["id"]: f"{j['name']} - {j['bank_id'][1]}" for j in usable},
-            )
-        return usable[0]
+        accounts = ", ".join(f"{j['name']} - {j['bank_id'][1]} (n° {j['id']})" for j in usable)
+        return question(
+            f"`{name}` : le dossier {dossier} a plusieurs comptes bancaires, lequel ? {accounts}",
+            choices={j["id"]: f"{j['name']} - {j['bank_id'][1]}" for j in usable},
+        )
     if journal_id not in {j["id"] for j in usable}:
         raise ToolError(f"journal_id {journal_id} n'est pas un journal de banque utilisable du dossier {dossier}.")
     return next(j for j in usable if j["id"] == journal_id)

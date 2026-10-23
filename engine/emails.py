@@ -53,16 +53,17 @@ async def each_thread(state: Run):
     from engine import runs  # runs imports the graphs, this one among them
 
     cabinet = state["cabinet"]
-    ran = await asyncio.gather(
-        *(
-            runs.nested(
-                "fil", {"cabinet": cabinet, "thread": thread, "done": []}, cabinet, thread["session_id"], node="fil"
-            )
-            for thread in state["threads"]
-        ),
-        return_exceptions=True,
-    )
-    return {"done": [entry for result in ran if isinstance(result, dict) for entry in result.get("done", [])]}
+    thread_runs = [
+        runs.nested(
+            "fil", {"cabinet": cabinet, "thread": thread, "done": []}, cabinet, thread["session_id"], node="fil"
+        )
+        for thread in state["threads"]
+    ]
+    done = []
+    for result in await asyncio.gather(*thread_runs, return_exceptions=True):
+        if isinstance(result, dict):  # a failed thread: its exception, nothing done
+            done += result.get("done", [])
+    return {"done": done}
 
 
 def kind(state: Thread):
@@ -71,11 +72,8 @@ def kind(state: Thread):
 
 async def acknowledge(state: Thread):
     try:
-        return {
-            "acknowledged": said(
-                await call(state["cabinet"], "acknowledge_thread", thread_id=state["thread"]["thread_id"])
-            )
-        }
+        result = await call(state["cabinet"], "acknowledge_thread", thread_id=state["thread"]["thread_id"])
+        return {"acknowledged": said(result)}
     except Exception as error:  # not sent (whitelist, SMTP): the agent answers all the same
         return {"acknowledged": f"Pas envoye : {failure_text(error)}"}
 
@@ -183,6 +181,13 @@ async def finish(state: Thread):
     return {"done": [{"thread_id": thread["thread_id"], "sent": sent, "reason": state.get("error", "")}]}
 
 
+def after_refusal(state: Thread):
+    """A refused sender's manager is told; anyone else gets the reply. A refusal not read ends the thread."""
+    if state.get("error"):
+        return "fin"
+    return "manager" if state["refusal"].get("refused") else "reponse"
+
+
 fil = StateGraph(Thread, output_schema=Steps)
 for name, node in {
     "accuse": acknowledge,
@@ -197,11 +202,7 @@ for name, node in {
 fil.add_conditional_edges(START, kind, ["accuse", "suite"])
 fil.add_edge("accuse", "tarik")
 fil.add_conditional_edges("tarik", lambda s: "fin" if s.get("error") else "refus", ["fin", "refus"])
-fil.add_conditional_edges(
-    "refus",
-    lambda s: "fin" if s.get("error") else "manager" if s["refusal"].get("refused") else "reponse",
-    ["fin", "manager", "reponse"],
-)
+fil.add_conditional_edges("refus", after_refusal, ["fin", "manager", "reponse"])
 fil.add_edge("manager", END)  # thread_refusal set the thread aside and counted its emails: finish_thread would undo it
 fil.add_edge("reponse", "fin")
 fil.add_conditional_edges("suite", lambda s: "fin" if s.get("error") else "reponse", ["fin", "reponse"])
