@@ -3,16 +3,15 @@ plain words, each change kept (who, when, why). A secret is never sent to the pa
 field to replace it."""
 
 import asyncio
-from urllib.parse import parse_qs, quote
 
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
 
 from app import cabinet_settings
 from engine import runs
 from engine.content import LABELS
 from tarik.core.model import ADAPTERS
-from ui.pages import chosen, templates
+from ui.accounts_pages import form_of
+from ui.pages import chosen, page
 
 # The page's sections, in order: which settings each shows.
 SECTIONS = {
@@ -37,50 +36,49 @@ def field(key, value, words):
 
 
 def fields(data):
-    """The sections with their fields: [(title, [{key, kind, name, description, value}])]."""
+    """The sections with their fields: [(title, [{key, kind, name, description, value}])], a secret's value only
+    whether it is set (True or False), never itself."""
     values, words = cabinet_settings.shown(data), LABELS.get("settings", {})
     return [(title, [field(key, values[key], words) for key in keys]) for title, keys in SECTIONS.items()]
 
 
 async def cabinet_page(request: Request):
-    """The settings of the cabinet picked in the sidebar (GET), and a change to them (POST): refused when the sidebar
-    picked another since the page showed its own."""
+    """The settings of the cabinet picked in the sidebar (GET), and a change to them (POST, JSON): refused when the
+    sidebar picked another since the page showed its own. A change answers the page again, with what it saved."""
     cabinet = chosen(request)
     if cabinet is None:
-        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
-    error, given = None, {}
+        return page({"error": "aucun cabinet"}, 404)
+    error, given, saved = None, {}, None
     if request.method == "POST":
-        form = {key: values[0] for key, values in parse_qs((await request.body()).decode(), max_num_fields=40).items()}
+        form = await form_of(request, 40)
         given = {key: value for key, value in form.items() if key in cabinet_settings.FIELDS}
         user = request.state.user
         try:
             if form.get("cabinet") != cabinet:
                 raise ValueError("un autre cabinet a été choisi depuis l'ouverture de la page : rechargez-la")
-            done = await cabinet_settings.save(runs.pool, cabinet, given, int(form.get("version", 0)), user["email"])
-            return RedirectResponse(f"/ui/settings?saved={quote(','.join(done) or '-')}", status_code=303)
+            saved = await cabinet_settings.save(runs.pool, cabinet, given, int(form.get("version", 0)), user["email"])
         except ValueError as refused:
             error = str(refused)
     try:
         data, version = await asyncio.to_thread(cabinet_settings.latest, cabinet)
     except Exception:
-        context = {"cabinet": cabinet, "unreachable": True, "dry_run": None}
-        return templates.TemplateResponse(request, "cabinet.html", context, status_code=503)
+        return page({"cabinet": cabinet, "unreachable": True, "dry_run": None}, 503)
     sections = fields(data)
     if error:  # the form as it was sent, its secrets never sent back
         for _, items in sections:
             for item in items:
                 if item["kind"] != "secret" and item["key"] in given:
                     item["value"] = given[item["key"]]
-    saved = request.query_params.get("saved")
+    history = await cabinet_settings.history(runs.pool, cabinet)
     context = {
         "cabinet": cabinet,
         "sections": sections,
         "version": version,
         "dry_run": data.get("DRY_RUN", "1") != "0",
         "error": error,
-        "saved": None if saved is None else [key for key in saved.split(",") if key in cabinet_settings.FIELDS],
+        "saved": saved,
         "names": {key: LABELS.get("settings", {}).get(key, {}).get("name", key) for key in cabinet_settings.FIELDS},
-        "history": await cabinet_settings.history(runs.pool, cabinet),
+        "history": [{**item, "at": runs.when(item["at"])} for item in history],
         "adapters": ADAPTERS,
     }
-    return templates.TemplateResponse(request, "cabinet.html", context, status_code=400 if error else 200)
+    return page(context, 400 if error else 200)

@@ -14,15 +14,16 @@ its cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) sta
   GET  /graphs/{graph}            a workflow's shape for the canvas: its nodes, groups and edges
   GET|PUT|DELETE /graphs/{graph}/layout   how the team arranged its canvas (node places, edge bends and style)
   /api/cabinets...                the Experio app's API (app/api.py): cabinets created, changed, closed
-  GET  /ui/live                    the pages' live updates (server-sent events, engine/live.py)
-  GET  /ui/...                    the team's pages (ui/pages.py): the runs, each run step by step, live; the
-                                  Discussion page (ui/chat_pages.py), its messages sent with POST
+  GET  /ui/live                   the pages' live updates (server-sent events, engine/live.py)
+  GET  /ui/api/...                each page's data, as JSON (ui/*_pages.py): the runs, each run step by step, the
+                                  Discussion (its messages sent with POST), the content, the settings, the accounts
+  GET  /ui/..., /login            the team's pages: the Vue app built from web/ (web/dist), the same for each address
 
-Every call but /ok, /login, Gladden's callbacks and the static files needs a session (the login page's cookie:
-app/users.py makes the accounts) or, for scripts (run.py), TARIK_GRAPH_TOKEN as a bearer token. A change (POST, PUT,
-DELETE) made with a session must come from these pages themselves (its Origin or Referer): another site cannot make
-it in someone's name. What changes everyone's Tarik needs an admin's session (admin_only): a member reads and talks
-to Tarik."""
+Every call but /ok, the login, an invitation, Gladden's callbacks and the pages' files needs a session (the login's
+cookie: app/users.py makes the accounts) or, for scripts (run.py), TARIK_GRAPH_TOKEN as a bearer token. A change
+(POST, PUT, DELETE) made with a session must come from these pages themselves (its Origin or Referer): another site
+cannot make it in someone's name. What changes everyone's Tarik needs an admin's session (admin_only): a member
+reads and talks to Tarik."""
 
 import asyncio
 import contextlib
@@ -30,7 +31,7 @@ import hmac
 import json
 import os
 import threading
-from urllib.parse import parse_qs, quote
+from urllib.parse import quote
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg.conninfo import make_conninfo
@@ -53,8 +54,8 @@ TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = make_conninfo(**POSTGRES)  # the tools' own Postgres settings
 
 
-OPEN = ("/ok", "/login", "/ui/static/", "/invitation/", "/gladden/")  # an invitation's page and a Gladden
-# callback: their one-time token is their key
+OPEN = ("/ok", "/login", "/ui/api/login", "/ui/assets/", "/invitation/", "/ui/api/invitation/", "/gladden/")  # an
+# invitation's page and a Gladden callback: their one-time token is their key
 COOKIE = "tarik_session"
 
 
@@ -63,8 +64,8 @@ def admin_only(method, path):
     accounts, a change to the content or to a canvas's layout, a run started by hand. Discussion stays every
     member's."""
     return (
-        path.startswith(("/ui/settings", "/ui/comptes", "/ui/logs-serveur"))
-        or (method == "POST" and path.startswith(("/ui/tarik-prompts", "/runs/")))
+        path.startswith(("/ui/api/settings", "/ui/api/comptes", "/ui/api/logs-serveur"))
+        or (method == "POST" and path.startswith(("/ui/api/tarik-prompts", "/runs/")))
         or (method in ("PUT", "DELETE") and path.startswith("/graphs/"))
     )
 
@@ -90,8 +91,9 @@ class Guard:
             scope["state"]["user"] = {"email": "script", "name": "Script", "role": "admin"}
             return await self.app(scope, receive, send)
         user = await accounts.user_of(request.cookies.get(COOKIE))
+        is_page = not scope["path"].startswith(("/ui/api/", "/ui/live"))  # the pages' app, without any data
         if user is None:
-            if request.method == "GET" and (scope["path"].startswith("/ui") or scope["path"] == "/"):
+            if request.method == "GET" and is_page and (scope["path"].startswith("/ui") or scope["path"] == "/"):
                 answer = RedirectResponse(f"/login?next={quote(request.url.path)}", status_code=303)
             else:
                 answer = JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -100,10 +102,7 @@ class Guard:
             return await JSONResponse({"error": "cross-site request refused"}, status_code=403)(scope, receive, send)
         scope["state"]["user"] = user
         if user["role"] != "admin" and admin_only(request.method, scope["path"]):
-            if request.method == "GET":
-                answer = pages.templates.TemplateResponse(request, "forbidden.html", {}, status_code=403)
-            else:
-                answer = JSONResponse({"error": "réservé aux administrateurs"}, status_code=403)
+            answer = JSONResponse({"error": "réservé aux administrateurs"}, status_code=403)
             return await answer(scope, receive, send)
         return await self.app(scope, receive, send)
 
@@ -134,20 +133,20 @@ def return_to(request):
 
 
 async def login(request: Request):
-    """The login page (GET), and logging in (POST): a session cookie, then back to the page asked for."""
-    target = return_to(request)
-    if request.method == "GET":
-        return pages.login_page(request, target)
+    """Logging in ({email, password}): a session cookie, and the page asked for to go back to ({next})."""
     if not same_origin(request):
         return JSONResponse({"error": "cross-site request refused"}, status_code=403)
-    form = parse_qs((await request.body()).decode(), max_num_fields=5)  # a plain form: no multipart library
-    email = form.get("email", [""])[0].strip().lower()
-    token = await accounts.log_in(email, form.get("password", [""])[0])
+    try:
+        given = await request.json()
+        email, password = str(given.get("email", "")).strip().lower(), str(given.get("password", ""))
+    except ValueError, AttributeError:
+        return JSONResponse({"error": "invalid JSON"}, status_code=400)
+    token = await accounts.log_in(email, password)
     if token is None:
         await audit.record(email[:200], "login_failed")
-        return pages.login_page(request, target, failed=True)
+        return JSONResponse({"error": "email ou mot de passe incorrect"}, status_code=401)
     await audit.record(email, "login")
-    answer = RedirectResponse(target, status_code=303)
+    answer = JSONResponse({"ok": True, "next": return_to(request)})
     answer.set_cookie(
         COOKIE,
         token,
@@ -162,7 +161,7 @@ async def login(request: Request):
 async def logout(request: Request):
     await audit.record(request.state.user["email"], "logout")
     await accounts.log_out(request.cookies.get(COOKIE))
-    answer = RedirectResponse("/login", status_code=303)
+    answer = JSONResponse({"ok": True})
     answer.delete_cookie(COOKIE)
     return answer
 
@@ -321,8 +320,10 @@ app = Starlette(
         Route("/api/cabinets", api.listing),
         Route("/api/cabinets", api.create, methods=["POST"]),
         Route("/api/cabinets/{name}", api.one, methods=["GET", "PATCH", "DELETE"]),
-        Route("/login", login, methods=["GET", "POST"]),
-        Route("/logout", logout, methods=["POST"]),
+        Route("/ui/api/login", login, methods=["POST"]),
+        Route("/ui/api/logout", logout, methods=["POST"]),
+        Route("/ui/api/me", pages.me),
+        Route("/ui/api/cabinet", pages.choose, methods=["POST"]),
         Route("/runs", listing),
         Route("/runs/{graph}", start, methods=["POST"]),
         Route("/runs/{run_id}", one),
@@ -330,30 +331,32 @@ app = Starlette(
         Route("/graphs/{graph}", graph_shape),
         Route("/graphs/{graph}/layout", layout, methods=["GET", "PUT", "DELETE"]),
         Route("/prompts/{call_id:int}", prompt),
-        Route("/ui/llm-calls", pages.prompts_page),
-        Route("/ui/llm-calls/{session_id}", pages.prompt_calls_page),
-        Route("/invitation/{token}", accounts_pages.invitation_page, methods=["GET", "POST"]),
-        Route("/ui/comptes", accounts_pages.accounts_page, methods=["GET", "POST"]),
-        Route("/ui/logs-serveur", journal_pages.journal_page),
+        Route("/ui/api/llm-calls", pages.prompts_page),
+        Route("/ui/api/llm-calls/{session_id}", pages.prompt_calls_page),
+        Route("/ui/api/invitation/{token}", accounts_pages.invitation_page, methods=["GET", "POST"]),
+        Route("/ui/api/comptes", accounts_pages.accounts_page, methods=["GET", "POST"]),
+        Route("/ui/api/logs-serveur", journal_pages.journal_page),
         Route("/ui/live", changes),
-        Route("/ui/cabinet", pages.choose, methods=["POST"]),
-        Route("/ui/settings", settings_pages.cabinet_page, methods=["GET", "POST"]),
-        Route("/ui/tarik-prompts", content_pages.contents_page),
-        Route("/ui/tarik-prompts-export", content_pages.export_contents),
-        Route("/ui/tarik-prompts-import", content_pages.import_contents, methods=["POST"]),
-        Route("/ui/tarik-prompts/{path:path}", content_pages.content_page, methods=["GET", "POST"]),
-        Route("/ui/discussion", chat_pages.chat_page),
-        Route("/ui/discussion/{session_id}", chat_pages.conversation_page),
-        Route("/ui/discussion/{session_id}", chat_pages.send, methods=["POST"]),
-        Route("/ui/discussion/{session_id}/fichier", chat_pages.download),
-        Route("/ui/workflows", pages.workflows_page),
-        Route("/ui/workflows/{graph}", pages.workflow_page),
+        Route("/ui/api/settings", settings_pages.cabinet_page, methods=["GET", "POST"]),
+        Route("/ui/api/tarik-prompts", content_pages.contents_page),
+        Route("/ui/api/tarik-prompts-export", content_pages.export_contents),
+        Route("/ui/api/tarik-prompts-import", content_pages.import_contents, methods=["POST"]),
+        Route("/ui/api/tarik-prompts/{path:path}", content_pages.content_page, methods=["GET", "POST"]),
+        Route("/ui/api/discussion", chat_pages.chat_page),
+        Route("/ui/api/discussion/{session_id}", chat_pages.conversation_page),
+        Route("/ui/api/discussion/{session_id}", chat_pages.send, methods=["POST"]),
+        Route("/ui/api/discussion/{session_id}/fichier", chat_pages.download),
+        Route("/ui/api/workflows", pages.workflows_page),
+        Route("/ui/api/workflows/{graph}", pages.workflow_page),
+        Route("/ui/api/accueil", chat_pages.dashboard_page),
+        Route("/ui/api/executions", pages.runs_page),
+        Route("/ui/api/executions/{run_id}", pages.run_page),
+        Mount("/ui/assets", StaticFiles(directory=pages.WEB / "assets", check_dir=False), name="assets"),
         Route("/", pages.home),
-        Route("/ui", pages.home),
-        Route("/ui/accueil", chat_pages.dashboard_page),
-        Route("/ui/executions", pages.runs_page),
-        Route("/ui/executions/{run_id}", pages.run_page),
-        Mount("/ui/static", StaticFiles(directory=pages.HERE / "static"), name="static"),
+        Route("/login", pages.shell),
+        Route("/invitation/{token}", pages.shell),
+        Route("/ui", pages.shell),
+        Route("/ui/{rest:path}", pages.shell),
     ],
     middleware=[Middleware(Guard)],
     lifespan=lifespan,

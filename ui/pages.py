@@ -1,17 +1,15 @@
-"""The UI's pages, in French for the team: the runs of each cabinet, and each run step by step as it happens. Server
-rendered (Jinja2), no build step; the words come from content/labels.json. The sidebar picks the cabinet the pages
-show (a cookie, CHOSEN), each cabinet under its name in Experio with its database beside it."""
+"""The UI's pages, in French for the team: the runs of each cabinet, and each run step by step as it happens. Each
+page's data as JSON (/ui/api/...), shown by the Vue app (web/); the words come from content/labels.json. The sidebar
+picks the cabinet the pages show (a cookie, CHOSEN), each cabinet under its name in Experio with its database beside
+it."""
 
 import json
 import time
 from pathlib import Path
-from urllib.parse import parse_qs
 
 from markdown_it import MarkdownIt
-from markupsafe import Markup
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
-from starlette.templating import Jinja2Templates
+from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 
 from engine import graphs, prompts, runs
 from engine.agent import text_of
@@ -21,7 +19,30 @@ from tarik.core.queries import Q
 from tarik.emails.sending import cabinet_name
 
 HERE = Path(__file__).parent
-templates = Jinja2Templates(directory=HERE / "templates")
+WEB = HERE.parent / "web" / "dist"  # the pages, built (web/: npm run build)
+
+
+def page(context, status_code=200):
+    """A page's data, for the pages' app (web/) to show: dates and other values as text."""
+    body = json.dumps(context, ensure_ascii=False, default=str)
+    return JSONResponse(json.loads(body), status_code=status_code)
+
+
+async def shell(request: Request):
+    """The pages' app, the same for every address under /ui/ (and the login's, an invitation's): it reads its data
+    from /ui/api/... once it runs. Nothing of a cabinet is in it."""
+    index = WEB / "index.html"
+    if not index.exists():
+        return PlainTextResponse("Les pages ne sont pas construites : cd web && npm ci && npm run build", 503)
+    return FileResponse(index, headers={"cache-control": "no-cache"})
+
+
+async def me(request: Request):
+    """Who is on the pages, the sidebar's cabinets and labels.json's words: what every page needs."""
+    user = request.state.user
+    shown = {"name": user["name"], "email": user["email"], "role": user["role"]}
+    return page({"user": shown, "admin": is_admin(request), "cabinets": sidebar(request), "labels": LABELS})
+
 
 CHOSEN = "tarik_cabinet"  # the cookie holding the cabinet the pages show
 NAMES, TRIED = {}, {}  # cabinet: its name in Experio; cabinet: when Experio last failed to give it
@@ -70,12 +91,12 @@ def sidebar(request):
 
 
 async def choose(request: Request):
-    """A cabinet picked in the sidebar (posted: its name never in an address): kept in a cookie, then its
-    dashboard."""
-    cabinet = parse_qs((await request.body()).decode()).get("cabinet", [""])[0]
-    answer = RedirectResponse(HOME, status_code=303)
-    if cabinet in CABINETS:
-        answer.set_cookie(CHOSEN, cabinet, max_age=365 * 86400, httponly=True, samesite="lax")
+    """A cabinet picked in the sidebar (posted: its name never in an address): kept in a cookie."""
+    cabinet = (await request.json()).get("cabinet", "")
+    if cabinet not in CABINETS:
+        return JSONResponse({"error": "cabinet inconnu"}, status_code=400)
+    answer = JSONResponse({"ok": True})
+    answer.set_cookie(CHOSEN, cabinet, max_age=365 * 86400, httponly=True, samesite="lax")
     return answer
 
 
@@ -83,46 +104,19 @@ def graph_name(graph):
     return LABELS["graphs"].get(graph, graph)
 
 
-def graph_description(graph):
-    return LABELS["descriptions"]["graphs"].get(graph, "")
-
-
-def status_name(status):
-    return LABELS["statuses"].get(status, status)
-
-
 def markdown(text):
     """A message as its writer means it (bold, lists, tables), the client's as Tarik's: raw HTML never kept, unsafe
     links never made (a client types it, or Experio holds what clients typed)."""
-    return Markup(MARKDOWN.render(text or ""))
+    return MARKDOWN.render(text or "")
 
 
 MARKDOWN = MarkdownIt("commonmark", {"html": False, "breaks": True}).enable("table")
-
-templates.env.filters.update(
-    markdown=markdown,
-    when=runs.when,
-    graph_name=graph_name,
-    graph_description=graph_description,
-    status_name=status_name,
-)
 
 
 def is_admin(request):
     """Whether the person on the page is an admin (server.py's admin_only): what only they may do is not offered."""
     user = getattr(request.state, "user", None)
     return bool(user) and user.get("role") == "admin"
-
-
-templates.env.globals.update(step_name=graphs.label, is_admin=is_admin, sidebar=sidebar, display_name=display_name)
-
-
-def asset(path):
-    """A static file's address with its version (its last change): no browser keeps an old copy of a changed one."""
-    return f"/ui/static/{path}?v={int((HERE / 'static' / path).stat().st_mtime)}"
-
-
-templates.env.globals.update(asset=asset)  # a follow-up's Traitement steps too
 
 
 def thinking_of(content):
@@ -140,7 +134,8 @@ def conversation(messages):
     for message in messages or []:
         kind = message.get("type")
         if kind == "human":
-            shown.append({"who": "Client", "text": text_of(message.get("content"))})
+            text = text_of(message.get("content"))
+            shown.append({"who": "Client", "text": text, "text_html": str(markdown(text))})
         elif kind == "ai":
             content = message.get("content")
             thinking = thinking_of(content)
@@ -148,7 +143,10 @@ def conversation(messages):
                 {"name": call["name"], "args": json.dumps(call.get("args") or {}, ensure_ascii=False)}
                 for call in message.get("tool_calls") or []
             ]
-            shown.append({"who": "Tarik", "text": text_of(content), "thinking": thinking, "calls": calls})
+            text = text_of(content)
+            shown.append(
+                {"who": "Tarik", "text": text, "text_html": str(markdown(text)), "thinking": thinking, "calls": calls}
+            )
         elif kind == "tool":
             shown.append(
                 {
@@ -209,19 +207,25 @@ async def home(request: Request):
     return RedirectResponse(HOME)
 
 
+def dated(found, key="started"):
+    """Rows (runs, model calls) each with its ``key`` time as the team reads it (runs.when), under "when"."""
+    return [{**row, "when": runs.when(row[key])} for row in found]
+
+
 async def runs_page(request: Request):
+    """The runs of the cabinet picked in the sidebar, latest first (``?graph=`` one workflow's), each with the runs
+    started in its steps under it."""
     query = request.query_params
     cabinet, graph = chosen(request), query.get("graph") or None
     found = await runs.recent(cabinet, graph, 100) if cabinet else []
-    context = {"runs": found, "cabinet": cabinet, "graph": graph, "graphs": runs.NAMES}
-    template = "runs_rows.html" if query.get("partial") else "runs.html"
-    return templates.TemplateResponse(request, template, context)
+    return page({"runs": dated(found), "cabinet": cabinet, "graph": graph, "graphs": runs.NAMES})
 
 
 async def run_page(request: Request):
+    """One run step by step: what it was asked, what the client reads, its conversation, its model calls."""
     found = await runs.run(request.path_params["run_id"])
     if not found:
-        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+        return page({"error": "Exécution introuvable"}, 404)
     output = found["output"] or {}
     is_agent = found["graph"] == "agent"
     shown = conversation(output.get("messages")) if is_agent else []
@@ -229,14 +233,13 @@ async def run_page(request: Request):
     if is_agent and found["cabinet"] in CABINETS:
         calls = await prompts.calls(found["cabinet"], found["session_id"], found["started"], found["ended"])
     context = {
-        "run": found,
+        "run": {**found, "when": runs.when(found["started"])},
         "asked": asked(found),
         "summary": None if is_agent else output.get("message"),
         **ran_here(shown),
-        "labels": LABELS,
-        "prompts": calls,
+        "prompts": dated(calls, "at"),
     }
-    return templates.TemplateResponse(request, "run.html", context)
+    return page(context)
 
 
 async def openings(cabinet, sessions):
@@ -267,55 +270,40 @@ async def prompts_page(request: Request):
     found = await prompts.listed(cabinet, int(before) if before.isdigit() else None) if cabinet else []
     context = {
         "cabinet": cabinet,
-        "calls": found,
+        "calls": dated(found, "at"),
         "titles": await titles(cabinet, list({call["session_id"] for call in found})) if found else {},
         "older": found[-1]["id"] if len(found) == 100 else None,
     }
-    return templates.TemplateResponse(request, "prompts.html", context)
+    return page(context)
 
 
 async def prompt_calls_page(request: Request):
     """A conversation's model calls (of the cabinet picked in the sidebar), each opened to read its whole prompt."""
     cabinet, session = chosen(request), request.path_params["session_id"]
     if cabinet is None:
-        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+        return page({"error": "Discussion introuvable"}, 404)
     found = await prompts.calls(cabinet, session)
     if not found:
-        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
-    return templates.TemplateResponse(
-        request,
-        "prompt_calls.html",
-        {
-            "cabinet": cabinet,
-            "session_id": session,
-            "title": (await titles(cabinet, [session])).get(session),
-            "calls": found,
-            "open": request.query_params.get("call"),
-        },
-    )
+        return page({"error": "Discussion introuvable"}, 404)
+    title = (await titles(cabinet, [session])).get(session)
+    return page({"cabinet": cabinet, "session_id": session, "title": title, "calls": dated(found, "at")})
 
 
 async def workflows_page(request: Request):
     counts = {name: sum(node["kind"] == "step" for node in graphs.shape(name)["nodes"]) for name in runs.NAMES}
-    return templates.TemplateResponse(request, "workflows.html", {"graphs": runs.NAMES, "counts": counts})
+    return page({"graphs": runs.NAMES, "counts": counts})
 
 
 async def workflow_page(request: Request):
+    """A workflow's canvas, with one of its runs over it (``?run=``), and its recent runs to pick from."""
     graph = request.path_params["graph"]
     if graph not in runs.NAMES:
-        return templates.TemplateResponse(request, "missing.html", {}, status_code=404)
+        return page({"error": "Workflow introuvable"}, 404)
     run_id = request.query_params.get("run")
     found = await runs.run(run_id) if run_id else None
     context = {
         "graph": graph,
-        "run": found,
-        "run_id": found["run_id"] if found else None,
-        "runs": await runs.recent(chosen(request), graph, 30),
-        "labels": LABELS,
+        "run": found and {**found, "when": runs.when(found["started"])},
+        "runs": dated(await runs.recent(chosen(request), graph, 30)),
     }
-    return templates.TemplateResponse(request, "workflow.html", context)
-
-
-def login_page(request: Request, target, failed=False):
-    context = {"next": target, "failed": failed}
-    return templates.TemplateResponse(request, "login.html", context, status_code=401 if failed else 200)
+    return page(context)

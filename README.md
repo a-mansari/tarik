@@ -60,7 +60,8 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 | `engine/traitement.py`, `dossier.py`, `emails.py`, `chat.py` | The workflows, as graphs (`chat.py`: the Discussions page's, and the asking shared with email threads). |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
 | `app/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
-| `ui/` | The team's pages (French): `pages.py`, `content_pages.py` (Contenu), `chat_pages.py` (Discussion), their templates, a stylesheet, scripts, no build step; `ui/static/vendor/` holds Cytoscape.js and dagre (MIT). |
+| `ui/` | The team's pages' data (French), as JSON under `/ui/api/`: `pages.py`, `content_pages.py` (Contenu), `chat_pages.py` (Discussion), the settings, accounts and logs. |
+| `web/` | The team's pages: a Vue 3 app (Vite, vue-router; the canvas with Cytoscape.js and dagre, MIT), built into `web/dist` (`cd web && npm ci && npm run build`), served by the server under `/ui/`. |
 | `tests/` | The tools' and the isolation tests (`python -m pytest`; the real model's with `-m llm`). |
 | `check.py` | Every tool a graph calls exists; every step drawn is described. |
 | `run.py` | Run a graph from a terminal and watch it step by step. |

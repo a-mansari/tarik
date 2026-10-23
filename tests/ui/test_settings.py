@@ -123,19 +123,88 @@ def test_a_page_older_than_vault_s_version_changes_nothing(vault):
     assert vault == []
 
 
-def test_the_page_renders_a_saved_change_and_never_a_secret():
+def asked(handler, method="GET", body=None, path_params=None):
+    """``handler``'s answer to an admin's ``method`` (``body`` posted as JSON): (status, the JSON, its raw text)."""
+    import json
+
+    from starlette.requests import Request
+
+    raw = json.dumps(body).encode() if body is not None else b""
+
+    async def receive():
+        return {"type": "http.request", "body": raw}
+
+    scope = {"type": "http", "method": method, "path": "/ui/api/settings", "headers": [], "query_string": b""}
+    scope["path_params"] = path_params or {}
+    request = Request(scope, receive)
+    request.state.user = {"email": "a@experio.ma", "name": "A", "role": "admin"}
+    answer = asyncio.run(handler(request))
+    return answer.status_code, json.loads(answer.body), answer.body.decode()
+
+
+@pytest.fixture
+def settings_page(vault, monkeypatch):
+    """The Réglages page's handler over the fake Vault, its cabinet cabinet_a, a secret's change in its history."""
     from ui import settings_pages
 
-    data = {**BEFORE, "IMAP_PASSWORD": "mailbox-secret"}
-    page = settings_pages.templates.get_template("cabinet.html").render(
-        request=type("R", (), {"cookies": {}, "url": type("U", (), {"path": "/ui/settings"})(), "state": None})(),
-        cabinet="cabinet_a",
-        sections=settings_pages.fields(data),
-        version=4,
-        saved=["MAIL_ALLOWED_RECIPIENTS", "DRY_RUN"],
-        names={key: key for key in cabinet_settings.FIELDS},
-        history=[],
-        adapters=settings_pages.ADAPTERS,
+    monkeypatch.setattr(settings_pages, "chosen", lambda request: "cabinet_a")
+    monkeypatch.setattr(cabinet_settings.model, "chosen_adapter", lambda cabinet: "minimax")
+    vault_data = {**BEFORE, "IMAP_PASSWORD": "mailbox-secret"}
+    monkeypatch.setattr(
+        cabinet_settings,
+        "_vault",
+        lambda method, path, **kw: (
+            {"data": {"data": dict(vault_data), "metadata": {"version": 4}}}
+            if method == "GET"
+            else vault.append(kw["json"]) or {"data": {"version": 5}}
+        ),
     )
-    assert "Enregistré : MAIL_ALLOWED_RECIPIENTS, DRY_RUN." in page
-    assert "old-password" not in page and "mailbox-secret" not in page
+
+    async def history(pool, cabinet):
+        changes = [{"key": "ODOO_PASSWORD", "before": None, "after": None}]
+        return [
+            {"author": "a@experio.ma", "note": "", "changes": changes, "version": 4, "at": "2026-10-20T18:00:00+00:00"}
+        ]
+
+    monkeypatch.setattr(cabinet_settings, "history", history)
+    monkeypatch.setattr(settings_pages.runs, "pool", Pool())
+    return settings_pages.cabinet_page
+
+
+@pytest.mark.security
+def test_the_page_s_data_never_holds_a_secret_only_whether_it_is_set(settings_page):
+    status, data, raw = asked(settings_page)
+    assert status == 200 and data["version"] == 4 and data["dry_run"] is True and data["saved"] is None
+    shown = {f["key"]: f["value"] for _, items in data["sections"] for f in items}
+    assert shown["ODOO_PASSWORD"] is True and shown["IMAP_PASSWORD"] is True and shown["SMTP_PASSWORD"] is False
+    assert shown["ODOO_USER"] == "tarik@cabinet.ma"
+    assert "old-password" not in raw and "mailbox-secret" not in raw
+    assert data["history"][0]["at"].startswith("20/10 ") and data["history"][0]["changes"][0]["before"] is None
+
+
+@pytest.mark.security
+def test_a_saved_change_is_answered_with_the_page_and_never_a_secret(settings_page, vault):
+    given = {"cabinet": "cabinet_a", "version": "4", "MAIL_ALLOWED_RECIPIENTS": "@cabinet.ma, a@b.ma"}
+    status, data, raw = asked(settings_page, "POST", {**given, "IMAP_PASSWORD": "typed-secret"})
+    assert status == 200 and sorted(data["saved"]) == ["IMAP_PASSWORD", "MAIL_ALLOWED_RECIPIENTS"]
+    assert vault[0]["options"] == {"cas": 4}
+    assert "typed-secret" not in raw and "mailbox-secret" not in raw and "old-password" not in raw
+
+
+@pytest.mark.security
+def test_a_refused_change_sends_back_what_was_typed_but_never_a_secret(settings_page, vault):
+    given = {"cabinet": "cabinet_a", "version": "4", "ODOO_UID": "-3", "SMTP_PASSWORD": "typed-secret"}
+    status, data, raw = asked(settings_page, "POST", given)
+    assert status == 400 and "entier positif" in data["error"] and vault == []
+    shown = {f["key"]: f["value"] for _, items in data["sections"] for f in items}
+    assert shown["ODOO_UID"] == "-3" and shown["SMTP_PASSWORD"] is False
+    assert "typed-secret" not in raw and "mailbox-secret" not in raw
+
+
+def test_a_change_for_another_cabinet_or_an_older_page_is_refused(settings_page, vault):
+    status, data, _ = asked(settings_page, "POST", {"cabinet": "cabinet_b", "version": "4", "DRY_RUN": "0"})
+    assert status == 400 and "un autre cabinet" in data["error"]
+    status, data, _ = asked(settings_page, "POST", {"cabinet": "cabinet_a", "version": "3", "DRY_RUN": "0"})
+    assert status == 400 and "rechargez" in data["error"] and vault == []
+    status, data, _ = asked(settings_page, "POST", {"cabinet": "cabinet_a", "version": 4, "DRY_RUN": "0"})
+    assert status == 400 and vault == []  # a field not text (here the version) is not taken
