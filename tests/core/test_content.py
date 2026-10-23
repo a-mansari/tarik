@@ -1,4 +1,4 @@
-"""What the team edits in the UI (engine/content.py, ui/content_pages.py): a form sent back unchanged gives back the
+"""What the team edits in the UI (engine/content.py, app/pages/content.py): a form sent back unchanged gives back the
 document exactly, and a change that would break what reads it is refused, in plain French."""
 
 import json
@@ -6,13 +6,13 @@ import re
 
 import pytest
 
+from app import pages
 from engine import content
-from ui import content_pages
 
 
 def form_of(path):
     """The form's fields as the page shows them, as the page sends them back (JSON: key, text)."""
-    sections = content_pages.sections(path, content.text(path))
+    sections = pages.content.sections(path, content.text(path))
     return {f["key"]: f["value"] for section in sections for f in section["fields"]}
 
 
@@ -42,7 +42,7 @@ def unwrapped(text):
 @pytest.mark.functionality
 @pytest.mark.parametrize("path", content.documents())
 def test_a_form_sent_back_unchanged_is_the_same_document(path):
-    assert content_pages.rebuilt(path, form_of(path)) == content.text(path)
+    assert pages.content.rebuilt(path, form_of(path)) == content.text(path)
     content.checked(path, content.text(path))
 
 
@@ -50,7 +50,7 @@ def test_a_form_sent_back_unchanged_is_the_same_document(path):
 def test_a_field_changed_changes_that_field_only():
     form = form_of("labels.json")
     form["steps|traitement|post_invoice"] = "Comptabilisation dans Experio"
-    new = json.loads(content_pages.rebuilt("labels.json", form))
+    new = json.loads(pages.content.rebuilt("labels.json", form))
     old = json.loads(content.text("labels.json"))
     old["steps"]["traitement"]["post_invoice"] = "Comptabilisation dans Experio"
     assert new == old
@@ -92,7 +92,7 @@ def test_no_sentence_is_cut_by_a_line_break(path):
 def test_a_versions_change_is_shown_word_by_word_with_little_around_it():
     before = " ".join(f"mot{i}" for i in range(100)) + " le compte est 6145 puis la suite " + " ".join("x" * 40)
     after = before.replace("6145", "6125")
-    found = content_pages.diff(before, after)
+    found = pages.content.diff(before, after)
     assert ("-", "6145") in found and ("+", "6125") in found
     assert sum(len(part) for _, part in found) < len(before) / 2  # the long unchanged stretches are cut
 
@@ -101,10 +101,10 @@ def test_a_versions_change_is_shown_word_by_word_with_little_around_it():
 def test_only_the_fields_a_version_changed_are_compared():
     form = form_of("labels.json")
     form["steps|traitement|post_invoice"] = "Comptabilisation dans Experio"
-    after = content_pages.rebuilt("labels.json", form)
-    found = content_pages.changes("labels.json", content.text("labels.json"), after)
+    after = pages.content.rebuilt("labels.json", form)
+    found = pages.content.changes("labels.json", content.text("labels.json"), after)
     assert list(found) == ["steps|traitement|post_invoice"]
-    assert content_pages.changes("labels.json", None, after) == {}  # the first version: nothing to compare
+    assert pages.content.changes("labels.json", None, after) == {}  # the first version: nothing to compare
 
 
 @pytest.mark.security
@@ -135,6 +135,6 @@ def test_a_form_that_is_not_fields_of_text_is_refused():
     form = form_of("labels.json")
     for bad in (None, [], {**form, "statuses|done": {"x": 1}}, {f"statuses|{i}": "x" for i in range(501)}):
         with pytest.raises(ValueError):
-            content_pages.rebuilt("labels.json", bad)
+            pages.content.rebuilt("labels.json", bad)
     with pytest.raises(ValueError, match="champ inconnu"):
-        content_pages.rebuilt("labels.json", {**form, "statuses|en_plus": "x"})
+        pages.content.rebuilt("labels.json", {**form, "statuses|en_plus": "x"})

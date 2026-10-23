@@ -61,7 +61,7 @@ By marker:
 | style | 6 (5 in style/, plus test_content's line-break test) |
 | llm | 8 |
 | live | 0 |
-| no marker | 25 (all in ui/) |
+| no marker | 25 (all in pages/) |
 
 The marked tests add up to 242, plus 25 unmarked, for 267 in total.
 
@@ -70,7 +70,7 @@ The marked tests add up to 242, plus 25 unmarked, for 267 in total.
 ## 2. core
 
 ### tests/core/test_content.py
-Covers the UI-edited content (engine/content.py, ui/content_pages.py): round-trip forms and refused breaking changes.
+Covers the UI-edited content (engine/content.py, app/pages/content.py): round-trip forms and refused breaking changes.
 - `test_a_form_sent_back_unchanged_is_the_same_document` [functionality, param over documents]: an unchanged form gives back the exact original document.
 - `test_a_field_changed_changes_that_field_only` [functionality]: editing one field leaves all other fields untouched.
 - `test_a_change_that_would_break_its_reader_is_refused` [security, param]: unknown tools, a bad header, an empty body, a model change, extra keys or bad JSON are refused.

@@ -4,9 +4,9 @@ action or one person at a time, paged back."""
 from starlette.requests import Request
 
 from app import audit
+from app.pages.runs import page
 from engine import runs
 from engine.content import LABELS
-from ui.pages import page
 
 PAGE = 100
 

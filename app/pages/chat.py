@@ -13,6 +13,7 @@ from psycopg import sql
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from app.pages.runs import chosen, markdown, openings, page
 from engine import agent, live, runs
 from engine.chat import REMINDER
 from engine.tools import call
@@ -22,7 +23,6 @@ from tarik.core.cabinets import CABINETS
 from tarik.core.config import FILE_TYPES, MAX_PAGES
 from tarik.core.conversation import SKIPPED_NOTE, files_of, own_words
 from tarik.core.queries import Q
-from ui.pages import chosen, markdown, openings, page
 
 SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations: the only ones written to from here
 SHOWN = re.compile(r"[\w.@-]{1,120}")  # any conversation's id, to read it (an email thread's, a workflow's)

@@ -7,11 +7,11 @@ import asyncio
 from starlette.requests import Request
 
 from app import cabinet_settings
+from app.pages.accounts import form_of
+from app.pages.runs import chosen, page
 from engine import runs
 from engine.content import LABELS
 from tarik.core.model import ADAPTERS
-from ui.accounts_pages import form_of
-from ui.pages import chosen, page
 
 # The page's sections, in order: which settings each shows.
 SECTIONS = {
