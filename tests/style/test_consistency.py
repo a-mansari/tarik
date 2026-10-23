@@ -49,8 +49,8 @@ def test_skills_and_instructions_name_only_the_agents_tools():
 @pytest.mark.style
 def test_each_tool_prompt_is_read_by_the_tool_its_file_names():
     code = ROOT / "engine" / "tools"
-    loaded = {  # prompt name -> the module loading it, from the tools' root (the header predates tools/'s name)
-        name: str(path.relative_to(code))
+    loaded = {  # prompt name -> the module loading it
+        name: str(path.relative_to(ROOT))
         for path in code.rglob("*.py")
         for name in re.findall(r'tool_prompt\("([a-z-]+)"\)', path.read_text())
     }
@@ -61,7 +61,7 @@ def test_each_tool_prompt_is_read_by_the_tool_its_file_names():
     }
     assert sorted(loaded) == sorted(files), "a prompt file no tool reads, or a tool reading a missing one"
     for name, text in files.items():
-        assert f"/{loaded[name]})" in text.split("\n---\n", 1)[0], f"{name}.md: used_by names another file"
+        assert f"({loaded[name]})" in text.split("\n---\n", 1)[0], f"{name}.md: used_by names another file"
 
 
 # A statement's start inside a Python string: the app's SQL lives in engine/sql/*.sql only (engine.tools.core.queries),
