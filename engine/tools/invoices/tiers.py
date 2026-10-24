@@ -76,6 +76,7 @@ INVOICE_FIELDS = [
     "detected_customer_ice",
     "detected_customer_if",
     "bluejay_state",
+    "import_invoice_type",
 ]
 
 
@@ -196,11 +197,17 @@ def link_tiers(invoice_id: int) -> dict:
     detected = invoice[SIDE[kind]["detected"]]
     if detected:
         return link(invoice, detected[0], kind)
+    if invoice.get("import_invoice_type") == "customs":  # Experio has no customs tiers of its own: the dossier's
+        customs = customs_tiers(invoice)
+        if customs:
+            return customs
     # No tiers to link: an invoice already in the dossier is stopped before its client is asked about it.
     twin = without_tiers_twin(require_invoice(invoice_id, DUPLICATE_FIELDS), invoice_context(invoice))
     if twin:
         return twin
     printed = invoice[SIDE[kind]["printed"]]
+    # Experio's reading cut the name short ("CQUET" for "FOCQUET SA"): the check, which flagged it, read it whole.
+    printed = flagged_tier(invoice_id) or printed
     if not printed:
         # Experio read no name, the check may have: the dossier's tiers with its ICE, then the closest by name, proposed
         # with a lower bar, never created from it (a name read whole, "ORDRE DES EXPERTS COMPTABLES - CONSEIL
@@ -224,6 +231,35 @@ def link_tiers(invoice_id: int) -> dict:
     if not choices:  # nothing of the dossier resembles it: a new tiers, as the screen's "Créer"
         return create_tiers(invoice, printed, kind)
     return question(f"Facture {invoice_id} : {role} « {printed} » introuvable par ICE/IF. {phrase}", choices=choices)
+
+
+CUSTOMS_WORDS = ("douane", "adii")  # how a dossier names its customs administration tiers (normalized)
+
+
+def customs_tiers(invoice):
+    """A customs invoice of an import folder linked to the dossier's customs administration tiers, when it has exactly
+    one (named « douane » or « ADII »); several: the question with them; none: None, the usual steps go on."""
+    found = [
+        p for p in dossier_tiers(invoice["company_id"][0]) if any(w in normalized(p["name"]) for w in CUSTOMS_WORDS)
+    ]
+    if len(found) == 1:
+        result = link(invoice, found[0]["id"], "purchase")
+        return {**result, "message": result["message"].replace("fournisseur", "administration des douanes", 1)}
+    if found:
+        listed = "; ".join(f"{p['name']} (id {p['id']})" for p in found[:5])
+        return question(
+            f"Facture {invoice['id']} (douane) : plusieurs tiers des douanes dans le dossier : {listed}. Lequel ?",
+            choices={p["id"]: p["name"] for p in found[:5]},
+        )
+    return None
+
+
+def flagged_tier(invoice_id):
+    """The tiers' name as the check read it on the scan, when the check flagged Experio's as different; else None."""
+    check = stored_check(invoice_id)
+    if not check or not any(bad.get("field") == "tier" for bad in check[2]):
+        return None
+    return check[1].get("tier") or None
 
 
 def checked_values(invoice_id):

@@ -90,6 +90,41 @@ def assets_text(accounts):
     )
 
 
+# Per folder number rule (the dossier's import_folder_number / export_folder_number), the invoice of the folder whose
+# number becomes the folder's: Experio's own rule when it reads the folder's invoices (exp_bluejay_token
+# update_folder_values), applied again when Tarik corrected that number after the reading.
+NUMBERED_BY = {
+    "transit_invoice": {"import": "transit", "export": "transit"},
+    "commercial_invoice": {"import": "supplier", "export": "customer"},
+}
+
+
+def settle_folder_number(invoice_id, context):
+    """The invoice's import (or export) folder given its number when it has none, as Experio's reading gives it: a
+    phrase for the client, else ""."""
+    invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=["folder_id"], context=context)[0]
+    if not invoice["folder_id"]:
+        return ""
+    folder = odoo_call(
+        "exp.import.folder", "read", [invoice["folder_id"][0]], fields=["folder_number", "folder_type", "company_id"]
+    )[0]
+    if folder["folder_number"]:
+        return ""
+    field = "export_folder_number" if folder["folder_type"] == "export" else "import_folder_number"
+    rule = odoo_call("res.company", "read", [folder["company_id"][0]], fields=[field])[0][field]
+    kind = NUMBERED_BY.get(rule, {}).get(folder["folder_type"])
+    if not kind:
+        return ""
+    domain = [("folder_id", "=", folder["id"]), ("invoice_type", "=", kind), ("state", "!=", "cancel")]
+    found = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number"], order="id", limit=1)
+    if not found or not found[0]["invoice_number"] or dry_run():
+        return ""
+    odoo_call(
+        "exp.import.folder", "write", [folder["id"]], {"folder_number": found[0]["invoice_number"]}, context=context
+    )
+    return f"numéro du dossier d'import : {found[0]['invoice_number']}"
+
+
 def listed(texts):
     """``texts`` as one sentence: "a ; b." (Experio's own end with their period: not doubled)."""
     return " ; ".join(text.rstrip(". ") for text in texts) + "."
@@ -175,6 +210,7 @@ def configure_cabinet(invoice_id: int) -> dict:
         return routine(f"Facture {invoice_id} : en état {invoice['state']}, rien à paramétrer.")
     company_id, context = invoice["company_id"][0], invoice_context(invoice)
     with refused(f"configure_cabinet {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier la facture."):
+        numbered = settle_folder_number(invoice_id, context)
         before = blocking(invoice_id, context)
         assets = assets_without_category(invoice_id, context)
     if not before and assets:
@@ -182,6 +218,8 @@ def configure_cabinet(invoice_id: int) -> dict:
             f"Facture {invoice_id} : pas comptabilisable en l'état. À régler par le cabinet dans la Configuration du "
             f"dossier : {assets_text(assets)}."
         )
+    if not before and numbered:
+        return ok(f"Facture {invoice_id} : {numbered}.")
     if not before:
         return routine(f"Facture {invoice_id} : le dossier a les parametres necessaires.")
     if dry_run():

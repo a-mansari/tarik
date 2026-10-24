@@ -37,6 +37,7 @@ def chosen(monkeypatch):
     invoice = {"id": 4, "company_id": [778, "D"], "type": "purchase", "partner_id": False}
     monkeypatch.setattr(tiers, "require_draft_invoice", lambda invoice_id, fields, what, read: invoice)
     monkeypatch.setattr(tiers, "require_invoice", lambda invoice_id, fields: invoice)
+    monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: None)
     monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"ice": "", **p} for p in TIERS])
     monkeypatch.setattr(tiers, "side_of", lambda invoice: "purchase")
     monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: {"status": "ok", "linked": partner_id})
@@ -114,6 +115,7 @@ def scanned(monkeypatch):
     calls = []
     monkeypatch.setattr(tiers, "require_draft_invoice", lambda invoice_id, fields, what, read: invoice)
     monkeypatch.setattr(tiers, "require_invoice", lambda invoice_id, fields: invoice)
+    monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: None)
     monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"ice": "", **p} for p in TIERS])
     monkeypatch.setattr(tiers, "side_of", lambda invoice: "purchase")
 

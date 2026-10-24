@@ -331,6 +331,7 @@ Covers a draft taken up again keeping its classified side.
 - `test_a_side_the_client_gives_asks_for_a_new_look` [functionality]: a side given by the client triggers reclassification.
 - `test_the_side_experios_reading_proves_by_the_dossiers_ice_wins_over_the_model` [functionality]: the issuer (or buyer) Experio read carrying the dossier's ICE/IF decides the side, before any model.
 - `test_the_model_is_told_whose_dossier_it_is` [functionality]: the classifier is given the dossier's name.
+- `test_an_import_folders_piece_is_a_purchase_without_asking_the_model` [functionality]: an import folder's piece is a purchase.
 
 ### tests/invoices/test_configuration.py
 Covers the dossier's tax settings before posting.
@@ -374,6 +375,18 @@ Covers which files of a conversation are still to process (db_cabinet).
 - `test_a_draft_another_run_made_is_left_to_it` [security]: drafts owned by another run are not touched.
 - `test_an_entries_file_experio_cannot_read_is_not_taken_again` [functionality]: an entries file Experio cannot read is not retried.
 - `test_the_same_invoice_file_sent_again_makes_no_second_draft` [functionality]: the same file content makes one draft per dossier; a deleted first draft lets it make a new one.
+
+### tests/invoices/test_import_folder.py
+Covers an import folder made as Experio's « Imports » screen makes it, and its pieces' rules.
+- `test_an_import_folder_is_the_clients_word_never_a_guess` [functionality, param]: folder and « plusieurs dossiers » from the client's words only.
+- `test_pages_are_grouped_into_documents_a_new_one_at_each_start_or_type` [functionality]: pages grouped into documents.
+- `test_experios_own_folder_import_sequence` [functionality]: Experio's sequence: pages held, folder, DUM, attachments.
+- `test_the_transit_agents_invoice_comes_last` [functionality]: the transit invoice processed last.
+- `test_a_folder_without_number_takes_its_transit_invoices_as_experios_reading_does` [functionality]: the folder number by the dossier's rule.
+- `test_the_transit_invoice_waits_for_the_invoices_it_paid_then_takes_them` [security]: the invoices it paid posted first, then linked.
+- `test_a_customs_invoice_takes_the_dossiers_customs_tiers` [functionality]: the dossier's customs tiers, asked among several.
+- `test_the_same_folder_file_sent_again_makes_no_second_folder` [functionality]: one folder per file content.
+- `test_a_tiers_name_experio_cut_short_is_taken_whole_from_the_check` [functionality]: the check's name when it flagged Experio's.
 
 ### tests/invoices/test_instructions.py
 Covers instructions the client wrote alongside invoices.

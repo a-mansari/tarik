@@ -17,6 +17,7 @@ from langgraph.types import Send
 from engine.calls import call as run_tool
 from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, summary
 from engine.tools.core.conversation import mentions_attachment
+from engine.tools.invoices.import_folder import folder_mode
 from engine.tools.invoices.pipeline import INVOICE_CHAIN, position
 
 INPUTS = [
@@ -51,6 +52,7 @@ class Run(Outcomes, total=False):
     route: str  # where route_message sent the message: files, answer, resume or both
     dossier_id: int  # the dossier found from the name the client gave (resolve_dossier)
     files: list
+    folder_invoices: list  # the drafts an import folder made (create_import_folder), transit agent's last
     invoices: list
     facturation: list  # the dossier's drafts from Experio's Facturation the client asked to post (waiting_drafts)
     corrections: list  # [[invoice, account]] the client gave drafts taken up again (waiting_drafts)
@@ -293,6 +295,16 @@ async def files(state: Run):
     saved = any(outcome.get("files") for outcome in state["outcomes"][:1])
     asked = mentions_attachment(state["call"].get("client_message") or "") and not saved
     result = await run_step(state, "files_to_process", session_id=state["call"]["session_id"], asked=asked)
+    message = state["call"].get("client_message") or ""
+    if result.get("files") and folder_mode(message)[0]:  # « dossier d'import »: the files are one folder's documents
+        made = await run_step(
+            state,
+            "create_import_folder",
+            session_id=state["call"]["session_id"],
+            dossier_id=state["dossier_id"],
+            client_message=message,
+        )
+        return {"files": [], "folder_invoices": made.get("invoices", []), "outcomes": [result, made]}
     return {"files": result.get("files", []), "outcomes": [result]}
 
 
@@ -301,6 +313,15 @@ def each_file(state: Run):
     never those other conversations left on the dossier."""
     if failed(state):
         return "resume"  # the files could not be listed: recorded, nothing more
+    if state.get("folder_invoices"):  # an import folder's drafts, each from Experio's reading on, transit last
+        call = with_dossier(state)
+        return [
+            Send(
+                "fichier",
+                {"call": call, "run_id": state["run_id"], "entry": "wait_until_read", "invoice_id": i, "outcomes": []},
+            )
+            for i in state["folder_invoices"]
+        ]
     if not state["files"]:
         return "brouillons"
     return [

@@ -330,7 +330,7 @@ def test_an_invoice_stays_a_verified_draft_until_the_client_says_to_post_it(db_c
     assert pipeline.waiting_drafts(
         "other", held=True, dossier_id=5, client_message="Comptabilisez toutes les factures du dossier."
     )["invoices"] == [7]
-    assert ("company_id", "in", [5]) in searched[-1]
+    assert ("company_id", "in", [5]) in searched[-2]  # the last search: which of them are transit invoices
     assert pipeline.hold_posting(7, "s", "oui")["status"] == "ok"
     assert pipeline.hold_posting(7, "s")["status"] == "ok"  # kept for the runs resumed after a question
     nothing = pipeline.waiting_drafts(
@@ -363,7 +363,7 @@ def test_stopped_drafts_are_resumed_only_when_the_client_asks(db_cabinet, monkey
     assert pipeline.waiting_drafts("new", stopped=True, dossier_id=5)["invoices"] == []  # others': only if asked
     reprenez = "Reprenez toutes les factures du dossier."
     assert pipeline.waiting_drafts("new", stopped=True, dossier_id=5, client_message=reprenez)["invoices"] == [1, 4]
-    assert ("company_id", "in", [5]) in searched[-1]
+    assert ("company_id", "in", [5]) in searched[-2]  # the last search: which of them are transit invoices
     assert pipeline.waiting_drafts("new", stopped=True)["invoices"] == []  # no dossier: nothing from elsewhere
 
 

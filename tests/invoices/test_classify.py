@@ -11,7 +11,7 @@ def asked(db_cabinet, monkeypatch):
     state = {"answer": "vente", "model": 0, "filled": []}
     draft = {"state": "draft", "type": "purchase", "company_id": [1, "D"], "exercice_id": False, "document_pdf": ""}
     read = ("detected_supplier_ice", "detected_customer_ice", "detected_supplier_if", "detected_customer_if")
-    draft.update(dict.fromkeys(read, False))
+    draft.update(dict.fromkeys(read, False), folder_id=False, folder_type=False)
     state["draft"], state["company"] = draft, {"name": "ALL FWD MAROC", "ice": "003273903000040", "vat": "53781112"}
     monkeypatch.setattr(classify, "odoo_call", lambda model, method, ids, fields: [state["company"]])
     monkeypatch.setattr(classify, "require_invoice", lambda i, f: {"id": i, **draft})
@@ -81,3 +81,11 @@ def test_the_model_is_told_whose_dossier_it_is(asked):
     asked["answer"] = "vente"
     classify.classify_invoice(5)
     assert asked["told"] == "ALL FWD MAROC"
+
+
+@pytest.mark.functionality
+def test_an_import_folders_piece_is_a_purchase_without_asking_the_model(asked):
+    asked["answer"] = "autre"  # a customs liquidation slip: the model doubts it is an invoice
+    asked["draft"].update(folder_id=[4, "2601"], folder_type="import", type="sale")
+    result = classify.classify_invoice(5)
+    assert result["category"] == "achat" and asked["model"] == 0 and asked["filled"] == [{"type": "purchase"}]
