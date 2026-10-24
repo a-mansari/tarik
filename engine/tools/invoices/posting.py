@@ -44,6 +44,40 @@ def missing_compte_tiers(invoice):
     return None if partner[field] else role
 
 
+def disbursements_first(invoice):
+    """A transit agent's invoice of an import folder: a stop while invoices of the folder paid by the transit agent
+    (« Payée par transitaire ») are not posted yet -- Experio links only posted ones --, else those posted ones linked
+    as Experio's form does (_onchange_autofill_disbursement_invoices: same folder, posted, not a transit invoice, not
+    linked to another), its writing rebuilt with them. None otherwise."""
+    fields = ["invoice_type", "folder_id", "folder_type", "disbursement_invoice_ids", "company_id", "exercice_id"]
+    found = odoo_call("exp.invoice", "read", [invoice["id"]], fields=fields)[0]
+    if found["invoice_type"] != "transit" or not found["folder_id"] or found["folder_type"] != "import":
+        return None
+    folder = [("folder_id", "=", found["folder_id"][0]), ("is_disbursement_invoice", "=", True)]
+    folder.append(("invoice_type", "!=", "transit"))
+    waiting = odoo_call("exp.invoice", "search", [*folder, ("state", "in", ["pending", "draft"])])
+    if waiting:
+        return stop(
+            f"Facture {invoice['id']} (transitaire) : pas comptabilisée avant les factures payées par le transitaire "
+            f"du dossier ({', '.join(map(str, waiting))}), qu'Experio ne lui rattache qu'une fois comptabilisées."
+        )
+    eligible = odoo_call(
+        "exp.invoice", "search", [*folder, ("state", "in", ["post", "export"]), ("transit_invoice_id", "=", False)]
+    )
+    missing = [i for i in eligible if i not in found["disbursement_invoice_ids"]]
+    if missing and not dry_run():
+        context = invoice_context(found)
+        odoo_call(
+            "exp.invoice",
+            "write",
+            [invoice["id"]],
+            {"disbursement_invoice_ids": [(4, i) for i in missing]},
+            context=context,
+        )
+        refresh(invoice["id"], context)  # its disbursement lines, one per linked invoice
+    return None
+
+
 def auto_merge(invoice):
     """A stop when posting would merge two tiers for good: the dossier merges the tiers Experio read into the one set on
     the invoice when they differ (auto_merge_detected_partner, in action_post's _merge_partners_and_flag_duplicates),
@@ -83,6 +117,9 @@ def post_invoice(invoice_id: int) -> dict:
     merged = auto_merge(invoice)
     if merged:
         return merged
+    first = disbursements_first(invoice)
+    if first:
+        return first
     role = missing_compte_tiers(invoice)
     if role:
         return stop(

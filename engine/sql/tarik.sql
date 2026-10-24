@@ -184,7 +184,8 @@ delete from tarik_pending where invoice_id = any(%s)
 -- parts, not a dossier's entries (those go to the dossier workflow).
 -- Not files_to_process, on purpose: what came since the last run, not all that is left.
 select file_name from tarik_files where session_id = %s and invoice_id is null and statement_id is null
-and parent_id is null and kind is distinct from 'entries' and kind is distinct from 'certificate' and created_at >
+and parent_id is null and kind is distinct from 'entries' and kind is distinct from 'certificate'
+and kind is distinct from 'folder' and created_at >
 coalesce((select max(created_at) from tarik_results where session_id = %s), '-infinity')
 
 -- name: pdfs_awaiting_split
@@ -204,7 +205,7 @@ values (%s, %s, %s, %s, %s) on conflict (session_id, source_id) do nothing retur
 -- cut out of a PDF whose draft failed, a statement waiting for its bank account. A cut PDF is its parts.
 select id, file_name from tarik_files f where session_id = %s and invoice_id is null
 and statement_id is null and twin_of is null and kind is distinct from 'entries'
-and kind is distinct from 'certificate'
+and kind is distinct from 'certificate' and kind is distinct from 'folder'
 and not exists (select 1 from tarik_files part where part.parent_id = f.id) order by id
 
 -- name: invoice_outcomes_of_session
@@ -459,3 +460,18 @@ update tarik_files set twin_of = %s where id = %s
 -- name: run_worked_on_invoices
 -- Whether this run already recorded an outcome on an invoice.
 select 1 from tarik_results where run_id = %s and invoice_id is not null limit 1
+
+-- name: folder_files_of_session
+-- The conversation's files for an import folder: not taken by any step yet, not cut parts, not entries, in order.
+select f.id, f.file_name, f.mime_type, f.data from tarik_files f where f.session_id = %s and f.invoice_id is null
+and f.statement_id is null and f.parent_id is null and f.twin_of is null and f.kind is distinct from 'entries'
+and f.kind is distinct from 'certificate' and f.kind is distinct from 'folder'
+and not exists (select 1 from tarik_files part where part.parent_id = f.id) order by f.id
+
+-- name: set_file_folder
+-- A file made into an import folder (its exp.import.folder): never taken again.
+update tarik_files set kind = 'folder', folder_id = %s where id = %s
+
+-- name: folder_of_same_content
+-- The import folders already made from a file of the very same content, another file, newest first.
+select folder_id from tarik_files where folder_id is not null and content_md5 = md5(%s) and id <> %s order by id desc

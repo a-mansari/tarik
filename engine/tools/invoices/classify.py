@@ -107,6 +107,7 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     by split_invoices); a scan that says the other side stops the invoice, one the model reads as neither
     (autre) takes the client's side."""
     read = ["detected_supplier_ice", "detected_customer_ice", "detected_supplier_if", "detected_customer_if"]
+    read += ["folder_id", "folder_type"]
     invoice = require_invoice(
         invoice_id, ["state", "type", "company_id", "exercice_id", "bluejay_state", "document_pdf", "file_type", *read]
     )
@@ -118,7 +119,10 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["name", "ice", "vat"])[0]
     proven = side_by_ice(invoice, company)
     kept = _kept_classification(invoice_id, invoice_type)
-    if proven:
+    if invoice["folder_id"] and invoice["folder_type"] == "import":  # an import folder's piece: a purchase, always
+        category, reason = "achat", f"pièce du dossier d'import {invoice['folder_id'][1]}"
+        _save_classification(invoice_id, category, reason)
+    elif proven:
         whose = "émetteur" if proven == "vente" else "acheteur"
         category, reason = proven, f"l'{whose} lu par Experio porte l'ICE ou l'IF du dossier {company['name']}"
         _save_classification(invoice_id, category, reason)

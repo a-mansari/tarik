@@ -15,6 +15,7 @@ from engine.tools.invoices import (
     difference,
     duplicates,
     exercice,
+    import_folder,
     intake,
     journal,
     listing,

@@ -25,7 +25,9 @@ create index if not exists tarik_files_statement_content on tarik_files (content
 -- A file's kinds: dropped and added again at each start, so a new kind applies to old schemas too.
 alter table tarik_files drop constraint if exists tarik_files_kind_check;
 alter table tarik_files add constraint tarik_files_kind_check
-    check (kind in ('invoice', 'statement', 'entries', 'other', 'certificate'));
+    check (kind in ('invoice', 'statement', 'entries', 'other', 'certificate', 'folder'));
+-- folder: a file the client sent as an import folder's documents, made into that exp.import.folder (folder_id).
+alter table tarik_files add column if not exists folder_id integer;
 -- certificate: a supplier's attestation de regularite fiscale the client sent to answer settle_withholding's question,
 -- uploaded to Experio as that record (exp.partner.regularity.form): never an invoice nor a statement.
 alter table tarik_files add column if not exists regularity_id integer;

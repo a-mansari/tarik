@@ -1,0 +1,44 @@
+--- tools/classify-import-page.md (avant)
++++ tools/classify-import-page.md (après)
+@@ -0,0 +1,19 @@
++---
++used_by: create_import_folder (engine/tools/invoices/import_folder.py)
++---
++You type one page of an import folder from a Moroccan accounting cabinet, as the cabinet types each page on Experio's « Imports » screen. The cabinet's client is the importer.
++
++Pick the one type that fits the page, among the types you are given:
++
++- transit: the invoice of the transit agent (transitaire, commissionnaire en douane, freight forwarder) who handled this import: clearance fees, dossier fees, often freight and debours paid on the client's behalf. Such an invoice is transit even when the freight is its main line.
++- customs: a customs document with the duties to pay (liquidation, quittance, droits et taxes, ADII).
++- dum: the DUM itself (Déclaration Unique de Marchandises), the customs declaration form, not a bill.
++- supplier: the foreign supplier's commercial invoice for the goods imported.
++- transport, maritime (sea freight), acconage, storage (magasinage), insurance, control (contrôle, inspection), anp (Agence Nationale des Ports), surestaries, ONSAA, VERITAS: the bill of that service alone, by the company that rendered it (a carrier, a port, a warehouse), never the transit agent's invoice.
++- invoice: any other invoice of the import.
++- attachment: a page kept with the folder but billing nothing: a packing list, a bill of lading, a certificate of origin, a delivery note, a proof of payment.
++- other: none of these.
++
++starts: true when the page begins a document (its own title, number, letterhead or addressee), false when it only continues the document of the page before (a second page, lines carried over, a total page).
++
++Give a one-sentence reason in French.
+--- labels.json (avant)
++++ labels.json (après)
+@@ -49,7 +49,8 @@
+       "comptes": "Comptes et taxes",
+       "comptabilisation": "Comptabilisation",
+       "settle_warnings": "Avertissements d'Experio",
+-      "apply_credit_note": "Imputation de l'avoir"
++      "apply_credit_note": "Imputation de l'avoir",
++      "create_import_folder": "Dossier d'import"
+     },
+     "dossier": {
+       "debut": "Pièces jointes et choix du travail",
+@@ -158,7 +159,8 @@
+         "comptes": "Le compte de charge ou de produit, la TVA, le journal, la retenue à la source, les charges constatées d'avance et l'exercice.",
+         "comptabilisation": "Les paramètres du dossier complétés, puis la facture laissée en brouillon vérifié, ou comptabilisée si le client l'a demandé.",
+         "settle_warnings": "Règle chaque avertissement d'Experio avant la comptabilisation : corrigé quand Experio ou Tarik le peut (taux de RAS TVA selon les règles d'Experio, prorata du dossier, exercice), attendu quand le temps le règle (taux de change pas encore publié), levé quand il ne peut pas s'appliquer, demandé au client seulement pour un vrai choix (ICE de l'acheteur différent de celui du dossier, compte, taux IS/IR).",
+-        "apply_credit_note": "Après la comptabilisation d'un avoir, l'impute sur la facture qu'il annule, comme Experio le fait depuis « Crédits en attente » : la facture que cite l'avoir, sinon la seule facture du tiers restant due du même montant. Sinon, les factures possibles sont listées pour le cabinet. Annulable dans Experio."
++        "apply_credit_note": "Après la comptabilisation d'un avoir, l'impute sur la facture qu'il annule, comme Experio le fait depuis « Crédits en attente » : la facture que cite l'avoir, sinon la seule facture du tiers restant due du même montant. Sinon, les factures possibles sont listées pour le cabinet. Annulable dans Experio.",
++        "create_import_folder": "Quand le client parle d'un dossier d'import, fait de ses fichiers un dossier d'import dans Experio, comme l'écran « Imports » : chaque page typée parmi les types d'Experio (transitaire, douane, DUM, fournisseur, pièce jointe...), chaque pièce un brouillon du dossier, la DUM lue par Experio ; un dossier par fichier s'il dit « plusieurs dossiers ». La facture du transitaire est traitée et comptabilisée en dernier."
+       },
+       "dossier": {
+         "debut": "Enregistre les fichiers joints au message et choisit le travail à faire : création, modification, accès, archivage, écart de paiement, création de dossiers depuis un tableur ou reprise.",
