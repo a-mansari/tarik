@@ -184,7 +184,7 @@ delete from tarik_pending where invoice_id = any(%s)
 -- parts, not a dossier's entries (those go to the dossier workflow).
 -- Not files_to_process, on purpose: what came since the last run, not all that is left.
 select file_name from tarik_files where session_id = %s and invoice_id is null and statement_id is null
-and parent_id is null and kind is distinct from 'entries' and created_at >
+and parent_id is null and kind is distinct from 'entries' and kind is distinct from 'certificate' and created_at >
 coalesce((select max(created_at) from tarik_results where session_id = %s), '-infinity')
 
 -- name: pdfs_awaiting_split
@@ -203,12 +203,13 @@ values (%s, %s, %s, %s, %s) on conflict (session_id, source_id) do nothing retur
 -- Whatever has no draft or statement yet, until it has: a file left uncut (its side wasn't given), one invoice
 -- cut out of a PDF whose draft failed, a statement waiting for its bank account. A cut PDF is its parts.
 select id, file_name from tarik_files f where session_id = %s and invoice_id is null
-and statement_id is null and kind is distinct from 'entries'
+and statement_id is null and twin_of is null and kind is distinct from 'entries'
+and kind is distinct from 'certificate'
 and not exists (select 1 from tarik_files part where part.parent_id = f.id) order by id
 
 -- name: invoice_outcomes_of_session
--- The conversation's invoice outcomes, in the order recorded.
-select invoice_id, step, status from tarik_results where session_id = %s and invoice_id is not null
+-- The conversation's invoice outcomes, in the order recorded, with the run that recorded each.
+select invoice_id, step, status, run_id from tarik_results where session_id = %s and invoice_id is not null
 order by id
 
 -- name: drafts_of_session
@@ -423,3 +424,38 @@ select invoice_id from tarik_working where invoice_id = any(%s) and claimed_at >
 -- name: other_file_names
 -- The names of the other files of a file's conversation.
 select file_name from tarik_files where session_id = (select session_id from tarik_files where id = %s) and id <> %s
+
+-- name: files_after_question
+-- The files of the conversation that came after the invoice's pending question, not taken by any step yet: what
+-- the client sent to answer it (a supplier's attestation), newest first.
+select f.id, f.file_name, f.mime_type, f.data from tarik_files f join tarik_pending p on p.invoice_id = %s
+where f.session_id = p.session_id and f.invoice_id is null and f.statement_id is null and f.parent_id is null
+and f.kind is null and f.created_at > p.created_at order by f.id desc
+
+-- name: set_file_certificate
+-- A file uploaded to Experio as a supplier's attestation (its exp.partner.regularity.form).
+update tarik_files set kind = 'certificate', regularity_id = %s where id = %s
+
+-- name: no_certificate_of_partner
+-- Whether the client said this supplier has no attestation.
+select 1 from tarik_no_certificate where partner_id = %s
+
+-- name: note_no_certificate
+-- The client said this supplier has no attestation.
+insert into tarik_no_certificate (partner_id) values (%s) on conflict (partner_id) do update set said_at = now()
+
+-- name: forget_no_certificate
+-- An attestation came for this supplier after all.
+delete from tarik_no_certificate where partner_id = %s
+
+-- name: invoices_of_same_content
+-- The drafts already made from a file of the very same content, another file, newest first.
+select invoice_id from tarik_files where invoice_id is not null and content_md5 = md5(%s) and id <> %s order by id desc
+
+-- name: set_file_twin
+-- A file whose very content already made a draft of the dossier: none made from it.
+update tarik_files set twin_of = %s where id = %s
+
+-- name: run_worked_on_invoices
+-- Whether this run already recorded an outcome on an invoice.
+select 1 from tarik_results where run_id = %s and invoice_id is not null limit 1

@@ -215,6 +215,30 @@ def test_a_draft_that_failed_waited_or_was_cut_short_is_taken_up_again(db_cabine
 
 
 @pytest.mark.functionality
+def test_a_draft_whose_latest_outcome_is_a_wait_is_taken_up_again_however_far_it_went_before(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain, **kw: domain[0][2])  # all still drafts
+    for run, step, status in [
+        ("r1", "hold_posting", "stop"),  # verified, kept unposted
+        ("r2", "settle_withholding", "wait"),  # taken up since: its supplier's attestation is being read
+    ]:
+        pipeline.record_step(run, "s", step, {"status": status, "message": "m", "invoice_id": 6})
+    assert pipeline.waiting_drafts("s")["invoices"] == [6]
+    pipeline.record_step("r3", "s", "settle_withholding", {"status": "question", "message": "m", "invoice_id": 6})
+    assert pipeline.waiting_drafts("s")["invoices"] == []  # now it waits on the client
+    pipeline.record_step("r4", "s", "configure_cabinet", {"status": "stop", "message": "m", "invoice_id": 6})
+    assert pipeline.waiting_drafts("s")["invoices"] == []  # a setting stopped it: not on a follow-up...
+    assert pipeline.waiting_drafts("s", stopped=True)["invoices"] == [6]  # ...but when the client says to resume
+
+
+@pytest.mark.communication
+def test_nothing_left_to_post_is_not_said_when_the_same_run_just_posted(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "odoo_call", lambda model, method, domain, **kw: [])  # no draft left
+    pipeline.record_step("r", "s", "post_invoice", {"status": "ok", "message": "m", "invoice_id": 6})
+    assert pipeline.waiting_drafts("s", held=True, run_id="r")["routine"]  # « comptabilisez » went both ways
+    assert pipeline.waiting_drafts("s", held=True, run_id="r2")["status"] == "stop"  # a run that posted nothing
+
+
+@pytest.mark.functionality
 def test_a_run_waits_on_experio_reading_once_for_all_its_drafts(monkeypatch):
     clock, states = [0.0], {1: "pending", 2: "pending", 3: "done"}
     monkeypatch.setattr(pipeline.time, "monotonic", lambda: clock[0])
@@ -222,12 +246,34 @@ def test_a_run_waits_on_experio_reading_once_for_all_its_drafts(monkeypatch):
     monkeypatch.setattr(pipeline, "require_invoice", lambda invoice_id, fields: {"bluejay_state": states[invoice_id]})
     monkeypatch.setattr(pipeline, "READ_DEADLINES", {})
     monkeypatch.setattr(pipeline, "split_off", lambda invoice_id: [])
+    monkeypatch.setattr(pipeline, "resend_if_stuck", lambda invoice_id: "")
     assert pipeline.wait_until_read(1, "run")["status"] == "wait"
     waited = clock[0]
     assert pipeline.READ_WAIT <= waited < pipeline.READ_WAIT + 15  # one stuck reading never holds the run
     assert pipeline.wait_until_read(2, "run")["status"] == "wait" and clock[0] == waited  # the deadline is passed
     assert pipeline.wait_until_read(3, "run")["status"] == "ok"
     assert pipeline.wait_until_read(2, "next run")["status"] == "wait" and clock[0] > waited  # its own deadline
+
+
+@pytest.mark.functionality
+def test_a_reading_stuck_over_an_hour_is_sent_again_once_an_hour(monkeypatch):
+    calls, now = [], pipeline.datetime.now(pipeline.UTC).replace(tzinfo=None)
+    draft = {"state": "pending", "company_id": [5, "D"]}
+
+    def at(minutes):
+        return (now - pipeline.timedelta(minutes=minutes)).isoformat(sep=" ", timespec="seconds")
+
+    monkeypatch.setattr(pipeline, "require_invoice", lambda invoice_id, fields: draft)
+    monkeypatch.setattr(pipeline, "dry_run", lambda: False)
+    monkeypatch.setattr(pipeline, "odoo_json", lambda model, method, ids, context: calls.append((method, ids)))
+    draft.update(create_date=at(90), write_date=at(70))
+    assert "relire" in pipeline.resend_if_stuck(4) and calls == [("action_resend", [4])]
+    draft.update(write_date=at(5))  # sent again 5 minutes ago (the resend touches it): not again yet
+    assert pipeline.resend_if_stuck(4) == "" and len(calls) == 1
+    draft.update(create_date=at(30), write_date=at(30))  # under an hour: Experio's own threshold not reached
+    assert pipeline.resend_if_stuck(4) == "" and len(calls) == 1
+    draft.update(state="draft", create_date=at(90), write_date=at(90))  # read since: nothing to resend
+    assert pipeline.resend_if_stuck(4) == "" and len(calls) == 1
 
 
 @pytest.mark.functionality

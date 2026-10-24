@@ -126,7 +126,7 @@ PHASES = {
         "settle_prepaid",
         "settle_exercice",
     ],
-    "comptabilisation": ["configure_cabinet", "hold_posting", "post_invoice"],
+    "comptabilisation": ["configure_cabinet", "settle_warnings", "hold_posting", "post_invoice"],
 }
 assert [tool for steps in PHASES.values() for tool in steps] == INVOICE_CHAIN, "the phases must hold the chain in order"
 
@@ -287,7 +287,9 @@ async def sender(state: Run):
 async def files(state: Run):
     # Reached only from a client's message (a follow-up resumes its drafts): no file is told to the client when they
     # said they attached one (an answer or « comptabilisez » carries none, and a zip's left out files are told).
-    asked = mentions_attachment(state["call"].get("client_message") or "")
+    # One saved by this run did arrive, even when a step took it as something else (a supplier's attestation).
+    saved = any(outcome.get("files") for outcome in state["outcomes"][:1])
+    asked = mentions_attachment(state["call"].get("client_message") or "") and not saved
     result = await run_step(state, "files_to_process", session_id=state["call"]["session_id"], asked=asked)
     return {"files": result.get("files", []), "outcomes": [result]}
 

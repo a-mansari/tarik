@@ -70,3 +70,164 @@ def test_local_withholding(model):
 def test_a_rate_experio_does_not_take_is_never_written(model, reading):
     model[0].update(reading)
     assert local_withholding_answer("x") is None
+
+
+@pytest.fixture
+def local(monkeypatch):
+    """A local purchase in a fake Experio: its supplier, the supplier's attestations, the dossier, every write."""
+    state = {
+        "invoice": {
+            "id": 3,
+            "state": "draft",
+            "type": "purchase",
+            "is_local_invoice": True,
+            "company_id": [5, "D"],
+            "exercice_id": False,
+            "partner_id": [7, "BTP SARL"],
+            "account_id": [1, "61330000 Entretien"],
+            "invoice_date": "2026-10-15",
+            "retenue": False,
+            "foreign_withholding": False,
+            "local_service": True,
+            "local_withholding_percentage": False,
+            "tax_withholding_percentage": "0",
+        },
+        "partner": {"id": 7, "name": "BTP SARL", "type": "company", "expense_type": "travaux"},
+        "certificates": [],
+        "public": False,
+        "over_thresholds": False,
+        "written": [],
+        "created": [],
+    }
+    monkeypatch.setattr(withholding, "require_invoice", lambda i, f: dict(state["invoice"]))
+    monkeypatch.setattr(withholding, "dry_run", lambda: False)
+    monkeypatch.setattr(withholding, "refresh", lambda i, context: None)
+    monkeypatch.setattr(withholding, "test_mode_note", lambda: "")
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "exp.partner":
+            return [dict(state["partner"])]
+        if model == "res.company":
+            return [{"exp_is_public_organization": state["public"]}]
+        if method == "create":
+            state["created"].append(args[0])
+            return 41
+        return [{"state_msg": False, **c} for c in state["certificates"]]
+
+    def fill_invoice(invoice_id, changes, context):
+        state["written"].append(changes)
+        return {"tax_withholding_percentage": state.get("experio_rate", "100")} if changes.get("retenue") else {}
+
+    monkeypatch.setattr(withholding, "odoo_call", odoo_call)
+    monkeypatch.setattr(withholding, "odoo_json", lambda model, method, ids: state["over_thresholds"])
+    monkeypatch.setattr(withholding, "fill_invoice", fill_invoice)
+    return state
+
+
+@pytest.mark.functionality
+def test_a_supplier_with_an_activity_type_gets_its_retenue_on_and_experio_sets_the_rate(db_cabinet, local):
+    local["certificates"] = [
+        {
+            "regularity_date": "2026-06-01",
+            "regularity_end_date": "2026-12-01",
+            "state": "active",
+            "bluejay_state": "done",
+        }
+    ]
+    local["experio_rate"] = "0"
+    result = withholding.settle_withholding(3)
+    assert local["written"] == [{"retenue": True}]  # never the rate itself: Experio's onchange sets it
+    assert result["message"] == "Facture 3 : retenue à la source activée, à 0 % (activité du fournisseur : travaux)."
+
+
+@pytest.mark.functionality
+def test_no_activity_type_no_retenue_and_none_before_july_2024(db_cabinet, local):
+    local["partner"]["expense_type"] = False
+    assert withholding.settle_withholding(3)["routine"] and local["written"] == []
+    local["partner"]["expense_type"] = "travaux"
+    local["invoice"]["invoice_date"] = "2024-06-30"  # Experio's RAS TVA applies from 2024-07-01
+    assert withholding.settle_withholding(3)["routine"] and local["written"] == []
+
+
+@pytest.mark.functionality
+def test_the_attestation_is_asked_once_per_supplier_when_the_rate_depends_on_it(db_cabinet, local):
+    asked = withholding.settle_withholding(3)
+    assert asked["status"] == "question" and "attestation de régularité fiscale" in asked["message"]
+    assert local["written"] == []
+    # « sans attestation »: Experio's rate without one, and the supplier is not asked again.
+    result = withholding.settle_withholding(3, "Il n'a pas d'attestation, sans attestation", answering=True)
+    assert result["status"] == "ok" and "TVA 100 %" in result["message"]
+    assert withholding.settle_withholding(3)["status"] == "ok"  # not asked again for this supplier
+    # The rate doesn't depend on it: never asked (a public dossier's works, a company's services).
+    with db_cabinet_cleared():
+        local["public"] = True
+        assert withholding.settle_withholding(3)["status"] == "ok"
+
+
+def db_cabinet_cleared():
+    """The test cabinet's « sans attestation » notes cleared."""
+    import contextlib
+
+    from engine.tools.core.cabinets import cabinet_db
+
+    @contextlib.contextmanager
+    def cleared():
+        with cabinet_db() as db:
+            db.execute("delete from tarik_no_certificate")
+        yield
+
+    return cleared()
+
+
+@pytest.mark.functionality
+def test_an_attestation_sent_as_the_answer_is_uploaded_to_the_supplier_then_awaited(db_cabinet, local):
+    from engine.tools.core.cabinets import cabinet_db
+    from engine.tools.invoices import pipeline
+
+    pipeline.record_step("r", "s", "settle_withholding", {**withholding.settle_withholding(3), "invoice_id": 3})
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, created_at) values "
+            "('s', 'attestation.pdf', 'application/pdf', %s, now() + interval '1 second')",
+            (b"%PDF-1.4 attestation",),
+        )
+    result = withholding.settle_withholding(3, "ci-joint", answering=True)
+    assert result["status"] == "wait" and "« attestation.pdf »" in result["message"]
+    assert local["created"][0]["partner_id"] == 7 and local["created"][0]["document_pdf_name"] == "attestation.pdf"
+    with cabinet_db() as db:
+        assert db.execute("select kind, regularity_id from tarik_files").fetchone() == ("certificate", 41)
+        assert db.execute(pipeline.Q.files_to_process, ("s",)).fetchall() == []  # never taken for an invoice
+    local["certificates"] = [
+        {"regularity_date": False, "regularity_end_date": False, "state": "pending", "bluejay_state": "pending"}
+    ]
+    assert withholding.settle_withholding(3)["status"] == "wait"  # Experio still reads it
+    local["certificates"][0].update(
+        regularity_date="2026-01-01", regularity_end_date="2026-07-01", state="expired", bluejay_state="done"
+    )
+    assert withholding.settle_withholding(3)["status"] == "question"  # read, but no longer valid: asked again
+    local["certificates"][0].update(state="error", state_msg="Vérification échouée \n - Date illisible.")
+    asked = withholding.settle_withholding(3)  # refused by Experio: its reason told
+    assert "n'a pas été validée par Experio (Vérification échouée - Date illisible.)" in asked["message"]
+
+
+@pytest.mark.functionality
+def test_a_persons_services_need_it_only_over_experios_thresholds(db_cabinet, local):
+    local["partner"].update(type="person", expense_type="prestation")
+    assert withholding.settle_withholding(3)["status"] == "ok"  # under 5 000 and the month under 50 000
+    local["written"].clear()
+    local["over_thresholds"] = True
+    assert withholding.settle_withholding(3)["status"] == "question"
+
+
+@pytest.mark.functionality
+def test_an_is_ir_rate_the_tiers_type_does_not_take_is_asked_again(db_cabinet, local, model):
+    local["partner"].update(expense_type=False)
+    local["invoice"]["account_id"] = [1, "61360000 Honoraires"]
+    assert "IS/IR" in withholding.settle_withholding(3)["message"]  # fees: asked their IS/IR rate
+    model[0].update(retenue=True, is_ir=15, tva=0)
+    asked = withholding.settle_withholding(3, "15", answering=True)
+    assert asked["status"] == "question" and "personne morale (Experio prend 5, 10, 20, 30 %)" in asked["message"]
+    model[0].update(retenue=True, is_ir=10, tva=75)
+    result = withholding.settle_withholding(3, "10 et 75", answering=True)
+    assert local["written"][-1] == {"retenue": True, "local_withholding_percentage": "10"}  # 75: Experio's to set
+    assert result["status"] == "ok"
