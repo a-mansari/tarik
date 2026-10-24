@@ -9,13 +9,15 @@ from engine.tools.invoices import posting
 @pytest.fixture
 def experio(monkeypatch):
     """A fake Experio: what its check says blocks the invoice, the state after action_post, every call made."""
-    state = {"blocking": [], "after": "post", "state": "draft", "calls": []}
+    state = {"blocking": [], "after": "post", "state": "draft", "calls": [], "lines": []}
+    invoice = {"company_id": [5, "D"], "exercice_id": False}
     monkeypatch.setattr(
-        posting, "require_invoice", lambda i, f: {"state": state["state"], "company_id": [5, "D"], "exercice_id": False}
+        posting, "require_invoice", lambda i, f: {**invoice, "state": state["state"], "line_ids": state["lines"]}
     )
     monkeypatch.setattr(posting, "dry_run", lambda: False)
     monkeypatch.setattr(posting, "missing_compte_tiers", lambda invoice: None)
-    monkeypatch.setattr(posting, "refresh", lambda invoice_id, context: None)
+    monkeypatch.setattr(posting, "auto_merge", lambda invoice: None)
+    monkeypatch.setattr(posting, "refresh", lambda invoice_id, context: state["calls"].append("refresh"))
     monkeypatch.setattr(posting.time, "sleep", lambda seconds: None)
 
     def odoo_json(model, method, ids, **kw):
@@ -24,6 +26,8 @@ def experio(monkeypatch):
             return [("error", text) for text in state["blocking"]]
         if method == "action_post" and state["after"] == "refused":
             raise RuntimeError("Traceback\nValidationError: Tiers sans compte")
+        if method == "action_post":
+            return state.get("action")
 
     monkeypatch.setattr(posting, "odoo_json", odoo_json)
     monkeypatch.setattr(experio_calls, "odoo_json", odoo_json)  # its check, shared with configuration
@@ -42,6 +46,15 @@ def test_posted_only_when_nothing_blocks(experio):
         experio["calls"].count("collect_validation_messages") == 1 + posting.RETRIES + 1
     )  # asked again, then given up
     assert experio["calls"].count("action_post") == 1  # not posted
+
+
+@pytest.mark.functionality
+def test_writing_lines_fixed_by_hand_are_not_rebuilt(experio):
+    posting.post_invoice(3)
+    assert experio["calls"].count("refresh") == 1  # no writing lines yet: Experio builds them
+    experio["lines"] = [41, 42]  # the cabinet may have fixed them in Experio: a refresh would rebuild them
+    posting.post_invoice(3)
+    assert experio["calls"].count("refresh") == 1 and experio["calls"].count("action_post") == 2
 
 
 @pytest.mark.functionality
@@ -67,6 +80,7 @@ def test_an_invoice_whose_tiers_has_no_compte_tiers_is_not_posted(experio, monke
 
     monkeypatch.setattr(posting, "odoo_call", odoo_call)
     monkeypatch.setattr(posting, "dry_run", lambda: False)
+    monkeypatch.setattr(posting, "auto_merge", lambda invoice: None)
     purchase = {"state": "draft", "company_id": [5, "D"], "exercice_id": False, "partner_id": [9, "T"]}
     purchase["type"] = "purchase"
     monkeypatch.setattr(posting, "require_invoice", lambda i, f: purchase)
@@ -76,3 +90,28 @@ def test_an_invoice_whose_tiers_has_no_compte_tiers_is_not_posted(experio, monke
     assert posting.missing_compte_tiers({**purchase, "type": "sale"}) is None  # its customer account is there
     company["ignore_third_party_account"] = True  # the dossier does without them
     assert posting.missing_compte_tiers(purchase) is None
+
+
+@pytest.mark.functionality
+def test_a_window_experio_opens_instead_of_posting_is_said(experio):
+    """action_post may answer with a window (a closed earlier exercice) and post nothing: over RPC nobody sees it."""
+    experio["after"] = "draft"
+    experio["action"] = {"type": "ir.actions.act_window", "res_model": "exp.fiscal.year.confirmation.wizard"}
+    experio["action"]["name"] = "Facture antérieure"
+    result = posting.post_invoice(3)
+    assert result["status"] == "stop" and "« Facture antérieure »" in result["message"]
+
+
+@pytest.mark.security
+def test_posting_never_merges_two_tiers_for_good(monkeypatch):
+    """A dossier that merges the tiers Experio read into the one chosen when they differ deletes one at posting."""
+    company, invoice = {"auto_merge_detected_partner": True}, {"has_wrong_partner": True}
+    monkeypatch.setattr(
+        posting, "odoo_call", lambda model, method, ids, fields: [company if model == "res.company" else invoice]
+    )
+    draft = {"id": 3, "company_id": [5, "D"]}
+    assert posting.auto_merge(draft)["status"] == "stop"
+    invoice["has_wrong_partner"] = False  # the tiers chosen is the one read: nothing merged
+    assert posting.auto_merge(draft) is None
+    company["auto_merge_detected_partner"], invoice["has_wrong_partner"] = False, True  # the dossier never merges
+    assert posting.auto_merge(draft) is None

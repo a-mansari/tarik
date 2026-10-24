@@ -77,11 +77,14 @@ def test_what_still_blocks_stops_the_invoice_the_dossier_s_settings_apart_from_t
 
 
 @pytest.mark.functionality
-def test_a_warning_still_blocks_posting_and_is_no_setting(experio):
+def test_a_warning_is_no_setting_and_blocks_nothing_here(experio):
+    # Experio posts despite its warnings (action_post raises on settings and errors only): settle_warnings' own.
     experio["after"] = [("warning", "<p>Date d'echeance depassee</p>")]
     result = configuration.configure_cabinet(3)
-    assert result["status"] == "stop" and "Configuration" not in result["message"]
-    assert result["message"].endswith("Sur la facture elle-même, Experio signale : Date d'echeance depassee.")
+    assert result["status"] == "ok" and result["message"].endswith("plus rien ne bloque la comptabilisation.")
+    experio["before"], experio["calls"] = [("warning", "<p>Prorata</p>")], []
+    assert configuration.configure_cabinet(3)["routine"]  # nothing blocks: no detection run at all
+    assert ("res.company", "auto_detect_settings") not in experio["calls"]
 
 
 @pytest.mark.functionality

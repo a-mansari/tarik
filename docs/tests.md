@@ -284,6 +284,7 @@ Covers turning the client's words into one account of the chart.
 - `test_one_account_or_a_question` [functionality]: the result is one matching account, or else a question.
 - `test_a_sentence_is_read_by_the_model_but_only_the_charts_accounts_count` [security, param]: the model reads a sentence, but only real chart accounts are accepted.
 - `test_a_code_start_the_client_wrote_is_theirs_not_the_models` [functionality]: an account code prefix the client typed beats the model's guess.
+- `test_only_accounts_experios_field_offers_and_posts_without_warning_are_usable` [security]: only accounts in Experio's own Account domain, in the classes it posts without a warning (2/6 purchase, 7 sale), are taken.
 
 ### tests/invoices/test_answers.py
 Covers the client's answers to waiting questions (db_cabinet).
@@ -298,6 +299,9 @@ Covers the client's answers to waiting questions (db_cabinet).
 - `test_a_question_on_an_invoice_deleted_since_is_dropped` [functionality]: a question on a deleted invoice is discarded.
 - `test_a_statement_gets_the_bank_account_the_client_names` [functionality]: a bank statement is imported into the named account.
 - `test_the_date_the_client_gives_is_the_invoices` [functionality]: a date supplied by the client becomes the invoice date.
+- `test_a_reading_stuck_over_an_hour_is_sent_again_once_an_hour` [functionality]: a draft Experio has not read after 60 minutes is sent again with Experio's own Re-send, at most once an hour.
+- `test_a_draft_whose_latest_outcome_is_a_wait_is_taken_up_again_however_far_it_went_before` [functionality]: a draft is judged by its latest run, not by how far an earlier run took it.
+- `test_nothing_left_to_post_is_not_said_when_the_same_run_just_posted` [communication]: « comptabilisez » never also says nothing was left to post.
 - `test_a_draft_that_failed_waited_or_was_cut_short_is_taken_up_again` [functionality]: failed, waiting or interrupted drafts are resumed.
 - `test_a_run_waits_on_experio_reading_once_for_all_its_drafts` [functionality]: one wait covers Experio's reading of all drafts.
 - `test_a_bank_journals_answer_sets_its_bank_then_asks_the_next` [functionality]: answering one bank journal sets it, then asks the next.
@@ -331,6 +335,7 @@ Covers the dossier's tax settings before posting.
 - `test_an_amount_the_invoice_carries_turns_its_switch_on_with_its_account` [functionality]: an amount on the invoice turns its setting on, with its account.
 - `test_experio_ignores_a_foreign_purchases_deductions_so_nothing_is_set` [functionality]: foreign-purchase deductions are left unset, since Experio ignores them.
 - `test_a_setting_the_cabinets_rights_refuse_is_reported_not_claimed` [security]: a setting refused for lack of rights is reported, not claimed as done.
+- `test_a_warning_is_no_setting_and_blocks_nothing_here` [functionality]: Experio's warnings block nothing at this step (settle_warnings handles them).
 
 ### tests/invoices/test_correct.py
 Covers corrections planned from a check (the HT/TVA fuel case).
@@ -358,6 +363,7 @@ Covers which files of a conversation are still to process (db_cabinet).
 - `test_an_entries_file_imported_or_refused_is_not_taken_again` [functionality]: imported or refused entries files are not retried.
 - `test_a_draft_another_run_made_is_left_to_it` [security]: drafts owned by another run are not touched.
 - `test_an_entries_file_experio_cannot_read_is_not_taken_again` [functionality]: an entries file Experio cannot read is not retried.
+- `test_the_same_invoice_file_sent_again_makes_no_second_draft` [functionality]: the same file content makes one draft per dossier; a deleted first draft lets it make a new one.
 
 ### tests/invoices/test_instructions.py
 Covers instructions the client wrote alongside invoices.
@@ -403,6 +409,9 @@ Covers posting only when Experio's check is clear.
 - `test_posted_only_when_nothing_blocks` [functionality]: an invoice is posted only when nothing blocks it.
 - `test_experios_refusal_and_state_decide` [functionality]: Experio's refusal and the read-back state decide the outcome.
 - `test_an_invoice_whose_tiers_has_no_compte_tiers_is_not_posted` [functionality]: a tiers without a compte tiers prevents posting.
+- `test_writing_lines_fixed_by_hand_are_not_rebuilt` [functionality]: Experio's refresh runs before posting only when there are no writing lines yet.
+- `test_a_window_experio_opens_instead_of_posting_is_said` [functionality]: a confirmation window action_post opens instead of posting is told.
+- `test_posting_never_merges_two_tiers_for_good` [security]: no posting when the dossier would merge the tiers read into the tiers chosen.
 
 ### tests/invoices/test_prepaid.py
 - `test_the_billed_period` [functionality]: the prepaid-expense billing period rule is computed correctly.
@@ -441,6 +450,24 @@ Covers withholding answers checked against what Experio accepts.
 - `test_foreign_withholding` [functionality]: foreign withholding answers are applied correctly.
 - `test_local_withholding` [functionality]: local withholding answers are applied correctly.
 - `test_a_rate_experio_does_not_take_is_never_written` [security, param]: unsupported withholding rates are never written.
+- `test_a_supplier_with_an_activity_type_gets_its_retenue_on_and_experio_sets_the_rate` [functionality]: the retenue is turned on, the RAS TVA rate left to Experio's onchange.
+- `test_no_activity_type_no_retenue_and_none_before_july_2024` [functionality]: no activity type, or a date before 2024-07-01: nothing turned on.
+- `test_the_attestation_is_asked_once_per_supplier_when_the_rate_depends_on_it` [functionality]: the attestation question, « sans attestation » remembered per supplier.
+- `test_an_attestation_sent_as_the_answer_is_uploaded_to_the_supplier_then_awaited` [functionality]: a file sent as the answer becomes the supplier's attestation in Experio, awaited, and asked again when refused (with Experio's reason).
+- `test_a_persons_services_need_it_only_over_experios_thresholds` [functionality]: a person's services need it only over Experio's thresholds.
+- `test_an_is_ir_rate_the_tiers_type_does_not_take_is_asked_again` [functionality]: an IS/IR rate Experio refuses for the tiers type is asked again.
+
+### tests/invoices/test_warnings.py
+Covers Experio's warnings, each handled on its own (docs/experio-warnings.md).
+- `test_no_warning_is_routine` [functionality]: no warning, nothing said.
+- `test_the_ras_tva_rate_is_set_by_experios_own_rules_never_typed` [functionality]: the RAS TVA warning is fixed by Experio's onchange.
+- `test_prorata_is_ticked_where_the_form_has_it_and_dismissed_where_it_has_none` [functionality]: prorata ticked where possible, else dismissed once.
+- `test_an_exchange_rate_not_final_waits` [functionality]: an exchange rate not final or not published yet waits.
+- `test_a_sale_read_as_a_purchase_stops_and_another_buyer_is_asked_once` [functionality]: the two ICE/IF cases.
+- `test_an_is_ir_rate_experio_refuses_for_the_tiers_type_is_asked_and_answered` [functionality]: the IS/IR rate question and its answer.
+- `test_a_warning_still_there_after_its_fix_stops_with_experios_words` [functionality]: a fix that does not clear its warning stops.
+- `test_what_was_fixed_is_told_before_what_stops` [functionality]: what was fixed is said first.
+- `test_after_relinking_its_exercice_the_invoice_is_checked_against_the_new_one` [functionality]: the check uses the exercice just linked.
 
 ---
 

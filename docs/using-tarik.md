@@ -33,8 +33,13 @@ sale (issued by the dossier to its own customer): say which, or Tarik asks befor
 each file: it recognises an invoice or a statement,
 splits a PDF holding several invoices, creates each draft, checks what Experio read against the scan
 and corrects it, then settles the tiers, account, TVA, journal, withholding tax, prepaid charges and
-fiscal year, and leaves it as a verified draft: it is posted only when you ask ("comptabilisez"), in the same
-message or later. When a step needs you (which account? which fiscal year?), it asks.
+fiscal year, then each warning Experio gives (fixed, waited out or dismissed when it can't apply: see
+docs/experio-warnings.md), and leaves it as a verified draft: it is posted only when you ask
+("comptabilisez"), in the same message or later. When a step needs you (which account? which fiscal year?),
+it asks. For a local purchase whose supplier has an activity type in Experio, Tarik turns the withholding on
+itself and Experio sets the RAS TVA rate; when that rate depends on the supplier's attestation de régularité
+fiscale, Tarik asks for it once: send it as an attachment, or answer « sans attestation ». The same file sent
+twice makes one draft only.
 
 **Create a dossier**, from its name alone; ICE, IF and type when you give them. It refuses an ICE or IF
 another dossier already has, and asks first when a dossier has a very similar name. It can copy the

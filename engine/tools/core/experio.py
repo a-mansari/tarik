@@ -38,6 +38,15 @@ class GatewayError(Exception):
     """Experio's gateway answered 502, 503 or 504 instead of Experio."""
 
 
+class ExperioRefusal(RuntimeError):
+    """Experio answered a JSON-RPC call with an error: its message, and ``name``, the exception's class
+    ("odoo.exceptions.ValidationError")."""
+
+    def __init__(self, message, name=""):
+        super().__init__(message)
+        self.name = name or ""
+
+
 # An answer cut off, a connection dropped or refused, a gateway in Experio's place; never a timeout (asking again
 # would only double the wait). ProtocolError: XML-RPC's 502 or 503.
 CUT_OFF = (
@@ -182,7 +191,8 @@ def odoo_json(model, method, *args, **kw):
 
     answer = once_more_if_cut(method in READS, f"odoo_json {model}.{method}", post)
     if "error" in answer:
-        raise RuntimeError(answer["error"].get("data", {}).get("message") or answer["error"].get("message"))
+        data = answer["error"].get("data", {})
+        raise ExperioRefusal(data.get("message") or answer["error"].get("message"), data.get("name"))
     return answer.get("result")
 
 
@@ -322,9 +332,29 @@ def checked(invoice_id, context):
 
 
 def blocking(invoice_id, context):
-    """What Experio's own check says blocks posting the invoice ([str], plain text). Its warnings too: Tarik posts
-    only when the check says nothing at all."""
-    return [text for _level, text in checked(invoice_id, context)]
+    """What Experio's own check says blocks posting the invoice ([str], plain text): a dossier setting or an error.
+    Its warnings never block Experio's posting (action_post raises on the others only); settle_warnings handles them."""
+    return [text for level, text in checked(invoice_id, context) if level != "warning"]
+
+
+# Experio's own refusals: a check that warns raises ValidationError, one that stops raises UserError.
+CHECK_REFUSALS = ("odoo.exceptions.ValidationError", "odoo.exceptions.UserError")
+
+
+def warns(invoice_id, check, context):
+    """What Experio's warning check ``check`` (a method of exp.invoice, validate_warning_...) says of the invoice:
+    its message as plain text, None when it says nothing. Called alone, its refusal rolls its writes back (the
+    warning_code it sets), unlike collect_validation_messages."""
+    try:
+        odoo_json("exp.invoice", check, [invoice_id], context=context)
+    except ExperioRefusal as error:
+        if error.name not in CHECK_REFUSALS:
+            # A check crashing (validate_warning_account_id on an invoice without account): Experio's own list of
+            # warnings skips it the same way (collect_validation_messages: except Exception: pass).
+            log(f"warns {invoice_id} {check}: Experio crashed ({error.name}: {error})")
+            return None
+        return plain(str(error))
+    return None
 
 
 def experio_refusal(error):

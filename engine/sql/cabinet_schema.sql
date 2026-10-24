@@ -25,7 +25,13 @@ create index if not exists tarik_files_statement_content on tarik_files (content
 -- A file's kinds: dropped and added again at each start, so a new kind applies to old schemas too.
 alter table tarik_files drop constraint if exists tarik_files_kind_check;
 alter table tarik_files add constraint tarik_files_kind_check
-    check (kind in ('invoice', 'statement', 'entries', 'other'));
+    check (kind in ('invoice', 'statement', 'entries', 'other', 'certificate'));
+-- certificate: a supplier's attestation de regularite fiscale the client sent to answer settle_withholding's question,
+-- uploaded to Experio as that record (exp.partner.regularity.form): never an invoice nor a statement.
+alter table tarik_files add column if not exists regularity_id integer;
+-- The same invoice file sent again (another email, the same zip twice): the draft already made from it, none made.
+alter table tarik_files add column if not exists twin_of integer;
+create index if not exists tarik_files_invoice_content on tarik_files (content_md5) where invoice_id is not null;
 
 -- What check_invoice read on each scan, against what Experio captured. The correction step reads it back.
 create table if not exists tarik_checks (
@@ -192,4 +198,11 @@ create table if not exists tarik_working (
     invoice_id integer primary key,
     run_id text not null,
     claimed_at timestamptz not null default now()
+);
+
+-- The suppliers the client said have no attestation de regularite fiscale: not asked again for one (Experio then
+-- applies its rate for a supplier without one). Sending one later clears it.
+create table if not exists tarik_no_certificate (
+    partner_id integer primary key,
+    said_at timestamptz not null default now()
 );
