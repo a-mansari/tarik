@@ -115,3 +115,31 @@ def test_only_accounts_experios_field_offers_and_posts_without_warning_are_usabl
     assert searched == [[("company_id", "=", 5), ("reconcile", "=", False)]]  # Experio's domain as it gives it
     invoice["type"] = "sale"
     assert [a["id"] for a in accounts.usable(7, chart)] == [4]
+
+
+@pytest.mark.security
+def test_an_immobilisation_the_model_picks_is_confirmed_by_the_client_first(monkeypatch):
+    """No Experio rule tells a fixed asset from a charge: a class 2 account the model picks is asked, never applied."""
+    invoice = {"id": 3, "state": "draft", "type": "purchase", "company_id": [5, "D"], "exercice_id": False}
+    invoice.update(partner_id=False, account_id=False, invoice_number="F-9", amount_total=12000.0)
+    chart = [
+        {"id": 21, "code": "23550000", "name": "Matériel informatique"},
+        {"id": 61, "code": "61250000", "name": "Achats"},
+    ]
+    searched = []
+    monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: invoice)
+    monkeypatch.setattr(accounts, "journal_stop", lambda *a: None)
+    monkeypatch.setattr(accounts, "require_invoice", lambda *a: {})
+    monkeypatch.setattr(accounts, "check_journal", lambda invoice_id: None)
+    monkeypatch.setattr(accounts, "side_of", lambda invoice: "purchase")
+    monkeypatch.setattr(accounts, "_fill_empty_chart", lambda *a: None)
+    monkeypatch.setattr(accounts, "_memorized", lambda *a: None)
+    monkeypatch.setattr(accounts, "invoice_context", lambda invoice: {})
+    monkeypatch.setattr(accounts, "stored_check", lambda i: (True, {"designation": "Ordinateur portable Dell"}, []))
+    monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: searched.append(domain) or chart)
+    monkeypatch.setattr(accounts, "ask_model", lambda *a: {"code": "23550000", "reason": "un ordinateur"})
+    monkeypatch.setattr(accounts, "apply_account", lambda *a: pytest.fail("never applied before the client confirms"))
+    asked = accounts.assign_account(3)
+    assert asked["status"] == "question" and asked["choices"] == {21: "23550000 Matériel informatique"}
+    assert "ressemble à une immobilisation" in asked["message"] and asked["message"].endswith("oui / non")
+    assert searched[0] == ("|", ("code", "=like", "6%"), ("code", "=like", "2%"))  # classes 6 and 2 offered

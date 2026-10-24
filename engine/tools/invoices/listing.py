@@ -34,9 +34,11 @@ def amount(value):
 def line(invoice):
     """One invoice of the list: "- facture 12 : F-001, ATLAS, 2026-03-15, 1 200.00 DH, brouillon"."""
     tiers = without_if((invoice["partner_id"] or [0, "tiers inconnu"])[1])
+    kind = "avoir" if invoice.get("refund") else "facture"
+    shown = -invoice["amount_total"] if invoice.get("refund") else invoice["amount_total"]  # as Experio shows it
     return (
-        f"- facture {invoice['id']} : {invoice['invoice_number'] or 'sans numéro'}, {tiers}, "
-        f"{invoice['invoice_date'] or 'sans date'}, {amount(invoice['amount_total'])} DH, {label(invoice)}"
+        f"- {kind} {invoice['id']} : {invoice['invoice_number'] or 'sans numéro'}, {tiers}, "
+        f"{invoice['invoice_date'] or 'sans date'}, {amount(shown)} DH, {label(invoice)}"
     )
 
 
@@ -65,7 +67,7 @@ def list_invoices(dossier_id: int, status: str = "", limit: int = 20, side: str 
             domain,
             order="id desc",
             limit=limit,
-            fields=["invoice_number", "invoice_date", "partner_id", "amount_total", "state", "payment_state"],
+            fields=["invoice_number", "invoice_date", "partner_id", "amount_total", "state", "payment_state", "refund"],
         )
     side_words = SIDES[side][1] if side else ""
     what = " ".join(word for word in ("facture(s)", side_words, wanted) if word)

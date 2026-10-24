@@ -66,6 +66,7 @@ STEPS = {
     "settle_warnings": "avertissements",
     "hold_posting": "mise en attente",
     "post_invoice": "comptabilisation",
+    "apply_credit_note": "imputation de l'avoir",
 }
 ORDER = list(STEPS)
 INVOICE_CHAIN = ORDER[ORDER.index("create_draft_invoice") :]  # an invoice's own steps, from its draft (Traitement)
@@ -303,8 +304,33 @@ def run_summary(run_id: str) -> dict:
     if not rows:
         return ok(NOTHING)
     test = any(message.startswith(TEST_MODE) for _, _, _, message, _ in rows)
+    if not test and not dry_run():
+        note_in_history(rows)
     text = summary_sections(sections_of(outcomes_by_key(rows)))
     return ok((TEST_MODE + "\n\n" if test else "") + text)
+
+
+def note_in_history(rows):
+    """What Tarik did on each invoice in this run, as one internal note in the invoice's history in Experio (its
+    message_post, the way its own actions are noted), written by Tarik's Experio user: what it set or changed, and
+    where it left the invoice. Nothing for an invoice only routine steps touched. A note refused is logged, never a
+    reason to fail the run's summary."""
+    for key, found in outcomes_by_key(rows).items():
+        if not key or key < 0:
+            continue
+        told = [
+            summary_text(key, step, status, message) for step, status, message, is_routine in found if not is_routine
+        ]
+        if not told:
+            continue
+        # One line: Experio keeps a text body as one <span>, its line breaks unseen in the history.
+        body = "Tarik (traitement automatique) : " + joined(key, told)
+        try:
+            odoo_json(
+                "exp.invoice", "message_post", [key], body=body, message_type="comment", subtype_xmlid="mail.mt_note"
+            )
+        except Exception as error:
+            log(f"note_in_history {key}: {error}")
 
 
 def outcomes_by_key(rows):

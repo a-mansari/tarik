@@ -20,6 +20,7 @@ def experio(monkeypatch):
     state["invoice"] = {**invoice, **dict.fromkeys(configuration.AMOUNTS, 0)}
     state["company"] = {}  # the dossier's switches and accounts: empty unless set
     monkeypatch.setattr(configuration, "require_invoice", lambda i, f: state["invoice"])
+    monkeypatch.setattr(configuration, "assets_without_category", lambda i, context: state.get("assets", []))
     monkeypatch.setattr(configuration, "dry_run", lambda: False)
 
     def odoo_json(model, method, ids, **kw):
@@ -119,3 +120,26 @@ def test_a_setting_the_cabinets_rights_refuse_is_reported_not_claimed(experio, m
     monkeypatch.setattr(configuration, "save_settings", lambda *a: False)
     result = configuration.configure_cabinet(3)
     assert "active(s)" not in result["message"] and "retenue de garantie : compte à choisir" in result["message"]
+
+
+@pytest.mark.functionality
+def test_an_immobilisation_without_its_category_is_the_cabinets_setting(experio):
+    experio["before"], experio["assets"] = [], ["23550000 Matériel informatique"]
+    result = configuration.configure_cabinet(3)
+    assert (
+        result["status"] == "stop" and "catégorie d'immobilisation à créer pour le compte 23550000" in result["message"]
+    )
+
+
+@pytest.mark.functionality
+def test_asset_lines_are_read_only_where_experio_has_its_immobilisations(monkeypatch):
+    calls = []
+
+    def odoo_call(model, method, *args, **kw):
+        calls.append((model, method))
+        if method == "fields_get":
+            return {}  # no immobilisations module in this cabinet
+        raise AssertionError("nothing else read")
+
+    monkeypatch.setattr(configuration, "odoo_call", odoo_call)
+    assert configuration.assets_without_category(3, {}) == [] and calls == [("exp.invoice", "fields_get")]
