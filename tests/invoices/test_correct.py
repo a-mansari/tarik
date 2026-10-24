@@ -148,3 +148,17 @@ def test_a_hotel_bills_parts_are_written_where_the_dossier_uses_them_the_ht_keep
     changes = {}
     hotel_parts(read, {**invoice, "amount_ht_restauration": 300.0}, changes)  # already split: left alone
     assert changes == {}
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("title", "unticked"),
+    [("FACTURE N° 2026-14", True), ("Facture", True), ("Facture d'avoir", False), ("AVOIR", False), (None, False)],
+)
+def test_avoir_is_unticked_only_when_the_printed_title_says_facture(title, unticked):
+    from engine.tools.invoices.correct import planned_changes
+
+    read = {"is_credit_note": False, "document_title": title}
+    changes = planned_changes(read, [], {"refund": True, "amount_tax_non_recoverable": False})
+    assert (changes.get("refund") is False) == unticked
+    assert "refund" not in planned_changes(read, [], {"refund": False, "amount_tax_non_recoverable": False})

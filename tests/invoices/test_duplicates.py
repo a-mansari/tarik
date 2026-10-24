@@ -74,6 +74,7 @@ def test_an_invoice_without_tiers_is_still_compared_by_number_date_and_total(mon
     result = duplicates.check_duplicate(30)
     assert (result["status"] == "stop" and "facture 12" in result["message"]) == caught
     assert ("id", "<", 30) in searched[0] and ("state", "!=", "cancel") in searched[0]
+    assert ("refund", "=", False) in searched[0]  # an invoice and its credit note are never twins
     assert (("partner_id", "=", False) in searched[0]) == bool(own_tiers)  # with a tiers: only the ones without
 
 

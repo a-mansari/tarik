@@ -1,0 +1,36 @@
+--- tools/choose-account.md (avant)
++++ tools/choose-account.md (après)
+@@ -17,6 +17,15 @@
+ - 6145 frais postaux et telecommunications / 6147 services bancaires
+ - 6167 impots et taxes / 617 charges de personnel
+ 
++CGNC, class 2 (immobilisations) -- for a purchase, only for a durable good the business keeps and uses over several years, clearly named on the invoice:
++
++- 2332 materiel et outillage / 2340 materiel de transport (vehicules)
++- 2351 mobilier de bureau / 2352 materiel de bureau / 2355 materiel informatique (ordinateurs, imprimantes, serveurs)
++- 2321 batiments / 2327 agencements et amenagements des constructions
++- 2220 logiciels (licences acquises)
++
++Consumables, spare parts, repairs, maintenance, rentals and subscriptions are never class 2: they stay in class 6. A class 2 account you choose is confirmed by the client before it is used.
++
+ CGNC, class 7 (produits) -- for a sale, the usual ones:
+ 
+ - 7111 ventes de marchandises (revente en l'etat)
+--- labels.json (avant)
++++ labels.json (après)
+@@ -143,13 +143,13 @@
+         "classify_invoice": "Détermine s'il s'agit d'un achat ou d'une vente et corrige le type dans Experio si besoin. La facture s'arrête si c'est un relevé bancaire ou si le document contredit le client.",
+         "link_tiers": "Associe le fournisseur ou le client lu par Experio, avec son compte tiers. Sinon : des tiers aux noms proches existent, le client choisit ; aucun, le tiers est créé dans le dossier ; aucun nom lu, le client est interrogé.",
+         "check_duplicate": "Vérifie que la facture n'est pas déjà enregistrée, avec la règle d'Experio : pour un achat, même numéro, tiers et date ; pour une vente, même numéro (et même année si le dossier le demande), quel que soit le client. Un doublon s'arrête ici.",
+-        "assign_account": "Choisit le compte de charge ou de produit : celui donné par le client, sinon celui mémorisé pour ce tiers, sinon celui qui correspond à ce qui est facturé ; sinon, le client est interrogé. Crée les comptes de base si le plan comptable du dossier est vide.",
++        "assign_account": "Choisit le compte de charge ou de produit : celui donné par le client, sinon celui mémorisé pour ce tiers, sinon celui qui correspond à ce qui est facturé ; un bien durable (classe 2, immobilisation) est d'abord confirmé par le client ; sinon, le client est interrogé. Crée les comptes de base si le plan comptable du dossier est vide.",
+         "settle_tva": "Règle la TVA : applique le prorata du dossier s'il en a un, et Experio met la taxe de chaque ligne. Pour un achat de voyage, réception, carburant ou véhicule de tourisme, demande au client si la TVA est non récupérable. Une vente sans TVA est cochée « TVA non facturée » (taxe 0 % du dossier).",
+         "check_journal": "Place la facture dans le journal d'achats ou de ventes prévu par le dossier. Si ce journal n'est pas configuré dans le dossier, ou est celui d'un autre dossier, la facture s'arrête jusqu'à ce que le cabinet le règle.",
+         "settle_withholding": "Retenue à la source. Achat local ou vente : si le tiers a un type d'activité dans Experio, la retenue est activée et Experio fixe le taux de RAS TVA selon ses règles ; quand ce taux dépend de l'attestation de régularité du tiers, elle est demandée une fois (pièce jointe, ou « sans attestation »). Honoraires (6136) : le taux IS/IR est demandé. Achat étranger : la règle connue du tiers, sinon une question.",
+         "settle_prepaid": "Si la facture couvre plusieurs mois, demande au client s'il faut la répartir en charges ou produits constatés d'avance, et l'enregistre ainsi dans Experio s'il accepte.",
+         "settle_exercice": "Rattache la facture à l'exercice ouvert qui couvre sa date (demandée au client si elle manque). Sinon, le client choisit : facture antérieure dans un exercice ouvert, ou nouvel exercice, créé et ouvert dans Experio.",
+-        "configure_cabinet": "Si Experio signale un paramètre manquant, complète le paramétrage du dossier (taxes, détection automatique, options pour les montants de la facture) et signale ce qui reste au cabinet. N'arrête jamais la facture.",
++        "configure_cabinet": "Si Experio signale un paramètre manquant, complète le paramétrage du dossier (taxes, détection automatique, options pour les montants de la facture) et signale ce qui reste au cabinet, dont la catégorie d'immobilisation d'un compte de classe 2 (sans elle, Experio ne crée pas l'immobilisation).",
+         "hold_posting": "La facture reste en brouillon vérifié, sauf si le client a demandé de la comptabiliser. Il pourra le demander plus tard.",
+         "post_invoice": "Comptabilise la facture dans Experio si le contrôle d'Experio ne trouve rien de bloquant ; sinon, liste ce qui bloque.",
+         "lecture": "Le brouillon créé dans Experio, sa lecture par Experio, puis ce qu'Experio a lu comparé au scan et corrigé.",

@@ -12,6 +12,7 @@ from engine.tools.core.experio import (
     refused,
     require_draft_invoice,
 )
+from engine.tools.core.words import normalized
 from engine.tools.invoices.check import CAPTURED, HOTEL, stored_check
 
 MULTI_TVA_RATES = {7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20}  # the amount_tva_<rate> fields Experio has
@@ -48,10 +49,19 @@ def change_text(field, value):
     """One corrected field as the client reads it (None: not said)."""
     if field == "multi_tva":
         return None
+    if field == "refund":
+        return "avoir" if value else "facture, pas un avoir"
     if field.startswith("amount_tva_") and field.removeprefix("amount_tva_").isdigit():
         return f"TVA {field.removeprefix('amount_tva_')} % {value}"
     label = FIELD_LABELS.get(field, field)
     return f"{label} renseigné(e)" if field.endswith("_id") else f"{label} {value}"
+
+
+def titled_invoice(extracted):
+    """True when the document's printed title (as read on the scan) says it is an invoice, never a credit note:
+    « Facture », « Facture N° », without « avoir » nor « credit »."""
+    title = normalized(extracted.get("document_title") or "")
+    return "facture" in title.split() and not any(word in title for word in ("avoir", "credit", "rectificative"))
 
 
 def planned_changes(extracted, bad_fields, invoice):
@@ -65,6 +75,8 @@ def planned_changes(extracted, bad_fields, invoice):
     }
     if extracted.get("is_credit_note") is True and not invoice.get("refund"):  # the model's "false" is not true
         changes["refund"] = True
+    elif invoice.get("refund") and extracted.get("is_credit_note") is False and titled_invoice(extracted):
+        changes["refund"] = False  # Experio's reading ticked « avoir », the document says « Facture » in its title
     lines = [
         line for line in extracted.get("tva_lines") or [] if line.get("amount_ht") and line.get("rate") is not None
     ]

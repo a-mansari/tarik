@@ -1,0 +1,51 @@
+--- tools/check-invoice-answer.md (avant)
++++ tools/check-invoice-answer.md (après)
+@@ -2,5 +2,5 @@
+ used_by: check_invoice (engine/tools/invoices/check.py)
+ ---
+ Answer with only one JSON object, of this shape:
+-{"readable": bool, "extracted": {"invoice_number": str|null, "invoice_date_raw": str|null, "invoice_date_language": "fr"|"en", "amount_untaxed": num|null, "amount_tva": num|null, "amount_stamp": num|null, "amount_disbursement": num|null, "amount_guarantee_holdback": num|null, "amount_prorata": num|null, "amount_insurance": num|null, "amount_ts": num|null, "amount_tsp": num|null, "advance_amount": num|null, "amount_total": num|null, "amount_ht_restauration": num|null, "amount_ht_breakfast": num|null, "amount_ht_blanchisserie": num|null, "tier": str|null, "designation": str|null, "ice": str|null, "vat": str|null, "is_credit_note": bool, "currency": str|null, "payment_method": str|null, "period_start": str|null, "period_end": str|null, "country": str|null, "tva_lines": [{"rate": num, "amount_ht": num, "amount_tva": num}]}, "bad_fields": [{"field": str, "stored": str, "extracted": str, "problem": str}]}
++{"readable": bool, "extracted": {"invoice_number": str|null, "invoice_date_raw": str|null, "invoice_date_language": "fr"|"en", "amount_untaxed": num|null, "amount_tva": num|null, "amount_stamp": num|null, "amount_disbursement": num|null, "amount_guarantee_holdback": num|null, "amount_prorata": num|null, "amount_insurance": num|null, "amount_ts": num|null, "amount_tsp": num|null, "advance_amount": num|null, "amount_total": num|null, "amount_ht_restauration": num|null, "amount_ht_breakfast": num|null, "amount_ht_blanchisserie": num|null, "tier": str|null, "designation": str|null, "ice": str|null, "vat": str|null, "is_credit_note": bool, "document_title": str|null, "credit_note_of": str|null, "currency": str|null, "payment_method": str|null, "period_start": str|null, "period_end": str|null, "country": str|null, "tva_lines": [{"rate": num, "amount_ht": num, "amount_tva": num}]}, "bad_fields": [{"field": str, "stored": str, "extracted": str, "problem": str}]}
+ invoice_date_language is required: always pick one. Every num is a JSON number, with a decimal point and no thousands separator (1005.5, never "1 005,50" nor "1,005").
+--- tools/check-invoice.md (avant)
++++ tools/check-invoice.md (après)
+@@ -28,6 +28,8 @@
+ - vat: the supplier's IF (identifiant fiscal), digits only, next to the ICE in the footer ("IF", "I.F.", "Id. Fiscal"). Same rule: the supplier's, never the client's. Never compared to Experio -- it helps identify the tiers.
+ - designation: what was actually billed, copied from the lines of the invoice ("MAIN D'OEUVRE", "location de materiel", "honoraires", "carburant"...). Copy the wording, do not interpret it. Several lines: join them with ", ". Only the goods or services sold: never a payment, deposit or balance line ("Visa", "CB", "carte", "especes", "cheque", "virement", "acompte", "reglement", "solde") -- on a hotel bill paid by card, the nights and meals, not "Visa". This is never compared to Experio -- it is what lets the expense be classified.
+ - is_credit_note: true when the document is an "Avoir" / "Facture d'avoir" / credit note, false for a normal invoice. Amounts stay positive either way.
++- document_title: the document's own printed title, copied as printed ("FACTURE", "Facture N° 2026-14", "AVOIR", "Facture d'avoir"), or null when it prints none. Never compared to Experio.
++- credit_note_of: on a credit note, the number of the invoice it cancels or corrects, copied exactly, when printed ("Avoir sur facture N° ...", "Réf. facture", "Facture d'origine"), else null. Never compared to Experio.
+ - currency: the ISO code of the invoice's currency ("MAD", "EUR", "USD"...). "DH", "Dhs" and "dirhams" are MAD.
+ - country: the ISO 3166 alpha-2 code of the tiers' own address ("MA", "FR", "IE", "US"...) -- the supplier for an achat, the customer for a vente.
+ - payment_method: how it is paid, when printed ("Mode de reglement", "Paiement") -- one of especes, cheque, virement, effet, prelevement, compensation, or null when not printed. Never compared to Experio.
+--- labels.json (avant)
++++ labels.json (après)
+@@ -48,7 +48,8 @@
+       "classement": "Classement",
+       "comptes": "Comptes et taxes",
+       "comptabilisation": "Comptabilisation",
+-      "settle_warnings": "Avertissements d'Experio"
++      "settle_warnings": "Avertissements d'Experio",
++      "apply_credit_note": "Imputation de l'avoir"
+     },
+     "dossier": {
+       "debut": "Pièces jointes et choix du travail",
+@@ -139,7 +140,7 @@
+         "create_draft_invoice": "Crée le brouillon de facture dans Experio à partir du fichier, en achat ou en vente comme le client l'a dit (Experio lit alors le bon tiers). Experio commence alors à lire la facture. Le même fichier envoyé deux fois ne crée qu'un brouillon.",
+         "wait_until_read": "Attend qu'Experio ait fini de lire la facture. Si la lecture prend trop de temps, la facture sera reprise plus tard.",
+         "check_invoice": "Compare ce qu'Experio a lu avec la facture (montants, numéro, date, TVA…) et liste les différences, sans rien modifier. Un scan illisible arrête la facture : le client est invité à la renvoyer.",
+-        "correct_invoice": "Corrige dans Experio les champs mal lus d'après la vérification (montants, avoir, TVA à plusieurs taux, devise…) et, s'il manque, le mode de paiement donné par le client ou lu sur la facture.",
++        "correct_invoice": "Corrige dans Experio les champs mal lus d'après la vérification (montants, avoir, TVA à plusieurs taux, devise…) et, s'il manque, le mode de paiement donné par le client ou lu sur la facture. La case « avoir » suit le document : cochée pour un avoir, décochée quand son titre imprimé dit « Facture ».",
+         "classify_invoice": "Détermine s'il s'agit d'un achat ou d'une vente et corrige le type dans Experio si besoin. La facture s'arrête si c'est un relevé bancaire ou si le document contredit le client.",
+         "link_tiers": "Associe le fournisseur ou le client lu par Experio, avec son compte tiers. Sinon : des tiers aux noms proches existent, le client choisit ; aucun, le tiers est créé dans le dossier ; aucun nom lu, le client est interrogé.",
+         "check_duplicate": "Vérifie que la facture n'est pas déjà enregistrée, avec la règle d'Experio : pour un achat, même numéro, tiers et date ; pour une vente, même numéro (et même année si le dossier le demande), quel que soit le client. Un doublon s'arrête ici.",
+@@ -156,7 +157,8 @@
+         "classement": "Achat ou vente, le fournisseur ou le client de la facture, et la vérification qu'elle n'est pas déjà enregistrée.",
+         "comptes": "Le compte de charge ou de produit, la TVA, le journal, la retenue à la source, les charges constatées d'avance et l'exercice.",
+         "comptabilisation": "Les paramètres du dossier complétés, puis la facture laissée en brouillon vérifié, ou comptabilisée si le client l'a demandé.",
+-        "settle_warnings": "Règle chaque avertissement d'Experio avant la comptabilisation : corrigé quand Experio ou Tarik le peut (taux de RAS TVA selon les règles d'Experio, prorata du dossier, exercice), attendu quand le temps le règle (taux de change pas encore publié), levé quand il ne peut pas s'appliquer, demandé au client seulement pour un vrai choix (ICE de l'acheteur différent de celui du dossier, compte, taux IS/IR)."
++        "settle_warnings": "Règle chaque avertissement d'Experio avant la comptabilisation : corrigé quand Experio ou Tarik le peut (taux de RAS TVA selon les règles d'Experio, prorata du dossier, exercice), attendu quand le temps le règle (taux de change pas encore publié), levé quand il ne peut pas s'appliquer, demandé au client seulement pour un vrai choix (ICE de l'acheteur différent de celui du dossier, compte, taux IS/IR).",
++        "apply_credit_note": "Après la comptabilisation d'un avoir, l'impute sur la facture qu'il annule, comme Experio le fait depuis « Crédits en attente » : la facture que cite l'avoir, sinon la seule facture du tiers restant due du même montant. Sinon, les factures possibles sont listées pour le cabinet. Annulable dans Experio."
+       },
+       "dossier": {
+         "debut": "Enregistre les fichiers joints au message et choisit le travail à faire : création, modification, accès, archivage, écart de paiement, création de dossiers depuis un tableur ou reprise.",
