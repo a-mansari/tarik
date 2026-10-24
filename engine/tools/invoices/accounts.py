@@ -7,6 +7,7 @@ the lines from the header. So the model only does what Experio can't: classify w
 billed among the dossier's real accounts.
 """
 
+import ast
 import re
 from difflib import SequenceMatcher
 
@@ -35,6 +36,8 @@ from engine.tools.invoices.journal import JOURNAL_FIELDS, check_journal, journal
 from engine.tools.invoices.listing import SIDES
 
 CLASS = {"purchase": "6", "sale": "7"}
+# The classes Experio posts without a warning (validate_warning_account_id): 2 and 6 for a purchase, 7 for a sale.
+WARNING_FREE = {"purchase": ("2", "6"), "sale": ("7",)}
 
 
 INVOICE_FIELDS = [
@@ -69,6 +72,16 @@ def chart(company_id, *domain):
     return odoo_call("exp.account", "search_read", domain, fields=["id", "code", "name"], order="code")
 
 
+def usable(invoice_id, accounts):
+    """Of ``accounts`` ([{id, code, name}]), those the invoice's Account field offers (Experio's account_id_domain:
+    the dossier's, not reconcilable, no tiers account) in the classes Experio posts without a warning."""
+    invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=["account_id_domain", "type"])[0]
+    domain = ast.literal_eval(invoice["account_id_domain"] or "[]")
+    allowed = set(odoo_call("exp.account", "search", domain)) if domain else {a["id"] for a in accounts}
+    classes = WARNING_FREE.get(invoice["type"], ())
+    return [a for a in accounts if a["id"] in allowed and a["code"].startswith(classes)]
+
+
 def listing(accounts):
     """``accounts`` as the model reads them: one "code name" per line."""
     return "\n".join(f"{a['code']} {a['name']}" for a in accounts)
@@ -82,6 +95,10 @@ def apply_account(invoice, account_id, why):
         fill_invoice(invoice_id, {"account_id": account_id}, context)
         refresh(invoice_id, context)
     return ok(f"{test_mode_note()}Facture {invoice_id} : compte {account_label(account_id)} ({why}).")
+
+
+def account_code_of(account_id):
+    return odoo_call("exp.account", "read", [account_id], fields=["code"])[0]["code"]
 
 
 def account_label(account_id):
@@ -169,7 +186,8 @@ def assign_account(
         if simulated:
             return simulated
         memorized = _memorized(invoice, invoice_context(invoice))
-        if memorized:
+        # One Experio would warn about (outside the classes of the side) is not taken: what is billed decides.
+        if memorized and usable(invoice_id, [{"id": memorized, "code": account_code_of(memorized)}]):
             return apply_account(invoice, memorized, "compte mémorisé pour ce tiers")
     check = stored_check(invoice_id)
     if not check:
@@ -272,7 +290,7 @@ def set_account(invoice_id, answer, confirm=False):
     if not (answer or "").strip():
         raise ToolError("answer manquant : le code ou l'intitulé donne par le client.")
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
-    accounts = chart(invoice["company_id"][0])
+    accounts = usable(invoice_id, chart(invoice["company_id"][0]))
     account = resolve_account(accounts, answer) or account_meant(accounts, answer)
     if account and confirm:
         label = f"{account['code']} {account['name']}"

@@ -43,6 +43,23 @@ def missing_compte_tiers(invoice):
     return None if partner[field] else role
 
 
+def auto_merge(invoice):
+    """A stop when posting would merge two tiers for good: the dossier merges the tiers Experio read into the one set on
+    the invoice when they differ (auto_merge_detected_partner, in action_post's _merge_partners_and_flag_duplicates),
+    deleting one. Only the cabinet decides that; else None."""
+    company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["auto_merge_detected_partner"])[0]
+    if not company["auto_merge_detected_partner"]:
+        return None
+    wrong = odoo_call("exp.invoice", "read", [invoice["id"]], fields=["has_wrong_partner"])[0]["has_wrong_partner"]
+    if not wrong:
+        return None
+    return stop(
+        f"Facture {invoice['id']} : pas comptabilisée : le tiers choisi n'est pas celui qu'Experio a lu sur la "
+        "facture, et ce dossier fusionne alors les deux tiers à la comptabilisation (définitif). À vérifier par le "
+        "cabinet dans Experio, puis dites-moi de la comptabiliser."
+    )
+
+
 def _blocking(invoice_id, context):
     """What Experio's own check (the Comptabiliser button's) says blocks the invoice ([str], plain text), asked
     again up to RETRIES times while it says something."""
@@ -57,11 +74,14 @@ def _blocking(invoice_id, context):
 def post_invoice(invoice_id: int) -> dict:
     """Post (comptabiliser) a draft invoice when Experio's own check finds nothing
     blocking; otherwise list what blocks it."""
-    invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "type", "partner_id"])
+    invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "type", "partner_id", "line_ids"])
     if invoice["state"] in POSTED:
         return routine(f"Facture {invoice_id} : déjà comptabilisée.")
     if invoice["state"] != "draft":
         return stop(f"Facture {invoice_id} : en état {invoice['state']}, elle ne peut pas être comptabilisée.")
+    merged = auto_merge(invoice)
+    if merged:
+        return merged
     role = missing_compte_tiers(invoice)
     if role:
         return stop(
@@ -70,7 +90,9 @@ def post_invoice(invoice_id: int) -> dict:
         )
     context = invoice_context(invoice)
     with refused(f"post_invoice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier la facture."):
-        refresh(invoice_id, context)
+        # Experio's refresh rebuilds the writing lines: one the cabinet fixed by hand in Experio would be lost.
+        if not invoice["line_ids"]:
+            refresh(invoice_id, context)
         found = _blocking(invoice_id, context)
     if found:
         return stop(f"Facture {invoice_id} : pas comptabilisée, Experio signale : " + " ; ".join(found))
@@ -79,11 +101,20 @@ def post_invoice(invoice_id: int) -> dict:
     try:
         # skip_due_date_detected_check: what the "date d'echeance detectee" popup's Confirmer does; over RPC the popup
         # would come back instead and nothing would post.
-        odoo_json("exp.invoice", "action_post", [invoice_id], context={**context, "skip_due_date_detected_check": True})
+        action = odoo_json(
+            "exp.invoice", "action_post", [invoice_id], context={**context, "skip_due_date_detected_check": True}
+        )
         after = odoo_call("exp.invoice", "read", [invoice_id], fields=["state", "error_msg"], context=context)[0]
     except Exception as error:  # not refused(): a refusal here stops this invoice, with Experio's own reason
         log(f"post_invoice {invoice_id}: {error}")
         return stop(f"Facture {invoice_id} : Experio a refusé la comptabilisation : {experio_refusal(error)}")
     if after["state"] in POSTED:
         return ok(f"Facture {invoice_id} : comptabilisée.")
+    # A window instead of the posting (a closed earlier exercice, a move's confirmation): over RPC nobody answers.
+    if isinstance(action, dict) and action.get("res_model"):
+        log(f"post_invoice {invoice_id}: action_post opened {action.get('res_model')}")
+        return stop(
+            f"Facture {invoice_id} : pas comptabilisée, Experio demande une confirmation à l'écran "
+            f"(« {action.get('name') or action['res_model']} ») : à valider par le cabinet dans Experio."
+        )
     return stop(f"Facture {invoice_id} : pas comptabilisée ({plain(after['error_msg']) or 'état ' + after['state']}).")

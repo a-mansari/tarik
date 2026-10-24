@@ -88,3 +88,30 @@ def test_a_side_keeps_its_class_of_accounts_only_and_any_other_is_refused(monkey
     assert asked == [(("code", "=like", "6%"),), (("code", "=like", "7%"),), ()]
     with pytest.raises(accounts.ToolError, match="inconnu"):
         accounts.list_accounts(5, side="charges")
+
+
+@pytest.mark.security
+def test_only_accounts_experios_field_offers_and_posts_without_warning_are_usable(monkeypatch):
+    """Experio's own Account domain (account_id_domain: no reconcilable nor tiers account) and the classes it posts
+    without a warning (2 and 6 for a purchase, 7 for a sale)."""
+    chart = [
+        {"id": 1, "code": "21110000", "name": "Frais de constitution"},
+        {"id": 2, "code": "44110000", "name": "Fournisseurs"},  # a tiers account: not in Experio's domain
+        {"id": 3, "code": "61110000", "name": "Achats de marchandises"},
+        {"id": 4, "code": "71110000", "name": "Ventes de marchandises"},
+        {"id": 5, "code": "34550000", "name": "Etat TVA recuperable"},  # in the domain, but class 3: warned
+    ]
+    invoice = {"type": "purchase", "account_id_domain": "[('company_id', '=', 5), ('reconcile', '=', False)]"}
+    searched = []
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "exp.invoice":
+            return [dict(invoice)]
+        searched.append(args[0])
+        return [1, 3, 4, 5]  # what Experio's domain finds: not the tiers account
+
+    monkeypatch.setattr(accounts, "odoo_call", odoo_call)
+    assert [a["id"] for a in accounts.usable(7, chart)] == [1, 3]
+    assert searched == [[("company_id", "=", 5), ("reconcile", "=", False)]]  # Experio's domain as it gives it
+    invoice["type"] = "sale"
+    assert [a["id"] for a in accounts.usable(7, chart)] == [4]

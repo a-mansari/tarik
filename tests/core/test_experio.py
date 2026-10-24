@@ -172,3 +172,22 @@ def test_a_tiers_already_set_in_experio_is_never_replaced(db_cabinet, monkeypatc
     with pytest.raises(experio.ToolError, match="ne le remplace pas"):
         experio.fill_invoice(1, changes, {})
     assert written == []
+
+
+@pytest.mark.functionality
+def test_a_warning_check_says_its_message_or_nothing_and_a_crash_is_skipped_as_experio_does(monkeypatch):
+    raised = {}
+
+    def odoo_json(model, method, ids, context):
+        if raised:
+            raise raised["error"]
+
+    monkeypatch.setattr(experio, "odoo_json", odoo_json)
+    assert experio.warns(3, "validate_warning_account_id", {}) is None
+    raised["error"] = experio.ExperioRefusal("<p>Compte hors classes</p>", "odoo.exceptions.ValidationError")
+    assert experio.warns(3, "validate_warning_account_id", {}) == "Compte hors classes"
+    raised["error"] = experio.ExperioRefusal("'bool' object is not subscriptable", "builtins.TypeError")
+    assert experio.warns(3, "validate_warning_account_id", {}) is None  # Experio's own list skips it too
+    raised["error"] = TimeoutError("Experio is unreachable")
+    with pytest.raises(TimeoutError):  # never taken for « no warning »
+        experio.warns(3, "validate_warning_account_id", {})

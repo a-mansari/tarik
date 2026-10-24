@@ -5,13 +5,14 @@ import base64
 import json
 import re
 import time
+from datetime import UTC, datetime, timedelta
 
-from engine.tools.core.app import ok, question, routine, step_tool, stop, tool, wait
+from engine.tools.core.app import log, ok, question, routine, step_tool, stop, tool, wait
 from engine.tools.core.archives import unpacked
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import ENTRY_FILES, FILE_TYPES, READ_WAIT, READING, TEST_MODE
 from engine.tools.core.conversation import chosen_among, client_messages, own_words, yes_no
-from engine.tools.core.experio import odoo_call, require_invoice
+from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, require_invoice
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
 from engine.tools.dossiers.people import check_sender
@@ -23,6 +24,7 @@ from engine.tools.invoices.intake import client_kind, file_named, import_bank_st
 from engine.tools.invoices.prepaid import settle_prepaid
 from engine.tools.invoices.tiers import choose_tiers
 from engine.tools.invoices.tva import settle_tva
+from engine.tools.invoices.warnings import answer_warnings
 from engine.tools.invoices.withholding import settle_withholding
 
 # The sequence, in order: step tool -> what the client reads it as.
@@ -60,6 +62,7 @@ STEPS = {
     "settle_prepaid": "constatée d'avance",
     "settle_exercice": "exercice",
     "configure_cabinet": "paramétrage",
+    "settle_warnings": "avertissements",
     "hold_posting": "mise en attente",
     "post_invoice": "comptabilisation",
 }
@@ -91,6 +94,7 @@ ANSWERS = {
     "settle_withholding": settle_withholding,
     "settle_prepaid": settle_prepaid,
     "settle_exercice": settle_exercice,
+    "settle_warnings": answer_warnings,
 }
 # The oui / non questions: they take the agent's decision, read from the client's answer, never a guess from it here.
 DECIDED = {"settle_tva", "settle_prepaid"}
@@ -118,7 +122,10 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
         deadline = READ_DEADLINES.setdefault(run_id, deadline)
     while require_invoice(invoice_id, ["bluejay_state"])["bluejay_state"] in READING:
         if time.monotonic() >= deadline:
-            return wait(f"Facture {invoice_id} : Experio la lit encore, elle sera reprise a votre prochain message.")
+            resent = resend_if_stuck(invoice_id)
+            return wait(
+                f"Facture {invoice_id} : Experio la lit encore{resent}, elle sera reprise a votre prochain message."
+            )
         time.sleep(15)
     others = split_off(invoice_id)
     if others:
@@ -129,6 +136,25 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
             split_off=others,
         )
     return routine(f"Facture {invoice_id} : lue par Experio.")
+
+
+STUCK = timedelta(minutes=60)  # Experio's own threshold for a reading gone wrong (get_pending_grouped_invoices_domain)
+
+
+def resend_if_stuck(invoice_id):
+    """Have Experio read a draft again (its own Re-send, action_resend) when it has waited on its reading for over
+    STUCK and nothing touched it for as long (a resend touches it: once an hour at most): a phrase for the client."""
+    invoice = require_invoice(invoice_id, ["state", "create_date", "write_date", "company_id"])
+    now = datetime.now(UTC).replace(tzinfo=None)  # Experio's dates are UTC
+    old = [now - datetime.fromisoformat(invoice[field]) > STUCK for field in ("create_date", "write_date")]
+    if invoice["state"] != "pending" or not all(old) or dry_run():
+        return ""
+    try:
+        odoo_json("exp.invoice", "action_resend", [invoice_id], context=in_dossier(invoice["company_id"][0]))
+    except Exception as error:  # the Experio user lacks the right: the cabinet is told, nothing breaks
+        log(f"wait_until_read {invoice_id}: resend refused: {error}")
+        return " depuis plus d'une heure (le cabinet peut la relancer dans Experio)"
+    return " depuis plus d'une heure : je lui ai demandé de la relire"
 
 
 def split_off(invoice_id):
@@ -488,8 +514,10 @@ def answer_invoice(item, answer, decision):
             return confirm_account(item["invoice_id"], int(next(iter(proposed))), settled)
     if step == "link_tiers":
         return apply(item["invoice_id"], decision, answer, item["choices"])  # the tiers the question proposed
-    if step == "settle_exercice":  # the client's date, or the exercice chosen
+    if step in ("settle_exercice", "settle_warnings"):  # their words, and what the agent read in them
         return apply(item["invoice_id"], answer, decision)
+    if step == "settle_withholding":  # a file sent with the answer may be the supplier's attestation
+        return apply(item["invoice_id"], answer, answering=True)
     if step not in DECIDED:
         return apply(item["invoice_id"], answer)
     if yes_no(decision) is None and yes_no(answer) is None:
@@ -694,7 +722,14 @@ def files_to_process(session_id: str, entries: bool = False, asked: bool = False
 # The stops a client's "reprenez" retries: a dossier setting or an Experio check the cabinet may have fixed since
 # (correct_invoice: no amount, the scan's nor Experio's, until the team types one in Experio).
 # A duplicate, a type or a draft kept unposted (hold_posting) is the client's call, not a setting.
-FIXABLE_STOPS = {"assign_account", "check_journal", "configure_cabinet", "correct_invoice", "post_invoice"}
+FIXABLE_STOPS = {
+    "assign_account",
+    "check_journal",
+    "configure_cabinet",
+    "correct_invoice",
+    "settle_warnings",
+    "post_invoice",
+}
 
 
 def resumable(step, status, stopped, sided=False):
@@ -704,6 +739,13 @@ def resumable(step, status, stopped, sided=False):
     if status in ("wait", "error"):
         return True
     return stopped and status == "stop" and (step in FIXABLE_STOPS or (sided and step == "classify_invoice"))
+
+
+def latest_runs(rows):
+    """Of ``rows`` (invoice_id, step, status, run_id, in the order recorded), each invoice's outcomes of the latest run
+    that recorded any for it, as (invoice_id, step, status)."""
+    last = {invoice_id: run_id for invoice_id, _, _, run_id in rows}
+    return [(invoice_id, step, status) for invoice_id, step, status, run_id in rows if last[invoice_id] == run_id]
 
 
 def furthest_outcomes(rows):
@@ -759,7 +801,9 @@ def waiting_drafts(
             kept = db.execute(Q.held_not_released).fetchall()
         if held and dossier_id:
             reposted = db.execute(Q.outcomes_of_posted_invoices).fetchall()
-    mine = furthest_outcomes(rows)
+    # Where each draft stands is where its latest run left it: an earlier run that took it further (a draft kept
+    # unposted, taken up since and stopped at a setting) no longer says where it is.
+    mine = furthest_outcomes(latest_runs(rows))
     waiting = [i for i, (step, status) in mine.items() if resumable(step, status, stopped, sided)]
     # shortcut: a draft of a run still going also has no outcome yet; one conversation runs one at a time
     waiting += [invoice_id for (invoice_id,) in drafts if invoice_id not in mine]
@@ -794,10 +838,18 @@ def waiting_drafts(
         return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting, corrections=corrections)
     hint = elsewhere_hint(elsewhere_left, client_message, held) if not waiting else ""
     if held and not waiting:
+        if run_id and worked_on(run_id):  # this run's other branch took them (« comptabilisez » goes both ways)
+            return routine("Rien d'autre à comptabiliser.", invoices=[])
         return stop(nothing_to_post(session_id, dossier_id) + hint, invoices=[])
     if hint:
         return ok("Rien à reprendre dans cette conversation." + hint, invoices=[], tell=True)
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
+
+
+def worked_on(run_id):
+    """Whether run ``run_id`` already took any invoice in hand."""
+    with cabinet_db() as db:
+        return bool(db.execute(Q.run_worked_on_invoices, (run_id,)).fetchone())
 
 
 def elsewhere_hint(count, client_message, held):

@@ -314,6 +314,13 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
             raise ToolError(
                 f"`{name}` a été découpé : créez les brouillons des fichiers n° {', '.join(map(str, parts))}."
             )
+        twin = twin_draft(db, file_id, data, dossier_id)
+        if twin:
+            db.execute(Q.set_file_twin, (twin, file_id))
+            return stop(
+                f"`{name}` : le même fichier a déjà donné la facture n° {twin} de ce dossier, rien de nouveau créé.",
+                duplicate=True,
+            )
         raw = as_pdf(mime, data)
         if dry_run():  # stop: without a draft, the steps after this one have nothing to work on
             return stop(f"{TEST_MODE}`{name}` : la facture brouillon serait créée dans le dossier {dossier}.")
@@ -323,6 +330,18 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
         db.execute(Q.set_file_invoice, (invoice_id, file_id))
     created = f"`{name}` : facture brouillon n° {invoice_id} créée dans le dossier {dossier}."
     return routine(created, invoice_id=invoice_id)
+
+
+def twin_draft(db, file_id, data, dossier_id):
+    """The draft of the dossier (not cancelled) already made from a file of the very same content, else None. Two
+    copies arriving together wait for each other here, until the first is made."""
+    db.execute(Q.lock_file_content, (bytes(data),))
+    made = [invoice_id for (invoice_id,) in db.execute(Q.invoices_of_same_content, (bytes(data), file_id))]
+    if not made:
+        return None
+    domain = [("id", "in", made), ("company_id", "=", dossier_id), ("state", "!=", "cancel")]
+    found = odoo_call("exp.invoice", "search", domain, order="id desc", limit=1)
+    return found[0] if found else None
 
 
 def bank_journals(dossier_id):

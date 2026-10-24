@@ -10,8 +10,9 @@ turns on the settings the detection leaves off (a switch is never auto-detected)
 (retenue de garantie, prorata, assurance, avance, timbre, debours, taxes de sejour) that Experio would drop silently
 with its switch off, with its account by its CGNC code when the detection found none. Then it reads again what
 still blocks, told apart: a setting the dossier lacks (Experio's "cgnc" level, an account to choose) is the
-cabinet's, in Configuration; what Experio refuses on the invoice itself (an amount, a field, a warning) is no
-setting at all. Either stops the invoice there, before it is said verified.
+cabinet's, in Configuration; what Experio refuses on the invoice itself (an amount, a field) is no setting at all.
+Its warnings block nothing here: settle_warnings handles each. Either stops the invoice there, before it is said
+verified.
 """
 
 from engine.tools.core.app import ok, routine, step_tool, stop
@@ -177,7 +178,7 @@ def configure_cabinet(invoice_id: int) -> dict:
         done += f", {', '.join(names)} active(s) dans le dossier"
     settings = [text for level, text in after if level == "cgnc"]
     settings += [f"{name} : compte à choisir" for name in cabinet]
-    refused_here = [text for level, text in after if level != "cgnc"]
+    refused_here = [text for level, text in after if level == "error"]  # warnings: settle_warnings' own
     if not (settings or refused_here):
         return ok(f"{done} : plus rien ne bloque la comptabilisation.")
     told = []

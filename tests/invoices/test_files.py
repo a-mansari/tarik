@@ -113,3 +113,20 @@ def test_a_draft_stopped_as_no_invoice_is_classified_again_once_the_client_gives
     assert pipeline.waiting_drafts("s", stopped=True, run_id="B", invoice_type="achat")["invoices"] == []  # not said
     remember_client_message("s", "C'est bien une facture d'achat, des droits de douane.")
     assert pipeline.waiting_drafts("s", stopped=True, run_id="C", invoice_type="achat")["invoices"] == [9]
+
+
+@pytest.mark.functionality
+def test_the_same_invoice_file_sent_again_makes_no_second_draft(db_cabinet, monkeypatch):
+    monkeypatch.setattr(intake, "require_dossier", lambda dossier_id: "Gecafisc")
+    monkeypatch.setattr(intake, "dry_run", lambda: False)
+    alive = {42}  # the drafts still in Experio, in this dossier, not cancelled
+    monkeypatch.setattr(intake, "odoo_call", lambda model, method, domain, **kw: sorted(alive & set(domain[0][2])))
+    monkeypatch.setattr(intake, "import_pdf", lambda *a, **k: 43)
+    add("facture.pdf", "invoice", invoice_id=42, data=b"%PDF same")
+    again = add("facture (1).pdf", "invoice", data=b"%PDF same")
+    answer = intake.create_draft_invoice(again, 557)
+    assert answer["status"] == "stop" and answer["duplicate"] and "facture n° 42" in answer["message"]
+    assert again not in files_to_process("s")["files"]  # never picked again
+    alive.clear()  # the first draft was deleted in Experio: the file makes its draft
+    other = add("facture (2).pdf", "invoice", data=b"%PDF same")
+    assert intake.create_draft_invoice(other, 557)["invoice_id"] == 43
