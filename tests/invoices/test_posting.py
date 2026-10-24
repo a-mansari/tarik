@@ -17,6 +17,7 @@ def experio(monkeypatch):
     monkeypatch.setattr(posting, "dry_run", lambda: False)
     monkeypatch.setattr(posting, "missing_compte_tiers", lambda invoice: None)
     monkeypatch.setattr(posting, "auto_merge", lambda invoice: None)
+    monkeypatch.setattr(posting, "disbursements_first", lambda invoice: None)
     monkeypatch.setattr(posting, "assets_without_category", lambda invoice_id, context: state.get("assets", []))
     monkeypatch.setattr(posting, "refresh", lambda invoice_id, context: state["calls"].append("refresh"))
     monkeypatch.setattr(posting.time, "sleep", lambda seconds: None)
@@ -82,6 +83,7 @@ def test_an_invoice_whose_tiers_has_no_compte_tiers_is_not_posted(experio, monke
     monkeypatch.setattr(posting, "odoo_call", odoo_call)
     monkeypatch.setattr(posting, "dry_run", lambda: False)
     monkeypatch.setattr(posting, "auto_merge", lambda invoice: None)
+    monkeypatch.setattr(posting, "disbursements_first", lambda invoice: None)
     purchase = {"state": "draft", "company_id": [5, "D"], "exercice_id": False, "partner_id": [9, "T"]}
     purchase["type"] = "purchase"
     monkeypatch.setattr(posting, "require_invoice", lambda i, f: purchase)

@@ -46,6 +46,7 @@ STEPS = {
     "create_person": "accès",
     "archive_dossier": "archivage",
     "files_to_process": "fichiers",
+    "create_import_folder": "dossier d'import",
     "identify_document": "identification",
     "import_bank_statement": "relevé bancaire",
     "split_invoices": "découpage",
@@ -860,11 +861,12 @@ def waiting_drafts(
         if dossier_id and (held or stopped):
             domain.append(("company_id", "in", [dossier_id]))
         waiting = sorted(odoo_call("exp.invoice", "search", domain))
+    waiting = transit_last(waiting)
     billed = [i for i in billed if i not in waiting]
     if (waiting or billed) and run_id:
         with cabinet_db() as db:
             claimed = {i for (i,) in db.execute(Q.claim_invoices, (sorted({*waiting, *billed}), run_id)).fetchall()}
-        waiting, billed = sorted(set(waiting) & claimed), sorted(set(billed) & claimed)
+        waiting, billed = [i for i in waiting if i in claimed], sorted(set(billed) & claimed)  # transit last kept
     corrections = drafts_corrected(session_id, client_message, compte)
     if corrections:
         return ok(
@@ -880,6 +882,17 @@ def waiting_drafts(
     if hint:
         return ok("Rien à reprendre dans cette conversation." + hint, invoices=[], tell=True)
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
+
+
+def transit_last(ids):
+    """``ids``, the import folders' transit agent invoices last: they take the folder's invoices paid by the transit
+    agent once those are posted (Experio links only posted ones)."""
+    if not ids:
+        return ids
+    transit = set(
+        odoo_call("exp.invoice", "search", [("id", "in", list(ids)), ("import_invoice_type", "=", "transit")])
+    )
+    return sorted(ids, key=lambda i: i in transit)
 
 
 def facturation_drafts(dossier_id, client_message):

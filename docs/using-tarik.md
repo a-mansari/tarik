@@ -50,6 +50,13 @@ cancels: the one it names, else the one invoice of that supplier left owing exac
 possible invoices are listed for the cabinet. An invoice Experio took for a credit note is put right when its
 printed title says « Facture ».
 
+**Make an import folder**: say « dossier d'import » with the folder's documents (the transit agent's invoice, customs,
+transport, the foreign supplier's invoice, the DUM...), and « plusieurs dossiers » for one folder per file. Tarik types
+each page as Experio's « Imports » screen does, creates the folder, has Experio read the DUM, and processes each piece
+like any invoice: the customs one goes to the dossier's customs tiers, the folder takes its number by the dossier's rule,
+and the transit agent's invoice is posted last, with the folder's invoices it paid. The same file sent twice makes one
+folder.
+
 **Write off a payment difference**: what is left owing on a posted invoice ("soldez la facture FV-12"), passed to
 the dossier's 6585 account with Experio's own tool, after you confirm the amount and the account.
 

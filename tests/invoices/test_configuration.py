@@ -21,6 +21,7 @@ def experio(monkeypatch):
     state["company"] = {}  # the dossier's switches and accounts: empty unless set
     monkeypatch.setattr(configuration, "require_invoice", lambda i, f: state["invoice"])
     monkeypatch.setattr(configuration, "assets_without_category", lambda i, context: state.get("assets", []))
+    monkeypatch.setattr(configuration, "settle_folder_number", lambda i, context: state.get("numbered", ""))
     monkeypatch.setattr(configuration, "dry_run", lambda: False)
 
     def odoo_json(model, method, ids, **kw):
