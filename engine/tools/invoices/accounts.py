@@ -36,6 +36,10 @@ from engine.tools.invoices.journal import JOURNAL_FIELDS, check_journal, journal
 from engine.tools.invoices.listing import SIDES
 
 CLASS = {"purchase": "6", "sale": "7"}
+# What the model classifies a purchase among: charges, and fixed assets (class 2, Experio then makes the asset at
+# posting: immobilisations' generate_asset_assets). No Experio rule tells one from the other: a class 2 it picks is
+# confirmed by the client first.
+MODEL_CLASSES = {"purchase": ("6", "2"), "sale": ("7",)}
 # The classes Experio posts without a warning (validate_warning_account_id): 2 and 6 for a purchase, 7 for a sale.
 WARNING_FREE = {"purchase": ("2", "6"), "sale": ("7",)}
 
@@ -134,7 +138,8 @@ def _memorized(invoice, context):
 def _model_choice(invoice, kind, designation):
     """(account {id, code, name}, reason) the model picks for ``designation`` among the dossier's class 6 or 7
     accounts, else (None, None)."""
-    accounts = chart(invoice["company_id"][0], ("code", "=like", f"{CLASS[kind]}%"))
+    classes = [("code", "=like", f"{prefix}%") for prefix in MODEL_CLASSES[kind]]
+    accounts = chart(invoice["company_id"][0], *(["|"] * (len(classes) - 1)), *classes)
     by_code = {a["code"]: a for a in accounts}
     instruction = (
         f"Type: {'vente' if kind == 'sale' else 'achat'}\nBilled: {designation}\n\nThis cabinet's accounts:\n"
@@ -200,6 +205,13 @@ def assign_account(
     account, reason = _model_choice(invoice, kind, designation)
     if not account:
         return question(account_question(invoice, designation))
+    if account["code"].startswith("2"):  # an immobilisation: amortized, never a charge, on the client's word only
+        label = f"{account['code']} {account['name']}"
+        return question(
+            f"Facture {invoice['invoice_number'] or invoice_id} : « {designation} » ressemble à une immobilisation "
+            f"({reason}). Je la passe en compte {label} (immobilisée et amortie, pas en charge) ? oui / non",
+            choices={account["id"]: label},
+        )
     return apply_account(invoice, account["id"], reason)
 
 

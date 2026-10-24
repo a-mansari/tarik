@@ -66,6 +66,30 @@ FOREIGN_IGNORED = {"amount_guarantee_holdback", "amount_prorata", "amount_insura
 INVOICE_FIELDS = ["state", "company_id", "exercice_id", "type", "is_local_invoice", *AMOUNTS]
 
 
+ASSETS_MENU = "Configuration > Immobilisations > Catégories"
+
+
+def assets_without_category(invoice_id, context):
+    """The class 2 accounts of the invoice whose asset line has no category: Experio fills it from the category of
+    that account (immobilisations' _onchange_tva_line_ids_for_asset_generation, at each refresh) and, without one,
+    makes no asset at posting, silently (generate_asset_assets). Their names; [] without Experio's immobilisations."""
+    if not odoo_call("exp.invoice", "fields_get", ["invoice_asset_line_ids"], attributes=["type"]):
+        return []
+    lines = odoo_call("exp.invoice", "read", [invoice_id], fields=["invoice_asset_line_ids"], context=context)[0]
+    if not lines["invoice_asset_line_ids"]:
+        return []
+    fields = ["account_id", "asset_category_id"]
+    found = odoo_call("exp.invoice.asset.line", "read", lines["invoice_asset_line_ids"], fields=fields, context=context)
+    return [line["account_id"][1] for line in found if line["account_id"] and not line["asset_category_id"]]
+
+
+def assets_text(accounts):
+    return (
+        f"catégorie d'immobilisation à créer pour le compte {', '.join(accounts)} ({ASSETS_MENU}), sans quoi Experio "
+        "ne crée pas l'immobilisation à la comptabilisation"
+    )
+
+
 def listed(texts):
     """``texts`` as one sentence: "a ; b." (Experio's own end with their period: not doubled)."""
     return " ; ".join(text.rstrip(". ") for text in texts) + "."
@@ -152,6 +176,12 @@ def configure_cabinet(invoice_id: int) -> dict:
     company_id, context = invoice["company_id"][0], invoice_context(invoice)
     with refused(f"configure_cabinet {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier la facture."):
         before = blocking(invoice_id, context)
+        assets = assets_without_category(invoice_id, context)
+    if not before and assets:
+        return stop(
+            f"Facture {invoice_id} : pas comptabilisable en l'état. À régler par le cabinet dans la Configuration du "
+            f"dossier : {assets_text(assets)}."
+        )
     if not before:
         return routine(f"Facture {invoice_id} : le dossier a les parametres necessaires.")
     if dry_run():
@@ -178,6 +208,8 @@ def configure_cabinet(invoice_id: int) -> dict:
         done += f", {', '.join(names)} active(s) dans le dossier"
     settings = [text for level, text in after if level == "cgnc"]
     settings += [f"{name} : compte à choisir" for name in cabinet]
+    if assets_without_category(invoice_id, context):
+        settings.append(assets_text(assets_without_category(invoice_id, context)))
     refused_here = [text for level, text in after if level == "error"]  # warnings: settle_warnings' own
     if not (settings or refused_here):
         return ok(f"{done} : plus rien ne bloque la comptabilisation.")

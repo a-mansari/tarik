@@ -17,6 +17,7 @@ def experio(monkeypatch):
     monkeypatch.setattr(posting, "dry_run", lambda: False)
     monkeypatch.setattr(posting, "missing_compte_tiers", lambda invoice: None)
     monkeypatch.setattr(posting, "auto_merge", lambda invoice: None)
+    monkeypatch.setattr(posting, "assets_without_category", lambda invoice_id, context: state.get("assets", []))
     monkeypatch.setattr(posting, "refresh", lambda invoice_id, context: state["calls"].append("refresh"))
     monkeypatch.setattr(posting.time, "sleep", lambda seconds: None)
 
@@ -115,3 +116,12 @@ def test_posting_never_merges_two_tiers_for_good(monkeypatch):
     assert posting.auto_merge(draft) is None
     company["auto_merge_detected_partner"], invoice["has_wrong_partner"] = False, True  # the dossier never merges
     assert posting.auto_merge(draft) is None
+
+
+@pytest.mark.functionality
+def test_an_immobilisation_without_its_category_is_not_posted(experio):
+    """Without a category for its class 2 account, Experio posts the invoice and makes no asset, silently."""
+    experio["assets"] = ["23550000 Matériel informatique"]
+    result = posting.post_invoice(3)
+    assert result["status"] == "stop" and "Configuration > Immobilisations > Catégories" in result["message"]
+    assert "action_post" not in experio["calls"]
