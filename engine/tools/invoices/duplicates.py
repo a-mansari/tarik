@@ -11,7 +11,7 @@ format, and the label field would override it.
 from engine.tools.core.app import log, ok, routine, step_tool, stop
 from engine.tools.core.experio import invoice_context, odoo_call, odoo_json, plain, refused, require_invoice
 
-FIELDS = ["company_id", "exercice_id", "invoice_number", "invoice_date", "amount_total", "partner_id", "type"]
+FIELDS = ["company_id", "exercice_id", "invoice_number", "invoice_date", "amount_total", "partner_id", "type", "refund"]
 
 
 def _same_number_drafts(invoice, context):
@@ -42,6 +42,7 @@ def without_tiers_twin(invoice, context):
         ("company_id", "=", invoice["company_id"][0]),
         ("type", "=", invoice["type"]),
         ("id", "<", invoice["id"]),
+        ("refund", "=", bool(invoice.get("refund"))),  # an invoice and its credit note are no twins (Experio's key)
         ("state", "!=", "cancel"),
         ("invoice_number", "ilike", invoice["invoice_number"].strip()),
     ]

@@ -351,12 +351,14 @@ Covers corrections planned from a check (the HT/TVA fuel case).
 - `test_lines_at_one_rate_add_up` [functionality]: single-rate lines sum to the right totals.
 - `test_lines_not_read_in_full_or_not_adding_up_are_never_split` [functionality]: incomplete or inconsistent lines are never split.
 - `test_a_hotel_bills_parts_are_written_where_the_dossier_uses_them_the_ht_keeping_the_rest` [functionality]: restaurant / breakfast / laundry HT written only where the dossier uses them, the HT keeping the rest.
+- `test_avoir_is_unticked_only_when_the_printed_title_says_facture` [functionality, param]: « avoir » unticked only on a printed « Facture » title.
 
 ### tests/invoices/test_duplicates.py
 Covers the duplicate check.
 - `test_only_drafts_are_compared_with_the_invoice` [functionality]: cancelled invoices are excluded from duplicate comparison.
 - `test_the_oldest_draft_is_the_original` [functionality]: among duplicates, the oldest draft is treated as the original.
 - `test_a_sale_follows_experios_sale_rule_whatever_its_customer` [functionality]: a sale is checked by number alone (Experio's sale rule), with or without its customer.
+- `test_an_invoice_without_tiers_is_still_compared_by_number_date_and_total` also checks that an invoice and its credit note are never twins (refund).
 
 ### tests/invoices/test_exercice.py
 Covers choosing the fiscal year in code, never by a model.
@@ -405,6 +407,7 @@ Covers invoice list filters.
 - `test_any_other_status_is_refused_never_guessed` [security, param]: unknown statuses are refused, never mapped by guessing.
 - `test_each_invoice_has_one_status` [functionality]: every invoice maps to exactly one status.
 - `test_amounts_have_two_decimals` [communication]: listed amounts are shown with two decimals.
+- `test_a_credit_note_is_listed_as_one_its_amount_as_experio_shows_it` [communication]: a credit note listed as « avoir », its amount negative.
 
 ### tests/invoices/test_pipeline_messages.py
 Covers what a step failure tells the client (engine/calls.py).
@@ -473,6 +476,13 @@ Covers withholding answers checked against what Experio accepts.
 - `test_a_persons_services_need_it_only_over_experios_thresholds` [functionality]: a person's services need it only over Experio's thresholds.
 - `test_an_is_ir_rate_the_tiers_type_does_not_take_is_asked_again` [functionality]: an IS/IR rate Experio refuses for the tiers type is asked again.
 - `test_a_sale_gets_its_retenue_on_when_the_customer_has_an_activity_type` [functionality]: a sale's retenue turned on from the customer's activity type, its rate Experio's.
+
+### tests/invoices/test_credit_note.py
+Covers a posted credit note applied to its invoice with Experio's « Crédits en attente ».
+- `test_the_invoice_the_credit_note_names_gets_it` [functionality]: the invoice the scan names, by its number.
+- `test_else_the_one_invoice_owing_exactly_its_amount` [functionality]: else the one invoice of the tiers owing the same amount.
+- `test_no_plain_choice_applies_nothing_and_lists_the_invoices` [security]: no plain choice, nothing applied, the invoices listed (never an opening balance).
+- `test_an_invoice_a_draft_or_a_used_credit_note_is_left_alone` [functionality]: nothing to apply.
 
 ### tests/invoices/test_difference.py
 Covers a payment difference written off with Experio's own wizard.

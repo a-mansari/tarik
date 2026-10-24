@@ -45,7 +45,10 @@ restaurant, breakfast and laundry amounts are split out where the dossier uses t
 Facturation are posted when you ask for them by name or ask for the whole dossier. A durable good (a computer, a
 vehicle, furniture) is proposed on a class 2 account and booked there only once you confirm it; posting then waits
 until its account has an asset category in Experio, without which Experio would make no asset. What Tarik did on an
-invoice is noted in its history in Experio.
+invoice is noted in its history in Experio. A credit note (avoir) is posted as one, and then applied to the invoice it
+cancels: the one it names, else the one invoice of that supplier left owing exactly its amount; otherwise the
+possible invoices are listed for the cabinet. An invoice Experio took for a credit note is put right when its
+printed title says « Facture ».
 
 **Write off a payment difference**: what is left owing on a posted invoice ("soldez la facture FV-12"), passed to
 the dossier's 6585 account with Experio's own tool, after you confirm the amount and the account.

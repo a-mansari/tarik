@@ -11,6 +11,7 @@ from engine.tools.invoices import (
     classify,
     configuration,
     correct,
+    credit_note,
     difference,
     duplicates,
     exercice,

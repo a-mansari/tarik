@@ -66,6 +66,7 @@ STEPS = {
     "settle_warnings": "avertissements",
     "hold_posting": "mise en attente",
     "post_invoice": "comptabilisation",
+    "apply_credit_note": "imputation de l'avoir",
 }
 ORDER = list(STEPS)
 INVOICE_CHAIN = ORDER[ORDER.index("create_draft_invoice") :]  # an invoice's own steps, from its draft (Traitement)

@@ -56,3 +56,12 @@ def test_amounts_have_two_decimals():
 
     assert amount(999.9960000000001) == "1 000.00"
     assert amount(12000) == "12 000.00" and amount(85.72) == "85.72" and amount(None) == "0.00"
+
+
+@pytest.mark.communication
+def test_a_credit_note_is_listed_as_one_its_amount_as_experio_shows_it():
+    from engine.tools.invoices.listing import line
+
+    note = {"id": 7, "invoice_number": "AV-1", "partner_id": [9, "ATLAS"], "invoice_date": "2026-04-01"}
+    note.update(amount_total=1140.0, state="post", payment_state="not_paid", refund=True)
+    assert line(note) == "- avoir 7 : AV-1, ATLAS, 2026-04-01, -1 140.00 DH, comptabilisee"
