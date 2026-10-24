@@ -349,6 +349,15 @@ async def archiver_dossier(dossier_id: int, runtime: ToolRuntime, client_confirm
     )
 
 
+@tool("Experio_solder_ecart", description=DESCRIBED_LATER)
+async def solder_ecart(dossier_id: int, facture: str, runtime: ToolRuntime, client_confirmed: bool = False) -> str:
+    return await run_workflow(
+        "dossier",
+        runtime,
+        {"mode": "difference", "dossier_id": dossier_id, "facture": facture, "client_confirmed": client_confirmed},
+    )
+
+
 @tool("Experio_importer_dossiers", description=DESCRIBED_LATER)
 async def importer_dossiers(runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
@@ -401,6 +410,7 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     modifier_dossier,
     creer_acces,
     archiver_dossier,
+    solder_ecart,
     importer_dossiers,
     load_skill,
 ]

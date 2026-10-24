@@ -295,11 +295,13 @@ def import_pdf(wizard, name, raw, dossier_id, **values):
 
 
 @step_tool
-def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
+def create_draft_invoice(file_id: int, dossier_id: int, invoice_type: str = "") -> dict:
     """Create a draft invoice in Experio from a file the client sent, in the
     client's dossier. file_id is the number shown next to the file name;
     dossier_id comes from find_dossier. Safe to call again for the same file:
-    it answers with the draft already made."""
+    it answers with the draft already made. ``invoice_type``: the side the client gave (checked by split_invoices):
+    a sale is imported as one, for Experio's reading takes the side it is given (its tiers, its memorized account);
+    achat or mixte as a purchase, classify_invoice settling each one."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
         name, mime, data, existing, kind = file_row(db, file_id, "file_name", "mime_type", "data", "invoice_id", "kind")
@@ -326,7 +328,8 @@ def create_draft_invoice(file_id: int, dossier_id: int) -> dict:
             return stop(f"{TEST_MODE}`{name}` : la facture brouillon serait créée dans le dossier {dossier}.")
         # A bare exp.invoice create would skip the import's defaults, pending state and Bluejay OCR job.
         with refused(f"create_draft_invoice: file {file_id}", f"Experio n'a pas pu créer la facture pour {name}."):
-            invoice_id = import_pdf("exp.invoice.import", name, raw, dossier_id, type="purchase")
+            side = "sale" if invoice_type == "vente" else "purchase"
+            invoice_id = import_pdf("exp.invoice.import", name, raw, dossier_id, type=side)
         db.execute(Q.set_file_invoice, (invoice_id, file_id))
     created = f"`{name}` : facture brouillon n° {invoice_id} créée dans le dossier {dossier}."
     return routine(created, invoice_id=invoice_id)

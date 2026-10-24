@@ -14,7 +14,9 @@ Autres taxes, or Ventes), where Experio looks for it.
 
 from collections import Counter
 
-from engine.tools.core.experio import account_code, dry_run, odoo_call
+from engine.tools.core.experio import account_code, dry_run, odoo_call, odoo_json
+
+TVA_ACCOUNTS = ["|", ("code", "=like", "3455%"), ("code", "=like", "4455%")]  # what Experio makes its taxes from
 
 RATES = (3, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20)  # exp.invoice's amount_tva_<rate> fields
 # The cabinet's table: (side, rate, imported: the invoice has an import folder) -> DGI code. A purchase of services
@@ -32,6 +34,8 @@ INVOICE_FIELDS = [
     "company_id",
     "account_id",
     "folder_id",
+    "is_local_invoice",
+    "amount_tax_non_recoverable",
     "amount_untaxed",
     "amount_tva",
     *(f"amount_tva_{rate}" for rate in RATES),
@@ -49,6 +53,31 @@ def rates_used(invoice):
     untaxed, tva = invoice["amount_untaxed"] or 0, invoice["amount_tva"] or 0
     implied = [rate for rate in RATES if untaxed and abs(untaxed * rate / 100 - tva) <= GAP]
     return implied[:1]
+
+
+def needs_zero_rate(invoice):
+    """True when Experio books the invoice on its side's 0 % tax (generate_tva_line_values asks get_tax_id for rate
+    0): TVA non récupérable / non facturée, or no TVA at all on an untaxed amount; never a foreign purchase."""
+    if invoice["type"] == "purchase" and not invoice["is_local_invoice"]:
+        return False
+    no_tva = not invoice["amount_tva"] and (invoice["amount_untaxed"] or 0) > 0
+    return bool(invoice["amount_tax_non_recoverable"] or no_tva)
+
+
+def zero_rate_tax(company_id, side, context):
+    """The dossier's 0 % tax of ``side``: Experio's own (create_tax_ids always makes "TVA 0% ACHATS" and "TVA 0%
+    VENTES", its DGI code its own), made by it when missing. Its id, None when the dossier has no TVA account to make
+    it from."""
+    domain = [("company_id", "=", company_id), ("type", "=", side), ("rate", "=", 0), ("is_immo_tax", "=", False)]
+    found = odoo_call("exp.tax", "search", domain, limit=1)
+    if found or dry_run():
+        return found[0] if found else None
+    accounts = odoo_call("exp.account", "search", [("company_id", "=", company_id), *TVA_ACCOUNTS])
+    if not accounts:
+        return None
+    odoo_json("exp.account", "create_tax_ids", accounts, context=context)
+    found = odoo_call("exp.tax", "search", domain, limit=1)
+    return found[0] if found else None
 
 
 def settings_field(side, immo):
@@ -131,6 +160,16 @@ def add_missing_taxes(invoice_id, context):
     domain = [("company_id", "=", company_id), ("type", "=", side), ("is_immo_tax", "=", immo)]
     taxes = odoo_call("exp.tax", "search_read", domain, fields=["rate", "account_id"])
     notes = []
+    if needs_zero_rate(invoice) and not immo:
+        tax_id = zero_rate_tax(company_id, side, context)
+        if not tax_id:
+            notes.append("taxe 0 % : aucun compte de TVA dans le dossier pour la créer, à créer par le cabinet")
+        elif not dry_run():
+            state = listed(company_id, field, tax_id, context)
+            if state == "added":
+                notes.append("taxe 0 % ajoutée aux taxes du dossier (Configuration > Général)")
+            elif state == "refused":
+                notes.append("taxe 0 % à ajouter par le cabinet dans Configuration > Général (autres taxes)")
     for rate in rates_used(invoice):
         found = [tax["id"] for tax in taxes if tax["rate"] == rate]
         if not found:

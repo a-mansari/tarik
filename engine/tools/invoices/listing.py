@@ -21,6 +21,8 @@ def label(invoice):
     """Where ``invoice`` (with state and payment_state) stands, as the client reads it."""
     if invoice["state"] in LABELS:
         return LABELS[invoice["state"]]
+    if invoice["payment_state"] == "partial":  # Experio's unpaid / partial / paid (_compute_payment_state)
+        return "comptabilisee (payée en partie)"
     return "payee" if invoice["payment_state"] == "paid" else "comptabilisee"
 
 

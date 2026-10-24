@@ -52,6 +52,7 @@ class Run(Outcomes, total=False):
     dossier_id: int  # the dossier found from the name the client gave (resolve_dossier)
     files: list
     invoices: list
+    facturation: list  # the dossier's drafts from Experio's Facturation the client asked to post (waiting_drafts)
     corrections: list  # [[invoice, account]] the client gave drafts taken up again (waiting_drafts)
     message: str  # the run's summary: the workflow's answer
 
@@ -81,6 +82,7 @@ def extra(tool, call, run_id):
     """What a step is given besides its invoice."""
     words = {"client_message": call.get("client_message") or ""}
     return {
+        "create_draft_invoice": {"invoice_type": call.get("invoice_type") or ""},
         "wait_until_read": {"run_id": run_id},
         "correct_invoice": {"payment_method": call.get("mode_paiement") or "", **words},
         "classify_invoice": {"invoice_type": call.get("invoice_type") or ""},
@@ -325,7 +327,9 @@ async def waiting(state: Run):
     )
     skipped = set(call.get("skip_invoices") or [])  # taken up by their own branch of this run (resume_at)
     invoices = [invoice_id for invoice_id in result.get("invoices", []) if invoice_id not in skipped]
-    return {"invoices": invoices, "corrections": result.get("corrections") or [], "outcomes": [result]}
+    billed = [invoice_id for invoice_id in result.get("facturation", []) if invoice_id not in skipped]
+    corrections = result.get("corrections") or []
+    return {"invoices": invoices, "facturation": billed, "corrections": corrections, "outcomes": [result]}
 
 
 # What a client gives « with their invoices »: for the invoices of this message, never a draft taken up again.
@@ -337,7 +341,7 @@ def each_draft(state: Run):
     for the invoices sent with it); one the client gave an account to (corrections), back to its account step, that
     account to confirm."""
     corrections = {int(invoice_id): account for invoice_id, account in state.get("corrections") or []}
-    if not state.get("invoices") and not corrections:
+    if not state.get("invoices") and not state.get("facturation") and not corrections:
         return "resume"
     resumed = {**with_dossier(state), **dict.fromkeys(MESSAGE_INSTRUCTIONS, "")}
 
@@ -352,6 +356,8 @@ def each_draft(state: Run):
         sent(i, {**resumed, "compte": account, "confirmer": True}, "assign_account")
         for i, account in corrections.items()
     ]
+    # Experio's own invoicing made these (Facturation): nothing to read nor check, their settings then posting.
+    sends += [sent(i, resumed, "configure_cabinet") for i in state.get("facturation", [])]
     return sends
 
 

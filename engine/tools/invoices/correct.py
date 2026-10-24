@@ -12,7 +12,7 @@ from engine.tools.core.experio import (
     refused,
     require_draft_invoice,
 )
-from engine.tools.invoices.check import CAPTURED, stored_check
+from engine.tools.invoices.check import CAPTURED, HOTEL, stored_check
 
 MULTI_TVA_RATES = {7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20}  # the amount_tva_<rate> fields Experio has
 
@@ -38,6 +38,9 @@ FIELD_LABELS = {
     "is_credit_note": "avoir",
     "payment_method_id": "mode de paiement",
     "currency_id": "devise",
+    "amount_ht_restauration": "HT restauration",
+    "amount_ht_breakfast": "HT petit-déjeuner",
+    "amount_ht_blanchisserie": "HT blanchisserie",
 }
 
 
@@ -87,6 +90,24 @@ def planned_changes(extracted, bad_fields, invoice):
     return changes
 
 
+def hotel_parts(extracted, invoice, changes):
+    """A hotel bill's HT parts read on the scan, added to ``changes`` for the parts the dossier uses (should_use_ht_*,
+    Experio's multi HT) and the invoice has none of yet; the HT then keeps only the rest, as Experio adds the parts to
+    it (get_actual_amount_ht) and to its TTC check (get_amounts_list). Nothing when the parts exceed the HT."""
+    parts = {
+        field: extracted[field]
+        for field in HOTEL
+        if (extracted.get(field) or 0) > 0 and invoice[f"should_use_{field.removeprefix('amount_')}"]
+    }
+    if not parts or any(invoice[field] for field in HOTEL):
+        return
+    untaxed = changes.get("amount_untaxed", extracted.get("amount_untaxed") or invoice["amount_untaxed"] or 0)
+    rest = round(untaxed - sum(parts.values()), 2)
+    if rest >= 0:
+        changes.update(parts)
+        changes["amount_untaxed"] = rest
+
+
 def _currency(code, changes, notes):
     """Add the currency ``code`` (ISO) the scan shows to ``changes``, or a note to ``notes`` when Experio lacks it."""
     if code == "MAD":
@@ -127,6 +148,9 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         "amount_tax_non_recoverable",
         "payment_method_id",
         "amount_total",
+        "amount_untaxed",
+        *HOTEL,
+        *(f"should_use_{field.removeprefix('amount_')}" for field in HOTEL),
     ]
     invoice = require_draft_invoice(invoice_id, [*fields, "currency_id"], "être corrigee")
     check = stored_check(invoice_id)
@@ -152,6 +176,7 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         }
         notes.append("montants gardés tels que saisis par Experio, le scan ne porte aucun montant à payer")
     changes = planned_changes(extracted, bad_fields, invoice)
+    hotel_parts(extracted, invoice, changes)
     with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé la correction."):
         _currency((extracted.get("currency") or "MAD").upper(), changes, notes)
         told = instructed(payment_method, client_message)

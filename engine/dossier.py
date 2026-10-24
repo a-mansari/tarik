@@ -1,7 +1,7 @@
 """Dossier as a graph: a dossier's creation (or a spreadsheet's list of them), by the cabinet's managers and Experio's
-staff only, then its configuration and entries import; or (mode update, person, archive) one change to a dossier
-assigned to the sender; mode resume finishes the dossiers left waiting. No time budget: finish_setup gets
-seconds_left 0 (no limit)."""
+staff only, then its configuration and entries import; or (mode update, person, archive, difference) one change to
+a dossier assigned to the sender (difference: a posted invoice's remainder written off); mode resume finishes the
+dossiers left waiting. No time budget: finish_setup gets seconds_left 0 (no limit)."""
 
 import operator
 from typing import Annotated, TypedDict
@@ -39,6 +39,7 @@ INPUTS = [
     "street2",
     "city",
     "zip",
+    "facture",
     "attachments",
     "cabinet",
 ]
@@ -63,7 +64,7 @@ def by_mode(state: Run):
     if failed(state):
         return "resume"  # a failed save is recorded and goes no further: the files the run would work on are missing
     mode = call.get("mode")
-    if mode in ("update", "person", "archive"):
+    if mode in ("update", "person", "archive", "difference"):
         return "expediteur"
     if mode == "resume":
         return "reprise"
@@ -119,7 +120,7 @@ async def sender(state: Run):
 def after_sender(state: Run):
     if failed(state):
         return "resume"
-    return {"update": "modification", "person": "acces", "archive": "archivage"}.get(
+    return {"update": "modification", "person": "acces", "archive": "archivage", "difference": "ecart"}.get(
         state["call"].get("mode"), "ecritures"
     )
 
@@ -163,6 +164,19 @@ async def archive(state: Run):
         state,
         "archive_dossier",
         dossier_id=call["dossier_id"],
+        client_confirmed=call.get("client_confirmed") is True,
+        session_id=call["session_id"],
+    )
+    return {"outcomes": [result]}
+
+
+async def difference(state: Run):
+    call = state["call"]
+    result = await run_step(
+        state,
+        "settle_difference",
+        dossier_id=call["dossier_id"],
+        facture=call.get("facture") or "",
         client_confirmed=call.get("client_confirmed") is True,
         session_id=call["session_id"],
     )
@@ -239,6 +253,7 @@ for name, node in {
     "modification": update,
     "acces": person,
     "archivage": archive,
+    "ecart": difference,
     "listes": lists,
     "ecritures": entries,
     "reprise": resume_setups,
@@ -249,8 +264,10 @@ run.add_edge(START, "debut")
 run.add_conditional_edges("debut", by_mode, ["createur", "expediteur", "reprise", "resume"])
 run.add_conditional_edges("createur", after_creator, ["creation", "listes", "resume"])
 run.add_conditional_edges("creation", *ok_or_summary("ecritures"))
-run.add_conditional_edges("expediteur", after_sender, ["modification", "acces", "archivage", "ecritures", "resume"])
-for name in ("modification", "acces", "archivage", "listes", "ecritures", "reprise"):
+run.add_conditional_edges(
+    "expediteur", after_sender, ["modification", "acces", "archivage", "ecart", "ecritures", "resume"]
+)
+for name in ("modification", "acces", "archivage", "ecart", "listes", "ecritures", "reprise"):
     run.add_edge(name, "resume")
 run.add_edge("resume", END)
 graph = run.compile(name="Tarik - Dossier")

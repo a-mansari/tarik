@@ -46,7 +46,7 @@ def test_each_invoice_has_one_status():
     assert listing.line({**ATLAS, "partner_id": [3, "ATLAS - ROULEMENT - 12345678"]}).count("ATLAS - ROULEMENT,") == 1
     assert label({"state": "post", "payment_state": "paid"}) == "payee"
     assert label({"state": "export", "payment_state": "paid"}) == "exportee"
-    assert label({"state": "post", "payment_state": "partial"}) == "comptabilisee"
+    assert label({"state": "post", "payment_state": "partial"}) == "comptabilisee (payée en partie)"
     assert label({"state": "pending", "payment_state": "unpaid"}) == "en cours"
 
 

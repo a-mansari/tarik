@@ -9,6 +9,8 @@ WATER = {  # a water bill at 10 %, in a dossier made from a FEC: TVA 0 % and 20 
     "company_id": [902, "Naruto SARL"],
     "account_id": [243203, "61250000 Achats non stockes"],
     "folder_id": False,
+    "is_local_invoice": True,
+    "amount_tax_non_recoverable": False,
     **{f"amount_tva_{rate}": 0.0 for rate in taxes.RATES},
     "amount_tva_10": 4.18,
     "amount_untaxed": 41.8,
@@ -103,3 +105,40 @@ def test_a_tax_is_made_only_for_a_rate_the_invoice_really_has(amounts, untaxed, 
     invoice = {**{f"amount_tva_{rate}": 0.0 for rate in taxes.RATES}, "amount_untaxed": untaxed, "amount_tva": tva}
     invoice.update({f"amount_tva_{rate}": amount for rate, amount in amounts.items()})
     assert taxes.rates_used(invoice) == rates
+
+
+@pytest.mark.functionality
+def test_a_sale_without_tva_gets_experios_own_zero_rate_tax_listed(monkeypatch):
+    """No TVA (or TVA non facturée): Experio books it on its side's 0 % tax; Tarik lists Experio's own, made by
+    Experio (create_tax_ids) when missing, never one of its own."""
+    sale = {**WATER, "type": "sale", "account_id": [1, "71240000 Prestations"], "amount_tva": 0.0}
+    sale.update(amount_tva_10=0.0, amount_untaxed=500.0)
+    state = {"zero": [], "listed": [4973], "made": []}
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "exp.invoice":
+            return [sale]
+        if (model, method) == ("exp.tax", "search"):
+            return state["zero"]
+        if (model, method) == ("exp.tax", "search_read"):
+            return []
+        if (model, method) == ("exp.account", "search"):
+            return [31]
+        if (model, method) == ("res.company", "read"):
+            return [{"sale_tax_ids": list(state["listed"])}]
+        if (model, method) == ("res.config.settings", "create"):
+            state["listed"] = args[0]["sale_tax_ids"][0][2]
+            return 1
+        raise AssertionError(f"unexpected call {model}.{method}")
+
+    def odoo_json(model, method, ids, context):
+        state["made"].append((method, ids))
+        state["zero"] = [4972]  # Experio's « TVA 0% VENTES »
+
+    monkeypatch.setattr(taxes, "odoo_call", odoo_call)
+    monkeypatch.setattr(taxes, "odoo_json", odoo_json)
+    monkeypatch.setattr(taxes, "dry_run", lambda: False)
+    assert taxes.add_missing_taxes(5, {}) == ["taxe 0 % ajoutée aux taxes du dossier (Configuration > Général)"]
+    assert state["made"] == [("create_tax_ids", [31])] and state["listed"] == [4973, 4972]
+    assert taxes.add_missing_taxes(5, {}) == [] and len(state["made"]) == 1  # there and listed: nothing done
+    assert not taxes.needs_zero_rate({**sale, "type": "purchase", "is_local_invoice": False})  # foreign purchase
