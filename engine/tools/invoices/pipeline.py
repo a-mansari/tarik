@@ -12,6 +12,7 @@ from engine.tools.core.archives import unpacked
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import ENTRY_FILES, FILE_TYPES, READ_WAIT, READING, TEST_MODE
 from engine.tools.core.conversation import chosen_among, client_messages, own_words, yes_no
+from engine.tools.core.experio import _form as experio_form
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, require_invoice
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
@@ -823,6 +824,9 @@ def waiting_drafts(
         others = set(odoo_call("exp.invoice", "search", domain))
     asked = asked_among(others, dossier_id, client_message) if others else []
     waiting += asked
+    # The dossier's drafts from Experio's own invoicing (Facturation), posted when the client asks for them: never
+    # read nor checked by Tarik (no scan, accounts per line), they start at the dossier's settings.
+    billed = facturation_drafts(dossier_id, client_message) if held and dossier_id else []
     elsewhere_left = len(others) - len(asked)
     if waiting:
         domain = [("id", "in", sorted(set(waiting))), ("state", "in", ["pending", "draft"])]
@@ -830,12 +834,18 @@ def waiting_drafts(
         if dossier_id and (held or stopped):
             domain.append(("company_id", "in", [dossier_id]))
         waiting = sorted(odoo_call("exp.invoice", "search", domain))
-    if waiting and run_id:
+    billed = [i for i in billed if i not in waiting]
+    if (waiting or billed) and run_id:
         with cabinet_db() as db:
-            waiting = sorted(i for (i,) in db.execute(Q.claim_invoices, (waiting, run_id)).fetchall())
+            claimed = {i for (i,) in db.execute(Q.claim_invoices, (sorted({*waiting, *billed}), run_id)).fetchall()}
+        waiting, billed = sorted(set(waiting) & claimed), sorted(set(billed) & claimed)
     corrections = drafts_corrected(session_id, client_message, compte)
     if corrections:
-        return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting, corrections=corrections)
+        return ok(
+            f"{len(waiting)} facture(s) a reprendre.", invoices=waiting, corrections=corrections, facturation=billed
+        )
+    if billed:
+        return ok(f"{len(waiting) + len(billed)} facture(s) a reprendre.", invoices=waiting, facturation=billed)
     hint = elsewhere_hint(elsewhere_left, client_message, held) if not waiting else ""
     if held and not waiting:
         if run_id and worked_on(run_id):  # this run's other branch took them (« comptabilisez » goes both ways)
@@ -844,6 +854,16 @@ def waiting_drafts(
     if hint:
         return ok("Rien à reprendre dans cette conversation." + hint, invoices=[], tell=True)
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
+
+
+def facturation_drafts(dossier_id, client_message):
+    """The dossier's drafts made by Experio's Facturation (gst_invoice_id) the client's own words ask for: the whole
+    dossier, or named (asked_among); none when the cabinet's Experio has no Facturation."""
+    if not normalized(own_words(client_message)) or "gst_invoice_id" not in experio_form()["types"]:
+        return []
+    domain = [("company_id", "=", dossier_id), ("state", "=", "draft"), ("gst_invoice_id", "!=", False)]
+    found = odoo_call("exp.invoice", "search", domain)
+    return asked_among(found, dossier_id, client_message) if found else []
 
 
 def worked_on(run_id):

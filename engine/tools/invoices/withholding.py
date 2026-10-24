@@ -314,9 +314,11 @@ def settle_withholding(invoice_id: int, answer: str = "", client_message: str = 
     fields = ["state", "type", "is_local_invoice", "company_id", "exercice_id", "partner_id", "account_id"]
     fields += ["invoice_date", *FIELDS["foreign"], *FIELDS["local"][1:]]
     invoice = require_invoice(invoice_id, fields)
-    if invoice["type"] != "purchase" or not invoice["partner_id"]:
-        return routine(f"Facture {invoice_id} : pas de retenue à la source à régler ici (vente ou tiers absent).")
+    if not invoice["partner_id"]:
+        return routine(f"Facture {invoice_id} : pas de retenue à la source à régler ici (tiers absent).")
     require_draft(invoice_id, invoice)
+    if invoice["type"] == "sale":
+        return sale_withholding(invoice, answer, answering)
     if not invoice["is_local_invoice"]:
         if invoice["retenue"]:  # the tiers' remembered rule, applied by Experio when the tiers was picked
             known = described({name: invoice[name] for name in FIELDS["foreign"]})
@@ -342,6 +344,25 @@ def settle_withholding(invoice_id: int, answer: str = "", client_message: str = 
     automatic = "retenue" in values and not invoice["retenue"] and partner["expense_type"]
     why = f" (activité du fournisseur : {EXPENSE_LABEL[partner['expense_type']]})" if automatic else ""
     return write(invoice, values, why)
+
+
+def sale_withholding(invoice, answer, answering):
+    """A sale's RAS TVA, the customer's to hold: Experio applies the same rules as for a purchase, from the
+    customer's activity type and attestation (validate_warning_withholding; every sale is eligible,
+    _is_tax_withholding_eligible_type). The retenue is turned on when the customer has an activity type, its rate
+    left to Experio; else the customer's remembered rule, applied when it was picked."""
+    invoice_id = invoice["id"]
+    partner = odoo_call("exp.partner", "read", [invoice["partner_id"][0]], fields=["name", "type", "expense_type"])[0]
+    waiting = certificate_step(invoice, partner, answer if answering else None)
+    if waiting:
+        return waiting
+    if partner["expense_type"] and (invoice["invoice_date"] or "") >= RAS_TVA_FROM:
+        automatic = "" if invoice["retenue"] else f" (activité du client : {EXPENSE_LABEL[partner['expense_type']]})"
+        return write(invoice, {"retenue": True}, automatic)
+    if invoice["retenue"]:
+        known = described({name: invoice[name] for name in FIELDS["local"]})
+        return ok(f"Facture {invoice_id} : {known} (règle connue du client).")
+    return routine(f"Facture {invoice_id} : sans retenue à la source.")
 
 
 def write(invoice, values, why=""):

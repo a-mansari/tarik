@@ -302,6 +302,7 @@ Covers the client's answers to waiting questions (db_cabinet).
 - `test_a_reading_stuck_over_an_hour_is_sent_again_once_an_hour` [functionality]: a draft Experio has not read after 60 minutes is sent again with Experio's own Re-send, at most once an hour.
 - `test_a_draft_whose_latest_outcome_is_a_wait_is_taken_up_again_however_far_it_went_before` [functionality]: a draft is judged by its latest run, not by how far an earlier run took it.
 - `test_nothing_left_to_post_is_not_said_when_the_same_run_just_posted` [communication]: « comptabilisez » never also says nothing was left to post.
+- `test_facturation_drafts_are_posted_only_when_the_client_asks_for_them` [functionality]: Experio's Facturation drafts, taken up only on the client's words (by name or the whole dossier).
 - `test_a_draft_that_failed_waited_or_was_cut_short_is_taken_up_again` [functionality]: failed, waiting or interrupted drafts are resumed.
 - `test_a_run_waits_on_experio_reading_once_for_all_its_drafts` [functionality]: one wait covers Experio's reading of all drafts.
 - `test_a_bank_journals_answer_sets_its_bank_then_asks_the_next` [functionality]: answering one bank journal sets it, then asks the next.
@@ -327,6 +328,8 @@ Covers comparing what Experio read with the scan: dates, the model's report, fal
 Covers a draft taken up again keeping its classified side.
 - `test_a_second_look_does_not_flip_a_classified_draft` [functionality]: a model re-check never flips an already-classified side.
 - `test_a_side_the_client_gives_asks_for_a_new_look` [functionality]: a side given by the client triggers reclassification.
+- `test_the_side_experios_reading_proves_by_the_dossiers_ice_wins_over_the_model` [functionality]: the issuer (or buyer) Experio read carrying the dossier's ICE/IF decides the side, before any model.
+- `test_the_model_is_told_whose_dossier_it_is` [functionality]: the classifier is given the dossier's name.
 
 ### tests/invoices/test_configuration.py
 Covers the dossier's tax settings before posting.
@@ -344,11 +347,13 @@ Covers corrections planned from a check (the HT/TVA fuel case).
 - `test_several_tva_rates` [functionality]: invoices with several TVA rates are corrected properly.
 - `test_lines_at_one_rate_add_up` [functionality]: single-rate lines sum to the right totals.
 - `test_lines_not_read_in_full_or_not_adding_up_are_never_split` [functionality]: incomplete or inconsistent lines are never split.
+- `test_a_hotel_bills_parts_are_written_where_the_dossier_uses_them_the_ht_keeping_the_rest` [functionality]: restaurant / breakfast / laundry HT written only where the dossier uses them, the HT keeping the rest.
 
 ### tests/invoices/test_duplicates.py
 Covers the duplicate check.
 - `test_only_drafts_are_compared_with_the_invoice` [functionality]: cancelled invoices are excluded from duplicate comparison.
 - `test_the_oldest_draft_is_the_original` [functionality]: among duplicates, the oldest draft is treated as the original.
+- `test_a_sale_follows_experios_sale_rule_whatever_its_customer` [functionality]: a sale is checked by number alone (Experio's sale rule), with or without its customer.
 
 ### tests/invoices/test_exercice.py
 Covers choosing the fiscal year in code, never by a model.
@@ -423,11 +428,16 @@ Covers where a message goes: answer, files, or both, decided by the database.
 - `test_a_message_with_an_answer_and_new_files_does_both_in_one_run` [functionality]: an answer plus new files are handled in one run.
 - `test_a_message_goes_where_the_database_says_unless_the_routing_failed` [functionality]: the database routing applies unless the routing itself failed.
 - `test_asked_to_post_the_drafts_are_posted_whatever_question_waits` [functionality]: a post request is honoured even with questions waiting.
+- `test_a_facturation_draft_starts_at_the_dossiers_settings_never_at_the_reading` [functionality]: a Facturation draft enters at configure_cabinet.
+- `test_every_argument_the_agent_gives_the_dossier_tools_reaches_the_workflow` [technical]: the dossier tools' arguments (Experio_solder_ecart's facture too) reach the workflow.
 
 ### tests/invoices/test_summary.py
 Covers the run summary (db_cabinet, uses tests/runs.py).
 - `test_the_same_failure_on_two_invoices_names_each_one` [communication]: a shared failure lists each affected invoice number.
 - `test_a_long_run_s_summary_keeps_what_the_client_needs_and_drops_the_rest` [communication]: a long summary keeps the essentials and drops routine lines.
+
+### tests/invoices/test_taxes.py
+- `test_a_sale_without_tva_gets_experios_own_zero_rate_tax_listed` [functionality]: Experio's own 0 % tax, made by Experio when missing, listed in the dossier's settings.
 
 ### tests/invoices/test_tiers.py
 Covers the invoice's tiers (supplier or customer).
@@ -444,6 +454,7 @@ Covers TVA: the non-recoverable question, the answer, the prorata.
 - `test_fuel_asks_then_the_answer_writes` [functionality]: fuel triggers the TVA question, and the answer is written.
 - `test_the_cabinets_prorata_applies_to_recoverable_tva` [functionality]: the cabinet prorata applies to recoverable TVA.
 - `test_an_answer_is_kept_for_the_invoice_taken_up_again` [functionality]: a "non" answer is remembered for a resumed invoice.
+- `test_a_sale_billing_no_tva_is_ticked_tva_non_facturee_without_a_question` [functionality]: a sale without TVA is ticked « TVA non facturée ».
 
 ### tests/invoices/test_withholding.py
 Covers withholding answers checked against what Experio accepts.
@@ -456,6 +467,12 @@ Covers withholding answers checked against what Experio accepts.
 - `test_an_attestation_sent_as_the_answer_is_uploaded_to_the_supplier_then_awaited` [functionality]: a file sent as the answer becomes the supplier's attestation in Experio, awaited, and asked again when refused (with Experio's reason).
 - `test_a_persons_services_need_it_only_over_experios_thresholds` [functionality]: a person's services need it only over Experio's thresholds.
 - `test_an_is_ir_rate_the_tiers_type_does_not_take_is_asked_again` [functionality]: an IS/IR rate Experio refuses for the tiers type is asked again.
+- `test_a_sale_gets_its_retenue_on_when_the_customer_has_an_activity_type` [functionality]: a sale's retenue turned on from the customer's activity type, its rate Experio's.
+
+### tests/invoices/test_difference.py
+Covers a payment difference written off with Experio's own wizard.
+- `test_the_difference_is_written_off_only_once_the_client_confirmed` [security]: asked first (amount, account), applied on the invoice alone after the oui.
+- `test_nothing_owed_no_account_or_no_invoice_is_said` [functionality]: nothing owed, no 6585 account, or no such invoice.
 
 ### tests/invoices/test_warnings.py
 Covers Experio's warnings, each handled on its own (docs/experio-warnings.md).

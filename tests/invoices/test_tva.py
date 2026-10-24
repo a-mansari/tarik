@@ -69,3 +69,14 @@ def test_an_answer_is_kept_for_the_invoice_taken_up_again(experio):
     assert tva.settle_tva(3)["status"] == "question"
     assert tva.settle_tva(3, "non")["message"].startswith("Facture 3 : TVA récupérable")
     assert tva.settle_tva(3)["message"].startswith("Facture 3 : TVA récupérable")  # taken up again: no question
+
+
+@pytest.mark.functionality
+def test_a_sale_billing_no_tva_is_ticked_tva_non_facturee_without_a_question(experio):
+    experio["invoice"].update(type="sale", amount_tva=0.0, amount_total=1200.0, account_id=[1, "71240000 Services"])
+    result = tva.settle_tva(3)
+    assert result["status"] == "ok" and result["message"].startswith("Facture 3 : TVA non facturée")
+    assert experio["written"] == [{"amount_tax_non_recoverable": True, "multi_tva": False}]
+    experio["written"].clear()
+    experio["invoice"]["amount_tva"] = 240.0  # TVA billed: nothing ticked, nothing asked
+    assert tva.settle_tva(3)["message"].startswith("Facture 3 : TVA facturée") and experio["written"] == []

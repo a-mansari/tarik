@@ -39,7 +39,13 @@ docs/experio-warnings.md), and leaves it as a verified draft: it is posted only 
 it asks. For a local purchase whose supplier has an activity type in Experio, Tarik turns the withholding on
 itself and Experio sets the RAS TVA rate; when that rate depends on the supplier's attestation de régularité
 fiscale, Tarik asks for it once: send it as an attachment, or answer « sans attestation ». The same file sent
-twice makes one draft only.
+twice makes one draft only. A sale is imported as a sale (Experio then reads its customer); one billing no TVA is
+ticked « TVA non facturée »; a customer with an activity type gets its retenue on, as a supplier does; a hotel's
+restaurant, breakfast and laundry amounts are split out where the dossier uses them. Drafts made by Experio's own
+Facturation are posted when you ask for them by name or ask for the whole dossier.
+
+**Write off a payment difference**: what is left owing on a posted invoice ("soldez la facture FV-12"), passed to
+the dossier's 6585 account with Experio's own tool, after you confirm the amount and the account.
 
 **Create a dossier**, from its name alone; ICE, IF and type when you give them. It refuses an ICE or IF
 another dossier already has, and asks first when a dossier has a very similar name. It can copy the

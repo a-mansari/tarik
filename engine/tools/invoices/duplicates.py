@@ -1,7 +1,8 @@
 """Stop an invoice already recorded in the dossier, before any account or TVA work.
 
-Experio's own check (get_duplicated_invoice_ids): same number, tiers and date or year as
-a posted invoice, by the cabinet's rules for purchases and sales -- plus, to catch an
+Experio's own check (get_duplicated_invoice_ids): for a purchase, same number, tiers and date
+(or not) as a posted invoice; for a sale, same number (and year, when the dossier says so),
+whatever the customer (exp_invoice.py get_duplicated_invoice_ids_impl) -- plus, to catch an
 invoice sent twice before either is posted, the same rule across same-number drafts. No
 "TIERS - NUMERO" label is set: Experio names the writing lines from each cabinet's own label
 format, and the label field would override it.
@@ -14,17 +15,18 @@ FIELDS = ["company_id", "exercice_id", "invoice_number", "invoice_date", "amount
 
 
 def _same_number_drafts(invoice, context):
-    """The ids of the dossier's drafts with the invoice's type, tiers and number (spaces aside), its own included,
-    sorted: oldest first."""
+    """The ids of the dossier's drafts with the invoice's type and number (spaces aside) -- and tiers, for a purchase:
+    Experio's sale rule has none --, its own included, sorted: oldest first."""
     number = invoice["invoice_number"].replace(" ", "")
     domain = [
         ("company_id", "=", invoice["company_id"][0]),
         ("type", "=", invoice["type"]),
         ("id", "!=", invoice["id"]),
-        ("partner_id", "=", invoice["partner_id"][0]),
         ("state", "in", ["pending", "draft"]),  # a cancelled one is no duplicate (Experio counts every id given)
         ("invoice_number", "ilike", invoice["invoice_number"].strip()),
     ]
+    if invoice["type"] == "purchase":
+        domain.append(("partner_id", "=", invoice["partner_id"][0]))
     drafts = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number"], context=context)
     same = [d["id"] for d in drafts if (d["invoice_number"] or "").replace(" ", "") == number]
     return sorted([invoice["id"]] + same)
@@ -65,14 +67,16 @@ def without_tiers_twin(invoice, context):
 
 @step_tool
 def check_duplicate(invoice_id: int) -> dict:
-    """Check whether this invoice is already recorded in its dossier (same number,
-    tiers and date; or same number, date and total when one has no tiers yet).
-    Call it once the tiers is set. A duplicate must not be processed any further."""
+    """Check whether this invoice is already recorded in its dossier, by Experio's rule for its side (a purchase:
+    same number, tiers and date, or same number, date and total when one has no tiers yet; a sale: same number,
+    and year when the dossier says so). Call it once the tiers is set. A duplicate must not be processed any
+    further."""
     invoice = require_invoice(invoice_id, FIELDS)
-    twin = without_tiers_twin(invoice, invoice_context(invoice))
+    sale = invoice["type"] == "sale"  # Experio's sale rule has no customer: nothing to wait for but the number
+    twin = None if sale else without_tiers_twin(invoice, invoice_context(invoice))
     if twin:
         return twin
-    if not invoice["invoice_number"] or not invoice["partner_id"]:
+    if not invoice["invoice_number"] or not (invoice["partner_id"] or sale):
         return ok(
             f"Facture {invoice_id} : numéro ou tiers manquant, "
             "la vérification des doublons attend qu'ils soient renseignés."
@@ -83,9 +87,9 @@ def check_duplicate(invoice_id: int) -> dict:
         if invoice_id in (odoo_json("exp.invoice", "get_duplicated_invoice_ids", [invoice_id], context=context) or []):
             message = odoo_json("exp.invoice", "get_duplicated_invoice_msg", [invoice_id], context=context) or ""
             log(f"check_duplicate {invoice_id}: {plain(message)}")  # Experio's long wording: for the team
+            tier = invoice["partner_id"][1].split(" - ")[0] if invoice["partner_id"] else "client non renseigné"
             message = (
-                f"déjà enregistrée (n° {invoice['invoice_number']}, {invoice['partner_id'][1].split(' - ')[0]}, "
-                f"{invoice['invoice_date'] or 'sans date'})"
+                f"déjà enregistrée (n° {invoice['invoice_number']}, {tier}, {invoice['invoice_date'] or 'sans date'})"
             )
         else:
             # 2. Against the dossier's other drafts with the same number and tiers, checked together so Experio's

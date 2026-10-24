@@ -30,6 +30,15 @@ CAPTURED: Final = (
     "amount_total",
 )
 CHECKED_FIELDS = [*CAPTURED, "tier", "ice"]
+# A hotel bill's HT parts, read on the scan, never captured by Experio's reading (nor compared): correct_invoice writes
+# them where the dossier uses them (should_use_ht_*).
+HOTEL: Final = ("amount_ht_restauration", "amount_ht_breakfast", "amount_ht_blanchisserie")
+# On a sale, the tiers to read is the customer: the scan's issuer is the cabinet's own client (check-invoice.md says
+# supplier, the purchase's case).
+SALE_NOTE: Final = (
+    "\nThis invoice is a SALE (vente), issued by the cabinet's client: tier, ice and vat are the CUSTOMER's, the "
+    'party addressed in the client box ("client", "facturé à"), never the issuer at the top.'
+)
 REPORT_KEYS: Final = ("readable", "extracted", "bad_fields")  # a reply without bad_fields is not "nothing differs"
 NUMBERS = set(CAPTURED) - {"invoice_number", "invoice_date"}  # compared as numbers, never as text
 LINE_NUMBERS = ("rate", "amount_ht", "amount_tva")
@@ -74,7 +83,7 @@ def _check_shape(report):
 def _as_numbers(extracted):
     """Turn the amounts the model read (in ``extracted``, changed in place) into numbers, its TVA lines' too.
     ValueError when an amount is not one number (as_number) or tva_lines is not a list."""
-    for field in NUMBERS & set(extracted):
+    for field in (NUMBERS | set(HOTEL)) & set(extracted):
         extracted[field] = as_number(extracted[field])
     if not isinstance(extracted.get("tva_lines") or [], list):
         raise ValueError(f"tva_lines is not a list: {extracted['tva_lines']!r}")
@@ -261,7 +270,7 @@ def check_invoice(invoice_id: int) -> dict:
     """Check a draft invoice once Experio has read it: compares what Experio
     captured with what the scan shows, and lists every difference. Changes
     nothing. invoice_id is the draft invoice number given at its creation."""
-    fields = ["bluejay_state", "document_pdf", "file_type", *CAPTURED, "partner_id", "token", "utility_type"]
+    fields = ["bluejay_state", "document_pdf", "file_type", *CAPTURED, "partner_id", "token", "utility_type", "type"]
     invoice = require_invoice(invoice_id, fields)
     reading = still_reading(invoice)
     if reading:
@@ -273,6 +282,7 @@ def check_invoice(invoice_id: int) -> dict:
     scanned = scanned or (invoice if has_scan(invoice) else None)
     if not scanned:
         return routine(f"Facture {invoice_id} : pas de scan PDF a vérifier.")
+    part += SALE_NOTE if invoice["type"] == "sale" else ""
     report = _read_scan(invoice_id, scan_pages(scanned["document_pdf"]), stored, part)
     _save_check(invoice_id, report)
     return _check_result(invoice_id, report)

@@ -75,3 +75,29 @@ def test_an_invoice_without_tiers_is_still_compared_by_number_date_and_total(mon
     assert (result["status"] == "stop" and "facture 12" in result["message"]) == caught
     assert ("id", "<", 30) in searched[0] and ("state", "!=", "cancel") in searched[0]
     assert (("partner_id", "=", False) in searched[0]) == bool(own_tiers)  # with a tiers: only the ones without
+
+
+@pytest.mark.functionality
+def test_a_sale_follows_experios_sale_rule_whatever_its_customer(monkeypatch):
+    """Experio's sale key has no customer (get_duplicated_invoice_ids_impl): a sale is checked without one, and its
+    drafts are compared by number alone."""
+    sale = {**INVOICE, "type": "sale", "partner_id": False, "invoice_date": "2026-04-20", "amount_total": 100.0}
+    calls = []
+
+    def odoo_call(model, method, domain, **kw):
+        calls.append(domain)
+        return [{"id": 12, "invoice_number": "F2026-001"}]
+
+    def odoo_json(model, method, ids, **kw):
+        if method == "get_duplicated_invoice_msg":
+            return "Duplicated customer reference detected."
+        return [30] if ids == [30] else []  # Experio finds it against a posted sale of the same number
+
+    monkeypatch.setattr(duplicates, "require_invoice", lambda invoice_id, fields: dict(sale))
+    monkeypatch.setattr(duplicates, "odoo_call", odoo_call)
+    monkeypatch.setattr(duplicates, "odoo_json", odoo_json)
+    result = duplicates.check_duplicate(30)  # no customer yet: checked all the same
+    assert result["status"] == "stop" and result["duplicate"] and "client non renseigné" in result["message"]
+    monkeypatch.setattr(duplicates, "odoo_json", lambda model, method, ids, **kw: [30] if ids == [12, 30] else [])
+    assert "brouillon 12" in duplicates.check_duplicate(30)["message"]
+    assert all(clause[0] != "partner_id" for clause in calls[-1])  # the drafts: by number, not by customer
