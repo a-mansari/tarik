@@ -128,3 +128,23 @@ def test_a_draft_stopped_for_no_amount_is_taken_up_again_when_asked():
 
     assert resumable("correct_invoice", "stop", stopped=True)
     assert not resumable("correct_invoice", "stop", stopped=False)  # an automatic follow-up never retries it
+
+
+@pytest.mark.functionality
+def test_a_hotel_bills_parts_are_written_where_the_dossier_uses_them_the_ht_keeping_the_rest():
+    from engine.tools.invoices.correct import hotel_parts
+
+    invoice = {"amount_untaxed": 1000.0, "amount_ht_restauration": 0.0, "amount_ht_breakfast": 0.0}
+    invoice.update(amount_ht_blanchisserie=0.0, should_use_ht_restauration=True, should_use_ht_breakfast=False)
+    invoice["should_use_ht_blanchisserie"] = True
+    read = {"amount_untaxed": 1000.0, "amount_ht_restauration": 300.0, "amount_ht_breakfast": 50.0}
+    read["amount_ht_blanchisserie"] = 20.0
+    changes = {}
+    hotel_parts(read, invoice, changes)  # breakfast: not used by the dossier, stays in the HT
+    assert changes == {"amount_ht_restauration": 300.0, "amount_ht_blanchisserie": 20.0, "amount_untaxed": 680.0}
+    changes = {}
+    hotel_parts({**read, "amount_ht_restauration": 1200.0}, invoice, changes)  # parts over the HT: misread, nothing
+    assert changes == {}
+    changes = {}
+    hotel_parts(read, {**invoice, "amount_ht_restauration": 300.0}, changes)  # already split: left alone
+    assert changes == {}

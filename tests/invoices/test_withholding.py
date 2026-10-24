@@ -231,3 +231,18 @@ def test_an_is_ir_rate_the_tiers_type_does_not_take_is_asked_again(db_cabinet, l
     result = withholding.settle_withholding(3, "10 et 75", answering=True)
     assert local["written"][-1] == {"retenue": True, "local_withholding_percentage": "10"}  # 75: Experio's to set
     assert result["status"] == "ok"
+
+
+@pytest.mark.functionality
+def test_a_sale_gets_its_retenue_on_when_the_customer_has_an_activity_type(db_cabinet, local):
+    local["invoice"].update(type="sale", partner_id=[8, "CLIENT SA"], account_id=[2, "71240000 Services"])
+    local["partner"].update(id=8, name="CLIENT SA", type="company", expense_type="prestation")
+    local["experio_rate"] = "0"
+    result = withholding.settle_withholding(3)
+    assert local["written"] == [{"retenue": True}]  # its rate: Experio's rules (a company's services: 0 %)
+    assert result["message"].endswith("(activité du client : prestation de services).")
+    local["written"].clear()
+    local["partner"]["expense_type"] = False  # no activity type: nothing turned on, nothing asked
+    assert withholding.settle_withholding(3)["routine"] and local["written"] == []
+    local["partner"].update(expense_type="travaux")  # its rate depends on the customer's attestation: asked once
+    assert withholding.settle_withholding(3)["status"] == "question"

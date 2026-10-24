@@ -8,6 +8,7 @@ from engine.tools.core.experio import (
     fill_invoice,
     has_scan,
     invoice_context,
+    odoo_call,
     refused,
     require_draft,
     require_invoice,
@@ -24,13 +25,16 @@ SIDE_WORDS = {"achat": r"achats?|fournisseurs?|purchases?", "vente": r"ventes?|s
 SIDES = {"achat": {"achat"}, "vente": {"vente"}, "mixte": {"achat", "vente"}}
 
 
-def classify_pages(pages, what):
+def classify_pages(pages, what, dossier=""):
     """The model's (category, reason) for a document's ``pages``: achat, vente, rb (bank statement) or autre
-    (neither: a contract, a schedule, a screenshot). ``what`` names the step in logs and errors."""
+    (neither: a contract, a schedule, a screenshot). ``what`` names the step in logs and errors; ``dossier``: the
+    cabinet's client's name, when known, which tells the seller from the buyer."""
+    client = f"The cabinet's client here is « {dossier} ». " if dossier else ""
     result = ask_model(
         tool_prompt("classify-document"),
         pages,
-        'Answer with only a JSON object: {"category": "achat"|"vente"|"rb"|"autre", "reason": "one French sentence"}',
+        client
+        + 'Answer with only a JSON object: {"category": "achat"|"vente"|"rb"|"autre", "reason": "one French sentence"}',
         what,
     )
     if result.get("category") not in ("achat", "vente", "rb", "autre"):
@@ -65,6 +69,18 @@ def client_side(invoice_type, words):
     return invoice_type if invoice_type in SIDES and SIDES[invoice_type] <= written else None
 
 
+def side_by_ice(invoice, company):
+    """achat or vente as Experio's own reading proves it (its ICE/IF warning, validate_warning_invalid_ice_and_if):
+    the issuer read carries the dossier's ICE or IF -> vente, the buyer read does -> achat; None otherwise."""
+    for number, field in (("ice", "ice"), ("if", "vat")):
+        own = company[field]
+        if own and invoice[f"detected_supplier_{number}"] == own:
+            return "vente"
+        if own and invoice[f"detected_customer_{number}"] == own:
+            return "achat"
+    return None
+
+
 def _kept_classification(invoice_id, invoice_type):
     """The (category, reason) already decided for the invoice, or None: a draft taken up again keeps its side, the
     model's second look must not flip it. The client giving a side that differs asks for a new look."""
@@ -90,19 +106,27 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     bank statement. ``invoice_type``: achat or vente as the client said (checked
     by split_invoices); a scan that says the other side stops the invoice, one the model reads as neither
     (autre) takes the client's side."""
+    read = ["detected_supplier_ice", "detected_customer_ice", "detected_supplier_if", "detected_customer_if"]
     invoice = require_invoice(
-        invoice_id, ["state", "type", "company_id", "exercice_id", "bluejay_state", "document_pdf", "file_type"]
+        invoice_id, ["state", "type", "company_id", "exercice_id", "bluejay_state", "document_pdf", "file_type", *read]
     )
     reading = still_reading(invoice)
     if reading:
         return reading
     if not has_scan(invoice):
         return routine(f"Facture {invoice_id} : pas de scan PDF a classer.")
+    company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["name", "ice", "vat"])[0]
+    proven = side_by_ice(invoice, company)
     kept = _kept_classification(invoice_id, invoice_type)
-    if kept:
+    if proven:
+        whose = "émetteur" if proven == "vente" else "acheteur"
+        category, reason = proven, f"l'{whose} lu par Experio porte l'ICE ou l'IF du dossier {company['name']}"
+        _save_classification(invoice_id, category, reason)
+    elif kept:
         category, reason = kept
     else:
-        category, reason = classify_pages(scan_pages(invoice["document_pdf"]), "Classement de la facture")
+        pages = scan_pages(invoice["document_pdf"])
+        category, reason = classify_pages(pages, "Classement de la facture", company["name"])
         _save_classification(invoice_id, category, reason)
     if category == "autre" and invoice_type in CATEGORY_TO_TYPE:
         # The client said which side it is (a customs slip booked as a purchase): their word, over the model's doubt.

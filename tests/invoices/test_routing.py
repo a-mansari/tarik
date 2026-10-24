@@ -179,6 +179,15 @@ def test_every_argument_the_agent_gives_the_processing_tools_reaches_the_workflo
     assert given - set(traitement.INPUTS) == set()
 
 
+@pytest.mark.technical
+def test_every_argument_the_agent_gives_the_dossier_tools_reaches_the_workflow():
+    from engine import agent, dossier
+
+    dossier_tools = ("Experio_archiver_dossier", "Experio_solder_ecart", "Experio_creer_acces")
+    given = {name for tool in agent.TOOLS if tool.name in dossier_tools for name in tool.args}
+    assert given - set(dossier.INPUTS) == set()
+
+
 @pytest.mark.security
 def test_drafts_taken_up_again_never_get_this_message_s_instructions():
     from engine import traitement
@@ -198,6 +207,16 @@ def test_drafts_taken_up_again_never_get_this_message_s_instructions():
         assert given["comptabiliser"] == "oui"  # « comptabilisez » is for them too
     assert sends[272471][0] == "assign_account" and sends[272471][1]["compte"] == "61330000"
     assert sends[272471][1]["confirmer"] is True
+
+
+@pytest.mark.functionality
+def test_a_facturation_draft_starts_at_the_dossiers_settings_never_at_the_reading():
+    from engine import traitement
+
+    state = {"call": {"session_id": "s", "comptabiliser": "oui"}, "run_id": "r", "dossier_id": 5}
+    state.update(invoices=[272469], facturation=[81], corrections=[])
+    sends = {s.arg["invoice_id"]: s.arg["entry"] for s in traitement.each_draft(state)}
+    assert sends == {272469: "wait_until_read", 81: "configure_cabinet"}
 
 
 def test_a_skill_loaded_on_an_earlier_turn_is_shown_as_it_is_now(monkeypatch):

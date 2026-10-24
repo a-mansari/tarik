@@ -309,6 +309,7 @@ def test_a_bank_journals_answer_sets_its_bank_then_asks_the_next(db_cabinet, mon
 
 @pytest.mark.functionality
 def test_an_invoice_stays_a_verified_draft_until_the_client_says_to_post_it(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])  # none in this dossier
     searched = []
 
     def search(model, method, domain, **kw):
@@ -368,6 +369,7 @@ def test_stopped_drafts_are_resumed_only_when_the_client_asks(db_cabinet, monkey
 
 @pytest.mark.functionality
 def test_a_draft_tarik_posted_and_experio_shows_as_draft_again_is_posted_again(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])  # none in this dossier
     """Experio decides what is a draft: an invoice Tarik posted, put back to draft in Experio since, is posted when
     the client asks, from any conversation, for its dossier only."""
     # All still drafts; the dossier's drafts listed when nothing is to be posted: none.
@@ -427,6 +429,7 @@ def test_a_draft_another_run_is_working_on_is_said_in_progress(db_cabinet, monke
 
 @pytest.mark.functionality
 def test_posting_takes_the_conversations_own_held_drafts_first(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])  # none in this dossier
     """ "Comptabilisez-la" in a thread is about that thread's invoice: the dossier's drafts held in other
     conversations are taken only when the client asks for the whole dossier, or names them."""
     # All still drafts; the dossier's drafts listed when nothing is to be posted: none.
@@ -447,6 +450,7 @@ def test_posting_takes_the_conversations_own_held_drafts_first(db_cabinet, monke
 
 @pytest.mark.security
 def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])  # none in this dossier
     drafts = {7: ("F-77", [1, "MIDAS - 4411M005"]), 8: ("AB-2026-12", [2, "EXELENTIA INTERNATIONAL TRANS"])}
 
     def odoo_call(model, method, domain, **kw):
@@ -624,3 +628,26 @@ def test_an_account_given_to_the_processing_tool_goes_only_to_the_draft_named(th
     assert pipeline.drafts_corrected("s", said, "61425000") == [[272471, "61425000"]]
     assert pipeline.drafts_corrected("s", "Mettez-les en 61425000.", "61425000") == []  # none named: none changed
     assert pipeline.drafts_corrected("s", "La 272471 et la 272469 en 61425000.", "61425000") == []  # which one?
+
+
+@pytest.mark.functionality
+def test_facturation_drafts_are_posted_only_when_the_client_asks_for_them(db_cabinet, monkeypatch):
+    """Drafts Experio's Facturation made: never read by Tarik, taken up (at the dossier's settings) only on the
+    client's own words, the whole dossier or by name."""
+    monkeypatch.setattr(pipeline, "experio_form", lambda: {"types": {"gst_invoice_id": "many2one"}})
+    billed = [{"id": 81, "invoice_number": "FV-2026-12", "partner_id": [9, "CLIENT SA"]}]
+
+    def odoo_call(model, method, domain, **kw):
+        if method == "search_read":
+            return [b for b in billed if b["id"] in domain[0][2]]
+        if ("gst_invoice_id", "!=", False) in domain:
+            return [81]
+        return [i for i in domain[0][2] if i != 81]  # Tarik's own: none
+
+    monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
+    assert pipeline.waiting_drafts("s", held=True, dossier_id=5, client_message="Comptabilisez.")["invoices"] == []
+    asked = pipeline.waiting_drafts("s", held=True, dossier_id=5, client_message="Comptabilisez la FV-2026-12.")
+    assert asked["facturation"] == [81] and asked["invoices"] == []
+    whole = "Comptabilisez toutes les factures du dossier."
+    assert pipeline.waiting_drafts("s", held=True, dossier_id=5, client_message=whole)["facturation"] == [81]
+    assert "facturation" not in pipeline.waiting_drafts("s", dossier_id=5, client_message=whole)  # not asked to post
