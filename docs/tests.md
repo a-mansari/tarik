@@ -285,6 +285,7 @@ Covers turning the client's words into one account of the chart.
 - `test_a_sentence_is_read_by_the_model_but_only_the_charts_accounts_count` [security, param]: the model reads a sentence, but only real chart accounts are accepted.
 - `test_a_code_start_the_client_wrote_is_theirs_not_the_models` [functionality]: an account code prefix the client typed beats the model's guess.
 - `test_only_accounts_experios_field_offers_and_posts_without_warning_are_usable` [security]: only accounts in Experio's own Account domain, in the classes it posts without a warning (2/6 purchase, 7 sale), are taken.
+- `test_an_immobilisation_the_model_picks_is_confirmed_by_the_client_first` [security]: a class 2 account the model picks is asked first, classes 6 and 2 offered.
 
 ### tests/invoices/test_answers.py
 Covers the client's answers to waiting questions (db_cabinet).
@@ -339,6 +340,8 @@ Covers the dossier's tax settings before posting.
 - `test_experio_ignores_a_foreign_purchases_deductions_so_nothing_is_set` [functionality]: foreign-purchase deductions are left unset, since Experio ignores them.
 - `test_a_setting_the_cabinets_rights_refuse_is_reported_not_claimed` [security]: a setting refused for lack of rights is reported, not claimed as done.
 - `test_a_warning_is_no_setting_and_blocks_nothing_here` [functionality]: Experio's warnings block nothing at this step (settle_warnings handles them).
+- `test_an_immobilisation_without_its_category_is_the_cabinets_setting` [functionality]: a class 2 account without its asset category stops for the cabinet.
+- `test_asset_lines_are_read_only_where_experio_has_its_immobilisations` [functionality]: no asset lines read without Experio's immobilisations module.
 
 ### tests/invoices/test_correct.py
 Covers corrections planned from a check (the HT/TVA fuel case).
@@ -417,6 +420,7 @@ Covers posting only when Experio's check is clear.
 - `test_writing_lines_fixed_by_hand_are_not_rebuilt` [functionality]: Experio's refresh runs before posting only when there are no writing lines yet.
 - `test_a_window_experio_opens_instead_of_posting_is_said` [functionality]: a confirmation window action_post opens instead of posting is told.
 - `test_posting_never_merges_two_tiers_for_good` [security]: no posting when the dossier would merge the tiers read into the tiers chosen.
+- `test_an_immobilisation_without_its_category_is_not_posted` [functionality]: no posting that would make no asset.
 
 ### tests/invoices/test_prepaid.py
 - `test_the_billed_period` [functionality]: the prepaid-expense billing period rule is computed correctly.
@@ -435,6 +439,7 @@ Covers where a message goes: answer, files, or both, decided by the database.
 Covers the run summary (db_cabinet, uses tests/runs.py).
 - `test_the_same_failure_on_two_invoices_names_each_one` [communication]: a shared failure lists each affected invoice number.
 - `test_a_long_run_s_summary_keeps_what_the_client_needs_and_drops_the_rest` [communication]: a long summary keeps the essentials and drops routine lines.
+- `test_what_tarik_did_is_noted_in_each_invoices_history_in_experio` [communication]: one internal note per invoice in Experio's history, never for routine steps only.
 
 ### tests/invoices/test_taxes.py
 - `test_a_sale_without_tva_gets_experios_own_zero_rate_tax_listed` [functionality]: Experio's own 0 % tax, made by Experio when missing, listed in the dossier's settings.

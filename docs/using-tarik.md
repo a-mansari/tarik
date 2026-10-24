@@ -42,7 +42,10 @@ fiscale, Tarik asks for it once: send it as an attachment, or answer « sans att
 twice makes one draft only. A sale is imported as a sale (Experio then reads its customer); one billing no TVA is
 ticked « TVA non facturée »; a customer with an activity type gets its retenue on, as a supplier does; a hotel's
 restaurant, breakfast and laundry amounts are split out where the dossier uses them. Drafts made by Experio's own
-Facturation are posted when you ask for them by name or ask for the whole dossier.
+Facturation are posted when you ask for them by name or ask for the whole dossier. A durable good (a computer, a
+vehicle, furniture) is proposed on a class 2 account and booked there only once you confirm it; posting then waits
+until its account has an asset category in Experio, without which Experio would make no asset. What Tarik did on an
+invoice is noted in its history in Experio.
 
 **Write off a payment difference**: what is left owing on a posted invoice ("soldez la facture FV-12"), passed to
 the dossier's 6585 account with Experio's own tool, after you confirm the amount and the account.

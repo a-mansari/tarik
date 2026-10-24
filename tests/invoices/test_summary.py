@@ -115,3 +115,26 @@ def test_a_file_s_different_questions_are_each_asked(db_cabinet):
         record_step("r", "s", step, {"status": "question", "message": asked, "file_id": 3})
     summary = run_summary("r")["message"]
     assert side in summary and cut in summary
+
+
+@pytest.mark.communication
+def test_what_tarik_did_is_noted_in_each_invoices_history_in_experio(db_cabinet, monkeypatch):
+    from engine.tools.invoices import pipeline
+
+    notes = []
+    monkeypatch.setattr(pipeline, "dry_run", lambda: False)
+    monkeypatch.setattr(pipeline, "odoo_json", lambda model, method, ids, **kw: notes.append((method, ids, kw)))
+    record = pipeline.record_step
+    record("n", "s", "correct_invoice", {"status": "ok", "message": "Facture 7 : corrigée (TVA 20).", "invoice_id": 7})
+    record("n", "s", "post_invoice", {"status": "ok", "message": "Facture 7 : comptabilisée.", "invoice_id": 7})
+    record(
+        "n",
+        "s",
+        "check_journal",
+        {"status": "ok", "message": "Facture 8 : journal Achat.", "invoice_id": 8, "routine": True},
+    )
+    pipeline.run_summary("n")
+    assert [(method, ids) for method, ids, _ in notes] == [("message_post", [7])]  # 8: only routine, no note
+    sent = notes[0][2]
+    assert sent["subtype_xmlid"] == "mail.mt_note" and sent["message_type"] == "comment"  # internal note
+    assert sent["body"] == "Tarik (traitement automatique) : Facture 7 : corrigée (TVA 20); comptabilisée."

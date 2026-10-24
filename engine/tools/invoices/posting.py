@@ -22,6 +22,7 @@ from engine.tools.core.experio import (
     refused,
     require_invoice,
 )
+from engine.tools.invoices.configuration import assets_text, assets_without_category
 
 RETRIES, PAUSE = 3, 1.0  # the check can lag right after a refresh
 ACCOUNT = {
@@ -96,6 +97,10 @@ def post_invoice(invoice_id: int) -> dict:
         found = _blocking(invoice_id, context)
     if found:
         return stop(f"Facture {invoice_id} : pas comptabilisée, Experio signale : " + " ; ".join(found))
+    with refused(f"post_invoice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier la facture."):
+        assets = assets_without_category(invoice_id, context)
+    if assets:  # Experio would post it and silently make no asset
+        return stop(f"Facture {invoice_id} : pas comptabilisée : {assets_text(assets)}.")
     if dry_run():
         return ok(f"{TEST_MODE}Facture {invoice_id} : rien ne bloque, elle serait comptabilisée.")
     try:
