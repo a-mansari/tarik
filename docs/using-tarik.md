@@ -71,6 +71,14 @@ remise, commissions, TVA and net remise. « comptabilisez » posts it, confirmin
 changed; a duplicate stops. On a bank statement, TPE remittances are tied to their TPE statement when Experio's own
 matching is sure (module « Rapprochement TPE » installed).
 
+**TVA declaration** ("préparez la déclaration de TVA du T3", "la TVA d'août"): Tarik prepares it in Experio for the
+period you name (else the last one ended for the dossier's mode): made or taken up, refreshed by Experio, the TVA
+credit carried asked on the dossier's first declaration in Experio. It says what the declaration leaves out (drafts of
+the period, blocked invoices, unpaid purchases, bank operations in suspense or without tiers), the lines in error and
+what Experio refuses, and makes its XML file on the declaration when Experio's checks pass. "déclarez la TVA" declares
+it in Experio (TVA writings, period locked) after you confirm; the deposit on the DGI portal stays yours, and Tarik
+never cancels a declaration.
+
 **Write off a payment difference**: what is left owing on a posted invoice ("soldez la facture FV-12"), passed to
 the dossier's 6585 account with Experio's own tool, after you confirm the amount and the account.
 

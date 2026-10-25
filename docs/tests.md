@@ -451,6 +451,18 @@ Covers where a message goes: answer, files, or both, decided by the database.
 - `test_a_facturation_draft_starts_at_the_dossiers_settings_never_at_the_reading` [functionality]: a Facturation draft enters at configure_cabinet.
 - `test_every_argument_the_agent_gives_the_dossier_tools_reaches_the_workflow` [technical]: the dossier tools' arguments (Experio_solder_ecart's facture too) reach the workflow.
 
+### tests/declarations/test_tva_declaration.py
+Covers a TVA declaration: its period, made and refreshed by Experio, what it leaves out, declared only on confirmation.
+- `test_the_last_period_ended_is_experios_own_pick` [functionality, param]: the month or quarter before, January's year before.
+- `test_the_period_the_client_names_is_read` [functionality]: T3, 2e trimestre, août, 08/2026; a month for a quarterly dossier refused.
+- `test_a_first_declaration_is_made_refreshed_and_asks_the_carried_credit` [functionality]: created, « Actualiser », credit asked.
+- `test_the_carried_credit_given_is_written_after_experios_refresh` [functionality]: written after the refresh; XML made; never declared.
+- `test_what_the_declaration_leaves_out_is_told` [communication]: drafts, blocked, unpaid purchases, bank operations in suspense.
+- `test_experios_refusal_stops_before_any_file` [functionality]: Experio's check refuses, no XML.
+- `test_declaring_asks_first_then_declares_on_the_clients_yes` [security]: « Je le fais ? » first, then Experio's « Déclarer ».
+- `test_missing_tva_writing_settings_stop_the_declaring` [security]: TVA writings settings missing, not declared.
+- `test_a_declared_period_is_only_read` [functionality]: a declared period is read, never refreshed.
+
 ### tests/invoices/test_statement.py
 Covers a bank statement after its import: Experio's reading checked, pointed by Experio, posted on demand.
 - `test_experios_excel_template_is_recognised_by_its_columns` [functionality]: Experio's Excel template, never a FEC.
