@@ -1,8 +1,8 @@
 """Dossier as a graph: a dossier's creation (or a spreadsheet's list of them), by the cabinet's managers and Experio's
-staff only, then its configuration and entries import; or (mode update, person, archive, difference, tva, ras) one
-change to a dossier assigned to the sender (difference: a posted invoice's remainder written off; tva, ras: its TVA
-or withholding declarations); mode resume finishes the dossiers left waiting. No time budget: finish_setup gets
-seconds_left 0 (no limit)."""
+staff only, then its configuration and entries import; or (mode update, person, archive, difference, tva, ras,
+delais) one change to a dossier assigned to the sender (difference: a posted invoice's remainder written off; tva,
+ras, delais: its TVA, withholding or payment delays declarations); mode resume finishes the dossiers left waiting. No
+time budget: finish_setup gets seconds_left 0 (no limit)."""
 
 import operator
 from typing import Annotated, TypedDict
@@ -45,6 +45,7 @@ INPUTS = [
     "credit_reporte",
     "declarer",
     "declarations",
+    "chiffre_affaires",
     "attachments",
     "cabinet",
 ]
@@ -69,7 +70,7 @@ def by_mode(state: Run):
     if failed(state):
         return "resume"  # a failed save is recorded and goes no further: the files the run would work on are missing
     mode = call.get("mode")
-    if mode in ("update", "person", "archive", "difference", "tva", "ras"):
+    if mode in ("update", "person", "archive", "difference", "tva", "ras", "delais"):
         return "expediteur"
     if mode == "resume":
         return "reprise"
@@ -132,6 +133,7 @@ def after_sender(state: Run):
         "difference": "ecart",
         "tva": "tva",
         "ras": "ras",
+        "delais": "delais",
     }.get(state["call"].get("mode"), "ecritures")
 
 
@@ -223,6 +225,21 @@ async def ras(state: Run):
     return {"outcomes": [result]}
 
 
+async def delays(state: Run):
+    call = state["call"]
+    result = await run_step(
+        state,
+        "prepare_payment_delay_declaration",
+        dossier_id=call["dossier_id"],
+        periode=call.get("periode") or "",
+        chiffre_affaires=str(call.get("chiffre_affaires") or ""),
+        declarer=call.get("declarer") is True,
+        client_confirmed=call.get("client_confirmed") is True,
+        session_id=call["session_id"],
+    )
+    return {"outcomes": [result]}
+
+
 async def lists(state: Run):
     """Mode dossiers: each spreadsheet of the message, its dossiers created once the client confirmed the list."""
     call = state["call"]
@@ -296,6 +313,7 @@ for name, node in {
     "ecart": difference,
     "tva": tva,
     "ras": ras,
+    "delais": delays,
     "listes": lists,
     "ecritures": entries,
     "reprise": resume_setups,
@@ -307,9 +325,11 @@ run.add_conditional_edges("debut", by_mode, ["createur", "expediteur", "reprise"
 run.add_conditional_edges("createur", after_creator, ["creation", "listes", "resume"])
 run.add_conditional_edges("creation", *ok_or_summary("ecritures"))
 run.add_conditional_edges(
-    "expediteur", after_sender, ["modification", "acces", "archivage", "ecart", "tva", "ras", "ecritures", "resume"]
+    "expediteur",
+    after_sender,
+    ["modification", "acces", "archivage", "ecart", "tva", "ras", "delais", "ecritures", "resume"],
 )
-for name in ("modification", "acces", "archivage", "ecart", "tva", "ras", "listes", "ecritures", "reprise"):
+for name in ("modification", "acces", "archivage", "ecart", "tva", "ras", "delais", "listes", "ecritures", "reprise"):
     run.add_edge(name, "resume")
 run.add_edge("resume", END)
 graph = run.compile(name="Tarik - Dossier")
