@@ -120,7 +120,10 @@ asked again. For a tiers, Tarik proposes the closest ones (five at most): choose
 name or its ICE and it looks again. With several questions waiting, name the invoice (its number or
 its supplier) or the statement. Asking Tarik to carry on also resumes invoices Experio was still reading.
 
-**Import a FEC or grand livre** into an existing dossier.
+**Import a FEC or grand livre** into an existing dossier. Tarik says what Experio's detection created (accounts,
+journals, tiers, exercices), refuses a file it already imported into that dossier, sends again with Experio's own
+« Renvoyer » the lines still unprocessed an hour after the onboarding is finished, and keeps following the dossier
+until Experio has processed every line, its errors told.
 
 **Modify a dossier**: its name, type (société or personne physique), ICE, IF, RC, patente, T.S.C,
 capital, CNSS number or address. Only the fields you ask for change, only to the values you write.

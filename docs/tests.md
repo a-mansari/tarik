@@ -218,6 +218,10 @@ Covers an onboarding waiting on Experio (db_cabinet).
 - `test_a_refused_import_never_leaves_the_dossier_waiting` [functionality]: a refused import ends the wait instead of hanging.
 - `test_a_setup_ends_telling_the_journals_still_to_create` [communication]: the setup message lists the journals still to create.
 - `test_the_models_advance_accounts_are_made_reconcilable_before_its_copy` [functionality]: advance accounts are made reconcilable before the model dossier is copied.
+- `test_a_dossier_waits_until_experio_processed_its_lines` [functionality]: still waiting while lines are processed, released after.
+- `test_lines_stuck_after_the_onboarding_are_sent_again` [functionality]: Experio's « Re-send » on stuck lines, never while onboarding.
+- `test_the_same_entries_file_sent_again_is_not_imported_twice` [functionality]: the same content already imported is refused.
+- `test_what_experios_detection_created_is_said` [communication]: accounts, journals, tiers, exercices created.
 
 ### tests/dossiers/test_update_dossier.py
 Covers changing an existing dossier, only to values the client wrote.
