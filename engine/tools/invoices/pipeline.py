@@ -18,6 +18,7 @@ from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
 from engine.tools.dossiers.people import check_sender
 from engine.tools.dossiers.setup import ask_banks, set_journal_bank
+from engine.tools.invoices import tpe
 from engine.tools.invoices.accounts import confirm_account, set_account
 from engine.tools.invoices.classify import client_side
 from engine.tools.invoices.exercice import settle_exercice
@@ -407,13 +408,19 @@ def waiting_on(session_id):
             (session_id,),
         ).fetchall()
         statements = db.execute(Q.statements_asked, (session_id,)).fetchall()
+        clients = db.execute(Q.tpe_clients_asked, (session_id,)).fetchall()
         banks = db.execute(Q.banks_asked, (session_id,)).fetchall()
         ids = [i for i, _, _, _ in invoices]
         drafts = set(odoo_call("exp.invoice", "search", [("id", "in", ids), ("state", "=", "draft")])) if ids else set()
         gone = [i for i in ids if i not in drafts]
         if gone:
             db.execute(Q.delete_pending_of_invoices, (gone,))
-    return invoice_questions(invoices, drafts) + statement_questions(statements) + bank_questions(banks)
+    return (
+        invoice_questions(invoices, drafts)
+        + statement_questions(statements)
+        + tpe_client_questions(clients)
+        + bank_questions(banks)
+    )
 
 
 def invoice_questions(invoices, drafts):
@@ -452,6 +459,23 @@ def statement_questions(statements):
             }
         )
     return items
+
+
+def tpe_client_questions(clients):
+    """waiting_on's items for the TPE statements asked the client of their card sales."""
+    return [
+        {
+            "file_id": f,
+            "dossier_id": d,
+            "step": "settle_statement",
+            "question": text,
+            "label": f"relevé {name}",
+            "file_name": name,
+            "names": {normalized(name), normalized(name.rsplit(".", 1)[0])},
+            "choices": None,
+        }
+        for f, d, text, name in clients
+    ]
 
 
 def bank_questions(banks):
@@ -502,6 +526,10 @@ def apply_answer(item, answer, decision):
     again."""
     if item["step"] == "import_bank_statement":
         return answer_statement(item, answer, decision)
+    if item["step"] == "settle_statement":  # a TPE statement's client: its pointing goes on once given
+        given = tpe.answer_client(item["file_id"], answer, decision)
+        next_step = {"next_step": "settle_statement"} if given["status"] == "ok" else {}
+        return {**given, "step": "settle_statement", "file_id": item["file_id"], **next_step}
     if item["step"] == "ask_banks":
         bank = chosen_among(decision, item["choices"])
         if not bank:
@@ -530,6 +558,13 @@ def answer_statement(item, answer, decision):
             "next_step": "identify_document",
         }
     chosen = chosen_among(decision, item["choices"]) or 0  # 0: the question is asked again
+    network = tpe.network_answered(item["choices"], chosen)  # a TPE statement asked its network
+    if network:
+        imported = import_bank_statement(item["file_id"], item["dossier_id"], 0, network=network)
+        return {**imported, "step": "import_bank_statement"}
+    if tpe.network_answered(item["choices"], 1):  # its network not understood: asked again
+        imported = import_bank_statement(item["file_id"], item["dossier_id"], 0)
+        return {**imported, "step": "import_bank_statement"}
     imported = import_bank_statement(item["file_id"], item["dossier_id"], chosen)
     return {**imported, "step": "import_bank_statement"}
 
@@ -595,16 +630,17 @@ def route_message(session_id: str, mode: str = "files") -> dict:
 def answer_pending(
     session_id: str, answer: str, decision: str = "", about: str = "", corrections: list | None = None
 ) -> dict:
-    """Apply the client's answer (their own words) to what this conversation waits on: an invoice's question
-    (tiers, account, TVA, withholding, prepaid, exercice) or a statement's bank account. ``decision`` is what
-    the agent read in that answer: "oui" or "non" for a oui / non question, the id of the tiers chosen among
-    those proposed (or the other name or ICE given) for a tiers question, "nouveau" or the open exercice chosen
-    for an exercice question, the journal_id chosen for a bank account, else empty. ``about``: with several
-    questions waiting, the invoice's number or the statement's name the client answers. ``next_step`` says
-    where the sequence resumes; with nothing waiting, the drafts Experio hadn't read yet are resumed. The
-    email's sender must have the dossier, as for any work on it. ``corrections``: the accounts the client gives
-    invoices in the same message, as the agent read them ([{facture, compte}], their words), each checked against
-    those words and the conversation's drafts (verified_corrections)."""
+    """Apply the client's answer (their own words) to what this conversation waits on: an invoice's question (tiers,
+    account, TVA, withholding, prepaid, exercice), a statement's bank account or network, or a TPE statement's card
+    sales' client. ``decision`` is what the agent read in that answer: "oui" or "non" for a oui / non question, the id
+    of the tiers chosen among those proposed (or the other name or ICE given) for a tiers question, "nouveau" or the
+    open exercice chosen for an exercice question, the journal_id chosen for a bank account, the network chosen (as the
+    question lists it) for a TPE statement, the client's name as given for a TPE statement's card sales, else empty.
+    ``about``: with several questions waiting, the invoice's number or the statement's name the client answers.
+    ``next_step`` says where the sequence resumes; with nothing waiting, the drafts Experio hadn't read yet are resumed.
+    The email's sender must have the dossier, as for any work on it. ``corrections``: the accounts the client gives
+    invoices in the same message, as the agent read them ([{facture, compte}], their words), each checked against those
+    words and the conversation's drafts (verified_corrections)."""
     answer = own_words(answer)
     waiting = waiting_on(session_id)
     if not waiting:
@@ -916,18 +952,23 @@ def statements_to_resume(session_id, held):
     with cabinet_db() as db:
         rows = db.execute(Q.statement_outcomes_of_session, (session_id,)).fetchall()
     latest, statements, seen = {}, {}, set()
-    for file_id, statement_id, step, status in rows:
+    networks = {}
+    for file_id, statement_id, network, step, status in rows:
         if statement_id in seen and file_id not in statements:
             continue  # merged with an earlier file of the conversation: that one stands for the statement
         seen.add(statement_id)
         statements[file_id] = statement_id
+        networks[file_id] = network
         if step in ("settle_statement", "post_statement"):
             latest[file_id] = status
     waiting = [f for f, status in latest.items() if status == "wait"]
-    if held and statements:
-        domain = [("id", "in", sorted(set(statements.values()))), ("state", "not in", ["post", "export", "cancel"])]
-        open_ids = set(odoo_call("exp.bank.statement", "search", domain))
-        waiting += [f for f, statement_id in statements.items() if statement_id in open_ids and f not in waiting]
+    for model, tpe_files in (("exp.bank.statement", False), (tpe.STATEMENT, True)):
+        mine = {f: s for f, s in statements.items() if bool(networks[f]) == tpe_files}
+        if not held or not mine:
+            continue
+        domain = [("id", "in", sorted(set(mine.values()))), ("state", "not in", ["post", "export", "cancel"])]
+        open_ids = set(odoo_call(model, "search", domain))
+        waiting += [f for f, statement_id in mine.items() if statement_id in open_ids and f not in waiting]
     return sorted(waiting)
 
 
@@ -953,7 +994,7 @@ def facturation_drafts(dossier_id, client_message):
 
 
 def worked_on(run_id):
-    """Whether run ``run_id`` already took any invoice in hand."""
+    """Whether run ``run_id`` already took any invoice or statement in hand."""
     with cabinet_db() as db:
         return bool(db.execute(Q.run_worked_on_invoices, (run_id,)).fetchone())
 

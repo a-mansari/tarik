@@ -31,6 +31,7 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.queries import Q
 from engine.tools.core.words import as_number, normalized
+from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
 
 STATEMENT = "exp.bank.statement"
@@ -116,9 +117,10 @@ def line_values(row, context):
 
 
 def statement_of(file_id):
+    """(the statement imported from the file, its TPE network or None for a bank statement); (None, None)."""
     with cabinet_db() as db:
         row = db.execute(Q.statement_of_file, (file_id,)).fetchone()
-    return row[0] if row else None
+    return tuple(row) if row else (None, None)
 
 
 def read_statement(statement_id):
@@ -225,20 +227,27 @@ def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -
     """After a bank statement's import: wait for Experio's reading, check its balances, point its operations with
     Experio's own « Auto Point » (confirmed), give the lines the client ties to an invoice by its number that invoice,
     and say where it stands (ready, blocked and why)."""
-    statement_id = statement_of(file_id)
+    statement_id, network = statement_of(file_id)
     if not statement_id:
         return routine(f"Fichier n° {file_id} : pas de relevé importé.")
     deadline = READ_DEADLINES.setdefault(run_id, time.monotonic() + 600) if run_id else time.monotonic() + 600
-    statement = read_statement(statement_id)
-    while being_read(statement):
+    read, reading = (tpe.read_tpe, tpe.being_read) if network else (read_statement, being_read)
+    statement = read(statement_id)
+    while reading(statement):
         if time.monotonic() >= deadline:
             return wait(f"Relevé n° {statement_id} : Experio le lit encore, il sera repris à votre prochain message.")
         time.sleep(15)
-        statement = read_statement(statement_id)
+        statement = read(statement_id)
+    if network:
+        with refused(
+            f"settle_statement {statement_id}", f"Relevé TPE n° {statement_id} : Experio a refusé ({{reason}})."
+        ):
+            return tpe.settle_tpe(statement_id)
     context = in_dossier(statement["company_id"][0])
     with refused(f"settle_statement {statement_id}", f"Relevé n° {statement_id} : Experio n'a pas pu le pointer."):
         pointed = auto_point(statement, context) if statement["state"] not in POSTED else 0
         tied = named_invoices(statement, client_message, context)
+        to_tpe = tie_tpe(statement, context) if statement["state"] not in POSTED else None
         statement = read_statement(statement_id)
         reasons, ready, posted = blocked_reasons(statement, context)
         opening = opening_note(statement, context)
@@ -247,6 +256,8 @@ def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -
         parts.append(f"{pointed} pointée(s) par la détection d'Experio")
     if tied:
         parts.append(f"{tied} rattachée(s) à la facture que vous avez citée")
+    if to_tpe and to_tpe[0]:
+        parts.append(f"{to_tpe[0]} versement(s) TPE rapproché(s) de leur relevé TPE")
     parts.append(f"{ready} prête(s) à comptabiliser" + (f", {posted} déjà comptabilisée(s)" if posted else ""))
     text = ", ".join(parts) + "."
     no_balances = not statement["balance_start"] and not statement["balance_end_real"]
@@ -260,9 +271,45 @@ def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -
     if not statement["is_valid"]:
         text += " Son solde initial ne suit pas le solde final du relevé précédent de ce journal."
     text += opening
+    if to_tpe and to_tpe[1]:
+        text += f" {to_tpe[1]} versement(s) TPE sans relevé TPE certain : à rapprocher par le cabinet."
     if reasons:
         text += " À compléter dans Experio : " + " ; ".join(f"{why} ({n})" for why, n in reasons.items()) + "."
     return ok(f"{TEST_MODE if dry_run() else ''}{text}", statement_id=statement_id)
+
+
+def tie_tpe(statement, context):
+    """The bank lines of TPE remittances (operation « monetary_operations ») tied to their TPE statement's net
+    remise with Experio's own « Rapprochement automatique TPE » (module tpe_reconcile: same amount, TPE date not
+    after the bank's), its sure matches only: (tied, left). None when the module isn't installed (nothing to tie:
+    Experio then neither asks nor letters it)."""
+    installed = odoo_call(
+        "ir.module.module", "search_count", [("name", "=", "tpe_reconcile"), ("state", "=", "installed")]
+    )
+    if not installed:
+        return None
+    lines = odoo_call(LINE, "read", statement["line_ids"], fields=["operation_type", "tpe_line_id"], context=context)
+    open_lines = [
+        line["id"] for line in lines if line.get("operation_type") == "monetary_operations" and not line["tpe_line_id"]
+    ]
+    if not open_lines:
+        return 0, 0
+    action = odoo_json(LINE, "action_reconcile_tpe_auto", open_lines, context=context)
+    if not isinstance(action, dict) or not action.get("res_id"):
+        return 0, len(open_lines)
+    wizard = odoo_call("tpe.auto.reconcile.wizard", "read", [action["res_id"]], fields=["line_ids"], context=context)[0]
+    found = odoo_call(
+        "tpe.auto.reconcile.wizard.line",
+        "read",
+        wizard["line_ids"],
+        fields=["line_id", "tpe_line_id", "state"],
+        context=context,
+    )
+    sure = [f for f in found if f["state"] == "matched" and f["tpe_line_id"]]
+    if not dry_run():
+        for match in sure:  # what the wizard's « Reconcile » writes, for its sure lines only
+            odoo_call(LINE, "write", [match["line_id"][0]], {"tpe_line_id": match["tpe_line_id"][0]}, context=context)
+    return len(sure), len(open_lines) - len(sure)
 
 
 @step_tool
@@ -270,9 +317,14 @@ def post_statement(file_id: int) -> dict:
     """Post a bank statement's ready operations with Experio's own validation (action_post): a window Experio opens
     instead (a duplicate statement, operations out of its period, an exchange rate still to fetch) or its refusal
     stops it for the cabinet; the operations posted but still unpaid or partly paid (suspens) are listed."""
-    statement_id = statement_of(file_id)
+    statement_id, network = statement_of(file_id)
     if not statement_id:
         return routine(f"Fichier n° {file_id} : pas de relevé à comptabiliser.")
+    if network:
+        with refused(
+            f"post_statement {statement_id}", f"Relevé TPE n° {statement_id} : Experio a refusé ({{reason}})."
+        ):
+            return tpe.post_tpe(statement_id)
     statement = read_statement(statement_id)
     if statement["state"] in POSTED:
         return routine(f"Relevé n° {statement_id} : déjà comptabilisé.")

@@ -16,6 +16,7 @@ from engine.tools.core.experio import dry_run, in_dossier, odoo_call, refused, r
 from engine.tools.core.model import pdf_pages, to_pdf
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
+from engine.tools.invoices import tpe
 from engine.tools.invoices.classify import classify_pages, client_side
 from engine.tools.invoices.statement import import_canvas, is_canvas
 
@@ -163,6 +164,11 @@ def identify_document(file_id: int, client_message: str = "") -> dict:
             pages = pdf_pages(raw, limit=1)
         except pypdfium2.PdfiumError:
             raise ToolError(f"`{name}` : PDF illisible.") from None
+        # A TPE statement says so on its first page (« relevé des opérations monétiques », « remises cartes »);
+        # Gladden calls it an invoice (it prints « N. FACTURE »).
+        if tpe.tpe_network(raw, "")[0]:  # its own text only: a message speaks for all its files
+            db.execute(Q.set_file_kind, ("statement", file_id))
+            return identified(name, file_id, "statement")
         # The first page decides: an invoice is often followed by its payment's proofs (a cheque, the bank's
         # notice or account extract), which would make the whole file look like a statement.
         # shortcut: a PDF mixing invoices and a statement needs splitting by kind.
@@ -461,10 +467,38 @@ def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
     return next(j for j in usable if j["id"] == journal_id)
 
 
+def import_tpe_file(db, file_id, name, raw, dossier, dossier_id, journal_id, network, client_message):
+    """import_bank_statement for a TPE statement: Experio's own TPE import of PDF ``raw``, its network given, into
+    the bank journal chosen (Experio's default: its last TPE statement's), the network asked when unknown."""
+    if not network:
+        return tpe.network_question(name)
+    if not journal_id:
+        _, usable = bank_journals(dossier_id)
+        last = tpe.last_journal(dossier_id)
+        journal_id = last if last in {j["id"] for j in usable} else 0
+    journal = statement_journal(name, dossier, dossier_id, journal_id, client_message)
+    if "status" in journal:
+        return journal
+    label = tpe.network_label(network)
+    if dry_run():
+        return ok(f"{TEST_MODE}`{name}` : le relevé TPE {label} serait importé, journal {journal['name']}.")
+    with refused(f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé TPE {name}."):
+        statement_id = tpe.import_tpe(name, raw, dossier_id, journal["id"], network)
+    db.execute(Q.set_file_statement, (statement_id, network, file_id))
+    return ok(
+        f"`{name}` : relevé TPE {label} importé (n° {statement_id}) dans le dossier {dossier}, "
+        f"journal {journal['name']}.",
+        statement_id=statement_id,
+    )
+
+
 @step_tool
-def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0, client_message: str = "") -> dict:
+def import_bank_statement(
+    file_id: int, dossier_id: int, journal_id: int = 0, client_message: str = "", network: str = ""
+) -> dict:
     """Import a bank statement the client sent into the dossier's bank journal,
-    through Experio's own statement import (Experio then reads its lines).
+    through Experio's own statement import (Experio then reads its lines). A TPE statement (relevé des opérations
+    monétiques) goes to Experio's own TPE import instead, with its network (read on it, else asked: ``network``).
     journal_id: leave 0 when the dossier has one bank journal; with several, the one the client's message names
     (``client_message``, their own words), else the answer lists them and the client chooses. Safe to call again."""
     dossier = require_dossier(dossier_id)
@@ -480,10 +514,24 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0, cl
         db.execute(Q.lock_file_content, (bytes(data),))
         twin = db.execute(Q.statement_of_same_content, (bytes(data), dossier_id, file_id)).fetchone()
         if twin:
-            db.execute(Q.set_file_statement, (twin[0], file_id))
+            db.execute(Q.set_file_statement, (twin[0], twin[1], file_id))
             return ok(
                 f"`{name}` : relevé déjà importé (n° {twin[0]}), le même fichier envoyé avant.", statement_id=twin[0]
             )
+        if not is_canvas(name, data):
+            is_tpe, read = tpe.tpe_network(as_pdf(mime, data), own_words(client_message))
+            if is_tpe or network:
+                return import_tpe_file(
+                    db,
+                    file_id,
+                    name,
+                    as_pdf(mime, data),
+                    dossier,
+                    dossier_id,
+                    journal_id,
+                    network or read,
+                    client_message,
+                )
         journal = statement_journal(name, dossier, dossier_id, journal_id, client_message)
         if "status" in journal:
             return journal
@@ -499,7 +547,7 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0, cl
                 f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé {name} ({{reason}})."
             ):
                 statement_id = import_canvas(name, data, dossier_id, journal["id"])
-            db.execute(Q.set_file_statement, (statement_id, file_id))
+            db.execute(Q.set_file_statement, (statement_id, None, file_id))
             return ok(
                 f"`{name}` : relevé Excel importé (n° {statement_id}) dans le dossier {dossier}, "
                 f"journal {journal['name']}.",
@@ -520,9 +568,9 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0, cl
             statement_id = import_pdf(
                 "exp.bank.statement.import", name, raw, dossier_id, invoice_journal_id=journal["id"]
             )
-        db.execute(Q.set_file_statement, (statement_id, file_id))
+        db.execute(Q.set_file_statement, (statement_id, None, file_id))
         for other_id, _, _, _ in merged:
-            db.execute(Q.set_file_statement, (statement_id, other_id))
+            db.execute(Q.set_file_statement, (statement_id, None, other_id))
         if merged:
             names = ", ".join(f"`{other}`" for _, other, _, _ in merged)
             return ok(
