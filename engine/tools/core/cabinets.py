@@ -274,9 +274,9 @@ def setting(key, default=None):
 def misplaced_in_vault(shared, cabinets, environ=os.environ):
     """With Vault: a setting under the wrong path, unknown, or still in the environment, where it
     would be a second copy. The server refuses to start with any."""
-    found = [f"tools/shared:{key}" for key in shared if key not in SHARED_SETTINGS]
+    found = [f"tarik/shared:{key}" for key in shared if key not in SHARED_SETTINGS]
     for name, own in cabinets.items():
-        found += [f"tools/cabinets/{name}:{key}" for key in own if key not in CABINET_SETTINGS]
+        found += [f"tarik/cabinets/{name}:{key}" for key in own if key not in CABINET_SETTINGS]
     known = CABINET_SETTINGS | SHARED_SETTINGS
     # TARIK_CABINETS, a setting (<KEY>) or a cabinet's own (<CABINET>__<KEY>), set in the environment.
     for name, value in environ.items():
