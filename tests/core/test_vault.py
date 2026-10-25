@@ -160,9 +160,9 @@ def test_settings_in_the_wrong_place_stop_the_server():
     )
     assert cabinets.misplaced_in_vault(*bad) == sorted(
         [
-            "tools/shared:ODOO_PASSWORD",
-            "tools/cabinets/experio_cabinet_8:IMAP_HOST",
-            "tools/cabinets/experio_cabinet_8:TYPO",
+            "tarik/shared:ODOO_PASSWORD",
+            "tarik/cabinets/experio_cabinet_8:IMAP_HOST",
+            "tarik/cabinets/experio_cabinet_8:TYPO",
             "IMAP_PASSWORD",
             "EXPERIO_CABINET_8__ODOO_UID",
             "TARIK_CABINETS",
