@@ -34,6 +34,7 @@ class Steps(TypedDict, total=False):
     manager: str
     sent: str
     sent_id: str  # the reply's Message-ID
+    summaries: list  # a follow-up's: the resumed workflows' summaries so far
     done: Annotated[list, operator.add]
 
 
@@ -67,7 +68,7 @@ async def each_thread(state: Run):
 
 
 def kind(state: Thread):
-    return "suite" if state["thread"]["follow_up"] else "accuse"
+    return "suite_documents" if state["thread"]["follow_up"] else "accuse"
 
 
 async def acknowledge(state: Thread):
@@ -147,24 +148,34 @@ async def send(state: Thread):
     return {"sent": f"Envoye a {thread['to']}.", "sent_id": (result or {}).get("message_id") or ""}
 
 
-async def follow_up(state: Thread):
-    """A follow-up: no agent, no time limit. Traitement then Dossier in mode resume, each a run of its own started
-    from this step; one email tells both."""
+async def resumed(state, name, node):
+    """Workflow ``name`` in mode resume for the thread's conversation, a run of its own started from ``node``: its
+    summary, "" when it had nothing to resume."""
     from engine import runs  # runs imports the graphs, this one among them
 
     thread = state["thread"]
     fixed = {"mode": "resume", "session_id": thread["session_id"], "cabinet": state["cabinet"]}
-    summaries = []
+    result = await runs.nested(name, {"call": fixed, "outcomes": []}, state["cabinet"], thread["session_id"], node=node)
+    return "" if result["message"] == NOTHING else result["message"]
+
+
+async def follow_up_documents(state: Thread):
+    """A follow-up, no agent, no time limit: Traitement in mode resume (the drafts left waiting)."""
     try:
-        for name in ("traitement", "dossier"):
-            result = await runs.nested(
-                name, {"call": fixed, "outcomes": []}, state["cabinet"], thread["session_id"], node="suite"
-            )
-            if result["message"] != NOTHING:
-                summaries.append(result["message"])
+        said = await resumed(state, "traitement", "suite_documents")
+        return {"summaries": [said] if said else []}
     except Exception as error:  # set aside with why: never answered blind
         return {"error": failure_text(error)}
-    return {"reply": for_client("Suite du traitement de vos documents :\n\n" + "\n\n".join(summaries))}
+
+
+async def follow_up_dossiers(state: Thread):
+    """Then Dossier in mode resume (the dossiers left to finish); one email tells both."""
+    try:
+        summaries = [*state.get("summaries", []), await resumed(state, "dossier", "suite_dossiers")]
+    except Exception as error:  # set aside with why: never answered blind
+        return {"error": failure_text(error)}
+    told = "\n\n".join(said for said in summaries if said)
+    return {"reply": for_client("Suite du traitement de vos documents :\n\n" + told)}
 
 
 async def finish(state: Thread):
@@ -196,17 +207,21 @@ for name, node in {
     "refus": refusal,
     "manager": notify,
     "reponse": send,
-    "suite": follow_up,
+    "suite_documents": follow_up_documents,
+    "suite_dossiers": follow_up_dossiers,
     "fin": finish,
 }.items():
     fil.add_node(name, node)
-fil.add_conditional_edges(START, kind, ["accuse", "suite"])
+fil.add_conditional_edges(START, kind, ["accuse", "suite_documents"])
 fil.add_edge("accuse", "tarik")
 fil.add_conditional_edges("tarik", lambda s: "fin" if s.get("error") else "refus", ["fin", "refus"])
 fil.add_conditional_edges("refus", after_refusal, ["fin", "manager", "reponse"])
 fil.add_edge("manager", END)  # thread_refusal set the thread aside and counted its emails: finish_thread would undo it
 fil.add_edge("reponse", "fin")
-fil.add_conditional_edges("suite", lambda s: "fin" if s.get("error") else "reponse", ["fin", "reponse"])
+fil.add_conditional_edges(
+    "suite_documents", lambda s: "fin" if s.get("error") else "suite_dossiers", ["fin", "suite_dossiers"]
+)
+fil.add_conditional_edges("suite_dossiers", lambda s: "fin" if s.get("error") else "reponse", ["fin", "reponse"])
 fil.add_edge("fin", END)
 FIL = fil.compile(name="fil")
 

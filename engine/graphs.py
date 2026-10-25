@@ -7,12 +7,14 @@ import functools
 
 from langchain_anthropic import ChatAnthropic
 
-from engine import agent, chat, dossier, emails, traitement
+from engine import agent, chat, declarations, dossier, emails, exports, traitement
 from engine.content import LABELS
 
 COMPILED = {
     "traitement": traitement.graph,
     "dossier": dossier.graph,
+    "declarations": declarations.graph,
+    "export": exports.graph,
     "emails": emails.graph,
     "fil": emails.FIL,
     "discussion": chat.graph,
