@@ -52,6 +52,9 @@ change made on the Contenu page reaches no other stack by itself.
 - `tarik-contenu-w13-20261025.json` (and its `.diff`): W-13 (délais de paiement): the tool Experio_declaration_delais
   and its instruction (`agent.json`), the step « Délais de paiement » and its input (`labels.json`). Import it after
   the W-12 export, once the stack runs the W-13 commit.
+- `tarik-contenu-w14-20261025.json` (and its `.diff`): W-14 (export): the tool Experio_exporter and its instruction
+  (`agent.json`), the step « Export » and its inputs (`labels.json`). Import it after the W-13 export, once the stack
+  runs the W-14 commit.
 
 `agent.json` is imported whole, its `model` (MiniMax-M3) included: set the stack's own model back afterwards if it
 uses another one. A stack that edited one of these documents itself loses that edit on import: apply the diff instead.

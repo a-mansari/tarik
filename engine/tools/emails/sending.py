@@ -21,8 +21,9 @@ from email.message import EmailMessage
 from email.utils import formatdate, getaddresses, make_msgid
 
 from engine.tools.core.app import ToolError, log, ok, tool
-from engine.tools.core.cabinets import current, setting
+from engine.tools.core.cabinets import cabinet_db, current, setting
 from engine.tools.core.experio import odoo_call
+from engine.tools.core.queries import Q
 from engine.tools.core.words import strip_tags
 
 MAIL_TIMEOUT = 60  # seconds before the mail server is given up
@@ -239,9 +240,9 @@ def whitelisted(to):
     return recipients
 
 
-def compose(sender, recipients, subject, body, in_reply_to, references):
+def compose(sender, recipients, subject, body, in_reply_to, references, files=()):
     """The email (EmailMessage) from ``sender`` (its SMTP user) to ``recipients``, in its thread when it is a reply,
-    as plain text and HTML."""
+    as plain text and HTML, with ``files`` attached ([(name, mime type, bytes)])."""
     message = EmailMessage()
     message["From"] = setting("SMTP_FROM", sender)
     message["To"] = ", ".join(recipients)
@@ -254,6 +255,9 @@ def compose(sender, recipients, subject, body, in_reply_to, references):
     text, page = render(body)
     message.set_content(text)
     message.add_alternative(page, subtype="html")
+    for name, mime, data in files:
+        main, _, sub = (mime or "application/octet-stream").partition("/")
+        message.add_attachment(bytes(data), maintype=main, subtype=sub or "octet-stream", filename=name)
     return message
 
 
@@ -273,19 +277,29 @@ def smtp_send(host, user, message):
 
 
 @tool
-def send_email(to: str, subject: str, body: str, in_reply_to: str = "", references: str = "") -> dict:
+def send_email(
+    to: str, subject: str, body: str, in_reply_to: str = "", references: str = "", attach_session: str = ""
+) -> dict:
     """Send Tarik's email to ``to`` (one or more addresses, comma-separated), in the thread
-    given by ``in_reply_to`` and ``references`` when it is a reply. Refused unless every
-    recipient is on the whitelist."""
+    given by ``in_reply_to`` and ``references`` when it is a reply, with the files Tarik made for conversation
+    ``attach_session`` not sent yet (an export). Refused unless every recipient is on the whitelist."""
     recipients = whitelisted(to)
     host, user = setting("SMTP_HOST", ""), setting("SMTP_USER", "")
     if not host or not user:
         raise ToolError("Email non envoye : SMTP non configure.")
-    message = compose(user, recipients, subject, body, in_reply_to, references)
+    outbox = []
+    if attach_session:
+        with cabinet_db() as db:
+            outbox = db.execute(Q.outbox_unsent, (attach_session,)).fetchall()
+    files = [(name, mime, data) for _, name, mime, data in outbox]
+    message = compose(user, recipients, subject, body, in_reply_to, references, files)
     try:
         smtp_send(host, user, message)
     except Exception as error:
         log(f"send_email: {error}")
         raise ToolError("Email non envoye : le serveur d'envoi a refuse.") from None
+    if outbox:
+        with cabinet_db() as db:
+            db.execute(Q.mark_outbox_sent, ([file_id for file_id, *_ in outbox],))
     save_sent(message)
     return ok(f"Email envoye a {', '.join(recipients)}.", message_id=message["Message-ID"])

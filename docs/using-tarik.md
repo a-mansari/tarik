@@ -96,6 +96,14 @@ says what Experio would refuse (the mode the law requires for that turnover, sup
 still running) and what it leaves out (purchases it doesn't follow for delays, blocked ones); the XML runs Experio's own
 checks. "déclarez les délais de paiement" declares it after you confirm; the DGI deposit stays yours.
 
+**Export** ("exportez les écritures du T3", "le FEC 2026", "export Sage en texte avec ;"): the entries by journal,
+the tiers or the FEC, with Experio's own export, in the model and format you name (Excel, or text: a ZIP of one file per
+journal with your separator), with reconciliation when you ask. Tarik gives the number of entries and lines and the
+total debit and credit, and attaches the file to its email reply (in the chat: « Fichiers préparés par Tarik », to
+download). It exports for analysis unless you ask for an integration, which locks the pieces in Experio, after you
+confirm; tiers without their own account are asked about first. Experio's refusals (no model, no line, a line without
+account) come in its words.
+
 **Write off a payment difference**: what is left owing on a posted invoice ("soldez la facture FV-12"), passed to
 the dossier's 6585 account with Experio's own tool, after you confirm the amount and the account.
 

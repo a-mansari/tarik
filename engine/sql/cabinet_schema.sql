@@ -37,6 +37,18 @@ create index if not exists tarik_files_invoice_content on tarik_files (content_m
 -- A TPE statement (exp.monetary.statement, not a bank statement): statement_id is one, of this network (cmi, naps...).
 alter table tarik_files add column if not exists tpe_type text;
 
+-- The files Tarik makes for a conversation (an export: Experio keeps none), sent with its next email reply and
+-- downloadable from the conversation.
+create table if not exists tarik_outbox (
+    id serial primary key,
+    session_id text not null,
+    file_name text not null,
+    mime_type text not null,
+    data bytea not null,
+    sent_at timestamptz,
+    created_at timestamptz not null default now()
+);
+
 -- What check_invoice read on each scan, against what Experio captured. The correction step reads it back.
 create table if not exists tarik_checks (
     invoice_id integer primary key,

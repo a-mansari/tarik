@@ -187,7 +187,7 @@ async def on_its_way(latest, shown):
 
 async def talk(cabinet, session):
     """What the conversation shows: its messages, and the message on its way (its Discussion run still going), its
-    client's words shown at once, before Tarik's memory has them."""
+    client's words shown at once, before Tarik's memory has them; the files Tarik made for it (``made``)."""
     shown = await messages(session)
     latest = next((run for run in await conversations(cabinet) if run["session_id"] == session), None)
     going = bool(latest and latest["status"] in ("queued", "running"))
@@ -195,7 +195,10 @@ async def talk(cabinet, session):
         pending = await on_its_way(latest, shown)
         if pending:
             shown.append(pending)
-    return {"messages": shown, "latest": latest, "going": going}
+    outbox = sql.Identifier(cabinet, "tarik_outbox")
+    async with runs.pool.connection() as db:
+        made = await (await db.execute(sql.SQL(Q.chat_outbox_names).format(outbox=outbox), (session,))).fetchall()
+    return {"messages": shown, "latest": latest, "going": going, "made": [name for (name,) in made]}
 
 
 async def chat_page(request: Request):
@@ -237,7 +240,8 @@ async def conversation_page(request: Request):
 
 
 async def download(request: Request):
-    """A file the client sent in the conversation (``?nom=``), as sent: always downloaded, never opened in the page."""
+    """A file the client sent in the conversation (``?nom=``), as sent, else one Tarik made for it: always downloaded,
+    never opened in the page."""
     cabinet, session = chosen(request), request.path_params["session_id"]
     name = request.query_params.get("nom", "")
     if not known(cabinet, session, written=False):
@@ -245,6 +249,11 @@ async def download(request: Request):
     files = sql.Identifier(cabinet, "tarik_files")
     async with runs.pool.connection() as db:
         found = await (await db.execute(sql.SQL(Q.chat_file).format(files=files), (session, name))).fetchone()
+        if not found:  # a file Tarik made for it (an export)
+            outbox = sql.Identifier(cabinet, "tarik_outbox")
+            found = await (
+                await db.execute(sql.SQL(Q.chat_outbox_file).format(outbox=outbox), (session, name))
+            ).fetchone()
     if not found:
         return page({"error": "Fichier introuvable."}, 404)
     file_name, mime_type, data = found
