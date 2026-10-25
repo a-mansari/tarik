@@ -24,7 +24,7 @@ import itertools
 import re
 import time
 from collections import Counter
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import openpyxl
 
@@ -403,6 +403,15 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     with cabinet_db() as db:
         name, mime, data = file_row(db, file_id, "file_name", "mime_type", "data")
     context = in_dossier(dossier_id)
+    with cabinet_db() as db:
+        twin = db.execute(Q.entries_of_same_content, (bytes(data), dossier_id, file_id)).fetchone()
+    if twin:  # the very same file sent again: its lines would be imported twice
+        taken(file_id)
+        return stop(
+            f"`{name}` : deja importe dans le dossier {dossier} le {twin[1]:%d/%m/%Y} (`{twin[0]}`, meme contenu) : "
+            "rien n'est importe une seconde fois.",
+            file_id=file_id,
+        )
     # Every refusal is a stop with the file taken: a corrected file comes as a new one, this one is not tried again.
     try:
         text = entries_text(file_id, name, mime, data)
@@ -434,19 +443,38 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
                 f"{TEST_MODE}{label} {name} : test Experio reussi ({lines} lignes), rien n'est importe.",
                 file_id=file_id,
             )
+        before = setup_counts(dossier_id, context) if target == "ecritures" else None
         result = imported(file_id, name, label, arguments, context)
+        made = created_note(before, setup_counts(dossier_id, context)) if before else ""
     except Refused as refusal:
         taken(file_id)
         setup_waits(dossier_id)
         return stop(str(refusal), file_id=file_id)
     taken(file_id)
     setup_waits(dossier_id, file_id)
-    created = " Experio a cree les comptes, journaux, tiers et exercices manquants." if target == "ecritures" else ""
     return ok(
-        f"{label} {name} importe dans le dossier {dossier} : {len(result.get('ids') or [])} lignes.{created}",
+        f"{label} {name} importe dans le dossier {dossier} : {len(result.get('ids') or [])} lignes.{made}",
         file_id=file_id,
         target=target,
     )
+
+
+CREATED = {"exp.account": "compte(s)", "exp.journal": "journal(aux)", "exp.partner": "tiers"}
+CREATED["exp.fiscal.entries"] = "exercice(s)"
+
+
+def setup_counts(dossier_id, context):
+    """{model: count} of the dossier's accounts, journals, tiers and exercices."""
+    return {
+        model: odoo_call(model, "search_count", [("company_id", "=", dossier_id)], context=context) for model in CREATED
+    }
+
+
+def created_note(before, after):
+    """What Experio's detection created with the import (its accounts, journals, tiers, exercices), "" when
+    nothing."""
+    made = [f"{after[m] - before[m]} {label}" for m, label in CREATED.items() if after[m] > before[m]]
+    return f" Experio a cree : {', '.join(made)}." if made else " Experio n'a rien eu a creer."
 
 
 # --- Each bank journal's bank ---
@@ -627,9 +655,8 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     context = in_dossier(dossier_id)
     fields = ["show_onboarding", *STEPPER_JOURNALS, *STEPPER_PREFIXES]
     company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
-    if not company["show_onboarding"]:
-        setup_waits(dossier_id)
-        return ok(f"Dossier {dossier} : integration deja terminee, Experio traite les ecritures des leur import.")
+    if not company["show_onboarding"]:  # its lines still in Experio's processing keep it waiting (setup_status)
+        return routine(f"Dossier {dossier} : integration deja terminee, Experio traite les ecritures des leur import.")
     if not finish and not entries_count(dossier_id, context):
         setup_waits(dossier_id)  # nothing to wait for: the client's next files, or their word
         missing = setup_missing(dossier_id, context)
@@ -655,7 +682,6 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
         f"finish_setup {dossier_id}", f"Dossier {dossier} : Experio refuse de terminer l'integration ({{reason}})."
     ):
         complete_stepper(company, context)
-    setup_waits(dossier_id)
     waiting = entries_count(dossier_id, context)
     notes.append(
         f"{waiting} ligne(s) d'ecritures transmises au traitement d'Experio" if waiting else "aucune ecriture importee"
@@ -742,6 +768,24 @@ def processed(dossier_id, context):
         time.sleep(10)
 
 
+STALE_MINUTES = 60  # handed over this long ago, still not processed: stuck, not a long import still running
+
+
+def resend_stale(dossier_id, context):
+    """The dossier's lines still waiting or in process STALE_MINUTES after being handed over, once its onboarding is
+    finished (before, its lines wait on purpose), sent again with Experio's own « Re-send » (action_resend: it
+    re-queues only the stale and failed ones, and re-runs its detection): how many."""
+    if odoo_call("res.company", "read", [dossier_id], fields=["show_onboarding"])[0]["show_onboarding"]:
+        return 0
+    since = (datetime.now(UTC) - timedelta(minutes=STALE_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")  # Experio's UTC
+    stale = [("company_id", "=", dossier_id), ("state", "in", ["new", "pending"]), ("send_date", "<", since)]
+    ids = odoo_call("experio.history", "search", stale, context=context)
+    if not ids or dry_run():
+        return 0
+    odoo_json("experio.history", "action_resend", ids, context={**context, "exp_resend_grouping_confirmed": True})
+    return len(ids)
+
+
 def other_dossiers_journals(dossier_id):
     """The labels of the dossier's journal settings that point to another dossier's journal (Experio's default for
     a new dossier, until its own journals are created or imported), "" when none does."""
@@ -755,8 +799,12 @@ def setup_status(dossier_id: int) -> dict:
     and the settings Experio needs before an invoice can be posted."""
     dossier = require_dossier(dossier_id)
     with refused(f"setup_status {dossier_id}", f"Dossier {dossier} : Experio n'a pas pu donner l'etat du parametrage."):
+        resent = resend_stale(dossier_id, in_dossier(dossier_id))
         processed(dossier_id, in_dossier(dossier_id))
         company, states, reasons, exercices, counts = setup_facts(dossier_id, in_dossier(dossier_id))
+    still = states.get("new", 0) + states.get("pending", 0)
+    if not company["show_onboarding"] and not still:
+        setup_waits(dossier_id)  # every line processed: nothing more to tell of it
     parts = [
         f"{counts['exp.account']} comptes, {counts['exp.journal']} journaux, {counts['exp.tax']} taxes, "
         f"{counts['exp.partner']} tiers"
@@ -775,6 +823,10 @@ def setup_status(dossier_id: int) -> dict:
     foreign = other_dossiers_journals(dossier_id)
     if foreign:
         parts.append(f"reglages sur les journaux d'un autre dossier (a creer ou importer) : {foreign}")
+    if resent:
+        parts.append(f"{resent} ligne(s) bloquee(s) renvoyee(s) au traitement d'Experio (« Renvoyer »)")
     if company["show_onboarding"]:
         parts.append("integration pas encore terminee")
+    elif still:
+        parts.append(f"{still} ligne(s) encore en traitement chez Experio : leur resultat suivra")
     return ok(f"Dossier {dossier} : " + " ; ".join(parts) + ".")

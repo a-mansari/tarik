@@ -110,6 +110,12 @@ update tarik_files set kind = 'entries' where id = %s
 insert into tarik_setups (dossier_id, session_id) select %s, session_id from tarik_files
 where id = %s on conflict (dossier_id) do update set session_id = excluded.session_id
 
+-- name: entries_of_same_content
+-- An entries or setup file of the very same content already imported into the dossier, another file: its name and when.
+select f.file_name, r.created_at::date from tarik_files f join tarik_results r on r.file_id = f.id
+where f.content_md5 = md5(%s) and r.step = 'import_entries' and r.status = 'ok' and r.dossier_id = %s and f.id <> %s
+order by r.id limit 1
+
 -- name: delete_setup_wait
 -- The dossier no longer waits for its onboarding.
 delete from tarik_setups where dossier_id = %s
