@@ -1,0 +1,155 @@
+--- labels.json (avant)
++++ labels.json (après)
+@@ -6,7 +6,9 @@
+     "dossier": "Dossier",
+     "emails": "Emails",
+     "fil": "Fil d'emails",
+-    "discussion": "Discussion"
++    "discussion": "Discussion",
++    "declarations": "Déclarations",
++    "export": "Export"
+   },
+   "steps": {
+     "agent": {
+@@ -52,7 +54,8 @@
+       "apply_credit_note": "Imputation de l'avoir",
+       "create_import_folder": "Dossier d'import",
+       "pointage": "Pointage du relevé",
+-      "comptabilisation_releve": "Comptabilisation du relevé"
++      "comptabilisation_releve": "Comptabilisation du relevé",
++      "dossier_import": "Dossier d'import"
+     },
+     "dossier": {
+       "debut": "Pièces jointes et choix du travail",
+@@ -63,14 +66,15 @@
+       "acces": "Accès créé",
+       "archivage": "Archivage",
+       "listes": "Création de dossiers depuis un tableur",
+-      "ecritures": "Écritures et paramétrage",
+-      "reprise": "Reprise de l'intégration",
++      "ecritures": "Import des écritures",
++      "reprise": "Dossiers en attente",
+       "resume": "Résumé envoyé",
+       "ecart": "Écart de paiement",
+-      "tva": "Déclaration de TVA",
+-      "ras": "Déclarations RAS",
+-      "delais": "Délais de paiement",
+-      "export": "Export"
++      "configuration": "Copie du paramétrage",
++      "fichiers": "Fichiers du message",
++      "banques": "Banques des journaux",
++      "finalisation": "Fin du paramétrage",
++      "etat": "État du dossier"
+     },
+     "emails": {
+       "fils": "Emails à traiter",
+@@ -89,11 +93,26 @@
+       "refus": "Contrôle de l'expéditeur",
+       "manager": "Alerte au responsable",
+       "reponse": "Envoi de la réponse",
+-      "suite": "Suite du traitement",
+-      "fin": "Fil clôturé"
++      "fin": "Fil clôturé",
++      "suite_documents": "Suite des documents",
++      "suite_dossiers": "Suite des dossiers"
+     },
+     "discussion": {
+       "tarik": "Réponse de Tarik"
++    },
++    "declarations": {
++      "tva": "Déclaration de TVA",
++      "ras": "Déclarations RAS",
++      "delais": "Délais de paiement",
++      "debut": "Pièces jointes",
++      "expediteur": "Accès de l'expéditeur",
++      "resume": "Résumé envoyé"
++    },
++    "export": {
++      "export": "Export",
++      "debut": "Pièces jointes",
++      "expediteur": "Accès de l'expéditeur",
++      "resume": "Résumé envoyé"
+     }
+   },
+   "statuses": {
+@@ -119,10 +138,12 @@
+     "graphs": {
+       "agent": "Tarik lit le message du client, choisit quoi faire et appelle les outils nécessaires (traitement des documents, dossiers, questions). Il répond ensuite au client avec ses propres mots.",
+       "traitement": "Traite les factures et relevés bancaires envoyés par le client, étape par étape, jusqu'au brouillon vérifié dans Experio. La facture est comptabilisée seulement si le client l'a demandé. Ce workflow traite aussi les réponses du client aux questions posées.",
+-      "dossier": "Crée, modifie ou archive un dossier. Il donne aussi l'accès à une personne, importe les écritures (FEC, grand livre) et termine le paramétrage d'un nouveau dossier.",
++      "dossier": "Crée, modifie ou archive un dossier, donne l'accès à une personne ou passe un écart de paiement. Pour un nouveau dossier : copie du paramétrage d'un dossier modèle, import des écritures (FEC, grand livre), banque des journaux de banque, fin du paramétrage et état du dossier.",
+       "emails": "Relève les emails reçus pour le cabinet. Pour chaque fil : accusé de réception, réponse de Tarik, puis envoi de la réponse aux adresses autorisées. Les relances automatiques reprennent les traitements restés en attente.",
+       "fil": "Le traitement d'un fil d'emails, lancé par Emails pour chaque fil en attente : accusé de réception, réponse de Tarik, contrôle de l'expéditeur, puis envoi de la réponse ou alerte au responsable, et clôture du fil.",
+-      "discussion": "Un message écrit à Tarik depuis la page Discussion, avec ses fichiers : Tarik répond dans la même discussion et traite les fichiers joints."
++      "discussion": "Un message écrit à Tarik depuis la page Discussion, avec ses fichiers : Tarik répond dans la même discussion et traite les fichiers joints.",
++      "declarations": "Prépare une déclaration d'un dossier dans Experio, à la demande du client : la TVA, les retenues à la source (RAS TVA, IS, IR, non-résidents) ou les délais de paiement. Dit ce qu'Experio refuserait et ce qu'il laisse de côté, joint le fichier XML à la réponse, et ne déclare qu'après l'accord du client.",
++      "export": "Exporte avec l'export d'Experio les écritures par journal, les tiers ou le FEC d'un dossier, et joint le fichier à la réponse. Export d'analyse par défaut ; l'intégration, qui verrouille les pièces dans Experio, seulement après l'accord du client."
+     },
+     "steps": {
+       "agent": {
+@@ -168,25 +189,27 @@
+         "apply_credit_note": "Après la comptabilisation d'un avoir, l'impute sur la facture qu'il annule, comme Experio le fait depuis « Crédits en attente » : la facture que cite l'avoir, sinon la seule facture du tiers restant due du même montant. Sinon, les factures possibles sont listées pour le cabinet. Annulable dans Experio.",
+         "create_import_folder": "Quand le client parle d'un dossier d'import, fait de ses fichiers un dossier d'import dans Experio, comme l'écran « Imports » : chaque page typée parmi les types d'Experio (transitaire, douane, DUM, fournisseur, pièce jointe...), chaque pièce un brouillon du dossier, la DUM lue par Experio ; un dossier par fichier s'il dit « plusieurs dossiers ». La facture du transitaire est traitée et comptabilisée en dernier.",
+         "pointage": "Attend la lecture d'Experio, vérifie ses soldes (solde final calculé, suite du relevé précédent, à-nouveau pour le premier relevé du journal), pointe les opérations avec la détection automatique d'Experio, rattache la facture que le client cite, et dit ce qui reste à compléter. Pour un relevé TPE : crée les opérations TPE manquantes comme Experio, donne à chaque ligne son opération (vente, frais bancaires, taxe bancaire, solde net remise), demande une fois le client des ventes par carte, et donne total remise, commissions, TVA et net remise. Sur un relevé bancaire, rapproche les versements TPE de leur relevé TPE quand Experio est sûr.",
+-        "comptabilisation_releve": "Quand le client le demande, comptabilise les opérations prêtes avec la validation d'Experio ; une confirmation qu'Experio demande (relevé en double, hors période, taux de change) reste au cabinet. Liste les opérations restées en suspens. Pour un relevé TPE, l'avertissement d'Experio sur un réseau ou journal différent du dernier relevé TPE est confirmé ; un relevé TPE en double s'arrête."
++        "comptabilisation_releve": "Quand le client le demande, comptabilise les opérations prêtes avec la validation d'Experio ; une confirmation qu'Experio demande (relevé en double, hors période, taux de change) reste au cabinet. Liste les opérations restées en suspens. Pour un relevé TPE, l'avertissement d'Experio sur un réseau ou journal différent du dernier relevé TPE est confirmé ; un relevé TPE en double s'arrête.",
++        "dossier_import": "Quand le client parle d'un dossier d'import, fait de ses fichiers un dossier d'import dans Experio, comme son écran « Imports » : chaque page typée, chaque pièce un brouillon, la DUM lue par Experio."
+       },
+       "dossier": {
+-        "debut": "Enregistre les fichiers joints au message et choisit le travail à faire : création, modification, accès, archivage, écart de paiement, déclaration de TVA, déclarations RAS, délais de paiement, export, création de dossiers depuis un tableur ou reprise.",
+-        "creation": "Crée le dossier dans Experio (nom, ICE, IF vérifiés auprès du registre) et copie le paramétrage d'un dossier modèle si le client l'a demandé.",
++        "debut": "Enregistre les fichiers joints au message et choisit le travail à faire : création, modification, accès, archivage, écart de paiement, création de dossiers depuis un tableur, import d'écritures ou reprise.",
++        "creation": "Crée le dossier dans Experio (nom, ICE, IF vérifiés auprès du registre).",
+         "expediteur": "Pour un email, vérifie que l'expéditeur est un collaborateur du cabinet ou de l'équipe Experio et que ce dossier lui est attribué dans Experio. Sinon, rien n'est fait sur le dossier. Dans le chat, rien à vérifier.",
+         "modification": "Modifie l'identité du dossier, uniquement avec les valeurs écrites par le client et après sa confirmation si nécessaire.",
+         "acces": "Crée un collaborateur ou un client dans Experio et lui donne accès au dossier, après confirmation du client.",
+         "archivage": "Archive le dossier après confirmation du client. Rien n'est supprimé, il peut être désarchivé dans Experio.",
+         "listes": "Crée les dossiers listés dans le tableur envoyé par le client, une fois la liste vérifiée et confirmée par lui.",
+-        "ecritures": "Importe les écritures (FEC, grand livre, plan comptable…), demande la banque de chaque journal de banque, puis termine le paramétrage du dossier.",
+-        "reprise": "Termine le paramétrage des dossiers de la discussion qui attendaient encore qu'Experio traite leurs écritures.",
++        "ecritures": "Importe chaque fichier d'écritures (FEC, grand livre, plan comptable…) dans le dossier ; un fichier refusé arrête là le paramétrage.",
++        "reprise": "Trouve les dossiers de la discussion qui attendaient encore qu'Experio traite leurs écritures.",
+         "resume": "Rédige le résumé envoyé au client : ce qui a été fait et les questions à lui poser.",
+         "createur": "Vérifie que l'expéditeur est un manager du cabinet ou un membre de l'équipe Experio : eux seuls créent des dossiers, un par un ou depuis un tableur. Sinon, rien n'est créé et l'expéditeur en est informé.",
+         "ecart": "Passe en écart ce qui reste dû sur une facture comptabilisée, avec l'outil d'Experio (compte 6585 et journal des opérations diverses proposés par Experio), après accord du client : la facture est soldée.",
+-        "tva": "Prépare la déclaration de TVA de la période dans Experio (la dernière terminée si le client n'en nomme pas) : la crée ou reprend son brouillon, l'actualise, demande le crédit reporté pour une première déclaration, dit ce qu'elle laisse de côté et ce qu'Experio refuse, et prépare son XML. La déclare (écritures de TVA) seulement à la demande du client et après son accord ; le dépôt à la DGI reste au cabinet.",
+-        "ras": "Prépare les déclarations RAS de la période dans Experio (celles que le client nomme, sinon celles que le dossier déclare ; la dernière période terminée s'il n'en nomme pas) : RAS TVA, IS, IR, non-résidents. Les crée ou les reprend, les actualise (pas si des lignes ont été ajoutées à la main), dit ce qu'Experio refuserait et ce qu'il laisse de côté, et prépare leur XML. Les déclare seulement à la demande du client et après son accord ; le dépôt à la DGI reste au cabinet.",
+-        "delais": "Prépare la déclaration des délais de paiement (loi 69-21) de la période dans Experio, pour un dossier qui les suit : la crée ou la reprend, l'actualise (pas si des lignes ont été ajoutées à la main), demande le chiffre d'affaires s'il manque, dit ce qu'Experio refuserait et ce qu'il laisse de côté, et prépare son XML. La déclare seulement à la demande du client et après son accord ; le dépôt à la DGI reste au cabinet.",
+-        "export": "Exporte avec l'export d'Experio les écritures par journal, les tiers ou le FEC de la période, dans le modèle et le format demandés ; donne le nombre d'écritures et les totaux débit et crédit, et joint le fichier à la réponse (e-mail, ou téléchargement dans la discussion). Export d'analyse par défaut ; l'intégration, qui verrouille les pièces dans Experio, seulement à la demande du client et après son accord."
++        "configuration": "Copie le paramétrage du dossier modèle que le client a donné (comptes, taxes, journaux, opérations bancaires et TPE, paramètres).",
++        "fichiers": "Liste les fichiers du message à importer : un tableur de dossiers, ou les écritures du dossier.",
++        "banques": "Demande la banque de chaque journal de banque du dossier qui n'en a pas.",
++        "finalisation": "Termine le paramétrage de chaque dossier dès qu'Experio a traité ses écritures.",
++        "etat": "Dit où en est chaque dossier terminé : ses comptes, journaux et réglages."
+       },
+       "emails": {
+         "fils": "Relève les fils d'emails qui attendent une réponse de Tarik et les réserve pour cette exécution.",
+@@ -205,11 +228,26 @@
+         "refus": "Vérifie si le travail a été refusé parce que l'expéditeur n'a pas accès au dossier. Dans ce cas, rien ne lui est envoyé.",
+         "manager": "Prévient le responsable du cabinet qu'un expéditeur non autorisé a écrit (au plus une fois par jour et par expéditeur).",
+         "reponse": "Envoie la réponse dans le même fil, uniquement à des adresses autorisées.",
+-        "suite": "Relance automatique : reprend les factures et dossiers restés en attente d'Experio, puis prépare un seul email qui résume les deux.",
+-        "fin": "Clôture le fil : il attend la réponse du client si une question a été posée, sera relancé si des traitements sont en attente, ou est mis de côté en cas d'erreur d'envoi."
++        "fin": "Clôture le fil : il attend la réponse du client si une question a été posée, sera relancé si des traitements sont en attente, ou est mis de côté en cas d'erreur d'envoi.",
++        "suite_documents": "Relance sans nouveau message : reprend le traitement des documents de la discussion restés en attente (brouillons qu'Experio lisait encore).",
++        "suite_dossiers": "Puis termine le paramétrage des dossiers de la discussion restés en attente ; un seul e-mail dit les deux."
+       },
+       "discussion": {
+         "tarik": "Tarik lit le message et ses fichiers, travaille dans le dossier et répond. S'il n'a pas traité les fichiers joints, il est relancé (trois fois au plus)."
++      },
++      "declarations": {
++        "tva": "Prépare la déclaration de TVA de la période dans Experio (la dernière terminée si le client n'en nomme pas) : la crée ou reprend son brouillon, l'actualise, demande le crédit reporté pour une première déclaration, dit ce qu'elle laisse de côté et ce qu'Experio refuse, et prépare son XML. La déclare (écritures de TVA) seulement à la demande du client et après son accord ; le dépôt à la DGI reste au cabinet.",
++        "ras": "Prépare les déclarations RAS de la période dans Experio (celles que le client nomme, sinon celles que le dossier déclare ; la dernière période terminée s'il n'en nomme pas) : RAS TVA, IS, IR, non-résidents. Les crée ou les reprend, les actualise (pas si des lignes ont été ajoutées à la main), dit ce qu'Experio refuserait et ce qu'il laisse de côté, et prépare leur XML. Les déclare seulement à la demande du client et après son accord ; le dépôt à la DGI reste au cabinet.",
++        "delais": "Prépare la déclaration des délais de paiement (loi 69-21) de la période dans Experio, pour un dossier qui les suit : la crée ou la reprend, l'actualise (pas si des lignes ont été ajoutées à la main), demande le chiffre d'affaires s'il manque, dit ce qu'Experio refuserait et ce qu'il laisse de côté, et prépare son XML. La déclare seulement à la demande du client et après son accord ; le dépôt à la DGI reste au cabinet.",
++        "debut": "Enregistre les fichiers joints au message.",
++        "expediteur": "Vérifie que l'expéditeur a accès au dossier.",
++        "resume": "Rédige le résumé que le client lit."
++      },
++      "export": {
++        "export": "Exporte avec l'export d'Experio les écritures par journal, les tiers ou le FEC de la période, dans le modèle et le format demandés ; donne le nombre d'écritures et les totaux débit et crédit, et joint le fichier à la réponse (e-mail, ou téléchargement dans la discussion). Export d'analyse par défaut ; l'intégration, qui verrouille les pièces dans Experio, seulement à la demande du client et après son accord.",
++        "debut": "Enregistre les fichiers joints au message.",
++        "expediteur": "Vérifie que l'expéditeur a accès au dossier.",
++        "resume": "Rédige le résumé que le client lit."
+       }
+     }
+   },

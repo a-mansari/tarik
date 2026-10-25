@@ -57,7 +57,7 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 | `server/cabinet_settings.py`, `server/api/settings.py` | Each cabinet's own settings, read and changed on the Cabinets page, written to Vault with its own AppRole, each change kept. |
 | `server/accounts.py`, `server/users.py` | The team's accounts (scrypt hashes), their role (admin or member) and sessions; made on the Comptes page (`server/api/accounts.py`, a one-time link to set the password) or by `server/users.py`. |
 | `engine/mail.py` | The mailbox watcher: starts an Emails run when a thread waits. |
-| `engine/traitement.py`, `dossier.py`, `emails.py`, `chat.py` | The workflows, as graphs (`chat.py`: the Discussions page's, and the asking shared with email threads). |
+| `engine/traitement.py`, `dossier.py`, `declarations.py`, `exports.py`, `emails.py`, `chat.py` | The workflows, as graphs, one step per node so each canvas shows every step (`chat.py`: the Discussions page's, and the asking shared with email threads). |
 | `engine/graphs.py` | Each workflow's shape for the canvas, read from the compiled graphs (never drawn by hand). |
 | `server/layouts.py` | How the team arranged each canvas (node places, edge bends and style), checked and kept in Postgres. |
 | `server/api/` | The team's pages' data (French), as JSON under `/ui/api/`: `runs.py` (runs, workflows, LLM calls), `chat.py` (Discussion), `content.py` (Tarik prompts), `settings.py`, `accounts.py`, `journal.py`. |

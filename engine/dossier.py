@@ -1,15 +1,15 @@
 """Dossier as a graph: a dossier's creation (or a spreadsheet's list of them), by the cabinet's managers and Experio's
-staff only, then its configuration and entries import; or (mode update, person, archive, difference, tva, ras,
-delais, export) one change to a dossier assigned to the sender (difference: a posted invoice's remainder written off;
-tva, ras, delais: its TVA, withholding or payment delays declarations; export: its entries or tiers exported); mode
-resume finishes the dossiers left waiting. No time budget: finish_setup gets seconds_left 0 (no limit)."""
+staff only, then its configuration copied, its files' entries imported, the bank of its bank journals asked, its
+onboarding finished and its state said; or (mode update, person, archive, difference) one change to a dossier assigned
+to the sender (difference: a posted invoice's remainder written off); mode resume finishes the dossiers left waiting.
+One step per node, so the canvas shows each. No time budget: finish_setup gets seconds_left 0 (no limit)."""
 
 import operator
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, summary
+from engine.calls import failed, run_step, sender_checked, started, summary
 from engine.tools.dossiers.identity import EDITABLE
 
 INPUTS = [
@@ -41,17 +41,6 @@ INPUTS = [
     "city",
     "zip",
     "facture",
-    "periode",
-    "credit_reporte",
-    "declarer",
-    "declarations",
-    "chiffre_affaires",
-    "quoi",
-    "modele",
-    "format_fichier",
-    "lettrage",
-    "integration",
-    "date_import",
     "attachments",
     "cabinet",
 ]
@@ -64,6 +53,10 @@ class Run(TypedDict, total=False):
     target: int  # the dossier the rest works on: the one given, or the one just created
     outcomes: Annotated[list, operator.add]
     message: str
+    files: list  # the message's files to import (entries, or a spreadsheet of dossiers)
+    finishing: list  # the dossiers whose onboarding is finished next
+    finish_options: dict  # how finish_setup finishes them (seconds_left, finish)
+    finished: list  # those finished: their state is said
 
 
 async def start(state: Run, config):
@@ -76,7 +69,7 @@ def by_mode(state: Run):
     if failed(state):
         return "resume"  # a failed save is recorded and goes no further: the files the run would work on are missing
     mode = call.get("mode")
-    if mode in ("update", "person", "archive", "difference", "tva", "ras", "delais", "export"):
+    if mode in ("update", "person", "archive", "difference"):
         return "expediteur"
     if mode == "resume":
         return "reprise"
@@ -102,16 +95,25 @@ async def create(state: Run):
     update = {"outcomes": [result]}
     if result.get("status") == "ok":
         update["target"] = result["dossier_id"]
-        # A dossier reused from earlier in the conversation keeps its configuration.
-        if (call.get("model_dossier_id") or 0) > 0 and not result.get("reused"):
-            copied = await run_step(
-                state,
-                "copy_configuration",
-                dossier_id=result["dossier_id"],
-                model_dossier_id=call["model_dossier_id"],
-            )
-            update["outcomes"].append(copied)
     return update
+
+
+def after_create(state: Run):
+    """A new dossier takes the model dossier's configuration first (a dossier reused from earlier in the conversation
+    keeps its own), then its files."""
+    if failed(state):
+        return "resume"
+    last = state["outcomes"][-1]
+    if (state["call"].get("model_dossier_id") or 0) > 0 and not last.get("reused"):
+        return "configuration"
+    return "fichiers"
+
+
+async def configuration(state: Run):
+    copied = await run_step(
+        state, "copy_configuration", dossier_id=state["target"], model_dossier_id=state["call"]["model_dossier_id"]
+    )
+    return {"outcomes": [copied]}
 
 
 async def creator(state: Run):
@@ -122,7 +124,7 @@ async def creator(state: Run):
 def after_creator(state: Run):
     if failed(state):
         return "resume"
-    return "listes" if state["call"].get("mode") == "dossiers" else "creation"
+    return "fichiers" if state["call"].get("mode") == "dossiers" else "creation"
 
 
 async def sender(state: Run):
@@ -137,11 +139,7 @@ def after_sender(state: Run):
         "person": "acces",
         "archive": "archivage",
         "difference": "ecart",
-        "tva": "tva",
-        "ras": "ras",
-        "delais": "delais",
-        "export": "export",
-    }.get(state["call"].get("mode"), "ecritures")
+    }.get(state["call"].get("mode"), "fichiers")
 
 
 async def update(state: Run):
@@ -202,128 +200,85 @@ async def difference(state: Run):
     return {"outcomes": [result]}
 
 
-async def tva(state: Run):
-    call = state["call"]
-    result = await run_step(
-        state,
-        "prepare_tva_declaration",
-        dossier_id=call["dossier_id"],
-        periode=call.get("periode") or "",
-        credit_reporte=str(call.get("credit_reporte") or ""),
-        declarer=call.get("declarer") is True,
-        client_confirmed=call.get("client_confirmed") is True,
-        session_id=call["session_id"],
-    )
-    return {"outcomes": [result]}
+async def files(state: Run):
+    """The message's files to import: a spreadsheet of dossiers (mode dossiers), else a dossier's entries."""
+    found = await run_step(state, "files_to_process", session_id=state["call"]["session_id"], entries=True)
+    return {"files": found.get("files", []), "outcomes": [found]}
 
 
-async def ras(state: Run):
-    call = state["call"]
-    result = await run_step(
-        state,
-        "prepare_ras_declaration",
-        dossier_id=call["dossier_id"],
-        declarations=call.get("declarations") or "",
-        periode=call.get("periode") or "",
-        declarer=call.get("declarer") is True,
-        client_confirmed=call.get("client_confirmed") is True,
-        session_id=call["session_id"],
-    )
-    return {"outcomes": [result]}
-
-
-async def delays(state: Run):
-    call = state["call"]
-    result = await run_step(
-        state,
-        "prepare_payment_delay_declaration",
-        dossier_id=call["dossier_id"],
-        periode=call.get("periode") or "",
-        chiffre_affaires=str(call.get("chiffre_affaires") or ""),
-        declarer=call.get("declarer") is True,
-        client_confirmed=call.get("client_confirmed") is True,
-        session_id=call["session_id"],
-    )
-    return {"outcomes": [result]}
-
-
-async def export(state: Run):
-    call = state["call"]
-    result = await run_step(
-        state,
-        "export_entries",
-        dossier_id=call["dossier_id"],
-        quoi=call.get("quoi") or "",
-        periode=call.get("periode") or "",
-        modele=call.get("modele") or "",
-        format_fichier=call.get("format_fichier") or "",
-        lettrage=call.get("lettrage") is True,
-        integration=call.get("integration") is True,
-        date_import=call.get("date_import") is True,
-        client_confirmed=call.get("client_confirmed") is True,
-        session_id=call["session_id"],
-    )
-    return {"outcomes": [result]}
+def after_files(state: Run):
+    if failed(state):
+        return "resume"
+    return "listes" if state["call"].get("mode") == "dossiers" else "ecritures"
 
 
 async def lists(state: Run):
     """Mode dossiers: each spreadsheet of the message, its dossiers created once the client confirmed the list."""
     call = state["call"]
-    session = call["session_id"]
-    found = await run_step(state, "files_to_process", session_id=session, entries=True)
-    outcomes = [found]
-    for file_id in found.get("files", []):
-        outcomes.append(
-            await run_step(
-                state,
-                "import_dossiers",
-                file_id=file_id,
-                client_confirmed=call.get("client_confirmed") is True,
-                session_id=session,
-            )
+    outcomes = [
+        await run_step(
+            state,
+            "import_dossiers",
+            file_id=file_id,
+            client_confirmed=call.get("client_confirmed") is True,
+            session_id=call["session_id"],
         )
+        for file_id in state.get("files", [])
+    ]
     return {"outcomes": outcomes}
 
 
 async def entries(state: Run):
-    """Each file of the message imported, then the onboarding, unless an import was refused: the bank of each
-    bank journal, the integration, the dossier's state."""
+    """Each file of the message imported into the dossier."""
     call = state["call"]
-    target = state["target"]
-    found = await run_step(state, "files_to_process", session_id=call["session_id"], entries=True)
-    outcomes = [found]
-    for file_id in found.get("files", []):
-        outcomes.append(
-            await run_step(
-                state,
-                "import_entries",
-                dossier_id=target,
-                file_id=file_id,
-                kind=call.get("kind") or "",
-            )
+    outcomes = [
+        await run_step(
+            state, "import_entries", dossier_id=state["target"], file_id=file_id, kind=call.get("kind") or ""
         )
-    if any(result.get("status") != "ok" for result in outcomes[1:]):
-        return {"outcomes": outcomes}  # a refused file: the client sends it again before anything is finished
-    outcomes.append(await run_step(state, "ask_banks", dossier_id=target))
-    outcomes += await finished(state, target, seconds_left=0, finish=call.get("finish") is True)
+        for file_id in state.get("files", [])
+    ]
     return {"outcomes": outcomes}
 
 
-async def finished(state, dossier_id, **arguments):
-    """The dossier's onboarding finished (finish_setup, given ``arguments``), then, once it is, its state
-    (setup_status): their outcomes."""
-    done = await run_step(state, "finish_setup", dossier_id=dossier_id, **arguments)
-    if done.get("status") != "ok":
-        return [done]
-    return [done, await run_step(state, "setup_status", dossier_id=dossier_id)]
+def after_entries(state: Run):
+    """The onboarding goes on unless an import was refused (the client sends that file again first)."""
+    imported = state["outcomes"][-len(state["files"]) :] if state.get("files") else []
+    if any(result.get("status") != "ok" for result in imported):
+        return "resume"
+    return "banques"
+
+
+async def banks(state: Run):
+    """The bank of each bank journal of the dossier, then its onboarding finished (no time limit)."""
+    asked = await run_step(state, "ask_banks", dossier_id=state["target"])
+    options = {"seconds_left": 0, "finish": state["call"].get("finish") is True}
+    return {"outcomes": [asked], "finishing": [state["target"]], "finish_options": options}
 
 
 async def resume_setups(state: Run):
-    """Mode resume: the conversation's dossiers left waiting, each finished then its state."""
+    """Mode resume: the conversation's dossiers left waiting, to finish."""
     found = await run_step(state, "waiting_setups", session_id=state["call"]["session_id"])
-    outcomes = [found]
-    for dossier_id in found.get("dossiers", []):
-        outcomes += await finished(state, dossier_id)
+    return {"outcomes": [found], "finishing": found.get("dossiers", []), "finish_options": {}}
+
+
+async def finish(state: Run):
+    """Each dossier's onboarding finished (finish_setup): those it finished have their state said next."""
+    outcomes, done = [], []
+    for dossier_id in state.get("finishing", []):
+        result = await run_step(state, "finish_setup", dossier_id=dossier_id, **state.get("finish_options", {}))
+        outcomes.append(result)
+        if result.get("status") == "ok":
+            done.append(dossier_id)
+    return {"outcomes": outcomes, "finished": done}
+
+
+def after_finish(state: Run):
+    return "etat" if state.get("finished") else "resume"
+
+
+async def status(state: Run):
+    """Each finished dossier's state (setup_status)."""
+    outcomes = [await run_step(state, "setup_status", dossier_id=d) for d in state.get("finished", [])]
     return {"outcomes": outcomes}
 
 
@@ -332,43 +287,36 @@ for name, node in {
     "debut": start,
     "createur": creator,
     "creation": create,
+    "configuration": configuration,
     "expediteur": sender,
     "modification": update,
     "acces": person,
     "archivage": archive,
     "ecart": difference,
-    "tva": tva,
-    "ras": ras,
-    "delais": delays,
-    "export": export,
+    "fichiers": files,
     "listes": lists,
     "ecritures": entries,
+    "banques": banks,
     "reprise": resume_setups,
+    "finalisation": finish,
+    "etat": status,
     "resume": summary,
 }.items():
     run.add_node(name, node)
 run.add_edge(START, "debut")
 run.add_conditional_edges("debut", by_mode, ["createur", "expediteur", "reprise", "resume"])
-run.add_conditional_edges("createur", after_creator, ["creation", "listes", "resume"])
-run.add_conditional_edges("creation", *ok_or_summary("ecritures"))
+run.add_conditional_edges("createur", after_creator, ["creation", "fichiers", "resume"])
+run.add_conditional_edges("creation", after_create, ["configuration", "fichiers", "resume"])
+run.add_edge("configuration", "fichiers")
 run.add_conditional_edges(
-    "expediteur",
-    after_sender,
-    ["modification", "acces", "archivage", "ecart", "tva", "ras", "delais", "export", "ecritures", "resume"],
+    "expediteur", after_sender, ["modification", "acces", "archivage", "ecart", "fichiers", "resume"]
 )
-for name in (
-    "modification",
-    "acces",
-    "archivage",
-    "ecart",
-    "tva",
-    "ras",
-    "delais",
-    "export",
-    "listes",
-    "ecritures",
-    "reprise",
-):
+run.add_conditional_edges("fichiers", after_files, ["listes", "ecritures", "resume"])
+run.add_conditional_edges("ecritures", after_entries, ["banques", "resume"])
+run.add_edge("banques", "finalisation")
+run.add_edge("reprise", "finalisation")
+run.add_conditional_edges("finalisation", after_finish, ["etat", "resume"])
+for name in ("modification", "acces", "archivage", "ecart", "listes", "etat"):
     run.add_edge(name, "resume")
 run.add_edge("resume", END)
 graph = run.compile(name="Tarik - Dossier")

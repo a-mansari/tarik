@@ -375,7 +375,7 @@ async def declaration_tva(
         "declarer": declarer,
         "client_confirmed": client_confirmed,
     }
-    return await run_workflow("dossier", runtime, inputs)
+    return await run_workflow("declarations", runtime, inputs)
 
 
 @tool("Experio_declaration_ras", description=DESCRIBED_LATER)
@@ -395,7 +395,7 @@ async def declaration_ras(
         "declarer": declarer,
         "client_confirmed": client_confirmed,
     }
-    return await run_workflow("dossier", runtime, inputs)
+    return await run_workflow("declarations", runtime, inputs)
 
 
 @tool("Experio_declaration_delais", description=DESCRIBED_LATER)
@@ -415,7 +415,7 @@ async def declaration_delais(
         "declarer": declarer,
         "client_confirmed": client_confirmed,
     }
-    return await run_workflow("dossier", runtime, inputs)
+    return await run_workflow("declarations", runtime, inputs)
 
 
 @tool("Experio_exporter", description=DESCRIBED_LATER)
@@ -432,7 +432,6 @@ async def exporter(
     client_confirmed: bool = False,
 ) -> str:
     inputs = {
-        "mode": "export",
         "dossier_id": dossier_id,
         "quoi": quoi,
         "periode": periode,
@@ -443,7 +442,7 @@ async def exporter(
         "date_import": date_import,
         "client_confirmed": client_confirmed,
     }
-    return await run_workflow("dossier", runtime, inputs)
+    return await run_workflow("export", runtime, inputs)
 
 
 @tool("Experio_importer_dossiers", description=DESCRIBED_LATER)
