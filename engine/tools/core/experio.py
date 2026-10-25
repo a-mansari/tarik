@@ -358,7 +358,10 @@ def warns(invoice_id, check, context):
 
 
 def experio_refusal(error):
-    """Experio's own message in ``error``: the last line of its traceback, 300 characters at most."""
+    """Experio's own message in ``error``, on one line, 300 characters at most: a JSON-RPC refusal's whole message
+    (it may hold several lines: « ...for the company: \n: DOSSIER »), else the last line of the traceback."""
+    if isinstance(error, ExperioRefusal):
+        return " ".join(str(error).split())[:300]
     return str(error).strip().splitlines()[-1][:300]
 
 

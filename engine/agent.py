@@ -358,6 +358,26 @@ async def solder_ecart(dossier_id: int, facture: str, runtime: ToolRuntime, clie
     )
 
 
+@tool("Experio_declaration_tva", description=DESCRIBED_LATER)
+async def declaration_tva(
+    dossier_id: int,
+    runtime: ToolRuntime,
+    periode: str = "",
+    credit_reporte: str = "",
+    declarer: bool = False,
+    client_confirmed: bool = False,
+) -> str:
+    inputs = {
+        "mode": "tva",
+        "dossier_id": dossier_id,
+        "periode": periode,
+        "credit_reporte": credit_reporte,
+        "declarer": declarer,
+        "client_confirmed": client_confirmed,
+    }
+    return await run_workflow("dossier", runtime, inputs)
+
+
 @tool("Experio_importer_dossiers", description=DESCRIBED_LATER)
 async def importer_dossiers(runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
@@ -411,6 +431,7 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     creer_acces,
     archiver_dossier,
     solder_ecart,
+    declaration_tva,
     importer_dossiers,
     load_skill,
 ]

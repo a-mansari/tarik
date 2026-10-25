@@ -1,7 +1,7 @@
 """Dossier as a graph: a dossier's creation (or a spreadsheet's list of them), by the cabinet's managers and Experio's
-staff only, then its configuration and entries import; or (mode update, person, archive, difference) one change to
-a dossier assigned to the sender (difference: a posted invoice's remainder written off); mode resume finishes the
-dossiers left waiting. No time budget: finish_setup gets seconds_left 0 (no limit)."""
+staff only, then its configuration and entries import; or (mode update, person, archive, difference, tva) one change
+to a dossier assigned to the sender (difference: a posted invoice's remainder written off; tva: its TVA declaration);
+mode resume finishes the dossiers left waiting. No time budget: finish_setup gets seconds_left 0 (no limit)."""
 
 import operator
 from typing import Annotated, TypedDict
@@ -40,6 +40,9 @@ INPUTS = [
     "city",
     "zip",
     "facture",
+    "periode",
+    "credit_reporte",
+    "declarer",
     "attachments",
     "cabinet",
 ]
@@ -64,7 +67,7 @@ def by_mode(state: Run):
     if failed(state):
         return "resume"  # a failed save is recorded and goes no further: the files the run would work on are missing
     mode = call.get("mode")
-    if mode in ("update", "person", "archive", "difference"):
+    if mode in ("update", "person", "archive", "difference", "tva"):
         return "expediteur"
     if mode == "resume":
         return "reprise"
@@ -120,9 +123,13 @@ async def sender(state: Run):
 def after_sender(state: Run):
     if failed(state):
         return "resume"
-    return {"update": "modification", "person": "acces", "archive": "archivage", "difference": "ecart"}.get(
-        state["call"].get("mode"), "ecritures"
-    )
+    return {
+        "update": "modification",
+        "person": "acces",
+        "archive": "archivage",
+        "difference": "ecart",
+        "tva": "tva",
+    }.get(state["call"].get("mode"), "ecritures")
 
 
 async def update(state: Run):
@@ -177,6 +184,21 @@ async def difference(state: Run):
         "settle_difference",
         dossier_id=call["dossier_id"],
         facture=call.get("facture") or "",
+        client_confirmed=call.get("client_confirmed") is True,
+        session_id=call["session_id"],
+    )
+    return {"outcomes": [result]}
+
+
+async def tva(state: Run):
+    call = state["call"]
+    result = await run_step(
+        state,
+        "prepare_tva_declaration",
+        dossier_id=call["dossier_id"],
+        periode=call.get("periode") or "",
+        credit_reporte=str(call.get("credit_reporte") or ""),
+        declarer=call.get("declarer") is True,
         client_confirmed=call.get("client_confirmed") is True,
         session_id=call["session_id"],
     )
@@ -254,6 +276,7 @@ for name, node in {
     "acces": person,
     "archivage": archive,
     "ecart": difference,
+    "tva": tva,
     "listes": lists,
     "ecritures": entries,
     "reprise": resume_setups,
@@ -265,9 +288,9 @@ run.add_conditional_edges("debut", by_mode, ["createur", "expediteur", "reprise"
 run.add_conditional_edges("createur", after_creator, ["creation", "listes", "resume"])
 run.add_conditional_edges("creation", *ok_or_summary("ecritures"))
 run.add_conditional_edges(
-    "expediteur", after_sender, ["modification", "acces", "archivage", "ecart", "ecritures", "resume"]
+    "expediteur", after_sender, ["modification", "acces", "archivage", "ecart", "tva", "ecritures", "resume"]
 )
-for name in ("modification", "acces", "archivage", "ecart", "listes", "ecritures", "reprise"):
+for name in ("modification", "acces", "archivage", "ecart", "tva", "listes", "ecritures", "reprise"):
     run.add_edge(name, "resume")
 run.add_edge("resume", END)
 graph = run.compile(name="Tarik - Dossier")
