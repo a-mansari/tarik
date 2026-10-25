@@ -88,6 +88,14 @@ a bank statement, tiers neither company nor person), and its XML made, which run
 RAS" declares them after you confirm; Tarik warns that Experio refuses IR once IS is declared for the period (and the
 reverse). The DGI deposit stays yours.
 
+**Payment delays declaration (loi 69-21)** ("préparez les délais de paiement du T3", "la déclaration des délais
+2025"): for a dossier that follows payment delays in Experio, quarterly or yearly as the dossier is set. Made or taken
+up and refreshed by Experio (never over lines added by hand), the turnover asked when Experio has none (it decides the
+declaration the law requires). Tarik gives the lines, suppliers, amounts not yet paid and paid late and the fine, and
+says what Experio would refuse (the mode the law requires for that turnover, suppliers without IF, a period declared or
+still running) and what it leaves out (purchases it doesn't follow for delays, blocked ones); the XML runs Experio's own
+checks. "déclarez les délais de paiement" declares it after you confirm; the DGI deposit stays yours.
+
 **Write off a payment difference**: what is left owing on a posted invoice ("soldez la facture FV-12"), passed to
 the dossier's 6585 account with Experio's own tool, after you confirm the amount and the account.
 

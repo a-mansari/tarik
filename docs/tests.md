@@ -451,6 +451,16 @@ Covers where a message goes: answer, files, or both, decided by the database.
 - `test_a_facturation_draft_starts_at_the_dossiers_settings_never_at_the_reading` [functionality]: a Facturation draft enters at configure_cabinet.
 - `test_every_argument_the_agent_gives_the_dossier_tools_reaches_the_workflow` [technical]: the dossier tools' arguments (Experio_solder_ecart's facture too) reach the workflow.
 
+### tests/declarations/test_payment_delay_declaration.py
+Covers the payment delays declaration: its period, its turnover, lines by Experio, refusals and gaps told.
+- `test_a_yearly_dossier_declares_the_year_before` [functionality]: the year before, or the quarter named.
+- `test_a_dossier_without_payment_delays_declares_none` [functionality]: Experio's setting off, nothing to declare.
+- `test_the_turnover_is_asked_when_experio_has_none_then_written` [functionality]: asked, then written on the declaration.
+- `test_the_lines_totals_and_xml_are_given` [functionality]: lines, suppliers, amounts, fine; XML; never declared.
+- `test_what_experio_refuses_and_leaves_out_is_told` [communication]: law 69-21 mode, suppliers without IF, untracked and blocked purchases.
+- `test_lines_added_by_hand_are_never_refreshed_away` [functionality]: Experio's refresh would delete them.
+- `test_declaring_asks_first_then_declares_on_the_clients_yes` [security]: « Je le fais ? » first, then Experio's « Déclarer ».
+
 ### tests/declarations/test_ras_declaration.py
 Covers the withholding declarations: which, their period, lines as Experio makes them, refusals and gaps told.
 - `test_the_declarations_are_those_named_else_those_the_dossier_files` [functionality]: named, else the dossier's RAS flags.
