@@ -509,3 +509,15 @@ select data from tarik_files where session_id = %s and file_name = %s
 -- The conversation's statement files (one row per file without outcome), each with its statement outcomes in order.
 select f.id, f.statement_id, f.tpe_type, r.step, r.status from tarik_files f left join tarik_results r on r.file_id = f.id
 where f.session_id = %s and f.statement_id is not null order by f.id, r.id
+
+-- name: insert_outbox
+-- A file Tarik made for the conversation, kept until its reply carries it.
+insert into tarik_outbox (session_id, file_name, mime_type, data) values (%s, %s, %s, %s)
+
+-- name: outbox_unsent
+-- The conversation's files not sent by email yet, in the order made.
+select id, file_name, mime_type, data from tarik_outbox where session_id = %s and sent_at is null order by id
+
+-- name: mark_outbox_sent
+-- Files sent with Tarik's email reply.
+update tarik_outbox set sent_at = now() where id = any(%s)

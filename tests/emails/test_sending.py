@@ -167,3 +167,14 @@ def test_numbered_questions_stay_numbered(monkeypatch):
     text, page = render("**Questions**\n1. Facture 12 : TVA ? oui / non\n2. Facture 13 : quel compte ?\n- autre")
     assert "1. Facture 12 : TVA ? oui / non\n2. Facture 13 : quel compte ?" in text and "- autre" in text
     assert "<ol" in page and "<li>Facture 13 : quel compte ?</li></ol>" in page
+
+
+@pytest.mark.functionality
+def test_the_files_tarik_made_go_with_the_email(monkeypatch):
+    monkeypatch.setattr(sending, "cabinet_name", lambda: "")
+    monkeypatch.setattr(sending, "setting", lambda name, default="": default)
+    files = [("FEC_TARIK_TEST_2026.txt", "text/plain", b"Code_Journal;Libelle")]
+    message = sending.compose("tarik@cabinet.ma", ["chef@cabinet.ma"], "Re: Export", "Voici l'export.", "", "", files)
+    attached = list(message.iter_attachments())
+    assert [part.get_filename() for part in attached] == ["FEC_TARIK_TEST_2026.txt"]
+    assert attached[0].get_content() == "Code_Journal;Libelle"

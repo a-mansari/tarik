@@ -327,6 +327,8 @@ table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 
 a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none; border-radius: 6px; padding: 0 .9rem; background: var(--accent); color: var(--on-accent); }
 .talk .files { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .9rem; color: var(--muted); }
 .talk .files li { border: 0; padding: 0; }
+.made { margin-top: 1rem; }
+.made h3 { font-size: .95rem; margin: 0 0 .3rem; }
 .chat-form { display: grid; gap: .5rem; margin-top: 1rem; }
 .chat-form textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; resize: vertical; width: 100%; box-sizing: border-box; }
 .chat-actions { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; justify-content: space-between; }

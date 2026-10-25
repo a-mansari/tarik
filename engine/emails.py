@@ -140,6 +140,7 @@ async def send(state: Thread):
             body=state["reply"] + left_out(thread.get("skipped")),  # what a zip of theirs left out: always said
             in_reply_to=thread["in_reply_to"],
             references=thread["references"],
+            attach_session=thread.get("session_id") or "",  # the files Tarik made in the run (an export)
         )
     except Exception as error:
         return {"error": failure_text(error)}

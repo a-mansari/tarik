@@ -242,6 +242,7 @@ Covers incoming emails: the client's words, attachments, auto-replies.
 Covers outbound emails: the whitelist, the template, and IMAP plumbing.
 - `test_the_whitelist` [security]: the allowed-recipients whitelist matching rules hold.
 - `test_an_email_outside_the_whitelist_is_refused_before_smtp` [security]: a non-whitelisted recipient is refused before any SMTP call.
+- `test_the_files_tarik_made_go_with_the_email` [functionality]: an export Tarik made goes as an attachment.
 - `test_the_template` [communication]: the email template has no raw Markdown or HTML and one signature.
 - `test_an_email_is_dated_and_threaded` [communication]: outgoing mail carries a Date and threading headers.
 - `test_ordinary_underscores_and_stars_stay` [communication]: normal underscores and asterisks are not stripped as Markdown.
@@ -450,6 +451,15 @@ Covers where a message goes: answer, files, or both, decided by the database.
 - `test_asked_to_post_the_drafts_are_posted_whatever_question_waits` [functionality]: a post request is honoured even with questions waiting.
 - `test_a_facturation_draft_starts_at_the_dossiers_settings_never_at_the_reading` [functionality]: a Facturation draft enters at configure_cabinet.
 - `test_every_argument_the_agent_gives_the_dossier_tools_reaches_the_workflow` [technical]: the dossier tools' arguments (Experio_solder_ecart's facture too) reach the workflow.
+
+### tests/dossiers/test_export.py
+Covers the export: Experio's own export, period and format, analysis unless an integration is confirmed, totals, file.
+- `test_the_period_named_becomes_dates` [functionality]: T3, a month (leap year), a year, « du ... au ... ».
+- `test_an_analysis_export_gives_its_totals_and_keeps_its_file` [functionality]: model named, all journals, totals, file kept.
+- `test_a_text_export_takes_the_separator_named` [functionality]: text with « ; », a ZIP.
+- `test_an_integration_locks_only_once_confirmed` [security]: asked first, then Experio's « Intégration ».
+- `test_tiers_without_their_account_are_asked_then_exported_anyway` [communication]: Experio's warning asked, then its « Exporter quand même ».
+- `test_experios_refusal_is_said_in_its_words` [functionality]: no partner model, Experio's words.
 
 ### tests/declarations/test_payment_delay_declaration.py
 Covers the payment delays declaration: its period, its turnover, lines by Experio, refusals and gaps told.

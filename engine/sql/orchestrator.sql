@@ -233,6 +233,14 @@ union select session_id from {held} where session_id = any(%s) and not released
 select file_name, mime_type, data from {files} where session_id = %s and file_name = %s and parent_id is null
 order by id limit 1
 
+-- name: chat_outbox_file
+-- A file Tarik made for a conversation (an export), the latest of that name.
+select file_name, mime_type, data from {outbox} where session_id = %s and file_name = %s order by id desc limit 1
+
+-- name: chat_outbox_names
+-- The files Tarik made for a conversation, each name once, in the order made.
+select file_name from {outbox} where session_id = %s group by file_name order by min(id)
+
 -- === A cabinet's settings, changed from the Cabinets page (server/cabinet_settings.py) ===
 
 -- name: settings_changed
