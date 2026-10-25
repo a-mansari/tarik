@@ -3,7 +3,7 @@
 # ruff: noqa: F401 -- imported for their tools only
 
 from engine.tools.core import experio
-from engine.tools.declarations import ras
+from engine.tools.declarations import payment_delay, ras
 from engine.tools.declarations import tva as tva_declaration
 from engine.tools.dossiers import identity, management, people, search, setup
 from engine.tools.emails import inbox, sending
