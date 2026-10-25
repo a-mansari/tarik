@@ -34,6 +34,8 @@ alter table tarik_files add column if not exists regularity_id integer;
 -- The same invoice file sent again (another email, the same zip twice): the draft already made from it, none made.
 alter table tarik_files add column if not exists twin_of integer;
 create index if not exists tarik_files_invoice_content on tarik_files (content_md5) where invoice_id is not null;
+-- A TPE statement (exp.monetary.statement, not a bank statement): statement_id is one, of this network (cmi, naps...).
+alter table tarik_files add column if not exists tpe_type text;
 
 -- What check_invoice read on each scan, against what Experio captured. The correction step reads it back.
 create table if not exists tarik_checks (

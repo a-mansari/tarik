@@ -466,6 +466,20 @@ Covers a bank statement after its import: Experio's reading checked, pointed by 
 - `test_a_template_row_becomes_a_line_experio_resolves_by_its_names` [functionality]: Excel rows created with Experio's import fields.
 - `test_a_template_experio_refuses_leaves_no_empty_statement` [security]: a refused Excel import leaves no empty statement.
 - `test_a_statement_without_balances_is_said_so_never_called_incomplete` [communication]: no balances, said so.
+- `test_tpe_remittances_are_tied_to_their_tpe_statement_when_experio_is_sure` [functionality]: Experio's sure TPE matches only.
+
+### tests/invoices/test_tpe.py
+Covers a TPE statement: its network read, Experio's TPE import, Experio's operations on its lines, its sales' client.
+- `test_a_tpe_statement_and_its_network_are_read_on_its_header` [functionality]: header read; a bank statement's TPE line is not one; CMI as a card brand gives way.
+- `test_a_scan_is_a_tpe_statement_by_the_clients_words` [functionality]: a scan by the client's words, its network asked when unsaid.
+- `test_the_network_asked_is_answered_by_its_number` [functionality]: the network question's answer, never a bank account's.
+- `test_each_line_gets_the_operation_of_experios_own_suffix` [functionality]: TOTAL REMISE, COMMISSION HT / TVA, NET REMISE, STAN lines.
+- `test_a_missing_operation_is_made_as_experio_makes_it` [functionality]: FRAIS BANCAIRES made with its account, tax and tax code.
+- `test_sales_without_client_are_asked_once_for_the_statement` [communication]: one question for the statement's sales.
+- `test_the_client_named_gets_the_sales_and_its_own_sale_operation` [functionality]: the client's own VENTE; totals said.
+- `test_posting_confirms_experios_network_change_warning` [functionality]: Experio's journal/network warning confirmed.
+- `test_a_duplicate_statement_stops` [security]: Experio's duplicate refusal stops.
+- `test_the_import_sends_the_network_as_experios_screen_does` [functionality]: the network sent as the document's type.
 
 ### tests/invoices/test_summary.py
 Covers the run summary (db_cabinet, uses tests/runs.py).

@@ -475,6 +475,9 @@ def resume_at(state: Run):
         # The drafts taken up again leave the corrected ones to their own branch: never one invoice twice in a run.
         skipped = {**state, "call": {**state["call"], "skip_invoices": sorted(corrections)}}
         return [*fixes, Send("brouillons", skipped)]
+    if following == "settle_statement":  # a TPE statement given its sales' client: its pointing goes on
+        payload = {"call": call, "run_id": state["run_id"], "entry": "statement", "file_id": last["file_id"]}
+        return Send("fichier", {**payload, "outcomes": []})
     if following == "identify_document":  # the client said what the file is: it starts over from there
         call = {**state["call"], "dossier_id": last["dossier_id"], "invoice_type": last.get("invoice_type") or ""}
         return Send("fichier", {"call": call, "run_id": state["run_id"], "file_id": last["file_id"], "outcomes": []})

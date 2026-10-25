@@ -76,14 +76,14 @@ update tarik_files set invoice_id = %s where id = %s
 select pg_advisory_xact_lock(hashtext(md5(%s)))
 
 -- name: statement_of_same_content
--- The bank statement already imported into the dossier from a file of the very same content, another file.
-select f.statement_id from tarik_files f join tarik_results r on r.file_id = f.id
+-- The statement (bank or TPE) already imported into the dossier from a file of the very same content, another file.
+select f.statement_id, f.tpe_type from tarik_files f join tarik_results r on r.file_id = f.id
 where f.statement_id is not null and f.content_md5 = md5(%s) and r.step = 'import_bank_statement'
 and r.status = 'ok' and r.dossier_id = %s and f.id <> %s order by f.id limit 1
 
 -- name: set_file_statement
--- The bank statement imported from a file: a second call must not import it again.
-update tarik_files set statement_id = %s where id = %s
+-- The statement imported from a file (a TPE statement: its network): a second call must not import it again.
+update tarik_files set statement_id = %s, tpe_type = %s where id = %s
 
 -- name: last_question_of_session
 -- === engine/tools/dossiers/identity.py ===
@@ -163,6 +163,16 @@ select file_id, dossier_id, message, file_name, choices from (select distinct on
 r.dossier_id, r.status, r.message, r.choices, f.file_name from tarik_results r join tarik_files f
 on f.id = r.file_id
 where r.session_id = %s and r.step = 'import_bank_statement' and f.statement_id is null and f.kind = 'statement'
+order by r.file_id, r.id desc) latest where status = 'question'
+
+-- name: tpe_clients_asked
+-- Each TPE statement of a conversation whose last pointing asked the client of its card sales.
+-- Its dossier: its import's.
+select file_id, dossier_id, message, file_name from (select distinct on (r.file_id) r.file_id, r.status, r.message,
+f.file_name, (select i.dossier_id from tarik_results i where i.file_id = r.file_id and i.step = 'import_bank_statement'
+and i.dossier_id is not null order by i.id desc limit 1) dossier_id
+from tarik_results r join tarik_files f on f.id = r.file_id
+where r.session_id = %s and r.step = 'settle_statement' and f.tpe_type is not null
 order by r.file_id, r.id desc) latest where status = 'question'
 
 -- name: banks_asked
@@ -458,8 +468,9 @@ select invoice_id from tarik_files where invoice_id is not null and content_md5 
 update tarik_files set twin_of = %s where id = %s
 
 -- name: run_worked_on_invoices
--- Whether this run already recorded an outcome on an invoice.
-select 1 from tarik_results where run_id = %s and invoice_id is not null limit 1
+-- Whether this run already recorded an outcome on an invoice or a statement's pointing or posting.
+select 1 from tarik_results where run_id = %s
+and (invoice_id is not null or step in ('settle_statement', 'post_statement')) limit 1
 
 -- name: folder_files_of_session
 -- The conversation's files for an import folder: not taken by any step yet, not cut parts, not entries, in order.
@@ -477,8 +488,8 @@ update tarik_files set kind = 'folder', folder_id = %s where id = %s
 select folder_id from tarik_files where folder_id is not null and content_md5 = md5(%s) and id <> %s order by id desc
 
 -- name: statement_of_file
--- The bank statement imported from a file.
-select statement_id from tarik_files where id = %s and statement_id is not null
+-- The statement imported from a file, and its TPE network (null for a bank statement).
+select statement_id, tpe_type from tarik_files where id = %s and statement_id is not null
 
 -- name: other_statement_files
 -- The conversation's other statement files not imported yet, in the order sent: one statement split in several files.
@@ -496,5 +507,5 @@ select data from tarik_files where session_id = %s and file_name = %s
 
 -- name: statement_outcomes_of_session
 -- The conversation's statement files (one row per file without outcome), each with its statement outcomes in order.
-select f.id, f.statement_id, r.step, r.status from tarik_files f left join tarik_results r on r.file_id = f.id
+select f.id, f.statement_id, f.tpe_type, r.step, r.status from tarik_files f left join tarik_results r on r.file_id = f.id
 where f.session_id = %s and f.statement_id is not null order by f.id, r.id

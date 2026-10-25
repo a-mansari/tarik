@@ -90,7 +90,7 @@ def experio(monkeypatch):
     monkeypatch.setattr(statement, "odoo_call", odoo_call)
     monkeypatch.setattr(statement, "odoo_json", odoo_json)
     monkeypatch.setattr(statement, "dry_run", lambda: False)
-    monkeypatch.setattr(statement, "statement_of", lambda file_id: 40)
+    monkeypatch.setattr(statement, "statement_of", lambda file_id: (40, None))
     return state
 
 
@@ -216,3 +216,35 @@ def test_a_statement_without_balances_is_said_so_never_called_incomplete(experio
     experio["statement"].update(balance_start=0.0, balance_end_real=0.0, is_complete=False, balance_end=-2216.37)
     message = statement.settle_statement(8)["message"]
     assert "ne donne pas ses soldes" in message and "une opération manque" not in message
+
+
+@pytest.mark.functionality
+def test_tpe_remittances_are_tied_to_their_tpe_statement_when_experio_is_sure(monkeypatch):
+    written = []
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "ir.module.module":
+            return 1  # tpe_reconcile installed
+        if model == statement.LINE and method == "read":
+            return [
+                {"id": 1, "operation_type": "monetary_operations", "tpe_line_id": False},
+                {"id": 2, "operation_type": "monetary_operations", "tpe_line_id": False},
+                {"id": 3, "operation_type": "purchase", "tpe_line_id": False},
+            ]
+        if model == statement.LINE and method == "write":
+            written.append((args[0], args[1]))
+            return True
+        if model == "tpe.auto.reconcile.wizard":
+            return [{"line_ids": [10, 11]}]
+        if model == "tpe.auto.reconcile.wizard.line":
+            return [
+                {"line_id": [1, "x"], "tpe_line_id": [644, "y"], "state": "matched"},
+                {"line_id": [2, "x"], "tpe_line_id": [640, "y"], "state": "ambiguous"},
+            ]
+        return []
+
+    monkeypatch.setattr(statement, "odoo_call", odoo_call)
+    monkeypatch.setattr(statement, "odoo_json", lambda model, method, ids, **kw: {"res_id": 5})
+    monkeypatch.setattr(statement, "dry_run", lambda: False)
+    assert statement.tie_tpe({"line_ids": [1, 2, 3]}, {}) == (1, 1)
+    assert written == [([1], {"tpe_line_id": 644})]  # Experio's sure match only; the ambiguous one left to the cabinet
