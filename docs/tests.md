@@ -451,6 +451,19 @@ Covers where a message goes: answer, files, or both, decided by the database.
 - `test_a_facturation_draft_starts_at_the_dossiers_settings_never_at_the_reading` [functionality]: a Facturation draft enters at configure_cabinet.
 - `test_every_argument_the_agent_gives_the_dossier_tools_reaches_the_workflow` [technical]: the dossier tools' arguments (Experio_solder_ecart's facture too) reach the workflow.
 
+### tests/declarations/test_ras_declaration.py
+Covers the withholding declarations: which, their period, lines as Experio makes them, refusals and gaps told.
+- `test_the_declarations_are_those_named_else_those_the_dossier_files` [functionality]: named, else the dossier's RAS flags.
+- `test_the_period_is_monthly_unless_a_quarter_is_named` [functionality]: monthly, quarterly on a quarter, the year before for the yearly one.
+- `test_ras_tva_lines_are_written_as_experios_form_computes_them` [functionality]: Experio's computation written; totals; XML; never declared.
+- `test_a_declaration_with_lines_added_by_hand_is_not_refreshed` [functionality]: Experio's refresh would delete them.
+- `test_what_experios_declare_would_refuse_is_said_first` [functionality]: period not ended, tiers without ICE/IF, activity type.
+- `test_ir_refused_because_is_is_declared_is_explained` [communication]: Experio's IS/IR double check explained.
+- `test_withholdings_experio_leaves_out_are_told` [communication]: bank-statement withholdings, tiers neither company nor person.
+- `test_experios_xml_refusal_stops` [functionality]: Experio's XML checks refuse, stopped.
+- `test_declaring_asks_first_and_warns_that_is_blocks_ir` [security]: « Je le fais ? » first, IS/IR warning, then declared.
+- `test_a_dossier_filing_no_ras_is_asked_which` [functionality]: no RAS flag and none named, asked which.
+
 ### tests/declarations/test_tva_declaration.py
 Covers a TVA declaration: its period, made and refreshed by Experio, what it leaves out, declared only on confirmation.
 - `test_the_last_period_ended_is_experios_own_pick` [functionality, param]: the month or quarter before, January's year before.
