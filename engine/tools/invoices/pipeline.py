@@ -23,6 +23,7 @@ from engine.tools.invoices.classify import client_side
 from engine.tools.invoices.exercice import settle_exercice
 from engine.tools.invoices.intake import client_kind, file_named, import_bank_statement, set_kind
 from engine.tools.invoices.prepaid import settle_prepaid
+from engine.tools.invoices.statement import is_canvas
 from engine.tools.invoices.tiers import choose_tiers
 from engine.tools.invoices.tva import settle_tva
 from engine.tools.invoices.warnings import answer_warnings
@@ -49,6 +50,8 @@ STEPS = {
     "create_import_folder": "dossier d'import",
     "identify_document": "identification",
     "import_bank_statement": "relevé bancaire",
+    "settle_statement": "pointage du relevé",
+    "post_statement": "comptabilisation du relevé",
     "split_invoices": "découpage",
     "create_draft_invoice": "brouillon",
     "wait_until_read": "lecture par Experio",
@@ -558,7 +561,7 @@ def new_files(session_id):
     """How many files (int) came in this conversation since its last run, for the processing sequence."""
     with cabinet_db() as db:
         names = [name for (name,) in db.execute(Q.new_files_of_session, (session_id, session_id))]
-    return sum(not name.lower().endswith(ENTRY_FILES) for name in names)
+    return sum(not name.lower().endswith(ENTRY_FILES) or canvas_file_named(session_id, name) for name in names)
 
 
 def awaiting_split(session_id):
@@ -730,6 +733,22 @@ def save_files(session_id: str = "", files: list | None = None) -> dict:
     return ok(f"{len(saved)} fichier(s) enregistre(s).{left}", files=saved)
 
 
+def is_entries(file_id, name):
+    """True when file ``name`` is a dossier's entries (FEC, grand livre) for the dossier workflow: a spreadsheet or
+    text file, never Experio's Excel statement template (a statement, for this workflow)."""
+    if not name.lower().endswith(ENTRY_FILES):
+        return False
+    with cabinet_db() as db:
+        row = db.execute(Q.file_data, (file_id,)).fetchone()
+    return not (row and is_canvas(name, row[0]))
+
+
+def canvas_file_named(session_id, name):
+    with cabinet_db() as db:
+        rows = db.execute(Q.files_named, (session_id, name)).fetchall()
+    return any(is_canvas(name, data) for (data,) in rows)
+
+
 @tool
 def files_to_process(session_id: str, entries: bool = False, asked: bool = False) -> dict:
     """The conversation's files not processed yet: its invoices and statements, or with
@@ -741,7 +760,7 @@ def files_to_process(session_id: str, entries: bool = False, asked: bool = False
             Q.files_to_process,
             (session_id,),
         ).fetchall()
-    own = [i for i, name in rows if name.lower().endswith(ENTRY_FILES) == entries]
+    own = [i for i, name in rows if is_entries(i, name) == entries]
     if asked and not own:
         return ok(NO_FILE, files=[], tell=True)
     return ok(f"{len(own)} fichier(s) a traiter.", files=own)
@@ -872,8 +891,15 @@ def waiting_drafts(
         return ok(
             f"{len(waiting)} facture(s) a reprendre.", invoices=waiting, corrections=corrections, facturation=billed
         )
-    if billed:
-        return ok(f"{len(waiting) + len(billed)} facture(s) a reprendre.", invoices=waiting, facturation=billed)
+    statements = statements_to_resume(session_id, held)
+    if billed or statements:
+        count = len(waiting) + len(billed)
+        return ok(
+            f"{count} facture(s) et {len(statements)} relevé(s) a reprendre.",
+            invoices=waiting,
+            facturation=billed,
+            statements=statements,
+        )
     hint = elsewhere_hint(elsewhere_left, client_message, held) if not waiting else ""
     if held and not waiting:
         if run_id and worked_on(run_id):  # this run's other branch took them (« comptabilisez » goes both ways)
@@ -882,6 +908,27 @@ def waiting_drafts(
     if hint:
         return ok("Rien à reprendre dans cette conversation." + hint, invoices=[], tell=True)
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
+
+
+def statements_to_resume(session_id, held):
+    """The conversation's statement files to take up again: Experio was still reading one (its pointing waited), or
+    the client now asks to post and it is not posted yet."""
+    with cabinet_db() as db:
+        rows = db.execute(Q.statement_outcomes_of_session, (session_id,)).fetchall()
+    latest, statements, seen = {}, {}, set()
+    for file_id, statement_id, step, status in rows:
+        if statement_id in seen and file_id not in statements:
+            continue  # merged with an earlier file of the conversation: that one stands for the statement
+        seen.add(statement_id)
+        statements[file_id] = statement_id
+        if step in ("settle_statement", "post_statement"):
+            latest[file_id] = status
+    waiting = [f for f, status in latest.items() if status == "wait"]
+    if held and statements:
+        domain = [("id", "in", sorted(set(statements.values()))), ("state", "not in", ["post", "export", "cancel"])]
+        open_ids = set(odoo_call("exp.bank.statement", "search", domain))
+        waiting += [f for f, statement_id in statements.items() if statement_id in open_ids and f not in waiting]
+    return sorted(waiting)
 
 
 def transit_last(ids):

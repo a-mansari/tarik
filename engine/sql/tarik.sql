@@ -475,3 +475,26 @@ update tarik_files set kind = 'folder', folder_id = %s where id = %s
 -- name: folder_of_same_content
 -- The import folders already made from a file of the very same content, another file, newest first.
 select folder_id from tarik_files where folder_id is not null and content_md5 = md5(%s) and id <> %s order by id desc
+
+-- name: statement_of_file
+-- The bank statement imported from a file.
+select statement_id from tarik_files where id = %s and statement_id is not null
+
+-- name: other_statement_files
+-- The conversation's other statement files not imported yet, in the order sent: one statement split in several files.
+select f.id, f.file_name, f.mime_type, f.data from tarik_files f
+where f.session_id = (select session_id from tarik_files where id = %s) and f.id <> %s and f.kind = 'statement'
+and f.statement_id is null order by f.id
+
+-- name: file_data
+-- A file's content.
+select data from tarik_files where id = %s
+
+-- name: files_named
+-- The content of the conversation's files of that name.
+select data from tarik_files where session_id = %s and file_name = %s
+
+-- name: statement_outcomes_of_session
+-- The conversation's statement files (one row per file without outcome), each with its statement outcomes in order.
+select f.id, f.statement_id, r.step, r.status from tarik_files f left join tarik_results r on r.file_id = f.id
+where f.session_id = %s and f.statement_id is not null order by f.id, r.id
