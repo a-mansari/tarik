@@ -75,7 +75,8 @@ matching is sure (module « Rapprochement TPE » installed).
 period you name (else the last one ended for the dossier's mode): made or taken up, refreshed by Experio, the TVA
 credit carried asked on the dossier's first declaration in Experio. It says what the declaration leaves out (drafts of
 the period, blocked invoices, unpaid purchases, bank operations in suspense or without tiers), the lines in error and
-what Experio refuses, and makes its XML file on the declaration when Experio's checks pass. "déclarez la TVA" declares
+what Experio refuses, and makes its XML file when Experio's checks pass, attached to Tarik's reply (in the chat: « Fichiers préparés
+par Tarik »). "déclarez la TVA" declares
 it in Experio (TVA writings, period locked) after you confirm; the deposit on the DGI portal stays yours, and Tarik
 never cancels a declaration.
 
