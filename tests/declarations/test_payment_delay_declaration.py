@@ -74,6 +74,13 @@ def experio(monkeypatch):
     monkeypatch.setattr(delay, "odoo_call", odoo_call)
     monkeypatch.setattr(delay, "odoo_json", odoo_json)
     monkeypatch.setattr(delay, "dry_run", lambda: False)
+    monkeypatch.setattr(
+        delay,
+        "keep_record_file",
+        lambda session, model, record, field, name_field, context: (
+            state.setdefault("kept", []).append((session, model, field)) or "Delais.zip"
+        ),
+    )
     monkeypatch.setattr(delay, "require_dossier", lambda dossier_id: "TARIK TEST")
     monkeypatch.setattr(delay, "find_period", lambda mode, number: {"id": 3, "name": "Trimestre 3"})
     monkeypatch.setattr(delay, "date", type("D", (), {"today": staticmethod(lambda: date(2026, 10, 25))}))
