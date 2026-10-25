@@ -30,6 +30,7 @@ from engine.tools.core.experio import (
     refused,
     require_dossier,
 )
+from engine.tools.core.outbox import keep_record_file
 from engine.tools.core.words import as_number, normalized
 from engine.tools.declarations.tva import find_period, last_ended, period_named
 
@@ -195,7 +196,8 @@ def prepare_payment_delay_declaration(
                 return stop(
                     f"{text} Experio refuse son fichier XML : {experio_refusal(error)}", declaration_id=table_id
                 )
-            text += " Fichier XML prêt sur la déclaration."
+            name = keep_record_file(session_id, TABLE, table_id, "datas", "datas_fname", context)
+            text += f" Fichier XML `{name}` joint à cette réponse." if name else " Fichier XML prêt sur la déclaration."
         if not declarer:
             return ok(
                 text + " Écrivez « déclarez les délais de paiement » pour la déclarer dans Experio.",

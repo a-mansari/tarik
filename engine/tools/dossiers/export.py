@@ -19,7 +19,6 @@ import re
 from urllib.parse import unquote
 
 from engine.tools.core.app import ToolError, ok, question, step_tool, stop
-from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import (
     ExperioRefusal,
@@ -31,7 +30,7 @@ from engine.tools.core.experio import (
     refused,
     require_dossier,
 )
-from engine.tools.core.queries import Q
+from engine.tools.core.outbox import keep_file
 from engine.tools.core.words import normalized
 from engine.tools.declarations.tva import MONTHS
 
@@ -39,8 +38,6 @@ WIZARD = "exp.export.wizard"
 TIERS_WIZARD = "exp.export.missing.tiers.wizard"
 KINDS = {"journal": "écritures par journal", "partner": "tiers", "fec": "FEC"}
 SEPARATORS = {"virgule": ",", "point virgule": ";", "tabulation": "\t", ";": ";", ",": ","}
-MIMES = {"xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "zip": "application/zip"}
-MIMES["txt"] = "text/plain"
 
 
 def dates_named(words):
@@ -105,13 +102,6 @@ def counted(kind, wizard_id, context):
         return ""
     entries, count, debit, credit = summary(selected_lines(wizard_id, context), context)
     return f" : {entries} écriture(s), {count} ligne(s), débit {debit:.2f}, crédit {credit:.2f}"
-
-
-def keep_file(session_id, name, data):
-    """The export file kept in the conversation's outbox, sent with Tarik's reply."""
-    mime = MIMES.get(name.rsplit(".", 1)[-1].lower(), "application/octet-stream")
-    with cabinet_db() as db:
-        db.execute(Q.insert_outbox, (session_id, name, mime, data))
 
 
 @step_tool

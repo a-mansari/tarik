@@ -112,6 +112,13 @@ def experio(monkeypatch):
     monkeypatch.setattr(tva, "odoo_call", odoo_call)
     monkeypatch.setattr(tva, "odoo_json", odoo_json)
     monkeypatch.setattr(tva, "dry_run", lambda: False)
+    monkeypatch.setattr(
+        tva,
+        "keep_record_file",
+        lambda session, model, record, field, name_field, context: (
+            state.setdefault("kept", []).append((session, model, field)) or "Releve_Deductions_Trimestre 3_2026.zip"
+        ),
+    )
     monkeypatch.setattr(tva, "require_dossier", lambda dossier_id: "TARIK TEST")
     return state
 
@@ -134,6 +141,7 @@ def test_the_carried_credit_given_is_written_after_experios_refresh(experio):
     assert experio["written"] == [{"tva_en_rouge": 1250.0}]
     assert result["status"] == "ok" and "TVA à payer 1200.00" in result["message"]
     assert "action_print_xml_for_deduction_report" in methods(experio)
+    assert experio["kept"] == [("", tva.TABLE, "datas")] and "joint à cette réponse" in result["message"]
     assert "action_post" not in methods(experio)  # never declared without the client's words
 
 

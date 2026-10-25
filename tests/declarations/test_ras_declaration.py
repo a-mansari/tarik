@@ -86,6 +86,13 @@ def experio(monkeypatch):
     monkeypatch.setattr(ras, "odoo_call", odoo_call)
     monkeypatch.setattr(ras, "odoo_json", odoo_json)
     monkeypatch.setattr(ras, "dry_run", lambda: False)
+    monkeypatch.setattr(
+        ras,
+        "keep_record_file",
+        lambda session, model, record, field, name_field, context: (
+            state.setdefault("kept", []).append((session, model, field)) or "RAS_IS_2026_Septembre.zip"
+        ),
+    )
     monkeypatch.setattr(ras, "find_period", lambda mode, number: {"id": 9, "name": "Septembre"})
     monkeypatch.setattr(ras, "require_dossier", lambda dossier_id: "TARIK TEST")
     monkeypatch.setattr(ras, "date", type("D", (), {"today": staticmethod(lambda: date(2026, 10, 25))}))

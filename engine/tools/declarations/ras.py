@@ -35,6 +35,7 @@ from engine.tools.core.experio import (
     refused,
     require_dossier,
 )
+from engine.tools.core.outbox import keep_record_file
 from engine.tools.core.words import normalized
 from engine.tools.declarations.tva import find_period, last_ended, period_named
 
@@ -246,7 +247,7 @@ def left_out(kind, table, dossier_id, context):
     return said
 
 
-def prepare(kind, dossier_id, words, declarer, client_confirmed, context):
+def prepare(kind, dossier_id, words, declarer, client_confirmed, context, session_id=""):
     """One declaration prepared (and declared when asked and confirmed): (status, text, declaration id)."""
     spec = KINDS[kind]
     mode, number, year = period_of(kind, words, date.today())
@@ -282,7 +283,8 @@ def prepare(kind, dossier_id, words, declarer, client_confirmed, context):
             odoo_json(spec["model"], spec["xml"], [table_id], context=context)
         except ExperioRefusal as error:
             return "stop", f"{text} Experio refuse son fichier XML : {experio_refusal(error)}", table_id
-        text += " Fichier XML prêt sur la déclaration."
+        name = keep_record_file(session_id, spec["model"], table_id, "datas_for_ras", "datas_fname_for_ras", context)
+        text += f" Fichier XML `{name}` joint à cette réponse." if name else " Fichier XML prêt sur la déclaration."
     if not declarer:
         return "ok", text, table_id
     if not client_confirmed:
@@ -329,7 +331,9 @@ def prepare_ras_declaration(
                 f"Le dossier {dossier} ne déclare aucune RAS dans Experio (RAS TVA, IS et IR décochées) : dites "
                 "laquelle préparer (RAS TVA, IS, IR ou non-résidents)."
             )
-        results = [prepare(kind, dossier_id, periode, declarer, client_confirmed, context) for kind in kinds]
+        results = [
+            prepare(kind, dossier_id, periode, declarer, client_confirmed, context, session_id) for kind in kinds
+        ]
     notes = [
         f"(la {KINDS[k]['label']} n'est pas cochée pour ce dossier dans Experio)"
         for k in kinds

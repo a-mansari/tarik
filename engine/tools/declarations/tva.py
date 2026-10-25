@@ -32,6 +32,7 @@ from engine.tools.core.experio import (
     refused,
     require_dossier,
 )
+from engine.tools.core.outbox import keep_record_file
 from engine.tools.core.words import as_number, normalized
 
 TABLE = "exp.deduction.table"
@@ -265,7 +266,8 @@ def prepare_tva_declaration(
             return stop(f"{text} Experio ne la laisse pas déclarer : {refusal}", declaration_id=table_id)
         if not dry_run():
             odoo_json(TABLE, "action_print_xml_for_deduction_report", [table_id], context=context)  # stored on it
-            text += " Le fichier XML est prêt sur la déclaration (Export XML)."
+            name = keep_record_file(session_id, TABLE, table_id, "datas", "datas_fname", context)
+            text += f" Fichier XML `{name}` joint à cette réponse." if name else " Fichier XML prêt sur la déclaration."
         if not declarer:
             return ok(text + " Écrivez « déclarez la TVA » pour la déclarer dans Experio.", declaration_id=table_id)
         return declare(table, label, text, client_confirmed, context)
