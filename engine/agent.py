@@ -378,6 +378,26 @@ async def declaration_tva(
     return await run_workflow("dossier", runtime, inputs)
 
 
+@tool("Experio_declaration_ras", description=DESCRIBED_LATER)
+async def declaration_ras(
+    dossier_id: int,
+    runtime: ToolRuntime,
+    declarations: str = "",
+    periode: str = "",
+    declarer: bool = False,
+    client_confirmed: bool = False,
+) -> str:
+    inputs = {
+        "mode": "ras",
+        "dossier_id": dossier_id,
+        "declarations": declarations,
+        "periode": periode,
+        "declarer": declarer,
+        "client_confirmed": client_confirmed,
+    }
+    return await run_workflow("dossier", runtime, inputs)
+
+
 @tool("Experio_importer_dossiers", description=DESCRIBED_LATER)
 async def importer_dossiers(runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
@@ -432,6 +452,7 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     archiver_dossier,
     solder_ecart,
     declaration_tva,
+    declaration_ras,
     importer_dossiers,
     load_skill,
 ]
