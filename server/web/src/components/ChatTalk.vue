@@ -1,5 +1,6 @@
 <!-- A conversation as n8n's chat shows one: the client's messages with their files, each of Tarik's turns with the
-tools it called (done, failed, or still going) before its reply, and Tarik typing while its run goes on. Words only as
+tools it called (done, failed, or still going) before its reply, and Tarik typing while its run goes on; the files Tarik
+made for it (an export) after. Words only as
 the server's markdown (*_html). Patched in place at each refresh: a tools list left open stays open. -->
 <script setup>
 import { plural } from "../api.js";
@@ -11,6 +12,7 @@ const props = defineProps({
   messages: { type: Array, default: () => [] },
   latest: { type: Object, default: null },
   going: { type: Boolean, default: false },
+  made: { type: Array, default: () => [] },
 });
 
 const fileLink = (name) =>
@@ -70,6 +72,14 @@ const stateWords = { done: "terminé", failed: "en échec" };
         </p>
       </li>
     </ol>
+    <section v-if="made.length" class="talk made" aria-label="Fichiers préparés par Tarik">
+      <h3>Fichiers préparés par Tarik</h3>
+      <ul class="files">
+        <li v-for="name in made" :key="name"><Icon name="file" :size="14" /><span>{{ name }}</span><a
+          class="download" :href="fileLink(name)" download :title="`Télécharger ${name}`"
+          :aria-label="`Télécharger ${name}`"><Icon name="download" :size="14" /></a></li>
+      </ul>
+    </section>
     <p v-if="latest?.status === 'error'" class="bad-text">Le dernier message a échoué : <RouterLink
       :to="runLink()">voir l'exécution</RouterLink>. Renvoyez-le.</p>
   </div>

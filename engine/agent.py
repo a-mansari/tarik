@@ -418,6 +418,34 @@ async def declaration_delais(
     return await run_workflow("dossier", runtime, inputs)
 
 
+@tool("Experio_exporter", description=DESCRIBED_LATER)
+async def exporter(
+    dossier_id: int,
+    runtime: ToolRuntime,
+    quoi: str = "",
+    periode: str = "",
+    modele: str = "",
+    format_fichier: str = "",
+    lettrage: bool = False,
+    integration: bool = False,
+    date_import: bool = False,
+    client_confirmed: bool = False,
+) -> str:
+    inputs = {
+        "mode": "export",
+        "dossier_id": dossier_id,
+        "quoi": quoi,
+        "periode": periode,
+        "modele": modele,
+        "format_fichier": format_fichier,
+        "lettrage": lettrage,
+        "integration": integration,
+        "date_import": date_import,
+        "client_confirmed": client_confirmed,
+    }
+    return await run_workflow("dossier", runtime, inputs)
+
+
 @tool("Experio_importer_dossiers", description=DESCRIBED_LATER)
 async def importer_dossiers(runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
@@ -474,6 +502,7 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     declaration_tva,
     declaration_ras,
     declaration_delais,
+    exporter,
     importer_dossiers,
     load_skill,
 ]

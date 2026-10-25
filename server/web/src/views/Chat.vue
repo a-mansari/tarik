@@ -55,7 +55,7 @@ watch(() => data.value?.going, async (going, was) => {
       </div>
     </div>
     <section class="panel">
-      <ChatTalk :session="data.session_id" :messages="data.messages" :latest="data.latest" :going="data.going" />
+      <ChatTalk :session="data.session_id" :messages="data.messages" :latest="data.latest" :going="data.going" :made="data.made || []" />
       <p v-if="skipped.length" class="bad-text">Fichiers laissés de côté :{{ "\n" + bulleted(skipped) }}</p>
       <ChatForm
         v-if="data.written"
