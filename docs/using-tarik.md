@@ -63,6 +63,14 @@ with Experio's own automatic detection (and the invoice you name for a payment),
 « comptabilisez » posts its ready operations with Experio's validation and lists those left in suspense. A BTI statement
 is refused (Experio does not read them); a duplicate statement Experio flags is left to the cabinet.
 
+**TPE statements** (CMI, NAPS, AL BARID, VPS, ATTIJARI PAYMENT): recognised on their own header and imported
+through Experio's own TPE import, with their network (asked when it can't be read) and the journal of the last TPE
+statement. Tarik creates a missing TPE operation as Experio does, gives each line its operation (VENTE, FRAIS
+BANCAIRES, TAXE BANCAIRE, SOLDE NET REMISE), asks once which client takes the card sales, and gives the total
+remise, commissions, TVA and net remise. « comptabilisez » posts it, confirming Experio's warning that the network
+changed; a duplicate stops. On a bank statement, TPE remittances are tied to their TPE statement when Experio's own
+matching is sure (module « Rapprochement TPE » installed).
+
 **Write off a payment difference**: what is left owing on a posted invoice ("soldez la facture FV-12"), passed to
 the dossier's 6585 account with Experio's own tool, after you confirm the amount and the account.
 
