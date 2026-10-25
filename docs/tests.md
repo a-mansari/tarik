@@ -451,6 +451,22 @@ Covers where a message goes: answer, files, or both, decided by the database.
 - `test_a_facturation_draft_starts_at_the_dossiers_settings_never_at_the_reading` [functionality]: a Facturation draft enters at configure_cabinet.
 - `test_every_argument_the_agent_gives_the_dossier_tools_reaches_the_workflow` [technical]: the dossier tools' arguments (Experio_solder_ecart's facture too) reach the workflow.
 
+### tests/invoices/test_statement.py
+Covers a bank statement after its import: Experio's reading checked, pointed by Experio, posted on demand.
+- `test_experios_excel_template_is_recognised_by_its_columns` [functionality]: Experio's Excel template, never a FEC.
+- `test_a_statement_is_pointed_by_experios_detection_and_its_blocked_lines_said` [functionality]: Auto Point confirmed, blocked lines with Experio's reasons.
+- `test_its_balances_are_said_when_they_do_not_hold` [functionality]: is_complete and is_valid.
+- `test_a_line_the_client_ties_to_an_invoice_by_its_number_gets_it` [functionality]: the invoice the client names, at the exact amount.
+- `test_a_statement_experio_still_reads_waits` [functionality]: waits while Experio reads it (is_detected).
+- `test_posting_takes_the_ready_lines_and_lists_whats_in_suspense` [functionality]: ready lines posted, suspense listed.
+- `test_a_window_or_a_refusal_at_posting_stops_for_the_cabinet` [security]: a duplicate window or a refusal stops.
+- `test_a_statement_is_taken_up_again_while_read_or_when_the_client_asks_to_post` [functionality]: resumed, merged files once.
+- `test_a_bti_statement_is_never_imported` [security]: BTI refused.
+- `test_files_are_one_statement_only_on_the_clients_words` [functionality, param]: merged on the client's words only.
+- `test_a_template_row_becomes_a_line_experio_resolves_by_its_names` [functionality]: Excel rows created with Experio's import fields.
+- `test_a_template_experio_refuses_leaves_no_empty_statement` [security]: a refused Excel import leaves no empty statement.
+- `test_a_statement_without_balances_is_said_so_never_called_incomplete` [communication]: no balances, said so.
+
 ### tests/invoices/test_summary.py
 Covers the run summary (db_cabinet, uses tests/runs.py).
 - `test_the_same_failure_on_two_invoices_names_each_one` [communication]: a shared failure lists each affected invoice number.

@@ -17,6 +17,7 @@ from engine.tools.core.model import pdf_pages, to_pdf
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
 from engine.tools.invoices.classify import classify_pages, client_side
+from engine.tools.invoices.statement import import_canvas, is_canvas
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un relevé bancaire", "other": "ni une facture ni un relevé"}
 # How a client corrects what a file they sent is, in their own words (normalized): it wins over Gladden's and the
@@ -152,6 +153,9 @@ def identify_document(file_id: int, client_message: str = "") -> dict:
             return routine(f"`{name}` : {KIND_LABEL[said_kind]}, comme vous l'avez dit.", kind=said_kind)
         if kind:
             return identified(name, file_id, kind)
+        if is_canvas(name, data):  # Experio's own Excel statement template
+            db.execute(Q.set_file_kind, ("statement", file_id))
+            return identified(name, file_id, "statement")
         if mime != "application/pdf" and not mime.startswith("image/"):
             raise ToolError(f"`{name}` : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
         raw = as_pdf(mime, data)
@@ -347,6 +351,39 @@ def twin_draft(db, file_id, data, dossier_id):
     return found[0] if found else None
 
 
+UNSUPPORTED_BANKS = ("bti",)  # Experio's reading does not take their statements (_compute_is_not_supported)
+# The client's own words that the files are one statement split in several files (normalized): Experio's « Merge ».
+SAME_STATEMENT = re.compile(
+    r"(?<![a-z])(?:meme releve|un seul releve|fusionne[rz]?|a fusionner|le releve en plusieurs)"
+)
+
+
+def bank_code(journal):
+    """The code of the journal's bank (res.bank.code: what Experio's reading picks its model by), "" without one."""
+    if not journal.get("bank_id"):
+        return ""
+    found = odoo_call("res.bank", "search_read", [("id", "=", journal["bank_id"][0])], fields=["code"])
+    return (found[0].get("code") if found else "") or ""
+
+
+def same_statement_files(db, file_id, client_message):
+    """When the client's own words say their files are one statement: the conversation's other statement files not
+    imported yet, in the order sent [(id, name, mime, data)]; else []."""
+    if not SAME_STATEMENT.search(normalized(own_words(client_message))):
+        return []
+    return db.execute(Q.other_statement_files, (file_id, file_id)).fetchall()
+
+
+def merged_pdf(raws):
+    """PDFs ``raws`` as one, their pages in order."""
+    document = pypdfium2.PdfDocument.new()
+    for raw in raws:
+        document.import_pages(pypdfium2.PdfDocument(raw))
+    buffer = io.BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
 def bank_journals(dossier_id):
     """The dossier's bank journals, and those Experio can import into (a journal without its bank is refused):
     two lists of {id, name, bank_id}."""
@@ -450,17 +487,49 @@ def import_bank_statement(file_id: int, dossier_id: int, journal_id: int = 0, cl
         journal = statement_journal(name, dossier, dossier_id, journal_id, client_message)
         if "status" in journal:
             return journal
+        if bank_code(journal) in UNSUPPORTED_BANKS:  # Experio's own list (bank_statement._compute_is_not_supported)
+            return stop(
+                f"`{name}` : Experio ne lit pas encore les relevés de {journal['bank_id'][1]} : rien n'a été importé, "
+                "à saisir par le cabinet (ou en Excel, sur le canevas d'Experio)."
+            )
+        if is_canvas(name, data):  # Experio's Excel template: its own import, into a statement of this journal
+            if dry_run():
+                return ok(f"{TEST_MODE}`{name}` : le relevé Excel serait importé, journal {journal['name']}.")
+            with refused(
+                f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé {name} ({{reason}})."
+            ):
+                statement_id = import_canvas(name, data, dossier_id, journal["id"])
+            db.execute(Q.set_file_statement, (statement_id, file_id))
+            return ok(
+                f"`{name}` : relevé Excel importé (n° {statement_id}) dans le dossier {dossier}, "
+                f"journal {journal['name']}.",
+                statement_id=statement_id,
+            )
+        merged = same_statement_files(db, file_id, client_message)
         if dry_run():
             return ok(
                 f"{TEST_MODE}`{name}` : le relevé serait importé dans le dossier {dossier}, journal {journal['name']}."
             )
         raw = as_pdf(mime, data)
+        if (
+            merged
+        ):  # « le même relevé » in several files: one statement, their pages in the order sent (Experio's Merge)
+            raw = merged_pdf([raw, *(as_pdf(m, d) for _, _, m, d in merged)])
         # Experio's own statement import, as its upload screen uses it: bank code as doctype, Bluejay job.
         with refused(f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé {name}."):
             statement_id = import_pdf(
                 "exp.bank.statement.import", name, raw, dossier_id, invoice_journal_id=journal["id"]
             )
         db.execute(Q.set_file_statement, (statement_id, file_id))
+        for other_id, _, _, _ in merged:
+            db.execute(Q.set_file_statement, (statement_id, other_id))
+        if merged:
+            names = ", ".join(f"`{other}`" for _, other, _, _ in merged)
+            return ok(
+                f"`{name}` et {names} : un seul relevé importé (n° {statement_id}) dans le dossier {dossier}, "
+                f"journal {journal['name']}.",
+                statement_id=statement_id,
+            )
     return ok(
         f"`{name}` : relevé importé (n° {statement_id}) dans le dossier {dossier}, journal {journal['name']}.",
         statement_id=statement_id,
