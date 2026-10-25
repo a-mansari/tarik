@@ -1,7 +1,8 @@
 """Dossier as a graph: a dossier's creation (or a spreadsheet's list of them), by the cabinet's managers and Experio's
-staff only, then its configuration and entries import; or (mode update, person, archive, difference, tva) one change
-to a dossier assigned to the sender (difference: a posted invoice's remainder written off; tva: its TVA declaration);
-mode resume finishes the dossiers left waiting. No time budget: finish_setup gets seconds_left 0 (no limit)."""
+staff only, then its configuration and entries import; or (mode update, person, archive, difference, tva, ras) one
+change to a dossier assigned to the sender (difference: a posted invoice's remainder written off; tva, ras: its TVA
+or withholding declarations); mode resume finishes the dossiers left waiting. No time budget: finish_setup gets
+seconds_left 0 (no limit)."""
 
 import operator
 from typing import Annotated, TypedDict
@@ -43,6 +44,7 @@ INPUTS = [
     "periode",
     "credit_reporte",
     "declarer",
+    "declarations",
     "attachments",
     "cabinet",
 ]
@@ -67,7 +69,7 @@ def by_mode(state: Run):
     if failed(state):
         return "resume"  # a failed save is recorded and goes no further: the files the run would work on are missing
     mode = call.get("mode")
-    if mode in ("update", "person", "archive", "difference", "tva"):
+    if mode in ("update", "person", "archive", "difference", "tva", "ras"):
         return "expediteur"
     if mode == "resume":
         return "reprise"
@@ -129,6 +131,7 @@ def after_sender(state: Run):
         "archive": "archivage",
         "difference": "ecart",
         "tva": "tva",
+        "ras": "ras",
     }.get(state["call"].get("mode"), "ecritures")
 
 
@@ -198,6 +201,21 @@ async def tva(state: Run):
         dossier_id=call["dossier_id"],
         periode=call.get("periode") or "",
         credit_reporte=str(call.get("credit_reporte") or ""),
+        declarer=call.get("declarer") is True,
+        client_confirmed=call.get("client_confirmed") is True,
+        session_id=call["session_id"],
+    )
+    return {"outcomes": [result]}
+
+
+async def ras(state: Run):
+    call = state["call"]
+    result = await run_step(
+        state,
+        "prepare_ras_declaration",
+        dossier_id=call["dossier_id"],
+        declarations=call.get("declarations") or "",
+        periode=call.get("periode") or "",
         declarer=call.get("declarer") is True,
         client_confirmed=call.get("client_confirmed") is True,
         session_id=call["session_id"],
@@ -277,6 +295,7 @@ for name, node in {
     "archivage": archive,
     "ecart": difference,
     "tva": tva,
+    "ras": ras,
     "listes": lists,
     "ecritures": entries,
     "reprise": resume_setups,
@@ -288,9 +307,9 @@ run.add_conditional_edges("debut", by_mode, ["createur", "expediteur", "reprise"
 run.add_conditional_edges("createur", after_creator, ["creation", "listes", "resume"])
 run.add_conditional_edges("creation", *ok_or_summary("ecritures"))
 run.add_conditional_edges(
-    "expediteur", after_sender, ["modification", "acces", "archivage", "ecart", "tva", "ecritures", "resume"]
+    "expediteur", after_sender, ["modification", "acces", "archivage", "ecart", "tva", "ras", "ecritures", "resume"]
 )
-for name in ("modification", "acces", "archivage", "ecart", "tva", "listes", "ecritures", "reprise"):
+for name in ("modification", "acces", "archivage", "ecart", "tva", "ras", "listes", "ecritures", "reprise"):
     run.add_edge(name, "resume")
 run.add_edge("resume", END)
 graph = run.compile(name="Tarik - Dossier")

@@ -79,6 +79,15 @@ what Experio refuses, and makes its XML file on the declaration when Experio's c
 it in Experio (TVA writings, period locked) after you confirm; the deposit on the DGI portal stays yours, and Tarik
 never cancels a declaration.
 
+**Withholding declarations (RAS)** ("préparez les RAS de septembre", "la RAS TVA du T3", "la RAS non-résidents
+2025"): RAS TVA, RAS IS, RAS IR and RAS IS of non-residents (monthly or yearly), those you name or else those the
+dossier files in Experio, monthly unless you name a quarter. Each is made or taken up and refreshed by Experio (never
+over lines added by hand), with its totals, what Experio would refuse at « Déclarer » (period not ended, tiers without
+ICE or IF, line without activity type or rate, period declared) and what it leaves out (IS/IR withholdings entered on
+a bank statement, tiers neither company nor person), and its XML made, which runs Experio's own checks. "déclarez les
+RAS" declares them after you confirm; Tarik warns that Experio refuses IR once IS is declared for the period (and the
+reverse). The DGI deposit stays yours.
+
 **Write off a payment difference**: what is left owing on a posted invoice ("soldez la facture FV-12"), passed to
 the dossier's 6585 account with Experio's own tool, after you confirm the amount and the account.
 
