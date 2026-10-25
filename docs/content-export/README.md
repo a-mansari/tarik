@@ -36,5 +36,9 @@ change made on the Contenu page reaches no other stack by itself.
   `tools/classify-import-page.md` (each page of an import folder typed among Experio's types) and the step « Dossier
   d'import » in `labels.json`. Import it after the W-03 export, once the stack runs the W-05 commit.
 
+- `tarik-contenu-w06-20261024.json` (and its `.diff`): W-06 (relevés bancaires): `comptabiliser` also posts an imported
+  statement (`agent.json`), and the steps « Pointage du relevé » and « Comptabilisation du relevé » (`labels.json`).
+  Import it after the W-05 export, once the stack runs the W-06 commit.
+
 `agent.json` is imported whole, its `model` (MiniMax-M3) included: set the stack's own model back afterwards if it
 uses another one. A stack that edited one of these documents itself loses that edit on import: apply the diff instead.

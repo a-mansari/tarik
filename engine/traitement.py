@@ -53,6 +53,7 @@ class Run(Outcomes, total=False):
     dossier_id: int  # the dossier found from the name the client gave (resolve_dossier)
     files: list
     folder_invoices: list  # the drafts an import folder made (create_import_folder), transit agent's last
+    statements: list  # the conversation's statement files to take up again (waiting_drafts)
     invoices: list
     facturation: list  # the dossier's drafts from Experio's Facturation the client asked to post (waiting_drafts)
     corrections: list  # [[invoice, account]] the client gave drafts taken up again (waiting_drafts)
@@ -239,16 +240,56 @@ def split_drafts(state: File):
     return [invoice_run(state, "wait_until_read", invoice_id=invoice_id) for invoice_id in dict.fromkeys(found)]
 
 
+async def point_statement(state: File):
+    call = state["call"]
+    result = await run_step(
+        state,
+        "settle_statement",
+        file_id=state["file_id"],
+        run_id=state["run_id"],
+        client_message=call.get("client_message") or "",
+    )
+    return {"last": result, "outcomes": [result]}
+
+
+async def post_statement(state: File):
+    result = await run_step(state, "post_statement", file_id=state["file_id"])
+    return {"last": result, "outcomes": [result]}
+
+
+def after_import(state: File):
+    """A statement imported (or already): pointed next."""
+    last = state["last"]
+    return "pointage" if last.get("status") == "ok" and last.get("statement_id") else END
+
+
+def after_pointing(state: File):
+    """Posted only when the client asked to post (« comptabilisez »)."""
+    asked = state["call"].get("comptabiliser") == "oui"
+    return "comptabilisation_releve" if state["last"].get("status") == "ok" and asked else END
+
+
 file = StateGraph(File, output_schema=Outcomes)
 file.add_node("identification", identify)
 file.add_node("releve", import_statement)
+file.add_node("pointage", point_statement)
+file.add_node("comptabilisation_releve", post_statement)
 file.add_node("decoupage", split)
 file.add_node("facture", INVOICE)
-# A new file is identified first; a draft taken up again goes straight to its invoice's steps.
-file.add_conditional_edges(
-    START, lambda s: "facture" if s.get("entry") else "identification", ["identification", "facture"]
-)
+
+
+# A new file is identified first; a draft taken up again goes straight to its invoice's steps, a statement taken up
+# again to its pointing.
+def file_start(state: File):
+    if state.get("entry") == "statement":
+        return "pointage"
+    return "facture" if state.get("entry") else "identification"
+
+
+file.add_conditional_edges(START, file_start, ["identification", "facture", "pointage"])
 file.add_conditional_edges("identification", after_identify, ["releve", "decoupage", END])
+file.add_conditional_edges("releve", after_import, ["pointage", END])
+file.add_conditional_edges("pointage", after_pointing, ["comptabilisation_releve", END])
 file.add_conditional_edges("decoupage", drafts, ["facture", END])
 file.add_conditional_edges("facture", split_drafts, ["facture", END])
 FILE = file.compile(name="fichier")  # a document: drawn once, whatever brought it
@@ -350,7 +391,9 @@ async def waiting(state: Run):
     invoices = [invoice_id for invoice_id in result.get("invoices", []) if invoice_id not in skipped]
     billed = [invoice_id for invoice_id in result.get("facturation", []) if invoice_id not in skipped]
     corrections = result.get("corrections") or []
-    return {"invoices": invoices, "facturation": billed, "corrections": corrections, "outcomes": [result]}
+    statements = result.get("statements") or []
+    found = {"invoices": invoices, "facturation": billed, "corrections": corrections, "statements": statements}
+    return {**found, "outcomes": [result]}
 
 
 # What a client gives « with their invoices »: for the invoices of this message, never a draft taken up again.
@@ -362,7 +405,8 @@ def each_draft(state: Run):
     for the invoices sent with it); one the client gave an account to (corrections), back to its account step, that
     account to confirm."""
     corrections = {int(invoice_id): account for invoice_id, account in state.get("corrections") or []}
-    if not state.get("invoices") and not state.get("facturation") and not corrections:
+    statements = state.get("statements") or []
+    if not state.get("invoices") and not state.get("facturation") and not corrections and not statements:
         return "resume"
     resumed = {**with_dossier(state), **dict.fromkeys(MESSAGE_INSTRUCTIONS, "")}
 
@@ -379,6 +423,13 @@ def each_draft(state: Run):
     ]
     # Experio's own invoicing made these (Facturation): nothing to read nor check, their settings then posting.
     sends += [sent(i, resumed, "configure_cabinet") for i in state.get("facturation", [])]
+    # A statement waiting on Experio's reading, or to post now the client asks: from its pointing.
+    sends += [
+        Send(
+            "fichier", {"call": resumed, "run_id": state["run_id"], "entry": "statement", "file_id": f, "outcomes": []}
+        )
+        for f in statements
+    ]
     return sends
 
 

@@ -57,6 +57,12 @@ like any invoice: the customs one goes to the dossier's customs tiers, the folde
 and the transit agent's invoice is posted last, with the folder's invoices it paid. The same file sent twice makes one
 folder.
 
+**Bank statements**: once imported (a PDF, a photo, or Experio's Excel template; several files of one statement
+merged when you say « le même relevé »), Tarik waits for Experio's reading, checks its balances, points its operations
+with Experio's own automatic detection (and the invoice you name for a payment), and says what remains to complete;
+« comptabilisez » posts its ready operations with Experio's validation and lists those left in suspense. A BTI statement
+is refused (Experio does not read them); a duplicate statement Experio flags is left to the cabinet.
+
 **Write off a payment difference**: what is left owing on a posted invoice ("soldez la facture FV-12"), passed to
 the dossier's 6585 account with Experio's own tool, after you confirm the amount and the account.
 
