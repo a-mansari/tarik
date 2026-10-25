@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from engine import agent, chat, content, dossier, graphs, traitement
+from engine import agent, chat, content, declarations, dossier, exports, graphs, traitement
 from engine.calls import TOOLS
 from engine.content import AGENT, LABELS
 from engine.tools.invoices.pipeline import INVOICE_CHAIN
@@ -70,7 +70,8 @@ def undescribed():
 def unnamed():
     """Every input a workflow is given has a name in plain words (labels.json: inputs), but those never shown."""
     discussion = set(chat.Chat.__annotations__) - set(chat.Steps.__annotations__)  # its inputs, not its outputs
-    given = {*traitement.INPUTS, *dossier.INPUTS, *discussion, "sender", "subject", "files"}
+    given = {*traitement.INPUTS, *dossier.INPUTS, *declarations.INPUTS, *exports.INPUTS, *discussion}
+    given |= {"sender", "subject", "files"}
     found = [f"input {key}: no name in labels.json" for key in sorted(given - HIDDEN - set(LABELS["inputs"]))]
     return found + [
         f"journal action {name}: no words in labels.json" for name in audit.ACTIONS if name not in LABELS["audit"]
@@ -81,7 +82,8 @@ def dropped():
     """Every argument an agent's workflow tool takes reaches its workflow, and is one the workflow keeps (its INPUTS):
     engine.calls.started keeps only those, any other is dropped without a word. Each tool is called with its
     run_workflow replaced, to see what it hands over."""
-    kept = {"traitement": traitement.INPUTS, "dossier": dossier.INPUTS}
+    kept = {"traitement": traitement.INPUTS, "dossier": dossier.INPUTS, "declarations": declarations.INPUTS}
+    kept["export"] = exports.INPUTS
     handed = []
     runtime = SimpleNamespace(state={"messages": []}, config={"configurable": {}})
 

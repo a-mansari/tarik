@@ -336,17 +336,27 @@ async def files(state: Run):
     saved = any(outcome.get("files") for outcome in state["outcomes"][:1])
     asked = mentions_attachment(state["call"].get("client_message") or "") and not saved
     result = await run_step(state, "files_to_process", session_id=state["call"]["session_id"], asked=asked)
-    message = state["call"].get("client_message") or ""
-    if result.get("files") and folder_mode(message)[0]:  # « dossier d'import »: the files are one folder's documents
-        made = await run_step(
-            state,
-            "create_import_folder",
-            session_id=state["call"]["session_id"],
-            dossier_id=state["dossier_id"],
-            client_message=message,
-        )
-        return {"files": [], "folder_invoices": made.get("invoices", []), "outcomes": [result, made]}
     return {"files": result.get("files", []), "outcomes": [result]}
+
+
+def after_files(state: Run):
+    """« dossier d'import » in the client's words: the new files are one folder's documents, made into it first;
+    else each file on its own (each_file)."""
+    if not failed(state) and state["files"] and folder_mode(state["call"].get("client_message") or "")[0]:
+        return "dossier_import"
+    return each_file(state)
+
+
+async def import_folder(state: Run):
+    message = state["call"].get("client_message") or ""
+    made = await run_step(
+        state,
+        "create_import_folder",
+        session_id=state["call"]["session_id"],
+        dossier_id=state["dossier_id"],
+        client_message=message,
+    )
+    return {"files": [], "folder_invoices": made.get("invoices", []), "outcomes": [made]}
 
 
 def each_file(state: Run):
@@ -493,6 +503,7 @@ run.add_node("aiguillage", aiguillage)
 run.add_node("dossier", dossier_found)
 run.add_node("expediteur", sender)
 run.add_node("fichiers", files)
+run.add_node("dossier_import", import_folder)
 run.add_node("fichier", FILE)
 run.add_node("brouillons", waiting)
 run.add_node("reponse", answer)
@@ -503,7 +514,8 @@ run.add_conditional_edges("debut", *ok_or_summary("aiguillage"))
 run.add_conditional_edges("aiguillage", by_route, ["dossier", "reponse", "brouillons"])
 run.add_conditional_edges("dossier", *ok_or_summary("expediteur"))
 run.add_conditional_edges("expediteur", *ok_or_summary("fichiers"))
-run.add_conditional_edges("fichiers", each_file, ["fichier", "brouillons", "resume"])
+run.add_conditional_edges("fichiers", after_files, ["dossier_import", "fichier", "brouillons", "resume"])
+run.add_conditional_edges("dossier_import", each_file, ["fichier", "brouillons", "resume"])
 run.add_conditional_edges("brouillons", each_draft, ["fichier", "resume"])
 run.add_conditional_edges("reponse", resume_at, ["fichier", "brouillons", "resume"])
 run.add_edge("fichier", "resume")

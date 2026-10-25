@@ -149,6 +149,10 @@ Covers each cabinet seeing only its own settings plus the shared ones.
 
 ## 4. style
 
+### tests/style/test_one_step_per_node.py
+Covers the canvases: each workflow's node runs one step only, so the UI's drawing is the run step for step.
+- `test_each_node_runs_one_step` [style, param]: Traitement, Dossier, Déclarations, Export, Emails, Discussion.
+
 ### tests/style/test_consistency.py
 Covers code and content consistency: ruff, tool names in skills, prompt files, no inline SQL.
 - `test_no_lint_error` [style]: `ruff check` passes on the whole repository.
