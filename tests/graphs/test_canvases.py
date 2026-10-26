@@ -44,10 +44,31 @@ def test_the_split_steps_have_each_their_own_box(name, expected):
 @pytest.mark.technical
 def test_a_step_a_part_may_start_at_is_drawn_from_its_first_entry_only():
     edge = SimpleNamespace(conditional=True, source="fichier:__start__", target="fichier:facture")
-    assert graphs.hidden(edge, {}, {"fichier:facture": 2})
-    assert not graphs.hidden(edge, {}, {"fichier:facture": 1})
+    assert graphs.hidden(edge, set(), {"fichier:facture": 2})
+    assert not graphs.hidden(edge, set(), {"fichier:facture": 1})
     unconditional = SimpleNamespace(conditional=False, source="a", target="b:__end__")
-    assert not graphs.hidden(unconditional, {"a": 3}, {})
+    assert not graphs.hidden(unconditional, {("a", "b:__end__")}, {})
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize(
+    ("source", "target", "kept_off"),
+    [
+        ("fichier:facture:lecture:create_draft_invoice", "fichier:facture:lecture:__end__", True),  # a stop
+        ("fichier:facture:lecture:correct_invoice", "fichier:facture:lecture:__end__", False),  # the phase's last step
+        ("fichier:facture:comptabilisation:apply_credit_note", "fichier:facture:comptabilisation:__end__", False),
+        ("fichier:facture:comptabilisation:__end__", "fichier:facture:__end__", False),  # the invoice's last phase
+        ("fichier:facture:lecture:__end__", "fichier:facture:__end__", True),  # a phase stopped
+        ("fichier:facture:__end__", "fichier:__end__", False),  # the invoice done: on to the file's end
+        ("fichier:facture:__end__", "fichier:facture:__start__", False),  # the drafts Experio split off the bill
+        ("fichier:pointage", "fichier:__end__", False),  # no posting asked: an ordinary end
+        ("fichier:identification", "fichier:__end__", True),  # neither an invoice nor a statement
+        ("fichiers", "resume", True),  # the files not listed
+    ],
+)
+def test_only_the_ways_taken_when_a_step_failed_are_kept_off_the_canvas(source, target, kept_off):
+    edges = {(e["source"], e["target"]): e["hidden"] for e in graphs.shape("traitement")["edges"]}
+    assert edges[(source, target)] is kept_off
 
 
 @pytest.mark.functionality
@@ -76,3 +97,29 @@ def test_each_workflow_tool_runs_its_own_workflow_with_its_inputs(monkeypatch):
         assert name == expected.get(tool.coroutine.__name__, "dossier"), tool.name
         kept = set(WORKFLOWS[name].INPUTS)
         assert set(arguments) <= set(inputs) and set(inputs) - {"mode"} <= kept | {"mode"}, tool.name
+
+
+def reachable(edges, start):
+    seen, todo = {start}, [start]
+    while todo:
+        node = todo.pop()
+        for following in edges.get(node, ()):
+            if following not in seen:
+                seen.add(following)
+                todo.append(following)
+    return seen
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize("name", [*graphs.COMPILED, "agent"])
+def test_every_drawn_step_lies_on_a_drawn_way_from_the_start_to_the_end(name):
+    shape = graphs.shape(name)
+    forward, backward = {}, {}
+    for edge in shape["edges"]:
+        if not edge["hidden"]:
+            forward.setdefault(edge["source"], set()).add(edge["target"])
+            backward.setdefault(edge["target"], set()).add(edge["source"])
+    steps = {node["id"] for node in shape["nodes"] if node["kind"] != "group"}
+    from_start, to_end = reachable(forward, "__start__"), reachable(backward, "__end__")
+    assert not steps - from_start, f"{name}: drawn with no way in {sorted(steps - from_start)}"
+    assert not steps - to_end, f"{name}: drawn with no way out to the end {sorted(steps - to_end)}"

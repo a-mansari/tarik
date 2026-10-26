@@ -6,6 +6,8 @@ import collections
 import functools
 
 from langchain_anthropic import ChatAnthropic
+from langgraph.graph import END
+from langgraph.graph.state import CompiledStateGraph
 
 from engine import agent, chat, declarations, dossier, emails, exports, traitement
 from engine.content import LABELS
@@ -56,17 +58,40 @@ def drawn_node(graph, node_id, parent, kind):
     }
 
 
-def hidden(edge, leaving, arriving):
+def failure_exits(graph, depth, prefix=""):
+    """The (source, target) edges of ``graph`` as drawn (its parts opened ``depth`` deep) that a run takes only when
+    a step failed: the ways its routers mark (engine.calls.stops_at)."""
+    nodes = graph.builder.nodes
+
+    def opened(name):
+        return name in nodes and isinstance(nodes[name].runnable, CompiledStateGraph) and depth not in (0, False)
+
+    def drawn(name, side):
+        name = "__end__" if name == END else name
+        return f"{prefix}{name}:__{side}__" if opened(name) else f"{prefix}{name}"
+
+    found = set()
+    for source, branches in graph.builder.branches.items():
+        for branch in branches.values():
+            target = getattr(getattr(branch.path, "func", None), "stops_at", None)
+            if target is not None:
+                found.add((drawn(source, "end"), drawn(target, "start")))
+    for name, node in nodes.items():
+        if opened(name):
+            found |= failure_exits(node.runnable, depth if depth is True else depth - 1, f"{prefix}{name}:")
+    return found
+
+
+def hidden(edge, failures, arriving):
     """Whether a conditional edge is kept off the canvas (the legend says it): a run that went along one shows it.
-    A step that is not ok ends its invoice or file: drawn, those paths would converge from every step on the part's
-    end, so where the step has another way on they are hidden. And a part may start at any of its steps (an invoice
-    resumes where an answer leaves it): only its first entry is drawn, the step nothing else leads to; the others
-    would fan out from its start."""
+    The ways a run takes only when a step failed (failures: their routers say so) would converge from every step on
+    the summary or the part's end. And a part may start at any of its steps (an invoice resumes where an answer
+    leaves it): only its first entry is drawn, the step nothing else leads to; the others would fan out from its
+    start. Every other way, an ordinary end among them, is drawn."""
     if not edge.conditional:
         return False
-    to_end = edge.target.endswith(":__end__") and leaving[edge.source] > 1
     from_start = edge.source.endswith(":__start__") and arriving[edge.target] > 1
-    return to_end or from_start
+    return (edge.source, edge.target) in failures or from_start
 
 
 @functools.cache
@@ -78,7 +103,8 @@ def shape(name):
         compiled = agent.make_agent(chat=ChatAnthropic(model="drawing", api_key="unused"))
     else:
         compiled = COMPILED[name]
-    drawn = compiled.get_graph(xray=XRAY.get(name, True))
+    depth = XRAY.get(name, True)
+    drawn = compiled.get_graph(xray=depth)
 
     nodes, groups = [], {}
     for node_id in drawn.nodes:
@@ -91,7 +117,7 @@ def shape(name):
         nodes.append(drawn_node(name, node_id, parent, kind))
     nodes += [drawn_node(name, group, parent, "group") for group, parent in groups.items()]
 
-    leaving = collections.Counter(edge.source for edge in drawn.edges)
+    failures = failure_exits(compiled, depth)
     arriving = collections.Counter(edge.target for edge in drawn.edges)
     edges = [
         {
@@ -99,7 +125,7 @@ def shape(name):
             "source": edge.source,
             "target": edge.target,
             "conditional": bool(edge.conditional),
-            "hidden": hidden(edge, leaving, arriving),
+            "hidden": hidden(edge, failures, arriving),
         }
         for edge in drawn.edges
     ]

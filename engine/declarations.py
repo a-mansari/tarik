@@ -7,7 +7,7 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, summary
+from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, stops_at, summary
 
 INPUTS = [
     "mode",
@@ -37,6 +37,7 @@ async def sender(state: Run):
     return await sender_checked(state, state["call"]["dossier_id"])
 
 
+@stops_at("resume")
 def by_mode(state: Run):
     if failed(state):
         return "resume"

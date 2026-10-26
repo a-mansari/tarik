@@ -15,7 +15,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from engine.calls import call as run_tool
-from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, summary
+from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, stops_at, summary
 from engine.tools.core.conversation import mentions_attachment
 from engine.tools.invoices.import_folder import folder_mode
 from engine.tools.invoices.pipeline import INVOICE_CHAIN, position
@@ -144,7 +144,10 @@ def after(items, index):
 def ok_then(following):
     """Each step (and phase) only when the one before says ok; a question, stop, wait or error ends the invoice's run.
     Its two ways out named, so the drawn graph shows the sequence (LangGraph cannot see inside the lambda)."""
-    return (lambda s: following if s["last"].get("status") == "ok" else END), list({following, END})
+    router = lambda s: following if s["last"].get("status") == "ok" else END  # noqa: E731
+    if following == END:  # the last step: its end is the ordinary one
+        return router, [END]
+    return stops_at(END)(router), [following, END]
 
 
 def phase(name, steps):
@@ -207,6 +210,7 @@ async def split(state: File):
     return {"last": result, "outcomes": [result]}
 
 
+@stops_at(END)
 def after_identify(state: File):
     last = state["last"]
     if last.get("status") != "ok":
@@ -221,6 +225,7 @@ def invoice_run(state: File, entry, **document):
     )
 
 
+@stops_at(END)
 def drafts(state: File):
     """One invoice run per invoice cut out of the file, from its draft."""
     if state["last"].get("status") != "ok":
@@ -259,6 +264,7 @@ async def post_statement(state: File):
     return {"last": result, "outcomes": [result]}
 
 
+@stops_at(END)
 def after_import(state: File):
     """A statement imported (or already): pointed next."""
     last = state["last"]
@@ -341,6 +347,7 @@ async def files(state: Run):
     return {"files": result.get("files", []), "outcomes": [result]}
 
 
+@stops_at("resume")
 def after_files(state: Run):
     """« dossier d'import » in the client's words: the new files are one folder's documents, made into it first;
     else each file on its own (each_file)."""
@@ -361,6 +368,7 @@ async def import_folder(state: Run):
     return {"files": [], "folder_invoices": made.get("invoices", []), "outcomes": [made]}
 
 
+@stops_at("resume")
 def each_file(state: Run):
     """One file run per new file; none: the drafts left waiting. Only this conversation's questions are asked in it,
     never those other conversations left on the dossier."""

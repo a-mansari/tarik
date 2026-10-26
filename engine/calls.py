@@ -98,10 +98,21 @@ def failed(state):
     return state["outcomes"][-1].get("status") != "ok"
 
 
+def stops_at(target):
+    """Marks a router whose way to ``target`` is taken only when a step failed (not ok): the canvas
+    (engine.graphs.shape) keeps those exits off the drawing, every other way stays drawn."""
+
+    def marked(router):
+        router.stops_at = target
+        return router
+
+    return marked
+
+
 def ok_or_summary(following):
     """``following`` when the step before says ok, else the summary ("resume"). Its two ways out named, so the drawn
     graph shows them (LangGraph cannot see inside the lambda)."""
-    return (lambda s: "resume" if failed(s) else following), [following, "resume"]
+    return stops_at("resume")(lambda s: "resume" if failed(s) else following), [following, "resume"]
 
 
 # Nodes every workflow (Traitement, Dossier) begins and ends with.
