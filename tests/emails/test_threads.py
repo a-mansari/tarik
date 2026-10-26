@@ -389,6 +389,7 @@ def manager(monkeypatch, db_cabinet, responsable, login, fallback=""):
         return [{"login": login}] if login else []
 
     monkeypatch.setattr(inbox, "odoo_call", odoo_call)
+    monkeypatch.setattr(inbox, "main_company_id", lambda: 1)
     monkeypatch.setenv(f"{db_cabinet.upper()}__MAIL_MANAGER", fallback)
     return calls
 

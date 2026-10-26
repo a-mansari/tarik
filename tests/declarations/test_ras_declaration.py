@@ -269,3 +269,17 @@ def test_experio_unreachable_says_the_ras_declaration_could_not_be_prepared(expe
     monkeypatch.setattr(ras, "odoo_call", down)
     with pytest.raises(ToolError, match="n'a pas pu préparer la déclaration RAS"):
         ras.prepare_ras_declaration(857, "IS")
+
+
+@pytest.mark.functionality
+def test_a_non_resident_period_already_declared_is_found_as_experio_finds_it(monkeypatch):
+    """Their action_post looks for the same exercice, mode and period, not for overlapping dates."""
+    asked = []
+    monkeypatch.setattr(ras, "odoo_call", lambda model, method, domain, **kw: asked.append(domain) or [{"id": 3}])
+    table = {"id": 70, "fiscal_year": "2026", "period_id": [9, "Septembre"], "start_date": False, "end_date": False}
+    assert ras.refusals("non_resident", table, [], 857, {}) == ["la période est déjà déclarée"]
+    assert ("period_id", "=", 9) in asked[0] and ("mode_type", "=", "monthly") in asked[0]
+    assert not any(term[0] == "start_date" for term in asked[0])
+    asked.clear()
+    ras.refusals("non_resident_yearly", {**table, "period_id": False}, [], 857, {})
+    assert ("mode_type", "=", "yearly") in asked[0] and not any(term[0] == "period_id" for term in asked[0])

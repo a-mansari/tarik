@@ -156,6 +156,7 @@ def test_a_cabinet_name_experio_could_not_give_is_asked_again(monkeypatch):
 
     monkeypatch.setattr(sending, "_names", {})
     monkeypatch.setattr(sending, "odoo_call", odoo_call)
+    monkeypatch.setattr(sending, "main_company_id", lambda: 1)
     monkeypatch.setattr(sending, "current", lambda: "tarik_test_a")
     assert sending.cabinet_name() == ""
     assert sending.cabinet_name() == sending.cabinet_name() == "CABINET TEST"  # then kept: Experio asked once more

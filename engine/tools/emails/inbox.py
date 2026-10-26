@@ -22,7 +22,7 @@ from engine.tools.core.app import ToolError, log, ok, tool
 from engine.tools.core.archives import unpacked
 from engine.tools.core.cabinets import cabinet_db, current, setting
 from engine.tools.core.config import FILE_TYPES, READING
-from engine.tools.core.experio import odoo_call
+from engine.tools.core.experio import main_company_id, odoo_call
 from engine.tools.core.queries import Q
 from engine.tools.core.words import strip_tags
 from engine.tools.dossiers.people import collaborator
@@ -572,10 +572,10 @@ def thread_refusal(thread_id: str) -> dict:
 def cabinet_manager():
     """Return the cabinet manager's email address, or None.
 
-    Uses the « Responsable » (responsable_id) of the cabinet's own company in Experio (res.company id 1), else
+    Uses the « Responsable » (responsable_id) of the cabinet's own company in Experio (base.main_company), else
     MAIL_MANAGER; either counts only when it is an active collaborator or Experio staff member (collaborator).
     Experio has no other field for the cabinet's manager."""
-    responsable = odoo_call("res.company", "read", [1], fields=["responsable_id"])[0]["responsable_id"]
+    responsable = odoo_call("res.company", "read", [main_company_id()], fields=["responsable_id"])[0]["responsable_id"]
     if responsable:
         found = odoo_call("res.users", "read", [responsable[0]], fields=["login"])
         if found and collaborator(found[0]["login"]):

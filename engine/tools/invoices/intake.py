@@ -448,7 +448,8 @@ def twin_draft(db, file_id, data, dossier_id):
 
 
 UNSUPPORTED_BANKS = ("bti",)  # Experio's reading does not take their statements (_compute_is_not_supported)
-# The client's own words that the files are one statement split in several files (normalized): Experio's « Merge ».
+# The client's own words that the files are one statement split in several files (normalized): Tarik joins their
+# pages into one PDF before the import (merged_pdf); Experio has no merge of its own for an imported statement.
 SAME_STATEMENT = re.compile(
     r"(?<![a-z])(?:meme releve|un seul releve|fusionne[rz]?|a fusionner|le releve en plusieurs)"
 )
@@ -680,9 +681,7 @@ def import_bank_statement(
                 f"journal `{journal['name']}`."
             )
         raw = as_pdf(mime, data)
-        if (
-            merged
-        ):  # « le même relevé » in several files: one statement, their pages in the order sent (Experio's Merge)
+        if merged:  # « le même relevé » in several files: one statement, their pages in the order sent (merged_pdf)
             raw = merged_pdf([raw, *(as_pdf(m, d) for _, _, m, d in merged)])
         # Experio's own statement import, as its upload screen uses it: bank code as doctype, Bluejay job.
         with refused(f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé {name}."):

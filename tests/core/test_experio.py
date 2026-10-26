@@ -459,3 +459,9 @@ def test_the_connection_check_says_reached_unreachable_or_refused_never_odoo(mon
     connection(monkeypatch, version, count)
     answer = experio.experio_connection()
     assert answer == said and "Odoo" not in answer
+
+
+@pytest.mark.functionality
+def test_the_cabinets_own_company_is_found_by_its_xmlid(monkeypatch):
+    monkeypatch.setattr(experio, "odoo_call", lambda model, method, domain, **kw: [{"res_id": 1}])
+    assert experio.main_company_id() == 1
