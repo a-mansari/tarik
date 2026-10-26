@@ -346,16 +346,44 @@ function drawEdge(edge) {
   const saved = layout.edges?.[keyOf(edge)] || unarranged();
   edge.removeStyle(OVERRIDES);
   anchorBends(edge, saved.points);
-  if (saved.points.length) {
-    const r = relative(edge, saved.points);
-    edge.style({ "curve-style": "segments", "edge-distances": "node-position", "segment-weights": r.weights, "segment-distances": r.distances });
+  const source = edge.source();
+  const target = edge.target();
+  // A bend point under one of its edge's own ends is passed over: cytoscape would not draw the edge at all.
+  const points = saved.points.filter((p) => !covers(source, p) && !covers(target, p));
+  // Each end on the middle of the side facing the point it goes to: the next bend, else the other end.
+  const ends = {
+    "source-endpoint": sideFacing(source, points[0] || target.position()),
+    "target-endpoint": sideFacing(target, points.at(-1) || source.position()),
+  };
+  if (points.length) {
+    const r = relative(edge, points);
+    edge.style({ "curve-style": "segments", "edge-distances": "node-position", "segment-weights": r.weights, "segment-distances": r.distances, ...ends });
     return;
   }
   if (saved.style === "bezier") {
     edge.style(bezierStyle(edge));
     return;
   }
-  edge.style("curve-style", saved.style || "straight");
+  if (saved.style === "taxi") {
+    edge.style("curve-style", "taxi"); // right angles: cytoscape leaves and enters each step its own way
+    return;
+  }
+  edge.style({ "curve-style": "straight", ...ends }); // ends set: drawn even when its two steps overlap
+}
+
+function covers(node, p) {
+  const box = node.boundingBox({ includeLabels: false, includeOverlays: false });
+  return p.x >= box.x1 && p.x <= box.x2 && p.y >= box.y1 && p.y <= box.y2;
+}
+
+// The side of a node that faces a point: left or right when the point is further sideways than the node's own
+// corners (its width against its height), else top or bottom.
+function sideFacing(node, p) {
+  const c = node.position();
+  const dx = p.x - c.x;
+  const dy = p.y - c.y;
+  if (Math.abs(dx) * node.height() >= Math.abs(dy) * node.width()) return dx >= 0 ? ANGLE.right : ANGLE.left;
+  return dy >= 0 ? ANGLE.down : ANGLE.up;
 }
 
 // An edge's bend points kept inside the innermost open frame around both its ends, as unseen nodes of that frame:
@@ -946,7 +974,8 @@ function wireSelection() {
 
 function wireDragging() {
   cy.on("position", MOVABLE, (event) => {
-    event.target.connectedEdges().forEach(followEnds);
+    // An edge is placed from where its ends are (sides, bends, curve): redrawn as they move, never stretched.
+    event.target.connectedEdges().forEach(drawEdge);
   });
   // While a step is dragged, a dashed outline shows where it will snap when dropped.
   cy.on("drag", MOVABLE, (event) => {
@@ -966,13 +995,6 @@ function wireDragging() {
     grabbed = null;
     changed();
   });
-}
-
-// A curve or a bent edge is placed from where its ends are: redrawn as they move, so it adapts while dragging
-// instead of being stretched until the drop.
-function followEnds(edge) {
-  const saved = layout.edges?.[keyOf(edge)];
-  if (saved && (saved.style === "bezier" || saved.points.length)) drawEdge(edge);
 }
 
 function showGhost(node) {
