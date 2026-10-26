@@ -999,6 +999,13 @@ Covers Experio's warnings, each handled on its own (docs/experio-warnings.md).
 
 ---
 
+### tests/graphs/test_answered.py
+Covers Tarik's reply to a message: asked again while files stay untaken, and once when no tool ran while a question waits.
+- `test_a_reply_calling_no_tool_while_a_question_waits_is_asked_once_again` [functionality]: reminded to use Experio_repondre.
+- `test_a_reply_without_a_tool_and_no_question_waiting_is_given_as_is` [functionality]: a plain reply, asked once.
+- `test_the_question_reminder_is_given_once_only` [functionality]: never a third ask.
+- `test_untaken_files_are_reminded_until_taken` [functionality]: the files reminder.
+
 ### tests/graphs/test_canvases.py
 Covers the canvases the UI draws: every step drawn, named and described; each agent tool hands its workflow its inputs.
 - `test_each_step_of_a_workflow_is_drawn_named_and_described` [communication, param]: every workflow, the agent too.
