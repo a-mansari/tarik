@@ -5,6 +5,7 @@ import base64
 
 import pytest
 
+from engine.tools.core.app import ToolError
 from engine.tools.core.experio import ExperioRefusal
 from engine.tools.dossiers import export
 
@@ -118,3 +119,67 @@ def test_experios_refusal_is_said_in_its_words(experio):
     result = export.export_entries(857, quoi="les tiers", session_id="s")
     assert result["status"] == "stop" and "modèle de partenaire" in result["message"]
     assert experio["created"][0]["export_type"] == "partner"
+
+
+@pytest.mark.communication
+def test_a_model_name_matching_several_export_models_is_asked(monkeypatch):
+    templates = [{"id": 1, "name": "SAGE"}, {"id": 2, "name": "SAGE 100"}]
+    monkeypatch.setattr(export, "odoo_call", lambda *a, **k: templates)
+    with pytest.raises(ToolError, match="Plusieurs modèles d'export correspondent : SAGE, SAGE 100"):
+        export.template_named("exp.export.template", "modèle sage 100", {})
+    assert export.template_named("exp.export.template", "", {}) is None  # Experio's default
+
+
+@pytest.mark.security
+def test_test_mode_creates_no_export(experio, monkeypatch):
+    monkeypatch.setattr(export, "dry_run", lambda: True)
+    result = export.export_entries(857, session_id="s")
+    assert result["message"].startswith("MODE TEST") and "serait préparé" in result["message"]
+    assert experio["created"] == [] and experio["calls"] == [] and experio["kept"] == []
+
+
+@pytest.mark.functionality
+def test_a_fec_is_exported_by_experio_own_fec_as_text(experio):
+    result = export.export_entries(857, quoi="le FEC", periode="2026", session_id="s")
+    assert experio["created"][0]["export_type"] == "fec" and ("action_print_fec", None) in experio["calls"]
+    assert experio["kept"][0][1] == "TARIK TEST - Journals.txt" and "modèle" not in result["message"]
+
+
+@pytest.mark.functionality
+def test_a_tiers_export_takes_no_journals_and_counts_no_lines(experio):
+    result = export.export_entries(857, quoi="tiers", periode="T3 2026", date_import=True, session_id="s")
+    created = experio["created"][0]
+    assert "journal_ids" not in created and created["create_date_from"] == "2026-07-01" and "date_from" not in created
+    assert "get_line_ids" not in [method for method, _ in experio["calls"]] and "modèle aucun" in result["message"]
+
+
+@pytest.mark.communication
+def test_an_export_without_lines_counts_zero(monkeypatch):
+    monkeypatch.setattr(export, "odoo_call", lambda *a, **k: pytest.fail("nothing to read"))
+    monkeypatch.setattr(export, "odoo_json", lambda *a, **k: "exp.move.line()")
+    assert export.counted("journal", 9, {}) == " : 0 écriture(s), 0 ligne(s), débit 0.00, crédit 0.00"
+
+
+@pytest.mark.communication
+def test_an_export_experio_makes_no_file_of_stops(experio, monkeypatch):
+    inner = export.odoo_call
+    monkeypatch.setattr(
+        export,
+        "odoo_call",
+        lambda model, method, *a, **k: (
+            [{"datas": False}] if k.get("fields") == ["datas"] else inner(model, method, *a, **k)
+        ),
+    )
+    result = export.export_entries(857, session_id="s")
+    assert result["status"] == "stop" and "Experio n'a produit aucun fichier" in result["message"]
+    assert experio["kept"] == []
+
+
+@pytest.mark.communication
+def test_experio_unreachable_says_the_export_could_not_be_prepared(experio, monkeypatch):
+    def down(*args, **kw):
+        raise ConnectionRefusedError("down")
+
+    monkeypatch.setattr(export, "odoo_call", down)
+    with pytest.raises(ToolError, match=r"n'a pas pu préparer l'export \(down\)"):
+        export.export_entries(857, session_id="s")

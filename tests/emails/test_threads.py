@@ -355,3 +355,78 @@ def test_the_subject_is_the_client_s_words_too_without_its_reply_prefixes():
 
     assert with_subject("Re: TR : Facture achat", "Voici") == "Objet : Facture achat\n\nVoici"
     assert with_subject("Re: ", "Voici") == "Voici" and with_subject(None, "Voici") == "Voici"
+
+
+@pytest.mark.technical
+def test_experio_out_keeps_a_follow_up_for_the_next_tick(experio, monkeypatch):
+    stored(mail(CHEF, "<m1@x>"))
+    experio[7] = "pending"
+    answered("<m1@x>")
+
+    def down(*args, **kw):
+        raise ConnectionRefusedError("down")
+
+    monkeypatch.setattr(inbox, "odoo_call", down)
+    assert not inbox.threads_waiting() and state_of("<m1@x>") == "follow_up"
+
+
+@pytest.mark.technical
+def test_drafts_experio_cannot_list_are_none_to_resume(monkeypatch):
+    def down(session_id):
+        raise ConnectionRefusedError("down")
+
+    monkeypatch.setattr(inbox, "waiting_drafts", down)
+    assert inbox.drafts_to_resume("s") == []
+
+
+def manager(monkeypatch, db_cabinet, responsable, login, fallback=""):
+    calls = []
+
+    def odoo_call(model, method, ids, fields):
+        calls.append(model)
+        if model == "res.company":
+            return [{"responsable_id": responsable}]
+        return [{"login": login}] if login else []
+
+    monkeypatch.setattr(inbox, "odoo_call", odoo_call)
+    monkeypatch.setenv(f"{db_cabinet.upper()}__MAIL_MANAGER", fallback)
+    return calls
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    ("responsable", "login", "fallback", "found"),
+    [
+        ([4, "Chef"], CHEF, "", CHEF),  # the Responsable of the cabinet's company in Experio
+        ([4, "Chef"], OUTSIDER, COLLEAGUE, COLLEAGUE),  # not a collaborator: MAIL_MANAGER
+        ([4, "Chef"], None, COLLEAGUE, COLLEAGUE),  # its user gone
+        (False, None, f" {COLLEAGUE} ", COLLEAGUE),
+        (False, None, OUTSIDER, None),  # MAIL_MANAGER must be a collaborator too
+        (False, None, "", None),
+    ],
+)
+def test_the_manager_is_experio_responsable_else_mail_manager_a_collaborator_only(
+    mailbox, db_cabinet, monkeypatch, responsable, login, fallback, found
+):
+    calls = manager(monkeypatch, db_cabinet, responsable, login, fallback)
+    assert inbox.cabinet_manager() == found
+    assert calls == (["res.company", "res.users"] if responsable else ["res.company"])
+
+
+@pytest.mark.communication
+def test_the_manager_hears_of_a_refused_sender_once_a_day_and_the_sender_never(mailbox, db_cabinet, monkeypatch):
+    manager(monkeypatch, db_cabinet, [4, "Chef"], CHEF)
+    sent = []
+    monkeypatch.setattr(inbox, "send_email", lambda to, subject, body: sent.append((to, subject, body)))
+    assert inbox.notify_manager(OUTSIDER, "", "expediteur hors de la liste autorisee")["status"] == "ok"
+    assert inbox.notify_manager(OUTSIDER, "Factures", "r")["message"].startswith("Manager deja prevenu")
+    assert [(to, subject) for to, subject, _ in sent] == [(CHEF, f"Tarik : email de {OUTSIDER} non traite")]
+    assert "« sans objet »" in sent[0][2] and "aucune reponse" in sent[0][2]
+
+
+@pytest.mark.communication
+def test_without_a_manager_the_alert_fails_loudly(mailbox, db_cabinet, monkeypatch):
+    manager(monkeypatch, db_cabinet, False, None)
+    monkeypatch.setattr(inbox, "send_email", lambda *a: pytest.fail("nobody to tell"))
+    with pytest.raises(inbox.ToolError, match="Manager non prevenu"):
+        inbox.notify_manager(OUTSIDER, "s", "r")

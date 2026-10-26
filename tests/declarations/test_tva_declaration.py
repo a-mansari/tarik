@@ -191,3 +191,94 @@ def test_a_declared_period_is_only_read(experio):
     experio["table"]["state"] = "done"
     result = tva.prepare_tva_declaration(857, "T3")
     assert "Déjà déclarée" in result["message"] and methods(experio) == []
+
+
+@pytest.mark.functionality
+def test_a_quarter_named_for_a_monthly_dossier_is_asked_again_and_no_period_named_is_none():
+    today = date(2026, 10, 25)
+    with pytest.raises(ToolError, match="chaque mois"):
+        tva.period_named("monthly", "T3 2026", today)
+    assert tva.period_named("quarterly", "la TVA s'il vous plaît", today) is None
+    assert tva.period_named("quarterly", "3e trimestre", today) == (3, 2026)  # no year said: this one
+
+
+@pytest.mark.communication
+def test_a_period_experio_lacks_is_said(monkeypatch):
+    monkeypatch.setattr(tva, "odoo_call", lambda *a, **k: [])
+    with pytest.raises(ToolError, match="Experio n'a pas de période 13"):
+        tva.find_period("monthly", 13)
+
+
+@pytest.mark.functionality
+def test_a_dossier_outside_tva_declares_none(experio, monkeypatch):
+    inner = tva.odoo_call
+    company = [{"declaration_mode": "none", "regime_type": False}]
+    monkeypatch.setattr(tva, "odoo_call", lambda model, *a, **k: company if model == "res.company" else inner(model))
+    result = tva.prepare_tva_declaration(857)
+    assert result["status"] == "stop" and "hors champ de la TVA" in result["message"] and experio["calls"] == []
+
+
+@pytest.mark.security
+def test_test_mode_creates_no_declaration(experio, monkeypatch):
+    monkeypatch.setattr(tva, "dry_run", lambda: True)
+    result = tva.prepare_tva_declaration(857, "T3 2026")
+    assert result["message"].startswith("MODE TEST") and "Trimestre 3 2026" in result["message"]
+    assert experio["calls"] == []
+
+
+@pytest.mark.security
+def test_test_mode_refreshes_writes_and_declares_nothing(experio, monkeypatch):
+    monkeypatch.setattr(tva, "dry_run", lambda: True)
+    experio["tables"] = [{"id": 50, "state": "draft"}]
+    result = tva.prepare_tva_declaration(857, credit_reporte="900", declarer=True, client_confirmed=True)
+    assert result["message"].startswith("MODE TEST") and "serait déclarée" in result["message"]
+    assert methods(experio) == ["check_declaration_requirements"] and experio["written"] == []  # a check saves nothing
+
+
+@pytest.mark.communication
+def test_lines_in_error_and_experio_warning_are_told(experio, monkeypatch):
+    experio["done_before"] = 1
+    experio["table"]["warning_msg"] = "<p>Période <b>à vérifier</b></p>"
+    errors = [{"error_msg": "<p>Taux absent</p>"}, {"error_msg": "Taux absent"}, {"error_msg": "IF manquant"}]
+    inner = tva.odoo_call
+    monkeypatch.setattr(tva, "odoo_call", lambda model, *a, **k: errors if model == tva.LINE else inner(model, *a, **k))
+    message = tva.prepare_tva_declaration(857)["message"]
+    assert "Lignes en erreur : Taux absent (2) ; IF manquant (1)." in message
+    assert "Experio signale : Période à vérifier" in message
+
+
+def posting(experio, monkeypatch, outcome):
+    experio["done_before"] = 1
+    inner = tva.odoo_json
+
+    def odoo_json(model, method, ids, **kw):
+        if method == "action_post":
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+        return inner(model, method, ids, **kw)
+
+    monkeypatch.setattr(tva, "odoo_json", odoo_json)
+    return tva.prepare_tva_declaration(857, declarer=True, client_confirmed=True)
+
+
+@pytest.mark.communication
+def test_a_declaration_experio_refuses_is_said_not_declared(experio, monkeypatch):
+    result = posting(experio, monkeypatch, ExperioRefusal("Période verrouillée"))
+    assert result["status"] == "stop" and "pas déclarée, Experio refuse : Période verrouillée" in result["message"]
+
+
+@pytest.mark.security
+def test_a_window_experio_opens_at_declaring_stops_for_the_cabinet(experio, monkeypatch):
+    result = posting(experio, monkeypatch, {"res_model": "exp.declaration.coherence.wizard", "name": "Cohérence"})
+    assert result["status"] == "stop" and "« Cohérence »" in result["message"]
+
+
+@pytest.mark.communication
+def test_experio_unreachable_says_the_tva_declaration_could_not_be_prepared(experio, monkeypatch):
+    def down(*args, **kw):
+        raise ConnectionRefusedError("down")
+
+    monkeypatch.setattr(tva, "odoo_call", down)
+    with pytest.raises(ToolError, match=r"n'a pas pu préparer la déclaration \(down\)"):
+        tva.prepare_tva_declaration(857)

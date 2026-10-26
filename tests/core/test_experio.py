@@ -191,3 +191,271 @@ def test_a_warning_check_says_its_message_or_nothing_and_a_crash_is_skipped_as_e
     raised["error"] = TimeoutError("Experio is unreachable")
     with pytest.raises(TimeoutError):  # never taken for « no warning »
         experio.warns(3, "validate_warning_account_id", {})
+
+
+def fake_settings(monkeypatch, **values):
+    monkeypatch.setattr(experio, "current", lambda: "cabinet_x")
+    monkeypatch.setattr(experio, "setting", lambda key, default=None: values.get(key) or default)
+
+
+@pytest.mark.security
+def test_the_api_key_is_used_before_the_password(monkeypatch):
+    fake_settings(monkeypatch, ODOO_API_KEY="api", ODOO_PASSWORD="pw", ODOO_UID="430", ODOO_USER="tarik")
+    assert experio.account() == ("cabinet_x", 430, "tarik", "api")
+    fake_settings(monkeypatch, ODOO_PASSWORD="pw", ODOO_UID="430", ODOO_USER="tarik")
+    assert experio.account()[3] == "pw"
+
+
+@pytest.mark.functionality
+def test_test_mode_is_the_default_and_marks_each_message(monkeypatch):
+    fake_settings(monkeypatch)
+    assert experio.dry_run() and experio.test_mode_note() == experio.TEST_MODE
+    fake_settings(monkeypatch, DRY_RUN="0")
+    assert not experio.dry_run() and experio.test_mode_note() == ""
+
+
+@pytest.mark.communication
+def test_a_failure_becomes_the_given_message_with_experio_reason_and_a_tool_error_passes_as_is():
+    with pytest.raises(ToolError, match="^Refus : Compte bloque$"), experio.refused("log", "Refus : {reason}"):
+        raise experio.ExperioRefusal("Compte\n bloque", "odoo.exceptions.UserError")
+    with pytest.raises(ToolError, match="^own$"), experio.refused("log", "Refus : {reason}"):
+        raise ToolError("own")
+    with pytest.raises(ValueError, match="last line"), experio.refused("log", "{reason}", error=ValueError):
+        raise RuntimeError("Traceback\n  File x\nlast line")
+
+
+@pytest.mark.technical
+def test_an_xml_rpc_connection_gives_up_after_the_timeout(monkeypatch):
+    monkeypatch.setattr(experio, "ODOO_URL", "https://experio.invalid")
+    transport = experio._timed_transport()
+    assert isinstance(transport, experio.xmlrpc.client.SafeTransport)
+    assert transport.make_connection("experio.invalid").timeout == experio.RPC_TIMEOUT
+
+
+@pytest.mark.security
+def test_a_login_refused_or_as_another_user_fails_and_a_good_one_is_kept(monkeypatch):
+    answers = [False, 999, 430]
+
+    class Common:
+        def authenticate(self, database, user, key, options):
+            return answers.pop(0)
+
+    monkeypatch.setattr(experio, "account", lambda: ("db-login-kept", 430, "tarik", "key"))
+    monkeypatch.setattr(experio, "rpc", lambda path: Common())
+    monkeypatch.setattr(experio, "_logins", {})
+    with pytest.raises(PermissionError, match="login refused"):
+        experio.login()
+    with pytest.raises(PermissionError, match="wrong cabinet"):
+        experio.login()
+    assert experio.login() == 430 and experio.login() == 430 and answers == []  # the second one from memory
+
+
+@pytest.mark.communication
+def test_a_json_refusal_carries_experio_message_and_exception_name(monkeypatch):
+    errors = [
+        {"message": "Odoo Server Error", "data": {"message": "Compte requis", "name": "odoo.exceptions.UserError"}},
+        {"message": "Odoo Server Error"},
+    ]
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            return {"error": errors.pop(0)}
+
+    monkeypatch.setattr(experio, "account", lambda: ("db", 430, "tarik", "key"))
+    monkeypatch.setattr(experio, "login", lambda: 430)
+    monkeypatch.setattr(experio.HTTP, "post", lambda url, timeout, json: Response())
+    with pytest.raises(experio.ExperioRefusal, match="Compte requis") as refusal:
+        experio.odoo_json("exp.invoice", "action_post", [7])
+    assert refusal.value.name == "odoo.exceptions.UserError"
+    with pytest.raises(experio.ExperioRefusal, match="Odoo Server Error") as refusal:
+        experio.odoo_json("exp.invoice", "action_post", [7])
+    assert refusal.value.name == ""
+
+
+@pytest.mark.functionality
+def test_a_new_dossier_is_made_from_the_cabinet_main_one(monkeypatch):
+    asked = []
+
+    def odoo_call(model, method, domain, fields):
+        asked.append((model, domain))
+        return [{"id": 1, "res_id": 12}]
+
+    monkeypatch.setattr(experio, "odoo_call", odoo_call)
+    assert experio.main_dossier_context() == {"allowed_company_ids": [12]}
+    assert asked == [("ir.model.data", [("module", "=", "base"), ("name", "=", "main_company")])]
+
+
+@pytest.mark.security
+def test_a_dossier_is_checked_in_experio_unknown_or_unreachable_is_refused(monkeypatch):
+    answers = [[{"name": "ATLAS"}], [], ConnectionRefusedError("down")]
+    domains = []
+
+    def odoo_call(model, method, domain, fields):
+        domains.append(domain)
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(experio, "odoo_call", odoo_call)
+    assert experio.require_dossier(8) == "ATLAS"
+    assert domains[0] == [("id", "=", 8), *experio.DOSSIER_DOMAIN]  # never a disabled, deleted or the main dossier
+    with pytest.raises(ToolError, match="Aucun dossier n° 8"):
+        experio.require_dossier(8)
+    with pytest.raises(ToolError, match="injoignable"):
+        experio.require_dossier(8)
+
+
+@pytest.mark.security
+def test_an_invoice_must_belong_to_a_dossier_of_the_cabinet_and_be_a_draft_already_read(monkeypatch):
+    invoices = {}
+
+    def odoo_call(model, method, domain, fields):
+        assert ("company_id.enabled", "=", True) in domain
+        if domain[0][2] == 9:
+            raise ConnectionResetError("down")
+        found = invoices.get(domain[0][2])
+        return [found] if found else []
+
+    monkeypatch.setattr(experio, "odoo_call", odoo_call)
+    invoices[5] = {"id": 5, "state": "draft", "bluejay_state": "done"}
+    invoices[6] = {"id": 6, "state": "posted", "bluejay_state": "done"}
+    invoices[7] = {"id": 7, "state": "draft", "bluejay_state": "pending"}
+    assert experio.require_draft_invoice(5, ["state"], read=True) == invoices[5]
+    assert experio.require_draft_invoice(7, ["state"]) == invoices[7]  # not asked to be read: fine
+    with pytest.raises(ToolError, match="encore en train de la lire"):
+        experio.require_draft_invoice(7, ["state"], read=True)
+    with pytest.raises(ToolError, match="seule une facture brouillon peut etre postee"):
+        experio.require_draft_invoice(6, ["state"], what="etre postee")
+    with pytest.raises(ToolError, match="Aucune facture n° 4"):
+        experio.require_invoice(4, ["state"])
+    with pytest.raises(ToolError, match="injoignable"):
+        experio.require_invoice(9, ["state"])
+
+
+@pytest.mark.functionality
+def test_an_invoice_context_and_account_code_follow_its_own_dossier_and_exercice():
+    invoice = {"company_id": [8, "ATLAS"], "exercice_id": [3, "2026"], "account_id": [1, "6136 Honoraires"]}
+    assert experio.invoice_context(invoice) == {"allowed_company_ids": [8], "cron_fiscal_entry_id": 3}
+    assert experio.invoice_context({**invoice, "exercice_id": False}) == {"allowed_company_ids": [8]}
+    assert experio.account_code(invoice) == "6136" and experio.account_code({"account_id": False}) == ""
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("test_mode", [True, False])
+def test_experio_refresh_runs_only_outside_test_mode(monkeypatch, test_mode):
+    calls = []
+    monkeypatch.setattr(experio, "dry_run", lambda: test_mode)
+    monkeypatch.setattr(experio, "odoo_json", lambda *args, **kw: calls.append((args, kw)))
+    experio.refresh(7, {"allowed_company_ids": [8]})
+    expected = [(("exp.invoice", "action_refresh", [7]), {"context": {"allowed_company_ids": [8]}})]
+    assert calls == ([] if test_mode else expected)
+
+
+@pytest.mark.functionality
+def test_journal_settings_unset_or_of_another_dossier_are_misplaced(monkeypatch):
+    def odoo_call(model, method, *args, fields):
+        if model == "res.company":
+            return [{"purchase": [1, "ACH"], "sale": [2, "VTE ATLAS"], "bank": False}]
+        assert args[0] == [("id", "in", [1, 2])]
+        return [{"id": 1, "company_id": [8, "ATLAS"]}, {"id": 2, "company_id": [3, "FIRST"]}]
+
+    monkeypatch.setattr(experio, "odoo_call", odoo_call)
+    assert experio.misplaced_journals(8, ["purchase", "sale", "bank"]) == {"sale": "VTE ATLAS", "bank": False}
+
+
+@pytest.mark.functionality
+def test_journal_settings_all_unset_ask_no_journal(monkeypatch):
+    calls = []
+
+    def odoo_call(model, method, *args, fields):
+        calls.append(model)
+        return [{"purchase": False}]
+
+    monkeypatch.setattr(experio, "odoo_call", odoo_call)
+    assert experio.misplaced_journals(8, ["purchase"]) == {"purchase": False} and calls == ["res.company"]
+
+
+@pytest.mark.functionality
+def test_experio_own_check_keeps_its_errors_and_settings_as_blocking_never_its_warnings(monkeypatch):
+    messages = [["cgnc", "<b>Journal</b> manquant"], ["error", "Montant"], ["warning", "Doublon"]]
+    monkeypatch.setattr(experio, "odoo_json", lambda *args, **kw: messages)
+    assert experio.blocking(7, {}) == ["Journal manquant", "Montant"]
+    monkeypatch.setattr(experio, "odoo_json", lambda *args, **kw: None)
+    assert experio.checked(7, {}) == []
+
+
+def fake_form(monkeypatch, record, onchange, test_mode):
+    written = []
+
+    def odoo_call(model, method, *args, **kw):
+        if method == "fields_get":
+            return {
+                "ref": {"type": "char", "store": True},
+                "amount": {"type": "float", "store": True},
+                "total": {"type": "float", "store": True, "readonly": True},
+                "line_ids": {"type": "one2many", "store": True},
+                "computed": {"type": "char", "store": False},
+                "__last_update": {"type": "datetime", "store": True},
+                "write_date": {"type": "datetime", "store": True},
+            }
+        if method == "read":
+            return [{**record, "id": 1}]
+        written.append((args, kw))
+
+    monkeypatch.setattr(experio, "odoo_call", odoo_call)
+    monkeypatch.setattr(experio, "odoo_json", lambda *a, **k: onchange)
+    monkeypatch.setattr(experio, "dry_run", lambda: test_mode)
+    monkeypatch.setattr(experio, "_forms", {})
+    monkeypatch.setattr(experio, "current", lambda: "cabinet_x")
+    return written
+
+
+@pytest.mark.functionality
+def test_a_filled_invoice_is_written_with_what_experio_fills_outside_test_mode(monkeypatch):
+    written = fake_form(monkeypatch, {"ref": "F1", "amount": 10.0, "total": 10.0}, {"value": {"total": 12.0}}, False)
+    assert experio.fill_invoice(1, {"amount": 12.0}, {"c": 1}) == {"amount": 12.0}
+    assert written == [(([1], {"amount": 12.0}), {"context": {"c": 1}})]  # a read-only total is never written
+    assert set(experio._forms["cabinet_x"]["types"]) == {"ref", "amount", "total"}
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(("test_mode", "changes"), [(True, {"amount": 12.0}), (False, {"amount": 10.0})])
+def test_a_filled_invoice_is_not_written_in_test_mode_or_when_nothing_changes(monkeypatch, test_mode, changes):
+    written = fake_form(monkeypatch, {"ref": "F1", "amount": 10.0, "total": 10.0}, None, test_mode)
+    assert experio.fill_invoice(1, changes, {}) == ({} if changes["amount"] == 10.0 else changes)
+    assert written == []
+
+
+def connection(monkeypatch, version, count):
+    class Common:
+        def version(self):
+            if isinstance(version, Exception):
+                raise version
+            return {"server_version": version}
+
+    def odoo_call(*args):
+        if isinstance(count, Exception):
+            raise count
+        return count
+
+    monkeypatch.setattr(experio, "rpc", lambda path: Common())
+    monkeypatch.setattr(experio, "odoo_call", odoo_call)
+    monkeypatch.setattr(experio, "account", lambda: ("db", 430, "tarik", "key"))
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize(
+    ("version", "count", "said"),
+    [
+        ("17.0", 3, "Connecte au systeme Experio."),
+        (ConnectionRefusedError("no route"), 3, "Experio est injoignable pour le moment."),
+        ("17.0", PermissionError("refused"), "Experio repond, mais ma connexion y est refusee."),
+    ],
+)
+def test_the_connection_check_says_reached_unreachable_or_refused_never_odoo(monkeypatch, version, count, said):
+    connection(monkeypatch, version, count)
+    answer = experio.experio_connection()
+    assert answer == said and "Odoo" not in answer

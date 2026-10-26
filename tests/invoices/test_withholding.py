@@ -2,6 +2,7 @@
 
 import pytest
 
+from engine.tools.core.app import ToolError
 from engine.tools.invoices import withholding
 from engine.tools.invoices.withholding import described, local_withholding_answer, withholding_answer
 
@@ -246,3 +247,134 @@ def test_a_sale_gets_its_retenue_on_when_the_customer_has_an_activity_type(db_ca
     assert withholding.settle_withholding(3)["routine"] and local["written"] == []
     local["partner"].update(expense_type="travaux")  # its rate depends on the customer's attestation: asked once
     assert withholding.settle_withholding(3)["status"] == "question"
+
+
+@pytest.fixture
+def foreign(local, monkeypatch):
+    """The same purchase from a foreign supplier, its last posted foreign rule (``last``) in Experio, every search."""
+    local["invoice"].update(is_local_invoice=False, partner_id=[7, "ACME LTD"], account_id=[1, "61360000 Honoraires"])
+    local.update(last=[], searched=[])
+    fake = withholding.odoo_call
+
+    def odoo_call(model, method, *args, **kw):
+        if (model, method) == ("exp.invoice", "search_read"):
+            local["searched"].append(args[0])
+            return local["last"]
+        return fake(model, method, *args, **kw)
+
+    monkeypatch.setattr(withholding, "odoo_call", odoo_call)
+    return local
+
+
+@pytest.mark.functionality
+def test_without_its_tiers_there_is_no_withholding_to_settle(local):
+    local["invoice"]["partner_id"] = False
+    assert withholding.settle_withholding(3)["routine"] and local["written"] == []
+
+
+@pytest.mark.functionality
+def test_a_foreign_suppliers_rule_experio_applied_is_only_said(foreign):
+    foreign["invoice"].update(retenue=True, foreign_withholding="supplier")
+    result = withholding.settle_withholding(3)
+    assert result["message"] == "Facture 3 : retenue étrangère à la charge du fournisseur (règle connue du tiers)."
+    assert foreign["written"] == [] and foreign["searched"] == []
+
+
+@pytest.mark.functionality
+def test_a_foreign_suppliers_last_posted_rule_is_written_again(foreign):
+    foreign["last"] = [{"retenue": True, "foreign_withholding": "society", "local_service": True, "id": 2}]
+    result = withholding.settle_withholding(3)
+    domain = foreign["searched"][0]
+    assert ("partner_id", "=", 7) in domain and ("id", "!=", 3) in domain and ("is_local_invoice", "=", False) in domain
+    assert foreign["written"] == [{"retenue": True, "foreign_withholding": "society", "local_service": True}]
+    assert result["message"] == "Facture 3 : retenue étrangère à la charge de la société."
+
+
+@pytest.mark.communication
+def test_a_foreign_supplier_with_no_known_rule_is_asked_and_its_answer_written(foreign, model):
+    asked = withholding.settle_withholding(3)
+    assert asked["status"] == "question" and asked["message"].startswith("Facture de ACME LTD : quelle retenue")
+    model[0].update(rule="maybe")
+    unclear = withholding.settle_withholding(3, "on verra", answering=True)
+    assert unclear["status"] == "question" and "réponse non comprise" in unclear["message"]
+    assert foreign["written"] == []
+    model[0].update(rule="none", abroad=False)
+    result = withholding.settle_withholding(3, "sans", answering=True)
+    assert foreign["written"] == [{"retenue": False, "foreign_withholding": "none", "local_service": True}]
+    assert result["message"] == "Facture 3 : sans retenue à la source."
+
+
+@pytest.mark.security
+def test_a_withholding_the_client_did_not_write_is_never_taken_from_their_message(foreign, model):
+    model[0].update(rule="society", abroad=False)
+    asked = withholding.settle_withholding(3, "à la charge de la société", client_message="Voici la facture d'ACME.")
+    assert asked["status"] == "question" and foreign["written"] == []
+    withholding.settle_withholding(3, "à la charge de la société", client_message="RAS à la charge de la société.")
+    assert foreign["written"] == [{"retenue": True, "foreign_withholding": "society", "local_service": True}]
+
+
+@pytest.mark.functionality
+def test_experio_refusing_the_withholding_is_a_tool_error(foreign, monkeypatch):
+    foreign["last"] = [{"retenue": True, "foreign_withholding": "society", "local_service": True}]
+
+    def fill_invoice(invoice_id, changes, context):
+        raise RuntimeError("Traceback\nValidationError: Compte RAS manquant")
+
+    monkeypatch.setattr(withholding, "fill_invoice", fill_invoice)
+    with pytest.raises(ToolError, match="Experio a refusé la retenue à la source"):
+        withholding.settle_withholding(3)
+
+
+@pytest.mark.communication
+def test_an_unclear_is_ir_answer_is_asked_again(local, model):
+    local["partner"]["expense_type"] = False
+    local["invoice"]["account_id"] = [1, "61360000 Honoraires"]
+    model[0].update(retenue=None)
+    asked = withholding.settle_withholding(3, "je vérifie", answering=True)
+    assert asked["status"] == "question" and "réponse non comprise, y a-t-il une retenue" in asked["message"]
+    assert local["written"] == []
+
+
+@pytest.mark.functionality
+def test_sans_is_ir_keeps_the_retenue_on_for_experios_ras_tva(local, model):
+    local["certificates"] = [
+        {
+            "regularity_date": "2026-01-01",
+            "regularity_end_date": "2027-01-01",
+            "state": "active",
+            "bluejay_state": "done",
+        }
+    ]
+    model[0].update(retenue=False)
+    withholding.settle_withholding(3, "sans", answering=True)
+    assert local["written"] == [{"retenue": True, "local_withholding_percentage": False}]
+
+
+@pytest.mark.functionality
+def test_a_known_rule_with_nothing_to_write_is_only_said(local):
+    local["partner"]["expense_type"] = False
+    local["invoice"].update(retenue=True, local_withholding_percentage="10")
+    result = withholding.settle_withholding(3)
+    assert result["message"] == "Facture 3 : retenue à la source IS/IR 10 % (règle connue du tiers)."
+    local["invoice"].update(type="sale", account_id=[2, "71240000 Services"])
+    result = withholding.settle_withholding(3)
+    assert result["message"] == "Facture 3 : retenue à la source IS/IR 10 % (règle connue du client)."
+    assert local["written"] == []
+
+
+@pytest.mark.functionality
+def test_in_test_mode_an_attestation_sent_is_awaited_never_uploaded(db_cabinet, local, monkeypatch):
+    from engine.tools.core.cabinets import cabinet_db
+    from engine.tools.invoices import pipeline
+
+    monkeypatch.setattr(withholding, "dry_run", lambda: True)
+    pipeline.record_step("r", "s", "settle_withholding", {**withholding.settle_withholding(3), "invoice_id": 3})
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, created_at) values "
+            "('s', 'attestation.pdf', 'application/pdf', %s, now() + interval '1 second')",
+            (b"%PDF-1.4 attestation",),
+        )
+    result = withholding.settle_withholding(3, "ci-joint", answering=True)
+    assert result["status"] == "wait" and "« attestation.pdf »" in result["message"]
+    assert local["created"] == []

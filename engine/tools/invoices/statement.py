@@ -203,7 +203,8 @@ def opening_note(statement, context):
         context=context,
     )
     year = statement["date"][:4]
-    carried = round(sum(line["balance"] for line in lines if (line["date"] or "")[:4] == year), 2)
+    lines = [line for line in lines if (line["date"] or "")[:4] == year]  # only the statement's exercice's
+    carried = round(sum(line["balance"] for line in lines), 2)
     start = round(statement["balance_start"] or 0, 2)
     if not lines or abs(abs(carried) - abs(start)) < 0.01:
         return ""

@@ -178,3 +178,136 @@ def test_the_files_tarik_made_go_with_the_email(monkeypatch):
     attached = list(message.iter_attachments())
     assert [part.get_filename() for part in attached] == ["FEC_TARIK_TEST_2026.txt"]
     assert attached[0].get_content() == "Code_Journal;Libelle"
+
+
+SMTP = {"SMTP_HOST": "smtp.cabinet.ma", "SMTP_USER": "tarik@cabinet.ma", "MAIL_ALLOWED_RECIPIENTS": "@cabinet.ma"}
+
+
+def mailer(monkeypatch, settings=None, refusal=None):
+    sent = []
+
+    def smtp_send(host, user, message):
+        if refusal:
+            raise refusal
+        sent.append(message)
+
+    values = SMTP if settings is None else settings
+    monkeypatch.setattr(sending, "setting", lambda name, default=None: values.get(name) or default)
+    monkeypatch.setattr(sending, "cabinet_name", lambda: "")
+    monkeypatch.setattr(sending, "smtp_send", smtp_send)
+    monkeypatch.setattr(sending, "save_sent", lambda message: None)
+    return sent
+
+
+def unsent(session_id):
+    from engine.tools.core.cabinets import cabinet_db
+    from engine.tools.core.queries import Q
+
+    with cabinet_db() as db:
+        return [row[1] for row in db.execute(Q.outbox_unsent, (session_id,))]
+
+
+@pytest.mark.functionality
+def test_the_conversation_files_go_once_with_the_next_email(db_cabinet, monkeypatch):
+    from engine.tools.core import outbox
+
+    sent = mailer(monkeypatch)
+    outbox.keep_file("s1", "export.xlsx", b"xlsx")
+    outbox.keep_file("other", "tva.xml", b"<tva/>")
+    result = send_email("chef@cabinet.ma", "Re: Export", "Voici l'export.", attach_session="s1")
+    assert result["message_id"] == sent[0]["Message-ID"]
+    assert [part.get_filename() for part in sent[0].iter_attachments()] == ["export.xlsx"]
+    assert unsent("s1") == [] and unsent("other") == ["tva.xml"]
+    send_email("chef@cabinet.ma", "Re: Export", "Encore.", attach_session="s1")
+    assert list(sent[1].iter_attachments()) == []  # never sent twice
+
+
+@pytest.mark.communication
+def test_an_email_the_server_refuses_keeps_its_files_for_the_next(db_cabinet, monkeypatch):
+    from engine.tools.core import outbox
+
+    mailer(monkeypatch, refusal=OSError("550 refused"))
+    outbox.keep_file("s1", "export.xlsx", b"xlsx")
+    with pytest.raises(ToolError, match="le serveur d'envoi a refuse"):
+        send_email("chef@cabinet.ma", "Re: Export", "Voici l'export.", attach_session="s1")
+    assert unsent("s1") == ["export.xlsx"]
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize(
+    ("to", "settings", "said"),
+    [
+        ("", SMTP, "Aucun destinataire"),
+        ("chef@cabinet.ma", {"MAIL_ALLOWED_RECIPIENTS": "@cabinet.ma"}, "SMTP non configure"),
+    ],
+)
+def test_an_email_without_recipient_or_smtp_is_refused(monkeypatch, to, settings, said):
+    sent = mailer(monkeypatch, settings)
+    with pytest.raises(ToolError, match=said):
+        send_email(to, "s", "b")
+    assert sent == []
+
+
+@pytest.mark.technical
+def test_a_sent_copy_the_mailbox_refuses_is_only_logged(monkeypatch):
+    def broken():
+        raise OSError("imap down")
+
+    monkeypatch.setattr(sending, "imap_session", broken)
+    sending.save_sent(sending.EmailMessage())  # the email is already sent: nothing raised
+
+
+class FakeSmtp:
+    made = []
+
+    def __init__(self, host, port, context=None, timeout=None):
+        self.calls, self.sock = [("open", host, port)], object()
+        FakeSmtp.made.append(self)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def starttls(self, context):
+        self.calls.append("starttls")
+
+    def login(self, user, password):
+        self.calls.append(("login", user, password))
+
+    def send_message(self, message):
+        self.calls.append("send")
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(("port", "tls"), [("465", []), ("587", ["starttls"])])
+def test_smtp_is_encrypted_from_the_start_on_465_else_by_starttls_before_login(monkeypatch, port, tls):
+    settings = {"SMTP_PORT": port, "SMTP_PASSWORD": "pw"}
+    monkeypatch.setattr(sending, "setting", lambda name, default=None: settings.get(name, default))
+    monkeypatch.setattr(sending.smtplib, "SMTP_SSL", FakeSmtp)
+    monkeypatch.setattr(sending.smtplib, "SMTP", FakeSmtp)
+    monkeypatch.setattr(sending, "check_pin", lambda sock: None)
+    FakeSmtp.made.clear()
+    sending.smtp_send("smtp.cabinet.ma", "tarik@cabinet.ma", None)
+    assert FakeSmtp.made[0].calls[1:] == [*tls, ("login", "tarik@cabinet.ma", "pw"), "send"]
+
+
+@pytest.mark.security
+def test_a_certificate_other_than_the_pinned_one_closes_the_connection(monkeypatch):
+    class Sock:
+        closed = False
+
+        def getpeercert(self, binary_form):
+            return b"another certificate"
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(
+        sending, "setting", lambda name, default=None: "AB:CD" if name == "MAIL_CERT_SHA256" else default
+    )
+    sock = Sock()
+    with pytest.raises(sending.ssl.SSLError, match="does not match"):
+        sending.check_pin(sock)
+    assert sock.closed

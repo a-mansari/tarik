@@ -5,6 +5,7 @@ from datetime import date
 
 import pytest
 
+from engine.tools.core.app import ToolError
 from engine.tools.core.experio import ExperioRefusal
 from engine.tools.declarations import payment_delay as delay
 
@@ -70,6 +71,8 @@ def experio(monkeypatch):
         state["calls"].append(method)
         if method == "action_post" and state.get("refusal"):
             raise ExperioRefusal(state["refusal"])
+        if method == "print_xml_deduction_report" and state.get("xml_refusal"):
+            raise ExperioRefusal(state["xml_refusal"])
 
     monkeypatch.setattr(delay, "odoo_call", odoo_call)
     monkeypatch.setattr(delay, "odoo_json", odoo_json)
@@ -151,3 +154,89 @@ def test_declaring_asks_first_then_declares_on_the_clients_yes(experio):
     assert "action_post" not in experio["calls"]
     done = delay.prepare_payment_delay_declaration(857, declarer=True, client_confirmed=True)
     assert "action_post" in experio["calls"] and "déclarée dans Experio" in done["message"]
+
+
+@pytest.mark.functionality
+def test_the_period_declaration_already_in_experio_is_taken_up(experio):
+    experio["tables"] = [{"id": 44, "state": "draft"}]
+    experio["lines"] = [line()]
+    result = delay.prepare_payment_delay_declaration(857)
+    assert result["declaration_id"] == 44 and "create" not in experio["calls"] and "créée" not in result["message"]
+
+
+@pytest.mark.security
+def test_test_mode_creates_no_declaration(experio, monkeypatch):
+    monkeypatch.setattr(delay, "dry_run", lambda: True)
+    result = delay.prepare_payment_delay_declaration(857)
+    assert result["message"].startswith("MODE TEST") and "serait créée et préparée" in result["message"]
+    assert experio["calls"] == []
+
+
+@pytest.mark.security
+def test_test_mode_writes_refreshes_and_declares_nothing(experio, monkeypatch):
+    monkeypatch.setattr(delay, "dry_run", lambda: True)
+    experio["tables"] = [{"id": 44, "state": "draft"}]
+    experio["lines"] = [line()]
+    result = delay.prepare_payment_delay_declaration(857, "", "9 000 000", declarer=True, client_confirmed=True)
+    assert result["message"].startswith("MODE TEST") and "serait déclarée" in result["message"]
+    assert experio["calls"] == [] and experio["written"] == []
+
+
+@pytest.mark.functionality
+def test_a_declaration_already_declared_is_only_reported(experio):
+    experio["tables"] = [{"id": 44, "state": "done"}]
+    experio["table"]["state"] = "done"
+    result = delay.prepare_payment_delay_declaration(857, declarer=True, client_confirmed=True)
+    assert "(n° 44) : déjà déclarée dans Experio" in result["message"] and "à néant" in result["message"]
+    assert experio["calls"] == []
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("change", "said"),
+    [
+        ({"table": {"end_date": "2026-12-31"}}, "la période n'est pas terminée"),
+        ({"counts": {"untracked": 0, "blocked": 0, "declared": 1}}, "la période est déjà déclarée"),
+    ],
+)
+def test_a_period_running_or_already_declared_is_refused_before_experio_does(experio, change, said):
+    experio["table"].update(change.get("table", {}))
+    experio["counts"] = change.get("counts", experio["counts"])
+    result = delay.prepare_payment_delay_declaration(857, declarer=True, client_confirmed=True)
+    assert result["status"] == "stop" and said in result["message"] and "action_post" not in experio["calls"]
+
+
+@pytest.mark.communication
+def test_an_xml_experio_refuses_stops_with_its_reason(experio):
+    experio["lines"] = [line()]
+    experio["xml_refusal"] = "L'identifiant fiscal du dossier est requis"
+    result = delay.prepare_payment_delay_declaration(857, declarer=True, client_confirmed=True)
+    assert result["status"] == "stop" and "refuse son fichier XML : L'identifiant fiscal" in result["message"]
+    assert "action_post" not in experio["calls"]
+
+
+@pytest.mark.communication
+def test_a_declaration_experio_refuses_is_said_not_declared(experio):
+    experio["lines"] = [line()]
+    experio["refusal"] = "Période déjà déclarée"
+    result = delay.prepare_payment_delay_declaration(857, declarer=True, client_confirmed=True)
+    assert result["status"] == "stop" and "pas déclarée, Experio refuse : Période déjà déclarée" in result["message"]
+
+
+@pytest.mark.communication
+def test_a_null_declaration_has_no_xml_and_a_file_not_kept_is_said_ready(experio, monkeypatch):
+    assert "à néant" in delay.prepare_payment_delay_declaration(857)["message"]
+    assert "print_xml_deduction_report" not in experio["calls"]
+    experio["lines"] = [line()]
+    monkeypatch.setattr(delay, "keep_record_file", lambda *args: "")
+    assert "Fichier XML prêt sur la déclaration" in delay.prepare_payment_delay_declaration(857)["message"]
+
+
+@pytest.mark.communication
+def test_experio_unreachable_says_the_declaration_could_not_be_prepared(experio, monkeypatch):
+    def down(*args, **kw):
+        raise ConnectionRefusedError("down")
+
+    monkeypatch.setattr(delay, "odoo_call", down)
+    with pytest.raises(ToolError, match="n'a pas pu préparer la déclaration des délais de paiement"):
+        delay.prepare_payment_delay_declaration(857)

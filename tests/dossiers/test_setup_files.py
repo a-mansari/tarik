@@ -3,6 +3,8 @@ journal asked and set, and an onboarding that waits for the files until the clie
 
 import pytest
 
+from engine.tools.core.app import ToolError
+from engine.tools.core.config import TEST_MODE
 from engine.tools.dossiers import setup
 from engine.tools.dossiers.setup import bank_named, file_kind
 
@@ -95,3 +97,59 @@ def test_without_entries_the_onboarding_waits_for_the_clients_files(monkeypatch)
     assert "integration terminee" in setup.finish_setup(557, finish=True)["message"]  # the client said all was sent
     counts["experio.history"] = 40
     assert "integration terminee" in setup.finish_setup(557)["message"]  # a FEC: finished as before
+
+
+@pytest.mark.security
+def test_a_journal_of_another_dossier_is_never_given_a_bank(experio, monkeypatch):
+    real = setup.odoo_call
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "exp.journal" and method == "read":
+            return [{"name": "BQ9", "company_id": [25, "CAFE EPSOM"], "partner_id": False}]
+        return real(model, method, *args, **kw)
+
+    monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    with pytest.raises(ToolError, match="n'est pas un journal du dossier Gecafisc"):
+        setup.set_journal_bank(557, 31, 3)
+    assert experio["written"] == []
+
+
+@pytest.mark.functionality
+def test_the_last_journals_bank_ends_the_questions(experio):
+    experio["journals"].pop()
+    done = setup.set_journal_bank(557, 11, 3)
+    assert done["status"] == "ok" and done["dossier_id"] == 557
+    assert done["message"] == "Dossier Gecafisc : journal BQ1 a la banque CREDIT IMMOBILIER ET HOTELIER (CIH)."
+
+
+@pytest.mark.functionality
+def test_a_journal_with_its_tiers_keeps_it(experio, monkeypatch):
+    real = setup.odoo_call
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "exp.partner":
+            pytest.fail("tiers looked for")
+        if model == "exp.journal" and method == "read":
+            return [{"name": "BQ1", "company_id": [557, "Gecafisc"], "partner_id": [8, "CIH"]}]
+        return real(model, method, *args, **kw)
+
+    monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    setup.set_journal_bank(557, 11, 3)
+    assert experio["written"] == [{"bank_id": 3}]
+
+
+@pytest.mark.security
+def test_in_test_mode_the_bank_is_only_said(experio, monkeypatch):
+    monkeypatch.setattr(setup, "dry_run", lambda: True)
+    monkeypatch.setattr(setup, "test_mode_note", lambda: TEST_MODE)
+    following = setup.set_journal_bank(557, 11, 3)
+    assert experio["written"] == [] and following["message"].startswith(f"{TEST_MODE}Dossier Gecafisc : journal BQ1")
+
+
+@pytest.mark.communication
+def test_experio_not_giving_the_bank_journals_is_said(experio, monkeypatch):
+    monkeypatch.setattr(setup, "odoo_call", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("timeout")))
+    with pytest.raises(ToolError, match="Gecafisc : Experio n'a pas pu lire les journaux de banque"):
+        setup.ask_banks(557)
+    with pytest.raises(ToolError, match="Gecafisc : Experio a refuse la banque du journal"):
+        setup.set_journal_bank(557, 11, 3)

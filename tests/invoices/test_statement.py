@@ -5,6 +5,8 @@ import io
 import openpyxl
 import pytest
 
+from engine.tools.core.app import ToolError
+from engine.tools.core.experio import ExperioRefusal
 from engine.tools.invoices import intake, pipeline, statement
 
 
@@ -248,3 +250,175 @@ def test_tpe_remittances_are_tied_to_their_tpe_statement_when_experio_is_sure(mo
     monkeypatch.setattr(statement, "dry_run", lambda: False)
     assert statement.tie_tpe({"line_ids": [1, 2, 3]}, {}) == (1, 1)
     assert written == [([1], {"tpe_line_id": 644})]  # Experio's sure match only; the ambiguous one left to the cabinet
+
+
+@pytest.mark.functionality
+def test_a_file_without_imported_statement_is_neither_settled_nor_posted(db_cabinet):
+    assert statement.statement_of(999999) == (None, None)
+    assert statement.settle_statement(999999)["status"] == "ok"
+    assert "pas de relevé à comptabiliser" in statement.post_statement(999999)["message"]
+
+
+@pytest.mark.functionality
+def test_a_tpe_statement_is_settled_and_posted_by_its_own_screens(monkeypatch):
+    monkeypatch.setattr(statement, "statement_of", lambda file_id: (460, "cmi"))
+    monkeypatch.setattr(statement.tpe, "read_tpe", lambda statement_id: {"state": "draft", "statement_processed": True})
+    monkeypatch.setattr(statement, "read_statement", lambda statement_id: pytest.fail("not a bank statement"))
+    monkeypatch.setattr(statement.tpe, "settle_tpe", lambda statement_id: {"status": "ok", "message": "settled"})
+    monkeypatch.setattr(statement.tpe, "post_tpe", lambda statement_id: {"status": "ok", "message": "posted"})
+    assert statement.settle_statement(8)["message"] == "settled"
+    assert statement.post_statement(8)["message"] == "posted"
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize("step", ["settle_tpe", "post_tpe"])
+def test_a_tpe_statement_experio_refuses_says_its_reason(monkeypatch, step):
+    def refused(statement_id):
+        raise ExperioRefusal("Relevé en double", "odoo.exceptions.UserError")
+
+    monkeypatch.setattr(statement, "statement_of", lambda file_id: (460, "cmi"))
+    monkeypatch.setattr(statement.tpe, "read_tpe", lambda statement_id: {"state": "draft", "statement_processed": True})
+    monkeypatch.setattr(statement.tpe, step, refused)
+    run = statement.settle_statement if step == "settle_tpe" else statement.post_statement
+    with pytest.raises(ToolError, match=r"n° 460 : Experio a refusé \(Relevé en"):
+        run(8)
+
+
+@pytest.mark.functionality
+def test_no_detection_from_experio_points_nothing(experio, monkeypatch):
+    monkeypatch.setattr(statement, "odoo_json", lambda model, method, ids, **kw: True)  # « No detection results »
+    assert statement.auto_point({"id": 40}, {}) == 0
+    assert "pointée(s)" not in statement.settle_statement(8)["message"]
+
+
+@pytest.mark.security
+def test_test_mode_confirms_no_detection_ties_no_invoice_and_posts_nothing(experio, monkeypatch):
+    monkeypatch.setattr(statement, "dry_run", lambda: True)
+    result = statement.settle_statement(8, client_message="Le virement paie la facture FA-0012.")
+    assert result["message"].startswith("MODE TEST") and "2 pointée(s)" in result["message"]
+    assert experio["applied"] == [] and experio["written"] == []
+    posted = statement.post_statement(8)
+    assert posted["message"].startswith("MODE TEST") and "seraient comptabilisées" in posted["message"]
+
+
+@pytest.mark.functionality
+def test_a_posted_statement_is_neither_pointed_nor_posted_again(experio, monkeypatch):
+    experio["statement"]["state"] = "post"
+    for line in experio["lines"]:
+        line["state"] = "post"
+    monkeypatch.setattr(statement, "tie_tpe", lambda *a: pytest.fail("a posted statement is not tied"))
+    result = statement.settle_statement(8, client_message="facture FA-0012")
+    assert experio["applied"] == [] and experio["written"] == [] and "3 déjà comptabilisée(s)" in result["message"]
+    assert statement.post_statement(8)["message"] == "Relevé n° 40 : déjà comptabilisé."
+
+
+@pytest.mark.communication
+def test_tpe_remittances_tied_and_left_are_said(experio, monkeypatch):
+    monkeypatch.setattr(statement, "tie_tpe", lambda statement_, context: (2, 1))
+    message = statement.settle_statement(8)["message"]
+    assert "2 versement(s) TPE rapproché(s) de leur relevé TPE" in message
+    assert "1 versement(s) TPE sans relevé TPE certain : à rapprocher par le cabinet" in message
+
+
+@pytest.mark.functionality
+def test_without_experio_tpe_module_nothing_is_tied(monkeypatch):
+    monkeypatch.setattr(statement, "odoo_call", lambda model, method, domain: 0)
+    assert statement.tie_tpe({"line_ids": [1]}, {}) is None
+
+
+def tpe_lines(monkeypatch, action, test_mode=False):
+    written = []
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "ir.module.module":
+            return 1
+        if model == statement.LINE and method == "read":
+            return [{"id": 1, "operation_type": "monetary_operations", "tpe_line_id": False}]
+        if model == statement.LINE and method == "write":
+            written.append(args)
+        if model == "tpe.auto.reconcile.wizard":
+            return [{"line_ids": [10]}]
+        return [{"line_id": [1, "x"], "tpe_line_id": [644, "y"], "state": "matched"}]
+
+    monkeypatch.setattr(statement, "odoo_call", odoo_call)
+    monkeypatch.setattr(statement, "odoo_json", lambda model, method, ids, **kw: action)
+    monkeypatch.setattr(statement, "dry_run", lambda: test_mode)
+    return written
+
+
+@pytest.mark.functionality
+def test_experio_finding_no_tpe_match_leaves_the_remittances(monkeypatch):
+    written = tpe_lines(monkeypatch, True)
+    assert statement.tie_tpe({"line_ids": [1]}, {}) == (0, 1) and written == []
+
+
+@pytest.mark.security
+def test_test_mode_ties_no_tpe_remittance(monkeypatch):
+    written = tpe_lines(monkeypatch, {"res_id": 5}, test_mode=True)
+    assert statement.tie_tpe({"line_ids": [1]}, {}) == (1, 0) and written == []
+
+
+def first_statement(monkeypatch, account, lines):
+    def odoo_call(model, method, *args, **kw):
+        if method == "search_count":
+            return 0  # the journal's first statement
+        if model == "exp.journal":
+            return [{"default_account_id": account}]
+        assert ("move_id.move_category", "=", "carry_forward") in args[0]
+        return lines
+
+    monkeypatch.setattr(statement, "odoo_call", odoo_call)
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize(
+    ("account", "day", "lines", "note"),
+    [
+        ([5141, "BQ"], "2026-03-31", [{"balance": 900.0, "date": "2026-01-01"}], "(1000.00) diffère de l'à-nouveau "),
+        ([5141, "BQ"], "2026-03-31", [{"balance": -1000.0, "date": "2026-01-01"}], ""),  # the same, credit side
+        ([5141, "BQ"], "2026-03-31", [], ""),  # no à-nouveau: nothing to compare
+        ([5141, "BQ"], "2026-03-31", [{"balance": 900.0, "date": "2025-01-01"}], ""),  # another exercice's only
+        (False, "2026-03-31", [{"balance": 9.0, "date": "2026-01-01"}], ""),  # no account on the journal
+        ([5141, "BQ"], False, [{"balance": 9.0, "date": "2026-01-01"}], ""),  # no date read
+    ],
+)
+def test_the_first_statement_of_a_journal_is_checked_against_its_carry_forward(monkeypatch, account, day, lines, note):
+    first_statement(monkeypatch, account, lines)
+    found = statement.opening_note({"id": 40, "journal_id": [3, "BQ"], "date": day, "balance_start": 1000.0}, {})
+    assert note in found if note else found == ""
+
+
+@pytest.mark.functionality
+def test_a_template_row_with_its_rate_and_currency_takes_them_when_experio_finds_one(monkeypatch):
+    found = {"exp.payment.method": [3, 4], "res.currency": [2]}  # two methods of that name: none taken
+    monkeypatch.setattr(statement, "odoo_call", lambda model, method, domain, **kw: found[model])
+    row = {"date": "06/03/2023", "methode de paiement": "Virement", "devise": "EUR", "taux de change": "10,85"}
+    values = statement.line_values(row, {})
+    assert values["exchange_rate"] == 10.85 and values["currency_id"] == 2 and "exp_payment_method_id" not in values
+
+
+@pytest.mark.functionality
+def test_a_template_is_imported_into_a_new_statement_of_the_journal(monkeypatch):
+    calls = []
+
+    def odoo_call(model, method, *args, **kw):
+        calls.append((model, method, args, kw))
+        return 44 if method == "create" and model == statement.STATEMENT else [1]
+
+    monkeypatch.setattr(statement, "odoo_call", odoo_call)
+    monkeypatch.setattr(statement, "canvas_rows", lambda data: [{"date": "06/03/2023", "libelle": "X", "debit": 1}])
+    assert statement.import_canvas("releve mars.xlsx", b"", 857, 2922) == 44
+    assert calls[0][2] == ({"journal_id": 2922, "name": "releve mars"},)
+    assert calls[1][3]["context"] == {
+        "allowed_company_ids": [857],
+        "from_xlsx_import": True,
+        "default_statement_id": 44,
+    }
+
+
+@pytest.mark.functionality
+def test_an_empty_template_makes_no_statement(monkeypatch):
+    monkeypatch.setattr(statement, "odoo_call", lambda *a, **k: pytest.fail("nothing made"))
+    monkeypatch.setattr(statement, "canvas_rows", lambda data: [])
+    with pytest.raises(RuntimeError, match="aucune ligne"):
+        statement.import_canvas("r.xlsx", b"", 857, 2922)

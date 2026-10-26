@@ -4,6 +4,7 @@ import pytest
 
 from engine.tools.core.config import TIERS_MIN_SIMILARITY
 from engine.tools.core.words import similarity
+from engine.tools.invoices.tiers import flagged_tier
 
 TIERS = [
     {"id": 7, "name": "ATLAS DE ROULEMENT - 12345678"},
@@ -268,3 +269,263 @@ def test_a_tiers_already_set_is_kept_over_the_one_detected(scanned, monkeypatch)
     monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
     tiers.link_tiers(4)
     assert linked == [5] and calls == []
+
+
+CONTEXT = {"allowed_company_ids": [778]}  # Experio's dossier of invoice 4, no exercice
+
+
+@pytest.fixture
+def linking(monkeypatch):
+    """link on purchase 4 of dossier 778: odoo_call answers ``answers`` by (model, method), Experio's writes kept."""
+    from engine.tools.invoices import tiers
+
+    invoice = {"id": 4, "company_id": [778, "D"], "exercice_id": False, "type": "purchase", "partner_id": False}
+    state = {"invoice": invoice, "calls": [], "filled": [], "confirmed": []}
+    state["answers"] = {
+        ("exp.partner", "read"): lambda fields: [
+            {"name": "ATLAS", "company_id": [778, "D"], "active": True, "third_party_supplier_account": False}
+            | {"third_party_customer_account": False}
+        ],
+        ("exp.invoice.partner.account.wizard", "create"): lambda fields: 31,
+        ("exp.invoice.partner.account.wizard", "read"): lambda fields: [{"third_party_account": "44110123"}],
+    }
+
+    def odoo_call(model, method, *args, **kw):
+        state["calls"].append((model, method, args, kw))
+        return state["answers"][(model, method)](kw.get("fields"))
+
+    monkeypatch.setattr(tiers, "odoo_call", odoo_call)
+    monkeypatch.setattr(tiers, "fill_invoice", lambda *a: state["filled"].append(a))
+    monkeypatch.setattr(tiers, "odoo_json", lambda *a, **k: state["confirmed"].append((a, k)))
+    monkeypatch.setattr(tiers, "dry_run", lambda: False)
+    monkeypatch.setattr(tiers, "test_mode_note", lambda: "")
+    return state
+
+
+@pytest.mark.functionality
+def test_a_tiers_is_put_through_experios_form_and_gets_the_compte_tiers_its_wizard_proposes(linking):
+    from engine.tools.invoices import tiers
+
+    result = tiers.link(linking["invoice"], 7, "purchase")
+    assert result == {"status": "ok", "message": "Facture 4 : fournisseur ATLAS, compte tiers 44110123 créé."}
+    assert linking["filled"] == [(4, {"partner_id": 7}, CONTEXT)]
+    assert linking["calls"][0] == (
+        "exp.partner",
+        "read",
+        ([7],),
+        {"fields": ["name", "company_id", "active"], "context": CONTEXT},
+    )
+    wizard = "exp.invoice.partner.account.wizard"
+    assert linking["calls"][2] == (wizard, "create", ({"invoice_id": 4},), {"context": CONTEXT})
+    assert linking["confirmed"] == [((wizard, "action_confirm", [31]), {"context": CONTEXT})]
+
+
+@pytest.mark.functionality
+def test_a_tiers_already_on_the_invoice_with_its_compte_tiers_writes_nothing(linking):
+    from engine.tools.invoices import tiers
+
+    linking["invoice"]["partner_id"] = [7, "ATLAS"]
+    linking["answers"][("exp.partner", "read")] = lambda fields: [
+        {"name": "ATLAS", "company_id": [778, "D"], "third_party_supplier_account": "44110007"}
+    ]
+    assert tiers.link(linking["invoice"], 7, "purchase")["message"] == (
+        "Facture 4 : fournisseur ATLAS, compte tiers 44110007."
+    )
+    assert linking["filled"] == [] and linking["confirmed"] == [] and len(linking["calls"]) == 2
+
+
+@pytest.mark.functionality
+def test_a_dossier_numbering_no_compte_tiers_is_told_the_cabinet_assigns_it(linking):
+    from engine.tools.invoices import tiers
+
+    linking["answers"][("exp.invoice.partner.account.wizard", "read")] = lambda fields: [{"third_party_account": False}]
+    linking["invoice"]["type"] = "sale"
+    result = tiers.link(linking["invoice"], 7, "sale")
+    assert "client ATLAS, pas de Compte Tiers client : dans ce dossier le cabinet les attribue" in result["message"]
+    assert linking["confirmed"] == []  # no code proposed: the wizard is never confirmed
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("found", [[], [{"name": "OTHER", "company_id": [999, "X"], "active": True}]])
+def test_a_tiers_of_another_dossier_or_none_is_never_linked(linking, found):
+    from engine.tools.core.app import ToolError
+    from engine.tools.invoices import tiers
+
+    linking["answers"][("exp.partner", "read")] = lambda fields: found
+    with pytest.raises(ToolError, match="n'appartient pas au dossier de la facture 4"):
+        tiers.link(linking["invoice"], 7, "purchase")
+    assert linking["filled"] == []
+
+
+@pytest.mark.communication
+def test_why_experio_refused_to_link_a_tiers_is_said(linking, monkeypatch):
+    from engine.tools.core.app import ToolError
+    from engine.tools.invoices import tiers
+
+    def refuse(*args):
+        raise RuntimeError("Traceback\nValidationError: tiers archivé")
+
+    monkeypatch.setattr(tiers, "fill_invoice", refuse)
+    with pytest.raises(ToolError, match=r"Facture 4 : Experio a refusé le tiers ATLAS \(.*tiers archivé\)"):
+        tiers.link(linking["invoice"], 7, "purchase")
+    assert linking["confirmed"] == []
+
+
+@pytest.mark.technical
+def test_the_dossiers_tiers_are_read_inside_the_dossier(linking):
+    from engine.tools.invoices import tiers
+
+    linking["answers"][("exp.partner", "search_read")] = lambda fields: [{"id": 7, "name": "ATLAS", "ice": False}]
+    assert tiers.dossier_tiers(778) == [{"id": 7, "name": "ATLAS", "ice": False}]
+    assert linking["calls"] == [
+        (
+            "exp.partner",
+            "search_read",
+            ([("company_id", "=", 778)],),
+            {"fields": ["id", "name", "ice"], "context": CONTEXT},
+        )
+    ]
+
+
+@pytest.mark.functionality
+def test_the_tiers_experio_detected_is_linked(scanned, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice["detected_supplier_id"] = [6, "DETECTED"]
+    linked = []
+    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
+    tiers.link_tiers(4)
+    assert linked == [6] and calls == []
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("found", "status"),
+    [
+        ([{"id": 3, "name": "ADMINISTRATION DES DOUANES"}], "ok"),
+        ([{"id": 3, "name": "Douane Casa"}, {"id": 5, "name": "ADII Tanger"}], "question"),
+    ],
+)
+def test_a_customs_invoice_gets_the_dossiers_one_customs_tiers_or_asks_among_several(
+    scanned, monkeypatch, found, status
+):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice["import_invoice_type"] = "customs"
+    monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [*found, {"id": 9, "name": "ATLAS"}])
+    monkeypatch.setattr(
+        tiers, "link", lambda invoice, partner_id, kind: {"status": "ok", "message": f"fournisseur id {partner_id}"}
+    )
+    result = tiers.link_tiers(4)
+    assert result["status"] == status
+    if status == "ok":
+        assert result["message"] == "administration des douanes id 3"
+    else:
+        assert (
+            result["choices"] == {3: "Douane Casa", 5: "ADII Tanger"}
+            and "plusieurs tiers des douanes" in result["message"]
+        )
+    assert calls == []
+
+
+@pytest.mark.functionality
+def test_a_customs_invoice_without_customs_tiers_goes_the_usual_way(scanned, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice["import_invoice_type"] = "customs"
+    assert tiers.link_tiers(4)["message"] == "fournisseur BETA SERVICES créé, id 55"  # created from the scan
+
+
+@pytest.mark.functionality
+def test_an_invoice_already_in_the_dossier_stops_before_its_tiers_is_asked(scanned, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    monkeypatch.setattr(tiers, "without_tiers_twin", lambda invoice, context: {"status": "stop", "message": "doublon"})
+    assert tiers.link_tiers(4)["status"] == "stop" and calls == []
+
+
+@pytest.mark.functionality
+def test_no_name_read_anywhere_asks_the_tiers_name(scanned, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice["supplier_name"] = False
+    monkeypatch.setattr(tiers, "stored_check", lambda invoice_id: None)
+    assert tiers.link_tiers(4)["message"] == "Facture 4 : aucun fournisseur détecté sur le scan. Quel est son nom ?"
+    assert tiers.checked_values(4) == {} and calls == []
+
+
+@pytest.mark.functionality
+def test_a_name_only_the_check_read_and_nothing_resembles_is_asked_whether_to_create(scanned, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice["supplier_name"] = False
+    monkeypatch.setattr(tiers, "stored_check", lambda invoice_id: (True, {"tier": "ZETA MOTORS"}, []))
+    result = tiers.link_tiers(4)
+    assert result["status"] == "question" and result["choices"] == {}
+    assert "Aucun tiers du dossier ne ressemble à « ZETA MOTORS ». Faut-il le créer sous ce nom" in result["message"]
+    assert calls == []
+
+
+@pytest.mark.functionality
+def test_a_name_only_the_check_read_whole_is_the_one_searched(scanned, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice["supplier_name"] = "CQUET"
+    monkeypatch.setattr(tiers, "flagged_tier", flagged_tier)
+    bad = [{"field": "tier"}]
+    monkeypatch.setattr(tiers, "stored_check", lambda invoice_id: (True, {"tier": "FOCQUET SA"}, bad))
+    assert tiers.link_tiers(4)["status"] == "ok"
+    assert calls[0][2]["name"] == "FOCQUET SA" and "ice" not in calls[0][2]  # the ICE read was CQUET's
+    monkeypatch.setattr(tiers, "stored_check", lambda invoice_id: (True, {"tier": "FOCQUET SA"}, []))
+    assert flagged_tier(4) is None  # not flagged: Experio's name stands
+
+
+@pytest.mark.communication
+def test_a_tiers_the_registry_refuses_even_unchecked_is_said_refused(scanned, monkeypatch):
+    import xmlrpc.client
+
+    from engine.tools.core.app import ToolError
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+
+    def odoo_call(model, method, values, **kw):
+        raise xmlrpc.client.Fault(2, "Aucune donnée n'a pu être récupérée pour BETA SERVICES")
+
+    monkeypatch.setattr(tiers, "odoo_call", odoo_call)
+    with pytest.raises(ToolError, match="refusé le tiers BETA SERVICES"):
+        tiers.create_tiers(invoice, "BETA SERVICES", "purchase", unchecked=True)
+
+
+@pytest.mark.functionality
+def test_sans_verification_with_no_name_read_is_searched_as_the_clients_words(chosen, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    monkeypatch.setattr(
+        tiers, "require_draft_invoice", lambda *a, **k: {"id": 4, "company_id": [778, "D"], "supplier_name": False}
+    )
+    monkeypatch.setattr(tiers, "stored_check", lambda invoice_id: None)
+    assert "ne désigne pas un seul tiers" in chosen("", "sans vérification")  # nothing to create unchecked
+
+
+@pytest.mark.functionality
+def test_a_name_only_the_check_read_is_linked_to_the_dossiers_tiers_of_that_very_name(scanned, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice["supplier_name"] = False
+    monkeypatch.setattr(tiers, "stored_check", lambda invoice_id: (True, {"tier": "Nova Telecom."}, []))
+    monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"id": 9, "name": "NOVA TELECOM", "ice": ""}])
+    result = tiers.link_tiers(4)
+    assert (
+        result["status"] == "ok"
+        and "relié au tiers du dossier de même nom « NOVA TELECOM » (id 9)" in result["message"]
+    )
+    assert calls == []

@@ -219,6 +219,7 @@ def test_a_facturation_draft_starts_at_the_dossiers_settings_never_at_the_readin
     assert sends == {272469: "wait_until_read", 81: "configure_cabinet"}
 
 
+@pytest.mark.functionality
 def test_a_skill_loaded_on_an_earlier_turn_is_shown_as_it_is_now(monkeypatch):
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
