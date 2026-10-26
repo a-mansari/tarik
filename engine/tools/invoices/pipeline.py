@@ -902,7 +902,8 @@ def waiting_drafts(
     waiting += [invoice_id for (invoice_id,) in drafts if invoice_id not in mine]
     # The conversation's own held drafts, always; the dossier's from other conversations (stopped by a setting, held,
     # or posted and put back to draft since) only when the client asks for them: the whole dossier, or by name.
-    waiting += [invoice_id for invoice_id, owner in kept if owner == session_id]
+    # (Its hold may be recorded under another conversation the same file came in: it is still this one's draft.)
+    waiting += [invoice_id for invoice_id, owner in kept if owner == session_id or invoice_id in mine]
     others = set()
     if dossier_id and stopped:
         others |= {i for i, (step, status) in furthest_outcomes(elsewhere).items() if resumable(step, status, True)}
@@ -946,11 +947,14 @@ def waiting_drafts(
             facturation=billed,
             statements=statements,
         )
+    left = left_in_dossier(dossier_id, {*waiting, *billed}) if held and asks_whole(client_message) else ""
+    if left and waiting:
+        return ok(left.strip(), invoices=waiting, tell=True)  # told in the reply, with what is posted
     hint = elsewhere_hint(elsewhere_left, client_message, held) if not waiting else ""
     if held and not waiting:
         if run_id and worked_on(run_id):  # this run's other branch took them (« comptabilisez » goes both ways)
             return routine("Rien d'autre à comptabiliser.", invoices=[])
-        return stop(nothing_to_post(session_id, dossier_id) + hint, invoices=[])
+        return stop(nothing_to_post(session_id, dossier_id) + hint + left, invoices=[])
     if hint:
         return ok("Rien à reprendre dans cette conversation." + hint, invoices=[], tell=True)
     return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
@@ -1061,6 +1065,32 @@ def supplier_names(name):
     whole = normalized(name.split(" - ")[0])
     first = next((word for word in whole.split() if len(word) >= 4 and word not in GENERIC), "")
     return [whole, first]
+
+
+def asks_whole(client_message):
+    """Whether the client's own words ask for the whole dossier (« toutes les factures du dossier »)."""
+    return bool(WHOLE.search(normalized(own_words(client_message))))
+
+
+def left_in_dossier(dossier_id, taken):
+    """When the client asks for the whole dossier: what of its drafts stays one, but those ``taken``, and why: a
+    question waiting in its conversation, a step that stopped it, or never imported by Tarik. Empty when none."""
+    if not dossier_id:
+        return ""
+    domain = [("id", "not in", sorted(taken)), ("company_id", "=", dossier_id), ("state", "in", ["pending", "draft"])]
+    left = odoo_call("exp.invoice", "search", domain)
+    if not left:
+        return ""
+    with cabinet_db() as db:
+        asked = {i for i, _ in db.execute(Q.pending_of_invoices, (left,))}
+        made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (left,))}
+    counts = [
+        (len(asked), "attend(ent) une réponse à sa question dans sa conversation"),
+        (len(made - asked), "arrêtée(s) par une étape, à corriger"),
+        (len(set(left) - made - asked), "pas importée(s) par Tarik, à comptabiliser dans Experio"),
+    ]
+    said = ", ".join(f"{count} {words}" for count, words in counts if count)
+    return f" Restent en brouillon dans ce dossier : {said}."
 
 
 def asked_among(ids, dossier_id, client_message):
