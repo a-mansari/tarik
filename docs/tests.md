@@ -544,6 +544,8 @@ Covers corrections planned from a check (the HT/TVA fuel case).
 - `test_an_unchecked_or_unreadable_invoice_is_not_corrected` [functionality]: unreadable scan: nothing; unchecked: refused.
 - `test_each_corrected_field_is_said_as_the_client_reads_it` [communication]: each corrected field said as the client reads it.
 - `test_every_header_amount_correct_invoice_writes_is_said_in_french` [communication, xfail]: the stamp, débours... amounts are said by Experio's field name (suspected bug).
+- `test_a_tourist_tax_counts_only_with_its_setting_and_its_account` [functionality, param]: setting turned on with its account; without it, Experio's reading kept.
+- `test_a_tourist_tax_already_on_the_invoice_turns_its_setting_on_too` [functionality]: an earlier correction's tax gets its setting.
 
 ### tests/invoices/test_duplicates.py
 Covers the duplicate check.

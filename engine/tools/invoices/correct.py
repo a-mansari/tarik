@@ -14,6 +14,7 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.words import normalized
 from engine.tools.invoices.check import CAPTURED, HOTEL, stored_check
+from engine.tools.invoices.configuration import save_settings
 
 MULTI_TVA_RATES = {7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20}  # the amount_tva_<rate> fields Experio has
 
@@ -111,6 +112,47 @@ def planned_changes(extracted, bad_fields, invoice):
     return changes
 
 
+# A tax Experio counts in the TTC only when the dossier uses it (get_amounts_list: use_ts_tax, use_tsp_tax), and books
+# on the dossier's account for it (get_amount_ts_account_id: no detection fills it, it has no default): the setting,
+# its account, and how the client reads it.
+TAX_SETTINGS = {
+    "amount_ts": ("use_ts_tax", "ts_account_id", "taxe de séjour"),
+    "amount_tsp": ("use_tsp_tax", "tsp_account_id", "taxe de promotion touristique"),
+}
+
+
+def tax_settings(invoice, changes, context, notes):
+    """The tourist taxes the invoice has (or gets from ``changes``), when the dossier has their account: their setting
+    turned on as its Configuration screen does (else Experio leaves them out of the TTC). Without the account, the
+    amounts stay as Experio read them (the tax kept out of ``changes``, the stamp it was read as too) and the cabinet
+    is told: the invoice would not post otherwise."""
+    taxed = [field for field in TAX_SETTINGS if (changes.get(field, invoice.get(field)) or 0) > 0]
+    if not taxed:
+        return
+    company_id = invoice["company_id"][0]
+    wanted = [name for field in taxed for name in TAX_SETTINGS[field][:2]]
+    held = odoo_call("res.company", "read", [company_id], fields=wanted, context=context)[0]
+    for field in taxed:
+        setting, account, label = TAX_SETTINGS[field]
+        if not held[account]:
+            if field in changes:
+                changes.pop(field)
+                changes.pop("amount_stamp", None)  # Experio read the tax as a stamp: it stays so, the TTC balanced
+            notes.append(
+                f"{label} laissée telle que lue par Experio : le dossier n'a pas de compte de {label} "
+                "(à renseigner par le cabinet dans les paramètres)"
+            )
+        elif held[setting]:
+            continue
+        elif dry_run():
+            notes.append(f"{TEST_MODE}{label} activée dans les paramètres du dossier")
+        elif save_settings(company_id, {setting: True}, context):
+            notes.append(f"{label} activée dans les paramètres du dossier (Experio la compte alors dans le TTC)")
+        else:
+            changes.pop(field, None)
+            notes.append(f"{label} à activer par le cabinet dans les paramètres du dossier, laissée telle quelle")
+
+
 def hotel_parts(extracted, invoice, changes):
     """A hotel bill's HT parts read on the scan, added to ``changes`` for the parts the dossier uses (should_use_ht_*,
     Experio's multi HT) and the invoice has none of yet; the HT then keeps only the rest, as Experio adds the parts to
@@ -170,6 +212,7 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         "payment_method_id",
         "amount_total",
         "amount_untaxed",
+        *TAX_SETTINGS,
         *HOTEL,
         *(f"should_use_{field.removeprefix('amount_')}" for field in HOTEL),
     ]
@@ -199,6 +242,7 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
     changes = planned_changes(extracted, bad_fields, invoice)
     hotel_parts(extracted, invoice, changes)
     with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé la correction."):
+        tax_settings(invoice, changes, invoice_context(invoice), notes)
         _currency((extracted.get("currency") or "MAD").upper(), changes, notes)
         told = instructed(payment_method, client_message)
         _payment_method(told or extracted.get("payment_method"), invoice, changes)
