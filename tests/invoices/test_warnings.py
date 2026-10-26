@@ -2,6 +2,7 @@
 
 import pytest
 
+from engine.tools.core.config import TEST_MODE
 from engine.tools.invoices import warnings
 
 
@@ -182,3 +183,132 @@ def test_after_relinking_its_exercice_the_invoice_is_checked_against_the_new_one
     )
     result = warnings.settle_warnings(3)
     assert result["status"] == "ok" and "rattachée à l'exercice Exercice 2025" in result["message"]
+
+
+@pytest.mark.functionality
+def test_a_posted_invoice_has_no_warning_to_settle(experio):
+    experio["invoice"]["state"] = "post"
+    experio["warn"]["validate_warning_withholding"] = "RAS TVA."
+    assert warnings.settle_warnings(3)["routine"] and experio["written"] == []
+
+
+@pytest.mark.functionality
+def test_in_test_mode_the_warnings_are_only_listed(experio, monkeypatch):
+    monkeypatch.setattr(warnings, "dry_run", lambda: True)
+    experio["warn"].update(validate_warning_withholding="RAS TVA.", validate_warning_use_prorata="Prorata.")
+    result = warnings.settle_warnings(3)
+    assert result["status"] == "ok" and result["message"] == (
+        f"{TEST_MODE}Facture 3 : avertissements d'Experio à régler : RAS TVA. ; Prorata."
+    )
+    assert experio["written"] == [] and experio["dismissed"] == []
+
+
+@pytest.mark.functionality
+def test_in_test_mode_nothing_is_dismissed(experio, monkeypatch):
+    monkeypatch.setattr(warnings, "dry_run", lambda: True)
+    warnings.dismiss(experio["invoice"], warnings.PRORATA, "Prorata.", {})
+    assert experio["dismissed"] == [] and "warning_code" not in experio["invoice"]
+
+
+@pytest.mark.functionality
+def test_a_missing_tva_amount_for_the_ras_stops_with_experios_words(experio):
+    experio["invoice"].update(amount_tax_non_recoverable=True, amount_tva=0.0)
+    experio["warn"]["validate_warning_withholding"] = "Montant de TVA manquant pour la RAS."
+    result = warnings.settle_warnings(3)
+    assert result == {"status": "stop", "message": "Facture 3 : Montant de TVA manquant pour la RAS.", "invoice_id": 3}
+    assert experio["written"] == []
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("change", [{"local_withholding_percentage": False}, {"partner_id": False}])
+def test_an_is_ir_warning_with_no_rate_to_choose_stops_with_experios_words(experio, change):
+    experio["invoice"].update({"local_withholding_percentage": "15", **change})
+    experio["warn"]["validate_warning_local_withholding"] = "Montant HT manquant."
+    result = warnings.settle_warnings(3)
+    assert result["status"] == "stop" and result["message"] == "Facture 3 : Montant HT manquant."
+
+
+@pytest.mark.communication
+def test_an_account_warning_asks_which_account(experio):
+    experio["warn"]["validate_warning_account_id"] = "Compte inhabituel pour ce tiers."
+    result = warnings.settle_warnings(3)
+    assert result["status"] == "question" and result["message"] == (
+        "Facture 3 : Experio signale : Compte inhabituel pour ce tiers. Quel compte utiliser (code ou intitulé) ?"
+    )
+
+
+@pytest.mark.functionality
+def test_no_ice_case_when_nothing_read_differs_from_the_dossier():
+    invoice = {
+        "type": "purchase",
+        **{f"detected_{s}_{n}": False for s in ("supplier", "customer") for n in ("ice", "if")},
+    }
+    assert warnings.ice_case(invoice, {"ice": "001111", "vat": "22"}) is None
+    invoice["detected_customer_ice"] = "001111"  # the dossier's own: no mismatch
+    assert warnings.ice_case(invoice, {"ice": "001111", "vat": "22"}) is None
+
+
+@pytest.mark.functionality
+def test_warnings_still_coming_after_every_round_stop_the_invoice(experio, monkeypatch):
+    rounds = [{"validate_warning_withholding": "RAS TVA."}, {"validate_warning_use_prorata": "Prorata."}]
+    rounds += [{"validate_warning_previous_charges": "Exercice."}, {"validate_warning_account_id": "Compte."}]
+    monkeypatch.setattr(warnings, "raised", lambda invoice, context: rounds.pop(0))
+    monkeypatch.setattr(warnings, "settle_exercice", lambda invoice_id: {"status": "ok", "message": "relinked"})
+    result = warnings.settle_warnings(3)
+    assert result["status"] == "stop" and result["message"] == "Facture 3 : Experio signale toujours : Compte."
+    assert experio["written"] == [{"retenue": True}, {"tax_prorata": True}]
+
+
+@pytest.mark.functionality
+def test_the_exercice_question_answered_but_unsettled_is_returned_as_is(experio, monkeypatch):
+    experio["warn"]["validate_warning_previous_charges"] = "Date hors exercice."
+    asked = {"status": "question", "message": "Réponse non comprise."}
+    monkeypatch.setattr(warnings, "settle_exercice", lambda invoice_id, answer="", decision="": asked)
+    assert warnings.answer_warnings(3, "bof") is asked
+
+
+@pytest.mark.functionality
+def test_sans_removes_the_is_ir_rate_experio_refused(experio, monkeypatch):
+    experio["invoice"]["local_withholding_percentage"] = "15"
+    experio["warn"]["validate_warning_local_withholding"] = "Personne morale : 5, 10, 20, 30 %."
+
+    def fixed(invoice_id, changes, context):
+        experio["written"].append(changes)
+        experio["warn"].clear()
+        return changes
+
+    monkeypatch.setattr(warnings, "fill_invoice", fixed)
+    assert warnings.answer_warnings(3, "Sans retenue")["routine"]
+    assert experio["written"] == [{"local_withholding_percentage": False}]
+
+
+@pytest.mark.functionality
+def test_the_account_answer_goes_through_set_account(experio, monkeypatch):
+    experio["warn"]["validate_warning_account_id"] = "Compte inhabituel."
+    given = []
+    asked = {"status": "question", "message": "Quel compte ?"}
+    monkeypatch.setattr(warnings, "set_account", lambda invoice_id, answer: given.append(answer) or asked)
+    assert warnings.answer_warnings(3, "6136") is asked
+
+    def set_account(invoice_id, answer):
+        experio["warn"].clear()
+        return {"status": "ok", "message": "compte 6136"}
+
+    monkeypatch.setattr(warnings, "set_account", set_account)
+    assert warnings.answer_warnings(3, "6136")["routine"] and given == ["6136"]
+
+
+@pytest.mark.security
+def test_the_ice_answer_is_kept_only_when_the_client_said_oui_or_non(experio, monkeypatch):
+    experio["warn"]["validate_warning_invalid_ice_and_if"] = "ICE différent."
+    experio["company"].update(ice="001111")
+    experio["invoice"]["detected_customer_ice"] = "009999"
+    kept = []
+    monkeypatch.setattr(
+        warnings, "kept_yes_no", lambda i, step, answer: kept.append(answer) or (answer, experio.get("kept"))
+    )
+    unclear = warnings.answer_warnings(3, "c'est compliqué")
+    assert unclear["message"].startswith("Réponse non comprise.") and kept == []
+    experio["kept"] = True
+    assert "gardée dans ce dossier" in warnings.answer_warnings(3, "bof", decision="oui")["message"]
+    assert kept[0] == "oui" and experio["dismissed"] == ["detected_ice_mismatch_with_company_record"]

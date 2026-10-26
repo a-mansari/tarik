@@ -14,6 +14,7 @@ Autres taxes, or Ventes), where Experio looks for it.
 
 from collections import Counter
 
+from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import account_code, dry_run, odoo_call, odoo_json
 
 TVA_ACCOUNTS = ["|", ("code", "=like", "3455%"), ("code", "=like", "4455%")]  # what Experio makes its taxes from
@@ -67,14 +68,16 @@ def needs_zero_rate(invoice):
 def zero_rate_tax(company_id, side, context):
     """The dossier's 0 % tax of ``side``: Experio's own (create_tax_ids always makes "TVA 0% ACHATS" and "TVA 0%
     VENTES", its DGI code its own), made by it when missing. Its id, None when the dossier has no TVA account to make
-    it from."""
+    it from; True in test mode when Experio would make it."""
     domain = [("company_id", "=", company_id), ("type", "=", side), ("rate", "=", 0), ("is_immo_tax", "=", False)]
     found = odoo_call("exp.tax", "search", domain, limit=1)
-    if found or dry_run():
-        return found[0] if found else None
+    if found:
+        return found[0]
     accounts = odoo_call("exp.account", "search", [("company_id", "=", company_id), *TVA_ACCOUNTS])
     if not accounts:
         return None
+    if dry_run():
+        return True
     odoo_json("exp.account", "create_tax_ids", accounts, context=context)
     found = odoo_call("exp.tax", "search", domain, limit=1)
     return found[0] if found else None
@@ -164,6 +167,8 @@ def add_missing_taxes(invoice_id, context):
         tax_id = zero_rate_tax(company_id, side, context)
         if not tax_id:
             notes.append("taxe 0 % : aucun compte de TVA dans le dossier pour la créer, à créer par le cabinet")
+        elif tax_id is True:
+            notes.append(f"{TEST_MODE}taxe 0 % : Experio la créerait depuis les comptes de TVA du dossier")
         elif not dry_run():
             state = listed(company_id, field, tax_id, context)
             if state == "added":

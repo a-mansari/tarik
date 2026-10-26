@@ -9,7 +9,7 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from engine.calls import failed, run_step, sender_checked, started, summary
+from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, summary
 from engine.tools.dossiers.identity import EDITABLE
 
 INPUTS = [
@@ -307,7 +307,7 @@ run.add_edge(START, "debut")
 run.add_conditional_edges("debut", by_mode, ["createur", "expediteur", "reprise", "resume"])
 run.add_conditional_edges("createur", after_creator, ["creation", "fichiers", "resume"])
 run.add_conditional_edges("creation", after_create, ["configuration", "fichiers", "resume"])
-run.add_edge("configuration", "fichiers")
+run.add_conditional_edges("configuration", *ok_or_summary("fichiers"))  # a refused copy goes no further
 run.add_conditional_edges(
     "expediteur", after_sender, ["modification", "acces", "archivage", "ecart", "fichiers", "resume"]
 )

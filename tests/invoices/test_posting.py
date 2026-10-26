@@ -3,6 +3,8 @@
 import pytest
 
 from engine.tools.core import experio as experio_calls
+from engine.tools.core.app import ToolError
+from engine.tools.core.config import TEST_MODE
 from engine.tools.invoices import posting
 
 
@@ -127,3 +129,111 @@ def test_an_immobilisation_without_its_category_is_not_posted(experio):
     result = posting.post_invoice(3)
     assert result["status"] == "stop" and "Configuration > Immobilisations > Catégories" in result["message"]
     assert "action_post" not in experio["calls"]
+
+
+@pytest.mark.functionality
+def test_an_invoice_neither_draft_nor_posted_is_not_posted(experio):
+    experio["state"] = "pending"
+    result = posting.post_invoice(3)
+    assert result["status"] == "stop" and "en état pending" in result["message"] and experio["calls"] == []
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("guard", ["auto_merge", "disbursements_first"])
+def test_a_guard_that_stops_posts_nothing(experio, monkeypatch, guard):
+    monkeypatch.setattr(posting, guard, lambda invoice: {"status": "stop", "message": guard})
+    assert posting.post_invoice(3)["message"] == guard and experio["calls"] == []
+
+
+@pytest.mark.functionality
+def test_in_test_mode_nothing_is_posted(experio, monkeypatch):
+    monkeypatch.setattr(posting, "dry_run", lambda: True)
+    result = posting.post_invoice(3)
+    assert result["status"] == "ok" and result["message"].startswith(TEST_MODE)
+    assert "action_post" not in experio["calls"]
+
+
+@pytest.mark.functionality
+def test_experio_failing_its_check_is_a_tool_error(experio, monkeypatch):
+    def blocking(invoice_id, context):
+        raise RuntimeError("Traceback\nConnectionError: Experio injoignable")
+
+    monkeypatch.setattr(posting, "blocking", blocking)
+    with pytest.raises(ToolError, match="Experio n'a pas pu vérifier la facture"):
+        posting.post_invoice(3)
+    assert "action_post" not in experio["calls"]
+
+
+@pytest.mark.functionality
+def test_no_compte_tiers_is_looked_for_without_a_tiers_or_a_side(monkeypatch):
+    monkeypatch.setattr(posting, "odoo_call", lambda *a, **k: pytest.fail("nothing read"))
+    assert posting.missing_compte_tiers({"type": "purchase", "partner_id": False, "company_id": [5, "D"]}) is None
+    assert posting.missing_compte_tiers({"type": "other", "partner_id": [9, "T"], "company_id": [5, "D"]}) is None
+
+
+@pytest.fixture
+def transit(monkeypatch):
+    """A fake Experio: a transit agent's import invoice, its folder's invoices paid by the agent, every write."""
+    state = {"invoice_type": "transit", "folder_type": "import", "linked": [61], "waiting": [], "posted": [61, 62]}
+    state.update(writes=[], refreshed=[], dry=False)
+    monkeypatch.setattr(posting, "dry_run", lambda: state["dry"])
+    monkeypatch.setattr(
+        posting, "refresh", lambda invoice_id, context: state["refreshed"].append((invoice_id, context))
+    )
+
+    def odoo_call(model, method, *args, **kw):
+        if method == "read":
+            return [
+                {
+                    "invoice_type": state["invoice_type"],
+                    "folder_id": [40, "DI-40"],
+                    "folder_type": state["folder_type"],
+                    "disbursement_invoice_ids": state["linked"],
+                    "company_id": [5, "D"],
+                    "exercice_id": [9, "2026"],
+                }
+            ]
+        if method == "write":
+            state["writes"].append((args[0], args[1], kw["context"]))
+            return True
+        domain = args[0]
+        assert ("folder_id", "=", 40) in domain and ("is_disbursement_invoice", "=", True) in domain
+        assert ("invoice_type", "!=", "transit") in domain
+        if ("state", "in", ["pending", "draft"]) in domain:
+            return state["waiting"]
+        assert ("transit_invoice_id", "=", False) in domain  # never one linked to another transit invoice
+        return state["posted"]
+
+    monkeypatch.setattr(posting, "odoo_call", odoo_call)
+    return state
+
+
+@pytest.mark.functionality
+def test_a_transit_invoice_gets_its_folders_posted_disbursements_linked_as_experios_form_does(transit):
+    assert posting.disbursements_first({"id": 3}) is None
+    context = {"allowed_company_ids": [5], "cron_fiscal_entry_id": 9}
+    assert transit["writes"] == [([3], {"disbursement_invoice_ids": [(4, 62)]}, context)]
+    assert transit["refreshed"] == [(3, context)]
+
+
+@pytest.mark.functionality
+def test_a_transit_invoice_waits_for_its_folders_unposted_disbursements(transit):
+    transit["waiting"] = [63, 64]
+    result = posting.disbursements_first({"id": 3})
+    assert result["status"] == "stop" and "du dossier (63, 64)" in result["message"] and transit["writes"] == []
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"invoice_type": "supplier"},  # not a transit agent's
+        {"folder_type": "export"},
+        {"linked": [61, 62]},  # every one linked already
+        {"dry": True},  # test mode
+    ],
+)
+def test_nothing_is_linked_to_an_invoice_that_needs_no_disbursement(transit, change):
+    transit.update(change)
+    assert posting.disbursements_first({"id": 3}) is None
+    assert transit["writes"] == [] and transit["refreshed"] == []

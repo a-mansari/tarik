@@ -127,3 +127,29 @@ def test_a_call_without_fields_says_how_to_call_again(experio):
 def test_an_unchanged_value_is_not_written(experio):
     result = onboarding.update_dossier(557, rc="229139", client_message="RC 229139")
     assert result["status"] == "stop" and experio["write"] == []
+
+
+@pytest.mark.security
+def test_an_identifier_without_a_label_is_any_number_the_client_wrote(experio):
+    onboarding.update_dossier(557, patente="12 345 678", cnss="999", client_message="Patente : 12 345 678.")
+    assert experio["write"] == [{"pat": "12 345 678"}]  # the CNSS 999 was never written
+
+
+@pytest.mark.security
+def test_another_dossiers_if_is_refused(experio):
+    experio["others"] = [{"id": 25, "name": "CAFE EPSOM"}]
+    result = onboarding.update_dossier(557, if_number="0712345", client_message="Le nouvel IF est 0712345.")
+    assert result["message"] == "Dossier Gecafisc non modifie : le dossier CAFE EPSOM a deja cet IF (0712345)."
+
+
+@pytest.mark.functionality
+def test_an_unknown_type_is_refused(experio):
+    with pytest.raises(ToolError, match="Type de dossier inconnu"):
+        onboarding.update_dossier(557, folder_type="sarl", client_message="C'est une sarl.")
+
+
+@pytest.mark.communication
+def test_experio_refusing_the_change_gives_its_reason(experio, monkeypatch):
+    monkeypatch.setattr(onboarding, "odoo_json", lambda *a: (_ for _ in ()).throw(RuntimeError("RC deja pris")))
+    with pytest.raises(ToolError, match="Experio refuse de modifier le dossier Gecafisc : RC deja pris"):
+        onboarding.update_dossier(557, rc="331245", client_message="RC 331245")

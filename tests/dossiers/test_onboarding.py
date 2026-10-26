@@ -10,7 +10,7 @@ from engine.tools.core.app import ToolError
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.dossiers import identity
 from engine.tools.dossiers.identity import ICE_WRITTEN, IF_WRITTEN, as_written, client_wrote, confirmed
-from engine.tools.dossiers.setup import entries_kind, file_text, sheet_text
+from engine.tools.dossiers.setup import cell_text, entries_kind, file_text, sheet_text
 
 HEAD = "JournalCode;JournalLib;EcritureNum;EcritureDate;CompteNum;CompteLib;EcritureLib;Debit;Credit"
 
@@ -184,3 +184,104 @@ def test_a_new_dossier_is_created_from_the_main_one(db_cabinet, monkeypatch):
     monkeypatch.setattr(identity, "odoo_json", lambda *a, **k: calls.append((a, k)) or 77)
     answer = identity.create_dossier(name="FAIR KAPPA", client_message=MESSAGE, session_id="s")
     assert answer["dossier_id"] == 77 and calls[0][1] == {"context": {"allowed_company_ids": [1]}}
+
+
+@pytest.mark.technical
+def test_a_file_in_no_usual_encoding_is_still_read_and_an_empty_one_is_a_fec():
+    assert file_text(b"D\x81bit") == "D\x81bit"  # not cp1252 either: latin-1 reads any byte
+    assert cell_text(None) == "" and cell_text(17490.0) == "17490" and cell_text(12.5) == "12.5"
+    assert entries_kind("", ";") == "fec"
+
+
+@pytest.fixture
+def creating(db_cabinet, monkeypatch):
+    """Experio with ALPHA SARL (ICE 008123456000100) among its dossiers; what was created."""
+    created = []
+    monkeypatch.setattr(identity, "dry_run", lambda: False)
+    monkeypatch.setattr(identity, "main_dossier_context", lambda: {})
+    monkeypatch.setattr(identity, "attach_user", lambda user_id, dossier_id: created.append(("attach", dossier_id)))
+    monkeypatch.setattr(identity, "dossiers", lambda: [{"id": 5, "name": "ALPHA SARL"}])
+
+    def odoo_call(model, method, domain, fields):
+        if method == "read":
+            return [{"id": 77, "name": "FAIR KAPPA"}]
+        return [{"name": "ALPHA SARL"}] if ("ice", "=", "008123456000100") in domain else []
+
+    monkeypatch.setattr(identity, "odoo_call", odoo_call)
+    monkeypatch.setattr(identity, "odoo_json", lambda model, method, values, context: created.append(values) or 78)
+    return created
+
+
+@pytest.mark.functionality
+def test_a_dossier_this_conversation_created_is_reused_not_created_again(creating):
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_results (run_id, session_id, step, status, message, dossier_id) "
+            "values ('r', 's', 'create_dossier', 'ok', 'cree', 77)"
+        )
+    answer = identity.create_dossier(name="fair  kappa", client_message="Créez FAIR KAPPA", session_id="s")
+    assert answer["reused"] is True and answer["dossier_id"] == 77 and creating == []
+    other = identity.create_dossier(name="DELTA", client_message="Créez DELTA", session_id="s")
+    assert other["dossier_id"] == 78 and creating[0]["name"] == "DELTA"  # another name: a new dossier
+
+
+@pytest.mark.security
+def test_no_dossier_is_created_with_another_dossiers_ice(creating):
+    answer = identity.create_dossier(
+        name="BETA", ice="008123456000100", client_message="Créez BETA, ICE 008123456000100", session_id="s"
+    )
+    assert answer["status"] == "stop" and "(ALPHA SARL)" in answer["message"] and creating == []
+
+
+@pytest.mark.security
+def test_a_very_similar_name_is_created_only_on_the_clients_yes(creating):
+    asked_first = identity.create_dossier(name="ALPHA SARLL", client_message="Créez ALPHA SARLL", session_id="s")
+    assert asked_first["status"] == "question" and "(ALPHA SARL)" in asked_first["message"] and creating == []
+    asked("create_dossier", asked_first["message"])
+    done = identity.create_dossier(name="ALPHA SARLL", client_confirmed=True, client_message="oui", session_id="s")
+    assert done["dossier_id"] == 78 and creating == [
+        {"name": "ALPHA SARLL", "folder_type": "company", "enabled": True},
+        ("attach", 78),
+    ]
+
+
+@pytest.mark.security
+def test_a_new_dossier_skips_the_registry_check_only_on_the_clients_yes(creating):
+    message = "Créez GAMMA, ICE 008123456000999, sans verification"
+    first = identity.create_dossier(
+        name="GAMMA", ice="008123456000999", skip_ice_if_check=True, client_message=message, session_id="s"
+    )
+    assert first["status"] == "question" and "creation du dossier GAMMA sans cette verification" in first["message"]
+    asked("create_dossier", first["message"])
+    done = identity.create_dossier(
+        name="GAMMA",
+        ice="008123456000999",
+        skip_ice_if_check=True,
+        client_confirmed=True,
+        client_message="oui",
+        session_id="s",
+    )
+    assert creating[0]["ignore_ice_if_verification"] is True and creating[0]["ice"] == "008123456000999"
+    assert done["message"].endswith("ICE et IF non verifies (verification ignoree, a la demande du client).")
+
+
+@pytest.mark.security
+def test_an_if_the_client_did_not_write_is_left_out_of_a_new_dossier(creating):
+    answer = identity.create_dossier(
+        name="DELTA", if_number="99887766", client_message="Créez DELTA, IF 0712345", session_id="s"
+    )
+    assert "vat" not in creating[0] and answer["message"].endswith("Non repris, le client ne l'a pas ecrit : IF.")
+
+
+@pytest.mark.functionality
+def test_an_unknown_dossier_type_is_refused(creating):
+    with pytest.raises(ToolError, match="Type de dossier inconnu"):
+        identity.create_dossier(name="DELTA", folder_type="sarl", client_message="Créez DELTA", session_id="s")
+    assert creating == []
+
+
+@pytest.mark.communication
+def test_experio_refusing_a_new_dossier_gives_its_reason(creating, monkeypatch):
+    monkeypatch.setattr(identity, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("ICE invalide")))
+    with pytest.raises(ToolError, match="Experio refuse de creer le dossier DELTA : ICE invalide"):
+        identity.create_dossier(name="DELTA", client_message="Créez DELTA", session_id="s")

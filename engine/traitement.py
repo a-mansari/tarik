@@ -233,8 +233,10 @@ def split_drafts(state: File):
     its invoice's steps once, after the draft Tarik made."""
     done = {outcome.get("invoice_id") for outcome in state["outcomes"]}
     found = []
-    for outcome in state["outcomes"]:
-        found += [invoice_id for invoice_id in outcome.get("split_off") or [] if invoice_id not in done]
+    for outcome in state["outcomes"]:  # each draft's split-off drafts sent together, once: none of them run yet
+        group = outcome.get("split_off") or []
+        if group and not done & set(group):
+            found += group
     if not found:
         return END
     return [invoice_run(state, "wait_until_read", invoice_id=invoice_id) for invoice_id in dict.fromkeys(found)]

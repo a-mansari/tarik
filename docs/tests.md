@@ -37,33 +37,35 @@ section 9: one line in `tests/llm/test_decisions.py` is usually enough.**
 
 | Category (directory) | Files | Tests |
 |---|---|---|
-| core (includes vault) | 4 | 25 |
+| api | 6 | 54 |
+| core (includes vault) | 10 | 71 |
 | vault (tests/core/test_vault.py, counted in core) | 1 | 9 |
+| declarations | 3 | 52 |
+| dossiers | 9 | 144 |
+| emails | 4 | 56 |
+| graphs | 7 | 70 |
+| invoices | 33 | 479 |
 | isolation | 4 | 24 |
-| style | 1 | 5 |
-| dossiers | 7 | 46 |
-| emails | 4 | 31 |
-| invoices | 22 | 98 |
-| ui | 6 | 30 |
-| llm | 2 | 8 |
-| **Total** | **50 test files** | **267 test functions** |
+| llm | 5 | 13 |
+| style | 2 | 7 |
+| **Total** | **83 test files** | **970 test functions** |
 
-These are function counts. With parametrize the collected item count is higher.
+These are function counts. With parametrize the collected item count is higher (1,412 run by a plain
+`python -m pytest`). Every call Tarik makes to Experio (odoo_call, odoo_json, fill_invoice, refresh) is run by at
+least one test, Experio faked.
 
 By marker:
 
 | Marker | Tests |
 |---|---|
-| functionality | 104 |
-| security | 77 |
-| technical | 27 |
-| communication | 20 |
-| style | 6 (5 in style/, plus test_content's line-break test) |
-| llm | 8 |
+| functionality | 508 |
+| security | 194 |
+| communication | 153 |
+| technical | 55 |
+| style | 8 |
+| llm | 13 |
 | live | 0 |
-| no marker | 25 (all in api/) |
-
-The marked tests add up to 242, plus 25 unmarked, for 267 in total.
+| no marker | 39 (all in api/) |
 
 ---
 
@@ -89,6 +91,30 @@ Covers the guards every Experio tool goes through: real ids, a locked user, retr
 - `test_the_login_cut_off_is_asked_again` [technical]: a dropped login connection is retried.
 - `test_json_reads_are_asked_again_once_writes_and_timeouts_never` [technical]: JSON-RPC reads are retried once, writes and timeouts never.
 - `test_one_xml_rpc_proxy_per_thread_and_path` [technical]: an XML-RPC proxy is reused per thread, path and URL.
+- `test_the_api_key_is_used_before_the_password` [security]: the cabinet's API key logs in before its password.
+- `test_test_mode_is_the_default_and_marks_each_message` [functionality]: test mode is on unless DRY_RUN=0 and starts each step's message.
+- `test_a_failure_becomes_the_given_message_with_experio_reason_and_a_tool_error_passes_as_is` [communication]: a failure becomes the tool's message with Experio's reason; a ToolError passes unchanged.
+- `test_an_xml_rpc_connection_gives_up_after_the_timeout` [technical]: an XML-RPC connection carries RPC_TIMEOUT.
+- `test_a_login_refused_or_as_another_user_fails_and_a_good_one_is_kept` [security]: a refused login or another uid fails; a good login is remembered.
+- `test_a_json_refusal_carries_experio_message_and_exception_name` [communication]: a JSON-RPC error becomes ExperioRefusal with Experio's message and class.
+- `test_a_new_dossier_is_made_from_the_cabinet_main_one` [functionality]: a new dossier is created in the main company's context.
+- `test_a_dossier_is_checked_in_experio_unknown_or_unreachable_is_refused` [security]: a dossier must be found among the cabinet's own; unknown or unreachable is refused.
+- `test_an_invoice_must_belong_to_a_dossier_of_the_cabinet_and_be_a_draft_already_read` [security]: an invoice must be the cabinet's, a draft, and read when asked.
+- `test_an_invoice_context_and_account_code_follow_its_own_dossier_and_exercice` [functionality]: an invoice's context has its dossier and exercice; its account code is read.
+- `test_experio_refresh_runs_only_outside_test_mode` [functionality, param]: Experio's « Actualiser » runs only outside test mode.
+- `test_journal_settings_unset_or_of_another_dossier_are_misplaced` [functionality]: journal settings unset or of another dossier are reported.
+- `test_journal_settings_all_unset_ask_no_journal` [functionality]: all settings unset reads no journal.
+- `test_experio_own_check_keeps_its_errors_and_settings_as_blocking_never_its_warnings` [functionality]: Experio's check blocks on errors and settings, never warnings.
+- `test_a_filled_invoice_is_written_with_what_experio_fills_outside_test_mode` [functionality]: the form's changes are written, read-only fields never.
+- `test_a_filled_invoice_is_not_written_in_test_mode_or_when_nothing_changes` [functionality, param]: nothing is written in test mode or without a change.
+- `test_the_connection_check_says_reached_unreachable_or_refused_never_odoo` [communication, param]: the connection check says reached, unreachable or refused, never Odoo.
+
+### tests/core/test_outbox.py
+Covers the conversation's outbox: files Tarik makes and files Experio stored on a record.
+- `test_a_kept_file_gets_the_type_of_its_extension` [functionality, param]: a kept file's MIME type follows its extension.
+- `test_the_file_experio_stored_on_a_record_is_kept_under_its_name` [functionality]: a record's stored file is read and kept under its name.
+- `test_a_stored_file_without_a_name_is_named_after_its_record` [functionality]: a stored file without a name is named after its record.
+- `test_nothing_is_kept_without_a_stored_file_or_a_conversation` [functionality, param]: no file or no conversation keeps nothing.
 
 ### tests/core/test_testdb.py
 Covers the tests' own database housekeeping.
@@ -171,6 +197,25 @@ Covers dossier lists, people and archiving, written only on the client's yes.
 - `test_the_dossiers_are_created_only_on_the_clients_yes_to_the_list` [security]: dossiers are created only after the client confirms the list.
 - `test_a_person_is_made_of_the_clients_words_and_their_yes` [security]: a person is created only from client words plus confirmation.
 - `test_archiving_reads_back_and_waits_for_the_yes` [security]: archiving reads the dossier back and waits for confirmation.
+- `test_a_list_that_cannot_be_read_says_why` [communication, param]: wrong kind, unreadable Excel, empty file, header only: each said.
+- `test_a_country_is_found_by_its_code_or_name_in_french_or_english` [functionality]: code then name, French then English, None when unknown.
+- `test_a_rows_country_ice_and_name_are_checked` [functionality]: a wrong ICE, an unknown country, an empty name are problems.
+- `test_a_rows_country_town_and_ras_tva_are_read_back_and_created` [functionality]: country, zip, city and RAS TVA read back and written.
+- `test_a_list_with_problems_creates_nothing_and_shows_the_first_ones` [communication]: problems stop the list, the first 15 shown.
+- `test_a_long_list_is_read_back_in_part` [communication]: a long list is read back in its first 15 rows.
+- `test_in_test_mode_the_list_is_only_said` [security]: test mode creates no dossier.
+- `test_the_rows_experio_refuses_are_listed_and_the_others_created` [communication]: rows Experio refuses are listed with its reason, the others created.
+- `test_experio_not_checking_the_list_is_said` [communication]: an Experio failure while checking the list is an error.
+- `test_the_profiles_are_experios_own` [functionality]: the profiles of a kind, as Experio lists them.
+- `test_a_person_is_found_by_their_email_among_their_kind` [functionality]: a user found by email among their kind, else None.
+- `test_a_client_is_created_with_the_phone_the_client_wrote` [functionality]: a client with their phone, created and attached on the yes.
+- `test_a_person_already_in_experio_is_only_attached` [functionality]: an existing user is only attached.
+- `test_a_name_the_client_did_not_write_is_asked` [communication]: a name the client never wrote is asked for.
+- `test_a_person_of_no_known_kind_is_refused` [functionality]: only collaborator or client.
+- `test_in_test_mode_the_person_is_only_said` [security]: test mode creates no user.
+- `test_experio_failing_a_person_says_where` [communication]: profiles, user check and creation failures each said.
+- `test_in_test_mode_nothing_is_archived` [security]: test mode archives nothing.
+- `test_experio_failing_the_archiving_says_where` [communication]: count and archive failures each said.
 
 ### tests/dossiers/test_onboarding.py
 Covers new dossiers: FEC or grand livre, file reading, identifiers only as the client wrote them.
@@ -189,12 +234,29 @@ Covers new dossiers: FEC or grand livre, file reading, identifiers only as the c
 - `test_the_zeros_of_an_ice_given_earlier_come_back_on_the_yes` [functionality]: leading zeros from an earlier message come back on confirmation.
 - `test_the_agent_says_which_reading_of_the_clients_number_it_meant` [security]: an ambiguous number needs the agent's explicit reading.
 - `test_a_new_dossier_is_created_from_the_main_one` [functionality]: a new dossier copies the main dossier as its model.
+- `test_a_file_in_no_usual_encoding_is_still_read_and_an_empty_one_is_a_fec` [technical]: latin-1 as last resort, Excel cells as text, an empty file a FEC.
+- `test_a_dossier_this_conversation_created_is_reused_not_created_again` [functionality]: a dossier of that name made in this conversation is reused.
+- `test_no_dossier_is_created_with_another_dossiers_ice` [security]: another dossier's ICE stops the creation.
+- `test_a_very_similar_name_is_created_only_on_the_clients_yes` [security]: a near-duplicate name is asked first, created on the yes.
+- `test_a_new_dossier_skips_the_registry_check_only_on_the_clients_yes` [security]: the registry check is skipped only after a yes to its question.
+- `test_an_if_the_client_did_not_write_is_left_out_of_a_new_dossier` [security]: an IF the client never wrote is left out and said.
+- `test_an_unknown_dossier_type_is_refused` [functionality]: an unknown dossier type is refused.
+- `test_experio_refusing_a_new_dossier_gives_its_reason` [communication]: a refused creation is an error with Experio's reason.
 
 ### tests/dossiers/test_people.py
 Covers who may give Tarik work.
 - `test_collaborators_and_experio_staff_give_work_never_client_contacts` [security]: only collaborators and Experio staff may give Tarik work.
 - `test_only_managers_and_experio_staff_create_dossiers` [security, param]: only managers and Experio staff may create dossiers.
 - `test_the_chat_has_no_sender_to_check` [functionality]: chat messages skip the email sender check.
+- `test_the_collaborators_are_listed_with_their_role_and_dossiers` [communication]: each collaborator's profile, level, manager, dossiers and account state.
+- `test_experio_not_giving_the_collaborators_is_said` [communication]: an Experio failure on the list is an error.
+- `test_an_address_is_compared_whole_never_as_a_pattern` [security]: %, _ and \ in an address are escaped for =ilike.
+- `test_two_users_with_one_address_are_not_a_reliable_sender` [security]: two users with one address give no sender.
+- `test_tarik_puts_itself_on_a_dossier_it_made_with_its_own_profile` [functionality]: Tarik's own user and profile on the dossier it made.
+- `test_a_client_goes_in_the_contacts_and_an_existing_profile_row_is_kept` [functionality]: a client in contact_ids, an existing profile row not duplicated.
+- `test_a_user_without_a_profile_gets_no_profile_row` [functionality]: no profile row without a profile.
+- `test_the_sender_is_the_email_threads_client` [functionality]: the sender is the mail thread's address, none in the chat (db_cabinet).
+- `test_work_on_an_invoice_is_checked_against_its_dossier` [security]: an invoice's dossier decides, the chat skips the check.
 
 ### tests/dossiers/test_search.py
 Covers finding the dossier from the name the client gives.
@@ -210,6 +272,33 @@ Covers setup from separate files, bank naming, and bank journals.
 - `test_the_bank_a_client_names` [functionality]: bank names written by the client map to the right bank.
 - `test_each_bank_journal_is_asked_its_bank_in_turn` [communication]: the client is asked each bank journal's bank, one by one.
 - `test_without_entries_the_onboarding_waits_for_the_clients_files` [functionality]: onboarding waits until the client says all files are sent.
+- `test_a_journal_of_another_dossier_is_never_given_a_bank` [security]: a journal of another dossier is refused, nothing written.
+- `test_the_last_journals_bank_ends_the_questions` [functionality]: the last journal's bank ends with an ok, no more question.
+- `test_a_journal_with_its_tiers_keeps_it` [functionality]: a journal with a tiers bancaire keeps it, only the bank is written.
+- `test_in_test_mode_the_bank_is_only_said` [security]: test mode never writes the bank.
+- `test_experio_not_giving_the_bank_journals_is_said` [communication]: Experio failures on the bank journals are errors.
+
+### tests/dossiers/test_setup_import.py
+Covers a model's configuration copied and files through Experio's Importation screen (db_cabinet).
+- `test_the_models_configuration_is_copied_through_experios_wizard` [functionality]: Appliquer la configuration: advance accounts first, then the wizard.
+- `test_a_dossier_is_never_its_own_model` [functionality]: a dossier cannot be its own model.
+- `test_no_copy_over_entries_already_imported` [functionality]: no copy once entries are imported.
+- `test_the_copy_is_only_said_in_test_mode` [security]: test mode copies nothing.
+- `test_experio_refusing_the_copy_gives_its_reason` [communication]: a refused copy is an error with Experio's reason.
+- `test_a_fec_is_tested_by_experio_then_imported_and_the_dossier_waits` [functionality]: upload, test, import with the hand-mapped piece number; the dossier waits, the file taken.
+- `test_a_grand_livre_is_imported_with_its_lines_sorted_by_reference` [functionality]: « Importer GL »: lines sorted, by reference too.
+- `test_nothing_is_imported_when_experios_test_finds_errors` [functionality]: test errors stop the import, the first 3 said.
+- `test_errors_in_experios_import_itself_are_a_stop` [functionality]: import errors are a stop, the dossier not waiting.
+- `test_experio_failing_a_call_of_the_import_is_a_stop_with_its_reason` [communication, param]: upload, preview or test failing: a stop with Experio's reason.
+- `test_experio_refusing_the_import_after_its_test_gives_its_reason` [communication]: the import refused after its test: a stop with the reason.
+- `test_a_file_experio_cannot_read_is_a_stop_with_its_reason` [communication]: a preview error is a stop, nothing tested.
+- `test_in_test_mode_experio_only_tests_the_file` [security]: test mode runs Experio's test only.
+- `test_a_file_nothing_tells_is_asked_and_kept` [communication]: an unknown file is asked about, kept, Experio untouched.
+- `test_a_file_that_is_no_table_is_a_stop_before_experio` [communication, param]: a PDF or unreadable Excel is a stop before Experio.
+- `test_a_journals_file_names_the_banks_as_experio_lists_them` [functionality]: the Banque column rewritten to Experio's names, unknown ones emptied.
+- `test_a_suppliers_file_opens_experios_suppliers_import` [functionality]: a suppliers file goes to exp.partner as suppliers.
+- `test_a_journals_file_without_a_bank_column_is_left_as_written` [functionality]: no Banque column: the text unchanged, no bank read.
+- `test_a_column_matched_by_experio_keeps_its_field_and_a_field_is_never_taken_twice` [functionality]: manual columns fill gaps only, never twice.
 
 ### tests/dossiers/test_setup_wait.py
 Covers an onboarding waiting on Experio (db_cabinet).
@@ -222,6 +311,18 @@ Covers an onboarding waiting on Experio (db_cabinet).
 - `test_lines_stuck_after_the_onboarding_are_sent_again` [functionality]: Experio's « Re-send » on stuck lines, never while onboarding.
 - `test_the_same_entries_file_sent_again_is_not_imported_twice` [functionality]: the same content already imported is refused.
 - `test_what_experios_detection_created_is_said` [communication]: accounts, journals, tiers, exercices created.
+- `test_the_stepper_is_walked_to_its_end_with_the_dossiers_journals_and_prefixes` [functionality]: 8 stepper phases, then its journals and tiers prefixes (defaults where none), then complete_onboarding.
+- `test_a_finished_setup_says_how_many_lines_went_to_experio` [functionality]: the finished setup tells the lines handed to Experio.
+- `test_experio_refusing_to_finish_the_onboarding_gives_its_reason` [communication]: a refused stepper is an error with Experio's reason.
+- `test_in_test_mode_the_onboarding_is_only_said_finished` [security]: test mode never walks the stepper.
+- `test_the_current_exercice_is_opened_only_when_the_dossier_has_none` [functionality]: an exercice is opened only when none is open, never in test mode.
+- `test_experio_refusing_the_exercice_gives_its_reason` [communication]: a refused exercice is an error with Experio's reason.
+- `test_the_lines_are_ready_a_minute_after_the_newest_was_imported` [functionality, param]: the wait until the newest waiting line is over a minute old (UTC), 0 without one.
+- `test_the_setup_facts_are_read_in_the_dossier` [functionality]: settings, lines by state, error reasons, exercices and counts, read in the dossier.
+- `test_experios_error_reasons_are_merged_and_the_commonest_told` [communication]: reasons differing by their leading count are one, the 3 commonest told.
+- `test_the_state_tells_experios_errors_the_missing_settings_and_another_dossiers_journals` [communication]: the state names errors, open exercices, missing settings, foreign journals.
+- `test_experio_not_giving_the_state_is_said` [communication]: an Experio failure on the state is an error.
+- `test_stuck_lines_are_not_sent_again_in_test_mode_nor_when_none_is_stuck` [security]: no « Re-send » in test mode or without stuck lines.
 
 ### tests/dossiers/test_update_dossier.py
 Covers changing an existing dossier, only to values the client wrote.
@@ -235,6 +336,10 @@ Covers changing an existing dossier, only to values the client wrote.
 - `test_nothing_is_written_in_test_mode` [security]: test mode never writes to Experio.
 - `test_a_call_without_fields_says_how_to_call_again` [communication]: an empty update explains how to call again.
 - `test_an_unchanged_value_is_not_written` [functionality]: values identical to the current ones are skipped.
+- `test_an_identifier_without_a_label_is_any_number_the_client_wrote` [security]: patente, CNSS... are any number the client wrote, digit for digit.
+- `test_another_dossiers_if_is_refused` [security]: an IF belonging to another dossier is refused.
+- `test_an_unknown_type_is_refused` [functionality]: an unknown dossier type is refused.
+- `test_experio_refusing_the_change_gives_its_reason` [communication]: a refused write is an error with Experio's reason.
 
 ---
 
@@ -257,6 +362,12 @@ Covers outbound emails: the whitelist, the template, and IMAP plumbing.
 - `test_the_sent_folder_is_the_one_the_server_flags` [technical]: the Sent folder is the one flagged by the IMAP server.
 - `test_an_imap_connection_is_always_closed` [technical, param x2]: IMAP connections are closed even when an error occurs.
 - `test_a_cabinet_name_experio_could_not_give_is_asked_again` [technical]: a failed cabinet-name lookup from Experio is retried.
+- `test_the_conversation_files_go_once_with_the_next_email` [functionality]: the outbox files go once with the next email.
+- `test_an_email_the_server_refuses_keeps_its_files_for_the_next` [communication]: a refused email keeps its files unsent.
+- `test_an_email_without_recipient_or_smtp_is_refused` [communication, param]: no recipient or no SMTP is refused.
+- `test_a_sent_copy_the_mailbox_refuses_is_only_logged` [technical]: a Sent copy failure is only logged.
+- `test_smtp_is_encrypted_from_the_start_on_465_else_by_starttls_before_login` [security, param]: TLS on 465, else STARTTLS before login.
+- `test_a_certificate_other_than_the_pinned_one_closes_the_connection` [security]: another certificate than the pinned one closes the connection.
 
 ### tests/emails/test_threads.py
 Covers email threads on db_cabinet: senders, reply-to, broken mails, concurrency, follow-ups.
@@ -274,6 +385,11 @@ Covers email threads on db_cabinet: senders, reply-to, broken mails, concurrency
 - `test_a_dossier_left_waiting_is_followed_up_at_the_next_tick` [functionality]: a waiting dossier is resumed at the next scheduler tick.
 - `test_a_new_thread_is_acknowledged_once_and_a_reply_in_it_is_not` [communication]: a new thread gets one acknowledgement, replies in it get none.
 - `test_a_refused_sender_is_still_told_when_the_connection_drops_after` [functionality]: a refused sender is still notified despite a later connection drop.
+- `test_experio_out_keeps_a_follow_up_for_the_next_tick` [technical]: Experio out keeps the follow-up for the next tick.
+- `test_drafts_experio_cannot_list_are_none_to_resume` [technical]: drafts Experio can't list are none.
+- `test_the_manager_is_experio_responsable_else_mail_manager_a_collaborator_only` [security, param]: the manager is Experio's Responsable, else MAIL_MANAGER, a collaborator only.
+- `test_the_manager_hears_of_a_refused_sender_once_a_day_and_the_sender_never` [communication]: the manager is told once a day, the sender never.
+- `test_without_a_manager_the_alert_fails_loudly` [communication]: no manager raises, nothing sent.
 
 ### tests/emails/test_watcher.py
 Covers the mailbox watcher (engine/mail.py).
@@ -295,6 +411,29 @@ Covers turning the client's words into one account of the chart.
 - `test_a_code_start_the_client_wrote_is_theirs_not_the_models` [functionality]: an account code prefix the client typed beats the model's guess.
 - `test_only_accounts_experios_field_offers_and_posts_without_warning_are_usable` [security]: only accounts in Experio's own Account domain, in the classes it posts without a warning (2/6 purchase, 7 sale), are taken.
 - `test_an_immobilisation_the_model_picks_is_confirmed_by_the_client_first` [security]: a class 2 account the model picks is asked first, classes 6 and 2 offered.
+- `test_the_chart_is_read_from_the_invoices_dossier_sorted_by_code` [technical]: the chart is Experio's accounts of the dossier, sorted by code.
+- `test_an_empty_domain_from_experio_leaves_every_account_of_the_sides_classes` [functionality]: no Account domain from Experio: every account of the side's warning-free classes, none for another type.
+- `test_the_account_is_put_through_experios_form_then_its_refresh_rebuilds_the_lines` [functionality]: the account is typed in Experio's form, then its refresh rebuilds the lines.
+- `test_test_mode_says_the_account_would_be_set` [security]: in test mode the account message starts with the test-mode note.
+- `test_an_account_experio_refuses_is_said_refused` [communication, param]: Experio refusing the form or its refresh is said refused.
+- `test_a_dossier_with_accounts_gets_no_base_accounts` [functionality]: a chart with accounts gets no wizard.
+- `test_an_empty_chart_gets_experios_missing_accounts_wizard_in_the_dossier` [functionality]: an empty chart gets Experio's missing-accounts wizard, confirmed in the dossier.
+- `test_test_mode_creates_no_base_accounts` [security]: in test mode an empty chart is only said, nothing created.
+- `test_the_memorized_account_is_only_read_from_experio_by_picking_the_tiers_again` [functionality]: the memorized account is read by picking the tiers again, never saved.
+- `test_the_account_experio_memorized_for_the_tiers_is_applied` [functionality]: Experio's memorized account is applied.
+- `test_a_memorized_account_experio_would_warn_about_is_not_taken` [security]: a memorized account outside the side's classes is not taken.
+- `test_experio_failing_while_proposing_an_account_is_said` [communication]: Experio failing while proposing an account is a tool error.
+- `test_an_invoice_with_its_account_already_is_left_as_it_is` [functionality]: an account already set is kept and named.
+- `test_a_journal_setting_missing_stops_before_any_account` [functionality]: a missing journal setting stops before Experio is asked anything.
+- `test_an_invoice_not_checked_yet_is_refused` [functionality]: no check yet: refused.
+- `test_no_account_the_model_finds_in_the_chart_asks_the_client` [functionality, param]: no account, or one outside the chart, from the model: the client is asked.
+- `test_a_charge_the_model_picks_in_the_chart_is_applied` [functionality]: a charge the model picks in the chart is applied.
+- `test_the_question_names_the_invoice_by_what_it_has` [communication]: the question names the invoice by its id when it has no number, tiers nor total.
+- `test_an_account_the_client_did_not_write_is_asked_about_never_set` [security]: an account the client's words do not hold is asked about.
+- `test_an_account_the_client_wrote_with_the_invoice_is_set` [functionality]: an account the client wrote goes to set_account.
+- `test_the_account_the_client_answers_is_applied_confirmed_or_asked_again` [functionality]: set_account applies, asks to confirm, or asks again.
+- `test_a_confirmed_account_is_applied_and_a_non_asks_which` [functionality]: oui applies the account, non asks which.
+- `test_a_chart_experio_cannot_give_is_said_and_a_long_one_cut_at_100` [communication]: a chart Experio cannot give is said; a long one is cut at 100.
 
 ### tests/invoices/test_answers.py
 Covers the client's answers to waiting questions (db_cabinet).
@@ -333,6 +472,17 @@ Covers comparing what Experio read with the scan: dates, the model's report, fal
 - `test_a_number_with_two_readings_is_never_guessed` [functionality]: an ambiguous number like 1,005 raises instead of guessing.
 - `test_the_whole_answer_is_found_among_the_models_notes` [functionality, param over replies/]: the complete JSON report is extracted from real model replies with notes.
 - `test_no_single_whole_answer_is_never_guessed` [functionality]: conflicting or incomplete JSON raises instead of picking one.
+- `test_what_experio_captured_includes_the_tiers_ice_read_from_experio` [functionality]: the tiers' ICE is read from Experio, none without a tiers.
+- `test_a_draft_alone_of_its_document_is_checked_against_its_own_scan` [functionality]: no token or no other draft: its own scan.
+- `test_one_bill_of_a_document_experio_split_is_checked_on_the_scan_another_draft_holds` [functionality]: one bill of a split document is checked on the scan another draft holds.
+- `test_a_conforming_check_is_stored_and_routine` [functionality]: a conforming check is stored (db_cabinet) and routine.
+- `test_the_differences_found_are_listed_and_replace_the_earlier_check` [functionality]: differences are listed and replace the earlier check.
+- `test_a_scan_said_unreadable_twice_stops_and_is_stored` [functionality]: unreadable twice: stop, stored.
+- `test_an_answer_unreadable_or_unusable_once_is_asked_again` [technical]: one unreadable, missing or unusable answer is asked again.
+- `test_an_answer_unusable_twice_is_refused_and_nothing_stored` [technical, param]: two bad answers: refused, nothing stored.
+- `test_a_draft_experio_has_not_read_or_without_a_scan_is_not_checked` [functionality, param]: still reading, not read, or no PDF scan: not checked.
+- `test_a_sale_is_checked_against_its_customer` [functionality]: a sale's model prompt holds the customer note.
+- `test_a_date_or_tva_lines_out_of_shape_are_never_guessed` [technical]: a three-digit year or tva_lines not a list are refused.
 
 ### tests/invoices/test_classify.py
 Covers a draft taken up again keeping its classified side.
@@ -341,6 +491,17 @@ Covers a draft taken up again keeping its classified side.
 - `test_the_side_experios_reading_proves_by_the_dossiers_ice_wins_over_the_model` [functionality]: the issuer (or buyer) Experio read carrying the dossier's ICE/IF decides the side, before any model.
 - `test_the_model_is_told_whose_dossier_it_is` [functionality]: the classifier is given the dossier's name.
 - `test_an_import_folders_piece_is_a_purchase_without_asking_the_model` [functionality]: an import folder's piece is a purchase.
+- `test_a_draft_experio_still_reads_or_without_a_scan_is_not_classified` [functionality]: still reading or no scan: not classified.
+- `test_a_bank_statement_is_stopped_and_written_nowhere` [functionality]: a bank statement stops, nothing written.
+- `test_a_scan_of_the_other_side_than_the_client_said_stops_untouched` [functionality]: a scan of the other side than the client said stops.
+- `test_a_draft_experio_already_has_on_the_right_side_is_left_as_it_is` [functionality]: the right type already: routine, nothing written.
+- `test_the_type_is_changed_through_experios_form_in_the_invoices_dossier` [functionality]: the type is changed through Experio's form with the invoice's context.
+- `test_test_mode_says_the_type_would_change` [security]: in test mode the type change is only said.
+- `test_a_type_change_experio_refuses_is_said_refused` [communication]: Experio refusing the type change is a tool error.
+- `test_a_draft_no_longer_editable_gets_no_type_change` [security]: a draft no longer editable gets no type change.
+- `test_a_category_the_model_invents_is_refused` [technical]: a category outside achat, vente, rb, autre is refused.
+- `test_an_invoices_side_is_its_classification_else_experios_type` [functionality]: side_of reads the stored classification (db_cabinet), else Experio's type.
+- `test_a_side_is_taken_only_when_the_client_wrote_it` [security, param]: a side is taken only from the client's own words.
 
 ### tests/invoices/test_configuration.py
 Covers the dossier's tax settings before posting.
@@ -352,6 +513,15 @@ Covers the dossier's tax settings before posting.
 - `test_a_warning_is_no_setting_and_blocks_nothing_here` [functionality]: Experio's warnings block nothing at this step (settle_warnings handles them).
 - `test_an_immobilisation_without_its_category_is_the_cabinets_setting` [functionality]: a class 2 account without its asset category stops for the cabinet.
 - `test_asset_lines_are_read_only_where_experio_has_its_immobilisations` [functionality]: no asset lines read without Experio's immobilisations module.
+- `test_asset_lines_without_their_category_are_named_by_their_account` [functionality]: asset lines without a category are named by their account.
+- `test_a_posted_invoice_has_nothing_to_set` [functionality]: a posted invoice has nothing to set, nothing read.
+- `test_a_folder_number_given_is_said_when_nothing_blocks` [communication]: a folder number given is said when nothing blocks.
+- `test_in_test_mode_the_detection_is_only_said` [functionality]: test mode only says the detection would run.
+- `test_an_immobilisation_still_without_its_category_after_the_detection_stops` [functionality]: an asset still without its category after the detection stops.
+- `test_experio_failing_its_check_or_its_detection_is_a_tool_error` [functionality]: Experio failing its check or its detection is a tool error.
+- `test_a_folder_without_its_number_takes_the_one_experios_rule_gives` [functionality]: a folder without a number takes the one Experio's rule gives.
+- `test_a_folder_number_is_written_only_when_experios_rule_gives_one` [functionality]: no folder, a number already, a manual rule or no numbered invoice: nothing written.
+- `test_in_test_mode_no_folder_number_is_written` [functionality]: test mode writes no folder number.
 
 ### tests/invoices/test_correct.py
 Covers corrections planned from a check (the HT/TVA fuel case).
@@ -362,6 +532,17 @@ Covers corrections planned from a check (the HT/TVA fuel case).
 - `test_lines_not_read_in_full_or_not_adding_up_are_never_split` [functionality]: incomplete or inconsistent lines are never split.
 - `test_a_hotel_bills_parts_are_written_where_the_dossier_uses_them_the_ht_keeping_the_rest` [functionality]: restaurant / breakfast / laundry HT written only where the dossier uses them, the HT keeping the rest.
 - `test_avoir_is_unticked_only_when_the_printed_title_says_facture` [functionality, param]: « avoir » unticked only on a printed « Facture » title.
+- `test_the_differences_are_written_through_experios_form_then_its_refresh_rebuilds_the_lines` [functionality]: the differences are typed in Experio's form, then refreshed.
+- `test_test_mode_says_what_the_correction_would_be` [security]: in test mode the correction is only said.
+- `test_a_foreign_currency_experio_has_is_set_and_one_it_lacks_is_noted` [functionality]: a currency Experio has is set, one it lacks is noted.
+- `test_the_payment_method_the_client_wrote_is_taken_over_the_scans` [functionality]: the payment method the client wrote beats the scan's.
+- `test_no_payment_method_is_written_over_one_set_unknown_or_missing_in_experio` [functionality, param]: no payment method over one set, unknown, or missing in Experio.
+- `test_a_correction_experio_already_holds_changes_nothing` [functionality]: nothing changed by Experio: no refresh.
+- `test_what_experio_recomputed_by_itself_is_logged_not_told` [communication]: fields Experio recomputed are logged, not told.
+- `test_a_correction_experio_refuses_is_said_refused` [communication, param]: Experio refusing the form, refresh or a search is a tool error.
+- `test_an_unchecked_or_unreadable_invoice_is_not_corrected` [functionality]: unreadable scan: nothing; unchecked: refused.
+- `test_each_corrected_field_is_said_as_the_client_reads_it` [communication]: each corrected field said as the client reads it.
+- `test_every_header_amount_correct_invoice_writes_is_said_in_french` [communication, xfail]: the stamp, débours... amounts are said by Experio's field name (suspected bug).
 
 ### tests/invoices/test_duplicates.py
 Covers the duplicate check.
@@ -369,12 +550,31 @@ Covers the duplicate check.
 - `test_the_oldest_draft_is_the_original` [functionality]: among duplicates, the oldest draft is treated as the original.
 - `test_a_sale_follows_experios_sale_rule_whatever_its_customer` [functionality]: a sale is checked by number alone (Experio's sale rule), with or without its customer.
 - `test_an_invoice_without_tiers_is_still_compared_by_number_date_and_total` also checks that an invoice and its credit note are never twins (refund).
+- `test_a_purchase_without_its_number_or_tiers_waits_for_them` [functionality]: a purchase without its number or tiers waits, Experio not asked.
+- `test_the_oldest_draft_is_kept_and_its_later_twins_named` [functionality]: the oldest draft is kept and its later twins named.
+- `test_a_purchase_already_posted_is_named_by_its_tiers_and_date` [communication]: a purchase already posted is named by its tiers and date.
+- `test_experio_failing_its_duplicate_check_is_a_tool_error` [functionality]: Experio failing its duplicate check is a tool error.
 
 ### tests/invoices/test_exercice.py
 Covers choosing the fiscal year in code, never by a model.
 - `test_the_agents_choice_is_taken_only_among_the_open_exercices` [functionality]: the agent's exercice choice must be one of the open ones.
 - `test_the_date_given_is_one_full_date` [functionality]: the date the client gives must be one complete date.
 - `test_an_exercice_covering_the_date_is_linked_whatever_the_answer` [functionality]: a newly opened covering exercice is used regardless of the answer.
+- `test_a_new_exercice_is_created_by_experio_then_opened_by_its_own_action` [functionality]: a new exercice is created in draft then opened with Experio's action_open.
+- `test_nouveau_opens_the_invoices_year_and_links_the_invoice_to_it` [functionality]: « nouveau » opens the invoice's year and links the invoice to it.
+- `test_experio_refusing_the_new_exercice_offers_the_open_ones_instead` [communication]: a refused creation, opening or link becomes a question offering the open exercices.
+- `test_in_test_mode_no_exercice_is_created` [functionality]: test mode only says which exercice would be created.
+- `test_a_late_invoice_is_booked_by_experios_own_action_in_the_exercice_chosen` [functionality]: a late invoice is booked with action_activate_old_invoice in the chosen exercice.
+- `test_a_dossier_without_a_late_invoice_account_is_told_its_current_account_stays` [communication]: without a late-invoice account the client is told the current account stays.
+- `test_in_test_mode_the_late_invoice_is_only_said` [functionality]: test mode books no late invoice.
+- `test_experio_refusing_the_late_invoice_is_a_tool_error` [functionality]: Experio's refusal of the late invoice is a tool error.
+- `test_without_an_answer_or_with_an_unclear_one_the_client_is_asked` [communication]: no answer or an unclear one asks the client, nothing written.
+- `test_an_invoice_already_booked_late_is_left_as_it_is` [functionality]: an invoice already booked late is left alone.
+- `test_an_invoice_without_a_date_is_asked_it_then_the_date_given_is_saved` [functionality]: an invoice without a date asks it, then saves the date given and links it.
+- `test_the_date_answer_is_never_read_as_the_exercice_choice` [communication]: the date answer is never read as the exercice choice.
+- `test_experio_refusing_the_date_is_a_tool_error` [functionality]: Experio's refusal of the date is a tool error.
+- `test_an_invoice_already_in_the_covering_exercice_is_not_written` [functionality]: an invoice already in its covering exercice is not written.
+- `test_experio_refusing_the_relink_is_a_tool_error` [functionality]: Experio's refusal of the relink is a tool error.
 
 ### tests/invoices/test_files.py
 Covers which files of a conversation are still to process (db_cabinet).
@@ -397,6 +597,20 @@ Covers an import folder made as Experio's « Imports » screen makes it, and its
 - `test_the_same_folder_file_sent_again_makes_no_second_folder` [functionality]: one folder per file content.
 - `test_a_tiers_name_experio_cut_short_is_taken_whole_from_the_check` [functionality]: the check's name when it flagged Experio's.
 
+### tests/invoices/test_import_folder_experio.py
+Covers create_import_folder against Experio: page types, the folder made, test mode, refusals, questions.
+- `test_experio_page_types_are_read_from_its_own_screen` [functionality]: page types are Experio's own selection.
+- `test_a_page_is_typed_among_experio_types_only` [functionality, param]: a page gets one of Experio's types, else « other ».
+- `test_the_files_become_one_folder_its_drafts_kept_the_transit_invoice_last` [functionality]: the files make one folder, its drafts saved and linked, transit last.
+- `test_several_folders_one_per_file_on_the_client_word` [functionality]: « plusieurs dossiers » makes one folder per file.
+- `test_test_mode_makes_no_import_folder` [security]: test mode makes no folder and links nothing.
+- `test_a_file_neither_pdf_nor_photo_is_refused` [communication]: another format is refused.
+- `test_no_file_asks_for_the_folder_documents` [communication]: no file asks for the folder's documents.
+- `test_a_folder_already_made_from_the_same_file_stops` [functionality]: the same file sent again stops as a duplicate.
+- `test_a_folder_gone_from_experio_is_made_again` [functionality]: a folder no longer in the dossier is no twin.
+- `test_experio_refusing_the_folder_says_so` [communication]: an Experio failure is said.
+- `test_no_draft_reads_no_invoice` [functionality]: no draft reads nothing.
+
 ### tests/invoices/test_instructions.py
 Covers instructions the client wrote alongside invoices.
 - `test_an_instruction_counts_only_as_the_client_wrote_it` [security]: instructions count only in the client's literal words.
@@ -410,6 +624,36 @@ Covers intake: dossier first, file identification, PDF splitting.
 - `test_a_file_is_identified_before_anything_is_made_from_it` [functionality]: the file type is identified before any processing.
 - `test_test_mode_creates_no_draft_and_imports_no_statement` [security]: test mode creates no draft and imports no statement.
 
+### tests/invoices/test_intake_experio.py
+Covers intake's calls to Experio: draft and statement imports, refusals, test mode, questions.
+- `test_a_file_that_does_not_exist_is_refused` [functionality]: an unknown file id is refused.
+- `test_experio_excel_statement_template_is_a_statement_without_any_reading` [functionality]: Experio's Excel template is a statement, never sent to Gladden.
+- `test_a_file_neither_pdf_nor_photo_or_unreadable_is_refused_with_why` [communication, param]: another format or an unreadable PDF is refused, its kind left unset.
+- `test_a_tpe_statement_is_a_statement_whatever_gladden_would_say` [functionality]: a TPE statement is a statement without Gladden.
+- `test_an_invoice_side_not_said_by_the_client_is_asked_before_cutting` [security]: the side not said is asked before any cut.
+- `test_a_file_already_cut_answers_its_parts` [functionality]: a file already cut answers its parts.
+- `test_an_unreadable_pdf_is_one_document` [functionality]: an unreadable PDF is one document.
+- `test_a_draft_is_made_by_experio_own_import_on_the_client_side` [functionality, param]: the draft is made by Experio's import with the client's side; a second call makes none.
+- `test_an_import_that_does_not_make_exactly_one_draft_is_refused_and_nothing_is_linked` [communication, param]: an import making 0 or 2 drafts is refused, nothing linked.
+- `test_a_file_cut_in_parts_makes_no_draft_of_its_own` [functionality]: a cut file points to its parts, no Experio call.
+- `test_a_journal_without_bank_has_no_bank_code` [functionality]: no bank, or none found, gives no bank code.
+- `test_a_dossier_without_usable_bank_journal_stops_for_the_cabinet` [communication, param]: no usable bank journal stops, naming those without bank.
+- `test_the_journal_given_must_be_a_usable_bank_journal_of_the_dossier` [security]: the journal given must be a usable one of the dossier.
+- `test_bank_journals_unreachable_say_so` [communication]: Experio unreachable on the bank journals is said.
+- `test_a_tpe_statement_without_network_asks_it` [communication]: a TPE statement without network asks it.
+- `test_a_tpe_statement_goes_to_the_journal_of_the_last_one_with_its_network` [functionality]: a TPE statement goes to the last TPE journal with its network, file linked.
+- `test_a_tpe_network_given_wins_and_a_last_journal_not_usable_is_not_taken` [functionality]: a network given is used; an unusable last journal leads to the question.
+- `test_test_mode_imports_no_tpe_statement` [security]: test mode imports no TPE statement.
+- `test_a_tpe_import_refused_says_so_and_links_nothing` [communication]: a refused TPE import is said, nothing linked.
+- `test_a_statement_of_a_bank_experio_cannot_read_is_not_imported` [functionality]: a statement of a bank Experio cannot read stops before any import.
+- `test_experio_excel_template_is_imported_by_its_own_import` [functionality]: the Excel template goes through its own import, file linked.
+- `test_test_mode_imports_no_excel_template` [security]: test mode imports no Excel template.
+- `test_an_excel_template_refused_says_experio_reason` [communication]: a refused template says Experio's reason, nothing linked.
+- `test_a_pdf_statement_is_imported_by_experio_own_import_into_its_journal` [functionality]: a PDF statement goes through Experio's import into its journal.
+- `test_one_statement_in_several_files_is_imported_once_as_the_client_says` [functionality]: « le même relevé » merges the files into one import, each linked.
+- `test_files_are_merged_only_on_the_client_word` [security]: files are never merged without the client's words.
+- `test_a_statement_import_refused_says_so_and_links_nothing` [communication]: a refused statement import is said, nothing linked.
+
 ### tests/invoices/test_invoice_side.py
 Covers purchase or sale, only as the client wrote it.
 - `test_the_side_the_client_wrote_is_kept` [security, param]: the purchase or sale side the client wrote is kept.
@@ -422,6 +666,9 @@ Covers the journal step.
 - `test_another_dossiers_journal_stops_the_invoice` [communication]: an invoice in another dossier's journal is stopped with an explanation.
 - `test_no_account_is_looked_up_without_the_dossiers_journal` [functionality]: account lookup waits until the dossier's journal is set.
 - `test_an_invoice_made_before_the_dossiers_journals_is_moved_to_them_first` [functionality]: older invoices are moved into the dossier's journals first.
+- `test_in_test_mode_the_journal_is_only_said` [functionality]: test mode only says the journal, no refresh.
+- `test_a_posted_invoice_never_changes_journal` [security]: a posted invoice never changes journal.
+- `test_experio_refusing_its_refresh_or_leaving_no_journal_is_a_tool_error` [functionality]: a refused refresh or no journal after it is a tool error.
 
 ### tests/invoices/test_listing.py
 Covers invoice list filters.
@@ -430,6 +677,8 @@ Covers invoice list filters.
 - `test_each_invoice_has_one_status` [functionality]: every invoice maps to exactly one status.
 - `test_amounts_have_two_decimals` [communication]: listed amounts are shown with two decimals.
 - `test_a_credit_note_is_listed_as_one_its_amount_as_experio_shows_it` [communication]: a credit note listed as « avoir », its amount negative.
+- `test_the_list_says_how_many_and_shows_only_the_most_recent` [communication]: the list says how many and shows the most recent, the limit kept within 1 to 100.
+- `test_experio_failing_to_list_is_a_tool_error` [functionality]: Experio failing to list is a tool error.
 
 ### tests/invoices/test_pipeline_messages.py
 Covers what a step failure tells the client (engine/calls.py).
@@ -446,9 +695,23 @@ Covers posting only when Experio's check is clear.
 - `test_a_window_experio_opens_instead_of_posting_is_said` [functionality]: a confirmation window action_post opens instead of posting is told.
 - `test_posting_never_merges_two_tiers_for_good` [security]: no posting when the dossier would merge the tiers read into the tiers chosen.
 - `test_an_immobilisation_without_its_category_is_not_posted` [functionality]: no posting that would make no asset.
+- `test_an_invoice_neither_draft_nor_posted_is_not_posted` [functionality]: an invoice neither draft nor posted is not posted.
+- `test_a_guard_that_stops_posts_nothing` [security]: a tiers merge or a disbursement guard that stops posts nothing.
+- `test_in_test_mode_nothing_is_posted` [functionality]: test mode posts nothing.
+- `test_experio_failing_its_check_is_a_tool_error` [functionality]: Experio failing its check is a tool error, nothing posted.
+- `test_no_compte_tiers_is_looked_for_without_a_tiers_or_a_side` [functionality]: no Compte Tiers is looked for without a tiers or a side.
+- `test_a_transit_invoice_gets_its_folders_posted_disbursements_linked_as_experios_form_does` [functionality]: a transit invoice gets its folder's posted disbursements linked, then refreshed.
+- `test_a_transit_invoice_waits_for_its_folders_unposted_disbursements` [functionality]: a transit invoice stops while its folder's disbursements are unposted.
+- `test_nothing_is_linked_to_an_invoice_that_needs_no_disbursement` [functionality]: not transit, export, all linked or test mode: nothing linked.
 
 ### tests/invoices/test_prepaid.py
 - `test_the_billed_period` [functionality]: the prepaid-expense billing period rule is computed correctly.
+- `test_nothing_to_spread_is_routine_and_never_asked` [functionality]: spread already, not checked yet or one month: routine, never asked.
+- `test_a_period_over_several_months_is_asked_and_an_unclear_answer_asked_again` [communication]: a period over several months is asked (charges or produits), an unclear answer asked again.
+- `test_non_writes_nothing_and_is_not_asked_again` [functionality]: « non » writes nothing and is kept, not asked again.
+- `test_oui_ticks_the_spreading_then_the_period_in_experios_form` [functionality]: « oui » types the spreading and its period into Experio's form.
+- `test_a_posted_invoice_is_never_spread` [security]: a posted invoice is never spread.
+- `test_experio_refusing_the_spreading_is_a_tool_error` [functionality]: Experio's refusal of the spreading is a tool error.
 
 ### tests/invoices/test_routing.py
 Covers where a message goes: answer, files, or both, decided by the database.
@@ -460,6 +723,21 @@ Covers where a message goes: answer, files, or both, decided by the database.
 - `test_a_facturation_draft_starts_at_the_dossiers_settings_never_at_the_reading` [functionality]: a Facturation draft enters at configure_cabinet.
 - `test_every_argument_the_agent_gives_the_dossier_tools_reaches_the_workflow` [technical]: the dossier tools' arguments (Experio_solder_ecart's facture too) reach the workflow.
 
+### tests/invoices/test_pipeline_experio.py
+Covers the sequence's calls to Experio: split-off drafts, resends, history notes, bank journals, answers.
+- `test_the_drafts_experio_split_off_tarik_draft_are_those_no_step_took` [functionality]: split-off drafts are those of its reading job no step took.
+- `test_a_draft_tarik_did_not_make_or_without_reading_job_has_no_split_off` [functionality]: a draft Tarik didn't make, or without job, has none.
+- `test_a_draft_read_with_others_from_its_document_says_them` [communication]: a draft read with others lists them; old run deadlines are dropped.
+- `test_a_resend_experio_refuses_tells_the_cabinet_can_do_it` [communication]: a refused resend tells the cabinet can do it.
+- `test_test_mode_sends_no_reading_again` [security]: test mode never resends.
+- `test_a_bank_journal_question_is_dropped_once_the_journal_has_its_bank` [functionality]: a journal given its bank since is no longer asked.
+- `test_a_note_experio_refuses_never_stops_the_others_nor_the_summary` [communication]: a refused note leaves the others and the summary.
+- `test_a_run_in_test_mode_writes_no_note` [security]: test mode writes no history note.
+- `test_a_run_without_outcome_says_nothing_was_done` [functionality]: a run without outcome says nothing was done.
+- `test_the_network_the_client_chose_imports_the_tpe_statement` [functionality]: the network chosen imports the TPE statement.
+- `test_a_network_not_understood_is_asked_again` [functionality]: a network not understood is asked again.
+- `test_a_tpe_statement_client_answer_resumes_its_pointing_once_given` [functionality, param]: a TPE client answer resumes settling once given.
+
 ### tests/dossiers/test_export.py
 Covers the export: Experio's own export, period and format, analysis unless an integration is confirmed, totals, file.
 - `test_the_period_named_becomes_dates` [functionality]: T3, a month (leap year), a year, « du ... au ... ».
@@ -468,6 +746,13 @@ Covers the export: Experio's own export, period and format, analysis unless an i
 - `test_an_integration_locks_only_once_confirmed` [security]: asked first, then Experio's « Intégration ».
 - `test_tiers_without_their_account_are_asked_then_exported_anyway` [communication]: Experio's warning asked, then its « Exporter quand même ».
 - `test_experios_refusal_is_said_in_its_words` [functionality]: no partner model, Experio's words.
+- `test_a_model_name_matching_several_export_models_is_asked` [communication]: a name matching several models is refused, naming them.
+- `test_test_mode_creates_no_export` [security]: test mode creates no export.
+- `test_a_fec_is_exported_by_experio_own_fec_as_text` [functionality]: the FEC uses Experio's FEC export, a .txt file.
+- `test_a_tiers_export_takes_no_journals_and_counts_no_lines` [functionality]: a tiers export takes no journals, counts nothing, uses import dates.
+- `test_an_export_without_lines_counts_zero` [communication]: no line selected counts zero.
+- `test_an_export_experio_makes_no_file_of_stops` [communication]: no file produced stops, nothing kept.
+- `test_experio_unreachable_says_the_export_could_not_be_prepared` [communication]: an Experio failure is said.
 
 ### tests/declarations/test_payment_delay_declaration.py
 Covers the payment delays declaration: its period, its turnover, lines by Experio, refusals and gaps told.
@@ -478,6 +763,15 @@ Covers the payment delays declaration: its period, its turnover, lines by Experi
 - `test_what_experio_refuses_and_leaves_out_is_told` [communication]: law 69-21 mode, suppliers without IF, untracked and blocked purchases.
 - `test_lines_added_by_hand_are_never_refreshed_away` [functionality]: Experio's refresh would delete them.
 - `test_declaring_asks_first_then_declares_on_the_clients_yes` [security]: « Je le fais ? » first, then Experio's « Déclarer ».
+- `test_the_period_declaration_already_in_experio_is_taken_up` [functionality]: the period's declaration in Experio is taken up, none created.
+- `test_test_mode_creates_no_declaration` [security]: test mode creates no declaration.
+- `test_test_mode_writes_refreshes_and_declares_nothing` [security]: test mode writes, refreshes, makes and declares nothing.
+- `test_a_declaration_already_declared_is_only_reported` [functionality]: a declared one is only reported.
+- `test_a_period_running_or_already_declared_is_refused_before_experio_does` [functionality, param]: a running or already declared period stops.
+- `test_an_xml_experio_refuses_stops_with_its_reason` [communication]: an XML refusal stops with Experio's reason.
+- `test_a_declaration_experio_refuses_is_said_not_declared` [communication]: a refused « Déclarer » is said.
+- `test_a_null_declaration_has_no_xml_and_a_file_not_kept_is_said_ready` [communication]: a null declaration has no XML; one not kept is said ready.
+- `test_experio_unreachable_says_the_declaration_could_not_be_prepared` [communication]: an Experio failure is said.
 
 ### tests/declarations/test_ras_declaration.py
 Covers the withholding declarations: which, their period, lines as Experio makes them, refusals and gaps told.
@@ -491,6 +785,14 @@ Covers the withholding declarations: which, their period, lines as Experio makes
 - `test_experios_xml_refusal_stops` [functionality]: Experio's XML checks refuse, stopped.
 - `test_declaring_asks_first_and_warns_that_is_blocks_ir` [security]: « Je le fais ? » first, IS/IR warning, then declared.
 - `test_a_dossier_filing_no_ras_is_asked_which` [functionality]: no RAS flag and none named, asked which.
+- `test_test_mode_creates_no_ras_declaration` [security]: test mode creates no declaration.
+- `test_test_mode_refreshes_nothing_makes_no_xml_and_declares_nothing` [security]: test mode refreshes, makes and declares nothing.
+- `test_a_ras_declaration_already_declared_is_only_reported` [functionality]: a declared one is only reported.
+- `test_a_period_already_declared_is_refused_before_experio_does` [functionality, param]: a period already declared stops.
+- `test_ras_tva_before_july_2024_is_refused_as_experio_refuses_it` [functionality]: RAS TVA before July 2024 stops, as Experio's check.
+- `test_ras_tva_without_rate_or_at_100_percent_is_told` [communication]: lines without rate or at 100 % are told.
+- `test_a_ras_declaration_experio_refuses_is_said_not_declared` [communication]: a refused « Déclarer » is said.
+- `test_experio_unreachable_says_the_ras_declaration_could_not_be_prepared` [communication]: an Experio failure is said.
 
 ### tests/declarations/test_tva_declaration.py
 Covers a TVA declaration: its period, made and refreshed by Experio, what it leaves out, declared only on confirmation.
@@ -503,6 +805,15 @@ Covers a TVA declaration: its period, made and refreshed by Experio, what it lea
 - `test_declaring_asks_first_then_declares_on_the_clients_yes` [security]: « Je le fais ? » first, then Experio's « Déclarer ».
 - `test_missing_tva_writing_settings_stop_the_declaring` [security]: TVA writings settings missing, not declared.
 - `test_a_declared_period_is_only_read` [functionality]: a declared period is read, never refreshed.
+- `test_a_quarter_named_for_a_monthly_dossier_is_asked_again_and_no_period_named_is_none` [functionality]: a quarter for a monthly dossier is asked again; no period named is none.
+- `test_a_period_experio_lacks_is_said` [communication]: a period Experio lacks is said.
+- `test_a_dossier_outside_tva_declares_none` [functionality]: a dossier outside TVA declares none.
+- `test_test_mode_creates_no_declaration` [security]: test mode creates no declaration.
+- `test_test_mode_refreshes_writes_and_declares_nothing` [security]: test mode refreshes, writes and declares nothing.
+- `test_lines_in_error_and_experio_warning_are_told` [communication]: lines in error and Experio's warning are told.
+- `test_a_declaration_experio_refuses_is_said_not_declared` [communication]: a refused « Déclarer » is said.
+- `test_a_window_experio_opens_at_declaring_stops_for_the_cabinet` [security]: a window at declaring stops for the cabinet.
+- `test_experio_unreachable_says_the_tva_declaration_could_not_be_prepared` [communication]: an Experio failure is said.
 
 ### tests/invoices/test_statement.py
 Covers a bank statement after its import: Experio's reading checked, pointed by Experio, posted on demand.
@@ -520,6 +831,20 @@ Covers a bank statement after its import: Experio's reading checked, pointed by 
 - `test_a_template_experio_refuses_leaves_no_empty_statement` [security]: a refused Excel import leaves no empty statement.
 - `test_a_statement_without_balances_is_said_so_never_called_incomplete` [communication]: no balances, said so.
 - `test_tpe_remittances_are_tied_to_their_tpe_statement_when_experio_is_sure` [functionality]: Experio's sure TPE matches only.
+- `test_a_file_without_imported_statement_is_neither_settled_nor_posted` [functionality]: a file without statement is neither settled nor posted.
+- `test_a_tpe_statement_is_settled_and_posted_by_its_own_screens` [functionality]: a TPE statement goes to the TPE settle and post.
+- `test_a_tpe_statement_experio_refuses_says_its_reason` [communication, param]: a TPE refusal is said with Experio's reason.
+- `test_no_detection_from_experio_points_nothing` [functionality]: no detection window points nothing.
+- `test_test_mode_confirms_no_detection_ties_no_invoice_and_posts_nothing` [security]: test mode applies, writes and posts nothing.
+- `test_a_posted_statement_is_neither_pointed_nor_posted_again` [functionality]: a posted statement is not pointed, tied nor posted again.
+- `test_tpe_remittances_tied_and_left_are_said` [communication]: TPE remittances tied and left are said.
+- `test_without_experio_tpe_module_nothing_is_tied` [functionality]: without tpe_reconcile nothing is tied.
+- `test_experio_finding_no_tpe_match_leaves_the_remittances` [functionality]: no match leaves the remittances, nothing written.
+- `test_test_mode_ties_no_tpe_remittance` [security]: test mode ties no remittance.
+- `test_the_first_statement_of_a_journal_is_checked_against_its_carry_forward` [communication, param]: a first statement's start balance is compared with the à-nouveau.
+- `test_a_template_row_with_its_rate_and_currency_takes_them_when_experio_finds_one` [functionality]: a row's rate and currency are taken; an ambiguous method is not.
+- `test_a_template_is_imported_into_a_new_statement_of_the_journal` [functionality]: the template's lines go into a new statement with Experio's import context.
+- `test_an_empty_template_makes_no_statement` [functionality]: an empty template makes no statement.
 
 ### tests/invoices/test_tpe.py
 Covers a TPE statement: its network read, Experio's TPE import, Experio's operations on its lines, its sales' client.
@@ -533,6 +858,18 @@ Covers a TPE statement: its network read, Experio's TPE import, Experio's operat
 - `test_posting_confirms_experios_network_change_warning` [functionality]: Experio's journal/network warning confirmed.
 - `test_a_duplicate_statement_stops` [security]: Experio's duplicate refusal stops.
 - `test_the_import_sends_the_network_as_experios_screen_does` [functionality]: the network sent as the document's type.
+- `test_the_next_tpe_statement_goes_to_the_journal_of_the_last_one` [functionality, param]: the last TPE statement's journal, else none.
+- `test_an_upload_that_does_not_make_exactly_one_statement_is_refused` [communication, param]: an upload making 0 or 2 statements is refused.
+- `test_a_tpe_statement_is_being_read_until_experio_processed_it` [functionality]: a TPE statement is being read until processed.
+- `test_an_operation_whose_account_the_dossier_lacks_stops_for_the_cabinet` [functionality]: an operation without its account stops, nothing made.
+- `test_test_mode_makes_no_operation_and_writes_no_line` [security]: test mode makes no operation and writes no line.
+- `test_the_client_named_at_settling_gets_the_sales_and_lines_left_are_said` [functionality]: the client named gets the sales; lines left, posted ones and the remise setting are said.
+- `test_several_clients_matching_are_listed_never_chosen` [functionality]: several matches are listed, never chosen.
+- `test_a_client_named_but_unknown_is_asked_again_saying_so` [communication]: an unknown client is asked again, saying so.
+- `test_the_client_own_words_name_the_client_when_the_agent_read_none` [functionality]: the client's words are searched when the decision finds none.
+- `test_a_posted_tpe_statement_is_not_posted_again` [functionality]: a posted TPE statement is not posted again.
+- `test_test_mode_posts_no_tpe_statement` [security]: test mode posts nothing.
+- `test_another_window_at_posting_stops_for_the_cabinet` [security]: another window at posting stops for the cabinet.
 
 ### tests/invoices/test_summary.py
 Covers the run summary (db_cabinet, uses tests/runs.py).
@@ -542,6 +879,12 @@ Covers the run summary (db_cabinet, uses tests/runs.py).
 
 ### tests/invoices/test_taxes.py
 - `test_a_sale_without_tva_gets_experios_own_zero_rate_tax_listed` [functionality]: Experio's own 0 % tax, made by Experio when missing, listed in the dossier's settings.
+- `test_without_a_tax_of_its_kind_the_tva_account_is_found_by_its_code` [functionality]: without a tax of its kind the TVA account is found by its code (34552, 3455, 34551, 4455).
+- `test_a_dossier_without_any_tva_account_is_left_to_the_cabinet` [communication]: a dossier without a TVA account is left to the cabinet, nothing created.
+- `test_in_test_mode_a_missing_zero_rate_tax_is_never_said_to_lack_its_tva_account` [communication]: xfail (bug): test mode says the dossier lacks a TVA account for a missing 0 % tax.
+- `test_a_tax_the_cabinets_rights_keep_out_of_the_settings_is_left_to_the_cabinet` [security]: a tax the cabinet's rights keep out of the settings is left to the cabinet.
+- `test_a_zero_rate_tax_the_cabinets_rights_keep_out_is_left_to_the_cabinet` [security]: same for the 0 % tax; test mode never writes the settings.
+- `test_in_test_mode_an_existing_tax_is_never_listed` [functionality]: test mode never lists an existing tax in the settings.
 
 ### tests/invoices/test_tiers.py
 Covers the invoice's tiers (supplier or customer).
@@ -552,6 +895,22 @@ Covers the invoice's tiers (supplier or customer).
 - `test_test_mode_creates_no_wizard_in_experio` [security, param]: test mode opens no Experio wizard.
 - `test_a_tiers_nothing_resembles_is_created_from_the_scan` [functionality]: an unknown tiers is created from the scanned data.
 - `test_test_mode_creates_no_tiers` [security]: test mode never creates tiers.
+- `test_a_tiers_is_put_through_experios_form_and_gets_the_compte_tiers_its_wizard_proposes` [functionality]: the tiers is typed in Experio's form, its Compte Tiers made by Experio's wizard.
+- `test_a_tiers_already_on_the_invoice_with_its_compte_tiers_writes_nothing` [functionality]: a tiers already set with its Compte Tiers writes nothing.
+- `test_a_dossier_numbering_no_compte_tiers_is_told_the_cabinet_assigns_it` [functionality]: no code proposed: the wizard is not confirmed, the cabinet assigns it.
+- `test_a_tiers_of_another_dossier_or_none_is_never_linked` [security, param]: a tiers of another dossier, or none, is never linked.
+- `test_why_experio_refused_to_link_a_tiers_is_said` [communication]: Experio's reason for refusing a tiers is said.
+- `test_the_dossiers_tiers_are_read_inside_the_dossier` [technical]: the dossier's tiers are read in its context.
+- `test_the_tiers_experio_detected_is_linked` [functionality]: the detected tiers is linked.
+- `test_a_customs_invoice_gets_the_dossiers_one_customs_tiers_or_asks_among_several` [functionality, param]: a customs invoice gets the one customs tiers, or asks among several.
+- `test_a_customs_invoice_without_customs_tiers_goes_the_usual_way` [functionality]: no customs tiers: the usual steps.
+- `test_an_invoice_already_in_the_dossier_stops_before_its_tiers_is_asked` [functionality]: a twin invoice stops first.
+- `test_no_name_read_anywhere_asks_the_tiers_name` [functionality]: no name read anywhere: its name asked.
+- `test_a_name_only_the_check_read_and_nothing_resembles_is_asked_whether_to_create` [functionality]: a name only the check read, nothing close: asked whether to create.
+- `test_a_name_only_the_check_read_whole_is_the_one_searched` [functionality]: the check's whole name replaces Experio's cut one when flagged.
+- `test_a_tiers_the_registry_refuses_even_unchecked_is_said_refused` [communication]: a registry refusal on an unchecked creation is a tool error.
+- `test_sans_verification_with_no_name_read_is_searched_as_the_clients_words` [functionality]: « sans vérification » with no name: nothing created, asked again.
+- `test_a_name_only_the_check_read_is_linked_to_the_dossiers_tiers_of_that_very_name` [functionality]: a name only the check read, matching one tiers exactly, is linked.
 
 ### tests/invoices/test_tva.py
 Covers TVA: the non-recoverable question, the answer, the prorata.
@@ -559,6 +918,10 @@ Covers TVA: the non-recoverable question, the answer, the prorata.
 - `test_the_cabinets_prorata_applies_to_recoverable_tva` [functionality]: the cabinet prorata applies to recoverable TVA.
 - `test_an_answer_is_kept_for_the_invoice_taken_up_again` [functionality]: a "non" answer is remembered for a resumed invoice.
 - `test_a_sale_billing_no_tva_is_ticked_tva_non_facturee_without_a_question` [functionality]: a sale without TVA is ticked « TVA non facturée ».
+- `test_the_tax_lines_experio_rebuilt_are_read_back_untaxed_ones_only` [communication]: the TVA lines Experio rebuilt are read back, untaxed ones only.
+- `test_without_its_account_the_tva_waits_in_test_mode_and_is_refused_otherwise` [functionality]: without an account: test mode waits, otherwise a tool error.
+- `test_no_tax_line_yet_and_the_dossiers_taxes_made_are_said` [communication]: no TVA line yet and the dossier's taxes made are said.
+- `test_experio_refusing_its_refresh_is_a_tool_error` [functionality]: Experio's refusal of its refresh is a tool error.
 
 ### tests/invoices/test_withholding.py
 Covers withholding answers checked against what Experio accepts.
@@ -572,6 +935,16 @@ Covers withholding answers checked against what Experio accepts.
 - `test_a_persons_services_need_it_only_over_experios_thresholds` [functionality]: a person's services need it only over Experio's thresholds.
 - `test_an_is_ir_rate_the_tiers_type_does_not_take_is_asked_again` [functionality]: an IS/IR rate Experio refuses for the tiers type is asked again.
 - `test_a_sale_gets_its_retenue_on_when_the_customer_has_an_activity_type` [functionality]: a sale's retenue turned on from the customer's activity type, its rate Experio's.
+- `test_without_its_tiers_there_is_no_withholding_to_settle` [functionality]: without a tiers there is nothing to settle.
+- `test_a_foreign_suppliers_rule_experio_applied_is_only_said` [functionality]: a foreign supplier's rule Experio applied is only said.
+- `test_a_foreign_suppliers_last_posted_rule_is_written_again` [functionality]: a foreign supplier's last posted rule is written again.
+- `test_a_foreign_supplier_with_no_known_rule_is_asked_and_its_answer_written` [communication]: a foreign supplier with no known rule is asked, its answer written.
+- `test_a_withholding_the_client_did_not_write_is_never_taken_from_their_message` [security]: a withholding the client did not write is never taken from their message.
+- `test_experio_refusing_the_withholding_is_a_tool_error` [functionality]: Experio's refusal of the withholding is a tool error.
+- `test_an_unclear_is_ir_answer_is_asked_again` [communication]: an unclear IS/IR answer is asked again.
+- `test_sans_is_ir_keeps_the_retenue_on_for_experios_ras_tva` [functionality]: « sans » IS/IR keeps the retenue on for Experio's RAS TVA.
+- `test_a_known_rule_with_nothing_to_write_is_only_said` [functionality]: a known local or sale rule with nothing to write is only said.
+- `test_in_test_mode_an_attestation_sent_is_awaited_never_uploaded` [functionality]: test mode awaits an attestation sent without uploading it (db_cabinet).
 
 ### tests/invoices/test_credit_note.py
 Covers a posted credit note applied to its invoice with Experio's « Crédits en attente ».
@@ -579,11 +952,22 @@ Covers a posted credit note applied to its invoice with Experio's « Crédits en
 - `test_else_the_one_invoice_owing_exactly_its_amount` [functionality]: else the one invoice of the tiers owing the same amount.
 - `test_no_plain_choice_applies_nothing_and_lists_the_invoices` [security]: no plain choice, nothing applied, the invoices listed (never an opening balance).
 - `test_an_invoice_a_draft_or_a_used_credit_note_is_left_alone` [functionality]: nothing to apply.
+- `test_a_credit_note_without_its_tiers_is_left_alone` [functionality]: a credit note without its tiers is left alone.
+- `test_no_invoice_of_the_tiers_to_apply_it_to_leaves_it_as_it_is` [functionality]: no invoice of the tiers listed: left as it is.
+- `test_in_test_mode_the_credit_note_is_only_said` [functionality]: test mode applies nothing.
+- `test_what_is_left_of_the_credit_note_after_experio_applied_it_is_said` [communication]: what is left after Experio applied it is said.
+- `test_experio_refusing_to_apply_it_is_a_tool_error` [functionality]: Experio's refusal to apply it is a tool error.
 
 ### tests/invoices/test_difference.py
 Covers a payment difference written off with Experio's own wizard.
 - `test_the_difference_is_written_off_only_once_the_client_confirmed` [security]: asked first (amount, account), applied on the invoice alone after the oui.
 - `test_nothing_owed_no_account_or_no_invoice_is_said` [functionality]: nothing owed, no 6585 account, or no such invoice.
+- `test_no_invoice_named_is_refused_before_asking_experio` [functionality]: no invoice named is refused before asking Experio.
+- `test_several_posted_invoices_with_that_number_are_listed_not_guessed` [communication]: several posted invoices with that number are listed, not guessed.
+- `test_a_dossier_without_its_general_journal_is_the_cabinets` [communication]: a dossier without its general journal is the cabinet's.
+- `test_in_test_mode_the_difference_is_only_said` [functionality]: test mode only says the difference.
+- `test_an_invoice_left_unpaid_after_the_entry_says_its_payment_state` [communication]: an invoice left unpaid after the entry says its payment state.
+- `test_experio_refusing_its_wizard_is_a_tool_error` [functionality]: Experio refusing its wizard or its entry is a tool error.
 
 ### tests/invoices/test_warnings.py
 Covers Experio's warnings, each handled on its own (docs/experio-warnings.md).
@@ -596,8 +980,114 @@ Covers Experio's warnings, each handled on its own (docs/experio-warnings.md).
 - `test_a_warning_still_there_after_its_fix_stops_with_experios_words` [functionality]: a fix that does not clear its warning stops.
 - `test_what_was_fixed_is_told_before_what_stops` [functionality]: what was fixed is said first.
 - `test_after_relinking_its_exercice_the_invoice_is_checked_against_the_new_one` [functionality]: the check uses the exercice just linked.
+- `test_a_posted_invoice_has_no_warning_to_settle` [functionality]: a posted invoice has no warning to settle.
+- `test_in_test_mode_the_warnings_are_only_listed` [functionality]: test mode only lists the warnings.
+- `test_in_test_mode_nothing_is_dismissed` [functionality]: test mode dismisses nothing.
+- `test_a_missing_tva_amount_for_the_ras_stops_with_experios_words` [functionality]: a missing TVA amount for the RAS stops with Experio's words.
+- `test_an_is_ir_warning_with_no_rate_to_choose_stops_with_experios_words` [functionality]: an IS/IR warning with no rate or tiers to choose by stops.
+- `test_an_account_warning_asks_which_account` [communication]: an account warning asks which account.
+- `test_no_ice_case_when_nothing_read_differs_from_the_dossier` [functionality]: no ICE case when nothing read differs from the dossier.
+- `test_warnings_still_coming_after_every_round_stop_the_invoice` [functionality]: warnings still there after every round stop the invoice.
+- `test_the_exercice_question_answered_but_unsettled_is_returned_as_is` [functionality]: an exercice answer still unsettled is returned as is.
+- `test_sans_removes_the_is_ir_rate_experio_refused` [functionality]: « sans » removes the IS/IR rate Experio refused.
+- `test_the_account_answer_goes_through_set_account` [functionality]: the account answer goes through set_account.
+- `test_the_ice_answer_is_kept_only_when_the_client_said_oui_or_non` [security]: the ICE answer is kept only on a clear oui or non.
 
 ---
+
+### tests/graphs/test_canvases.py
+Covers the canvases the UI draws: every step drawn, named and described; each agent tool hands its workflow its inputs.
+- `test_each_step_of_a_workflow_is_drawn_named_and_described` [communication, param]: every workflow, the agent too.
+- `test_the_split_steps_have_each_their_own_box` [functionality, param]: Dossier, Déclarations, Export, Traitement, Fil.
+- `test_a_step_a_part_may_start_at_is_drawn_from_its_first_entry_only` [technical]: the hidden edges' rule.
+- `test_each_workflow_tool_runs_its_own_workflow_with_its_inputs` [functionality]: each tool's workflow and inputs.
+
+### tests/graphs/conftest.py (helper, no tests)
+- `steps`: fakes `engine.calls.call` (and Traitement's `run_tool`) with scripted answers per tool (ok by default, ids copied in as `with_ids` does), records the steps in the order they ran and runs a graph on a call (`steps.run`).
+
+### tests/graphs/test_dossier_graph.py
+Covers the Dossier graph's routing: creation (model configuration, files, banks, finish, state), each change mode, mode resume and mode dossiers, for every outcome status.
+- `test_a_new_dossier_takes_its_models_configuration_then_its_files_then_is_onboarded` [functionality]: create, copy_configuration, files, each import, ask_banks, finish_setup (no time limit), setup_status, summary.
+- `test_without_a_model_or_with_a_reused_dossier_no_configuration_is_copied` [functionality, param]: no copy_configuration; no files still onboards.
+- `test_a_refused_configuration_copy_goes_no_further` [functionality, xfail strict]: a refused copy_configuration still imports and finishes the dossier (suspected bug).
+- `test_a_sender_who_may_not_create_dossiers_gets_only_the_summary` [security, param]: check_creator not ok ends the run.
+- `test_a_dossier_not_created_goes_no_further` [functionality, param]: create_dossier not ok ends the run.
+- `test_a_failed_save_of_the_attachments_goes_straight_to_the_summary` [technical, param]: in every mode.
+- `test_a_refused_import_stops_before_the_banks` [functionality, param]: one import not ok, no ask_banks.
+- `test_files_not_listed_go_no_further` [functionality]: files_to_process error ends the run.
+- `test_a_dossier_not_finished_has_no_state_said` [functionality, param]: finish_setup not ok, no setup_status.
+- `test_a_dossier_given_has_its_sender_checked_then_its_files_imported` [functionality]: check_sender, imports into that dossier, onboarding.
+- `test_a_refused_sender_changes_nothing` [security, param]: check_sender not ok, in every change mode.
+- `test_each_change_runs_its_one_step_after_the_sender_check` [functionality, param]: update, person, archive, difference, whatever their outcome.
+- `test_resume_finishes_the_waiting_dossiers_and_says_the_state_of_those_finished` [functionality]: mode resume beats a dossier id; setup_status only for the finished.
+- `test_resume_with_nothing_finished_goes_to_the_summary` [functionality, param]: nothing waiting, waiting_setups failed, or none finished.
+- `test_a_spreadsheet_of_dossiers_imports_each_file_after_the_creator_check` [functionality]: mode dossiers, one import_dossiers per file, even after a question.
+- `test_a_spreadsheet_not_found_imports_nothing` [functionality, param]: no file or files not listed.
+
+### tests/graphs/test_declarations_graph.py
+Covers the Déclarations graph's routing: the sender checked, then the one declaration of the mode.
+- `test_each_mode_runs_its_one_declaration_after_the_sender_check` [functionality, param]: tva, ras, delais, whatever their outcome.
+- `test_each_declaration_takes_its_own_words` [functionality]: credit_reporte, declarations, chiffre_affaires passed on.
+- `test_a_refused_sender_goes_to_the_summary` [security, param]: no declaration prepared.
+- `test_an_unknown_mode_declares_nothing` [functionality, param]: straight to the summary after the sender check.
+- `test_a_failed_save_of_the_attachments_goes_straight_to_the_summary` [technical]: no sender check.
+
+### tests/graphs/test_export_graph.py
+Covers the Export graph's routing: the sender checked, then Experio's export.
+- `test_the_export_runs_after_the_sender_check_then_the_summary` [functionality, param]: export_entries with its words, whatever its outcome.
+- `test_a_refused_sender_exports_nothing` [security, param]: check_sender not ok ends the run.
+- `test_a_failed_save_of_the_attachments_goes_straight_to_the_summary` [technical]: no sender check.
+
+### tests/graphs/test_traitement_graph.py
+Covers the Traitement graph's routing: where a message goes, import folders, each file's and invoice's run, statements, the drafts taken up again and where an answer resumes.
+- `test_a_message_without_files_takes_up_the_waiting_drafts` [functionality]: files route with none, waiting_drafts in the dossier found.
+- `test_a_dossier_not_found_a_refused_sender_or_files_not_listed_go_no_further` [functionality, param]: resolve_dossier, check_sender, files_to_process not ok.
+- `test_a_failed_save_of_the_attachments_goes_straight_to_the_summary` [technical]: no routing.
+- `test_the_words_dossier_dimport_make_the_files_one_import_folder_first` [functionality]: create_import_folder, its drafts from wait_until_read.
+- `test_an_import_folder_with_no_drafts_or_refused_goes_to_the_waiting_drafts_or_the_summary` [functionality, param]: no drafts or refused.
+- `test_the_import_folder_words_without_files_take_up_the_waiting_drafts` [functionality]: no folder made.
+- `test_each_new_file_has_a_run_of_its_own_in_order` [functionality]: one identify_document per file.
+- `test_an_invoice_goes_through_every_step_of_its_chain_in_order` [functionality]: identify, split, the whole INVOICE_CHAIN.
+- `test_an_invoice_stops_at_the_first_step_not_ok` [functionality, param]: in each phase, for each status.
+- `test_each_invoice_cut_out_of_a_file_has_its_own_run` [functionality]: one create_draft_invoice per split file.
+- `test_a_draft_experio_split_off_a_bill_runs_once_after_it` [functionality]: from wait_until_read.
+- `test_the_drafts_experio_split_off_a_bill_each_run_once_after_it` [functionality, xfail strict]: two split-off drafts each run twice (suspected bug).
+- `test_a_file_not_identified_or_not_split_goes_no_further` [functionality, param]: identify_document or split_invoices not ok.
+- `test_a_statement_is_imported_pointed_then_posted_only_when_asked` [functionality, param]: post_statement only on « oui »; no statement or not ok stops.
+- `test_a_statement_not_pointed_is_not_posted` [functionality]: settle_statement not ok.
+- `test_an_answer_resumes_the_sequence_at_its_next_step` [functionality, param]: nowhere, waiting drafts, an invoice step, a statement, a file identified again.
+- `test_an_account_given_for_another_invoice_with_the_answer_is_asked_to_be_confirmed` [functionality]: its assign_account with confirm.
+- `test_the_invoice_answered_about_and_given_an_account_goes_back_to_its_account_step` [functionality, param]: answered or not, not to confirm.
+- `test_the_drafts_taken_up_after_an_answer_leave_out_the_corrected_ones` [functionality, param]: never one invoice twice in a run.
+- `test_a_follow_up_takes_up_each_kind_of_waiting_draft_at_its_own_step` [functionality]: reading, account, Facturation settings, statement pointing.
+- `test_a_follow_up_with_nothing_waiting_goes_to_the_summary` [functionality]: waiting_drafts then summary.
+- `test_an_answer_with_files_or_asked_to_post_does_both_in_one_run` [functionality, param]: the answer and the files branch, summary last.
+- `test_without_the_databases_route_the_mode_decides_and_an_unknown_one_means_files` [technical, param]: route_message failing or unknown.
+
+### tests/graphs/test_email_thread_graph.py
+Covers the Emails graph and its Fil d'emails routing: acknowledgement, the agent, a refused sender, sending, finishing, the follow-up, and the threads claimed.
+- `test_a_new_thread_is_acknowledged_answered_sent_then_finished` [functionality]: subject heads the message, the reply's id kept.
+- `test_an_acknowledgement_not_sent_leaves_the_answer_to_go_on` [communication]: « Pas envoye » and the run goes on.
+- `test_an_agent_that_cannot_answer_sets_the_thread_aside` [functionality]: straight to finish_thread, unsent.
+- `test_a_refused_sender_gets_nothing_and_their_manager_is_told` [security]: notify_manager, no finish_thread.
+- `test_a_manager_not_told_still_leaves_the_sender_without_a_reply` [security]: « Pas prevenu », nothing sent.
+- `test_a_refusal_not_read_ends_the_thread_unanswered` [security, param]: the tool's words or the error's kind.
+- `test_a_reply_not_sent_finishes_the_thread_with_why` [functionality]: finish_thread unsent with the reason.
+- `test_a_follow_up_resumes_traitement_then_dossier_and_sends_both_summaries` [functionality]: in mode resume, one email.
+- `test_a_follow_up_leaves_out_a_workflow_that_had_nothing_to_resume` [communication]: NOTHING left out.
+- `test_an_error_resuming_traitement_ends_the_thread_without_running_dossier` [functionality]: finish_thread unsent.
+- `test_an_error_resuming_dossier_ends_the_thread_unsent` [functionality]: nothing sent.
+- `test_no_thread_claimed_runs_no_thread` [functionality]: claim_threads only.
+- `test_each_thread_claimed_runs_on_its_own_and_one_failing_leaves_the_others` [technical]: a failed thread's done is left out.
+
+### tests/graphs/test_calls.py
+Covers engine.calls: a tool call in its cabinet, refusals and failures, and what a step records.
+- `test_a_tool_runs_in_the_cabinet_named` [security]: inside using(cabinet).
+- `test_a_refusal_is_said_in_the_tools_words_and_anything_else_never_shown` [security, param]: unknown tool, bad arguments, ToolError, crash.
+- `test_a_cabinet_not_served_is_never_run_in` [security]: ToolFailure.
+- `test_a_failed_step_becomes_an_error_outcome_with_the_ids_it_was_given` [technical]: recorded.
+- `test_a_plumbing_step_is_recorded_only_when_not_ok_or_told` [communication, param]: QUIET_WHEN_OK.
+- `test_an_answer_is_recorded_under_the_step_it_answers` [communication]: answer_pending's step.
 
 ## 8. ui (25 of the 30 tests have no category marker)
 

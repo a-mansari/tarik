@@ -3,6 +3,8 @@
 import pytest
 
 from engine.tools.core import experio as experio_calls
+from engine.tools.core.app import ToolError
+from engine.tools.core.config import TEST_MODE
 from engine.tools.invoices import configuration
 
 
@@ -144,3 +146,128 @@ def test_asset_lines_are_read_only_where_experio_has_its_immobilisations(monkeyp
 
     monkeypatch.setattr(configuration, "odoo_call", odoo_call)
     assert configuration.assets_without_category(3, {}) == [] and calls == [("exp.invoice", "fields_get")]
+
+
+@pytest.mark.functionality
+def test_asset_lines_without_their_category_are_named_by_their_account(monkeypatch):
+    lines = [
+        {"account_id": [1, "23550000 Matériel informatique"], "asset_category_id": False},
+        {"account_id": [2, "23400000 Matériel de transport"], "asset_category_id": [3, "Véhicules"]},
+        {"account_id": False, "asset_category_id": False},
+    ]
+    state = {"ids": [11, 12, 13], "read": []}
+
+    def odoo_call(model, method, *args, **kw):
+        state["read"].append(model)
+        if method == "fields_get":
+            return {"invoice_asset_line_ids": {"type": "one2many"}}
+        if model == "exp.invoice":
+            return [{"invoice_asset_line_ids": state["ids"]}]
+        return lines
+
+    monkeypatch.setattr(configuration, "odoo_call", odoo_call)
+    assert configuration.assets_without_category(3, {}) == ["23550000 Matériel informatique"]
+    state.update(ids=[], read=[])  # no asset line: nothing more read
+    assert configuration.assets_without_category(3, {}) == [] and "exp.invoice.asset.line" not in state["read"]
+
+
+@pytest.mark.functionality
+def test_a_posted_invoice_has_nothing_to_set(experio):
+    experio["invoice"]["state"] = "post"
+    assert configuration.configure_cabinet(3)["routine"] and experio["calls"] == []
+
+
+@pytest.mark.communication
+def test_a_folder_number_given_is_said_when_nothing_blocks(experio):
+    experio["before"], experio["numbered"] = [], "numéro du dossier d'import : DUM-12"
+    result = configuration.configure_cabinet(3)
+    assert result["status"] == "ok" and result["message"] == "Facture 3 : numéro du dossier d'import : DUM-12."
+
+
+@pytest.mark.functionality
+def test_in_test_mode_the_detection_is_only_said(experio, monkeypatch):
+    monkeypatch.setattr(configuration, "dry_run", lambda: True)
+    result = configuration.configure_cabinet(3)
+    assert result["status"] == "ok" and result["message"].startswith(TEST_MODE)
+    assert "The tax with the 20 rate does not exist" in result["message"]
+    assert [call[1] for call in experio["calls"]] == ["collect_validation_messages"]
+
+
+@pytest.mark.functionality
+def test_an_immobilisation_still_without_its_category_after_the_detection_stops(experio):
+    experio["assets"] = ["23550000 Matériel informatique"]
+    result = configuration.configure_cabinet(3)
+    assert ("res.company", "auto_detect_settings") in experio["calls"]
+    assert (
+        result["status"] == "stop" and "catégorie d'immobilisation à créer pour le compte 23550000" in result["message"]
+    )
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "failing, message",
+    [("collect_validation_messages", "n'a pas pu vérifier la facture"), ("auto_detect_settings", "a refusé le paramé")],
+)
+def test_experio_failing_its_check_or_its_detection_is_a_tool_error(experio, monkeypatch, failing, message):
+    fake = configuration.odoo_json
+
+    def odoo_json(model, method, ids, **kw):
+        if method == failing:
+            raise RuntimeError("Traceback\nAccessError: Droits insuffisants")
+        return fake(model, method, ids, **kw)
+
+    monkeypatch.setattr(experio_calls, "odoo_json", odoo_json)
+    monkeypatch.setattr(configuration, "odoo_json", odoo_json)
+    with pytest.raises(ToolError, match=message):
+        configuration.configure_cabinet(3)
+
+
+@pytest.fixture
+def folder(monkeypatch):
+    """A fake Experio: the invoice's import folder, the dossier's numbering rule, the folder's invoices, every write."""
+    state = {"folder_id": [40, "DI-40"], "number": False, "rule": "commercial_invoice", "found": "FC-77", "writes": []}
+    monkeypatch.setattr(configuration, "dry_run", lambda: False)
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "exp.import.folder" and method == "write":
+            state["writes"].append((args[0], args[1]))
+            return True
+        if model == "exp.import.folder":
+            return [{"id": 40, "folder_number": state["number"], "folder_type": "import", "company_id": [5, "D"]}]
+        if model == "res.company":
+            return [{"import_folder_number": state["rule"]}]
+        if method == "search_read":
+            assert ("invoice_type", "=", "supplier") in args[0] and ("state", "!=", "cancel") in args[0]
+            return [{"invoice_number": state["found"]}] if state["found"] is not None else []
+        return [{"folder_id": state["folder_id"]}]
+
+    monkeypatch.setattr(configuration, "odoo_call", odoo_call)
+    return state
+
+
+@pytest.mark.functionality
+def test_a_folder_without_its_number_takes_the_one_experios_rule_gives(folder):
+    assert configuration.settle_folder_number(3, {}) == "numéro du dossier d'import : FC-77"
+    assert folder["writes"] == [([40], {"folder_number": "FC-77"})]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"folder_id": False},  # no import folder
+        {"number": "DI-2026-1"},  # numbered already
+        {"rule": "manual"},  # the dossier numbers its folders by hand
+        {"found": None},  # no invoice of that kind in the folder
+        {"found": False},  # its invoice has no number yet
+    ],
+)
+def test_a_folder_number_is_written_only_when_experios_rule_gives_one(folder, change):
+    folder.update(change)
+    assert configuration.settle_folder_number(3, {}) == "" and folder["writes"] == []
+
+
+@pytest.mark.functionality
+def test_in_test_mode_no_folder_number_is_written(folder, monkeypatch):
+    monkeypatch.setattr(configuration, "dry_run", lambda: True)
+    assert configuration.settle_folder_number(3, {}) == "" and folder["writes"] == []

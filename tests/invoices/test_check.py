@@ -1,12 +1,21 @@
 """Does what Experio read match the scan: dates, the model's report, false alarms."""
 
+import json
 from pathlib import Path
 
 import pytest
 
+from engine.tools.core.app import ToolError
 from engine.tools.core.model import json_answer
 from engine.tools.core.words import readings
-from engine.tools.invoices.check import REPORT_KEYS, as_number, drop_false_alarms, resolve_date, resolve_report
+from engine.tools.invoices.check import (
+    CAPTURED,
+    REPORT_KEYS,
+    as_number,
+    drop_false_alarms,
+    resolve_date,
+    resolve_report,
+)
 from tests.fakes import flag
 
 
@@ -187,3 +196,165 @@ def test_no_single_whole_answer_is_never_guessed():
         with pytest.raises(ValueError):
             json_answer(text, REPORT_KEYS)
     assert json_answer('Sure: {"code": "6145"}') == {"code": "6145"}  # no keys asked: the one object
+
+
+SCANNED = {"id": 3, "bluejay_state": "done", "document_pdf": "JVBER", "file_type": "pdf", "partner_id": [40, "ALPHA"]}
+SCANNED.update(dict.fromkeys(CAPTURED), token=False, utility_type=False, type="purchase", invoice_number="F-9")
+WHOLE = {"readable": True, "extracted": {"invoice_date_language": "fr"}, "bad_fields": []}
+
+
+@pytest.fixture
+def checking(monkeypatch):
+    """check_invoice on SCANNED draft 3: Experio's answers by (model, method), the model's answers in turn."""
+    from engine.tools.invoices import check
+
+    state = {"invoice": dict(SCANNED), "calls": [], "answers": [WHOLE], "prompts": []}
+    state["experio"] = {("exp.partner", "read"): [{"ice": "001234567000089"}], ("exp.invoice", "search_read"): []}
+
+    def odoo_call(model, method, *args, **kw):
+        state["calls"].append((model, method, args, kw))
+        return state["experio"][(model, method)]
+
+    def ask_model(system, pages, prompt, what, **kw):
+        state["prompts"].append(prompt)
+        answer = state["answers"].pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return json.loads(json.dumps(answer))
+
+    monkeypatch.setattr(check, "require_invoice", lambda invoice_id, fields: state["invoice"])
+    monkeypatch.setattr(check, "odoo_call", odoo_call)
+    monkeypatch.setattr(check, "ask_model", ask_model)
+    monkeypatch.setattr(check, "tool_prompt", lambda name: name)
+    monkeypatch.setattr(check, "scan_pages", lambda pdf: [pdf])
+    return state
+
+
+@pytest.mark.functionality
+def test_what_experio_captured_includes_the_tiers_ice_read_from_experio(checking):
+    from engine.tools.invoices.check import _captured
+
+    stored = _captured(checking["invoice"])
+    assert stored["tier"] == "ALPHA" and stored["ice"] == "001234567000089"
+    assert checking["calls"] == [("exp.partner", "read", ([40],), {"fields": ["ice"]})]
+    checking["experio"][("exp.partner", "read")] = [{"ice": False}]
+    assert _captured(checking["invoice"])["ice"] is None  # no ICE on the tiers sheet
+    checking["calls"].clear()
+    assert _captured({**checking["invoice"], "partner_id": False})["tier"] is None and checking["calls"] == []
+
+
+@pytest.mark.functionality
+def test_a_draft_alone_of_its_document_is_checked_against_its_own_scan(checking):
+    from engine.tools.invoices.check import split_scan
+
+    assert split_scan(checking["invoice"]) == (None, "") and checking["calls"] == []  # no token: nothing searched
+    checking["invoice"]["token"] = "abc"
+    assert split_scan(checking["invoice"]) == (None, "")
+    assert checking["calls"][0][2] == ([("token", "=", "abc"), ("id", "!=", 3)],)
+
+
+@pytest.mark.functionality
+def test_one_bill_of_a_document_experio_split_is_checked_on_the_scan_another_draft_holds(checking):
+    from engine.tools.invoices.check import split_scan
+
+    holder = {"id": 4, "document_pdf": "SCAN", "file_type": "pdf"}
+    checking["invoice"].update(token="abc", document_pdf=False, utility_type="water")
+    checking["experio"][("exp.invoice", "search_read")] = [holder]
+    scanned, part = split_scan(checking["invoice"])
+    assert scanned == holder and "holds 2 bills" in part and "only the water bill numbered F-9" in part
+
+
+@pytest.mark.functionality
+def test_a_conforming_check_is_stored_and_routine(checking, db_cabinet):
+    from engine.tools.invoices import check
+
+    result = check.check_invoice(3)
+    assert result["routine"] and "conforme" in result["message"]
+    assert check.stored_check(3) == (True, {"invoice_date_language": "fr", "tva_lines": [], "invoice_date": None}, [])
+    assert check.stored_check(4) is None
+
+
+@pytest.mark.functionality
+def test_the_differences_found_are_listed_and_replace_the_earlier_check(checking, db_cabinet):
+    from engine.tools.invoices import check
+
+    check.check_invoice(3)
+    checking["invoice"]["amount_total"] = 100.0
+    read = {"invoice_date_language": "fr", "amount_untaxed": 120, "amount_total": 120}
+    checking["answers"] = [{**WHOLE, "extracted": read, "bad_fields": [flag("amount_total", 100, 120)]}]
+    result = check.check_invoice(3)
+    assert result["message"].startswith("Facture 3 : 1 ecart(s) entre Experio et le scan :\n- amount_total : x")
+    assert [b["field"] for b in check.stored_check(3)[2]] == ["amount_total"]
+
+
+@pytest.mark.functionality
+def test_a_scan_said_unreadable_twice_stops_and_is_stored(checking, db_cabinet):
+    from engine.tools.invoices import check
+
+    checking["answers"] = [{**WHOLE, "readable": False}] * 2
+    result = check.check_invoice(3)
+    assert result["status"] == "stop" and "je n'y lis pas de facture" in result["message"]
+    assert check.stored_check(3)[0] is False
+
+
+@pytest.mark.technical
+def test_an_answer_unreadable_or_unusable_once_is_asked_again(checking, db_cabinet):
+    from engine.tools.invoices import check
+
+    for first in ({**WHOLE, "readable": False}, ToolError("no single answer")):
+        checking["answers"] = [first, WHOLE]
+        assert check.check_invoice(3)["routine"] and not checking["answers"]
+    checking["answers"], checking["prompts"] = [{"readable": True, "extracted": {}}, WHOLE], []
+    check.check_invoice(3)
+    assert "Your last answer was unusable" in checking["prompts"][1]  # told what was wrong
+
+
+@pytest.mark.technical
+@pytest.mark.parametrize(
+    ("answers", "error"),
+    [
+        ([ToolError("cut"), ToolError("cut")], "cut"),
+        ([{"readable": True, "extracted": {}}] * 2, "Vérification de la facture : échec, réessayez plus tard."),
+    ],
+)
+def test_an_answer_unusable_twice_is_refused_and_nothing_stored(checking, db_cabinet, answers, error):
+    from engine.tools.invoices import check
+
+    checking["answers"] = list(answers)
+    with pytest.raises(ToolError, match=error):
+        check.check_invoice(3)
+    assert check.stored_check(3) is None
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("change", "status", "said"),
+    [
+        ({"bluejay_state": "pending"}, "wait", "encore en train de la lire"),
+        ({"bluejay_state": "failed"}, "ok", "n'a pas lu cette facture automatiquement"),
+        ({"document_pdf": False}, "ok", "pas de scan PDF"),
+        ({"file_type": "xlsx"}, "ok", "pas de scan PDF"),
+    ],
+)
+def test_a_draft_experio_has_not_read_or_without_a_scan_is_not_checked(checking, change, status, said):
+    from engine.tools.invoices import check
+
+    checking["invoice"].update(change)
+    result = check.check_invoice(3)
+    assert result["status"] == status and said in result["message"] and checking["prompts"] == []
+
+
+@pytest.mark.functionality
+def test_a_sale_is_checked_against_its_customer(checking, db_cabinet):
+    from engine.tools.invoices import check
+
+    checking["invoice"]["type"] = "sale"
+    check.check_invoice(3)
+    assert check.SALE_NOTE in checking["prompts"][0]
+
+
+@pytest.mark.technical
+def test_a_date_or_tva_lines_out_of_shape_are_never_guessed():
+    assert resolve_date("07/08/202", "fr") is None  # a three-digit year
+    with pytest.raises(ValueError, match="tva_lines is not a list"):
+        resolve_report({"readable": True, "extracted": {"invoice_date_language": "fr", "tva_lines": "20 %"}}, {})

@@ -188,3 +188,84 @@ def test_a_dossier_filing_no_ras_is_asked_which(experio, monkeypatch):
     )
     result = ras.prepare_ras_declaration(857)
     assert result["status"] == "stop" and "ne déclare aucune RAS" in result["message"] and real
+
+
+@pytest.mark.security
+def test_test_mode_creates_no_ras_declaration(experio, monkeypatch):
+    monkeypatch.setattr(ras, "dry_run", lambda: True)
+    result = ras.prepare_ras_declaration(857, "IS")
+    assert result["status"] == "ok" and result["message"].startswith("MODE TEST")
+    assert "RAS IS Septembre 2026 : serait créée et préparée" in result["message"] and experio["calls"] == []
+
+
+@pytest.mark.security
+def test_test_mode_refreshes_nothing_makes_no_xml_and_declares_nothing(experio, monkeypatch):
+    monkeypatch.setattr(ras, "dry_run", lambda: True)
+    experio["tables"] = {"exp.withholding.table": [{"id": 70, "state": "draft"}]}
+    experio["lines"] = [line()]
+    result = ras.prepare_ras_declaration(857, "IS", declarer=True, client_confirmed=True)
+    assert "MODE TEST" in result["message"] and "RAS IS Septembre 2026 serait déclarée" in result["message"]
+    assert experio["calls"] == []
+
+
+@pytest.mark.functionality
+def test_a_ras_declaration_already_declared_is_only_reported(experio):
+    experio["tables"] = {"exp.withholding.table": [{"id": 70, "state": "done"}]}
+    experio["table"]["state"] = "done"
+    result = ras.prepare_ras_declaration(857, "IS", declarer=True, client_confirmed=True)
+    assert "(n° 70) : déjà déclarée dans Experio. aucune retenue sur la période" in result["message"]
+    assert experio["calls"] == []
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("words", "done", "said"),
+    [
+        ("IS", [{"id": 9, "type": "is"}], "la période est déjà déclarée"),
+        ("non-résidents", [{"id": 9}], "la période est déjà déclarée"),  # no type: its own kind
+    ],
+)
+def test_a_period_already_declared_is_refused_before_experio_does(experio, words, done, said):
+    experio["done"] = done
+    result = ras.prepare_ras_declaration(857, words, declarer=True, client_confirmed=True)
+    assert result["status"] == "stop" and said in result["message"] and "action_post" not in methods(experio)
+
+
+@pytest.mark.functionality
+def test_ras_tva_before_july_2024_is_refused_as_experio_refuses_it(experio, monkeypatch):
+    experio["table"].update(period_id=[3, "Mars"], fiscal_year="2024")
+    experio["dates"] = ("2024-03-01", "2024-03-31")
+    result = ras.prepare_ras_declaration(857, "RAS TVA", "mars 2024")
+    assert result["status"] == "stop" and "ne se déclare qu'à partir de juillet 2024" in result["message"]
+
+
+@pytest.mark.communication
+def test_ras_tva_without_rate_or_at_100_percent_is_told(experio):
+    experio["lines"] = [line(withholding_percentage=False), line(withholding_percentage="100")]
+    message = ras.prepare_ras_declaration(857, "RAS TVA")["message"]
+    assert "1 retenue(s) à 100 % : tiers sans attestation" in message and "ligne(s) sans taux de retenue" in message
+
+
+@pytest.mark.communication
+def test_a_ras_declaration_experio_refuses_is_said_not_declared(experio, monkeypatch):
+    experio["lines"] = [line()]
+    inner = ras.odoo_json
+
+    def odoo_json(model, method, ids, *args, **kw):
+        if method == "action_post":
+            raise ExperioRefusal("Déclaration en double")
+        return inner(model, method, ids, *args, **kw)
+
+    monkeypatch.setattr(ras, "odoo_json", odoo_json)
+    result = ras.prepare_ras_declaration(857, "IS et IR", declarer=True, client_confirmed=True)
+    assert result["status"] == "stop" and "RAS IS Septembre 2026 : pas déclarée, Experio refuse" in result["message"]
+
+
+@pytest.mark.communication
+def test_experio_unreachable_says_the_ras_declaration_could_not_be_prepared(experio, monkeypatch):
+    def down(*args, **kw):
+        raise ConnectionRefusedError("down")
+
+    monkeypatch.setattr(ras, "odoo_call", down)
+    with pytest.raises(ToolError, match="n'a pas pu préparer la déclaration RAS"):
+        ras.prepare_ras_declaration(857, "IS")
