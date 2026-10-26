@@ -42,6 +42,7 @@ def test_dry_run_is_per_cabinet_and_on_by_default(two_cabinets, monkeypatch):
 def test_the_email_signature_is_the_cabinets_own(two_cabinets, monkeypatch):
     monkeypatch.setattr(sending, "_names", {})
     monkeypatch.setattr(sending, "odoo_call", lambda *args, **kw: [{"name": f"Cabinet {current()}"}])
+    monkeypatch.setattr(sending, "main_company_id", lambda: 1)
     with using(A):
         assert sending.cabinet_name() == f"Cabinet {A}"
     with using(B):

@@ -211,6 +211,15 @@ def in_dossier(dossier_id):
     return {"allowed_company_ids": [dossier_id]}
 
 
+def main_company_id():
+    """Return the id of the cabinet's own company in Experio (xmlid base.main_company, which Experio uses for the
+    cabinet: tax_calendar reminder_scheduler.py, « #NOM_CABINET »)."""
+    main = odoo_call(
+        "ir.model.data", "search_read", [("module", "=", "base"), ("name", "=", "main_company")], fields=["res_id"]
+    )
+    return main[0]["res_id"]
+
+
 def main_dossier_context():
     """Return the context that makes Experio create a dossier from the cabinet's main company (base.main_company).
 
@@ -219,10 +228,7 @@ def main_dossier_context():
     point to that client's journals and accounts, which the new dossier cannot read (record rule
     exp_journal_company_rule). The main company has none, so the new dossier's settings start empty, and Experio
     fills them from the dossier's own journals and accounts as they are created (auto_detect_settings)."""
-    main = odoo_call(
-        "ir.model.data", "search_read", [("module", "=", "base"), ("name", "=", "main_company")], fields=["res_id"]
-    )
-    return in_dossier(main[0]["res_id"])
+    return in_dossier(main_company_id())
 
 
 # --- Guards: a real dossier or invoice, else a ToolError the agent reads ---

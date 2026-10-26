@@ -103,11 +103,10 @@ def b64(data):
     return base64.b64encode(data).decode()
 
 
-def make_folder(dossier_id, files, kinds, dossier, multiple):
+def make_folder(files, kinds, dossier, multiple):
     """Cut ``files`` into the documents of each folder to create.
 
     Args:
-        dossier_id: not used.
         files: [(file_id, name, raw PDF bytes)].
         kinds: Experio's page types (page_types).
         dossier: the dossier's name, for the model.
@@ -236,7 +235,7 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
     with refused(f"create_import_folder {dossier_id}", "Experio n'a pas pu créer le dossier d'import."):
         kinds = page_types()
         rule = odoo_call("res.company", "read", [dossier_id], fields=["import_folder_number"])[0]
-        folders = make_folder(dossier_id, files, kinds, dossier, multiple)
+        folders = make_folder(files, kinds, dossier, multiple)
         said, invoices = [], []
         for group, documents in folders:
             listed = ", ".join(f"{kinds[kind]}" for _, _, kind, _ in documents)

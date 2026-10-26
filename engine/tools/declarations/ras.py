@@ -192,20 +192,27 @@ def lines_of(kind, table_id, context):
 def refusals(kind, table, lines, dossier_id, context):
     """Return French phrases for what Experio's « Déclarer » (action_post) would refuse, in its order; [] when none.
 
-    The RAS TVA July 2024 rule compares the period's record id with 7, as Experio does.
+    The RAS TVA July 2024 rule compares the period's record id with 7, as Experio does. A period already declared is
+    looked for as each declaration's action_post does: any overlapping dates (exp_declaration_base), or for the
+    non-residents the same exercice, mode and, monthly, period (exp_foreign_withholding_table(_yearly).py).
     """
     spec, found = KINDS[kind], []
     if table["end_date"] and table["end_date"] >= date.today().isoformat():
         found.append("la période n'est pas terminée")
     if kind == "tva" and table["period_id"] and table["period_id"][0] < 7 and table["fiscal_year"] == "2024":
         found.append("la RAS TVA ne se déclare qu'à partir de juillet 2024")  # Experio's own condition
-    if table["start_date"]:
-        overlap = [("company_id", "=", dossier_id), ("state", "=", "done"), ("id", "!=", table["id"])]
-        overlap += [("start_date", "<=", table["end_date"]), ("end_date", ">=", table["start_date"])]
+    declared = [("company_id", "=", dossier_id), ("state", "=", "done"), ("id", "!=", table["id"])]
+    if spec.get("modes"):  # non-residents: the same exercice, mode and (monthly) period, as their action_post searches
+        declared += [("fiscal_year", "=", table["fiscal_year"]), ("mode_type", "=", spec["modes"][0])]
+        if spec["modes"][0] == "monthly":
+            declared.append(("period_id", "=", table["period_id"] and table["period_id"][0]))
+    elif table["start_date"]:  # the others: any overlapping period (exp_declaration_base's check)
+        declared += [("start_date", "<=", table["end_date"]), ("end_date", ">=", table["start_date"])]
+    if spec.get("modes") or table["start_date"]:
         done = odoo_call(
             spec["model"],
             "search_read",
-            overlap,
+            declared,
             fields=["type"] if spec.get("type") else ["id"],
             limit=1,
             context=context,

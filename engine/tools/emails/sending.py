@@ -21,7 +21,7 @@ from email.utils import formatdate, getaddresses, make_msgid
 
 from engine.tools.core.app import ToolError, log, ok, tool
 from engine.tools.core.cabinets import cabinet_db, current, setting
-from engine.tools.core.experio import odoo_call
+from engine.tools.core.experio import main_company_id, odoo_call
 from engine.tools.core.queries import Q
 from engine.tools.core.words import strip_tags
 
@@ -122,12 +122,12 @@ _names = {}  # cabinet -> its name in Experio: read once it could be
 
 
 def cabinet_name():
-    """Return the current cabinet's name in Experio (res.company id 1), for the signature.
+    """Return the current cabinet's name in Experio (base.main_company), for the signature.
 
     Cached per cabinet once read; "" while Experio cannot be reached (read again next time)."""
     if current() not in _names:
         try:
-            _names[current()] = odoo_call("res.company", "read", [1], fields=["name"])[0]["name"]
+            _names[current()] = odoo_call("res.company", "read", [main_company_id()], fields=["name"])[0]["name"]
         except Exception as error:
             log(f"cabinet_name: {error}")
             return ""
