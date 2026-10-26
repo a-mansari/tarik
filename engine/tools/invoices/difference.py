@@ -64,20 +64,22 @@ def settle_difference(dossier_id: int, facture: str, client_confirmed: bool = Fa
             "de compte 6585 (écarts)" if not wizard["difference_account_id"] else "de journal des opérations diverses"
         )
         return stop(
-            f"{label} : le dossier {dossier} n'a pas {missing} : à créer par le cabinet.", invoice_id=invoice_id
+            f"{label} : le dossier `{dossier}` n'a pas {missing} : à créer par le cabinet.", invoice_id=invoice_id
         )
     account, journal = wizard["difference_account_id"][1], wizard["journal_id"][1]
     tier = (invoice["partner_id"] or [0, "tiers inconnu"])[1].split(" - ")[0]
     if not client_confirmed:
         return question(
-            f"{label}, {tier} : il reste {amount:.2f} DH dû. Je passe cet écart en compte {account} (journal "
-            f"{journal}) et la facture sera soldée. Je le fais ? oui / non",
+            f"{label}, `{tier}` : il reste {amount:.2f} DH dû. Je passe cet écart en compte `{account}` (journal "
+            f"`{journal}`) et la facture sera soldée. Je le fais ? oui / non",
             invoice_id=invoice_id,
         )
     if dry_run():
-        return ok(f"{TEST_MODE}{label} : l'écart de {amount:.2f} DH serait passé en compte {account}.")
+        return ok(f"{TEST_MODE}{label} : l'écart de {amount:.2f} DH serait passé en compte `{account}`.")
     with refused(f"settle_difference {invoice_id}", f"{label} : Experio a refusé l'écriture d'écart."):
         odoo_json(WIZARD, "action_apply", [wizard_id], context=context)
         after = odoo_call("exp.invoice", "read", [invoice_id], fields=["payment_state"], context=context)[0]
     state = "soldée" if after["payment_state"] == "paid" else f"état de paiement : {after['payment_state']}"
-    return ok(f"{label} : écart de {amount:.2f} DH passé en compte {account}, facture {state}.", invoice_id=invoice_id)
+    return ok(
+        f"{label} : écart de {amount:.2f} DH passé en compte `{account}`, facture {state}.", invoice_id=invoice_id
+    )

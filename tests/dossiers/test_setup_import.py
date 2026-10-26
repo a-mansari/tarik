@@ -27,7 +27,7 @@ def copying(monkeypatch):
 @pytest.mark.functionality
 def test_the_models_configuration_is_copied_through_experios_wizard(copying):
     answer = setup.copy_configuration(557, 890)
-    assert answer["message"].startswith("Configuration du dossier MODELE copiee dans Gecafisc")
+    assert answer["message"].startswith("Configuration du dossier `MODELE` copiee dans `Gecafisc`")
     assert copying[0] == "reconcilable" and copying[2] == ("action_apply", [31])
     wizard = copying[1][1]
     assert wizard["source_company_id"] == 890 and wizard["target_company_ids"] == [(6, 0, [557])]
@@ -44,7 +44,7 @@ def test_a_dossier_is_never_its_own_model(copying):
 @pytest.mark.functionality
 def test_no_copy_over_entries_already_imported(copying, monkeypatch):
     monkeypatch.setattr(setup, "odoo_call", lambda model, method, domain: 40)
-    with pytest.raises(ToolError, match="Gecafisc a deja des ecritures importees"):
+    with pytest.raises(ToolError, match="`Gecafisc` a deja des ecritures importees"):
         setup.copy_configuration(557, 890)
     assert copying == []
 
@@ -127,7 +127,7 @@ def test_a_fec_is_tested_by_experio_then_imported_and_the_dossier_waits(importin
     answer = setup.import_entries(557, file_id)
     assert answer["status"] == "ok" and answer["target"] == "ecritures" and answer["file_id"] == file_id
     assert answer["message"] == (
-        "FEC fec.csv importe dans le dossier Gecafisc : 3 lignes. Experio a cree : 3 compte(s)."
+        "FEC `fec.csv` importe dans le dossier `Gecafisc` : 3 lignes. Experio a cree : 3 compte(s)."
     )
     upload = importing["calls"][0]
     assert upload[1] == "create" and upload[2][0]["res_model"] == "experio.history" and upload[2][0]["file"] == FEC
@@ -141,7 +141,7 @@ def test_a_fec_is_tested_by_experio_then_imported_and_the_dossier_waits(importin
 @pytest.mark.functionality
 def test_a_grand_livre_is_imported_with_its_lines_sorted_by_reference(importing):
     answer = setup.import_entries(557, sent("gl.csv", FEC), kind="grand livre")
-    assert answer["message"].startswith("Grand livre gl.csv importe")
+    assert answer["message"].startswith("Grand livre `gl.csv` importe")
     options = imports(importing)[-1][2]
     assert options["order_lines"] is True and options["order_lines_with_reference"] is True
 
@@ -152,7 +152,8 @@ def test_nothing_is_imported_when_experios_test_finds_errors(importing):
     file_id = sent("fec.csv", FEC)
     answer = setup.import_entries(557, file_id)
     assert answer["status"] == "stop" and answer["message"] == (
-        "FEC fec.csv refuse par le test Experio (4 erreur(s)) : Compte 0 inconnu | Compte 1 inconnu | Compte 2 inconnu"
+        "FEC `fec.csv` refuse par le test Experio (4 erreur(s)) : "
+        "Compte 0 inconnu | Compte 1 inconnu | Compte 2 inconnu"
     )
     assert [dry for dry, *_ in imports(importing)] == [True]
     assert setup.waiting_setups("s")["dossiers"] == [] and kind_of(file_id) == "entries"
@@ -162,7 +163,7 @@ def test_nothing_is_imported_when_experios_test_finds_errors(importing):
 def test_errors_in_experios_import_itself_are_a_stop(importing):
     importing["result"] = {"messages": [{"type": "warning", "message": "lent"}, {"type": "error", "message": "x"}]}
     answer = setup.import_entries(557, sent("fec.csv", FEC))
-    assert answer["status"] == "stop" and answer["message"] == "FEC fec.csv refuse par Experio : x"
+    assert answer["status"] == "stop" and answer["message"] == "FEC `fec.csv` refuse par Experio : x"
     assert setup.waiting_setups("s")["dossiers"] == []
 
 
@@ -172,7 +173,7 @@ def test_errors_in_experios_import_itself_are_a_stop(importing):
     [
         ("create", "`fec.csv` : Experio n'a pas pu lire le fichier (boom)."),
         ("parse_preview", "`fec.csv` : Experio n'a pas pu lire le fichier (boom)."),
-        ("execute_import", "FEC fec.csv refuse par Experio : boom"),
+        ("execute_import", "FEC `fec.csv` refuse par Experio : boom"),
     ],
 )
 def test_experio_failing_a_call_of_the_import_is_a_stop_with_its_reason(importing, failing, said):
@@ -193,7 +194,7 @@ def test_experio_refusing_the_import_after_its_test_gives_its_reason(importing, 
 
     monkeypatch.setattr(setup, "odoo_json", failing_import)
     answer = setup.import_entries(557, sent("fec.csv", FEC))
-    assert answer["status"] == "stop" and answer["message"] == "FEC fec.csv : Experio a refuse l'import (verrou)."
+    assert answer["status"] == "stop" and answer["message"] == "FEC `fec.csv` : Experio a refuse l'import (verrou)."
 
 
 @pytest.mark.communication
@@ -210,7 +211,7 @@ def test_in_test_mode_experio_only_tests_the_file(importing, monkeypatch):
     file_id = sent("fec.csv", FEC)
     answer = setup.import_entries(557, file_id)
     assert answer["status"] == "ok" and answer["message"] == (
-        f"{TEST_MODE}FEC fec.csv : test Experio reussi (2 lignes), rien n'est importe."
+        f"{TEST_MODE}FEC `fec.csv` : test Experio reussi (2 lignes), rien n'est importe."
     )
     assert [dry for dry, *_ in imports(importing)] == [True] and setup.waiting_setups("s")["dossiers"] == []
 
@@ -248,7 +249,7 @@ def test_a_journals_file_names_the_banks_as_experio_lists_them(importing):
     assert upload["file"].splitlines() == ["Code journal;Banque", "BQ1;ATTIJARIWAFA BANK", "BQ2;", "CAI;"]
     assert imports(importing)[-1][1] == ["code", "bank_id"]
     assert answer["target"] == "journaux"
-    assert answer["message"] == "Journaux journaux.csv importe dans le dossier Gecafisc : 3 lignes."  # no detection
+    assert answer["message"] == "Journaux `journaux.csv` importe dans le dossier `Gecafisc` : 3 lignes."  # no detection
 
 
 @pytest.mark.functionality

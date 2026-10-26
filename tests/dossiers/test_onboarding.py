@@ -230,13 +230,13 @@ def test_no_dossier_is_created_with_another_dossiers_ice(creating):
     answer = identity.create_dossier(
         name="BETA", ice="008123456000100", client_message="Créez BETA, ICE 008123456000100", session_id="s"
     )
-    assert answer["status"] == "stop" and "(ALPHA SARL)" in answer["message"] and creating == []
+    assert answer["status"] == "stop" and "(`ALPHA SARL`)" in answer["message"] and creating == []
 
 
 @pytest.mark.security
 def test_a_very_similar_name_is_created_only_on_the_clients_yes(creating):
     asked_first = identity.create_dossier(name="ALPHA SARLL", client_message="Créez ALPHA SARLL", session_id="s")
-    assert asked_first["status"] == "question" and "(ALPHA SARL)" in asked_first["message"] and creating == []
+    assert asked_first["status"] == "question" and "(`ALPHA SARL`)" in asked_first["message"] and creating == []
     asked("create_dossier", asked_first["message"])
     done = identity.create_dossier(name="ALPHA SARLL", client_confirmed=True, client_message="oui", session_id="s")
     assert done["dossier_id"] == 78 and creating == [
@@ -251,7 +251,7 @@ def test_a_new_dossier_skips_the_registry_check_only_on_the_clients_yes(creating
     first = identity.create_dossier(
         name="GAMMA", ice="008123456000999", skip_ice_if_check=True, client_message=message, session_id="s"
     )
-    assert first["status"] == "question" and "creation du dossier GAMMA sans cette verification" in first["message"]
+    assert first["status"] == "question" and "creation du dossier `GAMMA` sans cette verification" in first["message"]
     asked("create_dossier", first["message"])
     done = identity.create_dossier(
         name="GAMMA",
@@ -283,5 +283,5 @@ def test_an_unknown_dossier_type_is_refused(creating):
 @pytest.mark.communication
 def test_experio_refusing_a_new_dossier_gives_its_reason(creating, monkeypatch):
     monkeypatch.setattr(identity, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("ICE invalide")))
-    with pytest.raises(ToolError, match="Experio refuse de creer le dossier DELTA : ICE invalide"):
+    with pytest.raises(ToolError, match="Experio refuse de creer le dossier `DELTA` : ICE invalide"):
         identity.create_dossier(name="DELTA", client_message="Créez DELTA", session_id="s")

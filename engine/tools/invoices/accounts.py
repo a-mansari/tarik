@@ -59,7 +59,7 @@ INVOICE_FIELDS = [
 def account_question(invoice, designation):
     """What the client reads when no account fits ``designation`` (str or None: illegible)."""
     total = f"{invoice['amount_total']} DH TTC" if invoice["amount_total"] else None
-    partner = invoice["partner_id"][1] if invoice["partner_id"] else None
+    partner = f"`{invoice['partner_id'][1]}`" if invoice["partner_id"] else None
     about = ", ".join(str(x) for x in (partner, total) if x)
     facture = f"Facture {invoice['invoice_number'] or invoice['id']}" + (f" ({about})" if about else "")
     why = (
@@ -98,7 +98,7 @@ def apply_account(invoice, account_id, why):
     with refused(f"apply_account {invoice_id} -> {account_id}", f"Facture {invoice_id} : Experio a refusé le compte."):
         fill_invoice(invoice_id, {"account_id": account_id}, context)
         refresh(invoice_id, context)
-    return ok(f"{test_mode_note()}Facture {invoice_id} : compte {account_label(account_id)} ({why}).")
+    return ok(f"{test_mode_note()}Facture {invoice_id} : compte `{account_label(account_id)}` ({why}).")
 
 
 def account_code_of(account_id):
@@ -186,7 +186,7 @@ def assign_account(
         )
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     if invoice["account_id"]:
-        return ok(f"Facture {invoice_id} : compte déjà renseigné, {account_label(invoice['account_id'][0])}.")
+        return ok(f"Facture {invoice_id} : compte déjà renseigné, `{account_label(invoice['account_id'][0])}`.")
     # Without the dossier's own journal Experio cannot propose any account, and says so obscurely: an invoice made
     # before the dossier had journals still sits on another dossier's, which check_journal moves to its own.
     refusal = journal_stop(invoice_id, require_invoice(invoice_id, JOURNAL_FIELDS))
@@ -221,7 +221,7 @@ def assign_account(
         label = f"{account['code']} {account['name']}"
         return question(
             f"Facture {invoice['invoice_number'] or invoice_id} : « {designation} » ressemble à une immobilisation "
-            f"({reason}). Je la passe en compte {label} (immobilisée et amortie, pas en charge) ? oui / non",
+            f"({reason}). Je la passe en compte `{label}` (immobilisée et amortie, pas en charge) ? oui / non",
             choices={account["id"]: label},
         )
     return apply_account(invoice, account["id"], reason)
@@ -319,7 +319,7 @@ def set_account(invoice_id, answer, confirm=False):
     if account and confirm:
         label = f"{account['code']} {account['name']}"
         return question(
-            f"Facture {invoice['invoice_number'] or invoice_id} : je la passe en compte {label}, comme vous l'avez "
+            f"Facture {invoice['invoice_number'] or invoice_id} : je la passe en compte `{label}`, comme vous l'avez "
             "demandé ? oui / non",
             choices={account["id"]: label},
         )

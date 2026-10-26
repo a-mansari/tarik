@@ -84,13 +84,13 @@ def check_creator(session_id: str) -> dict:
         return routine("Conversation sans expediteur a verifier.")
     user = collaborator(address)
     if not user:
-        return stop(f"{address} n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun dossier n'est cree.")
+        return stop(f"`{address}` n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun dossier n'est cree.")
     if user["employee_type"] == "internal":
-        return routine(f"{user['name']} (equipe Experio) peut creer des dossiers.")
+        return routine(f"`{user['name']}` (equipe Experio) peut creer des dossiers.")
     if odoo_call("res.users", "user_is_manager", [user["id"]]):
-        return routine(f"{user['name']} (manager du cabinet) peut creer des dossiers.")
+        return routine(f"`{user['name']}` (manager du cabinet) peut creer des dossiers.")
     return stop(
-        f"Seuls les managers du cabinet et l'equipe Experio creent des dossiers ; {user['name']} n'en fait pas "
+        f"Seuls les managers du cabinet et l'equipe Experio creent des dossiers ; `{user['name']}` n'en fait pas "
         "partie : aucun dossier n'est cree. Demandez a un manager du cabinet."
     )
 
@@ -136,11 +136,11 @@ def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> d
     user = collaborator(address)
     if not user:
         return stop(
-            f"{address} n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun travail sur le dossier "
-            f"{dossier}."
+            f"`{address}` n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun travail sur le dossier "
+            f"`{dossier}`."
         )
     if user["employee_type"] == "internal":
-        return routine(f"{user['name']} (equipe Experio) peut travailler sur le dossier {dossier}.")
+        return routine(f"`{user['name']}` (equipe Experio) peut travailler sur le dossier `{dossier}`.")
     if dossier_id not in user["company_ids"]:
-        return stop(f"Le dossier {dossier} n'est pas attribue a {user['name']} dans Experio : rien n'y est fait.")
-    return routine(f"{user['name']} a le dossier {dossier}.")
+        return stop(f"Le dossier `{dossier}` n'est pas attribue a `{user['name']}` dans Experio : rien n'y est fait.")
+    return routine(f"`{user['name']}` a le dossier `{dossier}`.")

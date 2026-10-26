@@ -129,9 +129,7 @@ def test_a_setting_the_cabinets_rights_refuse_is_reported_not_claimed(experio, m
 def test_an_immobilisation_without_its_category_is_the_cabinets_setting(experio):
     experio["before"], experio["assets"] = [], ["23550000 Matériel informatique"]
     result = configuration.configure_cabinet(3)
-    assert (
-        result["status"] == "stop" and "catégorie d'immobilisation à créer pour le compte 23550000" in result["message"]
-    )
+    assert result["status"] == "stop" and "immobilisation à créer pour le compte `23550000" in result["message"]
 
 
 @pytest.mark.functionality
@@ -198,9 +196,7 @@ def test_an_immobilisation_still_without_its_category_after_the_detection_stops(
     experio["assets"] = ["23550000 Matériel informatique"]
     result = configuration.configure_cabinet(3)
     assert ("res.company", "auto_detect_settings") in experio["calls"]
-    assert (
-        result["status"] == "stop" and "catégorie d'immobilisation à créer pour le compte 23550000" in result["message"]
-    )
+    assert result["status"] == "stop" and "immobilisation à créer pour le compte `23550000" in result["message"]
 
 
 @pytest.mark.functionality

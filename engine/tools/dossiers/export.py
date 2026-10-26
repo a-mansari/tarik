@@ -158,7 +158,7 @@ def export_entries(
             journals = odoo_call("exp.journal", "search", [("company_id", "=", dossier_id)], context=context)
             values["journal_ids"] = [(6, 0, journals)]
         if dry_run():
-            return ok(f"{TEST_MODE}L'export ({KINDS[kind]}) du dossier {dossier} serait préparé.")
+            return ok(f"{TEST_MODE}L'export ({KINDS[kind]}) du dossier `{dossier}` serait préparé.")
         wizard_id = odoo_call(WIZARD, "create", values, context=context)
         wizard = odoo_call(
             WIZARD,
@@ -169,8 +169,9 @@ def export_entries(
         )[0]
         template = wizard["partner_export_template_id" if kind == "partner" else "export_template_id"]
         period = f"du {wizard['date_from']} au {wizard['date_to']}" if wizard["date_from"] else "sans dates"
-        model_note = "" if kind == "fec" else f", modèle {template[1] if template else 'aucun'}"  # the FEC has its own
-        head = f"Export {KINDS[kind]} du dossier {dossier} ({period}{model_note})"
+        shown = f"`{template[1]}`" if template else "aucun"
+        model_note = "" if kind == "fec" else f", modèle {shown}"  # the FEC has its own
+        head = f"Export {KINDS[kind]} du dossier `{dossier}` ({period}{model_note})"
         told = head + counted(kind, wizard_id, context)
         tiers_note = ""
         method = "action_print_fec" if kind == "fec" else "print_excel_report"

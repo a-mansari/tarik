@@ -188,7 +188,7 @@ def test_the_date_the_client_gives_is_the_invoices(monkeypatch):
     monkeypatch.setattr(exercice, "fill_invoice", lambda invoice_id, values, context: written.append(values))
     monkeypatch.setattr(exercice, "test_mode_note", lambda: "")
     assert exercice.settle_exercice(7, "")["status"] == "question"
-    assert exercice.settle_exercice(7, "du 15/03/2026")["message"].endswith("rattachée à l'exercice Exercice 2026.")
+    assert exercice.settle_exercice(7, "du 15/03/2026")["message"].endswith("rattachée à l'exercice `Exercice 2026`.")
     assert written == [{"invoice_date": "2026-03-15"}, {"exercice_id": 5}]
 
 

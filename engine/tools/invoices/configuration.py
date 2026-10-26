@@ -85,8 +85,8 @@ def assets_without_category(invoice_id, context):
 
 def assets_text(accounts):
     return (
-        f"catégorie d'immobilisation à créer pour le compte {', '.join(accounts)} ({ASSETS_MENU}), sans quoi Experio "
-        "ne crée pas l'immobilisation à la comptabilisation"
+        f"catégorie d'immobilisation à créer pour le compte {', '.join(f'`{a}`' for a in accounts)} ({ASSETS_MENU}), "
+        "sans quoi Experio ne crée pas l'immobilisation à la comptabilisation"
     )
 
 

@@ -187,7 +187,7 @@ def ice_warning(invoice, message, context):
     case, code = ice_case(invoice, company) or ("", "")
     if case == "reverse":
         return stop(
-            f"Facture {invoice_id} : l'émetteur lu sur la facture porte l'ICE ou l'IF du dossier {company['name']} : "
+            f"Facture {invoice_id} : l'émetteur lu sur la facture porte l'ICE ou l'IF du dossier `{company['name']}` : "
             "c'est sans doute une facture de vente, pas d'achat. Laissée en brouillon, rien n'a été modifié."
         )
     _, kept = kept_yes_no(invoice_id, "settle_warnings", "")
@@ -195,15 +195,15 @@ def ice_warning(invoice, message, context):
         dismiss(invoice, code, message, context)
         return "ICE de l'acheteur différent de celui du dossier : gardée dans ce dossier, comme vous l'avez dit"
     if kept is False:
-        return stop(f"Facture {invoice_id} : pas pour le dossier {company['name']}, laissée en brouillon.")
+        return stop(f"Facture {invoice_id} : pas pour le dossier `{company['name']}`, laissée en brouillon.")
     buyer = "customer" if invoice["type"] == "purchase" else "supplier"
     number = invoice[f"detected_{buyer}_ice"] or invoice[f"detected_{buyer}_if"]
     domain = [("ice", "=", number), ("id", "!=", company["id"]), *DOSSIER_DOMAIN]
     others = odoo_call("res.company", "search_read", domain, fields=["name"], limit=2) if number else []
-    elsewhere = f" C'est l'ICE du dossier {others[0]['name']}." if len(others) == 1 else ""
+    elsewhere = f" C'est l'ICE du dossier `{others[0]['name']}`." if len(others) == 1 else ""
     return question(
-        f"Facture {invoice_id} : elle est adressée à l'ICE/IF {number}, pas à celui du dossier {company['name']}."
-        f"{elsewhere} Est-elle bien pour le dossier {company['name']} ? oui / non"
+        f"Facture {invoice_id} : elle est adressée à l'ICE/IF {number}, pas à celui du dossier `{company['name']}`."
+        f"{elsewhere} Est-elle bien pour le dossier `{company['name']}` ? oui / non"
     )
 
 

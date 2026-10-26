@@ -60,7 +60,7 @@ def journal_stop(invoice_id, invoice):
         return None
     start = f"Facture {invoice_id} : le dossier n'a pas de {label} configuré"
     if wrong[field]:
-        start = f"Facture {invoice_id} : le {label} du dossier ({wrong[field]}) est celui d'un autre dossier"
+        start = f"Facture {invoice_id} : le {label} du dossier (`{wrong[field]}`) est celui d'un autre dossier"
     return stop(
         f"{start}, à régler par le cabinet avant de continuer : créer ou importer les journaux du dossier "
         f"(Configuration > Comptabilite > Journaux), puis le choisir dans Configuration > {where}. "
@@ -74,7 +74,7 @@ def check_journal(invoice_id: int) -> dict:
     which dossier setting is missing, or is another dossier's, when it is."""
     invoice = require_invoice(invoice_id, JOURNAL_FIELDS)
     if chosen_by_dossier(invoice):
-        journal = (invoice["journal_id"] or [0, "non renseigné"])[1]
+        journal = f"`{invoice['journal_id'][1]}`" if invoice["journal_id"] else "non renseigné"
         return routine(f"Facture {invoice_id} : journal {journal} (choix propre au dossier).")
     refusal = journal_stop(invoice_id, invoice)
     if refusal:
@@ -82,16 +82,15 @@ def check_journal(invoice_id: int) -> dict:
     field = SETTING[(invoice["type"], bool(invoice["is_local_invoice"]))][0]
     expected = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=[field])[0][field]
     if invoice["journal_id"] and invoice["journal_id"][0] == expected[0]:
-        return routine(f"Facture {invoice_id} : journal {expected[1]}.")
+        return routine(f"Facture {invoice_id} : journal `{expected[1]}`.")
     require_draft(invoice_id, invoice, "changer de journal")
     if dry_run():
-        return ok(f"{TEST_MODE}Facture {invoice_id} : elle passerait au journal {expected[1]}.")
+        return ok(f"{TEST_MODE}Facture {invoice_id} : elle passerait au journal `{expected[1]}`.")
     context = invoice_context(invoice)
     with refused(f"check_journal {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu mettre a jour le journal."):
         refresh(invoice_id, context)  # Experio sets its own journal
         now = odoo_call("exp.invoice", "read", [invoice_id], fields=["journal_id"], context=context)[0]["journal_id"]
     if not now or now[0] != expected[0]:
-        raise ToolError(
-            f"Facture {invoice_id} : Experio a gardé le journal {(now or [0, 'vide'])[1]} au lieu de {expected[1]}."
-        )
-    return routine(f"Facture {invoice_id} : journal {expected[1]}.")
+        kept = f"`{now[1]}`" if now else "vide"
+        raise ToolError(f"Facture {invoice_id} : Experio a gardé le journal {kept} au lieu de `{expected[1]}`.")
+    return routine(f"Facture {invoice_id} : journal `{expected[1]}`.")

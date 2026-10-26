@@ -70,11 +70,11 @@ def experio(monkeypatch):
 def test_each_bank_journal_is_asked_its_bank_in_turn(experio):
     asked = setup.ask_banks(557)
     assert asked["status"] == "question" and asked["journal_id"] == 11 and asked["choices"][3].startswith("CREDIT")
-    assert "journal BQ1 est a quelle banque" in asked["message"] and "1 autre(s)" in asked["message"]
+    assert "journal `BQ1` est a quelle banque" in asked["message"] and "1 autre(s)" in asked["message"]
     following = setup.set_journal_bank(557, 11, 3)
     assert experio["written"] == [{"bank_id": 3, "partner_id": 99}]  # the bank, and the tiers named after it
     assert following["status"] == "question" and following["journal_id"] == 12  # the next one, in the same reply
-    assert following["message"].startswith("Dossier Gecafisc : journal BQ1 a la banque CREDIT")
+    assert following["message"].startswith("Dossier `Gecafisc` : journal `BQ1` a la banque `CREDIT")
     experio["journals"].clear()
     assert setup.ask_banks(557)["routine"]
 
@@ -109,7 +109,7 @@ def test_a_journal_of_another_dossier_is_never_given_a_bank(experio, monkeypatch
         return real(model, method, *args, **kw)
 
     monkeypatch.setattr(setup, "odoo_call", odoo_call)
-    with pytest.raises(ToolError, match="n'est pas un journal du dossier Gecafisc"):
+    with pytest.raises(ToolError, match="n'est pas un journal du dossier `Gecafisc`"):
         setup.set_journal_bank(557, 31, 3)
     assert experio["written"] == []
 
@@ -119,7 +119,7 @@ def test_the_last_journals_bank_ends_the_questions(experio):
     experio["journals"].pop()
     done = setup.set_journal_bank(557, 11, 3)
     assert done["status"] == "ok" and done["dossier_id"] == 557
-    assert done["message"] == "Dossier Gecafisc : journal BQ1 a la banque CREDIT IMMOBILIER ET HOTELIER (CIH)."
+    assert done["message"] == "Dossier `Gecafisc` : journal `BQ1` a la banque `CREDIT IMMOBILIER ET HOTELIER (CIH)`."
 
 
 @pytest.mark.functionality
@@ -143,13 +143,15 @@ def test_in_test_mode_the_bank_is_only_said(experio, monkeypatch):
     monkeypatch.setattr(setup, "dry_run", lambda: True)
     monkeypatch.setattr(setup, "test_mode_note", lambda: TEST_MODE)
     following = setup.set_journal_bank(557, 11, 3)
-    assert experio["written"] == [] and following["message"].startswith(f"{TEST_MODE}Dossier Gecafisc : journal BQ1")
+    assert experio["written"] == [] and following["message"].startswith(
+        f"{TEST_MODE}Dossier `Gecafisc` : journal `BQ1`"
+    )
 
 
 @pytest.mark.communication
 def test_experio_not_giving_the_bank_journals_is_said(experio, monkeypatch):
     monkeypatch.setattr(setup, "odoo_call", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("timeout")))
-    with pytest.raises(ToolError, match="Gecafisc : Experio n'a pas pu lire les journaux de banque"):
+    with pytest.raises(ToolError, match="`Gecafisc` : Experio n'a pas pu lire les journaux de banque"):
         setup.ask_banks(557)
-    with pytest.raises(ToolError, match="Gecafisc : Experio a refuse la banque du journal"):
+    with pytest.raises(ToolError, match="`Gecafisc` : Experio a refuse la banque du journal"):
         setup.set_journal_bank(557, 11, 3)

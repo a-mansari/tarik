@@ -39,7 +39,7 @@ def _non_recoverable(invoice, answer):
             {},
         )
     if told is None and account_code(invoice).startswith(NON_RECOVERABLE_ACCOUNTS):
-        tier = (invoice["partner_id"] or [0, "ce fournisseur"])[1]
+        tier = f"`{invoice['partner_id'][1]}`" if invoice["partner_id"] else "ce fournisseur"
         asked = f"Facture de {tier} : la TVA est-elle non récupérable (voyage, carburant, véhicule de tourisme) ? "
         return question(asked + "oui / non"), {}
     return None, ({"amount_tax_non_recoverable": True, "multi_tva": False} if told else {})
@@ -52,7 +52,8 @@ def _tax_lines(invoice_id, context):
     fields = ["line_type", "tax_id", "tax_rate", "amount_ht", "amount_tva"]
     lines = odoo_call("exp.invoice.line", "read", line_ids, fields=fields, context=context) if line_ids else []
     return [
-        f"{line['amount_ht']} HT à {line['tax_rate']} % ({line['tax_id'][1] if line['tax_id'] else 'sans taxe'})"
+        f"{line['amount_ht']} HT à {line['tax_rate']} % "
+        f"({'`' + line['tax_id'][1] + '`' if line['tax_id'] else 'sans taxe'})"
         for line in lines
         if line["line_type"] == "untaxed"
     ]

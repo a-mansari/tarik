@@ -120,11 +120,11 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     proven = side_by_ice(invoice, company)
     kept = _kept_classification(invoice_id, invoice_type)
     if invoice["folder_id"] and invoice["folder_type"] == "import":  # an import folder's piece: a purchase, always
-        category, reason = "achat", f"pièce du dossier d'import {invoice['folder_id'][1]}"
+        category, reason = "achat", f"pièce du dossier d'import `{invoice['folder_id'][1]}`"
         _save_classification(invoice_id, category, reason)
     elif proven:
         whose = "émetteur" if proven == "vente" else "acheteur"
-        category, reason = proven, f"l'{whose} lu par Experio porte l'ICE ou l'IF du dossier {company['name']}"
+        category, reason = proven, f"l'{whose} lu par Experio porte l'ICE ou l'IF du dossier `{company['name']}`"
         _save_classification(invoice_id, category, reason)
     elif kept:
         category, reason = kept

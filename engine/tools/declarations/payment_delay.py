@@ -124,7 +124,7 @@ def prepare_payment_delay_declaration(
         company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
         if not company["use_payment_delay"]:
             return stop(
-                f"Le dossier {dossier} n'est pas soumis aux délais de paiement dans Experio (réglage « Délais de "
+                f"Le dossier `{dossier}` n'est pas soumis aux délais de paiement dans Experio (réglage « Délais de "
                 "paiement » non activé) : pas de déclaration à faire."
             )
         mode = company["payment_delay_declaration_mode"] or "quarterly"
@@ -134,13 +134,13 @@ def prepare_payment_delay_declaration(
         label = f"délais de paiement {period['name'] + ' ' if period else ''}{year}"
         table_id, made = declaration_of(dossier_id, period, year, context)
         if table_id is None:
-            return ok(f"{TEST_MODE}La déclaration des {label} du dossier {dossier} serait créée et préparée.")
+            return ok(f"{TEST_MODE}La déclaration des {label} du dossier `{dossier}` serait créée et préparée.")
         turnover = as_number(chiffre_affaires) if str(chiffre_affaires).strip() else None
         table = odoo_call(TABLE, "read", [table_id], fields=FIELDS, context=context)[0]
         if table["state"] == "done":
             lines = odoo_call(LINE, "read", table["line_ids"], fields=LINE_FIELDS, context=context)
             return ok(
-                f"Déclaration des {label} (n° {table_id}) : déjà déclarée dans Experio. {totals(table, lines)}",
+                f"Déclaration des {label} (n° `{table_id}`) : déjà déclarée dans Experio. {totals(table, lines)}",
                 declaration_id=table_id,
             )
         if turnover and not dry_run():
@@ -157,11 +157,11 @@ def prepare_payment_delay_declaration(
         lines = odoo_call(LINE, "read", table["line_ids"], fields=LINE_FIELDS, context=context)
         if not table["amount_turnover"]:
             return question(
-                f"Déclaration des {label} du dossier {dossier} (n° {table_id}) : Experio a besoin du chiffre "
+                f"Déclaration des {label} du dossier `{dossier}` (n° `{table_id}`) : Experio a besoin du chiffre "
                 "d'affaires du dossier pour savoir quelle déclaration la loi 69-21 demande. Quel est-il ?",
                 declaration_id=table_id,
             )
-        text = f"Déclaration des {label} (n° {table_id}{', créée' if made else ''}) : {totals(table, lines)}{kept}"
+        text = f"Déclaration des {label} (n° `{table_id}`{', créée' if made else ''}) : {totals(table, lines)}{kept}"
         missing = left_out(dossier_id, table, context)
         if missing:
             text += " Pas dans la déclaration : " + " ; ".join(missing) + "."

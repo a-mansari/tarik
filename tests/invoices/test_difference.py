@@ -95,7 +95,7 @@ def test_in_test_mode_the_difference_is_only_said(experio, monkeypatch):
     result = difference.settle_difference(5, "81", client_confirmed=True)
     assert (
         result["message"]
-        == f"{TEST_MODE}Facture 81 (FV 12) : l'écart de 3.00 DH serait passé en compte 65850000 Charges."
+        == f"{TEST_MODE}Facture 81 (FV 12) : l'écart de 3.00 DH serait passé en compte `65850000 Charges`."
     )
     assert ("action_apply", [81]) not in experio["calls"]
 

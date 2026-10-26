@@ -78,11 +78,11 @@ def resolve_dossier(name: str) -> dict:
         return stop(f"Aucun dossier ne ressemble a « {name} » : quel est le nom du dossier ? Rien n'a été traité.")
     exact = [dossier for score, dossier in close if round(score * 100) == 100]
     if len(exact) == 1:
-        return routine(f"Dossier {exact[0]['name']}.", dossier_id=exact[0]["id"])
+        return routine(f"Dossier `{exact[0]['name']}`.", dossier_id=exact[0]["id"])
     if len(close) == 1:  # the only dossier near the name: taken, and the client told which
         dossier = close[0][1]
         return ok(
-            f"Dossier {dossier['name']} retenu : le seul proche de « {name} ».", dossier_id=dossier["id"], tell=True
+            f"Dossier `{dossier['name']}` retenu : le seul proche de « {name} ».", dossier_id=dossier["id"], tell=True
         )
-    names = " ; ".join(dossier["name"] for _, dossier in close)
+    names = " ; ".join(f"`{dossier['name']}`" for _, dossier in close)
     return stop(f"Quel dossier est « {name} » ? Les plus proches : {names}. Rien n'a été traité.")

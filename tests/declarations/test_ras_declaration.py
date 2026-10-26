@@ -213,7 +213,7 @@ def test_a_ras_declaration_already_declared_is_only_reported(experio):
     experio["tables"] = {"exp.withholding.table": [{"id": 70, "state": "done"}]}
     experio["table"]["state"] = "done"
     result = ras.prepare_ras_declaration(857, "IS", declarer=True, client_confirmed=True)
-    assert "(n° 70) : déjà déclarée dans Experio. aucune retenue sur la période" in result["message"]
+    assert "(n° `70`) : déjà déclarée dans Experio. aucune retenue sur la période" in result["message"]
     assert experio["calls"] == []
 
 
