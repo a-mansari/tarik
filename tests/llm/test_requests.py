@@ -29,6 +29,17 @@ FIRST_MOVES = [
     {"skill": None, **asked("Changez l'ICE de TARIK TEST : 001122334455667"), "expected": "Modification de dossier"},
     {"skill": None, **asked("Archivez le dossier TEST SARL"), "expected": "Gestion des dossiers"},
     {"skill": None, **asked("Experio fonctionne ?"), "expected": "Experio_experio_connection"},
+    # 2026-10-26: « dossier d'import » read as a dossier to create, its pieces left aside
+    {
+        "skill": None,
+        **asked("dossier d'import TARIK TEST\n\nFichiers joints : 17-dossier-import.pdf"),
+        "expected": "Traitement des documents",
+    },
+    {
+        "skill": None,
+        **asked("gasoil TARIK TEST\n\nFichiers joints : 03-carburant.pdf"),
+        "expected": "Traitement des documents",
+    },
 ]
 
 

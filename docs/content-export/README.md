@@ -61,6 +61,9 @@ change made on the Contenu page reaches no other stack by itself.
   it after the W-14 export, once the stack runs the commit that splits them.
 - `tarik-contenu-descriptions-20261026.json` (and its `.diff`): 50 step and workflow descriptions rewritten to say
   exactly what their code does (`labels.json`). Import it after the workflows export.
+- `tarik-contenu-dossier-import-20261026.json` (and its `.diff`): « dossier d'import » with its pieces goes to
+  Experio_traiter_fichiers, never to dossier creation (`agent.json`: instruction D 0 and both tools' descriptions).
+  Import it after the descriptions export.
 
 `agent.json` is imported whole, its `model` (MiniMax-M3) included: set the stack's own model back afterwards if it
 uses another one. A stack that edited one of these documents itself loses that edit on import: apply the diff instead.
