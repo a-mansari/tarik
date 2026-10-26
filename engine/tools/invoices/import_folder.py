@@ -39,8 +39,11 @@ def folder_mode(words):
 
 
 def page_types():
-    """Experio's page types for an import folder ({value: label}), as its « Imports » screen lists them."""
-    found = odoo_call("exp.folder.import", "fields_get", ["import_invoice_type"], attributes=["selection"])
+    """Experio's page types for an import folder ({value: label}), as its « Imports » screen lists them, in French: the
+    labels are told to the client (Tarik's Experio user may read them in English)."""
+    found = odoo_call(
+        "exp.folder.import", "fields_get", ["import_invoice_type"], attributes=["selection"], context={"lang": "fr_FR"}
+    )
     return dict(found["import_invoice_type"]["selection"])
 
 
