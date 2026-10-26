@@ -387,13 +387,13 @@ def create_draft_invoice(file_id: int, dossier_id: int, invoice_type: str = "") 
             )
         raw = as_pdf(mime, data)
         if dry_run():  # stop: without a draft, the steps after this one have nothing to work on
-            return stop(f"{TEST_MODE}`{name}` : la facture brouillon serait créée dans le dossier {dossier}.")
+            return stop(f"{TEST_MODE}`{name}` : la facture brouillon serait créée dans le dossier `{dossier}`.")
         # A bare exp.invoice create would skip the import's defaults, pending state and Bluejay OCR job.
         with refused(f"create_draft_invoice: file {file_id}", f"Experio n'a pas pu créer la facture pour {name}."):
             side = "sale" if invoice_type == "vente" else "purchase"
             invoice_id = import_pdf("exp.invoice.import", name, raw, dossier_id, type=side)
         db.execute(Q.set_file_invoice, (invoice_id, file_id))
-    created = f"`{name}` : facture brouillon n° {invoice_id} créée dans le dossier {dossier}."
+    created = f"`{name}` : facture brouillon n° {invoice_id} créée dans le dossier `{dossier}`."
     return routine(created, invoice_id=invoice_id)
 
 
@@ -499,9 +499,10 @@ def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
     choose from, the stop or question result (a dict with "status")."""
     journals, usable = bank_journals(dossier_id)
     if not usable:
-        unset = f" ({', '.join(j['name'] for j in journals)} sans banque renseignee)" if journals else ""
+        unset = ", ".join(f"`{j['name']}`" for j in journals)
+        unset = f" ({unset} sans banque renseignee)" if journals else ""
         return stop(
-            f"Le dossier {dossier} n'a aucun journal de banque utilisable{unset} : a configurer par le cabinet."
+            f"Le dossier `{dossier}` n'a aucun journal de banque utilisable{unset} : a configurer par le cabinet."
         )
     if not journal_id:
         if len(usable) == 1:
@@ -509,13 +510,13 @@ def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
         named = journal_named(usable, own_words(client_message))
         if named:
             return named
-        accounts = ", ".join(f"{j['name']} - {j['bank_id'][1]} (n° {j['id']})" for j in usable)
+        accounts = ", ".join(f"`{j['name']}` - `{j['bank_id'][1]}` (n° {j['id']})" for j in usable)
         return question(
-            f"`{name}` : le dossier {dossier} a plusieurs comptes bancaires, lequel ? {accounts}",
+            f"`{name}` : le dossier `{dossier}` a plusieurs comptes bancaires, lequel ? {accounts}",
             choices={j["id"]: f"{j['name']} - {j['bank_id'][1]}" for j in usable},
         )
     if journal_id not in {j["id"] for j in usable}:
-        raise ToolError(f"journal_id {journal_id} n'est pas un journal de banque utilisable du dossier {dossier}.")
+        raise ToolError(f"journal_id {journal_id} n'est pas un journal de banque utilisable du dossier `{dossier}`.")
     return next(j for j in usable if j["id"] == journal_id)
 
 
@@ -533,13 +534,13 @@ def import_tpe_file(db, file_id, name, raw, dossier, dossier_id, journal_id, net
         return journal
     label = tpe.network_label(network)
     if dry_run():
-        return ok(f"{TEST_MODE}`{name}` : le relevé TPE {label} serait importé, journal {journal['name']}.")
+        return ok(f"{TEST_MODE}`{name}` : le relevé TPE {label} serait importé, journal `{journal['name']}`.")
     with refused(f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé TPE {name}."):
         statement_id = tpe.import_tpe(name, raw, dossier_id, journal["id"], network)
     db.execute(Q.set_file_statement, (statement_id, network, file_id))
     return ok(
-        f"`{name}` : relevé TPE {label} importé (n° {statement_id}) dans le dossier {dossier}, "
-        f"journal {journal['name']}.",
+        f"`{name}` : relevé TPE {label} importé (n° {statement_id}) dans le dossier `{dossier}`, "
+        f"journal `{journal['name']}`.",
         statement_id=statement_id,
     )
 
@@ -589,26 +590,27 @@ def import_bank_statement(
             return journal
         if bank_code(journal) in UNSUPPORTED_BANKS:  # Experio's own list (bank_statement._compute_is_not_supported)
             return stop(
-                f"`{name}` : Experio ne lit pas encore les relevés de {journal['bank_id'][1]} : rien n'a été importé, "
-                "à saisir par le cabinet (ou en Excel, sur le canevas d'Experio)."
+                f"`{name}` : Experio ne lit pas encore les relevés de `{journal['bank_id'][1]}` : rien n'a été "
+                "importé, à saisir par le cabinet (ou en Excel, sur le canevas d'Experio)."
             )
         if is_canvas(name, data):  # Experio's Excel template: its own import, into a statement of this journal
             if dry_run():
-                return ok(f"{TEST_MODE}`{name}` : le relevé Excel serait importé, journal {journal['name']}.")
+                return ok(f"{TEST_MODE}`{name}` : le relevé Excel serait importé, journal `{journal['name']}`.")
             with refused(
                 f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé {name} ({{reason}})."
             ):
                 statement_id = import_canvas(name, data, dossier_id, journal["id"])
             db.execute(Q.set_file_statement, (statement_id, None, file_id))
             return ok(
-                f"`{name}` : relevé Excel importé (n° {statement_id}) dans le dossier {dossier}, "
-                f"journal {journal['name']}.",
+                f"`{name}` : relevé Excel importé (n° {statement_id}) dans le dossier `{dossier}`, "
+                f"journal `{journal['name']}`.",
                 statement_id=statement_id,
             )
         merged = same_statement_files(db, file_id, client_message)
         if dry_run():
             return ok(
-                f"{TEST_MODE}`{name}` : le relevé serait importé dans le dossier {dossier}, journal {journal['name']}."
+                f"{TEST_MODE}`{name}` : le relevé serait importé dans le dossier `{dossier}`, "
+                f"journal `{journal['name']}`."
             )
         raw = as_pdf(mime, data)
         if (
@@ -626,11 +628,11 @@ def import_bank_statement(
         if merged:
             names = ", ".join(f"`{other}`" for _, other, _, _ in merged)
             return ok(
-                f"`{name}` et {names} : un seul relevé importé (n° {statement_id}) dans le dossier {dossier}, "
-                f"journal {journal['name']}.",
+                f"`{name}` et {names} : un seul relevé importé (n° {statement_id}) dans le dossier `{dossier}`, "
+                f"journal `{journal['name']}`.",
                 statement_id=statement_id,
             )
     return ok(
-        f"`{name}` : relevé importé (n° {statement_id}) dans le dossier {dossier}, journal {journal['name']}.",
+        f"`{name}` : relevé importé (n° {statement_id}) dans le dossier `{dossier}`, journal `{journal['name']}`.",
         statement_id=statement_id,
     )

@@ -42,9 +42,9 @@ def experio(monkeypatch):
 def test_the_invoice_sits_in_the_dossiers_journal(experio):
     assert journal.check_journal(3)["routine"] and experio["refreshed"] == 0  # already there: nothing done
     experio["invoice"]["journal_id"] = [2, "Autre"]
-    assert journal.check_journal(3)["message"] == "Facture 3 : journal Achats." and experio["refreshed"] == 1
+    assert journal.check_journal(3)["message"] == "Facture 3 : journal `Achats`." and experio["refreshed"] == 1
     experio["after"] = [2, "Autre"]  # Experio kept its own
-    with pytest.raises(ToolError, match="gardé le journal Autre au lieu de Achats"):
+    with pytest.raises(ToolError, match="gardé le journal `Autre` au lieu de `Achats`"):
         journal.check_journal(3)
 
 
@@ -55,7 +55,7 @@ def test_the_missing_setting_is_named(experio):
     result = journal.check_journal(3)
     assert result["status"] == "stop" and "journal d'achats etranger configuré" in result["message"]
     experio["invoice"].update(enable_multi_journal=True, journal_id=[4, "Choisi"])
-    assert journal.check_journal(3)["message"] == "Facture 3 : journal Choisi (choix propre au dossier)."
+    assert journal.check_journal(3)["message"] == "Facture 3 : journal `Choisi` (choix propre au dossier)."
 
 
 @pytest.mark.communication
@@ -64,7 +64,7 @@ def test_another_dossiers_journal_stops_the_invoice(experio):
     experio["misplaced"] = {"local_purchase_journal_id": "ACHAT"}
     result = journal.journal_stop(3, INVOICE)
     assert result["status"] == "stop"
-    assert "journal d'achats local du dossier (ACHAT) est celui d'un autre dossier" in result["message"]
+    assert "journal d'achats local du dossier (`ACHAT`) est celui d'un autre dossier" in result["message"]
     assert "Configuration > Comptabilite > Journaux" in result["message"] and "carte Achat local" in result["message"]
     experio["misplaced"] = {}
     assert journal.journal_stop(3, INVOICE) is None
@@ -104,7 +104,7 @@ def test_in_test_mode_the_journal_is_only_said(experio, monkeypatch):
     experio["invoice"]["journal_id"] = [2, "Autre"]
     result = journal.check_journal(3)
     assert (
-        result["message"] == f"{TEST_MODE}Facture 3 : elle passerait au journal Achats." and experio["refreshed"] == 0
+        result["message"] == f"{TEST_MODE}Facture 3 : elle passerait au journal `Achats`." and experio["refreshed"] == 0
     )
 
 
@@ -120,7 +120,7 @@ def test_a_posted_invoice_never_changes_journal(experio):
 def test_experio_refusing_its_refresh_or_leaving_no_journal_is_a_tool_error(experio, monkeypatch):
     experio["invoice"]["journal_id"] = False
     experio["after"] = False
-    with pytest.raises(ToolError, match="gardé le journal vide au lieu de Achats"):
+    with pytest.raises(ToolError, match="gardé le journal vide au lieu de `Achats`"):
         journal.check_journal(3)
 
     def refresh(invoice_id, context):

@@ -10,6 +10,7 @@ from engine.tools.invoices.pipeline import record_step
 from tests.fakes import FakeDb
 
 POSTED = (21, 22, 23, 24, 25)  # all the way to posting, nothing special
+TIERS = ("ATLAS TRANSPORT", "NOVA TELECOM", "MAROC BUREAU", "SOCIETE GENERALE DES EAUX", "ORBIT SERVICES")  # theirs
 
 
 def through(invoice_id, tiers, account):
@@ -45,8 +46,7 @@ def through(invoice_id, tiers, account):
 def outcomes():
     """{invoice id (or -file id): [(step, status, message, routine)]} for the whole run."""
     run = {-7: [("split_invoices", "ok", "factures.pdf : 10 factures : n° 21 a 30.", False)]}
-    tiers = ["ATLAS TRANSPORT", "NOVA TELECOM", "MAROC BUREAU", "SOCIETE GENERALE DES EAUX", "ORBIT SERVICES"]
-    for invoice_id, name in zip(POSTED, tiers, strict=True):
+    for invoice_id, name in zip(POSTED, TIERS, strict=True):
         run[invoice_id] = through(invoice_id, name, "6125 Achats de fournitures de bureau")
     asked = through(26, "", "")[:5] + [
         (

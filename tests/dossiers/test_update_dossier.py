@@ -139,7 +139,7 @@ def test_an_identifier_without_a_label_is_any_number_the_client_wrote(experio):
 def test_another_dossiers_if_is_refused(experio):
     experio["others"] = [{"id": 25, "name": "CAFE EPSOM"}]
     result = onboarding.update_dossier(557, if_number="0712345", client_message="Le nouvel IF est 0712345.")
-    assert result["message"] == "Dossier Gecafisc non modifie : le dossier CAFE EPSOM a deja cet IF (0712345)."
+    assert result["message"] == "Dossier `Gecafisc` non modifie : le dossier `CAFE EPSOM` a deja cet IF (0712345)."
 
 
 @pytest.mark.functionality
@@ -151,5 +151,5 @@ def test_an_unknown_type_is_refused(experio):
 @pytest.mark.communication
 def test_experio_refusing_the_change_gives_its_reason(experio, monkeypatch):
     monkeypatch.setattr(onboarding, "odoo_json", lambda *a: (_ for _ in ()).throw(RuntimeError("RC deja pris")))
-    with pytest.raises(ToolError, match="Experio refuse de modifier le dossier Gecafisc : RC deja pris"):
+    with pytest.raises(ToolError, match="Experio refuse de modifier le dossier `Gecafisc` : RC deja pris"):
         onboarding.update_dossier(557, rc="331245", client_message="RC 331245")

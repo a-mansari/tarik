@@ -23,7 +23,7 @@ SKIP_QUESTION = (
     "verification ? oui / non"
 )
 SIMILAR_QUESTION = (
-    "Un dossier au nom tres proche existe deja ({names}). Faut-il quand meme creer un nouveau dossier {name} ? "
+    "Un dossier au nom tres proche existe deja ({names}). Faut-il quand meme creer un nouveau dossier `{name}` ? "
     "oui / non"
 )
 
@@ -209,15 +209,15 @@ def duplicate(session_id, client_confirmed, name, ice, if_number):
     same, similar = lookalikes(name, ice, if_number)
     if same:
         return stop(
-            f"Dossier {name} non cree : un dossier existe deja avec cet ICE ou cet IF "
-            f"({', '.join(d['name'] for d in same)})."
+            f"Dossier `{name}` non cree : un dossier existe deja avec cet ICE ou cet IF "
+            f"({', '.join(f'`{d["name"]}`' for d in same)})."
         )
     # The skip question comes only once this dossier's similar name was confirmed: a yes to it confirms both.
     if similar and not (
         confirmed(session_id, client_confirmed, "nom tres proche", name)
         or confirmed(session_id, client_confirmed, "sans cette verification", name)
     ):
-        return question(SIMILAR_QUESTION.format(names=", ".join(d["name"] for d in similar), name=name))
+        return question(SIMILAR_QUESTION.format(names=", ".join(f"`{d['name']}`" for d in similar), name=name))
     return None
 
 
@@ -256,7 +256,7 @@ def create_dossier(
     reused = created_here(session_id, name)
     if reused:
         return ok(
-            f"Dossier {reused['name']} deja cree dans cette conversation : il est repris.",
+            f"Dossier `{reused['name']}` deja cree dans cette conversation : il est repris.",
             dossier_id=reused["id"],
             reused=True,
         )
@@ -266,18 +266,18 @@ def create_dossier(
     values = {"name": name, "folder_type": folder_type, "enabled": True}  # enabled, as Experio's dossier import sets it
     if skip_ice_if_check:
         if not confirmed(session_id, client_confirmed, "sans cette verification", name):
-            return question(SKIP_QUESTION.format(what=f"la creation du dossier {name}"))
+            return question(SKIP_QUESTION.format(what=f"la creation du dossier `{name}`"))
         values["ignore_ice_if_verification"] = True
     for field, value in (("ice", ice), ("vat", if_number)):
         if value and value.strip():
             values[field] = value.strip()
     if dry_run():
-        return ok(f"{TEST_MODE}Le dossier {name} serait cree.{not_taken}")
-    with refused(f"create_dossier {name}", f"Experio refuse de creer le dossier {name} : {{reason}}"):
+        return ok(f"{TEST_MODE}Le dossier `{name}` serait cree.{not_taken}")
+    with refused(f"create_dossier {name}", f"Experio refuse de creer le dossier `{name}` : {{reason}}"):
         dossier_id = odoo_json("res.company", "create", values, context=main_dossier_context())
         attach_user(None, dossier_id)  # Tarik works in it from here on
     unchecked = " ICE et IF non verifies (verification ignoree, a la demande du client)." if skip_ice_if_check else ""
-    return ok(f"Dossier {name} cree dans Experio.{unchecked}{not_taken}", dossier_id=dossier_id)
+    return ok(f"Dossier `{name}` cree dans Experio.{unchecked}{not_taken}", dossier_id=dossier_id)
 
 
 # --- Changing a dossier ---
@@ -329,10 +329,12 @@ def conflict(dossier_id, dossier, changes):
         other = having([(field, value)], ("id", "!=", dossier_id))
         if other:
             label = "ICE" if field == "ice" else "IF"
-            return stop(f"Dossier {dossier} non modifie : le dossier {other[0]['name']} a deja cet {label} ({value}).")
+            return stop(
+                f"Dossier `{dossier}` non modifie : le dossier `{other[0]['name']}` a deja cet {label} ({value})."
+            )
     new_name = changes.get("name")
     if new_name and any(normalized(d["name"]) == normalized(new_name) and d["id"] != dossier_id for d in dossiers()):
-        return stop(f"Dossier {dossier} non modifie : un autre dossier s'appelle deja {new_name}.")
+        return stop(f"Dossier `{dossier}` non modifie : un autre dossier s'appelle deja `{new_name}`.")
     return None
 
 
@@ -397,13 +399,13 @@ def update_dossier(
     unchanged = f" Non modifie, le client ne l'a pas ecrit : {', '.join(not_written)}." if not_written else ""
     current, changes = changes_to(dossier_id, written)
     if not changes:
-        return stop(f"Dossier {dossier} : rien a modifier.{unchanged}")
+        return stop(f"Dossier `{dossier}` : rien a modifier.{unchanged}")
     refusal = conflict(dossier_id, dossier, changes)
     if refusal:
         return refusal
     if skip_ice_if_check:
         if not confirmed(session_id, client_confirmed, "sans cette verification", dossier):
-            return question(SKIP_QUESTION.format(what=f"la modification du dossier {dossier}"))
+            return question(SKIP_QUESTION.format(what=f"la modification du dossier `{dossier}`"))
         changes["ignore_ice_if_verification"] = True
     each = []
     for key in written:
@@ -412,7 +414,7 @@ def update_dossier(
             each.append(f"{label} : {current.get(field) or 'vide'} -> {changes[field]}")
     shown = " ; ".join(each)
     if dry_run():
-        return ok(f"{TEST_MODE}Le dossier {dossier} serait modifie : {shown}.{unchanged}")
-    with refused(f"update_dossier {dossier_id}", f"Experio refuse de modifier le dossier {dossier} : {{reason}}"):
+        return ok(f"{TEST_MODE}Le dossier `{dossier}` serait modifie : {shown}.{unchanged}")
+    with refused(f"update_dossier {dossier_id}", f"Experio refuse de modifier le dossier `{dossier}` : {{reason}}"):
         odoo_json("res.company", "write", [dossier_id], changes)
-    return ok(f"Dossier {dossier} modifie : {shown}.{unchanged}")
+    return ok(f"Dossier `{dossier}` modifie : {shown}.{unchanged}")

@@ -297,7 +297,8 @@ def find_client(dossier_id, words, context):
 
 
 def client_question(statement_id, unknown, found=(), named=""):
-    listed = f" Plusieurs tiers possibles : {', '.join(p['name'] for p in found)}." if found else ""
+    listed = ", ".join(f"`{p['name']}`" for p in found)
+    listed = f" Plusieurs tiers possibles : {listed}." if found else ""
     if named and not found:
         listed = f" Aucun client « {named} » dans le dossier."
     return question(
@@ -322,7 +323,7 @@ def answer_client(file_id, answer, decision):
     _, unknown = set_operations(statement, operations, client and client["id"], context)
     if not client:
         return client_question(statement_id, unknown, found, decision or own_words(answer))
-    told = f"Relevé TPE n° {statement_id} : ventes par carte rattachées au client {client['name']}."
+    told = f"Relevé TPE n° {statement_id} : ventes par carte rattachées au client `{client['name']}`."
     return ok(f"{TEST_MODE if dry_run() else ''}{told}")
 
 
@@ -354,10 +355,11 @@ def settle_tpe(statement_id, client_words=""):
     context = in_dossier(dossier_id)
     operations, made, missing = ensure_operations(dossier_id, context)
     if missing:
+        names = ", ".join(f"`{name}`" for name in missing)
+        codes = ", ".join(f"`{OPERATIONS[name][0]}`" for name in missing if OPERATIONS[name][0])
         return stop(
-            f"Relevé TPE n° {statement_id} : le dossier n'a pas l'opération TPE {', '.join(missing)} ni son compte "
-            f"({', '.join(OPERATIONS[name][0] or '' for name in missing)}) : à créer par le cabinet dans Experio "
-            "(Configuration, TPE)."
+            f"Relevé TPE n° {statement_id} : le dossier n'a pas l'opération TPE {names} ni son compte ({codes}) : "
+            "à créer par le cabinet dans Experio (Configuration, TPE)."
         )
     client, found = find_client(dossier_id, client_words, context)
     given, unknown = set_operations(statement, operations, client and client["id"], context)
@@ -373,10 +375,11 @@ def settle_tpe(statement_id, client_words=""):
     if given:
         text += f" ; {given} opération(s) affectée(s)"
     if client:
-        text += f" ; ventes rattachées au client {client['name']}"
+        text += f" ; ventes rattachées au client `{client['name']}`"
     text += f" ; {ready} prête(s) à comptabiliser" + (f", {posted} déjà comptabilisée(s)" if posted else "") + "."
     if made:
-        text += f" Opération(s) TPE créée(s) dans le dossier, comme Experio le fait : {', '.join(made)}."
+        names = ", ".join(f"`{name}`" for name in made)
+        text += f" Opération(s) TPE créée(s) dans le dossier, comme Experio le fait : {names}."
     company = odoo_call("res.company", "read", [dossier_id], fields=["monetary_operations_ignore_remise"])[0]
     if company["monetary_operations_ignore_remise"]:
         text += (

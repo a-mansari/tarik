@@ -31,7 +31,7 @@ def test_a_side_filters_the_list_and_any_other_is_refused(monkeypatch):
     monkeypatch.setattr(listing, "require_dossier", lambda dossier_id: "ALPHA")
     monkeypatch.setattr(listing, "odoo_call", lambda model, method, domain, **kw: asked.append(domain) or 0)
     assert listing.list_invoices(5, "exportee", side="achat")["message"] == (
-        "Aucune facture d'achat exportee dans le dossier ALPHA."
+        "Aucune facture d'achat exportee dans le dossier `ALPHA`."
     )
     assert asked[0][-1] == ("type", "=", "purchase")
     with pytest.raises(ToolError, match="inconnu"):
@@ -43,7 +43,7 @@ ATLAS = {"id": 12, "invoice_number": "F-1", "invoice_date": "2026-03-15", "amoun
 
 @pytest.mark.functionality
 def test_each_invoice_has_one_status():
-    assert listing.line({**ATLAS, "partner_id": [3, "ATLAS - ROULEMENT - 12345678"]}).count("ATLAS - ROULEMENT,") == 1
+    assert listing.line({**ATLAS, "partner_id": [3, "ATLAS - ROULEMENT - 12345678"]}).count("`ATLAS - ROULEMENT`,") == 1
     assert label({"state": "post", "payment_state": "paid"}) == "payee"
     assert label({"state": "export", "payment_state": "paid"}) == "exportee"
     assert label({"state": "post", "payment_state": "partial"}) == "comptabilisee (payée en partie)"
@@ -64,7 +64,7 @@ def test_a_credit_note_is_listed_as_one_its_amount_as_experio_shows_it():
 
     note = {"id": 7, "invoice_number": "AV-1", "partner_id": [9, "ATLAS"], "invoice_date": "2026-04-01"}
     note.update(amount_total=1140.0, state="post", payment_state="not_paid", refund=True)
-    assert line(note) == "- avoir 7 : AV-1, ATLAS, 2026-04-01, -1 140.00 DH, comptabilisee"
+    assert line(note) == "- avoir 7 : AV-1, `ATLAS`, 2026-04-01, -1 140.00 DH, comptabilisee"
 
 
 @pytest.mark.communication
@@ -79,10 +79,10 @@ def test_the_list_says_how_many_and_shows_only_the_most_recent(monkeypatch):
     monkeypatch.setattr(listing, "require_dossier", lambda dossier_id: "ALPHA")
     monkeypatch.setattr(listing, "odoo_call", odoo_call)
     assert listing.list_invoices(5, "brouillon", limit=1)["message"] == (
-        "30 facture(s) brouillon dans le dossier ALPHA (les 1 plus recentes) :\n"
-        "- facture 12 : F-1, ATLAS, 2026-03-15, 10.00 DH, brouillon"
+        "30 facture(s) brouillon dans le dossier `ALPHA` (les 1 plus recentes) :\n"
+        "- facture 12 : F-1, `ATLAS`, 2026-03-15, 10.00 DH, brouillon"
     )
-    assert listing.list_invoices(5, limit=0)["message"].startswith("30 facture(s) dans le dossier ALPHA (les 1 ")
+    assert listing.list_invoices(5, limit=0)["message"].startswith("30 facture(s) dans le dossier `ALPHA` (les 1 ")
     listing.list_invoices(5, limit=500)
     listing.list_invoices(5, limit=-3)
     assert asked == [None, 1, None, 20, None, 100, None, 1]  # 20 by default, 100 at most, 1 at least

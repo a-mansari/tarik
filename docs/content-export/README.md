@@ -64,6 +64,11 @@ change made on the Contenu page reaches no other stack by itself.
 - `tarik-contenu-dossier-import-20261026.json` (and its `.diff`): « dossier d'import » with its pieces goes to
   Experio_traiter_fichiers, never to dossier creation (`agent.json`: instruction D 0 and both tools' descriptions).
   Import it after the descriptions export.
+- `tarik-contenu-mise-en-forme-20261026.json` (and its `.diff`): emails easier to read at a glance: what Experio names
+  (dossier, tiers, compte, journal...) written between backticks like file names (`agent.json`, rule 10), and an
+  invoice's outcomes kept one per line under it, never merged (`skills/traitement-documents.md`,
+  `skills/reponse-question.md`, step 2). Import it after the dossier-import export, once the stack runs the commit that
+  lists them so.
 
 `agent.json` is imported whole, its `model` (MiniMax-M3) included: set the stack's own model back afterwards if it
 uses another one. A stack that edited one of these documents itself loses that edit on import: apply the diff instead.

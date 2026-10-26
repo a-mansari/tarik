@@ -216,7 +216,10 @@ def test_an_empty_domain_from_experio_leaves_every_account_of_the_sides_classes(
 def test_the_account_is_put_through_experios_form_then_its_refresh_rebuilds_the_lines(experio):
     result = accounts.apply_account(dict(DRAFT), 61, "compte mémorisé")
     assert experio["filled"] == [(3, {"account_id": 61}, CONTEXT)] and experio["refreshed"] == [(3, CONTEXT)]
-    assert result == {"status": "ok", "message": "Facture 3 : compte 61250000 Achats de fournitures (compte mémorisé)."}
+    assert result == {
+        "status": "ok",
+        "message": "Facture 3 : compte `61250000 Achats de fournitures` (compte mémorisé).",
+    }
     assert accounts.account_code_of(61) == "61250000"
 
 
@@ -313,7 +316,7 @@ def test_experio_failing_while_proposing_an_account_is_said(experio, monkeypatch
 def test_an_invoice_with_its_account_already_is_left_as_it_is(experio, monkeypatch):
     monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: {**DRAFT, "account_id": [61, "6125"]})
     result = accounts.assign_account(3)
-    assert result["message"] == "Facture 3 : compte déjà renseigné, 61250000 Achats de fournitures."
+    assert result["message"] == "Facture 3 : compte déjà renseigné, `61250000 Achats de fournitures`."
     assert experio["filled"] == []
 
 
@@ -341,7 +344,7 @@ def test_no_account_the_model_finds_in_the_chart_asks_the_client(experio, monkey
     monkeypatch.setattr(accounts, "ask_model", lambda *a: {"code": code})
     result = accounts.assign_account(3)
     assert result["status"] == "question" and result["message"] == (
-        "Facture F-9 (ALPHA, 1200.0 DH TTC) : je n'ai pas pu choisir le compte pour « Gasoil ».\n"
+        "Facture F-9 (`ALPHA`, 1200.0 DH TTC) : je n'ai pas pu choisir le compte pour « Gasoil ».\n"
         "Quel compte utiliser (code ou intitulé) ?"
     )
     assert experio["filled"] == []

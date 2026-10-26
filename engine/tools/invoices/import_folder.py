@@ -198,7 +198,7 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
                     db.execute(Q.set_file_invoice, (invoice_id, part_id))
             kinds_of = {i["id"]: i["import_invoice_type"] for i in folder_invoices([m[2] for m in made])}
             invoices += [invoice_id for _, _, invoice_id in transit_last(made, kinds_of)]
-            said.append(f"dossier d'import n° {folder_id} créé dans le dossier {dossier} : {listed}")
+            said.append(f"dossier d'import n° {folder_id} créé dans le dossier `{dossier}` : {listed}")
             if any(kind == "dum" for _, _, kind, _ in documents):
                 said.append(
                     "la DUM y est jointe sans être lue : Experio ne lit une DUM que déposée sur son écran « Imports »"

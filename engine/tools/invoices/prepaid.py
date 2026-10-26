@@ -104,7 +104,7 @@ def prepaid_journal(company_id, context):
     if not found:
         return None
     if dry_run():
-        return f" ; journal {found[0]['name']} à paramétrer dans le dossier pour la répartition"
+        return f" ; journal `{found[0]['name']}` à paramétrer dans le dossier pour la répartition"
     if not save_settings(company_id, {"prepaid_journal_id": found[0]["id"]}, context):
         return None  # the cabinet's rights refused it: Configuration is where it is chosen
-    return f" ; journal {found[0]['name']} paramétré dans le dossier pour la répartition"
+    return f" ; journal `{found[0]['name']}` paramétré dans le dossier pour la répartition"

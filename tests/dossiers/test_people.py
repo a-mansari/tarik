@@ -194,6 +194,6 @@ def test_work_on_an_invoice_is_checked_against_its_dossier(monkeypatch):
         people, "collaborator", lambda address: {"name": "Sam", "employee_type": "employee", "company_ids": [7]}
     )
     answer = people.check_sender("s", invoice_id=31)
-    assert answer["status"] == "stop" and "Le dossier BETA n'est pas attribue a Sam" in answer["message"]
+    assert answer["status"] == "stop" and "Le dossier `BETA` n'est pas attribue a `Sam`" in answer["message"]
     monkeypatch.setattr(people, "sender_of", lambda session_id: None)
     assert people.check_sender("s", invoice_id=31)["routine"]  # the chat: no sender to check

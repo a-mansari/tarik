@@ -87,7 +87,7 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
     field, role = SIDE[kind]["account"], SIDE[kind]["role"]
     partner = odoo_call("exp.partner", "read", [partner_id], fields=["name", field], context=context)[0]
     if partner[field]:
-        return f"compte tiers {partner[field]}"
+        return f"compte tiers `{partner[field]}`"
     if dry_run():  # the wizard proposes its code only once created: test mode reads the dossier's switch instead
         autofill = SIDE[kind]["autofill"]
         company = odoo_call("res.company", "read", context["allowed_company_ids"], fields=[autofill])[0]
@@ -101,7 +101,7 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
     if not code:
         return NO_AUTOFILL.format(role=role)
     odoo_json(wizard, "action_confirm", [wizard_id], context=context)
-    return f"compte tiers {code} créé"
+    return f"compte tiers `{code}` créé"
 
 
 def link(invoice, partner_id, kind):
@@ -110,16 +110,16 @@ def link(invoice, partner_id, kind):
     context = invoice_context(invoice)
     partner = odoo_call("exp.partner", "read", [partner_id], fields=["name", "company_id", "active"], context=context)
     if not partner or partner[0]["company_id"][0] != invoice["company_id"][0]:
-        raise ToolError(f"Le tiers n° {partner_id} n'appartient pas au dossier de la facture {invoice['id']}.")
+        raise ToolError(f"Le tiers n° `{partner_id}` n'appartient pas au dossier de la facture {invoice['id']}.")
     name = partner[0]["name"]
     with refused(
         f"tiers {invoice['id']} -> {partner_id}",
-        f"Facture {invoice['id']} : Experio a refusé le tiers {name} ({{reason}}).",
+        f"Facture {invoice['id']} : Experio a refusé le tiers `{name}` ({{reason}}).",
     ):
         if not invoice["partner_id"] or invoice["partner_id"][0] != partner_id:
             fill_invoice(invoice["id"], {"partner_id": partner_id}, context)
         account = ensure_tiers_account(invoice["id"], partner_id, kind, context)
-    return ok(f"{test_mode_note()}Facture {invoice['id']} : {SIDE[kind]['role']} {name}, {account}.")
+    return ok(f"{test_mode_note()}Facture {invoice['id']} : {SIDE[kind]['role']} `{name}`, {account}.")
 
 
 # Experio checks a new tiers' name, ICE and IF against the official registry; this is its answer when the registry
@@ -150,7 +150,7 @@ def create_tiers(invoice, name, kind, unchecked=False):
     if unchecked:
         values["ignore_ice_if_verification"] = True
     if dry_run():
-        return ok(f"{test_mode_note()}Facture {invoice['id']} : {side['role']} {name} serait créé dans le dossier.")
+        return ok(f"{test_mode_note()}Facture {invoice['id']} : {side['role']} `{name}` serait créé dans le dossier.")
     try:
         partner_id = odoo_call("exp.partner", "create", values, context=invoice_context(invoice))
     except Exception as error:
@@ -164,11 +164,14 @@ def create_tiers(invoice, name, kind, unchecked=False):
                 f"Facture {invoice['id']} : Experio ne trouve pas « {name} » au registre officiel"
                 + (f" avec {numbers}" if numbers else "")
                 + " (souvent une enseigne : la société porte un autre nom, voir le pied de la facture). Donnez le nom "
-                f"exact de la société, ou répondez « sans vérification » pour créer {name} sans vérifier l'ICE/IF."
+                f"exact de la société, ou répondez « sans vérification » pour créer `{name}` sans vérifier l'ICE/IF."
             )
-        raise ToolError(f"Facture {invoice['id']} : Experio a refusé le tiers {name} ({reason}).") from None
+        raise ToolError(f"Facture {invoice['id']} : Experio a refusé le tiers `{name}` ({reason}).") from None
     result = link(invoice, partner_id, kind)
-    return {**result, "message": result["message"].replace(f"{side['role']} {name},", f"{side['role']} {name} créé,")}
+    return {
+        **result,
+        "message": result["message"].replace(f"{side['role']} `{name}`,", f"{side['role']} `{name}` créé,"),
+    }
 
 
 def dossier_tiers(company_id):
@@ -246,7 +249,7 @@ def customs_tiers(invoice):
         result = link(invoice, found[0]["id"], "purchase")
         return {**result, "message": result["message"].replace("fournisseur", "administration des douanes", 1)}
     if found:
-        listed = "; ".join(f"{p['name']} (id {p['id']})" for p in found[:5])
+        listed = "; ".join(f"`{p['name']}` (id `{p['id']}`)" for p in found[:5])
         return question(
             f"Facture {invoice['id']} (douane) : plusieurs tiers des douanes dans le dossier : {listed}. Lequel ?",
             choices={p["id"]: p["name"] for p in found[:5]},
@@ -278,10 +281,12 @@ def same_name(invoice, name, kind):
         return None
     result = link(invoice, same[0]["id"], kind)
     near = [p["name"] for _, p in ranked(name, found, TIERS_MIN_SIMILARITY, top=4) if p["id"] != same[0]["id"]]
-    warned = f" Attention, tiers aux noms proches dans le dossier : {', '.join(near)}." if near else ""
+    warned = (
+        f" Attention, tiers aux noms proches dans le dossier : {', '.join(f'`{n}`' for n in near)}." if near else ""
+    )
     told = (
         f"Facture {invoice['id']} : {SIDE[kind]['role']} « {name} » non reconnu par ICE/IF, relié au tiers du dossier "
-        f"de même nom « {same[0]['name']} » (id {same[0]['id']}).{warned} S'il n'est pas le bon, un collaborateur du "
+        f"de même nom `{same[0]['name']}` (id `{same[0]['id']}`).{warned} S'il n'est pas le bon, un collaborateur du "
         "cabinet le change dans Experio. "
     )
     return {**result, "message": told + result["message"]}
@@ -301,7 +306,7 @@ def find_tiers(invoice_id, name, minimum=TIERS_MIN_SIMILARITY, ice=None):
     if not close:
         return f"Aucun tiers du dossier ne ressemble à « {name} ».", {}
     proposed = "; ".join(
-        f"{p['name']} (id {p['id']}{', ICE ' + p['ice'] if p['ice'] else ''}) {round(score * 100)} %"
+        f"`{p['name']}` (id `{p['id']}`{', ICE ' + p['ice'] if p['ice'] else ''}) {round(score * 100)} %"
         for score, p in close
     )
     phrase = f"Tiers proches : {proposed}. Lequel est-ce ? Sinon, donnez un autre nom ou l'ICE du tiers."

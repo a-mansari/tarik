@@ -256,8 +256,8 @@ select invoice_id from tarik_files where invoice_id = any(%s)
 select invoice_id, question from tarik_pending where invoice_id = any(%s)
 
 -- name: outcomes_of_invoices
--- Every outcome of the invoices, with its message, in the order recorded.
-select invoice_id, step, status, message from tarik_results where invoice_id = any(%s) order by id
+-- Every outcome of the invoices, with its message and its run, in the order recorded.
+select invoice_id, step, status, message, run_id from tarik_results where invoice_id = any(%s) order by id
 
 -- name: thread_of_linked_message
 -- === engine/tools/emails/inbox.py ===
@@ -435,8 +435,8 @@ returning invoice_id
 delete from tarik_working where run_id = %s
 
 -- name: invoices_worked_on
--- Of the invoices given, those a run is working on now (its claim refreshed in the last 30 minutes).
-select invoice_id from tarik_working where invoice_id = any(%s) and claimed_at >= now() - interval '30 minutes'
+-- Of the invoices given, those a run is working on now (its claim refreshed in the last 30 minutes), with that run.
+select invoice_id, run_id from tarik_working where invoice_id = any(%s) and claimed_at >= now() - interval '30 minutes'
 
 -- name: other_file_names
 -- The names of the other files of a file's conversation.

@@ -136,7 +136,7 @@ def test_a_purchase_already_posted_is_named_by_its_tiers_and_date(experio, monke
     result = duplicates.check_duplicate(30)
     assert result == {
         "status": "stop",
-        "message": "Facture 30 : déjà enregistrée (n° F 2026-001, ATLAS, sans date), non traitée.",
+        "message": "Facture 30 : déjà enregistrée (n° F 2026-001, `ATLAS`, sans date), non traitée.",
         "duplicate": True,
         "invoice_id": 30,
     }

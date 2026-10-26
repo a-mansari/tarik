@@ -118,7 +118,7 @@ def test_the_files_become_one_folder_its_drafts_kept_the_transit_invoice_last(ex
     first, second = saved("imp mars.pdf", pdf(2)), saved("dum.pdf", pdf(1))
     answer = import_folder.create_import_folder("imp", 857, "Voici le dossier d'import")
     assert answer["status"] == "ok" and answer["invoices"] == [102, 103, 101]
-    assert "dossier d'import n° 9 créé dans le dossier ATLAS : Transit, Douane, Transit" in answer["message"]
+    assert "dossier d'import n° 9 créé dans le dossier `ATLAS` : Transit, Douane, Transit" in answer["message"]
     (values,) = next(args for _, method, args in experio.json if method == "create_folder_from_js")
     assert values["folder_number"] == "imp mars" and values["invoice_ids"] == [[6, 0, [101, 102, 103]]]
     assert len(pypdfium2.PdfDocument(import_folder.base64.b64decode(values["document_pdf"]))) == 3

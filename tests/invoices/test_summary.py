@@ -50,12 +50,14 @@ def test_a_long_run_s_summary_keeps_what_the_client_needs_and_drops_the_rest(db_
     sections = [line for line in new.splitlines() if line.startswith("**")]
     assert sections == ["**Fait**", "**Doublons, non traités**", "**À corriger**", "**Questions**"]
     done, rest = new.split("**Doublons, non traités**")
-    for invoice_id in runs.POSTED:  # one line: who, which account, posted; the rest was routine
-        (line,) = [line for line in done.splitlines() if line.startswith(f"- Facture {invoice_id} : ")]
-        assert line.endswith(
-            "compte 6125 Achats de fournitures de bureau (compte memorise pour ce tiers); comptabilisee."
-        )
-        assert f"Compte Tiers fournisseur 4411{invoice_id}" in line
+    done_lines = done.splitlines()
+    for invoice_id in runs.POSTED:  # its name, then one line each: who, which account, posted; the rest was routine
+        at = done_lines.index(f"- Facture {invoice_id} :")
+        assert done_lines[at + 1 : at + 4] == [
+            f"  - fournisseur {runs.TIERS[runs.POSTED.index(invoice_id)]}, Compte Tiers fournisseur 4411{invoice_id}.",
+            "  - compte 6125 Achats de fournitures de bureau (compte memorise pour ce tiers).",
+            "  - comptabilisee.",
+        ]
     assert "Facture 27" in rest.split("**À corriger**")[0] and "Facture 27" not in done  # a duplicate, only there
     assert "Facture 30 : problème à l'étape vérification" in rest.split("**Questions**")[0]
     questions = rest.split("**Questions**\n")[1].splitlines()
@@ -65,7 +67,7 @@ def test_a_long_run_s_summary_keeps_what_the_client_needs_and_drops_the_rest(db_
     assert "conforme" not in new and "pas de doublon" not in new and "journal Achats" not in new
     lines, old_lines = len(new.splitlines()), len(old.splitlines())
     print(f"\nsummary: {old_lines} lines, {len(old)} characters before; {lines} lines, {len(new)} characters now")
-    assert lines <= 20 and len(new) <= len(old) / 2  # one line per invoice, routine outcomes left out
+    assert lines <= 40 and len(new) <= len(old) / 2  # one line per outcome told, routine outcomes left out
 
 
 @pytest.mark.communication
@@ -125,7 +127,8 @@ def test_what_tarik_did_is_noted_in_each_invoices_history_in_experio(db_cabinet,
     monkeypatch.setattr(pipeline, "dry_run", lambda: False)
     monkeypatch.setattr(pipeline, "odoo_json", lambda model, method, ids, **kw: notes.append((method, ids, kw)))
     record = pipeline.record_step
-    record("n", "s", "correct_invoice", {"status": "ok", "message": "Facture 7 : corrigée (TVA 20).", "invoice_id": 7})
+    told = {"status": "ok", "message": "Facture 7 : corrigée (TVA `20 %`).", "invoice_id": 7}
+    record("n", "s", "correct_invoice", told)
     record("n", "s", "post_invoice", {"status": "ok", "message": "Facture 7 : comptabilisée.", "invoice_id": 7})
     record(
         "n",
@@ -137,4 +140,4 @@ def test_what_tarik_did_is_noted_in_each_invoices_history_in_experio(db_cabinet,
     assert [(method, ids) for method, ids, _ in notes] == [("message_post", [7])]  # 8: only routine, no note
     sent = notes[0][2]
     assert sent["subtype_xmlid"] == "mail.mt_note" and sent["message_type"] == "comment"  # internal note
-    assert sent["body"] == "Tarik (traitement automatique) : Facture 7 : corrigée (TVA 20); comptabilisée."
+    assert sent["body"] == "Tarik (traitement automatique) : Facture 7 : corrigée (TVA « 20 % »); comptabilisée."

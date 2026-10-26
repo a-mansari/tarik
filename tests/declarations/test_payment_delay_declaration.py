@@ -187,7 +187,7 @@ def test_a_declaration_already_declared_is_only_reported(experio):
     experio["tables"] = [{"id": 44, "state": "done"}]
     experio["table"]["state"] = "done"
     result = delay.prepare_payment_delay_declaration(857, declarer=True, client_confirmed=True)
-    assert "(n° 44) : déjà déclarée dans Experio" in result["message"] and "à néant" in result["message"]
+    assert "(n° `44`) : déjà déclarée dans Experio" in result["message"] and "à néant" in result["message"]
     assert experio["calls"] == []
 
 
