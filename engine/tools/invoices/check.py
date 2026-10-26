@@ -1,4 +1,4 @@
-"""Does what Experio (Bluejay) read match the scan?"""
+"""Check that what Experio (Bluejay) read on an invoice matches its scan, and store the result for correct_invoice."""
 
 import json
 import re
@@ -49,8 +49,10 @@ UTILITIES = {"water": "water ", "electricity": "electricity "}  # Experio's util
 
 
 def resolve_date(raw, language):
-    """A date copied as printed, plus the invoice's language, as YYYY-MM-DD (None when it is no date). Day/month
-    order is decided here from the language, never by the model."""
+    """Return the date ``raw`` (copied as printed on the scan) as YYYY-MM-DD; None when it is no valid date.
+
+    ``language``: the invoice's language; English puts the month first, any other the day first. Decided here, never
+    by the model. A 2-digit year is read as 20xx."""
     match = re.search(r"(\d{1,4})\D(\d{1,4})\D(\d{1,4})", raw or "")  # three numbers, one separator between each
     if not match:
         return None
@@ -69,7 +71,7 @@ def resolve_date(raw, language):
 
 
 def _check_shape(report):
-    """ValueError unless the model's ``report`` (dict) has the shape check-invoice-answer.md asks for."""
+    """Raise ValueError unless the model's ``report`` (dict) has the shape check-invoice-answer.md asks for."""
     extracted = report.get("extracted")
     if (
         not isinstance(report.get("readable"), bool)
@@ -81,8 +83,9 @@ def _check_shape(report):
 
 
 def _as_numbers(extracted):
-    """Turn the amounts the model read (in ``extracted``, changed in place) into numbers, its TVA lines' too.
-    ValueError when an amount is not one number (as_number) or tva_lines is not a list."""
+    """Turn the amounts the model read into numbers, in place in ``extracted``, its TVA lines' amounts too.
+
+    Raises ValueError when an amount is not one number (as_number) or tva_lines is not a list."""
     for field in (NUMBERS | set(HOTEL)) & set(extracted):
         extracted[field] = as_number(extracted[field])
     if not isinstance(extracted.get("tva_lines") or [], list):
@@ -95,7 +98,8 @@ def _as_numbers(extracted):
 
 
 def _date_difference(stored, extracted, resolved):
-    """The bad field for the date, when the date ``resolved`` from the scan differs from the stored one; else None."""
+    """Return the bad field entry for invoice_date when ``resolved`` (the scan's date, YYYY-MM-DD) differs from the
+    date Experio ``stored``; else None."""
     if not resolved or str(stored.get("invoice_date")) == resolved:
         return None
     raw = extracted.get("invoice_date_raw")
@@ -110,9 +114,11 @@ def _date_difference(stored, extracted, resolved):
 
 
 def resolve_report(report, stored):
-    """The model's report (dict), with the date resolved in code and compared here: the model only ever sees the
-    raw date, never the resolved one. ``stored``: what Experio captured. ValueError when out of shape or an
-    amount is not one number."""
+    """Return the model's ``report`` cleaned: {"readable", "extracted", "bad_fields"}.
+
+    Amounts become numbers, the date is resolved and compared in code (the model only reports the raw date), bad
+    fields outside CHECKED_FIELDS and false alarms are dropped. ``stored``: what Experio captured (_captured).
+    Raises ValueError when the report is out of shape or an amount is not one number."""
     _check_shape(report)
     extracted = report["extracted"]
     _as_numbers(extracted)
@@ -132,7 +138,7 @@ def resolve_report(report, stored):
 
 
 def _letters(value):
-    """``value`` as text, only its lowercase unaccented letters and digits: "Sté A-1" -> "stea1"."""
+    """Return ``value`` as text with only its lowercase unaccented letters and digits: "Sté A-1" -> "stea1"."""
     return normalized(str(value or "")).replace(" ", "")
 
 
@@ -144,9 +150,11 @@ def _equal(field, stored, read):
 
 
 def drop_false_alarms(bad, stored, extracted):
-    """The model's differences ``bad``, minus the ones measured as false on real invoices:
-    equal values (amounts within a centime: 100.5 and 1005 differ), the same supplier written
-    "NAME - IF", and amounts the model itself read inconsistently (HT + TVA + taxes not its TTC)."""
+    """Return the model's differences ``bad`` minus the ones measured as false on real invoices.
+
+    Dropped: equal values (amounts within a centime: 100.5 and 1005 differ), the same supplier written
+    "NAME - IF", and amount flags when the amounts the model read do not add up (HT + TVA + taxes not its TTC),
+    except a captured TTC far from both the TTC read and the sum of the parts read."""
     total = extracted.get("amount_total") or 0
     parts = sum(extracted.get(name) or 0 for name in TTC_PARTS)
     self_consistent = extracted.get("amount_total") is None or abs(parts - total) <= 1
@@ -171,7 +179,8 @@ def drop_false_alarms(bad, stored, extracted):
 
 
 def _captured(invoice):
-    """What Experio captured on ``invoice``: its CAPTURED fields, the tiers' name and the tiers' ICE (dict)."""
+    """Return what Experio captured on ``invoice`` (dict): its CAPTURED fields, plus "tier" (the tiers' name) and
+    "ice" (the tiers' ICE), None when no tiers is set."""
     partner = invoice["partner_id"]
     stored = {name: invoice.get(name) for name in CAPTURED}
     stored["tier"] = partner[1] if partner else None
@@ -182,9 +191,12 @@ def _captured(invoice):
 
 
 def split_scan(invoice):
-    """When Experio made several drafts of one document (one per bill: water and electricity), what this draft is
-    checked against: (the scan, read on whichever draft holds it, or None; what to tell the model: this draft is one
-    of the document's bills). (None, "") for a draft alone of its document."""
+    """Return (scanned, part) for a draft that is one of several Experio made from one document (one per bill, e.g.
+    water and electricity, sharing one token).
+
+    scanned: the draft of that document holding the scan (this one or a sibling), None when none holds it.
+    part: the note telling the model this draft is only one of the document's bills.
+    Returns (None, "") for a draft that is alone from its document."""
     if not invoice["token"]:
         return None, ""
     others = odoo_call(
@@ -206,9 +218,12 @@ def split_scan(invoice):
 
 
 def _read_scan(invoice_id, pages, stored, part=""):
-    """The model's resolved report on the scan's ``pages`` against ``stored`` (``part``: which bill of the document
-    this draft is, split_scan). Asked twice when it says "unreadable", answers out of shape or gives no single whole
-    answer: MiniMax-M3 sometimes does on a page it reads fine the next time."""
+    """Return the model's resolved report (resolve_report) on the scan's ``pages`` against ``stored``.
+
+    ``part``: which bill of the document this draft is (split_scan), "" for a whole document. The model is asked a
+    second time when it says "unreadable", answers out of shape or gives no single whole answer: MiniMax-M3
+    sometimes does on a page it reads fine the next time. Raises ToolError when the second answer is still
+    unusable."""
     system = tool_prompt("check-invoice") + f"\nToday's date is {date.today()}."
     captured = "Values captured in Experio:\n" + json.dumps(stored, default=str, ensure_ascii=False, indent=2) + part
     unclear = ""
@@ -237,7 +252,8 @@ def _read_scan(invoice_id, pages, stored, part=""):
 
 
 def stored_check(invoice_id):
-    """The invoice's check as _save_check stored it: (readable, extracted, bad_fields), None when not checked yet."""
+    """Return the invoice's check as _save_check stored it: (readable, extracted, bad_fields); None when not checked
+    yet."""
     with cabinet_db() as db:
         return db.execute(Q.stored_check_of_invoice, (invoice_id,)).fetchone()
 
@@ -252,7 +268,8 @@ def _save_check(invoice_id, report):
 
 
 def _check_result(invoice_id, report):
-    """What check_invoice returns for ``report``: unreadable (stop), conforming, or its differences listed."""
+    """Return check_invoice's result for ``report``: a stop result when unreadable, else a routine result saying
+    it conforms or listing its differences."""
     if not report["readable"]:
         return stop(
             f"Facture {invoice_id} : je n'y lis pas de facture (scan illisible, ou document qui n'en est pas une). "
@@ -267,9 +284,9 @@ def _check_result(invoice_id, report):
 
 @step_tool
 def check_invoice(invoice_id: int) -> dict:
-    """Check a draft invoice once Experio has read it: compares what Experio
-    captured with what the scan shows, and lists every difference. Changes
-    nothing. invoice_id is the draft invoice number given at its creation."""
+    """Check a draft invoice once Experio has read it: compare what Experio captured with what the scan shows,
+    and list every difference. Changes nothing in Experio; the check is stored for correct_invoice.
+    ``invoice_id``: the draft invoice number given at its creation."""
     fields = ["bluejay_state", "document_pdf", "file_type", *CAPTURED, "partner_id", "token", "utility_type", "type"]
     invoice = require_invoice(invoice_id, fields)
     reading = still_reading(invoice)

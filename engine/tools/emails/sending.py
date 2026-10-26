@@ -1,13 +1,12 @@
-"""Tarik's emails: replies go out through SMTP, only to whitelisted addresses.
+"""Send Tarik's emails over SMTP, only to whitelisted addresses, and open IMAP sessions to the mailbox.
 
-MAIL_ALLOWED_RECIPIENTS lists who may receive an email from Tarik: full addresses, "@domain"
-for a whole domain, or patterns with "*" ("test.*@experio.ma"; "*" alone lets anyone through).
-Empty means nobody: no email leaves until someone is listed.
+MAIL_ALLOWED_RECIPIENTS lists who may receive an email from Tarik: full addresses, "@domain" for a whole domain, or
+patterns with "*" ("test.*@experio.ma"; "*" alone lets anyone through). Empty means nobody: no email leaves until
+someone is listed.
 
-MAIL_CERT_SHA256 pins the mail server's certificate when it has no certificate a known
-authority signed (mailcow's own, self-signed): only that exact certificate is accepted, so
-the connection stays safe from interception. Empty: the usual verification.
-"""
+MAIL_CERT_SHA256 pins the mail server's certificate when no known authority signed it (mailcow's own, self-signed):
+only that exact certificate is accepted, which keeps the connection safe from interception. Empty: the usual
+certificate verification."""
 
 import contextlib
 import hashlib
@@ -59,12 +58,14 @@ PAGE = (
 
 
 def cert_pin():
-    """The mail server's certificate pin (MAIL_CERT_SHA256, shared), "" for the usual check."""
+    """Return the mail server's certificate pin (MAIL_CERT_SHA256, lowercase hex without colons); "" for the usual
+    check."""
     return setting("MAIL_CERT_SHA256", "").replace(":", "").strip().lower()
 
 
 def tls_context():
-    """Certificates verified as usual, or, with a pin, checked by check_pin once connected."""
+    """Return the TLS context: usual certificate verification, or none when a pin is set (check_pin checks after
+    connecting)."""
     context = ssl.create_default_context()
     if cert_pin():
         context.check_hostname, context.verify_mode = False, ssl.CERT_NONE  # check_pin decides instead
@@ -72,7 +73,9 @@ def tls_context():
 
 
 def check_pin(sock):
-    """With a pin, close the connection before anything is sent unless the server showed that certificate."""
+    """Close ``sock`` and raise ssl.SSLError when a pin is set and the server's certificate does not match it.
+
+    Called right after connecting, before anything is sent."""
     pin = cert_pin()
     if pin and hashlib.sha256(sock.getpeercert(binary_form=True)).hexdigest() != pin:
         sock.close()
@@ -81,8 +84,9 @@ def check_pin(sock):
 
 @contextlib.contextmanager
 def imap_session():
-    """The current cabinet's mailbox over IMAP, logged in on the pinned (or verified) certificate, and closed on the
-    way out whatever happened: a LOGOUT the server can no longer answer still closes the socket."""
+    """Context manager: yield the current cabinet's IMAP connection, logged in after the certificate check.
+
+    The connection is closed on the way out whatever happened: when LOGOUT fails, the socket is shut down directly."""
     port = int(setting("IMAP_PORT", "993"))
     box = imaplib.IMAP4_SSL(setting("IMAP_HOST"), port, ssl_context=tls_context(), timeout=MAIL_TIMEOUT)
     try:
@@ -98,13 +102,15 @@ def imap_session():
 
 
 def allowed_recipients():
-    """The current cabinet's whitelist (MAIL_ALLOWED_RECIPIENTS), lowercased entries. Empty: nobody."""
+    """Return the current cabinet's whitelist entries (MAIL_ALLOWED_RECIPIENTS), lowercased; empty means nobody."""
     return [entry.strip().lower() for entry in setting("MAIL_ALLOWED_RECIPIENTS", "").split(",") if entry.strip()]
 
 
 def recipient_allowed(address, allowed=None):
-    """Is this address on the whitelist (``allowed``, by default the cabinet's)? Compared on the bare address,
-    without the display name."""
+    """True when ``address`` is on the whitelist (``allowed``, default the cabinet's).
+
+    The bare address is compared, without the display name. "@domain" matches the whole domain and "*" matches any
+    text; the rest of an entry matches literally."""
     address = (getaddresses([address or ""])[0][1] or "").strip().lower()
     allowed = allowed_recipients() if allowed is None else allowed
     patterns = ["*" + entry if entry.startswith("@") else entry for entry in allowed]
@@ -116,8 +122,9 @@ _names = {}  # cabinet -> its name in Experio: read once it could be
 
 
 def cabinet_name():
-    """The current cabinet's name in Experio, for the signature ("" while Experio can't be reached: read again
-    next time)."""
+    """Return the current cabinet's name in Experio (res.company id 1), for the signature.
+
+    Cached per cabinet once read; "" while Experio cannot be reached (read again next time)."""
     if current() not in _names:
         try:
             _names[current()] = odoo_call("res.company", "read", [1], fields=["name"])[0]["name"]
@@ -128,7 +135,7 @@ def cabinet_name():
 
 
 def block_kind(line):
-    """The kind of block a line belongs to: "ol" (a numbered item), "ul" (a list item) or "p"."""
+    """Return the kind of block ``line`` belongs to: "ol" (numbered item), "ul" (list item) or "p" (paragraph)."""
     if NUMBERED.match(line):
         return "ol"
     if BULLET.match(line):
@@ -137,9 +144,10 @@ def block_kind(line):
 
 
 def blocks(body):
-    """The message as paragraphs and lists, cleaned of HTML tags and Markdown headings and rules:
-    [("p", [lines]) | ("ul", [items]) | ("ol", [items])], each item (text, [its own items]): a list item indented
-    under another is its own item (one level)."""
+    """Split ``body`` into paragraphs and lists, with HTML tags and Markdown headings and rules removed.
+
+    Returns [(kind, items)]: ("p", [lines]), or ("ul" | "ol", [(text, [sub-items])]). A list item indented under
+    another becomes its sub-item (one level only). A blank line or a rule ends a block."""
     found = []
     for line in strip_tags(body).replace("\r", "").split("\n"):
         line = HEADING.sub("", line).rstrip()
@@ -162,14 +170,16 @@ def blocks(body):
 
 
 def spans(text, outside, inside):
-    """``text`` with ``outside`` applied to what is not code and ``inside`` to each `code` span's content: what is
-    in backticks (a file name) is never read as Markdown."""
+    """Return ``text`` with function ``outside`` applied to the parts outside backticks and ``inside`` to each `code`
+    span's content.
+
+    Text in backticks (a file name) is never read as Markdown."""
     parts = CODE.split(text)  # even: outside code, odd: a code span's content
     return "".join(inside(part) if i % 2 else outside(part) for i, part in enumerate(parts))
 
 
 def inline_text(text):
-    """One line's Markdown as plain text: links as "label (address)", emphasis marks dropped, code in « »."""
+    """Return one line's Markdown as plain text: links as "label (address)", emphasis marks dropped, code in « »."""
 
     def outside(part):
         part = LINK.sub(lambda m: f"{m.group(1)} ({m.group(2)})", part)
@@ -179,7 +189,7 @@ def inline_text(text):
 
 
 def inline_html(text):
-    """One line's Markdown as escaped HTML: links, bold and italics as tags, code as <code>."""
+    """Return one line's Markdown as escaped HTML: links, bold and italics as tags, code as <code>."""
 
     def outside(part):
         part = html.escape(part, quote=False)
@@ -191,8 +201,9 @@ def inline_html(text):
 
 
 def plain_block(kind, lines):
-    """One block as plain text: a list's items with "- ", a numbered one's with their number, their own items
-    indented under them."""
+    """Return one block (``kind``, ``lines`` from blocks) as plain text.
+
+    List items start with "- ", numbered items with their number; sub-items are indented under their item."""
     if kind in ("ul", "ol"):
         shown = []
         for i, (text, subs) in enumerate(lines, 1):
@@ -203,7 +214,8 @@ def plain_block(kind, lines):
 
 
 def html_block(kind, lines):
-    """One block as HTML: a list, or a paragraph with its lines broken."""
+    """Return one block (``kind``, ``lines`` from blocks) as HTML: a list, or a paragraph with <br> between its lines.
+    Return one block (``kind``, ``lines`` from blocks) as HTML: a list, or a paragraph with <br> between its lines."""
     if kind in ("ul", "ol"):
         frame = LIST if kind == "ul" else NUMBERED_LIST
         return frame.format("".join(f"<li>{inline_html(text)}{sublist(subs)}</li>" for text, subs in lines))
@@ -211,13 +223,14 @@ def html_block(kind, lines):
 
 
 def sublist(items):
-    """An item's own items as an HTML list under it, "" when it has none."""
+    """Return an item's sub-items as an HTML list, "" when it has none."""
     return SUBLIST.format("".join(f"<li>{inline_html(item)}</li>" for item in items)) if items else ""
 
 
 def render(body):
-    """The email Tarik sends, as plain text and HTML: the same message in the cabinet's
-    template, with its signature. No Markdown or HTML tag ever reaches the client raw."""
+    """Return the email Tarik sends as (plain text, HTML page), both signed with the cabinet's name.
+
+    The same message in both forms, in the cabinet's template: no Markdown or HTML tag ever reaches the client raw."""
     parts = blocks(body)
     name = cabinet_name()
     signer = "Assistant comptable" + (f" | {name}" if name else "")
@@ -228,7 +241,7 @@ def render(body):
 
 
 def sent_folder(box):
-    """The mailbox's Sent folder, as the server flags it (special-use \\Sent), else "Sent"."""
+    """Return the name of the mailbox folder the server flags as Sent (IMAP special-use), else "Sent"."""
     for line in box.list()[1] or []:
         found = LIST_LINE.match(line or b"")
         if found and b"\\Sent" in found.group(1):
@@ -237,8 +250,10 @@ def sent_folder(box):
 
 
 def save_sent(message):
-    """A copy of what Tarik sent, in the mailbox's Sent folder, read: SMTP keeps none, and the
-    cabinet must see Tarik's replies there. The email is already sent: a failure here is only logged."""
+    """Save a read copy of ``message`` in the mailbox's Sent folder.
+
+    SMTP keeps no copy, and the cabinet must see Tarik's replies there. The email is already sent, so a failure here
+    is only logged."""
     try:
         with imap_session() as box:
             box.append(f'"{sent_folder(box)}"', "(\\Seen)", imaplib.Time2Internaldate(time.time()), message.as_bytes())
@@ -247,7 +262,10 @@ def save_sent(message):
 
 
 def whitelisted(to):
-    """The bare addresses of ``to`` (comma-separated); ToolError unless there is one and all are whitelisted."""
+    """Return the bare addresses in ``to`` (comma-separated).
+
+    Raises:
+        ToolError: no address, or one of them is not whitelisted."""
     recipients = [address for _, address in getaddresses([to or ""]) if address]
     if not recipients:
         raise ToolError("Aucun destinataire.")
@@ -259,8 +277,14 @@ def whitelisted(to):
 
 
 def compose(sender, recipients, subject, body, in_reply_to, references, files=()):
-    """The email (EmailMessage) from ``sender`` (its SMTP user) to ``recipients``, in its thread when it is a reply,
-    as plain text and HTML, with ``files`` attached ([(name, mime type, bytes)])."""
+    """Return the email (EmailMessage) from ``sender`` (the SMTP user) to ``recipients``, as plain text and HTML.
+
+    Args:
+        sender: the SMTP user; From is SMTP_FROM when set, and the Message-ID uses this address's domain.
+        recipients: list of bare addresses.
+        in_reply_to, references: the thread's message ids; when ``in_reply_to`` is set, the email is a reply in that
+            thread.
+        files: [(name, mime type, bytes)] to attach."""
     message = EmailMessage()
     message["From"] = setting("SMTP_FROM", sender)
     message["To"] = ", ".join(recipients)
@@ -298,9 +322,14 @@ def smtp_send(host, user, message):
 def send_email(
     to: str, subject: str, body: str, in_reply_to: str = "", references: str = "", attach_session: str = ""
 ) -> dict:
-    """Send Tarik's email to ``to`` (one or more addresses, comma-separated), in the thread
-    given by ``in_reply_to`` and ``references`` when it is a reply, with the files Tarik made for conversation
-    ``attach_session`` not sent yet (an export). Refused unless every recipient is on the whitelist."""
+    """Send Tarik's email to ``to`` (one or more addresses, comma-separated) and return an ok result with message_id.
+
+    Args:
+        in_reply_to, references: the thread's message ids, when the email is a reply.
+        attach_session: a conversation id; the files Tarik made for it and has not sent yet (an export) are attached
+            and then marked sent.
+    Raises:
+        ToolError: a recipient is not whitelisted, SMTP is not configured, or the SMTP server refused the email."""
     recipients = whitelisted(to)
     host, user = setting("SMTP_HOST", ""), setting("SMTP_USER", "")
     if not host or not user:

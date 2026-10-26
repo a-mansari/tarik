@@ -1,12 +1,15 @@
-"""Traitement as a graph: the fixed processing sequence of the documents a client sends.
+"""The Traitement graph: the fixed processing sequence of the documents a client sends.
 
-Where a message goes comes from the database (route_message): files (the dossier found from the name the client
-gave, then the conversation's new files, from identification to verified drafts, posted only when the client asked
-to; with none, the questions other conversations left on the dossier are asked again and the drafts left waiting,
-held back or stopped are resumed), resume (waiting drafts only), answer (the client's answer, then the sequence
-resumes at its next step), or both. One subgraph per document (a file received, or a draft taken up again), one per
-invoice in four phases, each visible node by node; they run one after another, so two invoices of one message never
-race on the same tiers or duplicate check."""
+route_message (from the database) picks the route:
+- files: find the dossier the client named, then take the conversation's new files from identification to verified
+  drafts, posted only when the client asked for it. With no new file, the drafts left waiting, held back or stopped
+  are taken up again.
+- resume: the waiting drafts only.
+- answer: pass on the client's answer, then resume the sequence at its next step.
+- both: answer and files.
+One subgraph per document (a file received, or a draft taken up again) and one per invoice in four phases, each
+visible node by node. They run one at a time, so two invoices of one message never race on the same tiers or
+duplicate check."""
 
 import operator
 from typing import Annotated, TypedDict
@@ -61,7 +64,7 @@ class Run(Outcomes, total=False):
 
 
 class Given(TypedDict, total=False):
-    """What an invoice's run, and each of its phases, is started with (never the outcomes before it)."""
+    """The input of an invoice's subgraph and of each of its phases (never the outcomes before it)."""
 
     call: dict
     run_id: str
@@ -75,14 +78,15 @@ class Invoice(Given, Outcomes, total=False):
 
 
 class Done(Outcomes, total=False):
-    """What a phase hands back: its own outcomes, its last one, and the invoice (created in the first phase)."""
+    """A phase's output: its own outcomes, its last result, and the invoice id (created in the first phase)."""
 
     last: dict
     invoice_id: int
 
 
 def extra(tool, call, run_id):
-    """What a step is given besides its invoice."""
+    """Return the keyword arguments ``tool`` gets besides the invoice, from the run's ``call`` (the client's
+    instructions) and ``run_id``; {} for a tool that takes none."""
     words = {"client_message": call.get("client_message") or ""}
     return {
         "create_draft_invoice": {"invoice_type": call.get("invoice_type") or call.get("scan_side") or ""},
@@ -104,7 +108,9 @@ def extra(tool, call, run_id):
 
 
 def invoice_step(tool):
-    """The node running ``tool`` on the invoice: its outcome recorded, kept as ``last`` for the routing."""
+    """Return the graph node running ``tool`` on the invoice (on the file for create_draft_invoice).
+
+    The node records the outcome, keeps it as "last" for routing, and keeps the invoice_id the tool returns."""
 
     async def node(state: Invoice):
         call = state["call"]
@@ -137,13 +143,15 @@ assert [tool for steps in PHASES.values() for tool in steps] == INVOICE_CHAIN, "
 
 
 def after(items, index):
-    """The item after ``items[index]``; END after the last."""
+    """Return the item after ``items[index]``; END after the last."""
     return items[index + 1] if index + 1 < len(items) else END
 
 
 def ok_then(following):
-    """Each step (and phase) only when the one before says ok; a question, stop, wait or error ends the invoice's run.
-    Its two ways out named, so the drawn graph shows the sequence (LangGraph cannot see inside the lambda)."""
+    """Return (router, routes) for add_conditional_edges: go on to ``following`` only after an ok result; a question,
+    stop, wait or error result ends the invoice's run (END).
+
+    The routes are named so the drawn graph shows the sequence (LangGraph cannot see inside the lambda)."""
     router = lambda s: following if s["last"].get("status") == "ok" else END  # noqa: E731
     if following == END:  # the last step: its end is the ordinary one
         return router, [END]
@@ -151,7 +159,8 @@ def ok_then(following):
 
 
 def phase(name, steps):
-    """One phase: its steps in order, started at the run's entry step when it is one of them, else at its first."""
+    """Return the compiled subgraph of phase ``name``: its ``steps`` in order, started at the run's entry step when it
+    is one of them, else at the first."""
     graph = StateGraph(Invoice, input_schema=Given, output_schema=Done)
     for index, tool in enumerate(steps):
         graph.add_node(tool, invoice_step(tool))
@@ -161,7 +170,7 @@ def phase(name, steps):
 
 
 def entry_phase(state: Given):
-    """The phase holding the run's entry step."""
+    """Route an invoice's run to the phase holding its entry step."""
     return next(name for name, steps in PHASES.items() if state["entry"] in steps)
 
 
@@ -175,18 +184,21 @@ INVOICE = invoice.compile(name="facture")
 
 
 class File(Given, Outcomes, total=False):
-    """A document: a file just received (file_id), or a draft taken up again (invoice_id, entry)."""
+    """A document's subgraph state: a file just received (file_id), or a draft or statement taken up again (entry
+    with invoice_id or file_id)."""
 
     last: dict
 
 
 async def identify(state: File):
+    """Graph node: identify what the file is (identify_document)."""
     message = state["call"].get("client_message") or ""
     result = await run_step(state, "identify_document", file_id=state["file_id"], client_message=message)
     return {"last": result, "outcomes": [result]}
 
 
 async def import_statement(state: File):
+    """Graph node: import the file as a bank statement into the dossier (import_bank_statement)."""
     call = state["call"]
     result = await run_step(
         state,
@@ -199,6 +211,7 @@ async def import_statement(state: File):
 
 
 async def split(state: File):
+    """Graph node: cut the file into one file per invoice (split_invoices)."""
     call = state["call"]
     result = await run_step(
         state,
@@ -213,6 +226,7 @@ async def split(state: File):
 
 @stops_at(END)
 def after_identify(state: File):
+    """Route: "releve" for a bank statement, else "decoupage"; END when identification was not ok."""
     last = state["last"]
     if last.get("status") != "ok":
         return END
@@ -220,14 +234,16 @@ def after_identify(state: File):
 
 
 def invoice_run(state: File, entry, call=None, **document):
-    """An invoice's run in the file's: started at step ``entry``, on ``document`` (its file_id or invoice_id)."""
+    """Return a Send starting the invoice subgraph at step ``entry`` on ``document`` (file_id= or invoice_id=), with
+    ``call`` (default: the file's call)."""
     call = call or state["call"]
     return Send("facture", {"call": call, "run_id": state["run_id"], "entry": entry, **document, "outcomes": []})
 
 
 def drafts(state: File):  # its end is also an ordinary one: a file sent again, already posted
-    """One invoice run per invoice cut out of the file, from its draft (made as the side the scan shows when the client
-    gave none); a file sent again whose invoice is still a draft: that draft, from Experio's reading on."""
+    """Route after the split: one invoice run per file cut out, from its draft's creation (scan_side, the side the
+    scan shows, used when the client gave none). A file sent again whose invoice is still a draft resumes that
+    draft at wait_until_read. END when the split was not ok or the file was already posted."""
     last = state["last"]
     if last.get("status") != "ok":
         return END
@@ -240,8 +256,9 @@ def drafts(state: File):  # its end is also an ordinary one: a file sent again, 
 
 
 def split_drafts(state: File):
-    """The drafts Experio split off the document (a bill holding several: wait_until_read's split_off), each through
-    its invoice's steps once, after the draft Tarik made."""
+    """Route after the invoices: send the drafts Experio split off a document (wait_until_read's split_off: a bill
+    holding several invoices) through the invoice steps from wait_until_read, each once; END when there are none
+    left to run."""
     done = {outcome.get("invoice_id") for outcome in state["outcomes"]}
     found = []
     for outcome in state["outcomes"]:  # each draft's split-off drafts sent together, once: none of them run yet
@@ -254,6 +271,7 @@ def split_drafts(state: File):
 
 
 async def point_statement(state: File):
+    """Graph node: point the statement's lines (settle_statement)."""
     call = state["call"]
     result = await run_step(
         state,
@@ -266,19 +284,21 @@ async def point_statement(state: File):
 
 
 async def post_statement(state: File):
+    """Graph node: post the pointed statement (post_statement)."""
     result = await run_step(state, "post_statement", file_id=state["file_id"])
     return {"last": result, "outcomes": [result]}
 
 
 @stops_at(END)
 def after_import(state: File):
-    """A statement imported (or already): pointed next."""
+    """Route to "pointage" when the statement is imported (now or before: an ok result with statement_id), else END."""
     last = state["last"]
     return "pointage" if last.get("status") == "ok" and last.get("statement_id") else END
 
 
 def after_pointing(state: File):
-    """Posted only when the client asked to post (« comptabilisez »)."""
+    """Route to "comptabilisation_releve" only after an ok pointing when the client asked to post (comptabiliser
+    "oui", « comptabilisez »), else END."""
     asked = state["call"].get("comptabiliser") == "oui"
     return "comptabilisation_releve" if state["last"].get("status") == "ok" and asked else END
 
@@ -295,6 +315,7 @@ file.add_node("facture", INVOICE)
 # A new file is identified first; a draft taken up again goes straight to its invoice's steps, a statement taken up
 # again to its pointing.
 def file_start(state: File):
+    """Route a document: "pointage" for a statement taken up again, "facture" for a draft, else "identification"."""
     if state.get("entry") == "statement":
         return "pointage"
     return "facture" if state.get("entry") else "identification"
@@ -310,7 +331,8 @@ FILE = file.compile(name="fichier")  # a document: drawn once, whatever brought 
 
 
 async def aiguillage(state: Run):
-    """Where the message goes, from what the database knows (route_message); without it, the mode decides."""
+    """Graph node: set "route" (files, answer, resume or both) from route_message; when that fails, from the call's
+    mode. An answer with comptabiliser "oui" becomes both; anything unknown becomes files."""
     call = state["call"]
     mode = call.get("mode") or "files"
     try:
@@ -324,26 +346,29 @@ async def aiguillage(state: Run):
 
 
 def by_route(state: Run):
+    """Route: answer -> "reponse", resume -> "brouillons", both -> "reponse" and "dossier", files -> "dossier"."""
     return {"answer": "reponse", "resume": "brouillons", "both": ["reponse", "dossier"]}.get(state["route"], "dossier")
 
 
 def with_dossier(state: Run):
-    """The call, with the dossier the run works in: what the file and invoice steps are given."""
+    """Return the call with "dossier_id" set to the run's dossier (0 when none): the file and invoice runs' call."""
     return {**state["call"], "dossier_id": state.get("dossier_id", 0)}
 
 
 async def dossier_found(state: Run):
-    """The dossier the client named, found here (not by the agent: it never sees an id). A name that is no single
-    dossier ends the run: the summary asks the client."""
+    """Graph node: find the dossier the client named (resolve_dossier) and set "dossier_id". The agent never sees ids,
+    so it is resolved here; a name matching no single dossier ends the run and the summary asks the client."""
     result = await run_step(state, "resolve_dossier", name=state["call"].get("dossier") or "")
     return {"dossier_id": result.get("dossier_id", 0), "outcomes": [result]}
 
 
 async def sender(state: Run):
+    """Graph node: check the sender may work on the found dossier (check_sender)."""
     return await sender_checked(state, state["dossier_id"])
 
 
 async def files(state: Run):
+    """Graph node: set "files" to the conversation's new files (files_to_process)."""
     # Reached only from a client's message (a follow-up resumes its drafts): no file is told to the client when they
     # said they attached one (an answer or « comptabilisez » carries none, and a zip's left out files are told).
     # One saved by this run did arrive, even when a step took it as something else (a supplier's attestation).
@@ -355,14 +380,16 @@ async def files(state: Run):
 
 @stops_at("resume")
 def after_files(state: Run):
-    """« dossier d'import » in the client's words: the new files are one folder's documents, made into it first;
-    else each file on its own (each_file)."""
+    """Route to "dossier_import" when there are new files and the client's message asks for an import folder
+    (« dossier d'import »); else route as each_file does."""
     if not failed(state) and state["files"] and folder_mode(state["call"].get("client_message") or "")[0]:
         return "dossier_import"
     return each_file(state)
 
 
 async def import_folder(state: Run):
+    """Graph node: make the new files into one Experio import folder (create_import_folder) and set
+    "folder_invoices" to the drafts it made."""
     message = state["call"].get("client_message") or ""
     made = await run_step(
         state,
@@ -376,8 +403,8 @@ async def import_folder(state: Run):
 
 @stops_at("resume")
 def each_file(state: Run):
-    """One file run per new file; none: the drafts left waiting. Only this conversation's questions are asked in it,
-    never those other conversations left on the dossier."""
+    """Route: one document run per import folder draft (from wait_until_read), else one per new file; "brouillons"
+    when there is no new file; "resume" when the files could not be listed."""
     if failed(state):
         return "resume"  # the files could not be listed: recorded, nothing more
     if state.get("folder_invoices"):  # an import folder's drafts, each from Experio's reading on, transit last
@@ -398,8 +425,10 @@ def each_file(state: Run):
 
 
 async def waiting(state: Run):
-    """The drafts to take up again. What the client asks (not a follow-up) also resumes the drafts a step stopped,
-    and, with "oui", the dossier's drafts held back, from any conversation."""
+    """Graph node: list the drafts and statements to take up again (waiting_drafts), leaving out skip_invoices.
+
+    A client's message (not a follow-up, mode resume) also takes up drafts a step stopped and, with comptabiliser
+    "oui", the dossier's drafts held back in any conversation."""
     call = state["call"]
     result = await run_step(
         state,
@@ -427,9 +456,10 @@ MESSAGE_INSTRUCTIONS = ("compte", "tva_non_recuperable", "retenue", "repartir", 
 
 
 def each_draft(state: Run):
-    """Each draft to take up again goes back to the reading step, without this message's instructions (they are
-    for the invoices sent with it); one the client gave an account to (corrections), back to its account step, that
-    account to confirm."""
+    """Route the drafts to take up again, each as a document run without this message's instructions (they are for
+    the invoices sent with it): a draft from wait_until_read; a draft the client gave an account to (corrections)
+    from assign_account, that account to confirm; a Facturation draft from configure_cabinet; a statement from its
+    pointing. "resume" when there is nothing to take up."""
     corrections = {int(invoice_id): account for invoice_id, account in state.get("corrections") or []}
     statements = state.get("statements") or []
     if not state.get("invoices") and not state.get("facturation") and not corrections and not statements:
@@ -460,6 +490,7 @@ def each_draft(state: Run):
 
 
 async def answer(state: Run):
+    """Graph node: pass the client's answer on to the question waiting (answer_pending)."""
     call = state["call"]
     result = await run_step(
         state,
@@ -474,9 +505,12 @@ async def answer(state: Run):
 
 
 def resume_at(state: Run):
-    """Where the sequence resumes after the answer: its next step, the waiting drafts, or nowhere; and each account
-    the client gave an invoice with it (corrections), that invoice back to its account step, even when the answer
-    itself settled nothing."""
+    """Route after the answer: the answered invoice from its next step, the waiting drafts ("brouillons"), a statement
+    or a file to identify again, or "resume" when nothing follows.
+
+    Every invoice the client gave an account with the answer (corrections) also goes back to assign_account, even
+    when the answer itself settled nothing; an invoice other than the one answered about gets its account to
+    confirm, never applied as is."""
     last = state["outcomes"][-1]
     following = last.get("next_step")
     corrections = {int(invoice_id): account for invoice_id, account in last.get("corrections") or []}

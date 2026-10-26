@@ -1,5 +1,5 @@
-"""Values shared across Tarik, in one place: the services it talks to, how long a call may take, Experio's
-own codes, and the thresholds names are matched with. Per-cabinet settings live in Vault (cabinets.py)."""
+"""Constants shared across Tarik: the services it talks to, how long a call may take, Experio's own codes, the
+thresholds names are matched with, and document limits. Per-cabinet settings live in Vault (cabinets.py)."""
 
 import os
 from typing import Final

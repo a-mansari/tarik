@@ -1,5 +1,7 @@
-"""The fixed processing sequence, run by the Traitement graph (engine/traitement.py): waiting for
-Experio's reading, recording each step's outcome, pending questions and the client's answers."""
+"""The fixed processing sequence that the Traitement graph runs (engine/traitement.py): waiting for Experio's reading,
+recording each step's outcome, the run's summary, pending questions and the client's answers, and which drafts to take
+up
+again."""
 
 import base64
 import json
@@ -108,7 +110,7 @@ DECIDED = {"settle_tva", "settle_prepaid"}
 
 
 def position(step):
-    """Where ``step`` (a step tool's name) stands in the sequence; after every step when it is not one."""
+    """Return where ``step`` (a step tool's name) stands in the sequence; after every step when it is not one."""
     return ORDER.index(step) if step in ORDER else len(ORDER)
 
 
@@ -117,10 +119,14 @@ READ_DEADLINES = {}  # run id -> when that run stops waiting on Experio's readin
 
 @step_tool
 def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
-    """Wait until Experio has finished reading a new draft: READ_WAIT seconds at most for all the drafts of run
-    ``run_id`` together, so one stuck reading never holds the run; a draft still being read is resumed later. Once
-    read, the drafts Experio made from the same document besides this one (``split_off``), for the run to take in
-    hand too."""
+    """Wait until Experio has finished reading draft ``invoice_id`` (its bluejay_state no longer "pending" nor "sent").
+
+    ``run_id``: the run; all its drafts share one deadline of READ_WAIT seconds, so one stuck reading never holds the
+    run.
+
+    Returns a wait result when the deadline passes first (the draft is resumed at the client's next message; a reading
+    stuck over an hour is sent again, resend_if_stuck). Once read: an ok result with ``split_off``, the other drafts
+    Experio made from the same scan, for the run to take in hand too; a routine result when there are none."""
     now = time.monotonic()
     for old in [run for run, deadline in READ_DEADLINES.items() if deadline < now - 3600]:
         del READ_DEADLINES[old]
@@ -149,8 +155,12 @@ STUCK = timedelta(minutes=60)  # Experio's own threshold for a reading gone wron
 
 
 def resend_if_stuck(invoice_id):
-    """Have Experio read a draft again (its own Re-send, action_resend) when it has waited on its reading for over
-    STUCK and nothing touched it for as long (a resend touches it: once an hour at most): a phrase for the client."""
+    """Ask Experio to read draft ``invoice_id`` again (its own « Re-send » button, exp.invoice.action_resend) when it is
+    still pending and both its creation and its last change are over STUCK ago (a resend changes it: once an hour at
+    most).
+
+    Returns the phrase for the client's message: "" when nothing was done; else that it was sent again or, when Experio
+    refused (Tarik's Experio user lacks the right), that the cabinet can resend it in Experio."""
     invoice = require_invoice(invoice_id, ["state", "create_date", "write_date", "company_id"])
     now = datetime.now(UTC).replace(tzinfo=None)  # Experio's dates are UTC
     old = [now - datetime.fromisoformat(invoice[field]) > STUCK for field in ("create_date", "write_date")]
@@ -165,9 +175,12 @@ def resend_if_stuck(invoice_id):
 
 
 def split_off(invoice_id):
-    """The drafts Experio made from the same scan as Tarik's draft ``invoice_id`` (one per bill of a document holding
-    several: water and electricity), no step has taken in hand yet: their ids. None for a draft Tarik did not make
-    itself, so a split-off draft never reports the others again."""
+    """Return the ids of the other drafts Experio made from the same scan as Tarik's draft ``invoice_id``, still pending
+    or draft, that no step has taken in hand yet. [] for a draft Tarik did not make itself, so a split-off draft never
+    reports the others again.
+
+    Experio's reading makes one draft per bill when a document holds several (water and electricity), all with the
+    reading's token (exp_bluejay_job.py:1134, _update_cognitive_lines)."""
     with cabinet_db() as db:
         if not db.execute(Q.invoices_made_by_tarik, ([invoice_id],)).fetchone():
             return []
@@ -181,8 +194,12 @@ def split_off(invoice_id):
 
 @step_tool
 def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
-    """Stop an invoice at its verified draft unless the client explicitly asked to post it (``answer`` "oui"); "non"
-    takes that back. The choice is kept per invoice, since later runs don't carry the answer."""
+    """Stop an invoice at its verified draft unless the client asked to post it.
+
+    ``answer``: "oui" records the client's request to post it, "non" takes that back, empty keeps what was recorded (an
+    invoice never asked about is held). The choice is kept per invoice, since later runs don't carry the answer.
+
+    Returns a stop result while the invoice is held, else a routine result: go on to posting."""
     with cabinet_db() as db:
         if answer in ("oui", "non"):
             db.execute(
@@ -204,9 +221,17 @@ def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
 
 @tool
 def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict:
-    """Record a step's outcome for this run. ``origin``: the step tool that ran, or what asked (the step is then
-    the result's own); ``result``: that step's answer. A question becomes the invoice's pending question;
-    an outcome at or after that step clears it."""
+    """Record a step's outcome for run ``run_id`` and keep the invoice's pending question up to date.
+
+    Args:
+        run_id: the run.
+        session_id: the conversation.
+        origin: the step tool that ran, or what asked (then the step is the result's own ``step``).
+        result: that step's result dict.
+
+    A duplicate is recorded at check_duplicate whatever step found it. A question result becomes the invoice's pending
+    question; an outcome at or after the pending step clears it, an earlier step's never does. Returns an ok result with
+    ``step`` and ``status_recorded``."""
     step = origin if origin in STEPS else result.get("step") or origin
     # Found at its tiers step too (a twin without tiers): a duplicate's outcome all the same.
     if result.get("duplicate"):
@@ -252,6 +277,9 @@ QUESTION_MARK = "QUESTION : "  # what the agent recognizes a question by (its an
 
 
 def section_of(step, status, message=""):
+    """Return the summary section (a SECTIONS key) of an outcome of ``status`` at ``step``: a duplicate's stop is
+    "duplicate"; a draft held unposted, and waiting_drafts' ok or stop, are "wait"; otherwise SECTION_OF says, any other
+    status being a "problem". ``message`` is not used."""
     if status == "stop" and step == "check_duplicate":  # record_step records every duplicate's stop at this step
         return "duplicate"
     if step == "hold_posting" and status == "stop":  # verified, left as a draft until the client says to post it
@@ -262,7 +290,9 @@ def section_of(step, status, message=""):
 
 
 def summary_text(key, step, status, message):
-    """One outcome's text in the summary, on invoice ``key`` (int, None or a negative file id)."""
+    """Return one outcome's text for the summary, about ``key`` (an invoice id, None for a dossier's setup, or a
+    negative file id): « Facture N : » added when an invoice's message lacks its number, QUESTION_MARK before a
+    question, the failing step named for an error."""
     text = message.removeprefix(TEST_MODE)
     if key and key > 0 and str(key) not in text:  # an error Experio gave without it: which invoice
         text = f"Facture {key} : {text}"
@@ -274,7 +304,7 @@ def summary_text(key, step, status, message):
 
 
 def with_problem(step, text):
-    """``text`` saying at which step it failed: after its « Facture N : » when it has one, else first."""
+    """Return ``text`` with the step it failed at: after its « Facture N : » when it has one, else first."""
     problem = f"problème à l'étape {STEPS.get(step, step)}"
     head, sep, rest = text.partition(" : ")
     if sep and head.lower().startswith("facture"):
@@ -283,8 +313,8 @@ def with_problem(step, text):
 
 
 def joined(key, texts):
-    """An invoice's (or file's) outcomes as one sentence: the first whole, the next ones without the « Facture N : »
-    they each start with."""
+    """Return an invoice's (or file's) outcome ``texts`` as one sentence: the first whole, the next ones without the «
+    Facture N : » they each start with."""
     head = f"facture {key} : "
     parts = texts[:1]
     for text in texts[1:]:
@@ -295,8 +325,8 @@ def joined(key, texts):
 
 
 def listed(texts):
-    """An invoice's (or file's) outcomes as the client reads them, in a glance: one line when there is one, else its
-    name (the « Facture N » or `file` they start with) on a line, then each outcome on its own line under it."""
+    """Return an invoice's (or file's) outcome ``texts`` as summary lines: one "- " line each when there is one or they
+    don't start with a name (« Facture N » or a `file`); else that name on a line, then each outcome indented below."""
     head, sep, _ = texts[0].partition(" : ")
     if len(texts) == 1 or not sep or not (head.lower().startswith("facture") or head.startswith("`")):
         return [f"- {text}" for text in texts]
@@ -306,11 +336,13 @@ def listed(texts):
 
 @tool
 def run_summary(run_id: str) -> dict:
-    """What happened in one processing run, for the client, in sections: Fait, En attente, Doublons, À corriger,
-    Questions (empty ones left out). Each invoice (or file) is in the section of where it stands (its furthest
-    outcome): its outcomes that say something (what was set or changed) when it is done, else only what it waits on,
-    the problem or the question; one line when there is one, else each on its own line under the invoice's name.
-    Routine ones (nothing to do, the expected setting) are left out; a dossier's setup keeps one line per outcome."""
+    """Return what happened in run ``run_id``, for the client, as an ok result in sections: Fait, En attente, Doublons,
+    À corriger, Questions, empty ones left out (NOTHING when the run recorded nothing).
+
+    Each invoice (or file) is in the section of its furthest outcome: when done, its outcomes that say something (what
+    was set or changed); otherwise only what it waits on, the problem or the question. Routine outcomes are left out; a
+    dossier's setup keeps one line per outcome. Also frees the run's invoices for other runs and, outside test mode,
+    notes the run in each invoice's Experio history (note_in_history)."""
     with cabinet_db() as db:
         rows = db.execute(
             Q.run_outcomes,
@@ -327,10 +359,10 @@ def run_summary(run_id: str) -> dict:
 
 
 def note_in_history(rows):
-    """What Tarik did on each invoice in this run, as one internal note in the invoice's history in Experio (its
-    message_post, the way its own actions are noted), written by Tarik's Experio user: what it set or changed, and
-    where it left the invoice. Nothing for an invoice only routine steps touched. A note refused is logged, never a
-    reason to fail the run's summary."""
+    """Post what Tarik did on each invoice of ``rows`` (the run's outcomes) as one internal note in the invoice's
+    history in Experio (message_post with subtype mail.mt_note, as its own actions are noted), written by Tarik's
+    Experio user: what it set or changed, and where it left the invoice. Nothing for an invoice only routine steps
+    touched. A refused note is logged, never a reason to fail the run's summary."""
     for key, found in outcomes_by_key(rows).items():
         if not key or key < 0:
             continue
@@ -351,8 +383,8 @@ def note_in_history(rows):
 
 
 def outcomes_by_key(rows):
-    """{key: [(step, status, message, routine)]}: each invoice's (or file's) outcomes of ``rows``, in the sequence's
-    order, each said once; a dossier's setup under the key None."""
+    """Return {key: [(step, status, message, routine)]}: each invoice's (or file's) outcomes of ``rows``, in the
+    sequence's order, each identical one once; a dossier's setup steps under the key None."""
     # In the sequence's order, whatever order the rows were recorded in (invoices of one run are interleaved).
     rows = sorted(rows, key=lambda row: position(row[1]))
     outcomes, seen = {}, set()
@@ -366,7 +398,8 @@ def outcomes_by_key(rows):
 
 
 def sections_of(outcomes):
-    """{section: [lines]}: each invoice (or file) of ``outcomes`` as a line in the section of where it stands."""
+    """Return {section: [lines]}: each invoice (or file) of ``outcomes`` in the section of its last outcome; a dossier's
+    setup outcome by outcome. An invoice shows only its latest question, a file each of its questions."""
     sections = {name: [] for name in SECTIONS}
     for key, found in outcomes.items():
         shown = [outcome for outcome in found if not outcome[3] or outcome is found[-1]]
@@ -388,7 +421,7 @@ def sections_of(outcomes):
 
 
 def summary_sections(sections):
-    """The non-empty ``sections`` as the client reads them: a heading, then its lines (questions numbered)."""
+    """Return the non-empty ``sections`` as the client reads them: a heading, then its lines (questions numbered)."""
     parts = []
     for name, lines in sections.items():
         if not lines:
@@ -400,18 +433,22 @@ def summary_sections(sections):
 
 
 def journal_name(journal_id):
-    """The bank journal's name while it still lacks its bank, else None."""
+    """Return bank journal ``journal_id``'s name while it still has no bank, else None."""
     found = odoo_call("exp.journal", "search_read", [("id", "=", journal_id), ("bank_id", "=", False)], fields=["name"])
     return found[0]["name"] if found else None
 
 
 def waiting_on(session_id):
-    """What this conversation waits on the client for, oldest first: each draft invoice's question, each bank
-    statement whose last import asked for its bank account, and each dossier whose bank journal was asked its
-    bank. A question on an invoice deleted or posted since, or on a journal given its bank since, is dropped:
-    nothing can answer it any more. Each item: {invoice_id, or file_id and dossier_id, or dossier_id and
-    journal_id; step, question, label (how the questions are listed: "facture 12", "releve mars.pdf", "journal
-    BQ"), names (what ``about`` may say), choices ({id: name} the question proposed, if any)}."""
+    """Return what conversation ``session_id`` waits on the client for, in this order: each draft invoice's pending
+    question, each bank statement whose last import asked its bank account or network, each TPE statement asked its card
+    sales' client, each bank journal asked its bank.
+
+    A question on an invoice deleted or posted since is dropped (its pending row deleted), as is one on a journal given
+    its bank since: nothing can answer it any more.
+
+    Each item: {step, question, label (how the questions are listed: "facture 12", "relevé mars.pdf", "journal BQ"),
+    names (what ``about`` may say), choices ({id: name} the question proposed, or None)}, plus invoice_id; or file_id,
+    dossier_id and file_name; or dossier_id and journal_id."""
     with cabinet_db() as db:
         invoices = db.execute(
             Q.pending_of_session,
@@ -434,7 +471,8 @@ def waiting_on(session_id):
 
 
 def invoice_questions(invoices, drafts):
-    """waiting_on's items for the invoices' pending questions, those still ``drafts`` only."""
+    """Return waiting_on's items for the pending questions ``invoices`` [(invoice_id, step, question, choices)], only
+    those of invoices still in ``drafts``."""
     items = []
     for i, step, text, choices in invoices:
         if i in drafts:
@@ -452,7 +490,8 @@ def invoice_questions(invoices, drafts):
 
 
 def statement_questions(statements):
-    """waiting_on's items for the bank statements asked their bank account."""
+    """Return waiting_on's items for the bank statements asked their bank account or network: ``statements`` [(file_id,
+    dossier_id, question, file name, choices)]."""
     items = []
     for f, d, text, name, choices in statements:
         stem = name.rsplit(".", 1)[0]
@@ -472,7 +511,8 @@ def statement_questions(statements):
 
 
 def tpe_client_questions(clients):
-    """waiting_on's items for the TPE statements asked the client of their card sales."""
+    """Return waiting_on's items for the TPE statements asked the client of their card sales: ``clients`` [(file_id,
+    dossier_id, question, file name)]."""
     return [
         {
             "file_id": f,
@@ -489,7 +529,8 @@ def tpe_client_questions(clients):
 
 
 def bank_questions(banks):
-    """waiting_on's items for the bank journals asked their bank, those still without it only."""
+    """Return waiting_on's items for the bank journals asked their bank, ``banks`` [(dossier_id, journal_id, question,
+    choices)], only those still without one."""
     items = []
     for d, j, text, choices in banks:
         name = journal_name(j)
@@ -510,8 +551,8 @@ def bank_questions(banks):
 
 
 def meant(waiting, about):
-    """The question the client answers: the only one, or the one the agent read they meant (``about``: an invoice's
-    number or a statement's name, as the questions are listed). None when unclear: the client is asked which."""
+    """Return the ``waiting`` item the client answers: the only one, or the one ``about`` names (an invoice's number or
+    a statement's name, as the questions are listed). None when unclear: the client is asked which."""
     if len(waiting) == 1:
         return waiting[0]
     about = normalized(str(about or "")).removeprefix("facture ").removeprefix("relevé ")
@@ -520,8 +561,8 @@ def meant(waiting, about):
 
 
 def about_this_file(item, answer):
-    """True when the client's ``answer`` is about the statement ``item`` asks for: it names that file, or no other
-    file of its conversation (« douane.pdf n'est pas un relevé » is not about `releve.pdf`)."""
+    """True when the client's ``answer`` is about the statement file of ``item``: it names that file, or names no other
+    file of the conversation (« douane.pdf n'est pas un relevé » is not about `releve.pdf`)."""
     if file_named(item["file_name"], answer):
         return True
     with cabinet_db() as db:
@@ -530,10 +571,12 @@ def about_this_file(item, answer):
 
 
 def apply_answer(item, answer, decision):
-    """Apply the client's ``answer`` (their own words) and the agent's ``decision`` (what it read in them) to waiting
-    ``item`` (from waiting_on): the result of the call that takes it, with the step it answers and, when it went
-    fine, the ``next_step`` the sequence resumes at. A oui / non question the decision doesn't settle is asked
-    again."""
+    """Apply the client's ``answer`` (their own words) and the agent's ``decision`` (what it read in them) to the
+    waiting ``item`` (from waiting_on).
+
+    Returns the result of the call that takes it, with the ``step`` it answers and, when it went fine, the ``next_step``
+    the sequence resumes at. When the decision does not settle the question (a bank not among those proposed, an unclear
+    oui / non), the question is asked again."""
     if item["step"] == "import_bank_statement":
         return answer_statement(item, answer, decision)
     if item["step"] == "settle_statement":  # a TPE statement's client: its pointing goes on once given
@@ -552,8 +595,10 @@ def apply_answer(item, answer, decision):
 
 
 def answer_statement(item, answer, decision):
-    """apply_answer for a statement asked its bank account: the file is an invoice after all when the client says
-    so, else the statement is imported into the account chosen (or the question asked again)."""
+    """apply_answer for a statement asked its bank account or network. When the client says this file is an invoice
+    after all, it becomes one and the sequence resumes at identify_document, with the side they gave if any. Otherwise
+    the statement is imported with the network chosen (a TPE statement) or into the journal chosen; when nothing chosen
+    is understood, the import asks again."""
     # « ce n'est pas un relevé, c'est une facture », about this statement: never when it names another file only.
     if client_kind(own_words(answer)) == "invoice" and about_this_file(item, answer):
         set_kind(item["file_id"], "invoice")
@@ -580,7 +625,15 @@ def answer_statement(item, answer, decision):
 
 
 def answer_invoice(item, answer, decision):
-    """apply_answer for an invoice's question: the result of the call that takes the answer (ANSWERS)."""
+    """apply_answer for an invoice's question: the result of the call that takes the answer (ANSWERS[step]), given what
+    it needs:
+    - an account to confirm: oui / non, from the decision, else from the answer;
+    - tiers: the decision, the answer and the tiers the question proposed;
+    - exercice, warnings: the answer and the decision;
+    - retenue à la source: the answer (a file sent with it may be the supplier's attestation);
+    - TVA, constatée d'avance: oui / non, from the decision, else a plain « oui » / « non » answer; a question result
+      when neither says;
+    - any other: the answer alone."""
     step = item["step"]
     apply = ANSWERS[step]
     proposed = item.get("choices") or {}
@@ -603,26 +656,33 @@ def answer_invoice(item, answer, decision):
 
 
 def new_files(session_id):
-    """How many files (int) came in this conversation since its last run, for the processing sequence."""
+    """Return how many files came in conversation ``session_id`` since its last run; an entry file (ENTRY_FILES: FEC,
+    grand livre) counts only when it is Experio's Excel statement template."""
     with cabinet_db() as db:
         names = [name for (name,) in db.execute(Q.new_files_of_session, (session_id, session_id))]
     return sum(not name.lower().endswith(ENTRY_FILES) or canvas_file_named(session_id, name) for name in names)
 
 
 def awaiting_split(session_id):
-    """How many PDFs of the conversation wait for the client to say how to cut them (split_invoices asks): their
-    answer goes to the files, whatever else waits."""
+    """Return how many PDFs of the conversation wait for the client to say how to cut them (split_invoices asked): such
+    an answer goes to the files, whatever else waits."""
     with cabinet_db() as db:
         return db.execute(Q.pdfs_awaiting_split, (session_id,)).fetchone()[0]
 
 
 @tool
 def route_message(session_id: str, mode: str = "files") -> dict:
-    """Where a message of this conversation goes in the processing workflow, from what the database knows, not
-    from the tool the agent happened to call (``mode``: files, answer or resume). ``route``: answer when the
-    conversation waits on the client and no file came since its last run; files when files came and nothing
-    waits; both, the answer and the files, when both; else ``mode``, files or answer. A follow-up (resume)
-    stays one."""
+    """Return where a message of conversation ``session_id`` goes in the processing workflow, from what the database
+    knows, not from the tool the agent happened to call.
+
+    ``mode``: what the agent called it for: "files", "answer" or "resume".
+
+    Returns an ok result whose ``route`` is:
+    - "resume" when ``mode`` is "resume" (a follow-up stays one);
+    - "answer" when the conversation waits on the client and no file came since its last run (nor waits to be cut);
+    - "both" (the answer, then the files) when it waits on the client and files came;
+    - "files" when files came and nothing waits, or ``mode`` is none of the three;
+    - else ``mode``: "files" or "answer"."""
     if mode == "resume":
         return ok("Suite du traitement.", route="resume")
     waiting = bool(waiting_on(session_id))
@@ -640,17 +700,32 @@ def route_message(session_id: str, mode: str = "files") -> dict:
 def answer_pending(
     session_id: str, answer: str, decision: str = "", about: str = "", corrections: list | None = None
 ) -> dict:
-    """Apply the client's answer (their own words) to what this conversation waits on: an invoice's question (tiers,
-    account, TVA, withholding, prepaid, exercice), a statement's bank account or network, or a TPE statement's card
-    sales' client. ``decision`` is what the agent read in that answer: "oui" or "non" for a oui / non question, the id
-    of the tiers chosen among those proposed (or the other name or ICE given) for a tiers question, "nouveau" or the
-    open exercice chosen for an exercice question, the journal_id chosen for a bank account, the network chosen (as the
-    question lists it) for a TPE statement, the client's name as given for a TPE statement's card sales, else empty.
-    ``about``: with several questions waiting, the invoice's number or the statement's name the client answers.
-    ``next_step`` says where the sequence resumes; with nothing waiting, the drafts Experio hadn't read yet are resumed.
-    The email's sender must have the dossier, as for any work on it. ``corrections``: the accounts the client gives
-    invoices in the same message, as the agent read them ([{facture, compte}], their words), each checked against those
-    words and the conversation's drafts (verified_corrections)."""
+    """Apply the client's answer to what this conversation waits on: an invoice's question (tiers, account, TVA, retenue
+    à la source, constatée d'avance, exercice, warnings), a statement's bank account or network, a TPE statement's card
+    sales' client, or a bank journal's bank.
+
+    Args:
+        session_id: the conversation.
+        answer: the client's answer, their own words.
+        decision: what the agent read in that answer, by question:
+            - oui / non question (TVA, constatée d'avance, an account to confirm, most warnings): "oui" or "non";
+            - tiers: the id of the tiers chosen among those proposed, or the other name or ICE given;
+            - exercice: "nouveau" or the open exercice chosen;
+            - statement's bank account: the journal_id chosen;
+            - TPE statement's network: the network chosen, as the question lists it;
+            - TPE statement's client: the client's name as given;
+            - bank journal's bank: the bank chosen among those proposed;
+            - any other question: empty.
+        about: with several questions waiting, the invoice's number or the statement's name the client answers.
+        corrections: the accounts the client gives invoices in the same message, as the agent read them ([{facture,
+            compte}], their words); each is checked against those words and the conversation's drafts
+            (verified_corrections).
+
+    Returns the result of applying the answer: its ``next_step`` says where the sequence resumes, and ``corrections``
+    ([[invoice, account]]) holds the corrections kept. With nothing waiting, an ok result whose next_step,
+    waiting_drafts, resumes the drafts Experio hadn't read yet. A question result when several questions wait and
+    ``about`` names none of them. The email's sender must have the dossier, as for any work on it: otherwise
+    check_sender's result."""
     answer = own_words(answer)
     waiting = waiting_on(session_id)
     if not waiting:
@@ -683,7 +758,8 @@ def answer_pending(
 
 
 def as_pairs(fixes):
-    """{invoice: account} as [[invoice, account]], by invoice: a list, kept as it is through the workflow's state."""
+    """Return {invoice: account} as [[invoice, account]], by invoice: a list, kept as it is through the workflow's
+    state."""
     return [[invoice_id, account] for invoice_id, account in sorted(fixes.items())]
 
 
@@ -704,10 +780,18 @@ def traceable(value, words):
 
 
 def verified_corrections(session_id, answer, corrections, answered):
-    """The accounts the agent read in the client's answer ([{facture, compte}]), checked: ({invoice: account}, [what
-    the client is told of those left out]). Each must be in the client's own words; its invoice is the one they
-    answer about when it names none (« mettez-la »), else the one draft of the conversation it names (Tarik's
-    number, the invoice's number, its supplier), on a dossier the sender has. Never a model's guess."""
+    """Check the accounts the agent read in the client's answer; return ({invoice: account}, notes).
+
+    Args:
+        session_id: the conversation.
+        answer: the client's own words.
+        corrections: [{facture, compte}] as the agent read them.
+        answered: the invoice the client answers about, or None.
+
+    Each account must be in the client's own words (traceable). Its invoice is ``answered`` when the correction names
+    none (« mettez-la »), else the one draft of the conversation it names (Tarik's number, the invoice's number, its
+    supplier), on a dossier the sender has. ``notes``: what is reported to the client of the accounts left out for want
+    of an invoice. Never a model's guess."""
     if not corrections:
         return {}, []
     words = normalized(answer)
@@ -734,8 +818,8 @@ def verified_corrections(session_id, answer, corrections, answered):
 
 
 def draft_names(session_id):
-    """{draft id: [names a client may call it by]}: Tarik's number, the invoice's own number, its supplier. The
-    conversation's drafts: made from its files, asked about in it, or worked on in it."""
+    """Return {draft id: [names a client may call it by]} (names_of) for the conversation's drafts: made from its files,
+    asked about in it, or worked on in it."""
     with cabinet_db() as db:
         ids = {i for (i,) in db.execute(Q.drafts_of_session, (session_id,))}
         ids |= {row[0] for row in db.execute(Q.pending_of_session, (session_id,))}
@@ -747,8 +831,8 @@ def draft_names(session_id):
 
 
 def names_of(draft):
-    """The names a client may call ``draft`` by (of three letters or more): Tarik's number, the invoice's own
-    number, its supplier's."""
+    """Return the names a client may call ``draft`` by (three letters or more): Tarik's number, the invoice's own
+    number, its supplier's names."""
     names = [str(draft["id"]), normalized(draft["invoice_number"] or "")]
     if draft["partner_id"]:
         names += supplier_names(draft["partner_id"][1])
@@ -756,15 +840,18 @@ def names_of(draft):
 
 
 def named_drafts(words, names):
-    """The drafts ``words`` (normalized) name."""
+    """Return the ids, sorted, of the drafts of ``names`` (draft_names) that ``words`` (normalized) name."""
     return sorted(i for i, found in names.items() if any(said(name, words) for name in found))
 
 
 @tool
 def save_files(session_id: str = "", files: list | None = None) -> dict:
-    """Save a conversation's files, the agent's attachments: [{ id, file_name, mime_type, data (base64) }], whose id
-    saves each one once however many times the sequence runs. A zip is saved as the files in it Tarik takes
-    (engine.tools.core.archives), each under its archive's id and its own name."""
+    """Save a conversation's files (the agent's attachments); an ok result lists those saved (``files``: [{id,
+    file_name}]).
+
+    ``files``: [{id, file_name, mime_type, data (base64)}]; the id saves each one once however many times the sequence
+    runs. A zip is saved as the files in it Tarik takes (engine.tools.core.archives), each under its archive's id and
+    its own name; those skipped are named in the message."""
     saved, skipped = [], []
     with cabinet_db() as db:
         for file in files or []:
@@ -790,6 +877,7 @@ def is_entries(file_id, name):
 
 
 def canvas_file_named(session_id, name):
+    """True when a file of conversation ``session_id`` named ``name`` is Experio's Excel statement template."""
     with cabinet_db() as db:
         rows = db.execute(Q.files_named, (session_id, name)).fetchall()
     return any(is_canvas(name, data) for (data,) in rows)
@@ -797,10 +885,11 @@ def canvas_file_named(session_id, name):
 
 @tool
 def files_to_process(session_id: str, entries: bool = False, asked: bool = False) -> dict:
-    """The conversation's files not processed yet: its invoices and statements, or with
-    ``entries`` its FEC and grand livre files. Picked here, not by the agent: it never
-    sees the files' numbers, so it can't show them to the client. ``asked``: the client's
-    message asked for them, so none is said to the client (an attachment lost on the way)."""
+    """Return the conversation's files not processed yet (``files``: their ids): its invoices and statements, or with
+    ``entries`` its FEC and grand livre files. Picked here, not by the agent, which never sees the files' numbers.
+
+    ``asked``: the client's message asked for files to be processed; when none is found, the result reports to the
+    client that the attachment did not arrive (NO_FILE)."""
     with cabinet_db() as db:
         rows = db.execute(
             Q.files_to_process,
@@ -826,24 +915,24 @@ FIXABLE_STOPS = {
 
 
 def resumable(step, status, stopped, sided=False):
-    """True when a draft whose furthest outcome is ``status`` at ``step`` is taken up again: it waited or failed, or
-    (``stopped``, the client asked) a fixable setting stopped it, or (``sided``: the client now says which side it
-    is) its classification did."""
+    """True when a draft whose furthest outcome is ``status`` at ``step`` is taken up again: it waited or failed; or
+    (``stopped``: the client asks to resume) a fixable setting stopped it (FIXABLE_STOPS); or (``sided``: the client now
+    says which side it is) its classification stopped it."""
     if status in ("wait", "error"):
         return True
     return stopped and status == "stop" and (step in FIXABLE_STOPS or (sided and step == "classify_invoice"))
 
 
 def latest_runs(rows):
-    """Of ``rows`` (invoice_id, step, status, run_id, in the order recorded), each invoice's outcomes of the latest run
-    that recorded any for it, as (invoice_id, step, status)."""
+    """Return, of ``rows`` (invoice_id, step, status, run_id, in the order recorded), each invoice's outcomes of the
+    latest run that recorded any for it, as (invoice_id, step, status)."""
     last = {invoice_id: run_id for invoice_id, _, _, run_id in rows}
     return [(invoice_id, step, status) for invoice_id, step, status, run_id in rows if last[invoice_id] == run_id]
 
 
 def furthest_outcomes(rows):
-    """{invoice_id: (step, status)}: the furthest step each invoice of ``rows`` (invoice_id, step, status) reached, by
-    the sequence's order, not the rows'."""
+    """Return {invoice_id: (step, status)}: the furthest step each invoice of ``rows`` (invoice_id, step, status)
+    reached, by the sequence's order, not the rows'."""
     furthest = {}
     for invoice_id, step, status in rows:
         if step in ORDER and (invoice_id not in furthest or position(step) >= position(furthest[invoice_id][0])):
@@ -862,20 +951,36 @@ def waiting_drafts(
     client_message: str = "",
     compte: str = "",
 ) -> dict:
-    """This conversation's drafts to take up again from Experio's reading: the furthest step each reached ended
-    waiting on Experio (still reading) or failed (an Experio or model timeout), or nothing was recorded for it (a
-    run cut short: the server restarted). Every later step runs again; a question or a stop is not resumed here,
-    except what the client asks for. ``held``: the drafts they asked to leave unposted (they now ask to post).
-    ``stopped``: the drafts a fixable setting stopped (FIXABLE_STOPS: the cabinet has fixed it since, they ask to
-    resume). Both reach the dossier ``dossier_id``'s drafts from other conversations only when the client's own
-    words (``client_message``) ask for the whole dossier or name those drafts (asked_among); never an automatic
-    follow-up's. A draft deleted or posted in Experio since is left alone.
-    Experio decides what is a draft: with ``held`` and a dossier, a draft Tarik posted that was put back to draft in
-    Experio since is posted again. When they ask to post and nothing is to be, the answer says why (a stop).
-    ``run_id``: the run taking them up, which claims them: a draft another run is still working on is left to it.
-    ``invoice_type``: the side the client now gives (achat, vente): a draft its classification stopped (not an
-    invoice, the other side) is classified again with it. ``compte``: an account the agent read with no file sent: a
-    correction for the one draft of the conversation the client's words name (``corrections``), to be confirmed."""
+    """Return this conversation's drafts to take up again from Experio's reading on, as an ok result (``invoices``).
+
+    A draft is taken up when the furthest step of its latest run ended waiting on Experio or failed (an Experio or model
+    timeout), or when nothing was recorded for it (a run cut short by a server restart); every later step then runs
+    again. A question or a stop is not resumed here, except what the client asks for. A draft deleted or posted in
+    Experio since is left alone.
+
+    Args:
+        session_id: the conversation.
+        held: the client now asks to post: also take the drafts they asked to leave unposted (hold_posting). With
+            ``dossier_id``, a draft Tarik posted that was put back to draft in Experio since is posted again: Experio
+            decides what is a draft.
+        dossier_id: the dossier. With ``held`` or ``stopped``, its drafts from other conversations are taken too, only
+            when the client's own words ask for the whole dossier or name them (asked_among); with ``held``, also its
+            Facturation drafts (facturation_drafts).
+        stopped: the client asks to resume: also take the drafts a fixable setting stopped (FIXABLE_STOPS: the cabinet
+            has fixed it since).
+        run_id: the run taking them up, which claims them: a draft another run is still working on is left to it.
+        invoice_type: the side the client now gives (achat, vente): with ``stopped``, a draft its classification stopped
+            (not an invoice, the other side) is classified again.
+        client_message: the client's own words; never an automatic follow-up's.
+        compte: an account the agent read with no file sent: a correction for the one draft of the conversation the
+            client's words name (``corrections`` in the result), to be confirmed.
+
+    Returns an ok result with ``invoices`` (the import folders' transit invoices last) and, when there are any,
+    ``corrections``, ``facturation`` (Facturation drafts to post) and ``statements`` (statement files to take up again).
+    When the client asks to post and nothing is to be, a stop result says why (nothing_to_post), or a routine result
+    when this run's other branch already took them. Drafts other conversations left in the dossier are only counted,
+    with how to ask for them (elsewhere_hint); when the client asks for the whole dossier, the drafts that stay are
+    reported to the client (left_in_dossier)."""
     sided = stopped and bool(client_side(invoice_type, " ".join(client_messages(session_id, ""))))  # their words
     with cabinet_db() as db:
         rows = db.execute(
@@ -961,8 +1066,9 @@ def waiting_drafts(
 
 
 def statements_to_resume(session_id, held):
-    """The conversation's statement files to take up again: Experio was still reading one (its pointing waited), or
-    the client now asks to post and it is not posted yet."""
+    """Return the conversation's statement files (ids) to take up again: those whose pointing waited (Experio was still
+    reading), and with ``held`` (the client asks to post) those whose statement, bank or TPE, is not posted, exported or
+    cancelled yet. Of files merged into one statement, only the first stands for it."""
     with cabinet_db() as db:
         rows = db.execute(Q.statement_outcomes_of_session, (session_id,)).fetchall()
     latest, statements, seen = {}, {}, set()
@@ -987,8 +1093,9 @@ def statements_to_resume(session_id, held):
 
 
 def transit_last(ids):
-    """``ids``, the import folders' transit agent invoices last: they take the folder's invoices paid by the transit
-    agent once those are posted (Experio links only posted ones)."""
+    """Return ``ids`` with the import folders' transit invoices last: a transit invoice takes the folder's invoices it
+    paid only once those are posted (Experio's _onchange_autofill_disbursement_invoices links posted or exported ones
+    only, exp_invoice.py:2698)."""
     if not ids:
         return ids
     transit = set(
@@ -998,8 +1105,9 @@ def transit_last(ids):
 
 
 def facturation_drafts(dossier_id, client_message):
-    """The dossier's drafts made by Experio's Facturation (gst_invoice_id) the client's own words ask for: the whole
-    dossier, or named (asked_among); none when the cabinet's Experio has no Facturation."""
+    """Return the dossier's drafts made by Experio's Facturation (gst_invoice_id set) that the client's own words ask
+    for: the whole dossier, or named (asked_among). [] when the client wrote nothing, or the cabinet's Experio has no
+    Facturation (no gst_invoice_id field)."""
     if not normalized(own_words(client_message)) or "gst_invoice_id" not in experio_form()["types"]:
         return []
     domain = [("company_id", "=", dossier_id), ("state", "=", "draft"), ("gst_invoice_id", "!=", False)]
@@ -1008,14 +1116,14 @@ def facturation_drafts(dossier_id, client_message):
 
 
 def worked_on(run_id):
-    """Whether run ``run_id`` already took any invoice or statement in hand."""
+    """True when run ``run_id`` already took any invoice or statement in hand."""
     with cabinet_db() as db:
         return bool(db.execute(Q.run_worked_on_invoices, (run_id,)).fetchone())
 
 
 def elsewhere_hint(count, client_message, held):
-    """What the client is told of the ``count`` drafts other conversations left in the dossier: how to ask for them
-    too. Empty when there are none."""
+    """Return what is reported to the client of the ``count`` drafts other conversations left in the dossier: how to ask
+    for them too (whole_example, from ``client_message`` and ``held``). "" when there are none."""
     if not count:
         return ""
     return (
@@ -1026,8 +1134,9 @@ def elsewhere_hint(count, client_message, held):
 
 
 def drafts_corrected(session_id, client_message, compte):
-    """An account the agent read with no file sent (processing tool's compte), as a correction: [[invoice, account]]
-    for the one draft of the conversation the client's own words name, checked as any correction; else []."""
+    """Return an account the agent read with no file sent (the processing tool's ``compte``) as a correction, [[invoice,
+    account]], for the one draft of the conversation the client's own words name, checked as any correction
+    (verified_corrections); [] otherwise."""
     if not compte.strip():
         return []
     words = own_words(client_message)
@@ -1048,8 +1157,8 @@ VERBS = {"comptabilis": "comptabilisez", "repren": "reprenez", "relanc": "relanc
 
 
 def whole_example(client_message, held):
-    """« <their verb> toutes les factures du dossier »: the verb the client wrote (comptabilisez, reprenez…), else
-    the one their request means."""
+    """Return « <verb> toutes les factures du dossier »: the verb the client wrote (comptabilisez, reprenez…), else «
+    comptabilisez » with ``held`` (asking to post), « reprenez » otherwise."""
     words = normalized(own_words(client_message))
     verb = next((written for stem, written in VERBS.items() if re.search(rf"(?<![a-z]){stem}", words)), None)
     return f"{verb or ('comptabilisez' if held else 'reprenez')} toutes les factures du dossier"
@@ -1060,21 +1169,22 @@ GENERIC = {"maroc", "societe", "ste", "sarl", "services", "service", "internatio
 
 
 def supplier_names(name):
-    """How a client may name supplier ``name``: whole, or by its first distinctive word (« VALADE » for « GR VALADE
-    LOGISTIQUE »)."""
+    """Return how a client may name supplier ``name``: whole, or by its first distinctive word (« VALADE » for « GR
+    VALADE LOGISTIQUE »)."""
     whole = normalized(name.split(" - ")[0])
     first = next((word for word in whole.split() if len(word) >= 4 and word not in GENERIC), "")
     return [whole, first]
 
 
 def asks_whole(client_message):
-    """Whether the client's own words ask for the whole dossier (« toutes les factures du dossier »)."""
+    """True when the client's own words ask for the whole dossier (« toutes les factures du dossier »)."""
     return bool(WHOLE.search(normalized(own_words(client_message))))
 
 
 def left_in_dossier(dossier_id, taken):
-    """When the client asks for the whole dossier: what of its drafts stays one, but those ``taken``, and why: a
-    question waiting in its conversation, a step that stopped it, or never imported by Tarik. Empty when none."""
+    """When the client asks for the whole dossier: return the sentence reporting how many of its drafts stay drafts,
+    except those ``taken``, and why: a question waiting in their conversation, stopped by a step, or not imported by
+    Tarik. "" when none stay or no ``dossier_id``."""
     if not dossier_id:
         return ""
     domain = [("id", "not in", sorted(taken)), ("company_id", "=", dossier_id), ("state", "in", ["pending", "draft"])]
@@ -1094,9 +1204,9 @@ def left_in_dossier(dossier_id, taken):
 
 
 def asked_among(ids, dossier_id, client_message):
-    """Of the dossier's drafts ``ids`` other conversations left, those the client's own words ask for: all of them
-    (« toutes les factures du dossier »), else those they name by Tarik's draft number, their invoice number or
-    their supplier; none otherwise. Never a model's reading: what was left elsewhere is the client's call."""
+    """Return, of the dossier's drafts ``ids`` other conversations left, those the client's own words ask for: all of
+    them (« toutes les factures du dossier »), else those they name by Tarik's draft number, their invoice number or
+    their supplier; [] otherwise. Never a model's reading: what was left elsewhere is the client's call."""
     words = normalized(own_words(client_message))
     if not words:
         return []
@@ -1113,9 +1223,9 @@ def asked_among(ids, dossier_id, client_message):
 
 
 def nothing_to_post(session_id, dossier_id):
-    """Why nothing is posted when the client asks to post: each draft of this conversation and what keeps it from
-    being posted (a question waiting for them, where Tarik's sequence stopped it). Other conversations' drafts are
-    only counted (waiting_drafts' hint), never listed here."""
+    """Return why nothing is posted when the client asks to post: each draft of this conversation and what keeps it from
+    being posted (a question waiting for them, not imported by Tarik, another run at it, or where Tarik's sequence
+    stopped it). Other conversations' drafts are only counted (waiting_drafts' hint), never listed here."""
     with cabinet_db() as db:
         mine = {i for (i,) in db.execute(Q.drafts_of_session, (session_id,))}
         mine |= {row[0] for row in db.execute(Q.invoice_outcomes_of_session, (session_id,))}

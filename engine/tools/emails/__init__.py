@@ -1,1 +1,1 @@
-"""Tarik's mailbox ("Tarik - Emails"): reading it, and sending replies."""
+"""Tarik's mailbox ("Tarik - Emails"): reading it (inbox) and sending replies (sending)."""

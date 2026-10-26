@@ -5,9 +5,9 @@ Postgres schema (its files, results, questions, mail). A setting is either the c
 (CABINET_SETTINGS: its Experio login, its mailbox's credentials and addresses) or shared by all of them
 (SHARED_SETTINGS: the mail server; the model's key and address, the orchestrator's own), never both.
 
-They come from Vault (secret/tarik/shared, secret/tarik/orchestrator, secret/tarik/cabinets/<cabinet>, the
-cabinets being those paths).
-The tests set them in the environment instead: TARIK_CABINETS lists the cabinets, a cabinet's own
+Settings come from Vault (VAULT_ADDR): secret/tarik/shared and secret/tarik/orchestrator hold the shared ones,
+secret/tarik/cabinets/<cabinet> each cabinet's own, and the cabinets are the paths listed there.
+The tests set them in the environment instead: TARIK_CABINETS lists the cabinets, and a cabinet's own
 settings are prefixed with its name (EXPERIO_CABINET_8__ODOO_UID).
 
 Settings stay on the server: no tool returns one, and only a ToolError's own message reaches
@@ -17,14 +17,13 @@ Each call names its cabinet (engine/calls.py runs it in using(cabinet)), and eve
 cabinet-specific goes through current(): with no cabinet set it fails. There is no
 default cabinet, so a call can only ever work in the one it named.
 
-Tarik's settings in Vault (VAULT_ADDR): secret/tarik/shared holds the shared ones, and
-secret/tarik/cabinets/<cabinet> each cabinet's own; the cabinets are those paths.
-
 The orchestrator logs in with tarik-mcp's AppRole (role_id and secret_id files in /run/vault, vault/setup.sh), whose
 policy only reads secret/tarik/*. Everything is read at start, then again every 5 minutes, so a
-changed secret applies without a restart (a new cabinet still needs one: its schema is made at
-start). When Vault can't be reached, the last values stay in use. Without VAULT_ADDR, nothing is
-read here and the settings come from the environment: the tests only (server.py refuses to start)."""
+changed secret applies without a restart. A cabinet created through the Experio API is served at once
+(server/experio_api.py reloads CABINETS and creates its schema); one added in Vault by hand needs a restart, since
+schemas are otherwise created at start. When Vault can't be reached, the last values stay in use. Without
+VAULT_ADDR, nothing is read here and the settings come from the environment: the tests only (server/server.py
+refuses to start)."""
 
 import contextlib
 import contextvars
@@ -55,7 +54,8 @@ _vault_state = {"token": "", "token_until": 0.0, "values": None, "next_read": 0.
 
 
 def vault_request(method, path, token="", **kwargs):
-    """Vault's JSON answer (dict) to ``method`` on ``path``, with ``token`` when given; None for a 404."""
+    """Return Vault's JSON answer (dict) to HTTP ``method`` on ``path``, sent with ``token`` when given; None for a
+    404. Raises httpx.HTTPStatusError for any other error status."""
     headers = {"X-Vault-Token": token} if token else {}
     answer = httpx.request(method, VAULT_ADDRESS + path, headers=headers, timeout=10, **kwargs)
     if answer.status_code == 404:
@@ -65,8 +65,10 @@ def vault_request(method, path, token="", **kwargs):
 
 
 def vault_token(role, state):
-    """The token of the AppRole whose role_id and secret_id files are in ``role``, kept in ``state`` (its "token" and
-    "token_until"): logged in again when missing, or once 80% of its lease has passed."""
+    """Return a Vault token for the AppRole whose role_id and secret_id files are in directory ``role``.
+
+    The token is cached in ``state`` (its "token" and "token_until" keys) and a new login is made when it is
+    missing or once 80% of its lease has passed."""
     if not state["token"] or time.monotonic() > state["token_until"]:
         ids = {name: Path(role, name).read_text().strip() for name in ("role_id", "secret_id")}
         auth = vault_request("POST", "/v1/auth/approle/login", json=ids)["auth"]
@@ -75,18 +77,19 @@ def vault_token(role, state):
 
 
 def _vault_read(method, path):
-    """Vault's answer to ``method`` on ``path`` (as vault_request) with tarik-mcp's AppRole token."""
+    """Return Vault's answer to ``method`` on ``path`` (as vault_request), using tarik-mcp's AppRole token."""
     return vault_request(method, path, vault_token(VAULT_APPROLE, _vault_state))
 
 
 def _vault_field(method, path, key):
-    """``key`` in the "data" of Vault's answer to ``method`` on ``path``; None when the path or the key is missing."""
+    """Return ``key`` of the "data" in Vault's answer to ``method`` on ``path``; None when path or key is missing."""
     answer = _vault_read(method, path) or {}
     return (answer.get("data") or {}).get(key)
 
 
 def read_vault():
-    """Vault's vault_settings: (the shared ones, {cabinet: its own})."""
+    """Read every setting from Vault. Returns (shared, cabinets): shared is {key: value} from secret/tarik/shared and
+    secret/tarik/orchestrator (the latter wins); cabinets is {cabinet: {key: value}} for each cabinet path."""
     shared = _vault_field("GET", "/v1/secret/data/tarik/shared", "data") or {}
     own = _vault_field("GET", "/v1/secret/data/tarik/orchestrator", "data") or {}
     shared = {**shared, **own}
@@ -100,8 +103,9 @@ def read_vault():
 
 
 def _refresh_vault(wait):
-    """Read every setting again, trying for ``wait`` seconds on a first read. Once read, an outage keeps the last
-    values, tried again VAULT_RETRY_SECONDS later."""
+    """Read every setting again into _vault_state, retrying for ``wait`` seconds on a first read (then raising).
+    Once values were read, a Vault outage keeps the last ones and the next read is tried VAULT_RETRY_SECONDS
+    later."""
     deadline = time.monotonic() + wait
     while True:
         try:
@@ -119,7 +123,7 @@ def _refresh_vault(wait):
 
 
 def vault_settings(wait=0):
-    """The shared and per-cabinet vault_settings, read again once they are 5 minutes old. ``wait``: seconds
+    """Return (shared, cabinets) as read_vault does, read again once VAULT_REFRESH_SECONDS old. ``wait``: seconds
     to keep trying a first read (Vault still starting or unsealing)."""
     with _vault_lock:
         if _vault_state["values"] is None or time.monotonic() >= _vault_state["next_read"]:
@@ -128,7 +132,7 @@ def vault_settings(wait=0):
 
 
 def reread_vault():
-    """Every setting read again now (a change made from the Cabinets page): in use from the next call."""
+    """Read every setting again now (after a change made from the Cabinets page), in use from the next call."""
     with _vault_lock:
         _refresh_vault(0)
 
@@ -141,8 +145,9 @@ NAME = re.compile(r"[a-z][a-z0-9_]{0,62}")
 
 
 def cabinet_names(value):
-    """The cabinets' names, comma-separated (Vault's cabinet paths, or TARIK_CABINETS in the tests), as a frozenset,
-    checked: each exactly a lowercase identifier, no repeats; SystemExit otherwise."""
+    """Return the comma-separated cabinet names in ``value`` (Vault's cabinet paths, or TARIK_CABINETS in the tests)
+    as a frozenset. Raises SystemExit unless each is a lowercase identifier (NAME, not "public" nor "pg_...") and
+    none is repeated."""
     names = [name.strip() for name in (value or "").split(",") if name.strip()]
     for name in names:
         if not NAME.fullmatch(name) or name == "public" or name.startswith("pg_"):
@@ -153,13 +158,14 @@ def cabinet_names(value):
 
 
 def active(own):
-    """Whether a cabinet's own settings let Tarik serve it: ACTIVE "0" is a cabinet deactivated (the Experio API's
-    delete), its settings and data kept."""
+    """True when a cabinet's own settings ``own`` (dict) let Tarik serve it. ACTIVE "0" marks a cabinet deactivated
+    through the Experio API's delete, its settings and data kept."""
     return own.get("ACTIVE", "1") != "0"
 
 
 def served():
-    """The cabinets to serve now: Vault's cabinet paths, but the deactivated ones (the tests: TARIK_CABINETS)."""
+    """Return the cabinets to serve now (frozenset): Vault's cabinet paths except the deactivated ones; in the tests,
+    TARIK_CABINETS."""
     if not VAULT_ENABLED:
         return cabinet_names(os.getenv("TARIK_CABINETS"))
     _shared, cabinets = vault_settings(wait=60)
@@ -172,7 +178,7 @@ CABINETS: Final = set(served())
 
 
 def reload_cabinets():
-    """Vault read again and CABINETS made what it now says: (the cabinets added, those removed)."""
+    """Read Vault again and update CABINETS in place. Returns (added, removed): sets of cabinet names."""
     reread_vault()
     now = served()
     added, removed = now - CABINETS, CABINETS - now
@@ -185,7 +191,7 @@ _current = contextvars.ContextVar("cabinet")
 
 
 def current():
-    """The cabinet of this call. Fails outside one: nothing cabinet-specific may run unscoped."""
+    """Return the cabinet of this call. Raises RuntimeError outside one: nothing cabinet-specific may run unscoped."""
     try:
         return _current.get()
     except LookupError:
@@ -194,7 +200,7 @@ def current():
 
 @contextlib.contextmanager
 def using(name):
-    """Run the block for cabinet ``name``, one of CABINETS."""
+    """Context manager: run the block for cabinet ``name``; PermissionError unless it is one of CABINETS."""
     if name not in CABINETS:
         raise PermissionError(f"unknown cabinet {name!r}")
     token = _current.set(name)
@@ -242,7 +248,7 @@ SHARED_SETTINGS = frozenset(
 
 
 def source():
-    """Every setting, as one mapping: <KEY> for a shared one, <CABINET>__<KEY> for a cabinet's own."""
+    """Return every setting as one mapping: <KEY> for a shared one, <CABINET>__<KEY> for a cabinet's own."""
     if not VAULT_ENABLED:
         return os.environ
     shared, cabinets = vault_settings()
@@ -254,9 +260,10 @@ def source():
 
 
 def setting(key, default=None):
-    """Setting ``key`` for the current cabinet: its own value (<CABINET>__<KEY> in source()) for a
-    cabinet setting, never another cabinet's nor an unprefixed one; the common value (<KEY>) for a
-    shared one. A missing setting without default is an error."""
+    """Return setting ``key`` for the current cabinet: for a cabinet setting, the cabinet's own value
+    (<CABINET>__<KEY> in source()), never another cabinet's nor an unprefixed one; for a shared one, <KEY>.
+    An unset or empty setting returns ``default``. Raises KeyError for an unknown key, or an unset one without
+    default."""
     if key in CABINET_SETTINGS:
         value = source().get(f"{current().upper()}__{key}")
     elif key in SHARED_SETTINGS:
@@ -272,8 +279,9 @@ def setting(key, default=None):
 
 
 def misplaced_in_vault(shared, cabinets, environ=os.environ):
-    """With Vault: a setting under the wrong path, unknown, or still in the environment, where it
-    would be a second copy. The server refuses to start with any."""
+    """Return the misplaced settings (sorted list of "path:key" or environment names), with Vault: a key under the
+    wrong Vault path or unknown, or a setting still in ``environ``, where it would be a second copy. The server
+    refuses to start with any."""
     found = [f"tarik/shared:{key}" for key in shared if key not in SHARED_SETTINGS]
     for name, own in cabinets.items():
         found += [f"tarik/cabinets/{name}:{key}" for key in own if key not in CABINET_SETTINGS]
@@ -287,19 +295,19 @@ def misplaced_in_vault(shared, cabinets, environ=os.environ):
 
 
 def cabinet_db():
-    """A connection to Tarik's Postgres that only sees the current cabinet's schema: an unqualified
+    """Return a connection to Tarik's Postgres that only sees the current cabinet's schema: an unqualified
     table name can only be that cabinet's (search_path holds nothing else, not even public)."""
     return psycopg.connect(**POSTGRES, options=f"-c search_path={current()}")
 
 
 def create_schemas():
-    """Each cabinet's schema and tables, created if missing (engine/sql/cabinet_schema.sql is idempotent)."""
+    """Create each served cabinet's schema and tables if missing (engine/sql/cabinet_schema.sql is idempotent)."""
     for name in sorted(CABINETS):
         create_schema(name)
 
 
 def create_schema(name):
-    """Cabinet ``name``'s schema and tables, created if missing."""
+    """Create cabinet ``name``'s schema and tables if missing."""
     with psycopg.connect(**POSTGRES) as admin:
         admin.execute(sql.SQL(Q.create_cabinet_schema).format(name=sql.Identifier(name)))
     with using(name), cabinet_db() as conn:

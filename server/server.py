@@ -1,7 +1,9 @@
-"""Tarik's server: its graphs served over HTTP on permissively licensed parts only (starlette, uvicorn: BSD; langgraph
-and its Postgres checkpointer: MIT; psycopg: LGPL, unmodified). Every run and each of its steps is kept in Postgres
-(engine/runs.py), the agent's conversations next to them. The tools (engine/tools/) run in this process, each in its
-cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) starts runs for the mailboxes it answers.
+"""Serve Tarik's graphs, pages and APIs over HTTP, on permissively licensed parts only (starlette, uvicorn: BSD;
+langgraph and its Postgres checkpointer: MIT; psycopg: LGPL, unmodified).
+
+Every run and each of its steps is kept in Postgres (engine/runs.py), with the agent's conversations next to them.
+The tools (engine/tools/) run in this process, each in its cabinet's schema of the same Postgres; the mail watcher
+(engine/mail.py) starts runs for the mailboxes it answers.
 
   GET  /ok                        the server is up, and its graphs
   POST /gladden/{token}           Gladden's callback (engine/tools/core/gladden.py), open: its random token is its key
@@ -13,6 +15,7 @@ cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) starts 
   GET  /runs/{run_id}/steps/{id}  one step's whole output
   GET  /graphs/{graph}            a workflow's shape for the canvas: its nodes, groups and edges
   GET|PUT|DELETE /graphs/{graph}/layout   how the team arranged its canvas (node places, edge bends and style)
+  GET  /prompts/{call_id}         one model call's whole prompt
   /api/cabinets...                the Experio app's API (server/experio_api.py): cabinets created, changed, closed
   GET  /ui/live                   the pages' live updates (server-sent events, engine/live.py)
   GET  /ui/api/...                each page's data, as JSON (server/api/): the runs, each run step by step, the
@@ -20,11 +23,11 @@ cabinet's schema of the same Postgres; the mail watcher (engine/mail.py) starts 
   GET  /ui/..., /login            the team's pages: the Vue app built from server/web/ (into server/web/dist), the
                                   same for each address
 
-Every call but /ok, the login, an invitation, Gladden's callbacks and the pages' files needs a session (the login's
-cookie: server/users.py makes the accounts) or, for scripts (run.py), TARIK_GRAPH_TOKEN as a bearer token. A change
-(POST, PUT, DELETE) made with a session must come from these pages themselves (its Origin or Referer): another site
-cannot make it in someone's name. What changes everyone's Tarik needs an admin's session (admin_only): a member
-reads and talks to Tarik."""
+Every call except /ok, the login, an invitation, Gladden's callbacks and the pages' files needs a session (the
+login's cookie; accounts are made on the Comptes page or with server/users.py) or, for scripts (run.py),
+TARIK_GRAPH_TOKEN as a bearer token. A change (POST, PUT, DELETE) made with a session must come from these pages
+themselves (its Origin or Referer), so another site cannot make it in someone's name. Changes that affect everyone's
+Tarik need an admin's session (admin_only); a member reads and talks to Tarik."""
 
 import asyncio
 import contextlib
@@ -67,9 +70,11 @@ COOKIE = "tarik_session"
 
 
 def admin_only(method, path):
-    """Whether this call is an admin's to make: the cabinets' settings (read too: logins, mailboxes, whitelist), the
-    accounts, a change to the content or to a canvas's layout, a run started by hand. Discussion stays every
-    member's."""
+    """True when the call (``method``, ``path``) needs an admin.
+
+    Admin-only: the cabinets' settings (reading too: they show logins, mailboxes, the whitelist), the accounts, the
+    Journal, a change to the content, a change to a canvas's layout, and a run started by hand. Discussion stays open
+    to every member."""
     return (
         path.startswith(("/ui/api/settings", "/ui/api/comptes", "/ui/api/logs-serveur"))
         or (method == "POST" and path.startswith(("/ui/api/tarik-prompts", "/runs/")))
@@ -78,7 +83,12 @@ def admin_only(method, path):
 
 
 class Guard:
-    """Every call needs a session or the scripts' token; the person behind a session goes in request.state.user."""
+    """ASGI middleware: let a call through only with a session or the right token, and put the caller in
+    request.state.user.
+
+    Open paths (OPEN) pass freely. /api/ needs the Experio app's key only. Other calls need the scripts' token or a
+    session; without one, a page request is redirected to /login and any other gets 401. A session's change must come
+    from these pages (same_origin, else 403), and a member is refused admin_only calls (403)."""
 
     def __init__(self, app):
         self.app = app
@@ -115,7 +125,8 @@ class Guard:
 
 
 def experio_key_shown(request):
-    """The request shows the Experio app's key (Vault: EXPERIO_API_KEY) as its Bearer token. No key set: refused."""
+    """True when the request's Bearer token is the Experio app's key (EXPERIO_API_KEY, from Vault); always False when no
+    key is set."""
     if VAULT_ENABLED:
         shared, _ = vault_settings()
         key = shared.get("EXPERIO_API_KEY", "")
@@ -125,14 +136,15 @@ def experio_key_shown(request):
 
 
 def same_origin(request):
-    """The request comes from these pages: its Origin (or else Referer) is this server's own address."""
+    """True when the request's Origin (or else Referer) is this server's own address, i.e. it comes from these pages."""
     source = request.headers.get("origin") or request.headers.get("referer") or ""
     own = f"{request.url.scheme}://{request.headers.get('host', '')}"
     return source == own or source.startswith(own + "/")
 
 
 def return_to(request):
-    """The page asked for (?next=), one of these pages; else HOME: never sent to another site."""
+    """Return the page to go back to after logging in: ?next= when it is a path on this server, else HOME (never another
+    site)."""
     target = request.query_params.get("next") or api.runs.HOME
     if not target.startswith("/") or target.startswith(("//", "/\\")) or "\\" in target:  # « /\x » is « //x »
         return api.runs.HOME
@@ -140,7 +152,9 @@ def return_to(request):
 
 
 async def login(request: Request):
-    """Logging in ({email, password}): a session cookie, and the page asked for to go back to ({next})."""
+    """POST /ui/api/login {email, password}: open a session and return {ok, next} with the session cookie set.
+
+    Returns 403 for a cross-site request, 400 for invalid JSON, 401 for a wrong login (recorded as login_failed)."""
     if not same_origin(request):
         return JSONResponse({"error": "cross-site request refused"}, status_code=403)
     try:
@@ -166,6 +180,7 @@ async def login(request: Request):
 
 
 async def logout(request: Request):
+    """POST /ui/api/logout: end the caller's session, clear the session cookie, and record the logout."""
     await audit.record(request.state.user["email"], "logout")
     await accounts.log_out(request.cookies.get(COOKIE))
     answer = JSONResponse({"ok": True})
@@ -174,11 +189,14 @@ async def logout(request: Request):
 
 
 async def ok(request: Request):
+    """GET /ok: return {ok: true, graphs: the graph names}, for health checks."""
     return JSONResponse({"ok": True, "graphs": runs.NAMES})
 
 
 async def gladden_callback(request: Request):
-    """Gladden's classification of a document identify_document waits on; any other token is refused."""
+    """POST /gladden/{token}: hand Gladden's classification to the identify_document call waiting on ``token``.
+
+    Returns 400 for invalid JSON, 404 when no call waits on that token."""
     try:
         callback = await request.json()
     except ValueError:
@@ -189,6 +207,10 @@ async def gladden_callback(request: Request):
 
 
 async def start(request: Request):
+    """POST /runs/{graph}: start a run of ``graph`` by hand and record it in the Journal.
+
+    With wait true (the default), waits for the run and returns it (see runs.run); with wait false, returns {run_id,
+    status: "queued"} at once (202). 404 for an unknown graph."""
     name = request.path_params["graph"]
     if name not in runs.NAMES:
         return JSONResponse({"error": f"unknown graph {name!r}"}, status_code=404)
@@ -202,12 +224,18 @@ async def start(request: Request):
 
 
 async def listing(request: Request):
+    """GET /runs: return the latest runs (runs.recent), filtered by ?cabinet= and ?graph=, at most ?limit= (default 50).
+    GET /runs: return the latest runs (runs.recent), filtered by ?cabinet= and ?graph=, at most ?limit= (default 50)."""
     query = request.query_params
     found = await runs.recent(query.get("cabinet"), query.get("graph"), int(query.get("limit", 50)))
     return JSONResponse(found)
 
 
 async def one(request: Request):
+    """GET /runs/{run_id}: return the run with its steps, or 404.
+
+    With ?after=<step id>, returns only {steps after that one, status, error}: what a page following the run fetches
+    at each change."""
     run_id = request.path_params["run_id"]
     after = request.query_params.get("after", "")
     if after.isdigit():  # only its steps after that one, and where it stands: a page following it (app.js)
@@ -221,10 +249,13 @@ async def one(request: Request):
 
 
 async def changes(request: Request):
-    """The pages' live updates (server-sent events), for every page of a browser on one connection (app.js): a
-    "change" each time something they show changes, a cabinet's runs (?cabinet=), a conversation (?session=) or a run
-    (?run=), each given as many times as followed; its data lists the [kind, id] that changed, at most two a second.
-    The page then fetches what it shows. Nothing is read from the database here."""
+    """GET /ui/live: stream the pages' live updates as server-sent events, one connection for every page of a browser
+    (app.js).
+
+    Follows the cabinets (?cabinet=), conversations (?session=) and runs (?run=) given, each repeatable. Each time
+    one of them changes, sends a "change" event whose data lists the [kind, id] pairs that changed, at most two
+    events a second; the page then fetches what it shows. Nothing is read from the database here. 400 when nothing is
+    given to follow."""
     query = request.query_params
     keys = [("cabinet", name) for name in query.getlist("cabinet") if name in CABINETS]
     for kind in ("session", "run"):
@@ -248,6 +279,7 @@ async def changes(request: Request):
 
 
 async def graph_shape(request: Request):
+    """GET /graphs/{graph}: return the workflow's shape for the canvas (graphs.shape); 404 for an unknown graph."""
     name = request.path_params["graph"]
     if name not in runs.NAMES:
         return JSONResponse({"error": f"unknown graph {name!r}"}, status_code=404)
@@ -255,7 +287,10 @@ async def graph_shape(request: Request):
 
 
 async def layout(request: Request):
-    """A workflow's saved arrangement: read (GET), saved (PUT), or forgotten for the automatic one (DELETE)."""
+    """GET, PUT or DELETE /graphs/{graph}/layout: read, save, or forget a workflow's canvas layout.
+
+    PUT returns the layout as stored (400 when it is invalid); DELETE returns an empty layout, so the automatic one
+    is used. PUT and DELETE are recorded in the Journal. 404 for an unknown graph."""
     name = request.path_params["graph"]
     if name not in runs.NAMES:
         return JSONResponse({"error": f"unknown graph {name!r}"}, status_code=404)
@@ -274,8 +309,10 @@ async def layout(request: Request):
 
 
 async def prompt(request: Request):
-    """One model call's whole prompt, of the cabinet picked in the sidebar (the UI opens it when asked: it holds the
-    clients' words)."""
+    """GET /prompts/{call_id}: return one model call's whole prompt, for the cabinet chosen in the sidebar.
+
+    The UI opens it only when asked, since it holds the clients' words. 404 when no cabinet is chosen or the call is
+    unknown."""
     cabinet = api.runs.chosen(request)
     found = await prompts.prompt(cabinet, int(request.path_params["call_id"])) if cabinet else None
     if found is None:
@@ -284,12 +321,16 @@ async def prompt(request: Request):
 
 
 async def step(request: Request):
+    """GET /runs/{run_id}/steps/{step_id}: return one step's whole output, or 404."""
     found = await runs.step_detail(request.path_params["run_id"], int(request.path_params["step_id"]))
     return JSONResponse(found) if found is not None else JSONResponse({"error": "unknown step"}, status_code=404)
 
 
 def check_cabinets():
-    """At start: every cabinet fully configured and its schema ready, or nothing is served."""
+    """Check at start that Vault is set, every cabinet is fully configured, and each schema is ready.
+
+    Raises SystemExit (nothing is served) when Vault is off, no cabinet is configured, a setting is in the wrong
+    Vault path, or a cabinet's Experio account check fails (engine.tools.core.experio.account)."""
     if not VAULT_ENABLED:
         raise SystemExit("VAULT_ADDR is not set: Tarik's settings are read from Vault only")
     if not CABINETS:
@@ -305,8 +346,10 @@ def check_cabinets():
 
 @contextlib.asynccontextmanager
 async def lifespan(app):
-    """The cabinets checked, the run store and the agent's memory, in Postgres, and the mail watcher, for the
-    server's whole life."""
+    """Context manager: set up for the server's whole life the cabinets, the run store, the content, the mail watcher
+    and the agent's memory (the LangGraph Postgres checkpointer).
+
+    Also ends the runs a previous stop cut off (runs.end_cut_off), and closes the run store on the way out."""
     check_cabinets()
     await runs.open_store(DATABASE)
     await runs.end_cut_off()

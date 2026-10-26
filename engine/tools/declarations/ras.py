@@ -4,20 +4,24 @@ of residents (exp.withholding.table, by its type), RAS IS of non-residents, mont
 (exp.foreign.withholding.table, .yearly).
 
 - Which: the ones the client names, else those the dossier files (res.company declaration_ras_tva / _is / _ir).
-- Period: Experio keeps no frequency for them (each declaration's mode defaults to monthly): monthly, quarterly when the
-  client names a quarter, the year for the yearly one; the last ended by Experio's own rule otherwise.
-- Lines: Experio's « Actualiser » (action_refresh); RAS TVA has none, so the computation its form runs
-  (get_tax_withholding_values, post_process_values) is written as its onchange writes it. A refresh deletes the lines
-  added by hand (RAS TVA, IS/IR): a declaration holding some is left as it is.
-- Checks: Experio checks only on « Déclarer » and on the XML; Tarik says first what « Déclarer » would refuse (period
-  not ended, RAS TVA before July 2024, period declared, tiers without ICE or IF, line without activity type or rate),
-  then makes the XML, which runs Experio's own checks. Told too: the IS/IR withholdings Experio leaves out (tiers
-  neither company nor person; withholdings entered on a bank statement, which its computation skips:
-  exp_withholding_table.fetch_withholding_operations wants them already declared), the RAS TVA at 100% (no valid
-  attestation de régularité when the invoice was posted).
-- « Déclarer » (action_post: no writing, the period marked declared) only on the client's words, after a confirmation.
-  Experio's double-declaration check doesn't tell IS from IR: once one is declared for a period the other is refused,
-  which the client is told before. The DGI deposit stays a person's; Tarik never cancels a declaration.
+- Period: Experio keeps no frequency for them on the dossier (mode_type defaults to monthly, yearly for the yearly
+  one): monthly, quarterly when the client names a quarter, the year for the yearly one; else the last ended, as
+  Experio picks it (exp.declaration.base._get_last_ended_period_and_fiscal_year).
+- Lines: Experio's « Actualiser » (action_refresh). RAS TVA has none, so Tarik runs the computation its form's
+  onchange runs (get_tax_withholding_values, post_process_values) and writes the lines as it does. For RAS TVA and
+  IS/IR the refresh clears every line, including those added by hand, so a declaration holding some is not
+  refreshed; the non-residents' refresh keeps them.
+- Checks: Experio checks only on « Déclarer » and on the XML. Tarik reports first what « Déclarer » would refuse
+  (period not ended, RAS TVA before July 2024, period declared, tiers without ICE or IF, RAS TVA line without expense
+  type or rate), then makes the XML, which runs Experio's own checks. Also reported: the IS/IR withholdings Experio
+  leaves out (tiers neither company nor person; withholdings entered on a bank statement, which its computation
+  skips: exp.withholding.table.fetch_withholding_operations only takes moves already flagged
+  local_withholding_declared), and the RAS TVA lines at 100% (no valid attestation de régularité when the invoice was
+  posted).
+- « Déclarer » (action_post: no accounting entry; the declaration set done and its source moves flagged declared) only
+  on the client's words, after a confirmation. Experio's double-declaration check (exp.declaration.base
+  ._compute_already_declared) doesn't tell IS from IR: once one is declared for a period the other is refused, and
+  the client is warned before. The DGI deposit stays a person's; Tarik never cancels a declaration.
 """
 
 import re
@@ -104,7 +108,7 @@ LINE_FIELDS = ["partner_id", "added_manually", "withholding_percentage", "expens
 
 
 def kinds_named(words, company):
-    """The declarations the client's ``words`` name, else those the dossier files (its RAS flags)."""
+    """Return the KINDS keys the client's ``words`` name, else those the dossier files (``company``'s RAS flags)."""
     words = normalized(words or "")
     found = []
     for kind, pattern in KIND_WORDS.items():
@@ -117,8 +121,14 @@ def kinds_named(words, company):
 
 
 def period_of(kind, words, today):
-    """(mode, period number or None, year) of the declaration: the year for the yearly one; else monthly, or
-    quarterly when the client names a quarter; the period they name, else the last ended."""
+    """Return (mode, period number, year) of the ``kind`` declaration the client's ``words`` name.
+
+    The yearly one: ("yearly", None, the year named, else the year before). The others: monthly, or quarterly when
+    the client names a quarter; the period named, else the last ended.
+
+    Raises:
+        ToolError: a quarter named for a declaration that is only monthly (non-residents).
+    """
     allowed = KINDS[kind].get("modes", ("monthly", "quarterly"))
     words = normalized(words or "")
     if allowed == ("yearly",):
@@ -132,8 +142,11 @@ def period_of(kind, words, today):
 
 
 def declaration_of(kind, dossier_id, mode, period, year, context):
-    """The dossier's declaration of the period: its declared one, else its draft, else a new draft (None in test
-    mode). (id or None, made now)."""
+    """Find or create the dossier's ``kind`` declaration for ``period`` (None for the yearly one) and ``year``.
+
+    Returns (declaration_id, created): the declared one, else the latest draft, with created False; else a new draft
+    in ``mode`` with created True. (None, False) in test mode when there is none to take up.
+    """
     spec = KINDS[kind]
     domain = [("company_id", "=", dossier_id), ("fiscal_year", "=", str(year)), ("state", "!=", "cancel")]
     if period:
@@ -157,7 +170,7 @@ def declaration_of(kind, dossier_id, mode, period, year, context):
 
 
 def refresh(kind, table_id, context):
-    """Experio's « Actualiser »; for RAS TVA, which has none, its form's own computation, written as it writes it."""
+    """Run Experio's « Actualiser » on the declaration; for RAS TVA, which has none, write its form's computation."""
     spec = KINDS[kind]
     if kind != "tva":
         odoo_json(spec["model"], "action_refresh", [table_id], context=context)
@@ -169,6 +182,7 @@ def refresh(kind, table_id, context):
 
 
 def lines_of(kind, table_id, context):
+    """Return the declaration's lines as read: LINE_FIELDS plus the ``kind``'s summed amounts."""
     spec = KINDS[kind]
     fields = LINE_FIELDS + list(spec["sums"])
     table = odoo_call(spec["model"], "read", [table_id], fields=[spec["lines"]], context=context)[0]
@@ -176,7 +190,10 @@ def lines_of(kind, table_id, context):
 
 
 def refusals(kind, table, lines, dossier_id, context):
-    """What Experio's « Déclarer » would refuse, as it checks it (action_post), in its order."""
+    """Return French phrases for what Experio's « Déclarer » (action_post) would refuse, in its order; [] when none.
+
+    The RAS TVA July 2024 rule compares the period's record id with 7, as Experio does.
+    """
     spec, found = KINDS[kind], []
     if table["end_date"] and table["end_date"] >= date.today().isoformat():
         found.append("la période n'est pas terminée")
@@ -222,7 +239,7 @@ def refusals(kind, table, lines, dossier_id, context):
 
 
 def left_out(kind, table, dossier_id, context):
-    """What Experio's computation leaves out without a word, for IS/IR."""
+    """Return French phrases counting the IS/IR withholdings Experio's computation leaves out; [] for other kinds."""
     if kind not in ("is", "ir"):
         return []
     said = []
@@ -248,7 +265,11 @@ def left_out(kind, table, dossier_id, context):
 
 
 def prepare(kind, dossier_id, words, declarer, client_confirmed, context, session_id=""):
-    """One declaration prepared (and declared when asked and confirmed): (status, text, declaration id)."""
+    """Prepare one ``kind`` declaration, and declare it when ``declarer`` and ``client_confirmed``.
+
+    Returns (status, text, declaration_id): status is "ok", "question" (declaration asked, not confirmed yet) or
+    "stop" (Experio would refuse or refused); declaration_id is None in test mode when none exists.
+    """
     spec = KINDS[kind]
     mode, number, year = period_of(kind, words, date.today())
     period = find_period(mode, number) if number else None
@@ -299,6 +320,7 @@ def prepare(kind, dossier_id, words, declarer, client_confirmed, context, sessio
 
 
 def totals(spec, lines):
+    """Return the French summary of ``lines``: count and the sums ``spec`` lists."""
     if not lines:
         return "aucune retenue sur la période (déclaration à néant)."
     sums = ", ".join(f"{name} {sum(line[field] or 0 for line in lines):.2f}" for field, name in spec["sums"].items())
@@ -314,12 +336,21 @@ def prepare_ras_declaration(
     client_confirmed: bool = False,
     session_id: str = "",
 ) -> dict:
-    """Prepare the dossier's withholding declarations (RAS) in Experio: those the client names (``declarations``:
-    « RAS TVA », « IS », « IR », « non-résidents », « non-résidents annuelle »), else those the dossier files; for
-    the period named (``periode``: « août 2026 », « T3 », « 2025 » for the yearly one; empty for the last ended).
-    Each made or taken up, refreshed by Experio, what it leaves out and what Experio would refuse said, its XML made.
-    ``declarer``: the client asks to declare them; declared only once ``client_confirmed``. The DGI deposit stays the
-    cabinet's."""
+    """Prepare the dossier's withholding declarations (RAS) in Experio, and declare them when asked and confirmed.
+
+    Each is created or taken up, refreshed by Experio, its XML made; what Experio leaves out and would refuse is
+    reported to the client.
+
+    Args:
+        declarations: those the client names (« RAS TVA », « IS », « IR », « non-résidents », « non-résidents
+            annuelle »); empty for those the dossier files.
+        periode: the period named (« août 2026 », « T3 », « 2025 » for the yearly one); empty for the last ended.
+        declarer: the client asks to declare them.
+        client_confirmed: the client confirmed; only then is « Déclarer » run.
+
+    Returns a question result when any declaration waits for confirmation, else a stop result when any was refused,
+    else an ok result. The DGI deposit stays the cabinet's.
+    """
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
     with refused(f"prepare_ras_declaration {dossier_id}", "Experio n'a pas pu préparer la déclaration RAS ({reason})."):

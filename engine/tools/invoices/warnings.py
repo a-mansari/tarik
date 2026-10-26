@@ -1,11 +1,11 @@
-"""Experio's warnings on an invoice, each handled on its own -- fixed, waited out, dismissed, or asked about.
+"""Experio's warnings on an invoice, each handled on its own: fixed, waited out, dismissed, or asked about.
 
 Experio posts despite its warnings (action_post raises on settings and errors only), but each warning says something
-is off. Its nine checks (exp_invoice.py collect_validation_messages, the list in docs/experio-warnings.md) are called
-here one by one: called alone, a check's refusal rolls back what it writes, so nothing is left on the invoice. What
-Experio can fix itself is fixed its way (its onchange sets the RAS TVA rate), what time settles is waited for (an
-exchange rate not published yet), what cannot apply to the invoice is dismissed as the cabinet would (action_dismiss_
-warning, in the invoice's history), and only a real choice is asked.
+is off. Its nine checks (validate_warnings and collect_validation_messages in exp_invoice.py, the list in
+docs/experio-warnings.md) are called here one by one: called alone, a check's refusal rolls back what it writes, so
+nothing is left on the invoice. What Experio can fix itself is fixed its way (its onchange sets the RAS TVA rate),
+what time settles is waited for (an exchange rate not published yet), what cannot apply to the invoice is dismissed
+as the cabinet would (action_dismiss_warning, noted in the invoice's history), and only a real choice is asked.
 """
 
 import calendar
@@ -69,12 +69,16 @@ ROUNDS = 3  # each round fixes what it can, then everything is checked again
 
 
 def dismissed(invoice):
+    """Return the warning codes dismissed on the invoice (set of str, from dismissed_warning_codes)."""
     return set(filter(None, (invoice["dismissed_warning_codes"] or "").split(",")))
 
 
 def ice_case(invoice, company):
-    """Which part of Experio's ICE/IF check speaks (validate_warning_invalid_ice_and_if): ("reverse", code) when
-    the issuer read is the dossier itself, ("mismatch", code) when the buyer read is another company, else None."""
+    """Return which case of Experio's ICE/IF check (validate_warning_invalid_ice_and_if) applies, with its code.
+
+    ("reverse", code) when the issuer read carries the dossier's own ICE or IF; ("mismatch", code) when the buyer read
+    carries another ICE or IF than the dossier's; else None. ``company``: the dossier read by company_of.
+    """
     reverse = "supplier" if invoice["type"] == "purchase" else "customer"
     buyer = "customer" if invoice["type"] == "purchase" else "supplier"
     for number, field in (("ice", "ice"), ("if", "vat")):
@@ -88,8 +92,11 @@ def ice_case(invoice, company):
 
 
 def dismiss(invoice, code, message, context):
-    """Dismiss warning ``code`` as the cabinet does on the invoice form: Experio records who and when, and writes
-    « Warning deactivated » in the invoice's history."""
+    """Dismiss warning ``code`` (with its ``message``) as the cabinet does on the invoice form; nothing in test mode.
+
+    Experio's action_dismiss_warning adds the code to dismissed_warning_codes and posts « Warning deactivated:
+    <message> » in the invoice's history, under the user's name and date.
+    """
     if dry_run():
         return
     odoo_call("exp.invoice", "write", [invoice["id"]], {"warning_code": code, "warning_msg": message}, context=context)
@@ -97,19 +104,23 @@ def dismiss(invoice, code, message, context):
 
 
 def tiers_type(invoice):
+    """Return the type of the invoice's tiers ("company" or "person"), "" when the invoice has no tiers."""
     if not invoice["partner_id"]:
         return ""
     return odoo_call("exp.partner", "read", [invoice["partner_id"][0]], fields=["type"])[0]["type"]
 
 
 def company_of(invoice):
+    """Return the invoice's dossier: {id, name, ice, vat, prorata_rate}."""
     fields = ["name", "ice", "vat", "prorata_rate"]
     return odoo_call("res.company", "read", [invoice["company_id"][0]], fields=fields)[0]
 
 
 def raised(invoice, context):
-    """{check: Experio's message} for each of its checks that warns about the invoice, those the cabinet (or Tarik)
-    dismissed on it left out."""
+    """Return {check: Experio's message} for each of Experio's checks that warns about the invoice.
+
+    Warnings the cabinet (or Tarik) dismissed on the invoice are left out.
+    """
     found = {check: message for check in CHECKS if (message := warns(invoice["id"], check, context))}
     gone = dismissed(invoice)
     if "validate_warning_use_prorata" in found and PRORATA in gone:
@@ -122,6 +133,7 @@ def raised(invoice, context):
 
 
 def rate_question(invoice, kind):
+    """Return the question result asking which IS/IR rate to apply, the invoice's not being valid for tiers ``kind``."""
     rates = IS_IR_RATES[kind]
     return question(
         f"Facture {invoice['id']} : la retenue IS/IR de {invoice['local_withholding_percentage']} % ne vaut pas pour "
@@ -131,8 +143,11 @@ def rate_question(invoice, kind):
 
 
 def handle(check, invoice, message, context):
-    """What is done about one warning: a phrase for the client when it was fixed, else the result that ends this
-    step (a question, a wait, a stop)."""
+    """Handle one warning of Experio's ``check`` (its ``message``) on the invoice.
+
+    Returns a phrase for the reply when the warning was fixed or dismissed, else the result that ends this step
+    (a question, wait or stop result).
+    """
     invoice_id = invoice["id"]
     if check == "validate_warning_previous_charges":
         result = settle_exercice(invoice_id)
@@ -181,8 +196,12 @@ def handle(check, invoice, message, context):
 
 
 def ice_warning(invoice, message, context):
-    """The ICE/IF warning: a sale read as a purchase stops the invoice; a buyer that is not the dossier is asked about
-    once (oui: kept in this dossier, the warning dismissed)."""
+    """Handle Experio's ICE/IF warning on the invoice.
+
+    Returns a stop result when the issuer is the dossier itself (likely a sale read as a purchase). When the buyer is
+    not the dossier, asks once whether the invoice belongs to this dossier: after « oui » the warning is dismissed and
+    a phrase for the reply is returned; after « non » a stop result; before any answer a question result.
+    """
     invoice_id, company = invoice["id"], company_of(invoice)
     case, code = ice_case(invoice, company) or ("", "")
     if case == "reverse":
@@ -209,9 +228,13 @@ def ice_warning(invoice, message, context):
 
 @step_tool
 def settle_warnings(invoice_id: int) -> dict:
-    """Handle each warning Experio gives on a draft invoice before it is posted: fixed when Experio or Tarik can (the
-    RAS TVA rate by Experio's rules, the dossier's prorata, the exercice), waited out when time settles it (an exchange
-    rate not published yet), dismissed when it cannot apply, asked about only when it is a real choice."""
+    """Handle each warning Experio gives on a draft invoice before it is posted.
+
+    Fixed when Experio or Tarik can (the RAS TVA rate by Experio's rules, the dossier's prorata, the exercice), waited
+    out when time settles it (an exchange rate not published yet), dismissed when it cannot apply, asked about only
+    when it is a real choice. Checks again after each round of fixes (ROUNDS at most); a warning still there after its
+    fix returns a stop result with Experio's words.
+    """
     invoice = require_invoice(invoice_id, FIELDS)
     if invoice["state"] != "draft":
         return routine(f"Facture {invoice_id} : en état {invoice['state']}, rien à régler.")
@@ -245,7 +268,7 @@ def settle_warnings(invoice_id: int) -> dict:
 
 
 def with_done(result, done):
-    """``result``, telling first what was fixed before it."""
+    """Return ``result`` with the phrases in ``done`` (what was fixed before it) put after its « Facture n : » head."""
     if not done:
         return result
     head, sep, rest = result["message"].partition(" : ")
@@ -253,8 +276,11 @@ def with_done(result, done):
 
 
 def answer_warnings(invoice_id, answer, decision=""):
-    """The client's answer to settle_warnings' question, applied to the warning that asked it (found again, Experio's
-    checks being the truth), then the remaining warnings handled."""
+    """Apply the client's answer to settle_warnings' question, then handle the remaining warnings.
+
+    The warning that asked is found again from Experio's checks (the truth, not what was asked before). ``answer``:
+    the client's own words; ``decision``: what the agent read in them.
+    """
     invoice = require_invoice(invoice_id, FIELDS)
     context = invoice_context(invoice)
     with refused(f"settle_warnings {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier la facture."):

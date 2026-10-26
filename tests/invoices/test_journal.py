@@ -73,6 +73,17 @@ def test_another_dossiers_journal_stops_the_invoice(experio):
 
 
 @pytest.mark.functionality
+def test_an_fnp_invoice_is_checked_against_the_settings_journal_when_the_dossier_has_no_fnp_journal(experio):
+    fnp = {**INVOICE, "is_fnp_invoice": True}
+    experio["setting"] = [7, "FNP"]  # the dossier's FNP journal: Experio's own choice
+    assert journal.chosen_by_dossier(fnp)
+    experio["setting"] = False  # none: Experio takes the local purchase journal, which must be the dossier's own
+    assert not journal.chosen_by_dossier(fnp)
+    experio["misplaced"] = {"local_purchase_journal_id": "ACHAT"}
+    assert journal.journal_stop(3, fnp)["status"] == "stop"
+
+
+@pytest.mark.functionality
 def test_no_account_is_looked_up_without_the_dossiers_journal(experio, monkeypatch):
     from engine.tools.invoices import accounts
 

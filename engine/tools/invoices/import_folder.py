@@ -1,15 +1,18 @@
-"""An import folder (dossier d'import): the documents of one import -- the transit agent's invoice, customs, transport,
-storage, the foreign supplier's invoice, the DUM -- made into one exp.import.folder, as Experio's own « Imports »
+"""Make the client's import documents into an Experio import folder (exp.import.folder), as Experio's own « Imports »
 screen does (form_with_drop_area.js _importFolder, wizard exp.folder.import).
 
-Experio's screen types each page (Transit, Douane, DUM, Pièce jointe...), then: imports every page that is a document
-through exp.invoice.import with its type, its reading held back (defer_bluejay_send); creates the folder
-from them (create_folder_from_js, which sends their reading); sends the DUM pages to be read on their own
-(bluejay_create_dum_tokens_from_javascript); attaches the attachment pages (action_attach_pages_from_javascript).
-Tarik does the same, each page typed by the model among Experio's own types, but attaches the DUM unread (Experio's
-reading needs its screen's request); the drafts made then go through the invoice's usual steps.
-Only on the client's own words: « dossier d'import », and « plusieurs dossiers » for one folder per file.
-"""
+An import folder (dossier d'import) holds one import's documents: the transit agent's invoice, customs, transport,
+storage, the foreign supplier's invoice, the DUM. Experio's screen types each page (Transit, Douane, DUM, Pièce
+jointe...), then:
+- imports each page that is a document (not a DUM nor an attachment) through exp.invoice.import with its type, its
+  reading held back (defer_bluejay_send);
+- creates the folder from those drafts (create_folder_from_js, which sends their reading);
+- sends the DUM pages to be read on their own (bluejay_create_dum_tokens_from_javascript);
+- attaches the attachment pages to the folder (action_attach_pages_from_javascript).
+Tarik does the same, each page typed by the model among Experio's own types, except that it attaches the DUM unread:
+Experio's DUM reading needs the screen's web request (exp_folder_import.py:305). The drafts made then go through the
+invoice's usual steps.
+Used only on the client's own words: « dossier d'import », and « plusieurs dossiers » for one folder per file."""
 
 import base64
 import io
@@ -33,14 +36,16 @@ NOT_DOCUMENTS = ("dum", "attachment")  # Experio's EXCLUDED_INVOICE_TYPES: no ex
 
 
 def folder_mode(words):
-    """(the client asks for an import folder, one folder per file), from their own normalized ``words``."""
+    """Return (wants_folder, one_per_file) from the client's ``words``: whether they ask for an import folder
+    (« dossier d'import »), and whether for one folder per file (« plusieurs dossiers », « un dossier par fichier »)."""
     words = normalized(words or "")
     return bool(FOLDER_WORDS.search(words)), bool(MULTIPLE_WORDS.search(words))
 
 
 def page_types():
-    """Experio's page types for an import folder ({value: label}), as its « Imports » screen lists them, in French: the
-    labels are told to the client (Tarik's Experio user may read them in English)."""
+    """Return Experio's page types for an import folder as {value: label}, from exp.folder.import's import_invoice_type
+    selection. The labels are read in French because they are shown to the client, and Tarik's Experio user may read
+    Experio in English."""
     found = odoo_call(
         "exp.folder.import", "fields_get", ["import_invoice_type"], attributes=["selection"], context={"lang": "fr_FR"}
     )
@@ -48,8 +53,17 @@ def page_types():
 
 
 def typed_page(image, kinds, dossier, what):
-    """The model's (type, starts a document) for one page: a value of ``kinds``, and whether the page begins a document
-    (its own title, number or letterhead) rather than continuing the one before."""
+    """Ask the model for one page's (type, starts).
+
+    Args:
+        image: the page's image.
+        kinds: Experio's page types {value: label} (page_types).
+        dossier: the dossier's name: the importer.
+        what: names the request in the log and in the error when the model fails.
+
+    Returns (type, starts): ``type`` is a key of ``kinds`` ("other" when the model answers anything else); ``starts`` is
+    False only when the model says the page continues the previous one, True when it begins a document (its own title,
+    number or letterhead)."""
     listed = "\n".join(f"- {value}: {label}" for value, label in kinds.items())
     instruction = (
         f"The cabinet's client here is « {dossier} », the importer.\nExperio's page types:\n{listed}\n\n"
@@ -62,8 +76,9 @@ def typed_page(image, kinds, dossier, what):
 
 
 def documents_of(raw, kinds, dossier, name):
-    """The documents of PDF ``raw``: [(type, [page numbers, 0-based])], a new one at each page that starts one or
-    changes type."""
+    """Return the documents of PDF ``raw`` as [(type, [0-based page numbers])]: a new document begins at each page the
+    model says starts one or whose type differs from the previous page's. ``kinds``: Experio's page types; ``dossier``:
+    the dossier's name; ``name``: the file's name, for the log."""
     images = pdf_pages(raw, limit=None)
     documents = []
     for number, image in enumerate(images):
@@ -76,7 +91,7 @@ def documents_of(raw, kinds, dossier, name):
 
 
 def pages_pdf(raw, numbers):
-    """The PDF of pages ``numbers`` (0-based) of ``raw``."""
+    """Return a new PDF (bytes) made of pages ``numbers`` (0-based) of PDF ``raw``."""
     source, document = pypdfium2.PdfDocument(raw), pypdfium2.PdfDocument.new()
     document.import_pages(source, list(numbers))
     buffer = io.BytesIO()
@@ -89,8 +104,17 @@ def b64(data):
 
 
 def make_folder(dossier_id, files, kinds, dossier, multiple):
-    """Each folder of ``files`` ([(file_id, name, raw PDF)]): one for all, or one per file. [(folder's files, its
-    documents [(file_id, name, type, pdf)])]."""
+    """Cut ``files`` into the documents of each folder to create.
+
+    Args:
+        dossier_id: not used.
+        files: [(file_id, name, raw PDF bytes)].
+        kinds: Experio's page types (page_types).
+        dossier: the dossier's name, for the model.
+        multiple: True for one folder per file, False for one folder for all ``files``.
+
+    Returns [(group, documents)], one per folder: ``group`` is that folder's files (as in ``files``); ``documents`` is
+    [(file_id, part name, type, PDF bytes)], one per document found in them."""
     groups = [[file] for file in files] if multiple else [files]
     folders = []
     for group in groups:
@@ -104,7 +128,21 @@ def make_folder(dossier_id, files, kinds, dossier, multiple):
 
 
 def create_in_experio(dossier_id, group, documents, number_rule):
-    """Experio's own folder import of ``documents``: the folder's id and the drafts made [(file_id, name, invoice)]."""
+    """Create one import folder in Experio the way its « Imports » screen does; return (folder_id, made).
+
+    Args:
+        dossier_id: the dossier.
+        group: the folder's files [(file_id, name, raw PDF)]: all their pages make the folder's own PDF.
+        documents: [(file_id, part name, type, PDF bytes)] from make_folder.
+        number_rule: the dossier's import_folder_number (res.company); "file_name" numbers the folder after the first
+            file, any other rule leaves the number to Experio's reading.
+
+    Returns (folder_id, made): ``made`` is the drafts created, [(file_id, part name, invoice_id)].
+
+    Each document that is not a DUM or attachment (NOT_DOCUMENTS) becomes a draft through exp.invoice.import's
+    action_add_documents_from_javascript, with defer_bluejay_send so its reading waits for the folder;
+    create_folder_from_js links the drafts to the new folder and sends their reading (exp_import_folder.py:786). The DUM
+    and attachment pages are attached to the folder as files (action_attach_pages_from_javascript), the DUM unread."""
     context = {**in_dossier(dossier_id), "default_folder_type": "import"}
     wizard = odoo_call("exp.invoice.import", "create", {"type": "purchase"}, context=context)
     made = []
@@ -137,7 +175,7 @@ def create_in_experio(dossier_id, group, documents, number_rule):
 
 
 def pages_pdf_all(raws):
-    """All pages of PDFs ``raws``, in order, as one PDF: the folder's own document."""
+    """Return all pages of PDFs ``raws``, in order, as one PDF: the folder's own document (document_pdf)."""
     document = pypdfium2.PdfDocument.new()
     for raw in raws:
         source = pypdfium2.PdfDocument(raw)
@@ -148,17 +186,32 @@ def pages_pdf_all(raws):
 
 
 def transit_last(made, kinds_of):
-    """The drafts made, the transit agent's invoice last: it takes the folder's invoices paid by the transit agent
-    once they are posted (Experio links only posted ones, _onchange_autofill_disbursement_invoices)."""
+    """Return ``made`` ([(file_id, name, invoice_id)]) with the transit agent's invoice last; ``kinds_of`` is
+    {invoice_id: import_invoice_type}.
+
+    The transit invoice must come after the folder's other drafts are posted: Experio fills a transit invoice's
+    disbursement invoices only with the folder's posted or exported ones
+    (exp.invoice._onchange_autofill_disbursement_invoices, exp_invoice.py:2698)."""
     return sorted(made, key=lambda item: kinds_of.get(item[2]) == "transit")
 
 
 @step_tool
 def create_import_folder(session_id: str, dossier_id: int, client_message: str = "") -> dict:
-    """Make the conversation's new files into an import folder in Experio (one, or one per file when the client says
-    « plusieurs dossiers »), as Experio's « Imports » screen does: each page typed among Experio's own types (transit,
-    douane, DUM, fournisseur, pièce jointe...), each document a draft of the folder, the DUM read by Experio. Returns
-    the drafts made (``invoices``), the transit agent's invoice last, for the invoice's usual steps."""
+    """Make the conversation's new files into an import folder in Experio, as Experio's « Imports » screen does: each
+    page typed among Experio's own types (transit, douane, DUM, fournisseur, pièce jointe...), each document a draft of
+    the folder, the DUM and attachment pages attached to the folder (the DUM unread: Experio reads a DUM only from its
+    own screen).
+
+    One folder for all the files, or one per file when ``client_message`` (the client's own words) says « plusieurs
+    dossiers ».
+
+    Returns:
+        An ok result whose ``invoices`` are the drafts made, the transit agent's invoice last, for the invoice's usual
+            steps; a stop result (duplicate) when a file's very content already made a folder of the dossier; a question
+            result when no file came.
+
+    Raises:
+        ToolError: a file is neither a PDF nor an image."""
     dossier = require_dossier(dossier_id)
     _, multiple = folder_mode(client_message)
     with cabinet_db() as db:
@@ -210,8 +263,8 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
 
 
 def folder_twins(dossier_id, files):
-    """The files (as sent: [(id, name, bytes)]) whose very content already made an import folder of the dossier, still
-    there: [(name, folder)]."""
+    """Return [(name, folder_id)] for the ``files`` whose very content already made an import folder still in the
+    dossier, and link each such file to that folder. ``files``: [(file_id, name, bytes)] as sent."""
     found = []
     with cabinet_db() as db:
         for file_id, name, raw in files:

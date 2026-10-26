@@ -1,10 +1,9 @@
-"""The invoice's journal.
+"""Make sure the invoice sits in the journal Experio's rule gives it.
 
-Experio picks it when it refreshes an invoice
-(get_invoice_journal_id): the dossier's local or foreign purchase or sale journal, FNP/FAE
-journals, the folder's for customs, or the one chosen by hand in multi-journal dossiers.
-So this step only makes sure the invoice sits there, and says which setting is missing
-when the dossier has none -- creating journals is the cabinet's setup, not Tarik's.
+Experio picks the journal when it refreshes an invoice (exp.invoice get_invoice_journal_id): the one chosen by hand
+in a multi-journal dossier, else the import folder's, else the FNP/FAE journal when set, else the dossier's local or
+foreign purchase or sale journal. So this step only checks the invoice sits there, and reports which setting is
+missing when the dossier has none: creating journals is the cabinet's setup, not Tarik's.
 """
 
 from engine.tools.core.app import ToolError, ok, routine, step_tool, stop
@@ -42,16 +41,27 @@ JOURNAL_FIELDS = [
 ]
 
 
+FNP_JOURNAL = {"purchase": "fnp_supplier_journal_id", "sale": "fae_customer_journal_id"}  # the dossier's FNP / FAE
+
+
 def chosen_by_dossier(invoice):
-    """True when the journal is the dossier's own choice, not Experio's rule from the settings."""
+    """True when the journal is not taken from the dossier's purchase or sale journal settings: chosen by hand in a
+    multi-journal dossier, an import folder's, or an FNP/FAE invoice's when the dossier has an FNP/FAE journal. Without
+    one, Experio falls back to the settings journal for an FNP/FAE invoice too (exp_invoice.py get_invoice_journal_id),
+    so that one is checked."""
     multi = invoice["enable_multi_journal"] and invoice["journal_id"]
-    return bool(multi or invoice["folder_id"] or invoice["is_fnp_invoice"])
+    if multi or invoice["folder_id"]:
+        return True
+    if not invoice["is_fnp_invoice"]:
+        return False
+    field = FNP_JOURNAL[invoice["type"]]
+    return bool(odoo_call("res.company", "read", [invoice["company_id"][0]], fields=[field])[0][field])
 
 
 def journal_stop(invoice_id, invoice):
-    """A stop result when the dossier's journal setting for the invoice is unset or another dossier's (Experio's
-    default for a new dossier, which Experio then refuses to read inside it), else None. ``invoice``: its
-    JOURNAL_FIELDS."""
+    """Return a stop result when the dossier's journal setting for the invoice is unset or holds another dossier's
+    journal (Experio's default for a new dossier, which Experio then refuses to read inside it); else None.
+    ``invoice``: its JOURNAL_FIELDS."""
     if chosen_by_dossier(invoice):
         return None
     field, label, where = SETTING[(invoice["type"], bool(invoice["is_local_invoice"]))]
@@ -70,8 +80,9 @@ def journal_stop(invoice_id, invoice):
 
 @step_tool
 def check_journal(invoice_id: int) -> dict:
-    """Make sure a draft invoice sits in the journal Experio's rule gives it, and say
-    which dossier setting is missing, or is another dossier's, when it is."""
+    """Make sure a draft invoice sits in the journal Experio's rule gives it, moving it there with Experio's
+    refresh. A stop result names the dossier setting that is missing or holds another dossier's journal.
+    Raises ToolError when Experio keeps another journal."""
     invoice = require_invoice(invoice_id, JOURNAL_FIELDS)
     if chosen_by_dossier(invoice):
         journal = f"`{invoice['journal_id'][1]}`" if invoice["journal_id"] else "non renseigné"

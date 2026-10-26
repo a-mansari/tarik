@@ -195,7 +195,7 @@ def stepper(monkeypatch):
 
 
 @pytest.mark.functionality
-def test_the_stepper_is_walked_to_its_end_with_the_dossiers_journals_and_prefixes(stepper):
+def test_the_stepper_is_walked_to_its_end_with_the_dossiers_journals_and_prefixes_saved_first(stepper):
     company = {**dict.fromkeys(setup.STEPPER_JOURNALS, False), **dict.fromkeys(setup.STEPPER_PREFIXES, False)}
     company.update(local_purchase_journal_id=[4, "ACHATS"], third_party_supplier_account="4411000")
     setup.complete_stepper(company, {"allowed_company_ids": [557]})
@@ -206,7 +206,7 @@ def test_the_stepper_is_walked_to_its_end_with_the_dossiers_journals_and_prefixe
         "completed_phases": list(range(1, 9)),
         "visited_phases": list(range(1, 9)),
     }
-    (method, (config,), kw), last = stepper[8], stepper[9]
+    (method, (config,), kw), last = stepper[0], stepper[9]  # saved before the 8th phase hands the lines over
     assert method == "save_validation_config" and kw == {"context": {"allowed_company_ids": [557]}}
     assert config["local_purchase_journal_id"] == 4 and config["local_sale_journal_id"] is False
     assert config["third_party_supplier_account"] == "4411000" and config["third_party_customer_account"] == "3421"

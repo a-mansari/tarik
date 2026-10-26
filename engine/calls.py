@@ -1,5 +1,7 @@
-"""One call to a Tarik tool (engine/tools/), in the cabinet named: run in a worker thread (the tools are plain blocking
-Python), inside using(cabinet), so it can only ever touch that cabinet's schema and settings."""
+"""Call Tarik's tools (engine/tools/) from the graphs, one cabinet at a time.
+
+Each call runs in a worker thread (the tools are plain blocking Python) inside using(cabinet), so it only ever
+touches that cabinet's schema and settings. Also holds the nodes every workflow begins and ends with."""
 
 import asyncio
 import inspect
@@ -35,11 +37,18 @@ QUIET_WHEN_OK = {
 
 
 class ToolFailure(Exception):
-    """The tool refused (a ToolError), or failed: its message is the only text the client may read."""
+    """Raised when a tool refused (a ToolError) or crashed; its message is the only text the client may read."""
 
 
 async def call(cabinet, tool, /, **arguments):
-    """The tool's result (its dict or its text); ToolFailure when it refused or failed (the cause logged)."""
+    """Run the tool named ``tool`` in ``cabinet`` with keyword ``arguments`` and return its result (a dict or a text).
+
+    At most PER_CABINET calls run at once per cabinet.
+
+    Raises:
+        ToolFailure: the tool is unknown, the arguments don't fit its signature (INVALID), it refused (the
+            ToolError's message) or it crashed (CRASHED). Other than a refusal, the cause is only logged.
+    """
     function = TOOLS.get(tool)
     if function is None:
         raise ToolFailure(f"outil inconnu : {tool}")
@@ -60,7 +69,9 @@ async def call(cabinet, tool, /, **arguments):
 
 
 async def within(cabinet, function, /, *args):
-    """``function(*args)``, one of tarik's plain functions (not a tool), run as a tool is: in its cabinet."""
+    """Run ``function(*args)`` (a plain Tarik function, not a tool) the way a tool runs and return its result.
+
+    It runs in the worker pool inside using(``cabinet``). No slot is taken and exceptions pass through as raised."""
 
     def run():
         with using(cabinet):
@@ -70,8 +81,17 @@ async def within(cabinet, function, /, *args):
 
 
 async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a tool may take a run_id of its own
-    """One step of a sequence: the tool called, its outcome (a failure as {status: error}) recorded for the run's
-    summary (record_step). The ids it was given stay on a failure."""
+    """Call ``tool`` with keyword ``arguments`` as one step of run ``run_id`` and return its step result.
+
+    Args:
+        cabinet: the cabinet to run in.
+        run_id: the run the outcome is recorded under (record_step), for its summary.
+        session: the conversation's id (session_id), recorded with the outcome.
+        tool: the tool's name.
+
+    A ToolFailure becomes {"status": "error", "message": ...}, keeping any invoice_id, file_id or dossier_id it was
+    given. The outcome is recorded, except an ok result of a QUIET_WHEN_OK tool without ``tell``. The first four
+    are positional-only so a tool can take its own ``run_id`` keyword."""
     try:
         result = await call(cabinet, tool, **arguments)
     except ToolFailure as failure:
@@ -88,19 +108,21 @@ async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a
 
 
 async def run_step(state, tool, /, **arguments):
-    """step() in the run ``state`` is part of: its call's cabinet and conversation, its run id."""
+    """Call ``tool`` with keyword ``arguments`` through step(), taking the cabinet, session_id and run_id from the
+    graph ``state`` (state["call"] and state["run_id"]). Returns the step result."""
     given = state["call"]
     return await step(given["cabinet"], state["run_id"], given["session_id"], tool, **arguments)
 
 
 def failed(state):
-    """True when the run's last outcome is not ok: the run goes no further than its summary ("resume")."""
+    """True when the run's last outcome is not an ok result: the run then goes straight to its summary ("resume")."""
     return state["outcomes"][-1].get("status") != "ok"
 
 
 def stops_at(target):
-    """Marks a router whose way to ``target`` is taken only when a step failed (not ok): the canvas
-    (engine.graphs.shape) keeps those exits off the drawing, every other way stays drawn."""
+    """Decorator: mark a router whose route to ``target`` is taken only when a step was not ok.
+
+    The canvas (engine.graphs.shape) leaves those routes out of the drawing; every other route stays drawn."""
 
     def marked(router):
         router.stops_at = target
@@ -110,8 +132,10 @@ def stops_at(target):
 
 
 def ok_or_summary(following):
-    """``following`` when the step before says ok, else the summary ("resume"). Its two ways out named, so the drawn
-    graph shows them (LangGraph cannot see inside the lambda)."""
+    """Return (router, routes) for add_conditional_edges: the router goes to ``following`` when the last step was
+    ok, else to the summary ("resume").
+
+    The routes [following, "resume"] are named so the drawn graph shows them (LangGraph cannot see inside a lambda)."""
     return stops_at("resume")(lambda s: "resume" if failed(s) else following), [following, "resume"]
 
 
@@ -119,8 +143,10 @@ def ok_or_summary(following):
 
 
 def started(inputs):
-    """A run's first node, for a workflow taking ``inputs``: they are kept, the run gets its id (the summary's key),
-    and the conversation's attachments are saved once each."""
+    """Return a workflow's first graph node, for a workflow whose inputs are the key names ``inputs``.
+
+    The node keeps only those keys of state["call"] (any other is dropped), sets run_id (the config's, else a new
+    uuid; the summary's key) and saves the call's attachments (save_files), its result as the first outcome."""
 
     async def start(state, config):
         given = {key: state["call"].get(key) for key in inputs}
@@ -134,12 +160,12 @@ def started(inputs):
 
 
 async def sender_checked(state, dossier_id):
-    """The email's sender may work on ``dossier_id`` (check_sender): its outcome."""
+    """Check that the email's sender may work on ``dossier_id`` (check_sender) and return {"outcomes": [result]}."""
     result = await run_step(state, "check_sender", session_id=state["call"]["session_id"], dossier_id=dossier_id)
     return {"outcomes": [result]}
 
 
 async def summary(state):
-    """A run's last node: what the client reads of it (run_summary)."""
+    """Graph node: a run's last node; sets "message" to the run's summary for the client (run_summary)."""
     result = await call(state["call"]["cabinet"], "run_summary", run_id=state["run_id"])
     return {"message": result["message"]}

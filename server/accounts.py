@@ -1,9 +1,10 @@
-"""Who may use the team's pages: each person's account (email, name, password kept as an scrypt hash, never the
-password), and the sessions they opened (a random token in an HttpOnly cookie; only its hash is kept here). Accounts
-are made by an admin, on the Comptes page or from a terminal (server/users.py): there is no sign-up page. One made
-on the page has no password until its person sets one, through a one-time link (an invitation, INVITATION_HOURS
-long; only its token's hash is kept). Each has a role (ROLES): an admin changes what everyone uses, a member reads
-and talks to Tarik (server/server.py's admin_only says which is which)."""
+"""Manage who may use the team's pages: accounts (email, name, password kept only as an scrypt hash) and the sessions
+they open (a random token in an HttpOnly cookie; only its hash is stored).
+
+An admin creates accounts on the Comptes page or from a terminal (server/users.py): there is no sign-up page. An
+account created on the page has no password until its person sets one through a one-time link (an invitation valid
+INVITATION_HOURS; only its token's hash is stored). Each account has a role (ROLES): an admin changes what everyone
+uses, a member reads and talks to Tarik (server/server.py's admin_only decides which routes need an admin)."""
 
 import hashlib
 import hmac
@@ -20,26 +21,30 @@ INVITATION_HOURS = 72
 MIN_PASSWORD = 12
 EMAIL = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+")  # a comma never: it separates a list's addresses
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
-FAILURES = {}  # email: (count, last failure, monotonic): a guessing run waits
+FAILURES = {}  # email: (count, last failure's monotonic time): a guessing run waits
 WAIT_AFTER, WAIT_SECONDS = 5, 60
 
 
 def hashed(password, salt=None):
+    """Return ``password``'s scrypt hash as "scrypt$<salt hex>$<hash hex>", with ``salt`` (bytes) or a new random one.
+    Return ``password``'s scrypt hash as "scrypt$<salt hex>$<hash hex>", with ``salt`` (bytes) or a new random one."""
     salt = salt or secrets.token_bytes(16)
     return f"scrypt${salt.hex()}${hashlib.scrypt(password.encode(), salt=salt, **SCRYPT).hex()}"
 
 
 def matches(password, stored):
+    """True when ``password`` hashes to ``stored`` (a hashed() string), compared in constant time."""
     _, salt, _ = stored.split("$")
     return hmac.compare_digest(hashed(password, bytes.fromhex(salt)), stored)
 
 
 def digest(token):
+    """Return the SHA-256 hex digest of ``token``: the only form in which session and link tokens are stored."""
     return hashlib.sha256(token.encode()).hexdigest()
 
 
 async def save_user(email, name, password):
-    """An account made, or its name and password changed (and reactivated)."""
+    """Create an account, or update an existing one's name and password and reactivate it."""
     async with runs.pool.connection() as db:
         await db.execute(
             Q.user_saved,
@@ -48,14 +53,18 @@ async def save_user(email, name, password):
 
 
 async def last_admin(db, email):
-    """Whether ``email`` is the only open admin account: demoted or closed, nobody could manage the others."""
+    """True when ``email`` is the only active admin account: demoting or closing it would leave nobody to manage
+    accounts."""
     admins = [row[0] for row in await (await db.execute(Q.admins_active)).fetchall()]
     return admins == [email]
 
 
 async def set_role(email, role):
-    """An account's role changed (one of ROLES); LookupError when there is no such account, ValueError for the last
-    admin made a member."""
+    """Change the role (one of ROLES) of the account ``email``.
+
+    Raises:
+        ValueError: an unknown role, or the last admin made a member.
+        LookupError: no such account."""
     if role not in ROLES:
         raise ValueError(f"role {role!r}: admin or member")
     email = email.strip().lower()
@@ -67,8 +76,8 @@ async def set_role(email, role):
 
 
 async def disable(email):
-    """An account closed: it can no longer log in, its sessions end and its links die. ValueError for the last
-    admin."""
+    """Close the account ``email``: it can no longer log in, its sessions end and its links are deleted. ValueError for
+    the last admin."""
     email = email.strip().lower()
     async with runs.pool.connection() as db:
         if await last_admin(db, email):
@@ -79,7 +88,8 @@ async def disable(email):
 
 
 async def listed():
-    """Every account: {email, name, role, active, created, has_password, last_seen (its latest session's end)}."""
+    """Return every account: [{email, name, role, active, created, has_password, last_seen}], last_seen being its latest
+    session's expiry."""
     async with runs.pool.connection() as db:
         rows = await (await db.execute(Q.users_listed)).fetchall()
     keys = ("email", "name", "role", "active", "created", "has_password", "last_seen")
@@ -87,8 +97,10 @@ async def listed():
 
 
 async def invite(email, name, role):
-    """A new account, without a password, and its invitation's token; ValueError (in plain French) when the email or
-    the name won't do, or the account exists (make it a new link instead)."""
+    """Create an account without a password and return its invitation link's token.
+
+    Raises ValueError (in plain French) for an invalid email, an empty name, an unknown role, or an existing account
+    (give it a new link instead)."""
     email, name = email.strip().lower(), name.strip()
     if not EMAIL.fullmatch(email):
         raise ValueError("ce n'est pas une adresse email")
@@ -103,8 +115,11 @@ async def invite(email, name, role):
 
 
 async def new_link(email):
-    """A new one-time link's token for this account (a new account's first password, or a reset); the links it had
-    die. The password it has works until the link is used. LookupError when there is no such account."""
+    """Create a new one-time link for the account ``email`` (a new account's first password, or a reset) and return its
+    token.
+
+    The account's earlier links are deleted; its current password keeps working until the link is used. Raises
+    LookupError when there is no such account."""
     email, token = email.strip().lower(), secrets.token_urlsafe(32)
     async with runs.pool.connection() as db:
         if not await (await db.execute(Q.user_found, (email,))).fetchone():
@@ -115,15 +130,17 @@ async def new_link(email):
 
 
 async def invited(token):
-    """{email, name} of the account a link is for while it can be used, else None."""
+    """Return {email, name} of the account a link ``token`` is for while the link is usable, else None."""
     async with runs.pool.connection() as db:
         row = await (await db.execute(Q.invitation_found, (digest(token or ""),))).fetchone()
     return {"email": row[0], "name": row[1]} if row else None
 
 
 async def accept(token, password):
-    """The password its person chose, through the link ``token`` (used once): the account open, its other sessions
-    ended. The email (str); ValueError when the password won't do or the link can't be used."""
+    """Set the password chosen through the one-time link ``token`` and return the account's email.
+
+    Using the link spends it, reactivates the account and ends its other sessions. Raises ValueError when the
+    password is shorter than MIN_PASSWORD or the link is used or expired."""
     if len(password) < MIN_PASSWORD:
         raise ValueError(f"mot de passe trop court : {MIN_PASSWORD} caractères au moins")
     async with runs.pool.connection() as db, db.transaction():
@@ -136,13 +153,16 @@ async def accept(token, password):
 
 
 def forget_waited(now):
-    """The failures past their wait forgotten: nothing to remember, the throttle never grows without end."""
+    """Drop the login failures whose wait is over (at ``now``, monotonic), so FAILURES never grows without bound."""
     for stale in [key for key, (_, at) in FAILURES.items() if now - at >= WAIT_SECONDS]:
         del FAILURES[stale]
 
 
 async def log_in(email, password):
-    """A new session's token for this email and password, or None (wrong, closed, or too many tries)."""
+    """Open a session for ``email`` and ``password`` and return its token, or None.
+
+    None when the password is wrong, the account has no password yet or is closed, or after WAIT_AFTER failures
+    within WAIT_SECONDS (a guessing run waits)."""
     email = email.strip().lower()
     count, last = FAILURES.get(email, (0, 0.0))
     if count >= WAIT_AFTER and time.monotonic() - last < WAIT_SECONDS:
@@ -165,7 +185,7 @@ async def log_in(email, password):
 
 
 async def user_of(token):
-    """{email, name, role} of the session ``token`` opened, or None when it is unknown, expired or its account
+    """Return {email, name, role} of the session ``token`` opened, or None when it is unknown, expired or its account
     closed."""
     if not token:
         return None
@@ -175,5 +195,6 @@ async def user_of(token):
 
 
 async def log_out(token):
+    """End the session ``token`` opened."""
     async with runs.pool.connection() as db:
         await db.execute(Q.session_closed, (digest(token or ""),))

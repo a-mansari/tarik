@@ -1,7 +1,9 @@
-"""Checks the graphs and the content against each other: every tool a graph or the agent calls exists (engine/tools/),
-the stack's content has every document the code reads (each tool's prompt, each tool's description), every step the
-canvas draws has its plain description, and every input a workflow is given its name (labels.json) and a place in
-the workflow's INPUTS. Run in the container: python check.py (exit 1 on a gap)."""
+"""Check the graphs and the content against each other; print each gap and exit 1 on any.
+
+Checks that every tool a graph or the agent calls exists (engine/tools/), the stack's content has every document the
+code reads (each tool's prompt, each agent tool's description), every step the canvas draws has a description, and
+every input a workflow is given has a name in labels.json and a place in the workflow's INPUTS.
+Run in the container, from the repo root: python check.py"""
 
 import ast
 import asyncio
@@ -23,8 +25,8 @@ TOOL_ARGUMENT = {"step": 3, "run_step": 1, "call": 1, "run_tool": 1}  # where ea
 
 
 def called():
-    """{tool: where} for every tool named in the graphs' calls (step, run_step, call, run_tool) and the agent's read
-    tools."""
+    """Return {tool: where} for every tool named as a constant in engine/*.py calls to step, run_step, call or
+    run_tool, plus INVOICE_CHAIN and the agent's read tools."""
     found = dict.fromkeys(INVOICE_CHAIN, "pipeline.INVOICE_CHAIN")
     found |= dict.fromkeys(agent.READ_TOOLS, "agent.READ_TOOLS")
     for path in ENGINE.glob("*.py"):
@@ -37,7 +39,8 @@ def called():
 
 
 def missing_content():
-    """What the code reads that the stack's content lacks: a tool's prompt, or a tool's description."""
+    """Return the gaps: tool prompts (tool_prompt("name")) with no tools/<name>.md, and agent tools agent.json does not
+    describe."""
     prompts = {
         name
         for path in Path("engine/tools").rglob("*.py")
@@ -59,6 +62,7 @@ def missing_content():
 
 
 def undescribed():
+    """Return the canvas nodes (agent and every workflow, starts and ends aside) with no description in labels.json."""
     return [
         f"{name}: no description for {node['id']}"
         for name in ("agent", *graphs.COMPILED)
@@ -68,7 +72,8 @@ def undescribed():
 
 
 def unnamed():
-    """Every input a workflow is given has a name in plain words (labels.json: inputs), but those never shown."""
+    """Return the gaps: workflow inputs with no name in labels.json (inputs) except HIDDEN ones, and journal actions
+    with no words (audit)."""
     discussion = set(chat.Chat.__annotations__) - set(chat.Steps.__annotations__)  # its inputs, not its outputs
     given = {*traitement.INPUTS, *dossier.INPUTS, *declarations.INPUTS, *exports.INPUTS, *discussion}
     given |= {"sender", "subject", "files"}
@@ -79,9 +84,10 @@ def unnamed():
 
 
 def dropped():
-    """Every argument an agent's workflow tool takes reaches its workflow, and is one the workflow keeps (its INPUTS):
-    engine.calls.started keeps only those, any other is dropped without a word. Each tool is called with its
-    run_workflow replaced, to see what it hands over."""
+    """Return the gaps where an agent workflow tool's argument does not reach its workflow, or is not in that
+    workflow's INPUTS (engine.calls.started silently drops any other key).
+
+    Each tool is called with agent.run_workflow replaced, to see what it hands over."""
     kept = {"traitement": traitement.INPUTS, "dossier": dossier.INPUTS, "declarations": declarations.INPUTS}
     kept["export"] = exports.INPUTS
     handed = []
@@ -108,7 +114,7 @@ def dropped():
 
 
 def sample_arguments(coroutine):
-    """{argument: its default, else 0} for every argument of a tool's ``coroutine`` but its runtime."""
+    """Return {argument: its default, else 0} for every argument of a tool's ``coroutine`` except runtime."""
     arguments = {}
     for name, parameter in inspect.signature(coroutine).parameters.items():
         if name != "runtime":

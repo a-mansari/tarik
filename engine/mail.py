@@ -1,13 +1,15 @@
-"""Read each Tarik mailbox (a cabinet's own IMAP_USER) the moment an email arrives, and every 15 minutes in
-case one was missed: store the new emails in their threads, tell the cabinet's manager of refused senders,
-and start an Emails run when a thread waits for an answer. Each run names its cabinet, and works in that cabinet
-only. Started with the server for every cabinet with its own mailbox, and for a cabinet the Experio API creates or
-reactivates (start_one); a deactivated one is no longer served at once, its threads end at their next wake-up.
+"""The mail watcher: read each cabinet's Tarik mailbox (its own IMAP_USER) the moment an email arrives, and every 15
+minutes in case one was missed.
 
-Per cabinet, one IMAP IDLE connection to its Tarik folder (read-only, pinned certificate, as
-read_mailbox connects): the server tells it when the folder gets a new email, and it reads it. The
-connection is renewed every 25 minutes (servers drop an IDLE after ~30) and rebuilt after any error;
-the 15-minute tick still catches whatever happens meanwhile.
+Each read stores the new emails in their threads, notifies the cabinet's manager of refused senders, and starts an
+Emails run (for that cabinet only) when a thread waits for an answer. Watching starts with the server for every
+cabinet with its own mailbox, and for a cabinet the Experio API creates or reactivates (start_one). A deactivated
+cabinet is no longer served at once; its watcher threads end at their next wake-up.
+
+Per cabinet, one IMAP IDLE connection to its Tarik folder (read-only; certificate pinned when MAIL_CERT_SHA256 is
+set, as read_mailbox connects): the IMAP server signals a new email and the watcher reads it. The connection is
+renewed every 25 minutes (servers drop an IDLE after ~30) and rebuilt after any error; the 15-minute tick still
+catches whatever happens meanwhile.
 """
 
 import asyncio
@@ -25,8 +27,9 @@ LOOP = None  # the server's event loop, where the runs start (set by start())
 
 
 def wait_for_mail(box, count, seconds):
-    """IDLE on the folder holding ``count`` emails until one more arrives, or ``seconds`` pass: (arrived, the
-    folder's count)."""
+    """IDLE on the open folder ``box``, holding ``count`` emails, until one more arrives or ``seconds`` pass.
+
+    Returns (arrived, count): arrived is True when the folder grew, count is the folder's latest email count."""
     with box.idle(duration=seconds) as idler:
         for kind, data in idler:
             if kind == "EXPUNGE":  # one deleted elsewhere: the count to beat goes down with it
@@ -52,8 +55,9 @@ def wake_tarik(cabinet, why):
 
 
 def serve(cabinet, why):
-    """Store the cabinet's new emails, tell its manager of the refused senders, and wake the workflow when a thread
-    waits. Whatever fails is logged: the next wake-up or tick tries again."""
+    """Store the cabinet's new emails, notify its manager of refused senders, and start an Emails run (wake_tarik,
+    logging ``why``) when a thread waits. Must run within using(cabinet); does nothing for a deactivated cabinet.
+    Every failure is only logged: the next wake-up or tick tries again."""
     if cabinet not in CABINETS:  # deactivated meanwhile: nothing read, nothing answered
         return
     try:
@@ -76,7 +80,8 @@ def serve(cabinet, why):
 
 
 def watch(cabinet):
-    """IDLE on the cabinet's mailbox: Tarik is woken the moment an email arrives."""
+    """Keep an IDLE connection on the cabinet's mailbox and serve it each time an email arrives, reconnecting 30 s
+    after any error, until the cabinet is deactivated."""
     with using(cabinet):
         while cabinet in CABINETS:
             try:
@@ -93,8 +98,8 @@ def watch(cabinet):
 
 
 def tick(cabinet):
-    """Every 15 minutes, whatever IDLE saw: an email it missed (connection down, server quirk), or a thread whose
-    run failed, waits no longer."""
+    """Serve the cabinet every 15 minutes whatever IDLE saw, until the cabinet is deactivated, so an email IDLE missed
+    (connection down, server quirk) or a thread whose run failed does not wait longer."""
     with using(cabinet):
         while cabinet in CABINETS:
             time.sleep(TICK_SECONDS)
@@ -102,7 +107,7 @@ def tick(cabinet):
 
 
 def mailboxes():
-    """The cabinets with a Tarik mailbox of their own (IMAP_USER)."""
+    """Return the active cabinets with a Tarik mailbox of their own (IMAP_USER set), sorted."""
     found = []
     for cabinet in sorted(CABINETS):
         with using(cabinet):
@@ -112,7 +117,8 @@ def mailboxes():
 
 
 def start(loop):
-    """Watch every mailbox this stack answers, in background threads of the server."""
+    """Remember the server's event ``loop`` (where Emails runs start) and start watching every cabinet's mailbox, in
+    background threads."""
     global LOOP
     LOOP = loop
     watched = mailboxes()
@@ -122,8 +128,10 @@ def start(loop):
 
 
 def start_one(cabinet):
-    """Watch one cabinet's mailbox: each of its threads not alive started (one still ending after a deactivation
-    carries on); whether it has a mailbox to watch."""
+    """Start watching ``cabinet``'s mailbox; return False when it has no IMAP_USER, else True.
+
+    Starts the watch and tick threads that are not already running (RUNNING). A thread still running after a
+    deactivation and reactivation is kept, not doubled."""
     with using(cabinet):
         if not setting("IMAP_USER", ""):
             return False
@@ -135,7 +143,7 @@ def start_one(cabinet):
 
 
 def alive(job, cabinet):
-    """``job`` for ``cabinet``, known to be running until it ends."""
+    """Run ``job(cabinet)`` (watch or tick) in this thread, and remove it from RUNNING when it ends."""
     try:
         job(cabinet)
     finally:

@@ -1,9 +1,8 @@
-"""Charges (or produits) constatees d'avance -- a billed period over several months.
+"""Charges (or produits) constatées d'avance: an invoice billing a period over several months.
 
-Bluejay doesn't detect the period; check_invoice reads it on the scan. When it spans several
-months, the client is asked whether to spread the charge. Experio does the rest:
-ticking it in the form fills and validates the period, and posting generates the spreading
-entries with the dossier's prepaid account and journal.
+Bluejay does not detect the period; check_invoice reads it on the scan. When it spans several months, the client is
+asked whether to spread the charge. Experio does the rest: ticking it in the form fills and validates the period, and
+posting generates the spreading entries with the dossier's prepaid account and journal.
 """
 
 from engine.tools.core.app import ok, question, routine, step_tool, stop
@@ -23,8 +22,11 @@ from engine.tools.invoices.configuration import save_settings
 
 
 def prepaid_period(start, end):
-    """The billed period from ``start`` to ``end`` (YYYY-MM-DD) as Experio's prepaid fields, when it spans several
-    months, else None."""
+    """Return the billed period from ``start`` to ``end`` (YYYY-MM-DD) as Experio's prepaid fields.
+
+    Returns {prepaid_start_date, prepaid_end_date, prepaid_months} when the period spans two calendar months or more,
+    else None (also for a missing or malformed date, or ``end`` not after ``start``).
+    """
     if not (start and end and len(start) == len(end) == 10 and start < end):
         return None
     months = month_number(end) - month_number(start) + 1
@@ -34,15 +36,19 @@ def prepaid_period(start, end):
 
 
 def month_number(day):
-    """``day`` (YYYY-MM-DD) as a count of months, to subtract one from another."""
+    """Return ``day`` (YYYY-MM-DD) as a count of months (year * 12 + month), so two days can be subtracted."""
     return int(day[:4]) * 12 + int(day[5:7])  # its year, then its month
 
 
 @step_tool
 def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
-    """When a draft invoice bills a period over several months, ask whether to spread it
-    (charges or produits constates d'avance); call again with ``answer`` "oui" or "non", as the agent read the
-    client's reply."""
+    """Ask whether to spread a draft invoice billing a period over several months, then spread it on « oui ».
+
+    The period comes from the stored check of the scan. Spreading means charges (or produits) constatées d'avance:
+    the box ticked and the period filled through Experio's form, the dossier's prepaid journal set first when it has
+    none. Call again with ``answer`` "oui" or "non", as the agent read the client's reply. An invoice already spread
+    only gets its missing journal set.
+    """
     invoice = require_invoice(
         invoice_id, ["state", "type", "company_id", "exercice_id", "invoice_number", "has_prepaid_expenses"]
     )
@@ -86,9 +92,18 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
 
 
 def prepaid_journal(company_id, context):
-    """Words on the dossier's prepaid journal: "" when it has one, what was set otherwise, None when none could be.
-    Experio leaves it empty (no default, so its automatic detection skips it); it is set with Experio's own rule for a
-    writings journal: the first general journal of category normal, not « A nouveaux » (exp_account res_company.py:62).
+    """Make sure the dossier has a prepaid journal, setting one when missing, and return a note for the reply.
+
+    Returns:
+        "" when the dossier already has a prepaid journal; a note (starting " ; journal ...") naming the journal set,
+        or in test mode the one that would be set; None when no journal could be set (the dossier has no general
+        journal of category normal, or the cabinet's rights refused the settings write).
+
+    Experio leaves prepaid_journal_id empty: the field has no default, so Experio's automatic detection
+    (res.company auto_detect_settings) skips it, and get_prepaid_journal_id refuses the posting without it. The journal
+    is chosen with the rule Experio uses for its exchange-difference journal default: the first general journal of
+    category normal, which excludes « A nouveaux » (_default_currency_exchange_journal_id, exp_account
+    res_company.py:52).
     """
     (company,) = odoo_call("res.company", "read", [company_id], fields=["prepaid_journal_id"], context=context)
     if company["prepaid_journal_id"]:

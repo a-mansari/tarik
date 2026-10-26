@@ -1,5 +1,6 @@
-"""Where this stack finds its content and its default cabinet. Every setting (Vault: the shared ones, the
-orchestrator's own, each cabinet's) is read through engine.tools.core.cabinets.setting, within a cabinet."""
+"""The stack's default cabinet, and how a run's config names its cabinet and conversation. Every other setting
+(Vault: the shared ones, the orchestrator's own, each cabinet's) is read through engine.tools.core.cabinets.setting,
+within a cabinet."""
 
 import os
 
@@ -7,12 +8,13 @@ DEFAULT_CABINET = os.getenv("TARIK_DEFAULT_CABINET", "experio_cabinet_8")
 
 
 def cabinet_of(config):
-    """The cabinet a run works for: config.configurable.cabinet, else the default one."""
+    """Return the cabinet a run works for: config.configurable.cabinet, else DEFAULT_CABINET."""
     return (config or {}).get("configurable", {}).get("cabinet") or DEFAULT_CABINET
 
 
 def session_of(config):
-    """The conversation's id a run works for: the session the email thread was given (configurable.session_id: the
-    server's thread ids must be UUIDs, an email thread's session is not one), else the thread's own id; "" without."""
+    """Return the conversation's id a run works for: configurable.session_id, else configurable.thread_id, else "".
+
+    session_id comes first because the server's thread ids must be UUIDs and an email thread's session is not."""
     configurable = (config or {}).get("configurable", {})
     return configurable.get("session_id") or configurable.get("thread_id", "")

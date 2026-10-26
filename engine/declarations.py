@@ -1,6 +1,8 @@
-"""Déclarations as a graph: one of a dossier's declarations prepared in Experio, declared only on the client's words
-and confirmation (mode tva: the TVA declaration; ras: the withholding declarations; delais: the payment delays,
-loi 69-21), for a sender who has the dossier."""
+"""The Déclarations graph: prepare one of a dossier's declarations in Experio, and declare it only when the client
+asked for it and confirmed.
+
+Modes: tva (the TVA declaration), ras (the withholding declarations), delais (the payment delays declaration, law
+69-21, Experio's exp.payment.delay). The sender must have access to the dossier."""
 
 import operator
 from typing import Annotated, TypedDict
@@ -34,18 +36,21 @@ class Run(TypedDict, total=False):
 
 
 async def sender(state: Run):
+    """Graph node: check the sender may work on the call's dossier (check_sender)."""
     return await sender_checked(state, state["call"]["dossier_id"])
 
 
 @stops_at("resume")
 def by_mode(state: Run):
+    """Route to the call's mode node (tva, ras, delais); "resume" when the last step failed or the mode is unknown."""
     if failed(state):
         return "resume"
     return NODES.get(state["call"].get("mode"), "resume")
 
 
 def asked(call):
-    """What every declaration takes from the client's words."""
+    """Return the arguments every declaration tool takes from the call: dossier_id, periode, declarer,
+    client_confirmed (both True only when given exactly True) and session_id."""
     return {
         "dossier_id": call["dossier_id"],
         "periode": call.get("periode") or "",

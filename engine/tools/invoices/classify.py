@@ -1,4 +1,4 @@
-"""Purchase, sale, or not an invoice at all."""
+"""Decide whether a draft is a purchase, a sale, or not an invoice at all, and set its type in Experio."""
 
 import re
 
@@ -26,9 +26,14 @@ SIDES = {"achat": {"achat"}, "vente": {"vente"}, "mixte": {"achat", "vente"}}
 
 
 def classify_pages(pages, what, dossier=""):
-    """The model's (category, reason) for a document's ``pages``: achat, vente, rb (bank statement) or autre
-    (neither: a contract, a schedule, a screenshot). ``what`` names the step in logs and errors; ``dossier``: the
-    cabinet's client's name, when known, which tells the seller from the buyer."""
+    """Ask the model what a document's ``pages`` are. Returns (category, reason in French): category is achat,
+    vente, rb (bank statement) or autre (neither: a contract, a schedule, a screenshot).
+
+    Args:
+        what: the step's name in logs and errors.
+        dossier: the dossier's name when known; it tells the seller from the buyer.
+
+    Raises ToolError when the model answers another category."""
     client = f"The cabinet's client here is « {dossier} ». " if dossier else ""
     result = ask_model(
         tool_prompt("classify-document"),
@@ -47,8 +52,9 @@ def classify_pages(pages, what, dossier=""):
 
 
 def side_of(invoice):
-    """The side of ``invoice`` (with id and type), "purchase" or "sale": from its classification when there is one,
-    else Experio's type. ToolError for a bank statement or neither side."""
+    """Return the side of ``invoice`` (dict with id and type), "purchase" or "sale": from Tarik's classification
+    when there is one, else Experio's type. Raises ToolError for a bank statement, another document, or a type
+    that is neither side."""
     with cabinet_db() as db:
         row = db.execute(Q.classification_of_invoice, (invoice["id"],)).fetchone()
     if row and row[0] in ("rb", "autre"):
@@ -60,8 +66,8 @@ def side_of(invoice):
 
 
 def client_side(invoice_type, words):
-    """``invoice_type`` (achat, vente, or mixte for both) when the client wrote it themselves, else None:
-    a model may not choose the side of the client's invoices."""
+    """Return ``invoice_type`` (achat, vente, or mixte for both) when the client's ``words`` say that side
+    themselves, else None: a model may not choose the side of the client's invoices."""
     # Each side's words, as whole words.
     written = {
         side for side, pattern in SIDE_WORDS.items() if re.search(rf"\b(?:{pattern})\b", normalized(words or ""))
@@ -70,8 +76,11 @@ def client_side(invoice_type, words):
 
 
 def side_by_ice(invoice, company):
-    """achat or vente as Experio's own reading proves it (its ICE/IF warning, validate_warning_invalid_ice_and_if):
-    the issuer read carries the dossier's ICE or IF -> vente, the buyer read does -> achat; None otherwise."""
+    """Return "vente" when the issuer Experio read carries the dossier's ICE or IF, "achat" when the buyer read does,
+    else None. ``company``: the dossier's ice and vat (its IF).
+
+    The same test as Experio's warning that an invoice may be on the wrong side
+    (exp.invoice validate_warning_invalid_ice_and_if)."""
     for number, field in (("ice", "ice"), ("if", "vat")):
         own = company[field]
         if own and invoice[f"detected_supplier_{number}"] == own:
@@ -82,8 +91,9 @@ def side_by_ice(invoice, company):
 
 
 def _kept_classification(invoice_id, invoice_type):
-    """The (category, reason) already decided for the invoice, or None: a draft taken up again keeps its side, the
-    model's second look must not flip it. The client giving a side that differs asks for a new look."""
+    """Return the (category, reason) already stored for the invoice, or None when there is none or the client now
+    gives another side (``invoice_type``): a draft taken up again keeps its side, the model's second look must
+    not flip it."""
     with cabinet_db() as db:
         row = db.execute(Q.classification_of_invoice, (invoice_id,)).fetchone()
     return row if row and invoice_type in ("", row[0]) else None
@@ -100,12 +110,14 @@ def _save_classification(invoice_id, category, reason):
 
 @step_tool
 def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
-    """Decide what a draft really is once Experio has read it: a purchase
-    (achat), a sale (vente) or a bank statement (rb, not an invoice at all).
-    Sets the invoice's type when Experio has it wrong; writes nothing for a
-    bank statement. ``invoice_type``: achat or vente as the client said (checked
-    by split_invoices); a scan that says the other side stops the invoice, one the model reads as neither
-    (autre) takes the client's side."""
+    """Decide what a draft really is once Experio has read it: a purchase (achat), a sale (vente), a bank statement
+    (rb) or another document (autre). Sets the invoice's type in Experio when it is wrong; writes nothing for rb
+    or autre (a stop result).
+
+    The side comes, in order, from: an import folder's piece (always achat), the dossier's ICE or IF read on the
+    invoice (side_by_ice), the side already stored, else the model reading the scan.
+    ``invoice_type``: achat or vente as the client said (checked by split_invoices). A scan on the other side
+    stops the invoice; one the model reads as autre takes the client's side."""
     read = ["detected_supplier_ice", "detected_customer_ice", "detected_supplier_if", "detected_customer_if"]
     read += ["folder_id", "folder_type"]
     invoice = require_invoice(

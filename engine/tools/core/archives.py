@@ -1,13 +1,13 @@
-"""Zip files clients send (by email, from the Discussions page): each replaced, before anything is saved, by the files
-in it that Tarik takes, so every tool after sees ordinary files. A file keeps where it came from in its name
-(« factures.zip › facture 12.pdf »).
+"""Unpack the zip files clients send (by email, from the Discussions page): before anything is saved, each zip is
+replaced by the files in it that Tarik takes, so every later tool sees ordinary files. Each file's name keeps the
+archive it came from (« factures.zip › facture 12.pdf »).
 
 A zip comes from outside: nothing in it is trusted. Each file is read with a hard limit, whatever size the archive
 announces (a zip bomb stops at the limit); there are at most MAX_FILES of them and MAX_TOTAL bytes in all; a zip in
 the zip is opened too, one level only; a path is cut to its file name (« ../../x » is « x »); an encrypted file, a
 hidden one (« .DS_Store », « __MACOSX/ ») and a type Tarik does not take are left out; so is a text file that
-holds no entries (a note, a README: entries_like), in a zip or sent alone. What is left out is said (skipped), never
-silently lost."""
+holds no entries (a note, a README: entries_like), in a zip or sent alone. Every file left out is listed (skipped)
+and reported to the client, never silently lost."""
 
 import io
 import mimetypes
@@ -25,9 +25,14 @@ def is_zip(name):
 
 
 def unpacked(files, accepted):
-    """``files`` [(name, mime type, bytes)] with each zip replaced by the files in it whose name ends with one of
-    ``accepted``, and any text file that holds no entries left out, sent alone or zipped: (the files, [what was
-    left out and why, in plain French])."""
+    """Replace each zip in ``files`` by the files in it that Tarik takes, and drop text files that hold no entries.
+
+    Args:
+        files: [(name, mime type, bytes)] as the client sent them.
+        accepted: tuple of file name endings Tarik takes from inside a zip (".pdf", ".csv"...).
+
+    Returns (kept, skipped): kept is [(name, mime type, bytes)]; skipped is ["name : why"], each file left out and
+    why, in plain French."""
     kept, skipped = [], []
     for name, mime, data in files:
         if is_zip(name):
@@ -41,7 +46,14 @@ def unpacked(files, accepted):
 
 
 def opened(name, data, accepted, budget, skipped, depth):
-    """The files of the archive ``name`` that Tarik takes, ``budget`` (files and bytes left) spent as they are read."""
+    """Return the files Tarik takes from archive ``name`` ([(label, mime type, bytes)]), opening nested zips.
+
+    Args:
+        data: the archive's bytes.
+        accepted: tuple of file name endings Tarik takes.
+        budget: {"files", "bytes"} still allowed for the whole top-level archive, spent as files are kept.
+        skipped: list each file left out is appended to, as "label : why".
+        depth: 1 for an archive the client sent, 2 for a zip inside it (a deeper zip is left out)."""
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
         members = archive.infolist()
@@ -93,7 +105,7 @@ def opened(name, data, accepted, budget, skipped, depth):
 
 
 def too_big(limit):
-    """Why a file over ``limit`` bytes is left out: over MAX_FILE itself, or over what was left of MAX_TOTAL."""
+    """Return why a file over ``limit`` bytes is left out (French): over MAX_FILE, or over what MAX_TOTAL had left."""
     if limit == MAX_FILE:
         return f"plus de {MAX_FILE // MB} Mo une fois décompressé ({MAX_FILE // MB} Mo au plus par fichier)"
     return f"l'archive dépasse {MAX_TOTAL // MB} Mo décompressés (envoyez-le dans une autre archive)"
@@ -107,8 +119,8 @@ NO_ENTRIES = "texte sans écritures comptables (ni FEC ni grand livre)"
 
 
 def entries_like(data):
-    """True when plain text ``data`` reads as a table of entries (a FEC, a grand livre): a header and at least one
-    row, split in MIN_COLUMNS columns or more by the same separator. A note or a README in a zip is not."""
+    """True when plain text ``data`` (bytes) reads as a table of entries (a FEC, a grand livre): its first two non-empty
+    lines both split into MIN_COLUMNS columns or more by the same separator. A note or a README is not."""
     start = data[:65536]  # the first 64 KB hold the header and rows enough
     text = start.decode("utf-8", "ignore") or start.decode("latin-1")
     header_and_row = [line for line in text.splitlines() if line.strip()][:2]
@@ -118,7 +130,10 @@ def entries_like(data):
 
 
 def read(archive, member, limit):
-    """(the member's bytes, "") read at most ``limit`` (+1 to know it is over), or (None, why it is left out)."""
+    """Read zip ``member`` of ``archive``, at most ``limit`` bytes (+1 to detect a file over the limit).
+
+    Returns (content, ""): the file's bytes when read whole; (None, TOO_BIG) when it is over ``limit``;
+    (None, "illisible") when it cannot be read (corrupt, unsupported compression...)."""
     try:
         with archive.open(member) as stream:
             content = stream.read(limit + 1)

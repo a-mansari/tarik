@@ -1,18 +1,19 @@
-"""The dossier's settings posting needs, filled as Experio's own screens fill them.
+"""Fill the dossier settings an invoice needs to be posted, the way Experio's own screens fill them.
 
-Before posting, Experio says which setting is missing (collect_validation_messages: the journal and the
-tiers account of local or foreign purchases and sales, the stamp, debours, BTP and withholding accounts, the
-tax of the invoice's rate...). Its Configuration screen has a "Detection automatique" button
-(res.company.auto_detect_settings) that fills every unset setting from the chart of accounts and the journals,
-by their codes; and its chart of accounts makes the taxes its TVA accounts call for (exp.account.create_tax_ids:
-one tax per rate and type from the 3455 and 4455 accounts, the 0 % ones always). This step runs those two, then
-turns on the settings the detection leaves off (a switch is never auto-detected): an amount the invoice carries
-(retenue de garantie, prorata, assurance, avance, timbre, debours, taxes de sejour) that Experio would drop silently
-with its switch off, with its account by its CGNC code when the detection found none. Then it reads again what
-still blocks, told apart: a setting the dossier lacks (Experio's "cgnc" level, an account to choose) is the
-cabinet's, in Configuration; what Experio refuses on the invoice itself (an amount, a field) is no setting at all.
-Its warnings block nothing here: settle_warnings handles each. Either stops the invoice there, before it is said
-verified.
+Before posting, Experio lists what is missing (exp.invoice collect_validation_messages: the journal and the tiers
+account of local or foreign purchases and sales, the stamp, debours, BTP and withholding accounts, the tax of the
+invoice's rate...). Experio offers two fixes, which this step runs:
+- the Configuration screen's « Détection automatique » button (res.company auto_detect_settings): fills each unset
+  setting with its default, found by code in the chart of accounts and the journals;
+- exp.account create_tax_ids: makes the taxes the TVA accounts call for, one per rate and type from the 3455 and
+  4455 accounts, plus the 0 % purchase and sale taxes when missing.
+Then it turns on the switches the detection leaves off (a switch is never auto-detected) for each amount the
+invoice carries (retenue de garantie, prorata, assurance, avance, timbre, debours, taxes de séjour), which Experio
+would otherwise drop silently, with the amount's account found by its CGNC code when the detection left it empty.
+Finally it reads again what still blocks, kept apart: a setting the dossier lacks (Experio's "cgnc" level, or an
+account only the cabinet can choose) is for the cabinet in Configuration; what Experio refuses on the invoice
+itself (an amount, a field) is no setting. Either stops the invoice before it is reported verified. Experio's
+warnings block nothing here: settle_warnings handles each.
 """
 
 from engine.tools.core.app import ok, routine, step_tool, stop
@@ -70,9 +71,12 @@ ASSETS_MENU = "Configuration > Immobilisations > Catégories"
 
 
 def assets_without_category(invoice_id, context):
-    """The class 2 accounts of the invoice whose asset line has no category: Experio fills it from the category of
-    that account (immobilisations' _onchange_tva_line_ids_for_asset_generation, at each refresh) and, without one,
-    makes no asset at posting, silently (generate_asset_assets). Their names; [] without Experio's immobilisations."""
+    """Return the names of the invoice's class 2 accounts whose asset line has no asset category; [] when
+    Experio's immobilisations module is not installed.
+
+    Experio fills an asset line's category from the category set on its account (immobilisations
+    _onchange_tva_line_ids_for_asset_generation, at each refresh); a line without one gets no asset at posting,
+    silently (exp.invoice.asset.line generate_asset_assets)."""
     if not odoo_call("exp.invoice", "fields_get", ["invoice_asset_line_ids"], attributes=["type"]):
         return []
     lines = odoo_call("exp.invoice", "read", [invoice_id], fields=["invoice_asset_line_ids"], context=context)[0]
@@ -84,6 +88,7 @@ def assets_without_category(invoice_id, context):
 
 
 def assets_text(accounts):
+    """Return the French note telling the cabinet to create an asset category for each of ``accounts`` (names)."""
     return (
         f"catégorie d'immobilisation à créer pour le compte {', '.join(f'`{a}`' for a in accounts)} ({ASSETS_MENU}), "
         "sans quoi Experio ne crée pas l'immobilisation à la comptabilisation"
@@ -91,8 +96,8 @@ def assets_text(accounts):
 
 
 # Per folder number rule (the dossier's import_folder_number / export_folder_number), the invoice of the folder whose
-# number becomes the folder's: Experio's own rule when it reads the folder's invoices (exp_bluejay_token
-# update_folder_values), applied again when Tarik corrected that number after the reading.
+# number becomes the folder's: Experio's own rule when it reads the folder's invoices (base_global exp_bluejay_token.py
+# parser_folder_values), applied again when Tarik corrected that number after the reading.
 NUMBERED_BY = {
     "transit_invoice": {"import": "transit", "export": "transit"},
     "commercial_invoice": {"import": "supplier", "export": "customer"},
@@ -100,8 +105,11 @@ NUMBERED_BY = {
 
 
 def settle_folder_number(invoice_id, context):
-    """The invoice's import (or export) folder given its number when it has none, as Experio's reading gives it: a
-    phrase for the client, else ""."""
+    """Give the invoice's import (or export) folder its number when it has none, as Experio's reading does: the
+    number of the folder's invoice that the dossier's rule names (NUMBERED_BY).
+
+    Returns a phrase for the client naming the number set; "" when nothing was set (no folder, already numbered,
+    no rule, no such invoice, or test mode)."""
     invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=["folder_id"], context=context)[0]
     if not invoice["folder_id"]:
         return ""
@@ -126,7 +134,8 @@ def settle_folder_number(invoice_id, context):
 
 
 def listed(texts):
-    """``texts`` as one sentence: "a ; b." (Experio's own end with their period: not doubled)."""
+    """Return ``texts`` joined as one sentence, "a ; b.", without doubling the period Experio's own texts end
+    with."""
     return " ; ".join(text.rstrip(". ") for text in texts) + "."
 
 
@@ -135,7 +144,8 @@ def tax_count(company_id):
 
 
 def account_by_code(company_id, prefixes):
-    """The id of the dossier's first account whose code starts with one of ``prefixes``, by code; None."""
+    """Return the id of the dossier's account with the lowest code starting with ``prefixes[0]``, else with the next
+    prefix, and so on; None when no prefix matches."""
     for prefix in prefixes:
         found = odoo_call(
             "exp.account",
@@ -158,7 +168,7 @@ def ignored_abroad(amount, purchase):
 
 
 def amount_fields():
-    """The dossier's switch and account fields AMOUNTS names, sorted."""
+    """Return the dossier's switch and account fields AMOUNTS names, sorted."""
     fields = set()
     for _, *sides in AMOUNTS.values():
         for switch, account, _ in sides:
@@ -167,8 +177,12 @@ def amount_fields():
 
 
 def settings_needed(invoice, company):
-    """What the invoice's amounts need the dossier to have and it hasn't: ({company field: value}, [names set],
-    [names whose account only the cabinet can choose])."""
+    """Return what the invoice's amounts need the dossier to have and it lacks, as (values, names, cabinet).
+
+    values: {res.company field: value} to write (switches turned on, accounts found by CGNC code).
+    names: the amounts (French names) these values serve.
+    cabinet: the amounts whose account no CGNC code finds: only the cabinet can choose it.
+    Amounts Experio ignores on a foreign invoice are left out."""
     purchase, foreign = invoice["type"] == "purchase", not invoice["is_local_invoice"]
     values, names, cabinet = {}, [], []
     for amount, (name, supplier, customer) in AMOUNTS.items():
@@ -190,8 +204,9 @@ def settings_needed(invoice, company):
 
 
 def save_settings(company_id, values, context):
-    """Write ``values`` as the Configuration screen does: a res.config.settings form, whose fields are the
-    dossier's. True when the dossier now holds them (the cabinet's rights decide)."""
+    """Write ``values`` ({res.company field: value}) as the Configuration screen does, through a res.config.settings
+    form whose fields are related to the dossier's. True when the dossier now holds them all (the cabinet's rights
+    decide)."""
     # shortcut: the form's save (execute) is for Experio administrators; creating the form already wrote the
     # dossier through its related fields, so what the dossier holds now says whether it went through.
     odoo_call("res.config.settings", "create", values, context=context)
@@ -201,10 +216,12 @@ def save_settings(company_id, values, context):
 
 @step_tool
 def configure_cabinet(invoice_id: int) -> dict:
-    """Fill the dossier's settings the invoice needs to be posted, as Experio's own screens do:
-    the taxes its TVA accounts call for, then Configuration's "Detection automatique", which fills
-    every empty setting from the chart of accounts and the journals. What still blocks after that stops the
-    invoice: a setting the dossier lacks, for the cabinet, apart from what Experio refuses on the invoice itself."""
+    """Fill the dossier settings a draft invoice needs to be posted, as Experio's own screens do: the taxes its TVA
+    accounts call for, Configuration's « Détection automatique », then the switch and account of each amount
+    the invoice carries. Also numbers the invoice's import folder when it has no number.
+
+    Returns an ok or routine result when nothing blocks posting any more; else a stop result listing, apart, the
+    settings the cabinet must set in Configuration and what Experio refuses on the invoice itself."""
     invoice = require_invoice(invoice_id, INVOICE_FIELDS)
     if invoice["state"] != "draft":
         return routine(f"Facture {invoice_id} : en état {invoice['state']}, rien à paramétrer.")

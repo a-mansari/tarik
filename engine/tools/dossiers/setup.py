@@ -1,20 +1,20 @@
-"""A new dossier's setup after its creation (dossiers/identity.py): configuration copied from a model
-dossier, entries (FEC or grand livre) or setup files (plan comptable, journaux, fournisseurs, clients)
-imported, each bank journal given its bank, onboarding finished -- each through Experio's own screens.
+"""Set up a new dossier after its creation (dossiers/identity.py), through Experio's own screens: copy the
+configuration of a model dossier, import the entries (FEC or grand livre) or the setup files (plan comptable,
+journaux, fournisseurs, clients), give each bank journal its bank, then finish the onboarding.
 
-Experio has no creation wizard: a dossier is a res.company created from the Folders list.
-"Appliquer la configuration" (company.config.wizard) copies a model dossier's accounts, taxes,
-journals, bank and TPE operations and settings. The Importation screen (base_import into
-experio.history) creates whatever the entries need and the dossier lacks -- accounts, journals,
-tiers, exercices -- and auto-detects the settings left empty. While the onboarding is open its lines
-wait, and the stepper's "Enregistrer et terminer" sends those imported more than a minute ago to
-Experio's processing (res.company's write): finish_setup waits for them, or leaves the dossier in
-tarik_setups for a later run when the time left is too short. Once it is finished, imported
-lines go to the processing at once (experio.history's create): a FEC can come any time after.
+A dossier is a res.company created from the Folders list. "Appliquer la configuration"
+(company.config.wizard) copies a model dossier's accounts, taxes, journals, bank and TPE operations and
+settings. The Importation screen (base_import into experio.history) creates what the entries need and the
+dossier lacks (accounts, journals, tiers, exercices), and Experio then fills the settings still empty.
+While the onboarding is open, imported lines wait in state "new". Finishing it (res.company write of
+show_onboarding False) re-sends the waiting lines with action_resend, which only takes lines sent more than
+a minute ago: finish_setup waits for that minute, or leaves the dossier in tarik_setups for a later run when
+the run's time left is too short. After the onboarding, experio.history's create sends new lines to
+processing at once, so a FEC can come any time later.
 
-Order: the copy comes before the import. The wizard writes every setting of the model and
-empties those whose account it can't find in the dossier; after an import it would erase what
-the import detected, while before it the import only adds what the model lacks.
+Order: copy the configuration before importing. The wizard writes every setting of the model and empties
+each setting whose account, journal or tax it can't find in the dossier: after an import it would erase what
+the import detected, while before it the import only fills what the model lacks.
 """
 
 import calendar
@@ -89,9 +89,12 @@ ACCOUNT_HEADERS = ("comptenum", "compte", "numerocompte", "numcompte")
 
 
 def make_advance_accounts_reconcilable(model_dossier_id):
-    """Mark reconcilable the accounts the model's advance operations use, as Experio requires of them: it creates
-    4421 and 3411 (Avance Client, Avance Fournisseur) as not reconcilable, so its copy of the model, which carries
-    each account's flag over, is then refused by its own rule. Returns how many accounts it changed."""
+    """Mark reconcilable the accounts used by the model dossier's advance operations; return how many changed.
+
+    Experio requires a reconcilable account on an advance operation (bank.operation.type
+    _check_advance_account_is_reconcilable), yet exp.account's reconcile defaults to False, so 4421 and 3411
+    (Avance Client, Avance Fournisseur) often are not. company.config.wizard copies each account's reconcile flag
+    and then the advance operations, which that rule would refuse."""
     advances = odoo_call(
         "bank.operation.type",
         "search_read",
@@ -107,10 +110,16 @@ def make_advance_accounts_reconcilable(model_dossier_id):
 
 @step_tool
 def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
-    """Copy a model dossier's accounts, taxes, journals, bank and TPE operations and
-    settings into a new dossier (Experio's "Appliquer la configuration"). The agent asks for it
-    only when the client named the dossier to copy (skill "Nouveau dossier"). Run it before
-    importing the entries: it overwrites the dossier's settings."""
+    """Copy a model dossier's accounts, taxes, journals, bank and TPE operations and settings into a new
+    dossier (Experio's "Appliquer la configuration", company.config.wizard).
+
+    The agent calls it only when the client named the dossier to copy (skill "Nouveau dossier"). Returns an ok
+    result (in test mode, what would be copied).
+
+    Raises:
+        ToolError: the model is the dossier itself, or the dossier already has imported entries (the copy
+            overwrites the settings Experio detected from them).
+    """
     dossier, model = require_dossier(dossier_id), require_dossier(model_dossier_id)
     if dossier_id == model_dossier_id:
         raise ToolError("Le dossier modele doit etre un autre dossier.")
@@ -145,7 +154,8 @@ def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
 
 
 def file_text(data):
-    """The file (bytes) as text: the import screen reads raw text, and JSON only carries text."""
+    """Return the file's bytes ``data`` as text (UTF-8, else cp1252, else latin-1): the import screen reads raw
+    text, and JSON only carries text."""
     for encoding in ("utf-8-sig", "cp1252"):
         try:
             return data.decode(encoding)
@@ -155,7 +165,8 @@ def file_text(data):
 
 
 def cell_text(value):
-    """One Excel cell as the import screen reads it: dates as YYYYMMDD, whole floats without ".0"."""
+    """Return one Excel cell as the import screen reads it: "" for empty, dates as YYYYMMDD, whole floats
+    without ".0"."""
     if value is None:
         return ""
     if isinstance(value, (date, datetime)):
@@ -166,8 +177,8 @@ def cell_text(value):
 
 
 def sheet_text(data):
-    """An Excel file's (bytes) first sheet as the CSV text the import screen reads (it uploads Excel
-    files itself, but JSON-RPC only carries text)."""
+    """Return the first sheet of an Excel file (bytes ``data``) as ";"-separated CSV text, empty rows dropped.
+    The import screen uploads Excel files itself, but JSON-RPC only carries text."""
     sheet = openpyxl.load_workbook(io.BytesIO(data), read_only=True, data_only=True).worksheets[0]
     out = io.StringIO()
     writer = csv.writer(out, delimiter=";")
@@ -179,20 +190,23 @@ def sheet_text(data):
 
 
 def table_text(name, data):
-    """A spreadsheet file's text: an Excel one's (.xlsx, .xlsm) first sheet as CSV, any other as it is."""
+    """Return a spreadsheet file's text from its ``name`` and bytes ``data``: the first sheet as CSV for .xlsx
+    or .xlsm, the decoded file otherwise."""
     return sheet_text(bytes(data)) if name.lower().endswith((".xlsx", ".xlsm")) else file_text(bytes(data))
 
 
 def separator_of(text):
-    """The CSV separator of ``text``: the one its first line holds most of."""
+    """Return the CSV separator of ``text``: whichever of ; , tab | its first line holds most of."""
     first = text.split("\n", 1)[0]
     return max(";,\t|", key=first.count)
 
 
 def entries_kind(text, separator):
-    """ "fec" or "grand livre", from the file alone (Experio has two buttons and no
-    detector). A FEC follows the journals and
-    the dates, so its accounts go back and forth; a grand livre lists them in order."""
+    """Return "fec" or "grand livre" for an entries file's ``text`` split by ``separator``.
+
+    Experio has one import button for each and no detector. A FEC follows the journals and dates, so its
+    account numbers go back and forth; a grand livre lists them in order (under 2 % going back). With fewer
+    than 20 account numbers, the FEC's own headers decide."""
     rows = list(csv.reader(io.StringIO(text), delimiter=separator or ";"))
     if not rows:
         return "fec"
@@ -208,14 +222,18 @@ def entries_kind(text, separator):
 
 
 def taken(file_id):
-    """The file is done with, imported or refused: a corrected file comes as a new one."""
+    """Mark the file ``file_id`` as taken (kind "entries"), imported or refused: a corrected file comes as a
+    new one."""
     with cabinet_db() as db:
         db.execute(Q.file_taken_as_entries, (file_id,))
 
 
 def setup_waits(dossier_id, file_id=None):
-    """The dossier waits for its onboarding, in the conversation of ``file_id`` (an import of it went through);
-    without ``file_id``, no longer (finished, or an import refused: the client sends a corrected file)."""
+    """Record or clear, in tarik_setups, that the dossier waits for its onboarding to be finished.
+
+    With ``file_id`` (a file whose import went through): record the wait, in that file's conversation.
+    Without it: delete the wait (onboarding finished, nothing to wait for, or an import refused, after which
+    the client sends a corrected file)."""
     with cabinet_db() as db:
         if file_id:
             db.execute(
@@ -228,18 +246,21 @@ def setup_waits(dossier_id, file_id=None):
 
 @tool
 def waiting_setups(session_id: str) -> dict:
-    """This conversation's dossiers whose entries were imported and whose onboarding still waits."""
+    """Return an ok result listing (``dossiers``: ids) the dossiers waiting in tarik_setups for this
+    conversation: an import went through and the onboarding is not yet finished, or lines are still processed."""
     with cabinet_db() as db:
         rows = db.execute(Q.setups_waiting_in_session, (session_id,)).fetchall()
     return ok(f"{len(rows)} dossier(s) a terminer.", dossiers=[dossier_id for (dossier_id,) in rows])
 
 
 class Refused(Exception):
-    """An entries file not imported: its text is the stop message, and the file is taken."""
+    """An entries or setup file not imported: its text is the stop message; import_entries marks the file
+    taken."""
 
 
 def entries_text(file_id, name, mime, data):
-    """The file's text (CSV, TXT or an Excel sheet as CSV); Refused for another kind of file."""
+    """Return the file's text (CSV, TXT, or an Excel sheet as CSV); raise Refused for another kind of file or
+    an unreadable Excel file."""
     if not (name.lower().endswith(ENTRY_FILES) or (mime or "").startswith("text/")):
         raise Refused(f"`{name}` : envoyez le FEC ou le grand livre en CSV, TXT ou Excel (.xlsx).")
     with refused(f"import_entries {file_id}", f"`{name}` : fichier Excel illisible.", Refused):
@@ -247,8 +268,9 @@ def entries_text(file_id, name, mime, data):
 
 
 def previewed(file_id, name, text, context, model="experio.history"):
-    """The file uploaded to Experio's import screen for ``model``: (import id, its preview: headers, matches,
-    options)."""
+    """Upload ``text`` to Experio's import screen for ``model`` (base_import.import) and return
+    (import_id, preview), the preview being parse_preview's dict (headers, matches, options).
+    Raises Refused when Experio can't read the file."""
     with refused(f"import_entries {file_id}", f"`{name}` : Experio n'a pas pu lire le fichier ({{reason}}).", Refused):
         upload = {"res_model": model, "file": text, "file_name": name, "file_type": "text/csv"}
         import_id = odoo_json("base_import.import", "create", upload, context=context)
@@ -259,8 +281,9 @@ def previewed(file_id, name, text, context, model="experio.history"):
 
 
 def columns(preview, target):
-    """The Experio field of each column of ``preview``, as the import screen suggests them, with the ``target``'s
-    MANUAL_COLUMNS filling the gaps a user maps by hand (False: column not imported)."""
+    """Return the Experio field of each column of ``preview`` (False: column not imported): the import screen's
+    best suggestion, else the ``target``'s MANUAL_COLUMNS entry a user would map by hand, if no other column
+    has that field yet."""
     fields = []
     for i in range(len(preview["headers"])):
         suggested = preview["matches"].get(str(i))  # the screen's suggestions for column i, best first
@@ -287,7 +310,7 @@ KIND_WORDS = {  # what the agent (the client's words) calls a file -> its kind
 
 
 def told_kind(kind):
-    """The kind the agent's ``kind`` (the client's words) names, or None."""
+    """Return the file kind named by ``kind`` (the client's words, passed by the agent), or None."""
     wanted = normalized(kind or "")
     if wanted in KIND_WORDS:
         return KIND_WORDS[wanted]
@@ -298,9 +321,9 @@ def told_kind(kind):
 
 
 def file_kind(kind, text):
-    """What the file is, for Experio's import screens: "fec", "grand livre", "plan", "journaux", "fournisseurs",
-    "clients"; None when nothing tells (the client is asked). As the agent said (``kind``, the client's words),
-    else from the file's headers."""
+    """Return the file's kind for Experio's import screens: "fec", "grand livre", "plan", "journaux",
+    "fournisseurs" or "clients"; None when neither ``kind`` (the client's words) nor the headers of ``text``
+    tell (the client is then asked)."""
     told = told_kind(kind)
     if told:
         return told
@@ -329,9 +352,12 @@ BANK_ALIASES = {"societe generale": "saham", "sgmb": "saham", "bmce": "bank of a
 
 
 def bank_named(text, banks):
-    """The bank ({id, name} of ``banks``, Experio's list) the client's ``text`` names ("CIH", "attijari",
-    "la Banque Populaire"), or None. A word said counts for the name's word it begins; old names count for
-    the new ones (BANK_ALIASES)."""
+    """Return the bank of ``banks`` (Experio's res.bank list, [{id, name}]) that ``text`` names ("CIH",
+    "attijari", "la Banque Populaire"), or None.
+
+    A word of ``text`` matches a word of the bank's name that starts with it; old bank names are read as the
+    new ones (BANK_ALIASES). The bank with the most matched letters wins, then the one with fewest unmatched
+    words."""
     words = normalized(text or "")
     for old, new in BANK_ALIASES.items():
         if said(old, words):
@@ -348,8 +374,9 @@ def bank_named(text, banks):
 
 
 def with_bank_names(text, separator):
-    """A journals file's "Banque" column, written as the client says it ("CIH", "attijari"), as the bank's name
-    in Experio's list: the import matches it exactly. A bank Experio doesn't know is left empty (asked after)."""
+    """Return the journals file ``text`` with each "Banque" cell ("CIH", "attijari") replaced by that bank's
+    exact name in Experio's list, since the import matches names exactly. A bank Experio doesn't know is
+    emptied (ask_banks asks for it later). Text without a "Banque" column comes back unchanged."""
     rows = list(csv.reader(io.StringIO(text), delimiter=separator))
     at = next((i for i, h in enumerate(rows[0]) if normalized(h) == "banque"), None) if rows else None
     if at is None:
@@ -365,12 +392,14 @@ def with_bank_names(text, separator):
 
 
 def errors_of(answer):
-    """The error messages (list of str) in an execute_import ``answer``."""
+    """Return the error messages (list of str) in an execute_import ``answer``."""
     return [m.get("message", "") for m in answer.get("messages") or [] if m.get("type") == "error"]
 
 
 def tested(file_id, name, label, arguments, context):
-    """Experio's test of the import (execute_import's dry run): its answer; Refused when it finds errors."""
+    """Run Experio's test of the import (execute_import with dryrun True) and return its answer.
+    ``label`` names the file to the client; ``arguments`` is ([import_id], fields, headers, options).
+    Raises Refused when the test finds errors."""
     with refused(f"import_entries {file_id} test", f"{label} `{name}` refuse par Experio : {{reason}}", Refused):
         test = odoo_json("base_import.import", "execute_import", *arguments, True, context=context)
     errors = errors_of(test)
@@ -382,7 +411,8 @@ def tested(file_id, name, label, arguments, context):
 
 
 def imported(file_id, name, label, arguments, context):
-    """The import itself: Experio's answer; Refused when it reports errors."""
+    """Run the import itself (execute_import, same ``arguments`` as tested) and return Experio's answer.
+    Raises Refused when it reports errors."""
     with refused(f"import_entries {file_id}", f"{label} `{name}` : Experio a refuse l'import ({{reason}}).", Refused):
         result = odoo_json("base_import.import", "execute_import", *arguments, False, context=context)
     errors = errors_of(result)
@@ -393,12 +423,20 @@ def imported(file_id, name, label, arguments, context):
 
 @step_tool
 def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
-    """Import a dossier's entries from a FEC or grand livre file, or one of its setup files (plan
-    comptable, journaux, fournisseurs, clients), through Experio's Importation screens: the
-    entries import creates the missing accounts, journals, tiers and exercices. CSV, TXT or Excel.
-    ``kind``: "fec", "grand livre", "plan", "journaux", "fournisseurs", "clients", or empty to
-    tell from the file (the client is asked when nothing tells). Experio tests the file first;
-    nothing is imported when its test finds errors."""
+    """Import a FEC or grand livre file, or a setup file (plan comptable, journaux, fournisseurs, clients),
+    into the dossier through Experio's Importation screens. CSV, TXT or Excel.
+
+    ``kind``: "fec", "grand livre", "plan", "journaux", "fournisseurs", "clients" (the client's words are
+    accepted), or empty to tell from the file.
+
+    Returns:
+        - a question result when nothing tells the file's kind (the file stays untaken);
+        - a stop result when the same content was already imported into this dossier, or when Experio refuses
+          the file or its test finds errors (nothing imported, file taken, dossier no longer waiting);
+        - an ok result with the number of lines imported and, for entries, what Experio created (accounts,
+          journals, tiers, exercices); the dossier then waits in tarik_setups for its onboarding.
+          In test mode, only Experio's test runs.
+    """
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
         name, mime, data = file_row(db, file_id, "file_name", "mime_type", "data")
@@ -464,15 +502,15 @@ CREATED["exp.fiscal.entries"] = "exercice(s)"
 
 
 def setup_counts(dossier_id, context):
-    """{model: count} of the dossier's accounts, journals, tiers and exercices."""
+    """Return {model: count} of the dossier's accounts, journals, tiers and exercices (the models of CREATED)."""
     return {
         model: odoo_call(model, "search_count", [("company_id", "=", dossier_id)], context=context) for model in CREATED
     }
 
 
 def created_note(before, after):
-    """What Experio's detection created with the import (its accounts, journals, tiers, exercices), "" when
-    nothing."""
+    """Return the French sentence saying what Experio created during the import (accounts, journals, tiers,
+    exercices), from setup_counts ``before`` and ``after``; a sentence saying it created nothing otherwise."""
     made = [f"{after[m] - before[m]} {label}" for m, label in CREATED.items() if after[m] > before[m]]
     return f" Experio a cree : {', '.join(made)}." if made else " Experio n'a rien eu a creer."
 
@@ -481,8 +519,8 @@ def created_note(before, after):
 
 
 def bank_journals_without_bank(dossier_id):
-    """The dossier's bank journals whose Banque is still empty: [{id, name}]. A FEC or a grand livre names no
-    bank, and a statement can't be imported into a journal without one."""
+    """Return the dossier's bank journals whose Banque (bank_id) is still empty, as [{id, name}] by name.
+    A FEC or a grand livre names no bank, and a statement can't be imported into a journal without one."""
     return odoo_call(
         "exp.journal",
         "search_read",
@@ -494,9 +532,15 @@ def bank_journals_without_bank(dossier_id):
 
 @step_tool
 def ask_banks(dossier_id: int) -> dict:
-    """After a dossier's journals are set up: which bank each bank journal is at, as its form
-    asks (a FEC says nothing of it). One journal at a time: the question lists Experio's banks,
-    the client's answer goes to set_journal_bank (answer_pending), then the next journal is asked."""
+    """Ask which bank each of the dossier's bank journals is at, one journal at a time (a FEC names no bank).
+
+    Returns:
+        - a routine ok result when every bank journal has its bank;
+        - the result of set_journal_bank when the first journal's name spells a bank's whole name
+          (« Banque ATTIJARIWAFA BANK »), outside test mode;
+        - otherwise a question result listing Experio's banks (``choices``: {bank_id: name}) with the
+          ``journal_id`` asked about; the client's answer goes to set_journal_bank (answer_pending).
+    """
     dossier = require_dossier(dossier_id)
     with refused(f"ask_banks {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu lire les journaux de banque."):
         journals = bank_journals_without_bank(dossier_id)
@@ -517,18 +561,25 @@ def ask_banks(dossier_id: int) -> dict:
 
 
 def named_in_full(text, bank):
-    """Whether ``text`` (a journal's name) says every word of ``bank``'s name, beyond the generic ones: its bank then
-    needs no question. « Banque ATTIJARIWAFA BANK » names ATTIJARIWAFA BANK; « BQ CREDIT » doesn't name CREDIT
-    AGRICOLE DU MAROC."""
+    """True when ``text`` (a journal's name) holds every non-generic word of ``bank``'s name, so the bank needs no
+    question: « Banque ATTIJARIWAFA BANK » names ATTIJARIWAFA BANK; « BQ CREDIT » doesn't name CREDIT AGRICOLE
+    DU MAROC."""
     given = normalized(text or "").split()
     own = [w for w in normalized(bank["name"]).split() if w not in GENERIC_BANK_WORDS]
     return bool(own) and all(any(g.startswith(w) for g in given) for w in own)
 
 
 def set_journal_bank(dossier_id, journal_id, bank_id, from_name=False):
-    """The bank journal's Banque (and its tiers bancaire, the dossier's tiers named after the bank, when there
-    is one), as its form sets them; then the next journal's question (ask_banks). ``from_name``: Tarik read the bank
-    in the journal's own name, said so."""
+    """Set the bank journal's Banque to ``bank_id``, as the journal form does, then ask about the next journal.
+
+    When the journal has no tiers bancaire (partner_id), it also gets the dossier's tiers named after the bank,
+    if one exists. ``from_name``: Tarik read the bank from the journal's own name; the reply asks the client to
+    correct it if wrong. Returns the next journal's question result (ask_banks) with this change prefixed, or
+    an ok result when no journal is left.
+
+    Raises:
+        ToolError: the journal is not one of the dossier's.
+    """
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
     with refused(f"set_journal_bank {journal_id}", f"Dossier `{dossier}` : Experio a refuse la banque du journal."):
@@ -580,8 +631,8 @@ PROCESSING_SECONDS = 180  # shortcut: the chat has no follow-up, so lines still 
 
 
 def exercice_note(dossier_id, dossier):
-    """Opens the current year's exercice when the dossier has no open one (not in test mode): what was done (str),
-    or None when it had one."""
+    """Open the current year's exercice when the dossier has no open one, and return what was done (French
+    text; in test mode, what would be done). None when the dossier already has an open exercice."""
     if odoo_call("exp.fiscal.entries", "search_count", [("company_id", "=", dossier_id), ("state", "=", "open")]):
         return None
     year = date.today().year
@@ -595,8 +646,9 @@ def exercice_note(dossier_id, dossier):
 
 
 def lines_ready_in(dossier_id, context):
-    """Seconds until the newest waiting line is over a minute old (0 when none waits): Experio hands over only
-    those."""
+    """Return the seconds until the newest waiting line (state "new") was sent over a minute ago (65 s, for
+    margin); 0.0 when none waits. Finishing the onboarding re-sends only lines sent more than a minute ago
+    (experio.history action_resend)."""
     newest = odoo_call(
         "experio.history",
         "search_read",
@@ -613,9 +665,18 @@ def lines_ready_in(dossier_id, context):
 
 
 def complete_stepper(company, context):
-    """Walks the stepper to its last phase and presses "Enregistrer et terminer" with ``company``'s journals and
-    tiers prefixes (the defaults where it has none)."""
-    for phase in range(1, 9):  # its 8 phases
+    """Walk the onboarding stepper through its 8 phases, then press "Enregistrer et terminer" with ``company``'s
+    journals and tiers prefixes (STEPPER_PREFIXES where it has none).
+
+    The journals and prefixes are saved first: Experio ends the onboarding (show_onboarding False) as soon as the
+    stepper state lists 8 completed phases (base_client res_company.py set_configuration_stepper_state), and that write
+    hands the waiting lines over (exp_account res_company.py write). Experio's own screen saves them after
+    (stepper.js saveStepperState, then validation_dialog.js save_validation_config); saved first, every line handed
+    over finds them already set."""
+    config = {key: company[key] and company[key][0] for key in STEPPER_JOURNALS}
+    config.update({key: company[key] or prefix for key, prefix in STEPPER_PREFIXES.items()})
+    odoo_json("res.company", "save_validation_config", config, context=context)
+    for phase in range(1, 9):  # its 8 phases; the 8th hands the waiting lines over
         following = min(phase + 1, 8)  # the last phase stays the current one
         state = {
             "current_phase": following,
@@ -623,20 +684,17 @@ def complete_stepper(company, context):
             "visited_phases": list(range(1, following + 1)),
         }
         odoo_json("res.company", "set_configuration_stepper_state", state, context=context)
-    config = {key: company[key] and company[key][0] for key in STEPPER_JOURNALS}
-    config.update({key: company[key] or prefix for key, prefix in STEPPER_PREFIXES.items()})
-    odoo_json("res.company", "save_validation_config", config, context=context)
-    odoo_json("res.company", "complete_onboarding", context=context)  # its write hands the waiting lines over
+    odoo_json("res.company", "complete_onboarding", context=context)  # as the screen's last button does
 
 
 def entries_count(dossier_id, context):
-    """How many entries lines were imported into the dossier."""
+    """Return how many entries lines (experio.history, any state) were imported into the dossier."""
     return odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id)], context=context)
 
 
 def setup_missing(dossier_id, context):
-    """The setup files the dossier still lacks (their labels), judged by what it holds: no account, no journal,
-    no supplier, no customer."""
+    """Return the labels (lowercase French) of the setup files the dossier still lacks, judged by what it holds:
+    no account, no journal, no supplier, no customer."""
     counts = {
         "plan": odoo_call("exp.account", "search_count", [("company_id", "=", dossier_id)], context=context),
         "journaux": odoo_call("exp.journal", "search_count", [("company_id", "=", dossier_id)], context=context),
@@ -658,13 +716,24 @@ def setup_missing(dossier_id, context):
 
 @step_tool
 def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -> dict:
-    """Finish a new dossier's onboarding as its stepper does (Suivant to the last
-    step, then Enregistrer et terminer): Experio then processes the imported entries.
-    Opens the current exercice when the dossier has none. ``seconds_left``: the run's
-    time left (0: no limit); when Experio's wait for the imported lines would outlast it,
-    the dossier is left waiting (tarik_setups) for a later run. A dossier set up from
-    separate files (no entries imported) waits for them until the client says every file
-    was sent (``finish``)."""
+    """Finish a new dossier's onboarding as its stepper does (Suivant to the last step, then « Enregistrer et
+    terminer »), so Experio processes the imported entries. Opens the current year's exercice first when the
+    dossier has none open.
+
+    Args:
+        seconds_left: the run's time left (0: no limit).
+        finish: the client said every setup file was sent; without it, a dossier with no entries imported
+            keeps waiting for its files.
+
+    Returns:
+        - a routine result when the onboarding was already finished;
+        - an ok result asking for the missing setup files when no entries were imported and ``finish`` is
+          False (the tarik_setups wait is cleared);
+        - a wait result when the minute Experio needs before handing the lines over (plus STEPPER_SECONDS)
+          would outlast ``seconds_left``: the dossier stays in tarik_setups for a later run;
+        - an ok result once finished, with the lines handed over and any journal setting still pointing to
+          another dossier's journal (in test mode, what would be done).
+    """
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
     fields = ["show_onboarding", *STEPPER_JOURNALS, *STEPPER_PREFIXES]
@@ -735,8 +804,15 @@ HISTORY_STATES = {
 
 
 def setup_facts(dossier_id, context):
-    """What Experio says of the dossier's setup: (company settings, {entries state: count},
-    error reasons read_group, exercices, {model: count} of accounts, journals, taxes and tiers)."""
+    """Read the dossier's setup from Experio.
+
+    Returns (company, states, reasons, exercices, counts):
+        company: res.company values of show_onboarding and POSTING_SETTINGS;
+        states: {experio.history state: line count};
+        reasons: read_group rows of the lines in error by error_type;
+        exercices: [{name, state, selected}] by start date;
+        counts: {model: count} of accounts, journals, taxes and tiers.
+    """
     in_it = [("company_id", "=", dossier_id)]
     company = odoo_call("res.company", "read", [dossier_id], fields=["show_onboarding", *POSTING_SETTINGS])[0]
     # One query, so the counts add up while Experio processes the lines.
@@ -766,8 +842,9 @@ def setup_facts(dossier_id, context):
 
 
 def error_reasons(reasons):
-    """Experio's own diagnosis of the lines in error, to correct the source file: its 3 commonest reasons with
-    their line counts ("3 comptes tiers ..." and "4 comptes tiers ..." are one reason)."""
+    """Return Experio's 3 commonest error reasons (error_type) from the read_group rows ``reasons``, each with its
+    line count, joined by " | ". A leading count is ignored, so "3 comptes tiers ..." and "4 comptes tiers ..."
+    are one reason."""
     merged = Counter()
     for reason in reasons:
         text = (reason["error_type"] or "sans motif").strip()
@@ -776,8 +853,8 @@ def error_reasons(reasons):
 
 
 def processed(dossier_id, context):
-    """Waits, up to PROCESSING_SECONDS, while Experio still processes lines handed over (pending), so the dossier's
-    state tells the client which lines it put in error."""
+    """Wait, up to PROCESSING_SECONDS and polling every 10 s, while the dossier has lines in state "pending", so
+    the status that follows shows which lines Experio put in error."""
     end = time.time() + PROCESSING_SECONDS
     pending = [("company_id", "=", dossier_id), ("state", "=", "pending")]
     while time.time() < end and odoo_call("experio.history", "search_count", pending, context=context):
@@ -788,9 +865,9 @@ STALE_MINUTES = 60  # handed over this long ago, still not processed: stuck, not
 
 
 def resend_stale(dossier_id, context):
-    """The dossier's lines still waiting or in process STALE_MINUTES after being handed over, once its onboarding is
-    finished (before, its lines wait on purpose), sent again with Experio's own « Re-send » (action_resend: it
-    re-queues only the stale and failed ones, and re-runs its detection): how many."""
+    """Re-send the dossier's lines still "new" or "pending" STALE_MINUTES after they were sent, with Experio's own
+    « Re-send » (experio.history action_resend, which re-queues stale and failed lines and re-runs its detection).
+    Returns how many lines were re-sent: 0 while the onboarding is open (lines wait on purpose) and in test mode."""
     if odoo_call("res.company", "read", [dossier_id], fields=["show_onboarding"])[0]["show_onboarding"]:
         return 0
     since = (datetime.now(UTC) - timedelta(minutes=STALE_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")  # Experio's UTC
@@ -803,16 +880,21 @@ def resend_stale(dossier_id, context):
 
 
 def other_dossiers_journals(dossier_id):
-    """The labels of the dossier's journal settings that point to another dossier's journal (Experio's default for
-    a new dossier, until its own journals are created or imported), "" when none does."""
+    """Return the labels (comma-joined) of the dossier's journal settings that point to another dossier's journal,
+    "" when none does. A new dossier gets them by default: Experio takes the first purchase or sale journal of the
+    creating user's current company (res.company _default_purchase_journal_id)."""
     wrong = misplaced_journals(dossier_id, [key for key in POSTING_SETTINGS if "journal" in key])
     return ", ".join(POSTING_SETTINGS[key] for key, name in wrong.items() if name)
 
 
 @step_tool
 def setup_status(dossier_id: int) -> dict:
-    """Where a dossier's setup stands: its imported entries by state, its exercices,
-    and the settings Experio needs before an invoice can be posted."""
+    """Report where a dossier's setup stands, as an ok result: account, journal, tax and tiers counts, imported
+    entries by state with Experio's error reasons, open exercices, the settings Experio needs before an invoice
+    can be posted, journal settings on another dossier, and whether the onboarding is finished.
+
+    First re-sends stale lines (resend_stale) and waits for lines being processed (processed). Clears the
+    tarik_setups wait once the onboarding is finished and no line is left to process."""
     dossier = require_dossier(dossier_id)
     with refused(
         f"setup_status {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner l'etat du parametrage."
