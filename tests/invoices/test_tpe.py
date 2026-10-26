@@ -123,7 +123,7 @@ def experio(monkeypatch):
         if model == "exp.partner" and method == "read":
             return [{"customer_account_id": [6, "34210002"]}]
         if model == "res.company":
-            return [{"monetary_operations_ignore_remise": False}]
+            return [{"monetary_operations_ignore_remise": state.get("ignore_remise", False)}]
         return []
 
     def odoo_json(model, method, ids, **kw):
@@ -232,3 +232,120 @@ def test_the_import_sends_the_network_as_experios_screen_does(monkeypatch):
     document = calls[1][1][0]
     assert calls[1][0] == "action_add_documents_from_javascript"
     assert document["type"] == "attijari" and document["journal_id"] == 3 and document["name"] == "riad"
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("found", "journal"), [([{"journal_id": [3, "BQ"]}], 3), ([{"journal_id": False}], None), ([], None)]
+)
+def test_the_next_tpe_statement_goes_to_the_journal_of_the_last_one(monkeypatch, found, journal):
+    monkeypatch.setattr(tpe, "odoo_call", lambda model, method, domain, fields, limit: found)
+    assert tpe.last_journal(857) == journal
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize("made", [[], None, [460, 461]])
+def test_an_upload_that_does_not_make_exactly_one_statement_is_refused(monkeypatch, made):
+    monkeypatch.setattr(tpe, "odoo_call", lambda *a, **k: 9)
+    monkeypatch.setattr(tpe, "odoo_json", lambda *a, **k: made)
+    with pytest.raises(RuntimeError, match="expected one statement"):
+        tpe.import_tpe("riad.pdf", b"%PDF", 857, 3, "cmi")
+
+
+@pytest.mark.functionality
+def test_a_tpe_statement_is_being_read_until_experio_processed_it():
+    assert tpe.being_read({"state": "pending", "statement_processed": False})
+    assert not tpe.being_read({"state": "pending", "statement_processed": True})
+    assert not tpe.being_read({"state": "draft", "statement_processed": False})
+
+
+def without_accounts(monkeypatch):
+    inner = tpe.odoo_call
+    monkeypatch.setattr(
+        tpe, "odoo_call", lambda model, *a, **k: [] if model == "exp.account" else inner(model, *a, **k)
+    )
+
+
+@pytest.mark.functionality
+def test_an_operation_whose_account_the_dossier_lacks_stops_for_the_cabinet(experio, monkeypatch):
+    without_accounts(monkeypatch)
+    result = tpe.settle_tpe(460)
+    assert result["status"] == "stop" and "l'opération TPE FRAIS BANCAIRES ni son compte (61471)" in result["message"]
+    assert experio["created"] == []
+
+
+@pytest.mark.security
+def test_test_mode_makes_no_operation_and_writes_no_line(experio, monkeypatch):
+    monkeypatch.setattr(tpe, "dry_run", lambda: True)
+    result = tpe.settle_tpe(460, "clients divers")
+    assert experio["created"] == [] and all(not entry["operation_id"] for entry in experio["lines"])
+    assert result["message"].startswith("MODE TEST") and "créée(s) dans le dossier" in result["message"]
+
+
+@pytest.mark.functionality
+def test_the_client_named_at_settling_gets_the_sales_and_lines_left_are_said(experio):
+    experio["lines"].append(line(5, "FRAIS DIVERS", debit=5.0, error_msg="<p>Compte manquant</p>"))
+    experio["lines"].append(line(6, "TOTAL REMISE", credit=1.0, state="post"))
+    experio["ignore_remise"] = True
+    result = tpe.settle_tpe(460, "clients divers")
+    assert result["status"] == "ok" and "ventes rattachées au client CLIENTS DIVERS" in result["message"]
+    assert "À compléter dans Experio : Compte manquant (1)" in result["message"]
+    assert "1 déjà comptabilisée(s)" in result["message"] and "Ignorer la ligne de solde remise" in result["message"]
+    assert not experio["lines"][5]["operation_id"]  # a posted line is never written
+
+
+@pytest.mark.functionality
+def test_several_clients_matching_are_listed_never_chosen(experio):
+    experio["partners"] = [{"id": 77, "name": "CLIENTS DIVERS"}, {"id": 78, "name": "CLIENTS DIVERS SUD"}]
+    client, found = tpe.find_client(857, "divers", {})
+    assert client is None and len(found) == 2
+    assert tpe.find_client(857, "clients divers", {})[0]["id"] == 77  # exactly its name
+    assert tpe.find_client(857, "  ", {}) == (None, [])
+
+
+@pytest.mark.communication
+def test_a_client_named_but_unknown_is_asked_again_saying_so(experio, monkeypatch):
+    monkeypatch.setattr(tpe, "cabinet_db", fake_db)
+    experio["partners"] = []
+    result = tpe.answer_client(8, "Mettez-les sur Riad Atlas", "")
+    assert (
+        result["status"] == "question"
+        and "Aucun client « Mettez-les sur Riad Atlas » dans le dossier" in (result["message"])
+    )
+
+
+@pytest.mark.functionality
+def test_the_client_own_words_name_the_client_when_the_agent_read_none(experio, monkeypatch):
+    monkeypatch.setattr(tpe, "cabinet_db", fake_db)
+    asked = []
+    inner = tpe.odoo_call
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "exp.partner" and method == "search_read":
+            asked.append(args[0][1][2])
+            return [{"id": 77, "name": "CLIENTS DIVERS"}] if args[0][1][2] == "clients divers" else []
+        return inner(model, method, *args, **kw)
+
+    monkeypatch.setattr(tpe, "odoo_call", odoo_call)
+    result = tpe.answer_client(8, "clients divers", "autre")
+    assert result["status"] == "ok" and asked == ["autre", "clients divers"]
+
+
+@pytest.mark.functionality
+def test_a_posted_tpe_statement_is_not_posted_again(experio):
+    experio["statement"]["state"] = "post"
+    assert tpe.post_tpe(460)["message"] == "Relevé TPE n° 460 : déjà comptabilisé."
+
+
+@pytest.mark.security
+def test_test_mode_posts_no_tpe_statement(experio, monkeypatch):
+    monkeypatch.setattr(tpe, "dry_run", lambda: True)
+    result = tpe.post_tpe(460)
+    assert result["message"].startswith("MODE TEST") and all(entry["state"] == "draft" for entry in experio["lines"])
+
+
+@pytest.mark.security
+def test_another_window_at_posting_stops_for_the_cabinet(experio):
+    experio["post"] = {"res_model": "exp.monetary.statement.duplicate", "name": "Doublon possible"}
+    result = tpe.post_tpe(460)
+    assert result["status"] == "stop" and "« Doublon possible »" in result["message"] and experio["confirmed"] == []

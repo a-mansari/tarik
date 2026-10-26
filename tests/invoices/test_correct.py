@@ -2,6 +2,7 @@
 
 import pytest
 
+from engine.tools.invoices.check import CAPTURED
 from engine.tools.invoices.correct import planned_changes
 from tests.fakes import flag
 
@@ -162,3 +163,178 @@ def test_avoir_is_unticked_only_when_the_printed_title_says_facture(title, untic
     changes = planned_changes(read, [], {"refund": True, "amount_tax_non_recoverable": False})
     assert (changes.get("refund") is False) == unticked
     assert "refund" not in planned_changes(read, [], {"refund": False, "amount_tax_non_recoverable": False})
+
+
+DRAFT = {"id": 3, "state": "draft", "company_id": [5, "D"], "exercice_id": [2, "2026"], "refund": False}
+DRAFT.update(amount_tax_non_recoverable=0.0, payment_method_id=False, currency_id=[1, "MAD"])
+DRAFT.update(amount_total=1200.0, amount_untaxed=1000.0)
+CONTEXT = {"allowed_company_ids": [5], "cron_fiscal_entry_id": 2}
+
+
+@pytest.fixture
+def correcting(monkeypatch):
+    """correct_invoice on DRAFT 3, checked with ``read`` differing in ``bad``: what Experio is asked and writes."""
+    from engine.tools.invoices import correct
+
+    state = {"invoice": dict(DRAFT), "read": {"amount_untaxed": 1000.0}, "bad": [], "readable": True}
+    state.update(
+        calls=[], filled=[], refreshed=[], found={"res.currency": [{"id": 9}], "exp.payment.method": [{"id": 4}]}
+    )
+    state["changed"] = None  # what Experio says changed: the changes themselves unless set
+
+    def odoo_call(model, method, domain, **kw):
+        state["calls"].append((model, method, domain, kw))
+        return state["found"][model]
+
+    def fill_invoice(invoice_id, changes, context):
+        state["filled"].append((invoice_id, changes, context))
+        return dict(changes) if state["changed"] is None else state["changed"]
+
+    monkeypatch.setattr(correct, "require_draft_invoice", lambda *a: state["invoice"])
+    monkeypatch.setattr(correct, "stored_check", lambda i: (state["readable"], state["read"], state["bad"]))
+    monkeypatch.setattr(correct, "odoo_call", odoo_call)
+    monkeypatch.setattr(correct, "fill_invoice", fill_invoice)
+    monkeypatch.setattr(
+        correct, "refresh", lambda invoice_id, context: state["refreshed"].append((invoice_id, context))
+    )
+    monkeypatch.setattr(correct, "dry_run", lambda: False)
+    return state
+
+
+@pytest.mark.functionality
+def test_the_differences_are_written_through_experios_form_then_its_refresh_rebuilds_the_lines(correcting):
+    from engine.tools.invoices import correct
+
+    correcting["read"] = {"amount_untaxed": 900.0, "invoice_number": "F-12"}
+    correcting["bad"] = [flag("amount_untaxed", 1000, 900), flag("invoice_number", "F-1", "F-12")]
+    result = correct.correct_invoice(3)
+    assert correcting["filled"] == [(3, {"amount_untaxed": 900.0, "invoice_number": "F-12"}, CONTEXT)]
+    assert correcting["refreshed"] == [(3, CONTEXT)] and correcting["calls"] == []  # MAD: no currency searched
+    assert result == {
+        "status": "ok",
+        "message": "Facture 3 : corrigée (montant HT 900.0, numéro F-12).",
+        "invoice_id": 3,
+    }
+
+
+@pytest.mark.security
+def test_test_mode_says_what_the_correction_would_be(correcting, monkeypatch):
+    from engine.tools.invoices import correct
+
+    monkeypatch.setattr(correct, "dry_run", lambda: True)
+    correcting["read"], correcting["bad"] = {"amount_untaxed": 900.0}, [flag("amount_untaxed", 1000, 900)]
+    assert correct.correct_invoice(3)["message"] == (
+        f"{correct.TEST_MODE}Facture 3, correction prévue : montant HT 900.0."
+    )
+
+
+@pytest.mark.functionality
+def test_a_foreign_currency_experio_has_is_set_and_one_it_lacks_is_noted(correcting):
+    from engine.tools.invoices import correct
+
+    correcting["read"] = {"currency": "eur"}
+    assert correct.correct_invoice(3)["message"] == "Facture 3 : corrigée (devise renseigné(e))."
+    assert correcting["calls"] == [
+        ("res.currency", "search_read", [("name", "=", "EUR")], {"fields": ["id"], "limit": 1})
+    ]
+    assert correcting["filled"][0][1] == {"currency_id": 9}
+    correcting["found"]["res.currency"], correcting["filled"][:] = [], []
+    result = correct.correct_invoice(3)
+    assert result["routine"] and result["message"] == "Facture 3 : rien à corriger. (devise EUR inconnue dans Experio)"
+    assert correcting["filled"] == [] and correcting["refreshed"] == [(3, CONTEXT)]  # refreshed once, by the first run
+
+
+@pytest.mark.functionality
+def test_the_payment_method_the_client_wrote_is_taken_over_the_scans(correcting):
+    from engine.tools.invoices import correct
+
+    correcting["read"] = {"payment_method": "especes"}
+    correct.correct_invoice(3, payment_method="cheque", client_message="Payée par cheque")
+    assert correcting["calls"][0][2] == [("name", "=ilike", "Ch%")] and correcting["filled"][0][1] == {
+        "payment_method_id": 4
+    }
+    correcting["calls"][:] = []
+    correct.correct_invoice(3, payment_method="cheque", client_message="Voici la facture")  # not written: the scan's
+    assert correcting["calls"][0][2] == [("name", "=ilike", "Esp%")]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("scan", "invoice_has", "found", "searched"),
+    [("especes", [2, "Esp"], [{"id": 4}], False), ("bitcoin", False, [{"id": 4}], False), ("cheque", False, [], True)],
+)
+def test_no_payment_method_is_written_over_one_set_unknown_or_missing_in_experio(
+    correcting, scan, invoice_has, found, searched
+):
+    from engine.tools.invoices import correct
+
+    correcting["read"], correcting["invoice"]["payment_method_id"] = {"payment_method": scan}, invoice_has
+    correcting["found"]["exp.payment.method"] = found
+    assert correct.correct_invoice(3)["message"] == "Facture 3 : rien à corriger."
+    assert bool(correcting["calls"]) is searched and correcting["filled"] == []
+
+
+@pytest.mark.functionality
+def test_a_correction_experio_already_holds_changes_nothing(correcting):
+    from engine.tools.invoices import correct
+
+    correcting["read"], correcting["bad"] = {"amount_untaxed": 900.0}, [flag("amount_untaxed", 1000, 900)]
+    correcting["changed"] = {}
+    assert correct.correct_invoice(3)["message"] == "Facture 3 : déjà a jour, rien à changer."
+    assert correcting["refreshed"] == []
+
+
+@pytest.mark.communication
+def test_what_experio_recomputed_by_itself_is_logged_not_told(correcting, capsys):
+    from engine.tools.invoices import correct
+
+    correcting["read"] = {"currency": "USD"}
+    correcting["changed"] = {"currency_id": 9, "exchange_rate": 10.1}
+    assert correct.correct_invoice(3)["message"] == "Facture 3 : corrigée (devise renseigné(e))."
+    assert "Experio also updated exchange_rate" in capsys.readouterr().out
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize("failing", ["fill_invoice", "refresh", "odoo_call"])
+def test_a_correction_experio_refuses_is_said_refused(correcting, monkeypatch, failing):
+    from engine.tools.core.app import ToolError
+    from engine.tools.invoices import correct
+
+    def refuse(*args, **kwargs):
+        raise RuntimeError("ValidationError: exercice clôturé")
+
+    monkeypatch.setattr(correct, failing, refuse)
+    correcting["read"] = {"amount_untaxed": 900.0, "currency": "EUR"}
+    correcting["bad"] = [flag("amount_untaxed", 1000, 900)]
+    with pytest.raises(ToolError, match="Facture 3 : Experio a refusé la correction."):
+        correct.correct_invoice(3)
+
+
+@pytest.mark.functionality
+def test_an_unchecked_or_unreadable_invoice_is_not_corrected(correcting, monkeypatch):
+    from engine.tools.core.app import ToolError
+    from engine.tools.invoices import correct
+
+    correcting["readable"] = False
+    assert correct.correct_invoice(3)["message"] == "Facture 3 : scan illisible, rien à corriger."
+    monkeypatch.setattr(correct, "stored_check", lambda i: None)
+    with pytest.raises(ToolError, match="appelez d'abord check_invoice"):
+        correct.correct_invoice(3)
+    assert correcting["filled"] == [] and correcting["calls"] == []
+
+
+@pytest.mark.communication
+def test_each_corrected_field_is_said_as_the_client_reads_it():
+    from engine.tools.invoices.correct import change_text
+
+    assert change_text("multi_tva", True) is None
+    assert change_text("refund", True) == "avoir" and change_text("refund", False) == "facture, pas un avoir"
+    assert change_text("amount_tva_20", 40.0) == "TVA 20 % 40.0"
+    assert change_text("payment_method_id", 4) == "mode de paiement renseigné(e)"
+
+
+@pytest.mark.communication
+def test_every_header_amount_correct_invoice_writes_is_said_in_french():
+    from engine.tools.invoices.correct import change_text
+
+    assert [field for field in CAPTURED if field in change_text(field, 2.0)] == []  # amount_stamp, amount_ts...

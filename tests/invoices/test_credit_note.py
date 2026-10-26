@@ -2,6 +2,8 @@
 
 import pytest
 
+from engine.tools.core.app import ToolError
+from engine.tools.core.config import TEST_MODE
 from engine.tools.invoices import credit_note
 
 CANDIDATES = [  # what Experio lists on credit note 262740 (cabinet 8), its opening balance among them
@@ -77,3 +79,50 @@ def test_an_invoice_a_draft_or_a_used_credit_note_is_left_alone(experio):
     assert credit_note.apply_credit_note(7)["routine"]
     experio["state"], experio["residual"] = "post", 0.0
     assert credit_note.apply_credit_note(7)["routine"] and experio["applied"] == []
+
+
+@pytest.mark.functionality
+def test_a_credit_note_without_its_tiers_is_left_alone(experio, monkeypatch):
+    fake = credit_note.require_invoice
+    monkeypatch.setattr(credit_note, "require_invoice", lambda i, f: {**fake(i, f), "partner_id": False})
+    assert credit_note.apply_credit_note(7)["routine"] and experio["applied"] == []
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("widget", [False, {"content": []}, {"content": [CANDIDATES[2]]}])
+def test_no_invoice_of_the_tiers_to_apply_it_to_leaves_it_as_it_is(experio, monkeypatch, widget):
+    """Experio lists nothing, or only the tiers' opening balance: nothing to apply the credit note to."""
+    fake = credit_note.odoo_call
+    monkeypatch.setattr(
+        credit_note,
+        "odoo_call",
+        lambda model, method, *a, **kw: (
+            [{credit_note.WIDGET: widget}] if method == "read" else fake(model, method, *a, **kw)
+        ),
+    )
+    result = credit_note.apply_credit_note(7)
+    assert result["routine"] and "avoir sans facture de ce tiers" in result["message"] and experio["applied"] == []
+
+
+@pytest.mark.functionality
+def test_in_test_mode_the_credit_note_is_only_said(experio, monkeypatch):
+    monkeypatch.setattr(credit_note, "dry_run", lambda: True)
+    result = credit_note.apply_credit_note(7)
+    assert result["message"].startswith(f"{TEST_MODE}Facture 7 : l'avoir serait imputé sur la seule facture")
+    assert experio["applied"] == []
+
+
+@pytest.mark.communication
+def test_what_is_left_of_the_credit_note_after_experio_applied_it_is_said(experio):
+    experio["after"] = 140.0
+    assert ", reste 140.00 à imputer (annulable" in credit_note.apply_credit_note(7)["message"]
+
+
+@pytest.mark.functionality
+def test_experio_refusing_to_apply_it_is_a_tool_error(experio, monkeypatch):
+    def odoo_json(model, method, ids, line_id, context):
+        raise RuntimeError("Traceback\nUserError: Lignes déjà lettrées")
+
+    monkeypatch.setattr(credit_note, "odoo_json", odoo_json)
+    with pytest.raises(ToolError, match="Experio a refusé l'imputation de l'avoir"):
+        credit_note.apply_credit_note(7)

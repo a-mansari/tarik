@@ -1,10 +1,14 @@
 """A list of dossiers, a collaborateur or client, an archiving: checked, read back, written only on the client's yes."""
 
+import re
+
 import pytest
 
 from engine.tools.core.app import ToolError
+from engine.tools.core.config import TEST_MODE
 from engine.tools.dossiers import management
 from engine.tools.dossiers.management import problems_of, read_rows
+from tests.fakes import FakeDb
 
 HEAD = "Nom;Type;ICE;IF;Mode de declaration;Ville;RAS TVA"
 
@@ -141,3 +145,248 @@ def test_archiving_reads_back_and_waits_for_the_yes(monkeypatch):
     asked = management.archive_dossier(5, False, "s")
     assert "BETA (12 facture(s), dont 7 comptabilisee(s))" in asked["message"] and archived == []
     assert management.archive_dossier(5, True, "s")["message"].startswith("Dossier BETA archive.") and archived == [[5]]
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize(
+    "name, data, said",
+    [
+        ("dossiers.pdf", b"%PDF", "envoyez la liste des dossiers en Excel (.xlsx) ou en CSV"),
+        ("dossiers.xlsx", b"pas un classeur", "fichier illisible"),
+        ("dossiers.csv", b";;\n", "le fichier est vide"),
+        ("dossiers.csv", HEAD.encode(), "aucune ligne de dossier sous l'en-tete"),
+    ],
+)
+def test_a_list_that_cannot_be_read_says_why(name, data, said):
+    with pytest.raises(ToolError, match=re.escape(said)):
+        read_rows(name, "application/octet-stream", data)
+
+
+@pytest.mark.functionality
+def test_a_country_is_found_by_its_code_or_name_in_french_or_english(monkeypatch):
+    asked = []
+
+    def odoo_call(model, method, domain, fields, limit, context):
+        asked.append((domain[0][0], context["lang"]))
+        return [{"id": 5, "name": "Maroc"}] if (domain[0][0], context["lang"]) == ("name", "en_US") else []
+
+    monkeypatch.setattr(management, "odoo_call", odoo_call)
+    assert management.country_of("Morocco") == {"id": 5, "name": "Maroc"}
+    assert asked == [("code", "fr_FR"), ("code", "en_US"), ("name", "fr_FR"), ("name", "en_US")]
+    monkeypatch.setattr(management, "odoo_call", lambda *a, **k: [])
+    assert management.country_of("Atlantide") is None
+
+
+@pytest.mark.functionality
+def test_a_rows_country_ice_and_name_are_checked(experio):
+    rows = rows_of(f"{HEAD};Pays\nBETA;societe;12AB;;mensuelle;;;Atlantide\n;societe;;;mensuelle;;;\n")
+    assert [p.split(" : ", 1)[1] for p in problems_of(rows)] == [
+        "ICE « 12AB » incorrect (15 chiffres)",
+        "pays « Atlantide » inconnu",
+        "le nom est vide",
+    ]
+
+
+@pytest.fixture
+def listing(experio, monkeypatch):
+    """The client's spreadsheet (``listing["text"]``) sent as file 7, read back with their yes."""
+    state = {"text": f"{HEAD};Pays;Code postal\nBETA;societe;;;mensuelle;Casablanca;non;MA;20000"}
+    monkeypatch.setattr(management, "cabinet_db", lambda: FakeDb(("s", "dossiers.csv", "text/csv", b"", *[None] * 4)))
+    monkeypatch.setattr(management, "read_rows", lambda *a: rows_of(state["text"]))
+    monkeypatch.setattr(management, "taken", lambda file_id: None)
+    monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    return state
+
+
+@pytest.mark.functionality
+def test_a_rows_country_town_and_ras_tva_are_read_back_and_created(listing, experio):
+    asked = management.import_dossiers(7, False, "s")
+    assert (
+        "- BETA : societe, ICE non renseigne, IF non renseigne, mensuelle, 20000 Casablanca, Maroc, RAS TVA non"
+        in (asked["message"])
+    )
+    management.import_dossiers(7, True, "s")
+    assert experio[0] == {
+        "name": "BETA",
+        "folder_type": "company",
+        "declaration_mode": "monthly",
+        "enabled": True,
+        "city": "Casablanca",
+        "zip": "20000",
+        "country_id": 5,
+        "declaration_ras_tva": False,
+    }
+
+
+@pytest.mark.communication
+def test_a_list_with_problems_creates_nothing_and_shows_the_first_ones(listing, experio):
+    listing["text"] = HEAD + "".join(f"\nD{n};SA;;;mensuelle;;" for n in range(17))
+    answer = management.import_dossiers(7, True, "s")
+    assert answer["status"] == "stop" and "le fichier a 17 probleme(s)" in answer["message"]
+    assert "- ... et 2 autre(s)" in answer["message"] and experio == []
+
+
+@pytest.mark.communication
+def test_a_long_list_is_read_back_in_part(listing):
+    listing["text"] = HEAD + "".join(f"\nD{n};societe;;;mensuelle;;" for n in range(17))
+    asked = management.import_dossiers(7, False, "s")
+    assert "17 dossier(s), tous corrects" in asked["message"] and "- ... et 2 autres" in asked["message"]
+    assert "- D15" not in asked["message"]
+
+
+@pytest.mark.security
+def test_in_test_mode_the_list_is_only_said(listing, experio, monkeypatch):
+    monkeypatch.setattr(management, "dry_run", lambda: True)
+    answer = management.import_dossiers(7, True, "s")
+    assert answer["message"] == f"{TEST_MODE}dossiers.csv : 1 dossier(s) seraient crees." and experio == []
+
+
+@pytest.mark.communication
+def test_the_rows_experio_refuses_are_listed_and_the_others_created(listing, experio, monkeypatch):
+    listing["text"] = f"{HEAD}\nBETA;societe;;;mensuelle;;\nDELTA;societe;;12345678;mensuelle;;"
+    attached = []
+    monkeypatch.setattr(management, "attach_user", lambda user_id, dossier_id: attached.append(dossier_id))
+
+    def odoo_json(model, method, values):
+        if values.get("vat"):
+            raise RuntimeError("IF inconnu du registre")
+        return 9
+
+    monkeypatch.setattr(management, "odoo_json", odoo_json)
+    answer = management.import_dossiers(7, True, "s")
+    assert answer["message"] == (
+        "dossiers.csv : 1 dossier(s) cree(s) sur 2.\nRefuses par Experio :\n- Ligne 3 (DELTA) : IF inconnu du registre"
+        "\nCorrigez ces lignes et renvoyez-les seules."
+    )
+    assert attached == [9]
+
+
+@pytest.mark.communication
+def test_experio_not_checking_the_list_is_said(listing, monkeypatch):
+    monkeypatch.setattr(management, "dossiers", lambda: (_ for _ in ()).throw(RuntimeError("timeout")))
+    with pytest.raises(ToolError, match="Experio n'a pas pu verifier la liste des dossiers"):
+        management.import_dossiers(7, True, "s")
+
+
+@pytest.mark.functionality
+def test_the_profiles_are_experios_own(monkeypatch):
+    asked = []
+    found = [{"id": 1, "name": "Collaborateur"}, {"id": 2, "name": "Chef de mission"}]
+    monkeypatch.setattr(management, "odoo_call", lambda model, method, domain, **kw: asked.append(domain) or found)
+    assert management.profiles("customer") == {"Collaborateur": 1, "Chef de mission": 2}
+    assert asked == [[("type", "=", "customer")]]
+
+
+@pytest.mark.functionality
+def test_a_person_is_found_by_their_email_among_their_kind(monkeypatch):
+    asked = []
+    monkeypatch.setattr(
+        management, "users_by_email", lambda email, types, fields, limit: asked.append(types) or [{"id": 4}][:limit]
+    )
+    assert management.user_by_email("a@b.ma", "client") == {"id": 4} and asked == [["client"]]
+    monkeypatch.setattr(management, "users_by_email", lambda *a: [])
+    assert management.user_by_email("a@b.ma", "client") is None
+
+
+@pytest.fixture
+def person(monkeypatch):
+    """Dossier BETA, Experio's client profiles, and what was written."""
+    written = []
+    monkeypatch.setattr(management, "require_dossier", lambda dossier_id: "BETA")
+    monkeypatch.setattr(management, "client_messages", lambda session_id, message: [message])
+    monkeypatch.setattr(management, "profiles", lambda kind: {"Client": 7})
+    monkeypatch.setattr(management, "user_by_email", lambda email, kind: None)
+    monkeypatch.setattr(management, "dry_run", lambda: False)
+    monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    monkeypatch.setattr(management, "odoo_json", lambda model, method, values: written.append(values) or 42)
+    monkeypatch.setattr(management, "attach_user", lambda *args: written.append(args))
+    return written
+
+
+MESSAGE = "Ajoute le client Karim Idrissi, karim@beta.ma, tel 0612345678, profil client"
+
+
+@pytest.mark.functionality
+def test_a_client_is_created_with_the_phone_the_client_wrote(person):
+    asked = management.create_person(
+        "client", 5, "Karim Idrissi", "karim@beta.ma", "0612345678", "client", False, MESSAGE, "s"
+    )
+    assert "- Telephone : 0612345678\n" in asked["message"] and person == []
+    done = management.create_person(
+        "client", 5, "Karim Idrissi", "karim@beta.ma", "0612345678", "client", True, MESSAGE, "s"
+    )
+    assert done["message"] == "Client Karim Idrissi (karim@beta.ma) cree et rattache au dossier BETA, profil Client."
+    assert person[0]["phone"] == "0612345678" and person[0]["employee_type"] == "client"
+    assert person[1] == (42, 5, 7, "client")
+
+
+@pytest.mark.functionality
+def test_a_person_already_in_experio_is_only_attached(person, monkeypatch):
+    monkeypatch.setattr(
+        management, "user_by_email", lambda email, kind: {"id": 8, "name": "K. Idrissi", "login": "karim@beta.ma"}
+    )
+    asked = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", False, MESSAGE, "s")
+    assert asked["message"].startswith("Le client K. Idrissi existe deja (karim@beta.ma). Avant de le rattacher")
+    done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
+    assert done["message"] == "Client Karim Idrissi (karim@beta.ma) rattache au dossier BETA, profil Client."
+    assert person == [(8, 5, 7, "client")]
+
+
+@pytest.mark.communication
+def test_a_name_the_client_did_not_write_is_asked(person):
+    asked = management.create_person("client", 5, "Karim Alaoui", "karim@beta.ma", "", "client", True, MESSAGE, "s")
+    assert asked["message"] == (
+        "Pour creer ce client sur le dossier BETA, il me faut son nom. (name : pas ecrit par le client)"
+    )
+    assert person == []
+
+
+@pytest.mark.functionality
+def test_a_person_of_no_known_kind_is_refused(person):
+    with pytest.raises(ToolError, match="collaborator ou client"):
+        management.create_person("fournisseur", 5, "Karim Idrissi", "karim@beta.ma")
+
+
+@pytest.mark.security
+def test_in_test_mode_the_person_is_only_said(person, monkeypatch):
+    monkeypatch.setattr(management, "dry_run", lambda: True)
+    done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
+    assert done["message"] == f"{TEST_MODE}Client Karim Idrissi (karim@beta.ma) serait rattache au dossier BETA."
+    assert person == []
+
+
+@pytest.mark.communication
+def test_experio_failing_a_person_says_where(person, monkeypatch):
+    monkeypatch.setattr(management, "odoo_json", lambda *a: (_ for _ in ()).throw(RuntimeError("login deja pris")))
+    with pytest.raises(ToolError, match="Experio refuse ce client : login deja pris"):
+        management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
+    monkeypatch.setattr(management, "user_by_email", lambda *a: 1 / 0)
+    with pytest.raises(ToolError, match="Experio n'a pas pu verifier cet utilisateur"):
+        management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
+    monkeypatch.setattr(management, "profiles", lambda kind: 1 / 0)
+    with pytest.raises(ToolError, match="Experio n'a pas pu lire les profils"):
+        management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
+
+
+@pytest.mark.security
+def test_in_test_mode_nothing_is_archived(monkeypatch):
+    monkeypatch.setattr(management, "require_dossier", lambda dossier_id: "BETA")
+    monkeypatch.setattr(management, "odoo_call", lambda model, method, domain: 0)
+    monkeypatch.setattr(management, "dry_run", lambda: True)
+    monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    monkeypatch.setattr(management, "odoo_json", lambda *a: pytest.fail("archived"))
+    assert management.archive_dossier(5, True, "s")["message"] == f"{TEST_MODE}Le dossier BETA serait archive."
+
+
+@pytest.mark.communication
+def test_experio_failing_the_archiving_says_where(monkeypatch):
+    monkeypatch.setattr(management, "require_dossier", lambda dossier_id: "BETA")
+    monkeypatch.setattr(management, "odoo_call", lambda *a: 1 / 0)
+    with pytest.raises(ToolError, match="BETA : Experio n'a pas pu compter ses factures"):
+        management.archive_dossier(5, True, "s")
+    monkeypatch.setattr(management, "odoo_call", lambda model, method, domain: 0)
+    monkeypatch.setattr(management, "dry_run", lambda: False)
+    monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    monkeypatch.setattr(management, "odoo_json", lambda *a: (_ for _ in ()).throw(RuntimeError("factures ouvertes")))
+    with pytest.raises(ToolError, match="Experio refuse d'archiver le dossier BETA : factures ouvertes"):
+        management.archive_dossier(5, True, "s")

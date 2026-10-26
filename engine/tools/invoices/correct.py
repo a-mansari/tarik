@@ -42,6 +42,15 @@ FIELD_LABELS = {
     "amount_ht_restauration": "HT restauration",
     "amount_ht_breakfast": "HT petit-déjeuner",
     "amount_ht_blanchisserie": "HT blanchisserie",
+    # Experio's own French labels (invoice/i18n/fr.po)
+    "amount_stamp": "timbre",
+    "amount_disbursement": "débours",
+    "amount_guarantee_holdback": "retenue de garantie",
+    "amount_prorata": "prorata",
+    "amount_insurance": "assurance BTP",
+    "amount_ts": "taxe de séjour",
+    "amount_tsp": "taxe de promotion touristique",
+    "advance_amount": "avance / acompte",
 }
 
 

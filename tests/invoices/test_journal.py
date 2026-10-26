@@ -3,6 +3,7 @@
 import pytest
 
 from engine.tools.core.app import ToolError
+from engine.tools.core.config import TEST_MODE
 from engine.tools.invoices import journal
 
 INVOICE = {
@@ -95,3 +96,36 @@ def test_an_invoice_made_before_the_dossiers_journals_is_moved_to_them_first(exp
     with pytest.raises(pytest.fail.Exception):
         accounts.assign_account(3)
     assert moved == [3]
+
+
+@pytest.mark.functionality
+def test_in_test_mode_the_journal_is_only_said(experio, monkeypatch):
+    monkeypatch.setattr(journal, "dry_run", lambda: True)
+    experio["invoice"]["journal_id"] = [2, "Autre"]
+    result = journal.check_journal(3)
+    assert (
+        result["message"] == f"{TEST_MODE}Facture 3 : elle passerait au journal Achats." and experio["refreshed"] == 0
+    )
+
+
+@pytest.mark.security
+def test_a_posted_invoice_never_changes_journal(experio):
+    experio["invoice"].update(journal_id=[2, "Autre"], state="post")
+    with pytest.raises(ToolError, match="seule une facture brouillon peut changer de journal"):
+        journal.check_journal(3)
+    assert experio["refreshed"] == 0
+
+
+@pytest.mark.functionality
+def test_experio_refusing_its_refresh_or_leaving_no_journal_is_a_tool_error(experio, monkeypatch):
+    experio["invoice"]["journal_id"] = False
+    experio["after"] = False
+    with pytest.raises(ToolError, match="gardé le journal vide au lieu de Achats"):
+        journal.check_journal(3)
+
+    def refresh(invoice_id, context):
+        raise RuntimeError("Traceback\nUserError: Journal introuvable")
+
+    monkeypatch.setattr(journal, "refresh", refresh)
+    with pytest.raises(ToolError, match="Experio n'a pas pu mettre a jour le journal"):
+        journal.check_journal(3)

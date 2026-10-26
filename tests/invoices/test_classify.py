@@ -89,3 +89,117 @@ def test_an_import_folders_piece_is_a_purchase_without_asking_the_model(asked):
     asked["draft"].update(folder_id=[4, "2601"], folder_type="import", type="sale")
     result = classify.classify_invoice(5)
     assert result["category"] == "achat" and asked["model"] == 0 and asked["filled"] == [{"type": "purchase"}]
+
+
+@pytest.mark.functionality
+def test_a_draft_experio_still_reads_or_without_a_scan_is_not_classified(asked, monkeypatch):
+    monkeypatch.setattr(classify, "still_reading", lambda invoice: {"status": "wait", "message": "lecture"})
+    assert classify.classify_invoice(5)["status"] == "wait"
+    monkeypatch.setattr(classify, "still_reading", lambda invoice: None)
+    monkeypatch.setattr(classify, "has_scan", lambda invoice: False)
+    assert classify.classify_invoice(5)["message"] == "Facture 5 : pas de scan PDF a classer."
+    assert asked["model"] == 0 and asked["filled"] == []
+
+
+@pytest.mark.functionality
+def test_a_bank_statement_is_stopped_and_written_nowhere(asked):
+    asked["answer"] = "rb"
+    result = classify.classify_invoice(5)
+    assert result["status"] == "stop" and result["category"] == "rb" and "un relevé bancaire" in result["message"]
+    assert asked["filled"] == []
+
+
+@pytest.mark.functionality
+def test_a_scan_of_the_other_side_than_the_client_said_stops_untouched(asked):
+    asked["answer"] = "vente"
+    result = classify.classify_invoice(5, "achat")
+    assert result["status"] == "stop" and "vous l'avez donnée comme achat" in result["message"]
+    assert asked["filled"] == []
+
+
+@pytest.mark.functionality
+def test_a_draft_experio_already_has_on_the_right_side_is_left_as_it_is(asked):
+    asked["answer"] = "achat"
+    result = classify.classify_invoice(5)
+    assert result["routine"] and "déjà enregistrée comme telle" in result["message"] and asked["filled"] == []
+
+
+@pytest.mark.functionality
+def test_the_type_is_changed_through_experios_form_in_the_invoices_dossier(asked, monkeypatch):
+    contexts = []
+    monkeypatch.setattr(classify, "invoice_context", lambda invoice: contexts.append(invoice["id"]) or {"c": 1})
+    monkeypatch.setattr(
+        classify,
+        "fill_invoice",
+        lambda invoice_id, values, context: asked["filled"].append((invoice_id, values, context)),
+    )
+    assert classify.classify_invoice(5)["message"] == "Facture 5 : vente (why), type change en sale."
+    assert asked["filled"] == [(5, {"type": "sale"}, {"c": 1})] and contexts == [5]
+
+
+@pytest.mark.security
+def test_test_mode_says_the_type_would_change(asked, monkeypatch):
+    monkeypatch.setattr(classify, "test_mode_note", lambda: "MODE TEST. ")
+    assert classify.classify_invoice(5)["message"] == "MODE TEST. Facture 5 : vente (why), le type passerait a sale."
+
+
+@pytest.mark.communication
+def test_a_type_change_experio_refuses_is_said_refused(asked, monkeypatch):
+    def refuse(*args):
+        raise RuntimeError("ValidationError: facture verrouillée")
+
+    monkeypatch.setattr(classify, "fill_invoice", refuse)
+    with pytest.raises(classify.ToolError, match="Facture 5 : Experio a refusé le changement de type."):
+        classify.classify_invoice(5)
+
+
+@pytest.mark.security
+def test_a_draft_no_longer_editable_gets_no_type_change(asked, monkeypatch):
+    def posted(*args):
+        raise classify.ToolError("Facture 5 : déjà comptabilisée.")
+
+    monkeypatch.setattr(classify, "require_draft", posted)
+    with pytest.raises(classify.ToolError, match="déjà comptabilisée"):
+        classify.classify_invoice(5)
+    assert asked["filled"] == []
+
+
+@pytest.mark.technical
+def test_a_category_the_model_invents_is_refused(monkeypatch):
+    told = []
+    monkeypatch.setattr(
+        classify, "ask_model", lambda system, pages, prompt, what: told.append(prompt) or {"category": "x"}
+    )
+    with pytest.raises(classify.ToolError, match="n'a pas su dire si c'est une facture d'achat"):
+        classify.classify_pages([], "Classement", "ALPHA")
+    monkeypatch.setattr(classify, "ask_model", lambda *a: {"category": "vente", "reason": None})
+    assert classify.classify_pages([], "Classement") == ("vente", "")
+    assert told[0].startswith("The cabinet's client here is « ALPHA »")
+
+
+@pytest.mark.functionality
+def test_an_invoices_side_is_its_classification_else_experios_type(db_cabinet):
+    assert classify.side_of({"id": 5, "type": "sale"}) == "sale"
+    with pytest.raises(classify.ToolError, match="ni achat ni vente"):
+        classify.side_of({"id": 5, "type": "out_refund"})
+    classify._save_classification(5, "achat", "why")
+    assert classify.side_of({"id": 5, "type": "sale"}) == "purchase"
+    classify._save_classification(5, "rb", "why")
+    with pytest.raises(classify.ToolError, match="ce n'est pas une facture"):
+        classify.side_of({"id": 5, "type": "purchase"})
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    ("side", "words", "kept"),
+    [
+        ("achat", "mes factures fournisseurs", "achat"),
+        ("vente", "voici mes factures clients", "vente"),
+        ("mixte", "achats et ventes du mois", "mixte"),
+        ("mixte", "achats du mois", None),
+        ("vente", "voici les factures", None),
+        ("autre", "achats", None),
+    ],
+)
+def test_a_side_is_taken_only_when_the_client_wrote_it(side, words, kept):
+    assert classify.client_side(side, words) == kept

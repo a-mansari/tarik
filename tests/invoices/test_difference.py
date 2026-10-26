@@ -3,6 +3,7 @@
 import pytest
 
 from engine.tools.core.app import ToolError
+from engine.tools.core.config import TEST_MODE
 from engine.tools.invoices import difference
 
 
@@ -61,3 +62,64 @@ def test_nothing_owed_no_account_or_no_invoice_is_said(experio):
     assert difference.settle_difference(5, "81", client_confirmed=True)["status"] == "stop"
     with pytest.raises(ToolError):
         difference.settle_difference(5, "FV 99")
+
+
+@pytest.mark.functionality
+def test_no_invoice_named_is_refused_before_asking_experio(experio, monkeypatch):
+    monkeypatch.setattr(difference, "odoo_call", lambda *a, **kw: pytest.fail("Experio is not asked"))
+    with pytest.raises(ToolError, match="Quelle facture solder"):
+        difference.settle_difference(5, "  ")
+
+
+@pytest.mark.communication
+def test_several_posted_invoices_with_that_number_are_listed_not_guessed(experio):
+    experio["invoices"].append({**experio["invoices"][0], "id": 82})
+    with pytest.raises(
+        ToolError, match=r"plusieurs factures comptabilisées portent ce numéro : n° 81 \(FV 12\), n° 82"
+    ):
+        difference.settle_difference(5, "FV 12", client_confirmed=True)
+    assert experio["calls"] == []
+
+
+@pytest.mark.communication
+def test_a_dossier_without_its_general_journal_is_the_cabinets(experio):
+    experio["wizard"]["journal_id"] = False
+    result = difference.settle_difference(5, "81", client_confirmed=True)
+    assert result["status"] == "stop" and "n'a pas de journal des opérations diverses" in result["message"]
+    assert ("action_apply", [81]) not in experio["calls"]
+
+
+@pytest.mark.functionality
+def test_in_test_mode_the_difference_is_only_said(experio, monkeypatch):
+    monkeypatch.setattr(difference, "dry_run", lambda: True)
+    result = difference.settle_difference(5, "81", client_confirmed=True)
+    assert (
+        result["message"]
+        == f"{TEST_MODE}Facture 81 (FV 12) : l'écart de 3.00 DH serait passé en compte 65850000 Charges."
+    )
+    assert ("action_apply", [81]) not in experio["calls"]
+
+
+@pytest.mark.communication
+def test_an_invoice_left_unpaid_after_the_entry_says_its_payment_state(experio, monkeypatch):
+    monkeypatch.setattr(difference, "odoo_json", lambda model, method, *a, **kw: {"res_id": 70})  # nothing paid
+    result = difference.settle_difference(5, "81", client_confirmed=True)
+    assert result["status"] == "ok" and result["message"].endswith("facture état de paiement : partial.")
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "failing, message",
+    [("action_open_difference_change_wizard", "n'a pas pu préparer"), ("action_apply", "a refusé l'écriture")],
+)
+def test_experio_refusing_its_wizard_is_a_tool_error(experio, monkeypatch, failing, message):
+    fake = difference.odoo_json
+
+    def odoo_json(model, method, *args, **kw):
+        if method == failing:
+            raise RuntimeError("Traceback\nUserError: Exercice clôturé")
+        return fake(model, method, *args, **kw)
+
+    monkeypatch.setattr(difference, "odoo_json", odoo_json)
+    with pytest.raises(ToolError, match=message):
+        difference.settle_difference(5, "81", client_confirmed=True)

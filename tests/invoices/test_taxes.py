@@ -142,3 +142,114 @@ def test_a_sale_without_tva_gets_experios_own_zero_rate_tax_listed(monkeypatch):
     assert state["made"] == [("create_tax_ids", [31])] and state["listed"] == [4973, 4972]
     assert taxes.add_missing_taxes(5, {}) == [] and len(state["made"]) == 1  # there and listed: nothing done
     assert not taxes.needs_zero_rate({**sale, "type": "purchase", "is_local_invoice": False})  # foreign purchase
+
+
+@pytest.mark.functionality
+def test_without_a_tax_of_its_kind_the_tva_account_is_found_by_its_code(monkeypatch):
+    accounts = {
+        "34552%": [],
+        "3455%": [{"id": 8, "code": "34550000"}],
+        "34551%": [{"id": 9, "code": "34551000"}],
+        "4455%": [{"id": 7, "code": "44550000"}],
+    }
+    searched = []
+
+    def odoo_call(model, method, domain, fields, order, limit):
+        searched.append(domain)
+        return accounts[domain[1][2]]
+
+    monkeypatch.setattr(taxes, "odoo_call", odoo_call)
+    assert taxes.tva_account(5, "purchase", False, []) == {"id": 8, "code": "34550000"}  # 34552 first, then 3455
+    assert [domain[1][2] for domain in searched] == ["34552%", "3455%"]
+    assert ("code", "not like", "34551%") in searched[1]  # never an immobilisation's for a charge
+    assert taxes.tva_account(5, "purchase", True, []) == {"id": 9, "code": "34551000"}
+    assert taxes.tva_account(5, "sale", False, []) == {"id": 7, "code": "44550000"}
+    accounts["3455%"] = []
+    assert taxes.tva_account(5, "purchase", False, []) is None
+
+
+def dossier_without_taxes(monkeypatch, invoice, accounts=()):
+    """A fake Experio: ``invoice``, a dossier with no tax at all and only ``accounts``; creating one fails the test."""
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "exp.invoice":
+            return [invoice]
+        if (model, method) in (("exp.tax", "search_read"), ("exp.tax", "search"), ("exp.account", "search_read")):
+            return []
+        if (model, method) == ("exp.account", "search"):
+            return list(accounts)
+        raise AssertionError(f"unexpected call {model}.{method}")
+
+    monkeypatch.setattr(taxes, "odoo_call", odoo_call)
+    monkeypatch.setattr(taxes, "odoo_json", lambda *a, **kw: pytest.fail("Experio makes no tax without its account"))
+
+
+@pytest.mark.communication
+def test_a_dossier_without_any_tva_account_is_left_to_the_cabinet(monkeypatch):
+    monkeypatch.setattr(taxes, "dry_run", lambda: False)
+    dossier_without_taxes(monkeypatch, WATER)
+    assert taxes.add_missing_taxes(272379, {}) == [
+        "taxe 10 % : aucun compte de TVA dans le dossier, à créer par le cabinet"
+    ]
+    sale = {**WATER, "type": "sale", "account_id": [1, "71240000 Prestations"], "amount_tva": 0.0}
+    sale.update(amount_tva_10=0.0, amount_untaxed=500.0)
+    dossier_without_taxes(monkeypatch, sale)
+    assert taxes.add_missing_taxes(5, {}) == [
+        "taxe 0 % : aucun compte de TVA dans le dossier pour la créer, à créer par le cabinet"
+    ]
+
+
+@pytest.mark.communication
+def test_in_test_mode_a_missing_zero_rate_tax_is_never_said_to_lack_its_tva_account(monkeypatch):
+    monkeypatch.setattr(taxes, "dry_run", lambda: True)
+    sale = {**WATER, "type": "sale", "account_id": [1, "71240000 Prestations"], "amount_tva": 0.0}
+    sale.update(amount_tva_10=0.0, amount_untaxed=500.0)
+    dossier_without_taxes(monkeypatch, sale, accounts=[31])
+    assert not any("aucun compte de TVA" in note for note in taxes.add_missing_taxes(5, {}))
+
+
+@pytest.mark.security
+def test_a_tax_the_cabinets_rights_keep_out_of_the_settings_is_left_to_the_cabinet(experio, monkeypatch):
+    fake = taxes.odoo_call
+    monkeypatch.setattr(
+        taxes, "odoo_call", lambda model, *a, **kw: 9 if model == "res.config.settings" else fake(model, *a, **kw)
+    )
+    assert taxes.add_missing_taxes(272379, {}) == [
+        "taxe TVA 10% ACHATS créée (compte 34550000)",
+        "taxe 10 % a ajouter par le cabinet dans Configuration > General (autres taxes)",
+    ]
+    assert experio["listed"] == [4949, 4951]
+
+
+@pytest.mark.security
+def test_a_zero_rate_tax_the_cabinets_rights_keep_out_is_left_to_the_cabinet(monkeypatch):
+    sale = {**WATER, "type": "sale", "account_id": [1, "71240000 Prestations"], "amount_tva": 0.0}
+    sale.update(amount_tva_10=0.0, amount_untaxed=500.0)
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "exp.invoice":
+            return [sale]
+        if (model, method) == ("exp.tax", "search"):
+            return [4972]  # Experio's own « TVA 0% VENTES »
+        if (model, method) == ("exp.tax", "search_read"):
+            return []
+        if (model, method) == ("res.company", "read"):
+            return [{"sale_tax_ids": [4973]}]  # the settings' form saves nothing: the cabinet's rights
+        if (model, method) == ("res.config.settings", "create"):
+            return 1
+        raise AssertionError(f"unexpected call {model}.{method}")
+
+    monkeypatch.setattr(taxes, "odoo_call", odoo_call)
+    monkeypatch.setattr(taxes, "dry_run", lambda: False)
+    assert taxes.add_missing_taxes(5, {}) == [
+        "taxe 0 % à ajouter par le cabinet dans Configuration > Général (autres taxes)"
+    ]
+    monkeypatch.setattr(taxes, "dry_run", lambda: True)
+    assert taxes.add_missing_taxes(5, {}) == []  # test mode: the settings never written
+
+
+@pytest.mark.functionality
+def test_in_test_mode_an_existing_tax_is_never_listed(experio):
+    experio["dry"] = True
+    experio["taxes"].append({"id": 4960, "rate": 10.0, "account_id": [243204, "34550000 État"]})
+    assert taxes.add_missing_taxes(272379, {}) == [] and experio["listed"] == [4949, 4951]
