@@ -121,7 +121,7 @@ TAX_SETTINGS = {
 }
 
 
-def tax_settings(invoice, changes, context, notes):
+def tax_settings(invoice, changes, notes):
     """The tourist taxes the invoice has (or gets from ``changes``), when the dossier has their account: their setting
     turned on as its Configuration screen does (else Experio leaves them out of the TTC). Without the account, the
     amounts stay as Experio read them (the tax kept out of ``changes``, the stamp it was read as too) and the cabinet
@@ -129,7 +129,7 @@ def tax_settings(invoice, changes, context, notes):
     taxed = [field for field in TAX_SETTINGS if (changes.get(field, invoice.get(field)) or 0) > 0]
     if not taxed:
         return
-    company_id = invoice["company_id"][0]
+    company_id, context = invoice["company_id"][0], invoice_context(invoice)
     wanted = [name for field in taxed for name in TAX_SETTINGS[field][:2]]
     held = odoo_call("res.company", "read", [company_id], fields=wanted, context=context)[0]
     for field in taxed:
@@ -242,7 +242,7 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
     changes = planned_changes(extracted, bad_fields, invoice)
     hotel_parts(extracted, invoice, changes)
     with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé la correction."):
-        tax_settings(invoice, changes, invoice_context(invoice), notes)
+        tax_settings(invoice, changes, notes)
         _currency((extracted.get("currency") or "MAD").upper(), changes, notes)
         told = instructed(payment_method, client_message)
         _payment_method(told or extracted.get("payment_method"), invoice, changes)
