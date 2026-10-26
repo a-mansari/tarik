@@ -51,7 +51,7 @@ def experio(monkeypatch):
         if model == "res.bank" and method == "search_read":
             return BANKS
         if model == "res.bank":
-            return [BANKS[0]]
+            return [bank for bank in BANKS if bank["id"] == args[0][0]]
         if model == "exp.journal" and method == "read":
             return [{"name": "BQ1", "company_id": [557, "Gecafisc"], "partner_id": False}]
         if model == "exp.journal" and method == "write":
@@ -77,6 +77,17 @@ def test_each_bank_journal_is_asked_its_bank_in_turn(experio):
     assert following["message"].startswith("Dossier `Gecafisc` : journal `BQ1` a la banque `CREDIT")
     experio["journals"].clear()
     assert setup.ask_banks(557)["routine"]
+
+
+@pytest.mark.communication
+def test_a_bank_the_journals_name_says_in_full_is_set_and_said_not_asked(experio):
+    experio["journals"][0]["name"] = "Banque ATTIJARIWAFA BANK"
+    result = setup.ask_banks(557)
+    assert experio["written"] == [{"bank_id": 4, "partner_id": 99}]
+    assert "a la banque `ATTIJARIWAFA BANK` (d'après son nom" in result["message"]
+    assert result["status"] == "question" and result["journal_id"] == 12  # BQ2 names none: asked
+    assert not setup.named_in_full("Banque Populaire", BANKS[2])  # a part of its name only: asked
+    assert not setup.named_in_full("BQ CREDIT", BANKS[0])
 
 
 @pytest.mark.functionality

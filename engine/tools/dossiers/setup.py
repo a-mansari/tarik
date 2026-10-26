@@ -504,6 +504,9 @@ def ask_banks(dossier_id: int) -> dict:
     if not journals:
         return routine(f"Dossier `{dossier}` : chaque journal de banque a sa banque.")
     journal = journals[0]
+    found = bank_named(journal["name"], banks)
+    if found and named_in_full(journal["name"], found) and not dry_run():  # « Banque ATTIJARIWAFA BANK »
+        return set_journal_bank(dossier_id, journal["id"], found["id"], from_name=True)
     listed = ", ".join(f"`{bank['name']}` (n° `{bank['id']}`)" for bank in banks)
     others = f" ({len(journals) - 1} autre(s) journal(aux) a renseigner ensuite.)" if len(journals) > 1 else ""
     return question(
@@ -513,9 +516,19 @@ def ask_banks(dossier_id: int) -> dict:
     )
 
 
-def set_journal_bank(dossier_id, journal_id, bank_id):
+def named_in_full(text, bank):
+    """Whether ``text`` (a journal's name) says every word of ``bank``'s name, beyond the generic ones: its bank then
+    needs no question. « Banque ATTIJARIWAFA BANK » names ATTIJARIWAFA BANK; « BQ CREDIT » doesn't name CREDIT
+    AGRICOLE DU MAROC."""
+    given = normalized(text or "").split()
+    own = [w for w in normalized(bank["name"]).split() if w not in GENERIC_BANK_WORDS]
+    return bool(own) and all(any(g.startswith(w) for g in given) for w in own)
+
+
+def set_journal_bank(dossier_id, journal_id, bank_id, from_name=False):
     """The bank journal's Banque (and its tiers bancaire, the dossier's tiers named after the bank, when there
-    is one), as its form sets them; then the next journal's question (ask_banks)."""
+    is one), as its form sets them; then the next journal's question (ask_banks). ``from_name``: Tarik read the bank
+    in the journal's own name, said so."""
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
     with refused(f"set_journal_bank {journal_id}", f"Dossier `{dossier}` : Experio a refuse la banque du journal."):
@@ -537,7 +550,8 @@ def set_journal_bank(dossier_id, journal_id, bank_id):
         if not dry_run():
             odoo_call("exp.journal", "write", [journal_id], values, context=context)
     done = test_mode_note()
-    done += f"Dossier `{dossier}` : journal `{journal['name']}` a la banque `{bank['name']}`."
+    done += f"Dossier `{dossier}` : journal `{journal['name']}` a la banque `{bank['name']}`"
+    done += " (d'après son nom ; dites-le-moi si ce n'est pas la bonne)." if from_name else "."
     following = ask_banks(dossier_id)
     if following["status"] == "question":
         return {**following, "message": f"{done} {following['message']}"}
