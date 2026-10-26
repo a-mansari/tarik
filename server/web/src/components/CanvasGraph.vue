@@ -46,10 +46,11 @@ const SEVERITY = ["error", "stop", "question", "wait", "ok", ""];
 const worst = (statuses) => SEVERITY.find((s) => statuses.includes(s)) ?? "ok";
 const RUNNING = ["queued", "running"]; // a run's statuses while it goes on
 const GRID = 20; // the map's step: nodes and bends snap to it
+const FRAME_PADDING = 28; // around an open sub-workflow's steps: room for the name of a frame inside it
 const OVERRIDES = "segment-weights segment-distances control-point-weights control-point-distances edge-distances curve-style source-endpoint target-endpoint";
 // cytoscape's angles for an edge's ends: 0deg up, 90deg right, 180deg down, 270deg left.
 const ANGLE = { up: "0deg", right: "90deg", down: "180deg", left: "270deg" };
-const MOVABLE = "node[kind != 'handle'][kind != 'ghost']"; // a step or a sub-workflow, not a drawing aid
+const MOVABLE = "node[kind != 'handle'][kind != 'ghost'][kind != 'anchor']"; // a step or a sub-workflow, not a drawing aid
 const CONFIRM_MS = 5000; // how long the reset button waits for its confirmation
 // Opened zoomed out to fit, unless that is too small to read: then at START_ZOOM, its start START_MARGIN from the left.
 const READABLE_ZOOM = 0.7;
@@ -116,7 +117,11 @@ function styles() {
     { selector: "node[kind = 'group']", style: {
       "shape": "round-rectangle", "background-color": css("--accent-soft"), "background-opacity": 0.35,
       "border-style": "dashed", "border-color": css("--accent"), "label": "data(display)", "text-valign": "top",
-      "text-halign": "center", "text-margin-y": -4, "font-size": 12, "font-weight": 600, "color": css("--muted"), "padding": 14,
+      "text-halign": "center", "text-margin-y": -4, "font-size": 12, "font-weight": 600, "color": css("--muted"), "padding": FRAME_PADDING,
+    } },
+    // An open sub-workflow's own start or end: a small port on its frame's left or right side, unnamed.
+    { selector: "node[?port]", style: {
+      "width": 10, "height": 10, "label": "", "background-color": css("--accent"), "border-width": 2, "border-color": css("--surface"),
     } },
     { selector: "node[kind = 'subflow']", style: {
       "shape": "round-rectangle", "width": 170, "height": 58, "border-width": 2, "border-style": "double",
@@ -126,6 +131,8 @@ function styles() {
       "shape": "ellipse", "width": 12, "height": 12, "label": "", "background-color": css("--accent"),
       "border-width": 2, "border-color": css("--surface"),
     } },
+    // A bend point held inside the open frame around both its edge's ends: unseen, it only stretches that frame.
+    { selector: "node[kind = 'anchor']", style: { "width": 1, "height": 1, "label": "", "opacity": 0, "events": "no" } },
     { selector: "node[kind = 'ghost']", style: {
       "shape": "round-rectangle", "label": "", "background-opacity": 0, "border-width": 2, "border-style": "dashed",
       "border-color": css("--accent"), "events": "no",
@@ -194,7 +201,7 @@ function automatic() {
     style: [{ selector: "node", style: { width: 162, height: 56 } }, { selector: "node.end", style: { width: 18, height: 18 } }],
     elements: [...nodes, ...edges],
   });
-  whole.layout({ name: "dagre", rankDir: "LR", nodeSep: 16, rankSep: 40, edgeSep: 8 }).run();
+  whole.layout({ name: "dagre", rankDir: "LR", nodeSep: 30, rankSep: 60, edgeSep: 10 }).run();
   const places = Object.fromEntries(whole.nodes().map((n) => [n.id(), snapPoint(n.position())]));
   whole.destroy();
   return places;
@@ -237,6 +244,7 @@ function build() {
   cy.add(frames.map(frameElement));
   nestInFrames([...frames, ...visible.map((n) => n.id)], frames);
   cy.edges().forEach(drawEdge);
+  placePorts();
   paint();
   grid();
 }
@@ -246,12 +254,31 @@ function visibleNodes() {
   return shape.nodes.filter((n) => shownAs(n.id) === n.id && !(n.kind === "group" && opened.has(n.id)));
 }
 
-// A node as drawn: a group drawn as a node is folded, a sub-workflow box that tells its number of steps.
+// A node as drawn: a group drawn as a node is folded, a sub-workflow box that tells its number of steps. A
+// sub-workflow's own start or end is a port on its frame, placed with it (placePorts), never dragged on its own.
 function nodeElement(n) {
   const folded = n.kind === "group";
+  const port = isPort(n);
   return {
-    data: { ...n, parent: undefined, kind: folded ? "subflow" : n.kind, display: folded ? foldedDisplay(n.label, n.id) : n.label },
+    data: { ...n, parent: undefined, port, kind: folded ? "subflow" : n.kind, display: folded ? foldedDisplay(n.label, n.id) : n.label },
+    grabbable: !port,
   };
+}
+const isPort = (n) => n.kind === "end" && Boolean(parentOf.get(n.id));
+
+// Each open frame's start and end ports put on its border, in the middle of its left and right sides; innermost
+// frames first, so a frame around another takes in the ports already placed on it. A port is not inside its own
+// frame (nestInFrames): the frame's sides are its steps' with their padding, and the ports sit on them.
+function placePorts() {
+  const depth = (frame) => frame.ancestors().length;
+  for (const frame of cy.nodes("[kind = 'group']").sort((a, b) => depth(b) - depth(a))) {
+    const { x, y } = frame.position();
+    const half = frame.paddedWidth() / 2; // to the line its border is drawn on
+    for (const [end, side] of [["__start__", x - half], ["__end__", x + half]]) {
+      const port = cy.getElementById(`${frame.id()}:${end}`);
+      if (port.length) port.position({ x: side, y });
+    }
+  }
 }
 
 // The edges on screen, each between the nodes its ends show as. Several drawn as one are merged: it stands for
@@ -291,7 +318,8 @@ function frameElement(id) {
 // Each frame and node on screen put in the open frame around it, if any.
 function nestInFrames(ids, frames) {
   for (const id of ids) {
-    const parent = parentOf.get(id);
+    const own = parentOf.get(id);
+    const parent = cy.getElementById(id).data("port") ? parentOf.get(own) : own; // a port: beside its frame
     if (parent && frames.includes(parent)) cy.getElementById(id).move({ parent });
   }
 }
@@ -317,6 +345,7 @@ function relative(edge, points) {
 function drawEdge(edge) {
   const saved = layout.edges?.[keyOf(edge)] || unarranged();
   edge.removeStyle(OVERRIDES);
+  anchorBends(edge, saved.points);
   if (saved.points.length) {
     const r = relative(edge, saved.points);
     edge.style({ "curve-style": "segments", "edge-distances": "node-position", "segment-weights": r.weights, "segment-distances": r.distances });
@@ -327,6 +356,24 @@ function drawEdge(edge) {
     return;
   }
   edge.style("curve-style", saved.style || "straight");
+}
+
+// An edge's bend points kept inside the innermost open frame around both its ends, as unseen nodes of that frame:
+// the frame grows to take them in, as it does for its steps. An edge leaving its frame stretches none.
+function anchorBends(edge, points) {
+  const old = cy.nodes("[kind = 'anchor']").filter((n) => n.data("edge") === edge.id());
+  // shortcut: a hidden edge stretches nothing, even once a run shows it; anchor it too if its bends then spill out.
+  const frame = edge.hasClass("hidden") ? null : edge.source().ancestors().intersection(edge.target().ancestors())[0];
+  if (frame && old.length === points.length && old.every((n) => n.data("parent") === frame.id())) {
+    old.forEach((n, index) => { n.position({ ...points[index] }); });
+    return; // moved, not added again: a bend point dragged keeps its frame following it live
+  }
+  old.remove();
+  if (!frame) return;
+  cy.add(points.map((p, index) => ({
+    data: { id: `anchor:${edge.id()}:${index}`, kind: "anchor", edge: edge.id(), parent: frame.id() },
+    position: { ...p }, grabbable: false, selectable: false,
+  })));
 }
 
 // A curved edge: out of the side of the source that faces the target, into the side of the target that faces the
@@ -389,7 +436,7 @@ function paint() {
   if (!props.run) return;
   const { list, now, ended } = replayed();
   collectSteps(list);
-  cy.elements().not("[kind = 'handle'], [kind = 'ghost']").addClass("dim").removeClass("ran ok question wait stop error now");
+  cy.elements().not("[kind = 'handle'], [kind = 'ghost'], [kind = 'anchor']").addClass("dim").removeClass("ran ok question wait stop error now");
   for (const [shownId, entries] of stepsByShown()) markRan(shownId, entries);
   const went = taken(list, ended);
   if (!went) markEndsNear();
@@ -790,6 +837,7 @@ async function loadDetail(step, event) {
 // An edge's bend points changed: drawn again, its handles and panel too.
 function redrawEdge(edge) {
   drawEdge(edge);
+  placePorts();
   showHandles(edge);
   showEdge(edge);
   changed();
@@ -901,7 +949,10 @@ function wireDragging() {
     event.target.connectedEdges().forEach(followEnds);
   });
   // While a step is dragged, a dashed outline shows where it will snap when dropped.
-  cy.on("drag", MOVABLE, (event) => showGhost(event.target));
+  cy.on("drag", MOVABLE, (event) => {
+    showGhost(event.target);
+    placePorts(); // the frames grow or shrink with what is dragged in them: their ports stay on their sides
+  });
   // A step dropped snaps to the grid and keeps that place. A sub-workflow dropped (its folded box, or its open frame)
   // moves every step inside it by as much, the hidden ones too, and the bend points of the edges it holds.
   let grabbed = null; // where the node dragged was when grabbed
@@ -938,6 +989,7 @@ function dropStep(node) {
   layout.nodes[id] = snapPoint(node.position());
   node.position({ ...layout.nodes[id] });
   node.connectedEdges().forEach(drawEdge);
+  placePorts();
 }
 
 function dropPart(id, p, grabbed) {
@@ -963,6 +1015,7 @@ function wireHandles() {
     const edge = edgeOf(handle);
     edgeLayout(edge).points[handle.data("index")] = { ...handle.position() };
     drawEdge(edge);
+    placePorts();
   });
   cy.on("dragfree", "node[kind = 'handle']", (event) => {
     const handle = event.target;
@@ -971,6 +1024,7 @@ function wireHandles() {
     handle.position(placed);
     edgeLayout(edge).points[handle.data("index")] = placed;
     drawEdge(edge);
+    placePorts();
     changed();
   });
   cy.on("dbltap", "node[kind = 'handle']", (event) => {
