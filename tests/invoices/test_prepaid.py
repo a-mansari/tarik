@@ -34,10 +34,25 @@ def experio(monkeypatch):
         "check": (True, {"period_start": "2026-01-01", "period_end": "2026-12-31"}, []),
         "written": [],
         "refused": False,
+        "prepaid_journal_id": [7, "OD"],
+        "journals": [],
+        "settings": [],
     }
     monkeypatch.setattr(prepaid, "require_invoice", lambda invoice_id, fields: dict(state["invoice"]))
     monkeypatch.setattr(prepaid, "stored_check", lambda invoice_id: state["check"])
     monkeypatch.setattr(prepaid, "test_mode_note", lambda: "")
+    monkeypatch.setattr(prepaid, "dry_run", lambda: False)
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "res.company":
+            return [{"prepaid_journal_id": state["prepaid_journal_id"]}]
+        assert args[0] == [("company_id", "=", 5), ("type", "=", "general"), ("journal_category", "=", "normal")]
+        return state["journals"][:1]
+
+    monkeypatch.setattr(prepaid, "odoo_call", odoo_call)
+    monkeypatch.setattr(
+        prepaid, "save_settings", lambda company_id, values, context: state["settings"].append(values) or True
+    )
 
     def fill_invoice(invoice_id, changes, context):
         if state["refused"]:
@@ -95,6 +110,33 @@ def test_oui_ticks_the_spreading_then_the_period_in_experios_form(experio):
     assert result["status"] == "ok" and result["message"].startswith(
         "Facture 3 : charges constates d'avance sur 12 mois à partir du 2026-01-01"
     )
+
+
+@pytest.mark.functionality
+def test_a_dossier_without_a_prepaid_journal_gets_its_general_one_set_and_said(experio):
+    # Experio has no default for it (its detection skips it) and refuses posting a spread invoice without it
+    experio["prepaid_journal_id"], experio["journals"] = False, [{"id": 12, "name": "Opérations Divers"}]
+    result = prepaid.settle_prepaid(3, "oui")
+    assert experio["settings"] == [{"prepaid_journal_id": 12}] and len(experio["written"]) == 1
+    assert "journal Opérations Divers paramétré dans le dossier" in result["message"]
+
+
+@pytest.mark.functionality
+def test_an_invoice_spread_before_its_journal_was_set_gets_it(experio):
+    experio["invoice"]["has_prepaid_expenses"] = True
+    assert prepaid.settle_prepaid(3)["routine"]  # the dossier has one: nothing to say
+    experio["prepaid_journal_id"], experio["journals"] = False, [{"id": 12, "name": "Opérations Divers"}]
+    result = prepaid.settle_prepaid(3)
+    assert result["status"] == "ok" and "journal Opérations Divers paramétré" in result["message"]
+    assert experio["settings"] == [{"prepaid_journal_id": 12}] and experio["written"] == []
+
+
+@pytest.mark.functionality
+def test_no_general_journal_to_set_stops_before_spreading(experio):
+    experio["prepaid_journal_id"] = False
+    result = prepaid.settle_prepaid(3, "oui")
+    assert result["status"] == "stop" and "Configuration" in result["message"]
+    assert experio["written"] == [] and experio["settings"] == []
 
 
 @pytest.mark.security

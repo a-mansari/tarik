@@ -50,6 +50,9 @@ def test_experios_own_folder_import_sequence(monkeypatch):
         if method == "action_add_documents_from_javascript":
             assert args[1][0]["import_invoice_type"] in ("transit", "supplier")
             return [next(ids)]
+        if method.endswith("_from_javascript") and model == "exp.folder.import":
+            assert args[0] == [77]  # the wizard's id, as Experio's screen gives it
+            assert [a["name"] for a in args[1]] == ["dum.pdf", "bl.pdf"]  # its DUM reading needs its screen
         if method == "create_folder_from_js":
             assert args[0]["invoice_ids"] == [[6, 0, [101, 102]]] and args[0]["folder_number"] is False
             return 9
@@ -69,8 +72,7 @@ def test_experios_own_folder_import_sequence(monkeypatch):
         ("exp.invoice.import", "action_add_documents_from_javascript", True),  # reading held until the folder
         ("exp.invoice.import", "action_add_documents_from_javascript", True),
         ("exp.import.folder", "create_folder_from_js", False),  # which sends their reading
-        ("exp.folder.import", "bluejay_create_dum_tokens_from_javascript", False),
-        ("exp.folder.import", "action_attach_pages_from_javascript", False),
+        ("exp.folder.import", "action_attach_pages_from_javascript", False),  # the DUM with the attachments
     ]
 
 

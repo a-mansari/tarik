@@ -19,7 +19,7 @@ def experio(monkeypatch):
             "company_id": [5, "D"],
             "exercice_id": False,
             "partner_id": [7, "SHELL"],
-            "account_id": [1, "61251000 Carburant"],
+            "account_id": [1, "61223000 Achats de combustibles"],
             "amount_tva": 100.0,
             "amount_tax_non_recoverable": False,
             "tax_prorata": False,
@@ -46,12 +46,18 @@ def experio(monkeypatch):
 
 @pytest.mark.functionality
 def test_fuel_asks_then_the_answer_writes(experio):
-    assert tva.settle_tva(3)["status"] == "question"  # 6125: usually non-recoverable, the client decides
+    assert tva.settle_tva(3)["status"] == "question"  # fuel (61223): usually non-recoverable, the client decides
     assert tva.settle_tva(3, "peut-être")["message"].startswith("Facture 3 : réponse non comprise")
     assert tva.settle_tva(3, "oui")["message"].startswith("Facture 3 : TVA non récupérable")
     assert experio["written"] == [{"amount_tax_non_recoverable": True, "multi_tva": False}]
     assert tva.settle_tva(3, "non")["message"].startswith("Facture 3 : TVA récupérable. Lignes : 500.0")
     assert len(experio["written"]) == 1  # recoverable: nothing to write
+
+
+@pytest.mark.functionality
+def test_water_and_electricity_are_never_asked(experio):
+    experio["invoice"]["account_id"] = [2, "61251000 Achats de fournitures non stockables (eau, électricité,,,)"]
+    assert tva.settle_tva(3)["status"] == "ok"
 
 
 @pytest.mark.functionality

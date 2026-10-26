@@ -166,12 +166,20 @@ def assign_account(
     matching what the invoice bills. Call it after link_tiers and check_invoice. When none fits, the
     answer is the question to ask the client; their answer goes to set_account
     (answer_pending). An account asked for that the client's words don't hold is asked about, never skipped: the
-    invoice must not be posted on another one."""
+    invoice must not be posted on another one. Words naming no account of the dossier at all (« gasoil ») describe
+    the invoice: the account is chosen from them and what it bills, and the client told so."""
     said_before = client_messages(session_id, client_message) if session_id else [client_message]
     told = instructed(answer, "\n".join(said_before))
+    hint = ""
     if told:
-        return set_account(invoice_id, told, confirm)
-    if (answer or "").strip():
+        named = set_account(invoice_id, told, confirm)
+        if confirm or named["status"] != "question":
+            return named
+        company = require_invoice(invoice_id, ["company_id"])["company_id"][0]
+        if searched(chart(company), without_subject(told)):
+            return named  # words matching some accounts: which one is theirs to say
+        hint = without_subject(told)
+    elif (answer or "").strip():
         return question(
             f"Facture {invoice_id} : quel compte voulez-vous exactement (code ou intitulé) ? "
             f"Je n'ai pas retrouvé « {answer.strip()} » dans vos messages."
@@ -190,7 +198,7 @@ def assign_account(
         simulated = _fill_empty_chart(invoice_id, invoice["company_id"][0])
         if simulated:
             return simulated
-        memorized = _memorized(invoice, invoice_context(invoice))
+        memorized = None if hint else _memorized(invoice, invoice_context(invoice))
         # One Experio would warn about (outside the classes of the side) is not taken: what is billed decides.
         if memorized and usable(invoice_id, [{"id": memorized, "code": account_code_of(memorized)}]):
             return apply_account(invoice, memorized, "compte mémorisé pour ce tiers")
@@ -202,7 +210,11 @@ def assign_account(
     designation = check[1].get("designation")
     if not designation:
         return question(account_question(invoice, None))
+    if hint:  # the client's own word for what it is, beside what the invoice says
+        designation = f"{designation} (le client précise : « {hint} »)"
     account, reason = _model_choice(invoice, kind, designation)
+    if account and hint:
+        reason = f"« {hint} » ne désigne aucun compte du dossier, choisi d'après vos mots et la facture : {reason}"
     if not account:
         return question(account_question(invoice, designation))
     if account["code"].startswith("2"):  # an immobilisation: amortized, never a charge, on the client's word only

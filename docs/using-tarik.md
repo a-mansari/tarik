@@ -120,6 +120,11 @@ asked again. For a tiers, Tarik proposes the closest ones (five at most): choose
 name or its ICE and it looks again. With several questions waiting, name the invoice (its number or
 its supplier) or the statement. Asking Tarik to carry on also resumes invoices Experio was still reading.
 
+**Purchase or sale**: when you don't say it, Tarik reads it on the invoice (who issues it, who it is addressed to,
+against the dossier's name) and tells you which it took, so you can correct it; it asks only when the scan doesn't
+show it plainly. **A file sent again** is recognised: its invoice is taken up again while still a draft, or said
+already posted; nothing is created twice.
+
 **Import a FEC or grand livre** into an existing dossier. Tarik says what Experio's detection created (accounts,
 journals, tiers, exercices), refuses a file it already imported into that dossier, sends again with Experio's own
 « Renvoyer » the lines still unprocessed an hour after the onboarding is finished, and keeps following the dossier

@@ -338,3 +338,45 @@ def test_every_header_amount_correct_invoice_writes_is_said_in_french():
     from engine.tools.invoices.correct import change_text
 
     assert [field for field in CAPTURED if field in change_text(field, 2.0)] == []  # amount_stamp, amount_ts...
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("used", "account", "saved", "said", "written"),
+    [
+        (False, [44, "44700000"], True, "taxe de séjour activée dans les paramètres du dossier", True),
+        (False, [44, "44700000"], False, "taxe de séjour à activer par le cabinet", False),  # the rights refuse it
+        (True, [44, "44700000"], None, None, True),  # already used: nothing to turn on
+        (False, False, None, "le dossier n'a pas de compte de taxe de séjour", False),  # no account: as read
+    ],
+)
+def test_a_tourist_tax_counts_only_with_its_setting_and_its_account(
+    correcting, monkeypatch, used, account, saved, said, written
+):
+    from engine.tools.invoices import correct
+
+    correcting["found"]["res.company"] = [{"use_ts_tax": used, "ts_account_id": account}]
+    turned = []
+    monkeypatch.setattr(correct, "save_settings", lambda company, values, context: turned.append(values) or saved)
+    correcting["read"] = {"amount_stamp": 0.0, "amount_ts": 15.0, "invoice_number": "F-9"}
+    correcting["bad"] = [flag("amount_stamp", 15, 0), flag("amount_ts", 0, 15), flag("invoice_number", "F", "F-9")]
+    result = correct.correct_invoice(3)
+    assert turned == ([{"use_ts_tax": True}] if account and not used else [])
+    if said:
+        assert said in result["message"]
+    changes = correcting["filled"][0][1]
+    assert ("amount_ts" in changes) is written
+    if not account:
+        assert "amount_stamp" not in changes  # Experio's stamp kept: the TTC stays balanced
+
+
+@pytest.mark.functionality
+def test_a_tourist_tax_already_on_the_invoice_turns_its_setting_on_too(correcting, monkeypatch):
+    from engine.tools.invoices import correct
+
+    correcting["invoice"]["amount_ts"] = 15.0  # corrected on an earlier run, its setting still off
+    correcting["found"]["res.company"] = [{"use_ts_tax": False, "ts_account_id": [44, "44700000"]}]
+    turned = []
+    monkeypatch.setattr(correct, "save_settings", lambda company, values, context: turned.append(values) or True)
+    correct.correct_invoice(3)
+    assert turned == [{"use_ts_tax": True}]
