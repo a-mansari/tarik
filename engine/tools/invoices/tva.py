@@ -1,10 +1,9 @@
-"""TVA -- recoverable or not, the cabinet's prorata, and the tax on each line.
+"""TVA: recoverable or not, the cabinet's prorata, and the tax on each line.
 
-Experio does most of it: picking the tiers
-in the form applies its memorized non-recoverable and prorata flags, and its refresh picks
-the tax for each rate from the dossier's tax settings (or says which setting is missing).
-Left here: the question on the usual non-recoverable accounts, the cabinet's prorata, and the dossier's tax
-for a rate it has none for (taxes.py), made before the refresh that would refuse that rate.
+Experio does most of it: picking the tiers in the form applies its memorized non-recoverable and prorata flags, and
+its refresh picks the tax for each rate from the dossier's tax settings (or says which setting is missing). Left
+here: the question on the usual non-recoverable accounts, the cabinet's prorata, and the dossier's tax for a rate it
+has none for (taxes.py), made before the refresh that would refuse that rate.
 """
 
 from engine.tools.core.app import ToolError, ok, question, routine, step_tool
@@ -30,8 +29,12 @@ NON_RECOVERABLE_ACCOUNTS = ("6142", "6143", "61223", "2340")  # travel, receptio
 
 
 def _non_recoverable(invoice, answer):
-    """For a purchase with TVA not yet non-recoverable: the question to ask the client (a question result), or the
-    changes their ``answer`` makes ({} when none). Returns (question or None, changes)."""
+    """Decide whether a purchase's TVA is non-recoverable, from the client's ``answer`` or by asking.
+
+    Returns (question, changes). question is a question result when the answer is not understood, or when there is
+    no answer and the account is one of NON_RECOVERABLE_ACCOUNTS; else None. changes is the invoice values « oui »
+    sets, {} otherwise.
+    """
     told = yes_no(answer) if answer else None
     if answer and told is None:
         return (
@@ -46,7 +49,7 @@ def _non_recoverable(invoice, answer):
 
 
 def _tax_lines(invoice_id, context):
-    """The invoice's TVA lines once Experio rebuilt them, as "<HT> HT à <rate> % (<tax>)" for each untaxed line."""
+    """Return the invoice's untaxed TVA lines as text, each "<HT> HT à <rate> % (<tax>)", once Experio rebuilt them."""
     invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=["tva_line_ids"], context=context)[0]
     line_ids = invoice["tva_line_ids"]
     fields = ["line_type", "tax_id", "tax_rate", "amount_ht", "amount_tva"]
@@ -61,10 +64,16 @@ def _tax_lines(invoice_id, context):
 
 @step_tool
 def settle_tva(invoice_id: int, answer: str = "") -> dict:
-    """Settle a draft invoice's TVA once its account is set: recoverable or not,
-    the cabinet's prorata, and the tax Experio puts on each line. When the answer
-    is a question (non-recoverable TVA?), ask the client and call again with
-    ``answer`` "oui" (non-recoverable) or "non", as the agent read their reply."""
+    """Settle a draft invoice's TVA once its account is set: recoverable or not, prorata, and each line's tax.
+
+    A purchase on a usual non-recoverable account is asked about; a sale billing no TVA gets « TVA non facturée »;
+    a purchase of a dossier using a TVA prorata gets it. The dossier's missing taxes are added, then Experio's refresh
+    picks each line's tax. When the result is a question (non-recoverable TVA?), ask the client and call again with
+    ``answer`` "oui" (non-recoverable) or "non", as the agent read their reply.
+
+    Raises:
+        ToolError: the invoice has no account yet (outside test mode).
+    """
     fields = ["state", "type", "company_id", "exercice_id", "partner_id", "account_id", "amount_tva", "amount_total"]
     invoice = require_draft_invoice(invoice_id, [*fields, "amount_tax_non_recoverable", "tax_prorata", "tva_line_ids"])
     if not invoice["account_id"]:

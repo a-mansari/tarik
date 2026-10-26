@@ -1,15 +1,14 @@
-"""A bank statement after its import: Experio's reading waited for and checked, its operations pointed by Experio's own
-« Auto Point », posted when the client asks -- as the cabinet does on Experio's statement (module bank).
+"""A bank statement after its import, handled as the cabinet does on Experio's statement screen (module bank).
 
-- Reading: until Experio has read it (is_detected; its bluejay_state stays « pending » for good); then Experio's
-  own checks: its lines add up to the ending
-  balance read (is_complete), its starting balance follows the journal's previous statement (is_valid).
+- Reading: Tarik waits until Experio has read the statement (is_detected, set by bluejay set_bank_statement; its
+  bluejay_state stays « pending » for good). Then Experio's own checks: its lines add up to the ending balance read
+  (is_complete), and its starting balance follows the journal's previous statement (is_valid).
 - Pointing: « Auto Point » (action_refresh, detect_bank_statement_line_info) finds each line's operation, payment
-  method and tiers from past posted lines and an invoice of exactly that tiers and amount, and shows them to confirm;
-  Tarik confirms them (the window's action_apply). A line the client ties to an invoice by its number gets it when
-  the amount owed is exactly the line's.
-- Posting: Experio's own validation of the statement (action_post): its ready lines only; a window it opens instead
-  (duplicate, out of the period, exchange rate) stops for the cabinet.
+  method and tiers from past posted lines, and an open posted invoice of exactly that tiers and amount, and shows them
+  in a window to confirm; Tarik confirms them (the window's action_apply). A line the client ties to an invoice by its
+  number gets that invoice when the amount owed is exactly the line's.
+- Posting: Experio's own validation of the statement (action_post), which posts its ready lines only. A window it
+  opens instead (duplicate, out of the period, exchange rate) stops for the cabinet.
 """
 
 import io
@@ -44,8 +43,11 @@ POSTED = ("post", "export")
 
 
 def is_canvas(name, data):
-    """True when spreadsheet ``data`` is Experio's Excel statement template: its first row starts with the template's
-    columns (Date, Libellé, Type d'opération, Tiers, Méthode de paiement, Débit, Crédit)."""
+    """True when spreadsheet ``data`` (file ``name``) is Experio's Excel statement template.
+
+    That is: an .xlsx/.xlsm whose first row starts with the template's columns (Date, Libellé, Type d'opération, Tiers,
+    Méthode de paiement, Débit, Crédit). False for an unreadable file.
+    """
     if not name.lower().endswith((".xlsx", ".xlsm")):
         return False
     try:
@@ -57,12 +59,26 @@ def is_canvas(name, data):
 
 
 def import_canvas(name, data, dossier_id, journal_id):
-    """Experio's Excel statement template imported as its « Load EXCEL » does, into a new statement of the chosen
-    journal: each row a line created with Experio's import context, which appends it to the statement given
-    (from_xlsx_import, default_statement_id: handle_imported_records) and finds its tiers and operation by their names
-    itself (partner_value, imp_operation_id); payment method and currency by their exact name, as Odoo's importer does.
-    The statement's id; RuntimeError naming what Experio refused. (Odoo's importer itself takes the file as raw bytes,
-    from the browser's upload only.)"""
+    """Import Experio's Excel statement template into a new statement of journal ``journal_id``, as « Load EXCEL » does.
+
+    Args:
+        name: the file name; without its extension, it names the statement.
+        data: the spreadsheet's bytes.
+        dossier_id: the dossier (res.company id).
+        journal_id: the bank journal chosen for the statement.
+
+    Each row becomes a line created with Experio's import context: Experio appends it to the given statement
+    (from_xlsx_import with default_statement_id, handle_imported_records) and finds its tiers and operation by name
+    itself (partner_value, imp_operation_id, in exp.bank.statement.line create). Payment method and currency are
+    matched here by their exact name, as Odoo's importer does. Odoo's importer itself is not called: it takes the file
+    only from the browser's upload.
+
+    Returns the new statement's id.
+
+    Raises:
+        RuntimeError: the template has no filled row.
+        Exception: Experio's refusal of a line; the empty statement made for it is deleted first.
+    """
     rows = canvas_rows(data)
     if not rows:
         raise RuntimeError("aucune ligne dans le canevas")
@@ -81,7 +97,7 @@ def import_canvas(name, data, dossier_id, journal_id):
 
 
 def canvas_rows(data):
-    """The template's filled rows, as {column (normalized header): value}."""
+    """Return the template's filled rows, each as {normalized header: cell value}."""
     sheet = openpyxl.load_workbook(io.BytesIO(bytes(data)), read_only=True, data_only=True).worksheets[0]
     rows = list(sheet.iter_rows(values_only=True))
     headers = [normalized(str(cell or "")) for cell in rows[0]]
@@ -89,7 +105,10 @@ def canvas_rows(data):
 
 
 def line_values(row, context):
-    """One statement line's values from a template row."""
+    """Return one statement line's create values from a template ``row`` (dict from canvas_rows).
+
+    The payment method and currency are set only when exactly one record of the dossier has that exact name.
+    """
     day = row.get("date")
     day = day.date().isoformat() if hasattr(day, "date") else resolve_date(str(day or ""), "fr")
     values = {
@@ -117,19 +136,26 @@ def line_values(row, context):
 
 
 def statement_of(file_id):
-    """(the statement imported from the file, its TPE network or None for a bank statement); (None, None)."""
+    """Return (statement_id, network) for the statement imported from file ``file_id``.
+
+    network is the TPE network key for a TPE statement, None for a bank statement. Returns (None, None) when no
+    statement was imported from the file.
+    """
     with cabinet_db() as db:
         row = db.execute(Q.statement_of_file, (file_id,)).fetchone()
     return tuple(row) if row else (None, None)
 
 
 def read_statement(statement_id):
+    """Return bank statement ``statement_id`` read with FIELDS (dict)."""
     return odoo_call(STATEMENT, "read", [statement_id], fields=FIELDS)[0]
 
 
 def auto_point(statement, context):
-    """Experio's « Auto Point » on the statement, its detections confirmed as the window's « Apply » does: how many
-    lines it filled."""
+    """Run Experio's « Auto Point » on ``statement`` and confirm its detections as the window's « Apply » does.
+
+    Returns how many lines the detection filled (0 when Experio found nothing). In test mode nothing is confirmed.
+    """
     action = odoo_json(STATEMENT, "action_refresh", [statement["id"]], context=context)
     if not isinstance(action, dict) or action.get("res_model") != "bank.statement.line.detect.wizard":
         return 0  # « No detection results »: nothing to fill
@@ -142,9 +168,12 @@ def auto_point(statement, context):
 
 
 def named_invoices(statement, words, context):
-    """The lines still without invoice that the client ties to one, by its number in their own ``words``: given it
-    when that posted invoice of the dossier owes exactly the line's amount (and is the line's tiers', when it has one).
-    How many lines got theirs."""
+    """Give unposted purchase/sale lines without an invoice the invoice the client names by its number in ``words``.
+
+    A line gets an invoice only when exactly one posted invoice of the dossier owes exactly the line's amount, is the
+    line's tiers' (when the line has one) and has its number in ``words``. Returns how many lines got one (counted
+    also in test mode, where nothing is written).
+    """
     words = normalized(words or "")
     if not words:
         return 0
@@ -169,7 +198,11 @@ def named_invoices(statement, words, context):
 
 
 def blocked_reasons(statement, context):
-    """{Experio's reason: how many lines} for the lines not ready (its own error_msg, the red icon's text)."""
+    """Return (reasons, ready, posted) for the statement's lines.
+
+    reasons: {Experio's reason: how many lines} for the draft and pending lines (Experio's own error_msg, the red
+    icon's text, else the state). ready and posted: how many lines are ready, and posted or exported.
+    """
     lines = odoo_call(LINE, "read", statement["line_ids"], fields=["state", "error_msg"], context=context)
     reasons = {}
     for line in lines:
@@ -180,8 +213,12 @@ def blocked_reasons(statement, context):
 
 
 def opening_note(statement, context):
-    """For the journal's first statement, its starting balance against the bank account's à-nouveau of the exercice
-    (Experio checks nothing there: its first statement is always « valid »): a note when they differ, else ""."""
+    """Compare the journal's first statement's starting balance with the bank account's à-nouveau of its exercice.
+
+    Returns a note for the reply when they differ (in absolute value), else "" (also when the statement is not the
+    journal's first, or no à-nouveau was posted). Experio checks nothing there: a journal's first statement is always
+    « valid » (_get_statement_validity finds no previous statement).
+    """
     domain = [("journal_id", "=", statement["journal_id"][0]), ("id", "<", statement["id"]), ("state", "!=", "cancel")]
     if odoo_call(STATEMENT, "search_count", domain, context=context):
         return ""
@@ -218,16 +255,28 @@ READ_DEADLINES = {}
 
 
 def being_read(statement):
-    """True while Experio has not read the statement: its reading sets state draft and is_detected (bluejay
-    set_bank_statement); its bluejay_state stays « pending », posted statements included."""
+    """True while Experio has not read the bank statement yet.
+
+    Experio's reading (bluejay set_bank_statement) sets state draft and is_detected; bluejay_state stays « pending »,
+    posted statements included, so it cannot be used.
+    """
     return statement["state"] == "pending" and not statement["is_detected"]
 
 
 @step_tool
 def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -> dict:
-    """After a bank statement's import: wait for Experio's reading, check its balances, point its operations with
-    Experio's own « Auto Point » (confirmed), give the lines the client ties to an invoice by its number that invoice,
-    and say where it stands (ready, blocked and why)."""
+    """Settle a bank or TPE statement after its import, and report where it stands.
+
+    Args:
+        file_id: the imported file.
+        run_id: the current run; its wait for Experio's reading is capped at 10 minutes across calls.
+        client_message: the client's words, where they may tie lines to invoices by number.
+
+    Waits for Experio's reading (a wait result past the deadline). A TPE statement goes to tpe.settle_tpe. A bank
+    statement gets Experio's own « Auto Point » (confirmed), the invoices the client named, its TPE remittances tied to
+    their TPE statements, then an ok result with the counts (pointed, ready, posted), the balance checks and what
+    Experio says still blocks lines.
+    """
     statement_id, network = statement_of(file_id)
     if not statement_id:
         return routine(f"Fichier n° {file_id} : pas de relevé importé.")
@@ -280,10 +329,16 @@ def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -
 
 
 def tie_tpe(statement, context):
-    """The bank lines of TPE remittances (operation « monetary_operations ») tied to their TPE statement's net
-    remise with Experio's own « Rapprochement automatique TPE » (module tpe_reconcile: same amount, TPE date not
-    after the bank's), its sure matches only: (tied, left). None when the module isn't installed (nothing to tie:
-    Experio then neither asks nor letters it)."""
+    """Tie the statement's TPE remittance lines to their TPE statement's net remise line, sure matches only.
+
+    Uses Experio's own « Rapprochement automatique TPE » (module tpe_reconcile, action_reconcile_tpe_auto): a bank
+    line of operation type « monetary_operations » matches a SOLDE NET REMISE (funds_transfer) TPE line of the same
+    amount, dated on or before the bank line (find_matching_tpe_lines). Only « matched » lines (a single candidate) are
+    written, as the wizard's « Reconcile » does.
+
+    Returns (tied, left): lines tied, and remittance lines left without a sure match. Returns None when tpe_reconcile
+    is not installed: nothing to tie, and Experio then neither requires nor letters it.
+    """
     installed = odoo_call(
         "ir.module.module", "search_count", [("name", "=", "tpe_reconcile"), ("state", "=", "installed")]
     )
@@ -315,9 +370,13 @@ def tie_tpe(statement, context):
 
 @step_tool
 def post_statement(file_id: int) -> dict:
-    """Post a bank statement's ready operations with Experio's own validation (action_post): a window Experio opens
-    instead (a duplicate statement, operations out of its period, an exchange rate still to fetch) or its refusal
-    stops it for the cabinet; the operations posted but still unpaid or partly paid (suspens) are listed."""
+    """Post a bank or TPE statement's ready operations with Experio's own validation (action_post).
+
+    A TPE statement goes to tpe.post_tpe. For a bank statement, a window Experio opens instead (a duplicate
+    statement, operations out of its period, an exchange rate still to fetch) or Experio's refusal returns a stop
+    result for the cabinet. Otherwise an ok result with how many operations were posted, how many are left to
+    complete, and the posted ones still unpaid or partly paid (suspens).
+    """
     statement_id, network = statement_of(file_id)
     if not statement_id:
         return routine(f"Fichier n° {file_id} : pas de relevé à comptabiliser.")
@@ -353,8 +412,11 @@ def post_statement(file_id: int) -> dict:
 
 
 def suspense(statement, context):
-    """The statement's posted purchase and sale operations still unpaid or partly paid (Experio's « Suspense »
-    screen: payment_state unpaid / partial, not reconciled), as « libellé montant » listed."""
+    """Return the statement's posted operations still unpaid or partly paid, as text for the reply ("" when none).
+
+    Purchase, sale and their advance operations with payment_state unpaid or partial and not reconciled, as Experio's
+    « Suspense » screen lists them: « libellé (montant) », the first 10 then how many others.
+    """
     fields = ["state", "operation_type", "payment_state", "payment_ref", "debit", "credit", "is_reconciled"]
     lines = odoo_call(LINE, "read", statement["line_ids"], fields=fields, context=context)
     left = [

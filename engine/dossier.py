@@ -1,7 +1,11 @@
-"""Dossier as a graph: a dossier's creation (or a spreadsheet's list of them), by the cabinet's managers and Experio's
-staff only, then its configuration copied, its files' entries imported, the bank of its bank journals asked, its
-onboarding finished and its state said; or (mode update, person, archive, difference) one change to a dossier assigned
-to the sender (difference: a posted invoice's remainder written off); mode resume finishes the dossiers left waiting.
+"""The Dossier graph: create and set up dossiers, or make one change to a dossier.
+
+- Creation (the cabinet's managers and Experio's staff only, check_creator): create the dossier, or each dossier of a
+  spreadsheet (mode dossiers); copy a model dossier's configuration; import the files' entries; ask the bank of each
+  bank journal; finish the onboarding and report its state.
+- Modes update, person, archive, difference: one change to a dossier the sender has (difference: write off a posted
+  invoice's remainder).
+- Mode resume: finish the conversation's dossiers left waiting.
 One step per node, so the canvas shows each. No time budget: finish_setup gets seconds_left 0 (no limit)."""
 
 import operator
@@ -60,12 +64,15 @@ class Run(TypedDict, total=False):
 
 
 async def start(state: Run, config):
+    """Graph node: the common start (engine.calls.started), plus "target" set to the call's dossier_id (0 if none)."""
     begun = await started(INPUTS)(state, config)
     return {**begun, "target": begun["call"].get("dossier_id") or 0}
 
 
 @stops_at("resume")
 def by_mode(state: Run):
+    """Route after the start: "resume" on a failed save; "expediteur" for a change mode or a given dossier;
+    "reprise" for mode resume; else "createur" (create a dossier or a spreadsheet's dossiers)."""
     call = state["call"]
     if failed(state):
         return "resume"  # a failed save is recorded and goes no further: the files the run would work on are missing
@@ -80,6 +87,7 @@ def by_mode(state: Run):
 
 
 async def create(state: Run):
+    """Graph node: create the dossier (create_dossier); on an ok result "target" becomes the new dossier's id."""
     call = state["call"]
     result = await run_step(
         state,
@@ -101,8 +109,8 @@ async def create(state: Run):
 
 @stops_at("resume")
 def after_create(state: Run):
-    """A new dossier takes the model dossier's configuration first (a dossier reused from earlier in the conversation
-    keeps its own), then its files."""
+    """Route after creation: "configuration" when a model dossier was given and the dossier is new (not reused from
+    earlier in the conversation), else "fichiers"; "resume" when creation failed."""
     if failed(state):
         return "resume"
     last = state["outcomes"][-1]
@@ -112,6 +120,7 @@ def after_create(state: Run):
 
 
 async def configuration(state: Run):
+    """Graph node: copy the model dossier's configuration onto the target dossier (copy_configuration)."""
     copied = await run_step(
         state, "copy_configuration", dossier_id=state["target"], model_dossier_id=state["call"]["model_dossier_id"]
     )
@@ -119,23 +128,28 @@ async def configuration(state: Run):
 
 
 async def creator(state: Run):
-    """Only the cabinet's managers and Experio's staff create dossiers (check_creator)."""
+    """Graph node: check the sender may create dossiers: the cabinet's managers and Experio's staff only
+    (check_creator)."""
     return {"outcomes": [await run_step(state, "check_creator", session_id=state["call"]["session_id"])]}
 
 
 @stops_at("resume")
 def after_creator(state: Run):
+    """Route: "fichiers" for mode dossiers (a spreadsheet), else "creation"; "resume" when the check failed."""
     if failed(state):
         return "resume"
     return "fichiers" if state["call"].get("mode") == "dossiers" else "creation"
 
 
 async def sender(state: Run):
+    """Graph node: check the sender may work on the call's dossier (check_sender)."""
     return await sender_checked(state, state["call"]["dossier_id"])
 
 
 @stops_at("resume")
 def after_sender(state: Run):
+    """Route to the mode's change node (modification, acces, archivage, ecart), else "fichiers" (an existing dossier's
+    onboarding); "resume" when the check failed."""
     if failed(state):
         return "resume"
     return {
@@ -147,6 +161,7 @@ def after_sender(state: Run):
 
 
 async def update(state: Run):
+    """Graph node: change the dossier's identity fields given in the call (update_dossier)."""
     call = state["call"]
     result = await run_step(
         state,
@@ -162,6 +177,7 @@ async def update(state: Run):
 
 
 async def person(state: Run):
+    """Graph node: create a person's access to the dossier (create_person)."""
     call = state["call"]
     result = await run_step(
         state,
@@ -180,6 +196,7 @@ async def person(state: Run):
 
 
 async def archive(state: Run):
+    """Graph node: archive the dossier (archive_dossier)."""
     call = state["call"]
     result = await run_step(
         state,
@@ -192,6 +209,7 @@ async def archive(state: Run):
 
 
 async def difference(state: Run):
+    """Graph node: write off the remainder of the posted invoice the client named (settle_difference)."""
     call = state["call"]
     result = await run_step(
         state,
@@ -205,20 +223,23 @@ async def difference(state: Run):
 
 
 async def files(state: Run):
-    """The message's files to import: a spreadsheet of dossiers (mode dossiers), else a dossier's entries."""
+    """Graph node: set "files" to the message's files to import (files_to_process): spreadsheets of dossiers in mode
+    dossiers, else files of entries for the dossier."""
     found = await run_step(state, "files_to_process", session_id=state["call"]["session_id"], entries=True)
     return {"files": found.get("files", []), "outcomes": [found]}
 
 
 @stops_at("resume")
 def after_files(state: Run):
+    """Route: "listes" in mode dossiers, else "ecritures"; "resume" when listing the files failed."""
     if failed(state):
         return "resume"
     return "listes" if state["call"].get("mode") == "dossiers" else "ecritures"
 
 
 async def lists(state: Run):
-    """Mode dossiers: each spreadsheet of the message, its dossiers created once the client confirmed the list."""
+    """Graph node (mode dossiers): import each spreadsheet's dossiers (import_dossiers); they are created only once the
+    client confirmed the list."""
     call = state["call"]
     outcomes = [
         await run_step(
@@ -234,7 +255,7 @@ async def lists(state: Run):
 
 
 async def entries(state: Run):
-    """Each file of the message imported into the dossier."""
+    """Graph node: import each file's entries into the target dossier (import_entries)."""
     call = state["call"]
     outcomes = [
         await run_step(
@@ -247,7 +268,7 @@ async def entries(state: Run):
 
 @stops_at("resume")
 def after_entries(state: Run):
-    """The onboarding goes on unless an import was refused (the client sends that file again first)."""
+    """Route to "banques" unless an import was not ok, then to "resume" (the client sends that file again first)."""
     imported = state["outcomes"][-len(state["files"]) :] if state.get("files") else []
     if any(result.get("status") != "ok" for result in imported):
         return "resume"
@@ -255,20 +276,21 @@ def after_entries(state: Run):
 
 
 async def banks(state: Run):
-    """The bank of each bank journal of the dossier, then its onboarding finished (no time limit)."""
+    """Graph node: ask the bank of each of the dossier's bank journals (ask_banks), and queue the dossier for
+    finish_setup with no time limit."""
     asked = await run_step(state, "ask_banks", dossier_id=state["target"])
     options = {"seconds_left": 0, "finish": state["call"].get("finish") is True}
     return {"outcomes": [asked], "finishing": [state["target"]], "finish_options": options}
 
 
 async def resume_setups(state: Run):
-    """Mode resume: the conversation's dossiers left waiting, to finish."""
+    """Graph node (mode resume): queue the conversation's dossiers left waiting (waiting_setups) for finish_setup."""
     found = await run_step(state, "waiting_setups", session_id=state["call"]["session_id"])
     return {"outcomes": [found], "finishing": found.get("dossiers", []), "finish_options": {}}
 
 
 async def finish(state: Run):
-    """Each dossier's onboarding finished (finish_setup): those it finished have their state said next."""
+    """Graph node: finish each queued dossier's onboarding (finish_setup); "finished" lists those with an ok result."""
     outcomes, done = [], []
     for dossier_id in state.get("finishing", []):
         result = await run_step(state, "finish_setup", dossier_id=dossier_id, **state.get("finish_options", {}))
@@ -280,11 +302,12 @@ async def finish(state: Run):
 
 @stops_at("resume")
 def after_finish(state: Run):
+    """Route to "etat" when some dossier was finished, else "resume"."""
     return "etat" if state.get("finished") else "resume"
 
 
 async def status(state: Run):
-    """Each finished dossier's state (setup_status)."""
+    """Graph node: report each finished dossier's state (setup_status)."""
     outcomes = [await run_step(state, "setup_status", dossier_id=d) for d in state.get("finished", [])]
     return {"outcomes": outcomes}
 

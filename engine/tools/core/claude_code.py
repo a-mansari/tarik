@@ -19,8 +19,9 @@ class ClaudeCodeError(RuntimeError):
 
 
 def ask(system, content, schema=None):
-    """The CLI's answer to one user message ``content`` (Anthropic content blocks) under ``system``: its text, or the
-    dict matching the JSON ``schema`` when one is given."""
+    """Return the CLI's answer to one user message ``content`` (Anthropic content blocks) under system prompt
+    ``system``: its text ("" when empty), or, when JSON ``schema`` is given, the dict matching it.
+    Raises ClaudeCodeError when the CLI is missing, times out, fails, or gives no structured answer."""
     token = setting("CLAUDE_CODE_OAUTH_TOKEN", "")
     env = {**os.environ, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
     if token:
@@ -56,7 +57,7 @@ def ask(system, content, schema=None):
 
 
 def result_event(output):
-    """The "result" event (dict) among the CLI's stream-json ``output`` lines, None without one."""
+    """Return the "result" event (dict) among the CLI's stream-json ``output`` lines, None without one."""
     for line in output.splitlines():
         event = parsed(line)
         if event.get("type") == "result":

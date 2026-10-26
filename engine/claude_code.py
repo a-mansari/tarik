@@ -1,7 +1,8 @@
-"""The agent's model through the Claude Code CLI (engine/tools/core/claude_code.py): a LangChain chat model whose tool
-calls the CLI writes as structured output, its own tools off, so LangGraph still runs every tool, keeps the
-conversation and logs each call as it does for the API. The conversation goes in as one message, its turns written
-out, its images and PDFs kept as content blocks."""
+"""The agent's model through the Claude Code CLI (engine/tools/core/claude_code.py), as a LangChain chat model.
+
+The CLI's own tools are off: the model writes its tool calls as structured output, so LangGraph still runs every
+tool, keeps the conversation and logs each call as it does with the API. The conversation goes in as one message,
+each turn headed by its role, images and PDFs kept as content blocks."""
 
 import asyncio
 import json
@@ -26,6 +27,8 @@ with "tool_calls" empty. The tools:
 
 
 def answer_schema(names):
+    """Return the JSON schema of the CLI's answer: {"text", "tool_calls": [{"name", "args"}]}, names limited to
+    ``names`` when there are any."""
     name = {"type": "string"}
     if names:
         name["enum"] = names
@@ -47,7 +50,8 @@ def answer_schema(names):
 
 
 def written(block):
-    """One content block as the CLI's single message carries it: images and PDFs as they are, the rest as text."""
+    """Return a content block as the CLI's single message carries it: images and PDFs unchanged, files, tool calls
+    and tool results as text; None for thinking blocks (not sent again)."""
     kind = block.get("type") if isinstance(block, dict) else "text"
     if kind in ("image", "document"):
         return block
@@ -68,7 +72,8 @@ def written(block):
 
 
 def flattened(messages):
-    """The conversation (Anthropic messages) as one message's content blocks, each turn headed by its role."""
+    """Return the conversation (Anthropic-format messages) as one message's content blocks, each turn headed by
+    "=== role ===" ."""
     content = []
     for message in messages:
         content.append({"type": "text", "text": f"=== {message['role']} ==="})
@@ -78,6 +83,10 @@ def flattened(messages):
 
 
 class ChatClaudeCode(BaseChatModel):
+    """Chat model answering through the Claude Code CLI, logged in with ``cabinet``'s settings.
+
+    Tool calls naming a tool it was not given are dropped; each kept call gets a new toolu_ id."""
+
     cabinet: str  # the settings (the CLI's login) are read within it
 
     @property

@@ -1,7 +1,9 @@
-"""The UI's pages, in French for the team: the runs of each cabinet, and each run step by step as it happens. Each
-page's data as JSON (/ui/api/...), shown by the Vue app (server/web/); the words come from content/labels.json. The
-sidebar picks the cabinet the pages show (a cookie, CHOSEN), each cabinet under its name in Experio with its
-database beside it."""
+"""Serve the run pages and what every page shares: the runs of each cabinet, each run step by step, the workflows, and
+the LLM calls.
+
+Each page's data is JSON (/ui/api/...), shown by the Vue app (server/web/), in French for the team; the words come
+from content/labels.json. The sidebar chooses the cabinet the pages show (a cookie, CHOSEN), each cabinet listed
+under its name in Experio with its database name beside it."""
 
 import json
 import time
@@ -23,14 +25,17 @@ WEB = HERE.parent / "web" / "dist"  # the pages, built (server/web/: npm run bui
 
 
 def page(context, status_code=200):
-    """A page's data, for the pages' app (server/web/) to show: dates and other values as text."""
+    """Return ``context`` as a JSON response for the pages' app, with dates and other non-JSON values turned into text.
+    Return ``context`` as a JSON response for the pages' app, with dates and other non-JSON values turned into text."""
     body = json.dumps(context, ensure_ascii=False, default=str)
     return JSONResponse(json.loads(body), status_code=status_code)
 
 
 async def shell(request: Request):
-    """The pages' app, the same for every address under /ui/ (and the login's, an invitation's): it reads its data
-    from /ui/api/... once it runs. Nothing of a cabinet is in it."""
+    """Return the pages' app (server/web/dist/index.html), the same for every address under /ui/, the login and an
+    invitation.
+
+    The app then reads its data from /ui/api/...; nothing of a cabinet is in it. 503 when the pages are not built."""
     index = WEB / "index.html"
     if not index.exists():
         return PlainTextResponse("Les pages ne sont pas construites : cd server/web && npm ci && npm run build", 503)
@@ -38,7 +43,8 @@ async def shell(request: Request):
 
 
 async def me(request: Request):
-    """Who is on the pages, the sidebar's cabinets and labels.json's words: what every page needs."""
+    """GET /ui/api/me: return what every page needs: who is logged in, whether they are an admin, the sidebar's
+    cabinets, and labels.json's words."""
     user = request.state.user
     shown = {"name": user["name"], "email": user["email"], "role": user["role"]}
     return page({"user": shown, "admin": is_admin(request), "cabinets": sidebar(request), "labels": LABELS})
@@ -50,13 +56,15 @@ RETRY_SECONDS = 300
 
 
 def failed_lately(cabinet):
-    """Whether Experio failed to give the cabinet's name less than RETRY_SECONDS ago."""
+    """True when Experio failed to give the cabinet's name less than RETRY_SECONDS ago."""
     return time.monotonic() - TRIED.get(cabinet, -RETRY_SECONDS) < RETRY_SECONDS
 
 
 def display_name(cabinet):
-    """The cabinet's name in Experio (its company), "" while Experio can't give it: asked again RETRY_SECONDS after a
-    failure, so a page never waits on Experio twice in a row."""
+    """Return the cabinet's name in Experio (its company), cached once read; "" while Experio cannot give it.
+
+    After a failure, Experio is asked again only RETRY_SECONDS later, so a page never waits on Experio twice in a
+    row."""
     if cabinet in CABINETS and cabinet not in NAMES and not failed_lately(cabinet):
         with using(cabinet):
             found = cabinet_name()
@@ -68,13 +76,14 @@ def display_name(cabinet):
 
 
 def warm_names():
-    """Every cabinet's name read once (at start, off the event loop): the first pages need not wait for Experio."""
+    """Read every cabinet's name once at start (off the event loop), so the first pages need not wait for Experio."""
     for cabinet in sorted(CABINETS):
         display_name(cabinet)
 
 
 def chosen(request):
-    """The cabinet the pages show: the one picked in the sidebar, else the first; None without any."""
+    """Return the cabinet the pages show: the one chosen in the sidebar (cookie CHOSEN), else the first by name; None
+    when no cabinet is served."""
     picked = request.cookies.get(CHOSEN)
     if picked in CABINETS:
         return picked
@@ -85,13 +94,14 @@ HOME = "/ui/accueil"  # the cabinet's dashboard: where logging in, the brand and
 
 
 def sidebar(request):
-    """The sidebar's cabinets: [{name (its database), display, chosen}]."""
+    """Return the sidebar's cabinets: [{name (its database), display (its Experio name), chosen}]."""
     now = chosen(request)
     return [{"name": c, "display": display_name(c), "chosen": c == now} for c in sorted(CABINETS)]
 
 
 async def choose(request: Request):
-    """A cabinet picked in the sidebar (posted: its name never in an address): kept in a cookie."""
+    """POST /ui/api/cabinet {cabinet}: remember the cabinet chosen in the sidebar in a cookie (never in an address); 400
+    for an unknown cabinet."""
     cabinet = (await request.json()).get("cabinet", "")
     if cabinet not in CABINETS:
         return JSONResponse({"error": "cabinet inconnu"}, status_code=400)
@@ -101,12 +111,15 @@ async def choose(request: Request):
 
 
 def graph_name(graph):
+    """Return the workflow's name from labels.json, else its key."""
     return LABELS["graphs"].get(graph, graph)
 
 
 def markdown(text):
-    """A message as its writer means it (bold, lists, tables), the client's as Tarik's: raw HTML never kept, unsafe
-    links never made (a client types it, or Experio holds what clients typed)."""
+    """Return ``text`` rendered from Markdown to HTML (bold, lists, tables), for the client's messages as for Tarik's.
+
+    Raw HTML is never kept and unsafe links are never made: a client types the text, or Experio holds what clients
+    typed."""
     return MARKDOWN.render(text or "")
 
 
@@ -114,13 +127,13 @@ MARKDOWN = MarkdownIt("commonmark", {"html": False, "breaks": True}).enable("tab
 
 
 def is_admin(request):
-    """Whether the person on the page is an admin (server.py's admin_only): what only they may do is not offered."""
+    """True when the person on the page is an admin (server.py's admin_only): admin-only actions are then offered."""
     user = getattr(request.state, "user", None)
     return bool(user) and user.get("role") == "admin"
 
 
 def thinking_of(content):
-    """Tarik's thinking in a message's content (its thinking blocks joined), "" without any."""
+    """Return Tarik's thinking blocks in a message ``content`` joined into one text, "" when there is none."""
     if not isinstance(content, list):
         return ""
     blocks = [part for part in content if isinstance(part, dict) and part.get("type") == "thinking"]
@@ -128,8 +141,10 @@ def thinking_of(content):
 
 
 def conversation(messages):
-    """The agent's messages as the team reads them: who said what, the tools Tarik called and what they answered,
-    Tarik's thinking kept apart (shown on demand)."""
+    """Return the agent's ``messages`` as the team reads them: [{who, text, ...}].
+
+    Client messages, Tarik's (with its text as HTML, the tools it called, and its thinking kept apart, shown on
+    demand), and each tool's answer."""
     shown = []
     for message in messages or []:
         kind = message.get("type")
@@ -159,9 +174,10 @@ def conversation(messages):
 
 
 def ran_here(shown):
-    """A conversation split where this run began: an agent run is one message answered, in a conversation that may
-    have had others before (other runs, their steps and calls on their own pages). Its part begins at the last
-    client message."""
+    """Split a conversation (``shown``, from conversation) where this run began, as {earlier, conversation}.
+
+    An agent run answers one message, in a conversation that may have had earlier runs (shown on their own pages);
+    this run's part starts at the last client message."""
     starts = max((i for i, entry in enumerate(shown) if entry["who"] == "Client"), default=0)
     return {"earlier": shown[:starts], "conversation": shown[starts:]}
 
@@ -170,9 +186,11 @@ HIDDEN = {"attachments", "cabinet", "session_id", "call", "done"}  # shown elsew
 
 
 def asked(run):
-    """What the run was asked, as the team reads it: {name: value}, each input under its name in plain words
-    (labels.json: inputs) and a coded value in words (input_values); an email thread as its sender, subject, message
-    and files. Inputs left empty are left out."""
+    """Return what ``run`` was asked, as the team reads it: {input name: value}.
+
+    Each input is under its plain-words name (labels.json: inputs) and a coded value in words (input_values); an
+    email thread is shown as its sender, subject, message and files; for the agent, its last message. Empty inputs
+    and HIDDEN ones are left out."""
     given = run["input"] or {}
     if run["graph"] == "agent":
         messages = given.get("messages") or []
@@ -195,7 +213,8 @@ def asked(run):
 
 
 def shown_value(key, value):
-    """An input's value as the team reads it: yes or no, a list's items, a coded value's words."""
+    """Return an input's ``value`` as the team reads it: Oui/Non for a bool, a list's items joined, a coded value's
+    words."""
     if isinstance(value, bool):
         return "Oui" if value else "Non"
     if isinstance(value, list):
@@ -204,17 +223,21 @@ def shown_value(key, value):
 
 
 async def home(request: Request):
+    """GET /: redirect to HOME, the cabinet's dashboard."""
     return RedirectResponse(HOME)
 
 
 def dated(found, key="started"):
-    """Rows (runs, model calls) each with its ``key`` time as the team reads it (runs.when), under "when"."""
+    """Return ``found`` rows (runs, model calls), each with its ``key`` time as the team reads it (runs.when) under
+    "when"."""
     return [{**row, "when": runs.when(row[key])} for row in found]
 
 
 async def runs_page(request: Request):
-    """The runs of the cabinet picked in the sidebar, latest first (``?graph=`` one workflow's), each with the runs
-    started in its steps under it."""
+    """GET /ui/api/executions: return the latest 100 runs of the cabinet chosen in the sidebar (one workflow's with
+    ?graph=), newest first.
+
+    Each run is followed by the runs started in its steps."""
     query = request.query_params
     cabinet, graph = chosen(request), query.get("graph") or None
     found = await runs.recent(cabinet, graph, 100) if cabinet else []
@@ -222,7 +245,8 @@ async def runs_page(request: Request):
 
 
 async def run_page(request: Request):
-    """One run step by step: what it was asked, what the client reads, its conversation, its model calls."""
+    """GET /ui/api/executions/{run_id}: return one run step by step: what it was asked, its summary for the client, its
+    conversation and its model calls; 404 when unknown."""
     found = await runs.run(request.path_params["run_id"])
     if not found:
         return page({"error": "Exécution introuvable"}, 404)
@@ -243,8 +267,10 @@ async def run_page(request: Request):
 
 
 async def openings(cabinet, sessions):
-    """{session: {first, subject, sender}} of the cabinet's conversations ``sessions``: their first message's words
-    (cut, else its files), and for an email its subject and sender."""
+    """Return {session: {first, subject, sender}} for the cabinet's conversations ``sessions``.
+
+    first is the first message's words (cut at 90 characters), else its file names; subject and sender are an
+    email's, None otherwise."""
     async with runs.pool.connection() as db:
         rows = await (await db.execute(Q.conversations_first_messages, (cabinet, sessions))).fetchall()
     found = {}
@@ -258,14 +284,17 @@ async def openings(cabinet, sessions):
 
 
 async def titles(cabinet, sessions):
-    """{session: its title}: an email's subject, else the first message's words, as the Discussions page shows them."""
+    """Return {session: title} as the Discussions page shows them: an email's subject, else the first message's words.
+    Return {session: title} as the Discussions page shows them: an email's subject, else the first message's words."""
     found = await openings(cabinet, sessions)
     return {session: opening["subject"] or opening["first"] for session, opening in found.items()}
 
 
 async def prompts_page(request: Request):
-    """The LLM Calls page: each model call Tarik made for the cabinet picked in the sidebar, latest first, with its
-    conversation and its run; ``?before=`` pages back."""
+    """GET /ui/api/llm-calls: return the model calls Tarik made for the cabinet chosen in the sidebar, newest first,
+    with their conversations' titles.
+
+    ?before= (a call id) pages back; ``older`` is set when a full page of 100 came back."""
     cabinet, before = chosen(request), request.query_params.get("before", "")
     found = await prompts.listed(cabinet, int(before) if before.isdigit() else None) if cabinet else []
     context = {
@@ -278,7 +307,8 @@ async def prompts_page(request: Request):
 
 
 async def prompt_calls_page(request: Request):
-    """A conversation's model calls (of the cabinet picked in the sidebar), each opened to read its whole prompt."""
+    """GET /ui/api/llm-calls/{session_id}: return a conversation's model calls (cabinet chosen in the sidebar) and its
+    title; 404 when it has none."""
     cabinet, session = chosen(request), request.path_params["session_id"]
     if cabinet is None:
         return page({"error": "Discussion introuvable"}, 404)
@@ -290,12 +320,14 @@ async def prompt_calls_page(request: Request):
 
 
 async def workflows_page(request: Request):
+    """GET /ui/api/workflows: return the workflows' names and how many steps each has."""
     counts = {name: sum(node["kind"] == "step" for node in graphs.shape(name)["nodes"]) for name in runs.NAMES}
     return page({"graphs": runs.NAMES, "counts": counts})
 
 
 async def workflow_page(request: Request):
-    """A workflow's canvas, with one of its runs over it (``?run=``), and its recent runs to pick from."""
+    """GET /ui/api/workflows/{graph}: return a workflow, with one of its runs to show over the canvas (?run=) and its 30
+    latest runs to choose from; 404 for an unknown workflow."""
     graph = request.path_params["graph"]
     if graph not in runs.NAMES:
         return page({"error": "Workflow introuvable"}, 404)

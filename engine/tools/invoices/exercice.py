@@ -1,10 +1,10 @@
 """The fiscal year (exercice) the invoice is booked in.
 
-Experio links the invoice to the exercice covering its date itself (exercice_id is computed
-from invoice_date), books a late invoice with its own action_activate_old_invoice, and opens
-an exercice through action_open after checking its rules (follows the previous one, at most
-12 months, no overlap). Left here: relinking when the exercice came after the invoice, and the
-question when no open exercice covers the date -- late invoice in an open one, or a new one.
+Experio links the invoice to the exercice covering its date itself (exp.invoice _compute_exercice_id, from
+invoice_date), and books a late invoice with its own action_activate_old_invoice. An exercice's rules are checked
+when it is saved (it follows the previous one; at most 12 months except the first) and when action_open opens it
+(no overlap with an open or closed one). Left here: relinking when the exercice was created after the invoice, and
+the question when no open exercice covers the date: late invoice in an open one, or a new one.
 """
 
 import re
@@ -27,8 +27,9 @@ from engine.tools.invoices.check import resolve_date
 
 
 def exercice_choice(decision, opens):
-    """What the client chose, as the agent read it (``decision``): ("old", exercice) to book it late in one of
-    ``opens``, named as the question lists it, ("new", None) for "nouveau", None for anything else (asked again)."""
+    """Return the client's choice as the agent read it (``decision``): ("old", exercice) to book the invoice late
+    in that one of ``opens`` (named or numbered as the question lists it), ("new", None) for "nouveau", None for
+    anything else (asked again)."""
     decision = normalized(str(decision or ""))
     if decision == "nouveau":
         return ("new", None)
@@ -42,14 +43,15 @@ DATE_GIVEN = re.compile(r"(?<!\d)(?:\d{1,2}\D\d{1,2}\D\d{4}|\d{4}\D\d{1,2}\D\d{1
 
 
 def given_date(answer):
-    """The invoice date the client gave: exactly one date, with its 4-digit year, else None (asked again)."""
+    """Return the invoice date the client gave in ``answer`` as YYYY-MM-DD: exactly one date with its 4-digit year,
+    day first or year first; else None (asked again)."""
     found = DATE_GIVEN.findall(answer or "")
     return resolve_date(found[0], "fr") if len(found) == 1 else None
 
 
 def open_exercice(company_id, year):
-    """A new calendar exercice ``year`` (str) in the dossier, opened: Experio's own path, created in draft, its
-    rules checked, then opened by action_open. Its id; raises Experio's refusal."""
+    """Create the calendar exercice ``year`` (str) in the dossier and open it, Experio's own path: created in
+    draft (its rules checked on save), then opened by action_open. Returns its id; Experio's refusal is raised."""
     # The name is Experio's own formula (_compute_name), which doesn't run before the required check over RPC.
     values = {
         "company_id": company_id,
@@ -63,7 +65,7 @@ def open_exercice(company_id, year):
 
 
 def asked(invoice, opens):
-    """The question: book ``invoice`` late in one of ``opens``, or a new exercice."""
+    """Return the question text: book ``invoice`` late in one of the open exercices ``opens``, or a new one."""
     names = [f"`{e['name']}`" for e in opens]
     return (
         f"Elle est datée du {invoice['invoice_date']}, en dehors des exercices ouverts ({', '.join(names)}). "
@@ -73,7 +75,8 @@ def asked(invoice, opens):
 
 
 def relink(invoice_id, invoice, exercice):
-    """Link the invoice to ``exercice`` (the open one covering its date), when it isn't yet: ok."""
+    """Link the invoice to ``exercice`` (the open one covering its date) unless it already is. Returns an ok
+    result when linked now, a routine result when it already was."""
     linked = invoice["exercice_id"]
     if linked and linked[0] == exercice["id"]:
         return routine(f"Facture {invoice_id} : exercice `{exercice['name']}`.")
@@ -86,8 +89,10 @@ def relink(invoice_id, invoice, exercice):
 
 
 def book_late(invoice_id, company_id, exercice):
-    """Book the invoice as a late invoice (facture anterieure) in open ``exercice``: ok, with a warning when the
-    dossier has no late-invoice account."""
+    """Book the invoice as a late invoice (facture antérieure) in the open ``exercice``, with Experio's
+    action_activate_old_invoice: the real date is kept aside, the invoice dated at the exercice's start and put on
+    the dossier's late-invoice account. Returns an ok result, with a warning when the dossier has no such account
+    (the current account is kept)."""
     head = test_mode_note()
     company = odoo_call("res.company", "read", [company_id], fields=["old_invoice_account_id"])[0]
     warning = ""
@@ -107,8 +112,8 @@ def book_late(invoice_id, company_id, exercice):
 
 
 def new_exercice(invoice_id, invoice, opens):
-    """Open a new exercice for the invoice's year and link the invoice to it: ok, or a question offering
-    ``opens`` instead when Experio refuses it."""
+    """Open a new calendar exercice for the invoice's year and link the invoice to it. Returns an ok result, or a
+    question result offering a late invoice in one of ``opens`` when Experio refuses the exercice."""
     head = test_mode_note()
     year = invoice["invoice_date"][:4]
     if dry_run():
@@ -128,11 +133,12 @@ def new_exercice(invoice_id, invoice, opens):
 
 @step_tool
 def settle_exercice(invoice_id: int, answer: str = "", decision: str = "") -> dict:
-    """Make sure a draft invoice is booked in an open fiscal year. When none covers its
-    date, the answer is a question (late invoice in an open exercice, or a new one);
-    call again with the client's reply as ``answer`` and what the agent read in it as
-    ``decision``: "nouveau", or the open exercice chosen, named as the question lists it.
-    An invoice without a date asks for it first: ``answer`` then holds the date."""
+    """Make sure a draft invoice is booked in an open fiscal year (exercice).
+
+    When no open exercice covers its date, returns a question result (late invoice in an open exercice, or a new
+    one); call again with the client's reply as ``answer`` and what the agent read in it as ``decision``:
+    "nouveau", or the open exercice chosen, named as the question lists it. An invoice without a date gets a
+    question asking for it first; ``answer`` then holds the date."""
     fields = ["state", "company_id", "exercice_id", "invoice_date", "is_old_invoice"]
     invoice = require_draft_invoice(invoice_id, fields, "changer d'exercice")
     if not invoice["invoice_date"]:  # the answer to "Quelle est sa date ?" is its date, written as the client wrote it

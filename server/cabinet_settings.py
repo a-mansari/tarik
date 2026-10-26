@@ -1,10 +1,12 @@
-"""Each cabinet's own settings, read and changed from the Cabinets page: its Experio login, its mailbox, who may
-receive Tarik's emails, whether Tarik really writes to Experio (DRY_RUN), its model. Vault
-(secret/tarik/cabinets/<cabinet>) is their only home, but the model's (MODEL_ADAPTER: no secret, in the orchestrator's
-table cabinet_models): they are written there with the page's own AppRole (tarik-settings, vault/setup.sh), which may
-only read and update the cabinets' paths, never the shared settings nor make a new cabinet. A secret (a password, a
-key) is never shown nor kept anywhere but Vault: it is only replaced. Each change is recorded (who, when, why, which
-settings: table settings_changes) and in use at once. Any other key in the same path is kept as it is."""
+"""Read and change each cabinet's own settings, from the Cabinets page and the Experio API.
+
+The settings: its Experio login, its mailbox, who may receive Tarik's emails, whether Tarik really writes to Experio
+(DRY_RUN), and its model. They live only in Vault (secret/tarik/cabinets/<cabinet>), except the model (MODEL_ADAPTER,
+not a secret), which is kept in the orchestrator's table cabinet_models. Vault is written with the page's own AppRole
+(tarik-settings, vault/setup.sh), which may only read and update the cabinets' paths: never the shared settings. A
+secret (a password, a key) is never shown nor stored anywhere except Vault: it can only be replaced. Each change is
+recorded (who, when, why, which settings: table settings_changes) and used at once. Any other key in the same Vault
+path is kept unchanged."""
 
 import asyncio
 import re
@@ -56,8 +58,11 @@ _token = {"token": "", "token_until": 0.0}
 
 
 def latest(cabinet, served_only=True):
-    """The cabinet's settings as Vault holds them now, its model's with them, and Vault's version: (data, version).
-    ``served_only`` False: a deactivated cabinet too (the Experio API). LookupError when Vault has no such cabinet."""
+    """Return the cabinet's current settings and Vault's version of them, as (data, version).
+
+    data holds Vault's keys plus MODEL_ADAPTER from Postgres. With ``served_only`` False, a deactivated cabinet is
+    read too (the Experio API). Raises LookupError when Vault has no such cabinet (or, with ``served_only``, Tarik
+    does not serve it)."""
     if cabinet not in cabinets.CABINETS and (served_only or not cabinets.NAME.fullmatch(cabinet)):
         raise LookupError("cabinet inconnu")
     found = _vault("GET", f"/v1/secret/data/tarik/cabinets/{cabinet}")
@@ -67,13 +72,16 @@ def latest(cabinet, served_only=True):
 
 
 def shown(data):
-    """Settings as the page shows them: {key: value}, a secret only as True (set) or False."""
+    """Return the settings as the page shows them: {key: value} for every FIELDS key, a secret only as True (set) or
+    False."""
     return {key: bool(data.get(key)) if kind == "secret" else data.get(key, "") for key, kind in FIELDS.items()}
 
 
 def checked(key, value):
-    """ValueError, in plain French, when Tarik could not use ``value`` (already trimmed) for setting ``key``. Only
-    checked, never rewritten inside: refused rather than tidied up."""
+    """Raise ValueError (in plain French) when Tarik could not use ``value`` (already trimmed) for setting ``key``.
+
+    The value is only checked, never tidied up: an invalid one is refused. An empty value is accepted only for
+    OPTIONAL settings."""
     kind = FIELDS[key]
     if value == "":
         if key in OPTIONAL:
@@ -99,9 +107,11 @@ def checked(key, value):
 
 
 def changed(before, given):
-    """What ``given`` (the page's form: {key: text}) changes in the settings ``before``: {key: new value}. A setting
-    loses the spaces around it (the page says so) and is otherwise kept as typed; a secret is kept exactly, its spaces
-    its own, and left empty stays as it is. Any other difference, a space inside included, is a change."""
+    """Return what the form ``given`` ({key: text}) changes in the current settings ``before``, as {key: new value}.
+
+    A non-secret value is trimmed of surrounding spaces, checked (see checked) and otherwise kept as typed; any other
+    difference, a space inside included, counts as a change. A secret is kept exactly as typed, and an empty secret
+    leaves the current one unchanged. Keys outside FIELDS are ignored."""
     found = {}
     for key, kind in FIELDS.items():
         if key not in given:
@@ -118,14 +128,16 @@ def changed(before, given):
 
 
 def _vault(method, path, **kwargs):
-    """Vault's answer with the page's own AppRole token, logged in again once 80% of its lease has passed."""
+    """Send a request to Vault with the page's own AppRole token (renewed once 80% of its lease has passed) and return
+    Vault's answer."""
     with _lock:
         token = cabinets.vault_token(ROLE, _token)
     return cabinets.vault_request(method, path, token, **kwargs)
 
 
 def recorded(key, before, after):
-    """One setting's change as settings_changes keeps it: {key, before, after}, a secret's values never."""
+    """Return one setting's change as settings_changes stores it: {key, before, after}, both values None for a secret.
+    Return one setting's change as settings_changes stores it: {key, before, after}, both values None for a secret."""
     if key in SECRETS:
         return {"key": key, "before": None, "after": None}
     return {"key": key, "before": before, "after": after}
@@ -135,10 +147,17 @@ MOVED = "ces réglages ont changé depuis l'ouverture de la page : rechargez-la 
 
 
 async def save(pool, cabinet, given, seen, author, note="", active=None):
-    """The cabinet's settings changed as ``given`` says (see changed), by ``author``, from the page that showed
-    version ``seen``: refused (ValueError) when Vault holds a newer one, never overwritten (``seen`` None: the Experio
-    API, over the latest). ``active`` True or False: the cabinet reactivated or deactivated with it (ACTIVE). Written
-    to Vault, recorded, in use at once. The keys changed (a list); nothing is written when nothing changes."""
+    """Apply the form ``given`` to the cabinet's settings (see changed) and return the keys changed (list; [] when
+    nothing changes).
+
+    Args:
+        seen: the Vault version the page showed; ValueError (MOVED) when Vault now holds a newer one. None (the
+            Experio API) writes over the latest version.
+        author, note: who made the change and why, for settings_changes and the Journal.
+        active: True or False to reactivate or deactivate the cabinet in the same write (ACTIVE); None leaves it.
+    The Vault write uses check-and-set on the version read (cas), so a concurrent write makes it fail with ValueError
+    (MOVED) instead of being overwritten. The change is recorded in settings_changes and the Journal and used at
+    once."""
     data, version = await asyncio.to_thread(latest, cabinet, seen is not None)
     if seen is not None and version != seen:
         raise ValueError(MOVED)
@@ -169,8 +188,10 @@ async def save(pool, cabinet, given, seen, author, note="", active=None):
 
 
 def complete(given):
-    """A new cabinet's settings from ``given``, each checked as typed (a secret as is): every one Tarik needs present,
-    DRY_RUN 1 (simulation) unless given. ValueError (in plain French) otherwise; unknown keys are refused too."""
+    """Return a new cabinet's settings from ``given``, each checked as typed (a secret as is), with DRY_RUN 1
+    (simulation) unless given.
+
+    Raises ValueError (in plain French) for unknown keys or a missing required setting."""
     unknown = sorted(set(given) - set(FIELDS))
     if unknown:
         raise ValueError(f"réglages inconnus : {', '.join(unknown)}")
@@ -182,8 +203,12 @@ def complete(given):
 
 
 async def create(pool, cabinet, given, author):
-    """A new cabinet in Vault, its settings ``given`` (see complete), recorded: refused (ValueError) when Vault has it
-    already, written only if absent (cas 0). The keys set."""
+    """Create cabinet ``cabinet`` in Vault with the settings ``given`` (see complete), record it, and return the keys
+    set.
+
+    The write uses Vault's check-and-set with cas 0, which Vault accepts only when the path does not exist yet, so an
+    existing cabinet is never overwritten. Raises ValueError for an invalid cabinet name or settings, or when the
+    cabinet already exists in Vault."""
     if not cabinets.NAME.fullmatch(cabinet) or cabinet == "public" or cabinet.startswith("pg_"):
         raise ValueError("nom de cabinet : la base Experio exacte, en minuscules (lettres, chiffres, _)")
     data = complete(given)
@@ -203,7 +228,7 @@ async def create(pool, cabinet, given, author):
 
 
 async def history(pool, cabinet, limit=30):
-    """The cabinet's settings changes, latest first: {author, note, changes, version, at}."""
+    """Return the cabinet's last ``limit`` settings changes, newest first: [{author, note, changes, version, at}]."""
     async with pool.connection() as db:
         rows = await (await db.execute(Q.settings_history, (cabinet, limit))).fetchall()
     return [

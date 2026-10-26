@@ -1,8 +1,10 @@
-"""Emails as a graph: for the cabinet named, each thread waiting for an answer is claimed, then in a run of its own
-(FIL, "Fil d'emails", one per thread, side by side) acknowledged, answered
-by the cabinet's agent (the agent graph, in the thread's own conversation; reminded of files still untaken), and the
-reply sent to whitelisted addresses. A sender refused (check_sender) gets nothing: the manager is told, the thread
-stays set aside. A follow-up thread runs Traitement then Dossier in mode resume and sends their summaries."""
+"""The Emails graph: claim the cabinet's email threads waiting for an answer and answer each one.
+
+Each claimed thread is a run of its own (FIL, "Fil d'emails"), all side by side: acknowledge it, ask the cabinet's
+agent in the thread's own conversation (engine.chat.answered, which reminds it of files still untaken), check the
+sender (thread_refusal) and send the reply (send_email only sends to whitelisted addresses). A refused sender gets
+nothing: the manager is notified and the thread stays set aside. A follow-up thread skips the agent: it runs
+Traitement then Dossier in mode resume and sends their summaries."""
 
 import asyncio
 import operator
@@ -24,8 +26,10 @@ class Run(TypedDict, total=False):
 
 
 class Steps(TypedDict, total=False):
-    """What a thread's steps say, each in its own key: kept in a run's step-by-step record (a graph's output keys
-    are what its steps show), and none of it the Emails run's, but done."""
+    """The FIL graph's output keys: what each thread step reports, one key each.
+
+    A graph's output keys are what its steps show in the run's step-by-step record. None of these reach the Emails
+    run except ``done``."""
 
     acknowledged: str
     reply: str
@@ -44,13 +48,16 @@ class Thread(Steps, total=False):
 
 
 async def claim(state: Run):
+    """Graph node: claim the cabinet's threads waiting for an answer (claim_threads) into "threads"."""
     result = await call(state["cabinet"], "claim_threads")
     return {"threads": result.get("threads", [])}
 
 
 async def each_thread(state: Run):
-    """Each thread claimed, a run of its own ("Fil d'emails", FIL): separate conversations, each from its own sender,
-    are never drawn on one canvas. They run side by side; one failing leaves the others, and is claimed again later."""
+    """Graph node: run FIL for each claimed thread, side by side, each as a run of its own, and collect their "done".
+
+    Separate conversations, each from its own sender, are never drawn on one canvas. A thread run that raises
+    adds nothing to "done", leaves the others running, and is claimed again later."""
     from engine import runs  # runs imports the graphs, this one among them
 
     cabinet = state["cabinet"]
@@ -68,10 +75,12 @@ async def each_thread(state: Run):
 
 
 def kind(state: Thread):
+    """Route a thread: "suite_documents" for a follow-up, else "accuse" (acknowledge, then the agent)."""
     return "suite_documents" if state["thread"]["follow_up"] else "accuse"
 
 
 async def acknowledge(state: Thread):
+    """Graph node: acknowledge the thread (acknowledge_thread); when that fails, the agent still answers."""
     try:
         result = await call(state["cabinet"], "acknowledge_thread", thread_id=state["thread"]["thread_id"])
         return {"acknowledged": said(result)}
@@ -84,14 +93,16 @@ REPLY_PREFIX = re.compile(r"^(?:\s*(?:re|tr|fw|fwd|ref)\s*:)+\s*", re.IGNORECASE
 
 
 def with_subject(subject, message):
-    """The client's ``message`` headed by its email's subject, reply prefixes taken off: the subject is the client's
-    words too (« Facture achat » gives the side)."""
+    """Return the client's ``message`` headed by "Objet : <subject>", reply prefixes (Re:, TR:, Fwd:...) removed;
+    ``message`` alone when there is no subject. The subject is the client's words too (« Facture achat » gives the
+    side)."""
     subject = REPLY_PREFIX.sub("", subject or "").strip()
     return f"Objet : {subject}\n\n{message}" if subject else message
 
 
 async def ask(state: Thread):
-    """The cabinet's agent, in the thread's own conversation (its session id as thread id): engine.chat.answered."""
+    """Graph node: set "reply" to the cabinet's agent's answer in the thread's own conversation (engine.chat.answered),
+    or "error" when the agent failed (the thread is set aside, never asked twice)."""
     thread = state["thread"]
     try:
         message = with_subject(thread.get("subject"), thread["message"])
@@ -103,6 +114,7 @@ async def ask(state: Thread):
 
 
 async def refusal(state: Thread):
+    """Graph node: set "refusal" to whether the sender is refused (thread_refusal), or "error" when that failed."""
     try:
         return {"refusal": await call(state["cabinet"], "thread_refusal", thread_id=state["thread"]["thread_id"])}
     except Exception as error:  # set aside with why: never answered blind
@@ -110,6 +122,7 @@ async def refusal(state: Thread):
 
 
 async def notify(state: Thread):
+    """Graph node: notify the cabinet's manager of a refused sender (notify_manager); the sender gets nothing."""
     found = state["refusal"]
     try:
         told = await call(
@@ -121,16 +134,18 @@ async def notify(state: Thread):
 
 
 def said(result):
-    """A tool's answer in one line: its message, or its text."""
+    """Return a tool's result as one text: a dict's "message" (else the dict as text), or the text itself."""
     return result.get("message", str(result)) if isinstance(result, dict) else str(result)
 
 
 def failure_text(error):
-    """Why a thread is set aside: the tool's own message, or the failure's kind."""
+    """Return why a thread is set aside: a ToolFailure's message, else "Erreur (<exception class>)."."""
     return str(error) if isinstance(error, ToolFailure) else f"Erreur ({type(error).__name__})."
 
 
 async def send(state: Thread):
+    """Graph node: email the reply (plus what a zip left out) in the thread (send_email), with files made in the run;
+    sets "sent" and "sent_id", or "error"."""
     thread = state["thread"]
     try:
         result = await call(
@@ -149,8 +164,8 @@ async def send(state: Thread):
 
 
 async def resumed(state, name, node):
-    """Workflow ``name`` in mode resume for the thread's conversation, a run of its own started from ``node``: its
-    summary, "" when it had nothing to resume."""
+    """Run workflow ``name`` in mode resume for the thread's conversation, as a run nested under ``node``, and return
+    its summary; "" when it had nothing to resume."""
     from engine import runs  # runs imports the graphs, this one among them
 
     thread = state["thread"]
@@ -160,7 +175,8 @@ async def resumed(state, name, node):
 
 
 async def follow_up_documents(state: Thread):
-    """A follow-up, no agent, no time limit: Traitement in mode resume (the drafts left waiting)."""
+    """Graph node (follow-up, no agent, no time limit): run Traitement in mode resume for the drafts left waiting;
+    adds its summary to "summaries", or sets "error"."""
     try:
         said = await resumed(state, "traitement", "suite_documents")
         return {"summaries": [said] if said else []}
@@ -169,7 +185,8 @@ async def follow_up_documents(state: Thread):
 
 
 async def follow_up_dossiers(state: Thread):
-    """Then Dossier in mode resume (the dossiers left to finish); one email tells both."""
+    """Graph node: run Dossier in mode resume (the dossiers left to finish) and set "reply" to both summaries in one
+    email, or "error"."""
     try:
         summaries = [*state.get("summaries", []), await resumed(state, "dossier", "suite_dossiers")]
     except Exception as error:  # set aside with why: never answered blind
@@ -179,6 +196,8 @@ async def follow_up_dossiers(state: Thread):
 
 
 async def finish(state: Thread):
+    """Graph node: close the thread (finish_thread), as sent or set aside with the error as reason; adds it to
+    "done"."""
     thread = state["thread"]
     sent = not state.get("error")
     await call(
@@ -195,7 +214,7 @@ async def finish(state: Thread):
 
 @stops_at("fin")
 def after_refusal(state: Thread):
-    """A refused sender's manager is told; anyone else gets the reply. A refusal not read ends the thread."""
+    """Route: "manager" for a refused sender, else "reponse"; "fin" when the refusal check failed."""
     if state.get("error"):
         return "fin"
     return "manager" if state["refusal"].get("refused") else "reponse"

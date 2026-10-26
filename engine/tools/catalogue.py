@@ -1,4 +1,4 @@
-"""Every tool module, imported so each registers its tools (engine.tools.core.app.TOOLS)."""
+"""Import every tool module so each registers its tools in engine.tools.core.app.TOOLS."""
 
 # ruff: noqa: F401 -- imported for their tools only
 

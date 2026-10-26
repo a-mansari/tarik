@@ -1,5 +1,5 @@
-"""The vision model (MiniMax-M3), in the Anthropic message format it imitates, and the pages of the documents
-clients send, as images it can read."""
+"""The vision model the tools ask (MiniMax-M3 through its Anthropic-style API, or Claude through the Claude Code CLI,
+per cabinet), and the pages of the documents clients send, rendered as images it can read."""
 
 import base64
 import io
@@ -24,14 +24,15 @@ SOURCE = None
 
 
 def content(path):
-    """A content document's text (tools/<name>.md, agent.json): its latest version."""
+    """Return the latest text of content document ``path`` (tools/<name>.md, agent.json). Raises RuntimeError
+    before engine.content has set SOURCE."""
     if SOURCE is None:
         raise RuntimeError("content not loaded (engine.content)")
     return SOURCE(path)
 
 
 def front_matter(text):
-    """A Markdown document's front matter ({key: value}) and body; ValueError without one."""
+    """Split a Markdown document into (front matter {key: value}, body). Raises ValueError without front matter."""
     found = re.fullmatch(r"---\n(.*?)\n---\n(.*)", text, flags=re.S)
     if not found:
         raise ValueError("l'en-tête (entre les deux lignes ---) a disparu")
@@ -40,13 +41,13 @@ def front_matter(text):
 
 
 def tool_prompt(name):
-    """The prompt tools/<name>.md holds, after its front matter (used_by: the tool reading it)."""
+    """Return the prompt in tools/<name>.md, after its front matter (used_by: the tool reading it)."""
     return front_matter(content(f"tools/{name}.md"))[1]
 
 
 def json_answer(text, keys=()):
-    """The one JSON object in the model's ``text`` holding every one of ``keys``, whatever notes surround it.
-    ValueError when there is none, or several that differ: never a guess between two answers."""
+    """Return the one JSON object (dict) in the model's ``text`` holding every one of ``keys``, whatever notes
+    surround it. Raises ValueError when there is none, or several that differ: never a guess between two answers."""
     found, decoder, start = [], json.JSONDecoder(), text.find("{")
     while start != -1:
         try:
@@ -72,28 +73,35 @@ ADAPTERS = {
 
 
 def chosen_adapter(cabinet):
-    """The model ``cabinet`` picked on the Cabinets page ("" when none): in the orchestrator's table, not in Vault (it
-    is no secret), nor in the cabinet's schema (no tool reads it, nor the agent)."""
+    """Return the model adapter ``cabinet`` picked on the Cabinets page ("" when none). It is stored in the
+    orchestrator's table: not in Vault (it is no secret), nor in the cabinet's schema (no tool nor agent reads it)."""
     with psycopg.connect(**POSTGRES) as db:
         found = db.execute(Q.model_adapter, (cabinet,)).fetchone()
     return found[0] if found else ""
 
 
 def adapter():
-    """The current cabinet's model adapter (a key of ADAPTERS)."""
+    """Return the current cabinet's model adapter (a key of ADAPTERS): its choice, else "minimax"."""
     chosen = chosen_adapter(current())
     return chosen if chosen in ADAPTERS else "minimax"
 
 
 def model_name():
-    """The model every tool uses: the agent's own (agent.json)."""
+    """Return the model name every tool sends to the MiniMax API: the agent's own (agent.json)."""
     return json.loads(content("agent.json"))["model"]
 
 
 def ask_model(system, pages, instruction, what, think=True, keys=()):
-    """The model's JSON answer (dict) to ``instruction`` about ``pages`` (PNG bytes, in order, maybe none).
-    ``what`` names the step in the log and in the agent's ToolError when it fails. ``think``: M3 thinks first.
-    ``keys``: the ones the answer must hold (json_answer)."""
+    """Return the model's JSON answer (dict) to ``instruction`` about ``pages``, through the cabinet's adapter.
+
+    Args:
+        system: the system prompt.
+        pages: PNG bytes, in order (maybe none).
+        what: the step's name, in the log and in the ToolError.
+        think: let M3 think first (else temperature 0); unused by the Claude Code CLI.
+        keys: the keys the answer must hold (json_answer).
+
+    Raises ToolError when the model is not configured, refuses, can't be reached, or answers unreadably."""
     if adapter() == "claude-code":
         return ask_claude_code(system, pages, instruction, what, keys)
     key = setting("MODEL_API_KEY", "")
@@ -132,7 +140,8 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
 
 
 def ask_claude_code(system, pages, instruction, what, keys):
-    """ask_model through the Claude Code CLI (it does not think on demand: ``think`` has no use here)."""
+    """Return ask_model's answer through the Claude Code CLI (it does not think on demand: no ``think``).
+    Raises ToolError when the CLI fails or its answer is unreadable."""
     blocks = [*images_of(pages), {"type": "text", "text": instruction}]
     try:
         return json_answer(claude_code.ask(system, blocks), keys)
@@ -145,7 +154,7 @@ def ask_claude_code(system, pages, instruction, what, keys):
 
 
 def images_of(pages):
-    """``pages`` (PNG bytes) as Anthropic image blocks, in order."""
+    """Return ``pages`` (PNG bytes) as Anthropic image blocks, in order."""
     images = []
     for page in pages:
         source = {"type": "base64", "media_type": "image/png", "data": base64.b64encode(page).decode()}
@@ -158,8 +167,8 @@ READER = "le service de lecture des documents de Tarik (pas Experio)"
 
 
 def refused(status):
-    """Why the model's service answered ``status``, for the client: the file refused (4xx: the same file fails
-    again), the service down (5xx, 429: a later try may pass)."""
+    """Return why the model's service answered HTTP ``status``, in French for the client: the service unavailable
+    (5xx, 429, 529: a later try may pass), else the file refused (4xx: the same file fails again)."""
     if status in (429, 529) or status >= 500:
         return f"{READER} est indisponible (erreur {status}) ; reessayez dans quelques minutes."
     return (
@@ -172,8 +181,8 @@ def refused(status):
 
 
 def to_pdf(raw):
-    """A photo (image bytes) as one-page PDF bytes: Experio only takes PDFs. Turned upright as the phone took it
-    (its EXIF orientation), on a page the size of an A4 whatever its pixels."""
+    """Return photo ``raw`` (image bytes) as one-page PDF bytes, turned upright by its EXIF orientation, on a page
+    the size of an A4 whatever its pixels. Experio only takes PDFs."""
     image = ImageOps.exif_transpose(Image.open(io.BytesIO(raw))).convert("RGB")
     buffer = io.BytesIO()
     image.save(buffer, format="PDF", resolution=max(image.size) / 11.69)  # 11.69 inches: an A4's long side
@@ -181,8 +190,8 @@ def to_pdf(raw):
 
 
 def pdf_pages(raw, limit=MAX_PAGES, scale=SCALE):
-    """The first ``limit`` pages (None: all) of a PDF (bytes), as PNG bytes rendered at ``scale``, their longest
-    side at most MAX_SIDE pixels."""
+    """Return the first ``limit`` pages (None: all) of PDF bytes ``raw`` as PNG bytes, rendered at ``scale`` with
+    their longest side at most MAX_SIDE pixels."""
     pages = []
     for page in list(pypdfium2.PdfDocument(raw))[:limit]:
         fitting = min(scale, MAX_SIDE / max(page.get_size()))  # the longest side at most MAX_SIDE
@@ -193,5 +202,5 @@ def pdf_pages(raw, limit=MAX_PAGES, scale=SCALE):
 
 
 def scan_pages(document_pdf):
-    """The first MAX_PAGES pages of a scan stored in Experio (base64 str), as PNG bytes."""
+    """Return the first MAX_PAGES pages of a scan stored in Experio (``document_pdf``: base64 str), as PNG bytes."""
     return pdf_pages(base64.b64decode(document_pdf))

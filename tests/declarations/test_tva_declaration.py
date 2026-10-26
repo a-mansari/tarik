@@ -60,6 +60,7 @@ def experio(monkeypatch):
             "config_error_msg": False,
             "datas_fname": False,
             "name": "/",
+            "declaration_type": "normal",
         },
         "done_before": 0,
         "counts": {"draft": 0, "blocked": 0, "unpaid": 0, "suspense": 0},
@@ -241,7 +242,13 @@ def test_lines_in_error_and_experio_warning_are_told(experio, monkeypatch):
     experio["table"]["warning_msg"] = "<p>Période <b>à vérifier</b></p>"
     errors = [{"error_msg": "<p>Taux absent</p>"}, {"error_msg": "Taux absent"}, {"error_msg": "IF manquant"}]
     inner = tva.odoo_call
-    monkeypatch.setattr(tva, "odoo_call", lambda model, *a, **k: errors if model == tva.LINE else inner(model, *a, **k))
+    monkeypatch.setattr(
+        tva,
+        "odoo_call",
+        lambda model, *a, **k: (
+            errors if (model, k.get("fields")) == (tva.LINE, ["error_msg"]) else inner(model, *a, **k)
+        ),
+    )
     message = tva.prepare_tva_declaration(857)["message"]
     assert "Lignes en erreur : Taux absent (2) ; IF manquant (1)." in message
     assert "Experio signale : Période à vérifier" in message
@@ -282,3 +289,21 @@ def test_experio_unreachable_says_the_tva_declaration_could_not_be_prepared(expe
     monkeypatch.setattr(tva, "odoo_call", down)
     with pytest.raises(ToolError, match=r"n'a pas pu préparer la déclaration \(down\)"):
         tva.prepare_tva_declaration(857)
+
+
+@pytest.mark.functionality
+def test_operations_already_in_the_declaration_are_not_counted_in_suspense(monkeypatch):
+    asked = {}
+
+    def odoo_call(model, method, domain, **kw):
+        if model == "exp.deduction.table.line":
+            asked["lines"] = domain
+            return [{"bank_statement_line_id": [31, "VIR"]}, {"bank_statement_line_id": False}]
+        asked["operations"] = domain
+        return 2
+
+    monkeypatch.setattr(tva, "odoo_call", odoo_call)
+    table = {"id": 50, "start_date": "2026-07-01", "end_date": "2026-09-30"}
+    assert tva.suspense_count(857, table, {}) == 2
+    assert ("deduction_id", "=", 50) in asked["lines"] and ("imposable_id", "=", 50) in asked["lines"]
+    assert asked["operations"][-1] == ("id", "not in", [31])

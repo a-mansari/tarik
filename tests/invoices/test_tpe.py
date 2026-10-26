@@ -135,7 +135,7 @@ def experio(monkeypatch):
             return state["post"]
         if method == "action_confirm_anyway":
             state["confirmed"].append(ids)
-            return True
+            return state.get("after_confirm", True)
 
     monkeypatch.setattr(tpe, "odoo_call", odoo_call)
     monkeypatch.setattr(tpe, "odoo_json", odoo_json)
@@ -344,6 +344,14 @@ def test_test_mode_posts_no_tpe_statement(experio, monkeypatch):
     monkeypatch.setattr(tpe, "dry_run", lambda: True)
     result = tpe.post_tpe(460)
     assert result["message"].startswith("MODE TEST") and all(entry["state"] == "draft" for entry in experio["lines"])
+
+
+@pytest.mark.security
+def test_a_window_experio_opens_after_the_network_warning_is_confirmed_still_stops(experio):
+    experio["post"] = {"res_model": tpe.JOURNAL_WARNING, "res_id": 3}
+    experio["after_confirm"] = {"res_model": "exp.monetary.statement.duplicate", "name": "Doublon possible"}
+    result = tpe.post_tpe(460)
+    assert experio["confirmed"] == [[3]] and result["status"] == "stop" and "« Doublon possible »" in result["message"]
 
 
 @pytest.mark.security

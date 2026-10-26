@@ -1,6 +1,6 @@
-"""Every run of a graph, kept in Postgres (schema orchestrator): what it was asked, each node as it ended, and how it
-ended. The UI reads runs from here, live ones included; the agent's conversations sit next to them (the LangGraph
-checkpointer's tables, same schema)."""
+"""The run store: every run of a graph, kept in Postgres (schema orchestrator) with its input, each node's update as
+it ended, and how it ended. The UI reads runs from here, live ones included; the agent's conversations sit next to
+them (the LangGraph checkpointer's tables, same schema)."""
 
 import asyncio
 import contextlib
@@ -31,14 +31,16 @@ pool = None  # set by open_store()
 
 
 def when(moment):
-    """A time as the team reads it, 20/10 10:33:22 in Casablanca: formatted here only, so every page agrees."""
+    """Return a time (datetime or ISO text) as "20/10 10:33:22" in Casablanca time; "" for None. Every page formats
+    times here, so they all agree."""
     if isinstance(moment, str):
         moment = datetime.fromisoformat(moment)
     return moment.astimezone(TIME_ZONE).strftime("%d/%m %H:%M:%S") if moment else ""
 
 
 def jsonable(value):
-    """``value`` as JSON carries it: a message as its fields, the rest as is (or as text)."""
+    """Return ``value`` as JSON can carry it: a message as its fields (without response and usage metadata), dicts
+    and lists converted item by item, any other non-JSON value as text."""
     if isinstance(value, BaseMessage):
         return value.model_dump(exclude={"response_metadata", "usage_metadata"})
     if isinstance(value, dict):
@@ -49,6 +51,7 @@ def jsonable(value):
 
 
 def capped(value):
+    """Return ``value`` as Jsonb, or {"cut": its JSON text cut to DETAIL_LIMIT characters} when longer."""
     text = json.dumps(jsonable(value), ensure_ascii=False)
     return Jsonb(jsonable(value)) if len(text) <= DETAIL_LIMIT else Jsonb({"cut": text[:DETAIL_LIMIT]})
 
@@ -57,8 +60,8 @@ UNTRUSTED_TAGS = re.compile(r"</?untrusted_data[^>]*>")
 
 
 def readable(text):
-    """A tool's answer as a person reads it: without the untrusted-data wrapper the model sees, and its message alone
-    when it answered in JSON. Only for display: the step's detail keeps the answer as the model got it."""
+    """Return a tool's answer for display: the <untrusted_data> tags removed and, for a JSON answer with a "message",
+    that message alone. The step's detail keeps the answer as the model got it."""
     text = UNTRUSTED_TAGS.sub("", str(text)).strip()
     with contextlib.suppress(ValueError, TypeError, AttributeError):
         text = json.loads(text).get("message") or text
@@ -66,8 +69,10 @@ def readable(text):
 
 
 def outcome_of(update, node=""):
-    """A node's update in short: its step's status as the team reads it and the one line a person reads. A stop that
-    means waiting for the client (content/labels.json, waiting_steps) reads as waiting; the detail keeps it as is."""
+    """Return (status, line) summing up a node's update: the step's status and one line of at most 300 characters.
+
+    A stop result of a node listed in labels.json's waiting_steps (waiting for the client) shows as "wait"; the
+    step's detail keeps the stop."""
     status, line = raw_outcome(update)
     if status == "stop" and node in LABELS.get("waiting_steps", []):
         status = "wait"
@@ -75,6 +80,8 @@ def outcome_of(update, node=""):
 
 
 def raw_outcome(update):
+    """Return (status, line) for a node's update: the last outcome's status and message, a run's summary, the agent's
+    last message, or an email thread step (thread_outcome); ("", "") for a non-dict update."""
     if not isinstance(update, dict):
         return "", ""
     outcomes = update.get("outcomes")
@@ -93,7 +100,8 @@ def raw_outcome(update):
 
 
 def agent_line(message):
-    """The agent's step in one line: the tools it calls, what it says, or what a tool answered."""
+    """Return the agent's message in one line: "Utilise <tools>" for tool calls, a tool's answer (readable()), or the
+    agent's text."""
     calls = getattr(message, "tool_calls", None)
     if calls:
         return "Utilise " + ", ".join(call["name"] for call in calls)
@@ -103,8 +111,9 @@ def agent_line(message):
 
 
 def thread_outcome(update, status):
-    """An email thread's step: its status (``status`` when it has one) and what it says (emails.Steps), in the
-    order a person reads it."""
+    """Return (status, line) for an email thread step (emails.Steps): the first of error, sent, manager,
+    acknowledged, reply or refusal message as line; ``status`` when given, else "error", "stop" for a refused
+    sender, or ""."""
     refusal = update.get("refusal") or {}
     said = [update.get(key) for key in ("error", "sent", "manager", "acknowledged", "reply")]
     said.append(refusal.get("message"))
@@ -119,7 +128,7 @@ def thread_outcome(update, status):
 
 
 async def open_store(conninfo):
-    """The schema, its tables and the pool, for the server's whole life."""
+    """Open the connection pool for the server's whole life and create the orchestrator schema and its tables."""
     global pool
     pool = AsyncConnectionPool(f"{conninfo} options='-c search_path={SCHEMA}'", open=False, kwargs={"autocommit": True})
     await pool.open()
@@ -128,8 +137,8 @@ async def open_store(conninfo):
 
 
 async def end_cut_off():
-    """The runs a restart cut off, ended in error: only the server's start may call it (the terminal commands open the
-    store while it runs)."""
+    """End in error every run still queued or running (cut off by a restart). Only the server's start may call it:
+    terminal commands open the store while the server runs."""
     async with pool.connection() as db:
         await db.execute(Q.runs_cut_off)
 
@@ -139,7 +148,14 @@ RUNNING = contextvars.ContextVar("running", default=None)  # the run whose steps
 
 
 async def created(name, given, cabinet, session, thread=None, parent=None, parent_node=None):
-    """A new run of graph ``name`` recorded, queued; its id."""
+    """Record a new queued run of graph ``name`` and return its id.
+
+    Args:
+        given: the run's input.
+        cabinet, session: the cabinet and conversation it works for.
+        thread: the agent's thread id, None for a workflow.
+        parent, parent_node: the run and step it was started from, for a nested run.
+    """
     run_id = str(uuid.uuid4())
     async with pool.connection() as db:
         await db.execute(
@@ -151,7 +167,11 @@ async def created(name, given, cabinet, session, thread=None, parent=None, paren
 
 
 async def start(name, payload):
-    """Record a new run of graph ``name`` and start it in the background; its id."""
+    """Record a new run of graph ``name`` and start it in the background; return (run_id, task).
+
+    ``payload`` is the POST /runs body: {input, session_id?, thread_id?, cabinet?}. The session and cabinet default
+    to the input's call, then to a new id and DEFAULT_CABINET; only the agent gets a thread (thread_id, else the
+    session)."""
     given = payload.get("input") or {}
     call = given.get("call") or {}  # a workflow's "Appel" inputs: its conversation and cabinet are there
     session = payload.get("session_id") or call.get("session_id") or payload.get("thread_id") or str(uuid.uuid4())
@@ -163,9 +183,11 @@ async def start(name, payload):
 
 
 async def nested(name, given, cabinet, session, thread=None, node=None):
-    """Graph ``name`` run inside a step of the run going on (a workflow the agent runs, a thread handed to the
-    agent), recorded as a run of its own, that run its parent and ``node`` the step it started from. Its output, or
-    its failure raised, as the graph's own call would."""
+    """Run graph ``name`` on ``given`` from inside a step of the current run and return its output.
+
+    The nested run (a workflow the agent runs, a thread handed to the agent) is recorded as a run of its own, with
+    the current run as parent and ``node`` as the step it started from. Its failure is raised, as a direct call to
+    the graph would. Outside the server (no pool) the graph just runs, unrecorded."""
     if pool is None:  # outside the server (a script, a test): run as is, nothing recorded
         configurable = configurable_of(cabinet, session, thread)
         return await graph_of(name, configurable).ainvoke(given, {"configurable": configurable})
@@ -183,7 +205,7 @@ async def nested(name, given, cabinet, session, thread=None, node=None):
 
 
 def configurable_of(cabinet, session, thread):
-    """What a run's graph is configured with: its cabinet, its conversation, and the agent's thread when it has one."""
+    """Return a run's configurable: {cabinet, session_id}, plus thread_id when ``thread`` is set."""
     configurable = {"cabinet": cabinet, "session_id": session}
     if thread:
         configurable["thread_id"] = thread
@@ -191,7 +213,7 @@ def configurable_of(cabinet, session, thread):
 
 
 def graph_of(name, configurable):
-    """The graph a run of ``name`` runs: the agent is made for its cabinet and conversation."""
+    """Return the compiled graph for ``name``; the agent is built per run for its cabinet and conversation."""
     return agent.make_agent({"configurable": configurable}) if name == "agent" else graphs.COMPILED[name]
 
 
@@ -199,8 +221,15 @@ SLOTS = asyncio.Semaphore(20)  # runs going on at once in this process
 
 
 async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
-    """Run the graph, each step recorded as it ends: (its output, its failure or None). ``slots`` None: a run inside
-    another's step, which already holds a slot (waiting for one could wait for itself)."""
+    """Run the recorded run ``run_id`` of graph ``name`` on ``given``, recording each step as it ends and the run's
+    end; return (output, failure): output is the final state (None if none), failure the exception or None.
+
+    ``slots`` is the semaphore limiting runs at once (SLOTS). A nested run passes None: its parent already holds
+    a slot, and waiting for another could wait for itself. A failure never propagates: it ends the run in error.
+
+    Two maps are kept while streaming, for recorded(): ``inner`` maps a nested part's path ("facture",
+    "fichier|facture") to the status of the last step that ran inside it, so the part's own step reads as that
+    status; ``rounds`` maps (namespace, node) to the LangGraph step (superstep) its latest task started in."""
     configurable = configurable_of(cabinet, session, thread)
     status, error, output, failure = "done", None, None, None
     inner = {}  # a part's path ("facture", "fichier|facture") -> the status of the last step that ran inside it
@@ -239,8 +268,11 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
 
 
 async def recorded(run_id, namespace, data, rounds, inner):
-    """Each node's update in ``data`` recorded as a step of the run, in the part ``namespace`` names. ``inner`` and
-    ``rounds`` as execute() keeps them."""
+    """Record each node's update in ``data`` as a step of run ``run_id``, inside the nested part ``namespace`` (a
+    tuple of LangGraph namespaces, () at the top).
+
+    ``rounds`` gives each step its round; ``inner`` is read and updated so a part ending takes the status of the
+    last step inside it (both as execute() describes)."""
     path = "|".join(part.split(":")[0] for part in namespace)
     async with pool.connection() as db:
         for node, update in (data or {}).items():
@@ -272,7 +304,8 @@ RUN_KEYS = (
 
 
 async def run(run_id):
-    """A run as the API shows it, its steps included; None when unknown."""
+    """Return a run as the API shows it (RUN_KEYS plus parent_graph, children, seconds and steps); None when
+    unknown."""
     async with pool.connection() as db:
         found = await (await db.execute(Q.run_found, (run_id,))).fetchone()
         if not found:
@@ -299,8 +332,9 @@ async def run(run_id):
 
 
 async def recent(cabinet=None, graph=None, limit=50):
-    """The latest runs started on their own, newest first, each with the runs started in its steps (and theirs) right
-    after it, indented by depth: what the runs list shows. A graph filter lists that graph's runs, children too."""
+    """Return the runs list: the latest ``limit`` top-level runs, newest first, each followed by the runs nested in
+    it (recursively) with their "depth". With a ``graph`` filter, that graph's runs, nested ones included, without
+    their children. ``cabinet`` filters by cabinet."""
     keys = ("run_id", "graph", "cabinet", "session_id", "status", "error", "started", "ended")
     async with pool.connection() as db:
         asked = {"cabinet": cabinet or None, "graph": graph or None, "limit": limit}
@@ -339,7 +373,8 @@ async def recent(cabinet=None, graph=None, limit=50):
 
 
 async def steps_after(run_id, after):
-    """The run's steps after step id ``after``, and whether the run has ended."""
+    """Return (steps, state): the run's steps after step id ``after`` (shown_steps) and its (status, error) row, None
+    when the run is unknown."""
     async with pool.connection() as db:
         steps = await (await db.execute(Q.steps_after, (run_id, after))).fetchall()
         state = await (await db.execute(Q.run_state, (run_id,))).fetchone()
@@ -347,7 +382,7 @@ async def steps_after(run_id, after):
 
 
 def shown_steps(rows):
-    """The steps (Q.steps_after's rows) as the API shows them."""
+    """Return Q.steps_after's rows as the API shows them: [{id, at, when, path, lane, round, node, status, summary}]."""
     return [
         {
             "id": i,
@@ -365,7 +400,8 @@ def shown_steps(rows):
 
 
 async def step_detail(run_id, step_id):
-    """One step's whole update (its node's output), None when unknown."""
+    """Return one step's whole update (its node's output); None when unknown, a short note when the node returned
+    nothing."""
     async with pool.connection() as db:
         found = await (await db.execute(Q.step_detail, (run_id, step_id))).fetchone()
     if not found:
@@ -374,6 +410,6 @@ async def step_detail(run_id, step_id):
 
 
 async def cabinets():
-    """The cabinets that have runs, for the runs list's filter."""
+    """Return the cabinets that have runs, for the runs list's filter."""
     async with pool.connection() as db:
         return [row[0] for row in await (await db.execute(Q.runs_cabinets)).fetchall()]

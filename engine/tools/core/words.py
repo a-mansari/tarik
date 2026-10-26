@@ -14,12 +14,12 @@ ICE_WRITTEN = re.compile(r"(?<!\d)\d{15}(?!\d)")  # 15 digits, not inside a long
 
 
 def strip_tags(html, by=""):
-    """``html`` without its tags, each replaced ``by``."""
+    """Return ``html`` with each tag replaced by ``by``."""
     return TAG.sub(by, html or "")
 
 
 def normalized(text):
-    """``text`` lowercased, without accents, words only: "Sté  Alliance-Génie" -> "ste alliance genie"."""
+    """Return ``text`` lowercased, without accents, words only: "Sté  Alliance-Génie" -> "ste alliance genie"."""
     ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
     return " ".join(re.sub(r"[^a-z0-9]+", " ", ascii_text).split())  # any run of non-alphanumerics is one space
 
@@ -31,12 +31,12 @@ def said(phrase, words):
 
 
 def without_if(name):
-    """A tiers' name without the " - <IF>" Experio appends to it: "ATLAS - 1234" -> "ATLAS"."""
+    """Return a tiers' name without the " - <IF>" Experio appends to it: "ATLAS - 1234" -> "ATLAS"."""
     return re.sub(r"\s+-\s+\d+\s*$", "", name or "")  # " - " then digits, at the very end
 
 
 def similarity(query, name):
-    """How much ``name`` looks like ``query``, 0..1: misspelled, reordered or partial still score high."""
+    """Return how much ``name`` looks like ``query``, 0..1: misspelled, reordered or partial still score high."""
     query, name = normalized(query), normalized(name)
     if not query or not name:
         return 0.0
@@ -49,7 +49,8 @@ def similarity(query, name):
 
 
 def ranked(query, items, minimum=0.0, top=None):
-    """``items`` ({name, ...}) as [(score, item)], closest to ``query`` first, at least ``minimum``, ``top`` at most."""
+    """Return ``items`` (dicts with "name") as [(score, item)], closest to ``query`` first: those scoring at least
+    ``minimum`` among the ``top`` best (None: all)."""
     scored = sorted(((similarity(query, item["name"]), item) for item in items), key=lambda pair: -pair[0])
     return [(score, item) for score, item in scored[:top] if score >= minimum]
 
@@ -58,7 +59,7 @@ def ranked(query, items, minimum=0.0, top=None):
 
 
 def readings(value):
-    """Every value ``value`` may mean, smallest first; [] when it is no number. 454.55 and 20 are
+    """Return every value (float) ``value`` may mean, smallest first; [] when it is no number. 454.55 and 20 are
     themselves; "1 005,50", "1.005,50" and "1,005.50" are 1005.5; "1,005" and "1.005" are 1.005 or 1005."""
     if isinstance(value, bool):
         return []
@@ -82,8 +83,8 @@ def readings(value):
 
 
 def as_number(value):
-    """The one value a number means: None stays None (not read). No number, or several readings: ValueError,
-    saying which readings. Never a guess."""
+    """Return the one value (float) ``value`` means; None stays None (not read). Raises ValueError when it is no
+    number or has several readings (naming them): never a guess."""
     if value is None:
         return None
     found = readings(value)
@@ -100,7 +101,8 @@ WRITTEN = re.compile(r"\d{1,3}(?:[   .,]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?")
 
 
 def written_numbers(text):
-    """Every value the numbers of a text may mean: "capital 100 000,50 DH" -> [100000.5], "1,005" -> [1.005, 1005]."""
+    """Return every value the numbers in ``text`` may mean: "capital 100 000,50 DH" -> [100000.5], "1,005" -> [1.005,
+    1005]."""
     values = []
     for number in WRITTEN.findall(text or ""):
         values += readings(number)

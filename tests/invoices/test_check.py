@@ -333,7 +333,7 @@ def test_an_answer_unusable_twice_is_refused_and_nothing_stored(checking, db_cab
         ({"bluejay_state": "pending"}, "wait", "encore en train de la lire"),
         ({"bluejay_state": "failed"}, "ok", "n'a pas lu cette facture automatiquement"),
         ({"document_pdf": False}, "ok", "pas de scan PDF"),
-        ({"file_type": "xlsx"}, "ok", "pas de scan PDF"),
+        ({"file_type": "excel"}, "ok", "pas de scan PDF"),  # Experio's only non-PDF type
     ],
 )
 def test_a_draft_experio_has_not_read_or_without_a_scan_is_not_checked(checking, change, status, said):
@@ -358,3 +358,13 @@ def test_a_date_or_tva_lines_out_of_shape_are_never_guessed():
     assert resolve_date("07/08/202", "fr") is None  # a three-digit year
     with pytest.raises(ValueError, match="tva_lines is not a list"):
         resolve_report({"readable": True, "extracted": {"invoice_date_language": "fr", "tva_lines": "20 %"}}, {})
+
+
+@pytest.mark.functionality
+def test_a_pdf_experio_stored_without_its_file_type_is_a_scan():
+    """Experio leaves file_type "none" on the drafts it splits off a scan and on Facturation's: still PDFs."""
+    from engine.tools.core.experio import has_scan
+
+    assert has_scan({"document_pdf": "JVBER", "file_type": "none"})
+    assert not has_scan({"document_pdf": "UEsDB", "file_type": "excel"})
+    assert not has_scan({"document_pdf": False, "file_type": "pdf"})

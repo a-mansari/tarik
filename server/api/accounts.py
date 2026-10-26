@@ -1,6 +1,8 @@
-"""The Comptes page, an admin's: every account, one made for a colleague (with a one-time link to send them, for
-them to choose their password), a role changed, an account closed, a new link (a forgotten password). And the
-invitation page, open without a session: the link's person chooses their password (server/accounts.py)."""
+"""Serve the Comptes page (admins only) and the invitation page.
+
+Comptes lists every account and lets an admin create one for a colleague (with a one-time link to send them, to
+choose their password), change a role, close an account, or make a new link (a forgotten password). The invitation
+page, open without a session, lets the link's person choose their password (server/accounts.py)."""
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -10,7 +12,8 @@ from server.api.runs import page
 
 
 async def form_of(request, most=10):
-    """A form posted as JSON ({field: text}): its text fields only, {} for anything else or more than ``most``."""
+    """Return the JSON form posted in ``request``, keeping only its string fields; {} when it is not a JSON object or
+    has more than ``most`` fields."""
     try:
         body = await request.json()
     except ValueError:
@@ -21,8 +24,11 @@ async def form_of(request, most=10):
 
 
 async def accounts_page(request: Request):
-    """The accounts (GET), and an admin's action on one (POST, JSON: add, role, close, link), answered with the page
-    again. A new link is shown once, in that answer only: it is not kept anywhere it could be read again."""
+    """GET or POST /ui/api/comptes: return the accounts, after applying an admin's action when posted.
+
+    POST takes JSON {action: "add" | "role" | "close" | "link", email, name?, role?}; each action is recorded in the
+    Journal. A new link appears only in this response (``link``): it is stored nowhere it could be read again. Status
+    400 when the action is refused."""
     done, error, link = None, None, None
     if request.method == "POST":
         form = await form_of(request)
@@ -62,8 +68,10 @@ async def accounts_page(request: Request):
 
 
 async def invitation_page(request: Request):
-    """Choosing one's password through a one-time link (GET who it is for, POST the password twice as JSON), then
-    to the login (the answer's ``next``)."""
+    """GET or POST /ui/api/invitation/{token}: show who a one-time link is for, or set the password chosen through it.
+
+    POST takes JSON {password, again} and must come from these pages (403 otherwise). On success returns {next:
+    "/login?ready=1"}; 400 when the passwords differ or are refused; 404 when the link is unknown, used or expired."""
     token = request.path_params["token"]
     found = await accounts.invited(token)
     if found is None:

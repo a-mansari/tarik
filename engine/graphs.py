@@ -1,6 +1,8 @@
-"""Each workflow's shape for the UI's canvas: its nodes, nested parts (a file, an invoice) as groups, and its edges,
-the conditional ones marked, with the plain words of content/labels.json. Read from the compiled graphs themselves
-(LangGraph's get_graph, xray: nested parts drawn whole), so the drawing never drifts from what runs."""
+"""Each workflow's shape for the UI's canvas: its nodes, its nested parts (a file, an invoice) as groups, and its
+edges with the conditional ones marked, named with the plain words of content/labels.json.
+
+The shape is read from the compiled graphs themselves (LangGraph's get_graph with xray, so nested parts are drawn
+whole): the drawing never drifts from what runs."""
 
 import collections
 import functools
@@ -27,8 +29,10 @@ ENDS = {"__start__": "Début", "__end__": "Fin"}
 
 
 def label(graph, node_id, table=None, fallback=None):
-    """A node's plain name (or, from the descriptions table, what it does): its own graph's words for it, else
-    another graph's (an email follow-up runs Traitement)."""
+    """Return a node's plain name from labels.json, or from ``table`` (a {graph: {node: text}} table) when given.
+
+    The node's own graph's entry wins, else any other graph's (an email follow-up runs Traitement's nodes). A start
+    or end gets "Début"/"Fin" (or "" from a table); an unknown node gets its id's last part, or ``fallback``."""
     name = node_id.rsplit(":", 1)[-1]
     if name in ENDS:
         return ENDS[name] if table is None else ""
@@ -40,15 +44,17 @@ def label(graph, node_id, table=None, fallback=None):
 
 
 def description(graph, node_id):
+    """Return what the node does in plain words (labels.json: descriptions.steps), "" when there is none."""
     return label(graph, node_id, LABELS["descriptions"]["steps"], "")
 
 
 def part_of(node_id):
-    """The nested part a node is in ("fichier:facture" for "fichier:facture:lecture"), None at the top."""
+    """Return the nested part a node is in ("fichier:facture" for "fichier:facture:lecture"); None at the top."""
     return node_id.rsplit(":", 1)[0] if ":" in node_id else None
 
 
 def drawn_node(graph, node_id, parent, kind):
+    """Return a canvas node: {id, label, description, parent, kind}."""
     return {
         "id": node_id,
         "label": label(graph, node_id),
@@ -59,8 +65,9 @@ def drawn_node(graph, node_id, parent, kind):
 
 
 def failure_exits(graph, depth, prefix=""):
-    """The (source, target) edges of ``graph`` as drawn (its parts opened ``depth`` deep) that a run takes only when
-    a step failed: the ways its routers mark (engine.calls.stops_at)."""
+    """Return the set of (source, target) edges a run takes only when a step failed: the routes routers mark with
+    engine.calls.stops_at, with ids as drawn (nested graphs opened ``depth`` deep; True for all, ``prefix`` for
+    the enclosing part)."""
     nodes = graph.builder.nodes
 
     def opened(name):
@@ -83,11 +90,11 @@ def failure_exits(graph, depth, prefix=""):
 
 
 def hidden(edge, failures, arriving):
-    """Whether a conditional edge is kept off the canvas (the legend says it): a run that went along one shows it.
-    The ways a run takes only when a step failed (failures: their routers say so) would converge from every step on
-    the summary or the part's end. And a part may start at any of its steps (an invoice resumes where an answer
-    leaves it): only its first entry is drawn, the step nothing else leads to; the others would fan out from its
-    start. Every other way, an ordinary end among them, is drawn."""
+    """True when a conditional edge is left off the canvas (a run that took it still shows it).
+
+    Hidden: failure routes (in ``failures``, from failure_exits), which would converge on the summary from every
+    step; and routes from a part's start to a node that other edges also reach (``arriving``: node id -> number of
+    incoming edges), since a part can resume at any of its steps and only its first entry is drawn."""
     if not edge.conditional:
         return False
     from_start = edge.source.endswith(":__start__") and arriving[edge.target] > 1
@@ -96,9 +103,11 @@ def hidden(edge, failures, arriving):
 
 @functools.cache
 def shape(name):
-    """{nodes: [{id, label, description, parent, kind}], edges: [{id, source, target, conditional}]} for graph
-    ``name``. A nested part's nodes have their part as parent (a group); kind is "end" for a start or an end,
-    "group", or "step"."""
+    """Return the canvas shape of graph ``name`` (a COMPILED key, or "agent"); cached until labels.json changes.
+
+    Returns {graph, label, description, nodes: [{id, label, description, parent, kind}],
+    edges: [{id, source, target, conditional, hidden}]}. A nested part's nodes have that part as parent (a group
+    node); kind is "end" for a start or an end, "group", or "step"."""
     if name == "agent":
         compiled = agent.make_agent(chat=ChatAnthropic(model="drawing", api_key="unused"))
     else:

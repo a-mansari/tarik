@@ -1,4 +1,5 @@
-"""Experio: the current cabinet's login and calls, test mode, and the guards every tool goes through."""
+"""Experio calls for the current cabinet: login, XML-RPC and JSON-RPC calls, test mode (DRY_RUN), the guards every
+tool goes through, and the invoice form helpers."""
 
 import contextlib
 import http.client
@@ -39,8 +40,8 @@ class GatewayError(Exception):
 
 
 class ExperioRefusal(RuntimeError):
-    """Experio answered a JSON-RPC call with an error: its message, and ``name``, the exception's class
-    ("odoo.exceptions.ValidationError")."""
+    """Experio answered a JSON-RPC call with an error. Its message is Experio's; ``name`` is the exception's class
+    ("odoo.exceptions.ValidationError"), "" when Experio gives none."""
 
     def __init__(self, message, name=""):
         super().__init__(message)
@@ -67,33 +68,38 @@ _forms = {}  # cabinet -> the invoice form's fields: each database has its own
 
 
 def expected_uid(value):
-    """ODOO_UID (str) as Tarik's user id (int) in this cabinet; SystemExit unless a positive integer.
-    A login returning any other id means another cabinet (or user): every call then fails."""
+    """Return ODOO_UID ``value`` (str) as Tarik's user id (int) in this cabinet. Raises SystemExit unless it is a
+    positive integer. A login returning any other id means another cabinet (or user): every call then fails."""
     if not value or not value.isdigit() or int(value) <= 0:
         raise SystemExit(f"ODOO_UID must be Tarik's user id in this cabinet, got {value!r}")
     return int(value)
 
 
 def account():
-    """The current cabinet's (database, Tarik's expected uid, login, key)."""
+    """Return the current cabinet's (database, Tarik's expected uid, login, key): the key is ODOO_API_KEY, else
+    ODOO_PASSWORD."""
     key = setting("ODOO_API_KEY", "") or setting("ODOO_PASSWORD")
     return current(), expected_uid(setting("ODOO_UID")), setting("ODOO_USER"), key
 
 
 def dry_run():
-    """True (DRY_RUN=1, the default) when tools that write to Experio only say what they would write. Per cabinet."""
+    """True when the current cabinet is in test mode (DRY_RUN "1", the default): tools that write to Experio only
+    report what they would write."""
     return setting("DRY_RUN", "1") == "1"
 
 
 def test_mode_note():
-    """TEST_MODE in test mode, else "": the start of a step's message."""
+    """Return TEST_MODE in test mode, else "": the start of a step result's message."""
     return TEST_MODE if dry_run() else ""
 
 
 @contextlib.contextmanager
 def refused(log_text, message, error=ToolError):
-    """Whatever fails inside is logged with ``log_text`` and becomes ``error`` (a ToolError by default: its own
-    message is the only text that reaches the agent) of ``message``, "{reason}" in it replaced by Experio's reason."""
+    """Context manager: turn any exception raised in the block into ``error`` (ToolError by default) with ``message``.
+
+    A ToolError passes through unchanged. Any other exception is logged with ``log_text``, then re-raised as
+    ``error(message)``, "{reason}" in ``message`` replaced by Experio's reason (experio_refusal). Only a ToolError's
+    own message reaches the agent, so the original exception stays in the log."""
     try:
         yield
     except ToolError:
@@ -110,8 +116,9 @@ _proxies = threading.local()  # this thread's ServerProxy per (URL, path): its c
 
 
 def rpc(path):
-    """Experio's XML-RPC endpoint ``path`` (a ServerProxy), every call given up after RPC_TIMEOUT seconds. One per
-    thread and path, kept: a run makes hundreds of calls, each on the same connection instead of a new TLS one."""
+    """Return a ServerProxy for Experio's XML-RPC endpoint ``path``, each call given up after RPC_TIMEOUT seconds.
+    One is kept per thread and path: a run makes hundreds of calls, all on one connection instead of a new TLS one
+    each."""
     proxies = _proxies.__dict__.setdefault("by_path", {})
     endpoint = (ODOO_URL, path)
     if endpoint not in proxies:
@@ -121,7 +128,7 @@ def rpc(path):
 
 
 def _timed_transport():
-    """An XML-RPC transport for ODOO_URL (HTTPS or not) whose connections give up after RPC_TIMEOUT seconds."""
+    """Return an XML-RPC transport for ODOO_URL (HTTPS or not) whose connections give up after RPC_TIMEOUT seconds."""
     base = xmlrpc.client.SafeTransport if ODOO_URL.startswith("https") else xmlrpc.client.Transport
 
     class Timed(base):
@@ -134,7 +141,8 @@ def _timed_transport():
 
 
 def once_more_if_cut(read, label, call):
-    """``call()``'s answer; a ``read`` cut off (CUT_OFF) is asked again once, a second later. ``label``: for the log."""
+    """Return ``call()``'s answer. When ``read`` is True and the answer is cut off (CUT_OFF), ``call`` is made again
+    once, a second later; a write's cut-off error is raised. ``label`` names the call in the log."""
     try:
         return call()
     except CUT_OFF as error:
@@ -146,7 +154,8 @@ def once_more_if_cut(read, label, call):
 
 
 def login():
-    """Tarik's uid in the current cabinet, checked against its ODOO_UID; PermissionError otherwise."""
+    """Return Tarik's uid in the current cabinet, logging in once per account. Raises PermissionError when the login
+    is refused or the uid is not the cabinet's ODOO_UID."""
     database, expected, user, key = account()
     if _logins.get((ODOO_URL, database, user, key)) == expected:
         return expected
@@ -161,8 +170,8 @@ def login():
 
 
 def odoo_call(model, method, *args, **kw):
-    """One authenticated XML-RPC call to the current cabinet's Experio; its answer. A read (READS) cut off is asked
-    again once."""
+    """Call ``model``.``method`` with ``args`` and keyword ``kw`` over XML-RPC in the current cabinet's Experio, and
+    return the answer. A read (READS) that is cut off is made again once."""
     database, _, _, key = account()
     return once_more_if_cut(
         method in READS,
@@ -172,8 +181,9 @@ def odoo_call(model, method, *args, **kw):
 
 
 def odoo_json(model, method, *args, **kw):
-    """The same call over JSON-RPC, for answers holding None (onchange), which XML-RPC can't carry. A read (READS)
-    cut off is asked again once."""
+    """Call ``model``.``method`` like odoo_call, over JSON-RPC, for answers holding None (onchange, action_refresh),
+    which XML-RPC can't carry. A read (READS) that is cut off is made again once. Returns the call's result.
+    Raises ExperioRefusal when Experio answers with an error, GatewayError on a 502, 503 or 504."""
     database, _, _, key = account()
     call = {
         "service": "object",
@@ -197,15 +207,18 @@ def odoo_json(model, method, *args, **kw):
 
 
 def in_dossier(dossier_id):
-    """The context that makes Experio work in dossier ``dossier_id`` (int)."""
+    """Return the context that makes Experio work in dossier ``dossier_id`` (int) only."""
     return {"allowed_company_ids": [dossier_id]}
 
 
 def main_dossier_context():
-    """The context that makes Experio create a dossier as if from the cabinet's main one (base.main_company): a new
-    dossier takes its defaults (journals, accounts, taxes) from the creator's current dossier, which is a client's,
-    whose ones the new dossier then cannot read. The main one has none, so the new dossier starts empty and Experio
-    fills its settings from the dossier's own journals and accounts as they are created or imported."""
+    """Return the context that makes Experio create a dossier from the cabinet's main company (base.main_company).
+
+    A new dossier takes its default journals and accounts from the creator's current company
+    (res.company _default_*: self.env.company). If that company is a client dossier, the new dossier's settings
+    point to that client's journals and accounts, which the new dossier cannot read (record rule
+    exp_journal_company_rule). The main company has none, so the new dossier's settings start empty, and Experio
+    fills them from the dossier's own journals and accounts as they are created (auto_detect_settings)."""
     main = odoo_call(
         "ir.model.data", "search_read", [("module", "=", "base"), ("name", "=", "main_company")], fields=["res_id"]
     )
@@ -216,14 +229,15 @@ def main_dossier_context():
 
 
 def _require_id(value, message):
-    """ToolError(``message``) unless ``value`` is a positive int (a bool is not)."""
+    """Raise ToolError(``message``) unless ``value`` is a positive int (a bool is not)."""
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ToolError(message)
 
 
 def require_dossier(dossier_id):
-    """The dossier's name (str). Every tool working in a dossier calls this first: without a real
-    dossier id from find_dossier, it fails instead of guessing."""
+    """Return the name (str) of dossier ``dossier_id``. Every tool working in a dossier calls this first.
+    Raises ToolError when the id is invalid, is not one of the cabinet's dossiers (DOSSIER_DOMAIN), or Experio
+    can't be reached: without a real dossier id from find_dossier, the tool fails instead of guessing."""
     _require_id(dossier_id, "dossier_id manquant ou invalide : trouvez d'abord le dossier avec Experio_find_dossier.")
     with refused(f"require_dossier {dossier_id}", "Experio est injoignable : le dossier n'a pas pu etre verifie."):
         found = odoo_call("res.company", "search_read", [("id", "=", dossier_id), *DOSSIER_DOMAIN], fields=["name"])
@@ -233,8 +247,9 @@ def require_dossier(dossier_id):
 
 
 def require_invoice(invoice_id, fields):
-    """The invoice's ``fields`` (dict). Every tool working on an invoice calls this first: it fails
-    unless the id is a real invoice of one of the cabinet's dossiers."""
+    """Return invoice ``invoice_id``'s ``fields`` (dict, with its id). Every tool working on an invoice calls this
+    first. Raises ToolError unless the id is a real invoice of one of the cabinet's dossiers, or when Experio
+    can't be reached."""
     _require_id(
         invoice_id, "invoice_id manquant ou invalide : c'est le numero de facture brouillon donne a sa creation."
     )
@@ -247,14 +262,16 @@ def require_invoice(invoice_id, fields):
 
 
 def require_draft(invoice_id, invoice, what="etre modifiee"):
-    """ToolError unless ``invoice`` (with its state) is a draft: only a draft may ``what``."""
+    """Raise ToolError unless ``invoice`` (dict with "state") is a draft. ``what``: the French action refused,
+    as in « seule une facture brouillon peut {what} »."""
     if invoice["state"] != "draft":
         raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut {what}.")
 
 
 def require_draft_invoice(invoice_id, fields, what="etre modifiee", read=False):
-    """The invoice's ``fields`` (with its state), ToolError unless it is a draft that may ``what``; with ``read``,
-    unless Experio has finished reading it too (``fields`` then holds bluejay_state)."""
+    """Return invoice ``invoice_id``'s ``fields`` (dict; ``fields`` must include state). Raises ToolError unless it
+    is a draft (``what``: as in require_draft); with ``read``, also while Experio is still reading its scan
+    (``fields`` must then include bluejay_state)."""
     invoice = require_invoice(invoice_id, fields)
     require_draft(invoice_id, invoice, what)
     if not read:
@@ -266,23 +283,27 @@ def require_draft_invoice(invoice_id, fields, what="etre modifiee", read=False):
 
 
 def still_reading(invoice):
-    """A wait result while Experio still reads the scan of ``invoice`` (with id and bluejay_state), else None."""
+    """Return a wait result while Experio still reads the scan of ``invoice`` (dict with id and bluejay_state),
+    else None."""
     if invoice["bluejay_state"] in READING:
         return wait(f"Facture {invoice['id']} : Experio est encore en train de la lire, reessayez dans une minute.")
     return None
 
 
 def has_scan(invoice):
-    """True when ``invoice`` (with document_pdf and file_type) has a PDF scan to read."""
-    return bool(invoice["document_pdf"]) and invoice["file_type"] in (False, None, "pdf")
+    """True when ``invoice`` (with document_pdf and file_type) has a PDF scan to read: any document but an Excel one.
+    file_type stays "none" (its default) on PDFs Experio stores itself: the drafts split off one scan
+    (exp_bluejay_job.py document_values) and Facturation's (gst_invoice.py)."""
+    return bool(invoice["document_pdf"]) and invoice["file_type"] != "excel"
 
 
 # --- Invoices ---
 
 
 def invoice_context(invoice):
-    """The context that makes Experio validate ``invoice`` (with company_id and exercice_id) against its own
-    dossier and exercice, not the dossier's latest one."""
+    """Return the context that makes Experio work on ``invoice`` (dict with company_id and exercice_id) in its own
+    dossier and exercice. Without cron_fiscal_entry_id, Experio's exp.fiscal.entries get_selected_fiscal_entry
+    falls back to the dossier's latest exercice."""
     context = in_dossier(invoice["company_id"][0])
     if invoice["exercice_id"]:
         context["cron_fiscal_entry_id"] = invoice["exercice_id"][0]
@@ -290,7 +311,7 @@ def invoice_context(invoice):
 
 
 def account_code(invoice):
-    """The code of ``invoice``'s account ("6136" of "6136 Honoraires"), "" without one."""
+    """Return the code of ``invoice``'s account ("6136" of "6136 Honoraires"); "" without one."""
     if not invoice["account_id"]:
         return ""
     name = invoice["account_id"][1]  # [id, "6136 Honoraires"]
@@ -298,16 +319,19 @@ def account_code(invoice):
 
 
 def refresh(invoice_id, context):
-    """Experio's own "Actualiser" on the invoice (it rebuilds the lines), skipped in test mode.
-    It returns None, hence JSON-RPC."""
+    """Run Experio's own « Actualiser » on invoice ``invoice_id`` (exp.invoice action_refresh: rebuilds its TVA and
+    accounting lines); nothing in test mode. action_refresh returns None, hence JSON-RPC."""
     if not dry_run():
         odoo_json("exp.invoice", "action_refresh", [invoice_id], context=context)
 
 
 def misplaced_journals(company_id, fields):
-    """{setting: journal name, or None when unset} among the dossier's journal settings ``fields`` that are unset or
-    point to another dossier's journal: Experio gives every new dossier its first dossier's journals as defaults,
-    which the dossier's own accounting then cannot read ("enregistrements top secrets")."""
+    """Return the journal settings among ``fields`` (res.company fields) of dossier ``company_id`` that are unset or
+    point to another dossier's journal, as {field: journal name, or False when unset}; {} when all are right.
+
+    Experio defaults a new dossier's journals to those of the creating user's current company
+    (res.company _default_purchase_journal_id: self.env.company), and inside the dossier Experio then refuses to
+    read another dossier's journal (record rule exp_journal_company_rule: « enregistrements top secrets »)."""
     company = odoo_call("res.company", "read", [company_id], fields=list(fields))[0]
     ids = [company[field][0] for field in fields if company[field]]
     owners = {}
@@ -325,15 +349,17 @@ def misplaced_journals(company_id, fields):
 
 
 def checked(invoice_id, context):
-    """Experio's own check (the Comptabiliser button's) of the invoice: [(level, plain text)], its level "cgnc" for
-    the dossier's settings, "error" for the invoice's own fields and amounts, "warning"."""
+    """Return Experio's own check of invoice ``invoice_id`` (exp.invoice collect_validation_messages, the one
+    « Comptabiliser » runs first) as [(level, plain text)]. Levels: "cgnc" for the dossier's settings, "error" for
+    the invoice's own fields and amounts, "warning" for warnings not dismissed on the invoice."""
     messages = odoo_json("exp.invoice", "collect_validation_messages", [invoice_id], context=context) or []
     return [(level, plain(text)) for level, text in messages]
 
 
 def blocking(invoice_id, context):
-    """What Experio's own check says blocks posting the invoice ([str], plain text): a dossier setting or an error.
-    Its warnings never block Experio's posting (action_post raises on the others only); settle_warnings handles them."""
+    """Return what Experio's own check says blocks posting invoice ``invoice_id`` ([str], plain text): every "cgnc"
+    or "error" message. Warnings are left out: action_post raises only when "cgnc" or "error" messages exist;
+    settle_warnings handles warnings."""
     return [text for level, text in checked(invoice_id, context) if level != "warning"]
 
 
@@ -342,9 +368,11 @@ CHECK_REFUSALS = ("odoo.exceptions.ValidationError", "odoo.exceptions.UserError"
 
 
 def warns(invoice_id, check, context):
-    """What Experio's warning check ``check`` (a method of exp.invoice, validate_warning_...) says of the invoice:
-    its message as plain text, None when it says nothing. Called alone, its refusal rolls its writes back (the
-    warning_code it sets), unlike collect_validation_messages."""
+    """Run Experio's warning check ``check`` (an exp.invoice validate_warning_... method) on invoice ``invoice_id``.
+    Returns its message as plain text, or None when it raises nothing or crashes.
+
+    Called alone over RPC, its ValidationError rolls back the warning_code it writes before raising; inside
+    collect_validation_messages the error is caught, so that write is kept."""
     try:
         odoo_json("exp.invoice", check, [invoice_id], context=context)
     except ExperioRefusal as error:
@@ -358,15 +386,16 @@ def warns(invoice_id, check, context):
 
 
 def experio_refusal(error):
-    """Experio's own message in ``error``, on one line, 300 characters at most: a JSON-RPC refusal's whole message
-    (it may hold several lines: « ...for the company: \n: DOSSIER »), else the last line of the traceback."""
+    """Return Experio's own message in ``error`` on one line, 300 characters at most: an ExperioRefusal's whole
+    message (it may hold several lines: « ...for the company: \n: DOSSIER »), else the last line of the error's
+    text (an XML-RPC fault's traceback)."""
     if isinstance(error, ExperioRefusal):
         return " ".join(str(error).split())[:300]
     return str(error).strip().splitlines()[-1][:300]
 
 
 def plain(html):
-    """Experio's HTML message as one line of text."""
+    """Return Experio's HTML message ``html`` as one line of plain text."""
     return " ".join(strip_tags(html, " ").split())
 
 
@@ -375,7 +404,8 @@ TECHNICAL = {"id", "create_uid", "write_uid", "create_date", "write_date"}
 
 
 def _form():
-    """The current cabinet's invoice form: {"types": {field: type}, "editable": {field}}, read once."""
+    """Return the current cabinet's exp.invoice form, read once per cabinet: {"types": {field: type} of the fields
+    the form sends back, "editable": {fields not readonly}}."""
     form = _forms.setdefault(current(), {})
     if not form:
         meta = odoo_call("exp.invoice", "fields_get", [], attributes=["type", "store", "readonly"])
@@ -393,7 +423,8 @@ def _sent_back(name, field):
 
 
 def _form_values(invoice_id, types, context):
-    """The invoice's form values ({field: value}) for the fields in ``types``, as the form sends them back."""
+    """Return invoice ``invoice_id``'s form values ({field: value}) for the fields in ``types``, as the form sends
+    them back (a many2one as its id)."""
     record = odoo_call("exp.invoice", "read", [invoice_id], fields=list(types), context=context)[0]
     values = {}
     for name, value in record.items():
@@ -405,7 +436,8 @@ def _form_values(invoice_id, types, context):
 
 
 def _type_in(invoice_id, values, name, types, context):
-    """``values`` (the form's, ``name`` just typed in) updated with what Experio's onchange fills after it."""
+    """Update ``values`` (the form's {field: value}, field ``name`` just typed in) in place with what Experio's
+    onchange fills in after it, limited to the fields in ``types``."""
     spec = {field: {} for field in types}
     answer = odoo_json("exp.invoice", "onchange", [invoice_id], values, [name], spec, context=context)
     filled = (answer or {}).get("value") or {}
@@ -415,10 +447,12 @@ def _type_in(invoice_id, values, name, types, context):
 
 
 def fill_invoice(invoice_id, changes, context, save=True):
-    """Type ``changes`` ({field: value}) into the invoice form one field at a time, as a user does: after each
-    one Experio's onchange fills what it fills on screen (exchange rate, withholding...). Then save, unless
-    DRY_RUN or ``save`` is False (only to see what Experio would fill). Returns {field: value} of every field
-    that ends up changed, Experio's included."""
+    """Type ``changes`` ({field: value}) into invoice ``invoice_id``'s form one field at a time, as a user does:
+    after each one, Experio's onchange fills in what it fills on screen (exchange rate, withholding...). Then save,
+    except in test mode or when ``save`` is False (to see what Experio would fill).
+
+    Returns {field: value} of every field that ends up changed, those Experio filled included. Raises ToolError
+    when saving would replace or clear a tiers (partner_id) already set: only the cabinet's staff change it."""
     form = _form()
     types = form["types"]
     values = _form_values(invoice_id, types, context)

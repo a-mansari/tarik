@@ -1,4 +1,4 @@
-"""Write what the scan shows over what Experio captured differently."""
+"""Correct a draft invoice: write what the scan shows over the fields Experio captured differently."""
 
 from engine.tools.core.app import ToolError, log, ok, routine, step_tool, stop
 from engine.tools.core.config import TEST_MODE
@@ -56,7 +56,8 @@ FIELD_LABELS = {
 
 
 def change_text(field, value):
-    """One corrected field as the client reads it (None: not said)."""
+    """Return one corrected ``field`` and its ``value`` as the client reads it; None for a field left out of the
+    reply (multi_tva)."""
     if field == "multi_tva":
         return None
     if field == "refund":
@@ -68,16 +69,19 @@ def change_text(field, value):
 
 
 def titled_invoice(extracted):
-    """True when the document's printed title (as read on the scan) says it is an invoice, never a credit note:
-    « Facture », « Facture N° », without « avoir » nor « credit »."""
+    """True when the document's printed title read on the scan says it is an invoice, not a credit note: it holds
+    the word « Facture » and none of « avoir », « credit », « rectificative »."""
     title = normalized(extracted.get("document_title") or "")
     return "facture" in title.split() and not any(word in title for word in ("avoir", "credit", "rectificative"))
 
 
 def planned_changes(extracted, bad_fields, invoice):
-    """What the check says to write ({field: value}): the differing header fields, the credit note and
-    the multi-TVA split. ``extracted`` and ``bad_fields`` come from the check, ``invoice`` holds refund and
-    amount_tax_non_recoverable."""
+    """Return what the check says to write, as {field: value}: the differing header fields, the credit note flag
+    (refund) and the multi-TVA split (multi_tva and amount_tva_<rate>).
+
+    ``extracted`` and ``bad_fields`` come from the stored check; ``invoice`` holds refund and
+    amount_tax_non_recoverable. The TVA is split by rate only when the scan's TVA lines were read in full and add up
+    to its TVA, every rate is one Experio has a field for, and the invoice has no non-recoverable TVA."""
     changes = {
         b["field"]: extracted[b["field"]]
         for b in bad_fields
@@ -122,10 +126,14 @@ TAX_SETTINGS = {
 
 
 def tax_settings(invoice, changes, notes):
-    """The tourist taxes the invoice has (or gets from ``changes``), when the dossier has their account: their setting
-    turned on as its Configuration screen does (else Experio leaves them out of the TTC). Without the account, the
-    amounts stay as Experio read them (the tax kept out of ``changes``, the stamp it was read as too) and the cabinet
-    is told: the invoice would not post otherwise."""
+    """Turn on the dossier's setting for each tourist tax (taxe de séjour, taxe de promotion touristique) the
+    invoice has or gets from ``changes``, as the Configuration screen does: with it off, Experio leaves the tax out
+    of the TTC (get_amounts_list).
+
+    Edits ``changes`` and appends French notes for the reply to ``notes``. When the dossier has no account for the
+    tax, the amounts stay as Experio read them: the tax and the stamp Experio read it as are dropped from
+    ``changes``, and a note tells the cabinet to set the account (the invoice would not post otherwise). When the
+    setting cannot be saved, the tax is dropped from ``changes`` too."""
     taxed = [field for field in TAX_SETTINGS if (changes.get(field, invoice.get(field)) or 0) > 0]
     if not taxed:
         return
@@ -154,9 +162,12 @@ def tax_settings(invoice, changes, notes):
 
 
 def hotel_parts(extracted, invoice, changes):
-    """A hotel bill's HT parts read on the scan, added to ``changes`` for the parts the dossier uses (should_use_ht_*,
-    Experio's multi HT) and the invoice has none of yet; the HT then keeps only the rest, as Experio adds the parts to
-    it (get_actual_amount_ht) and to its TTC check (get_amounts_list). Nothing when the parts exceed the HT."""
+    """Add a hotel bill's HT parts read on the scan (restauration, petit-déjeuner, blanchisserie) to ``changes``,
+    and lower the HT to the rest.
+
+    Only the parts the dossier uses (should_use_ht_*, Experio's multi HT) count, and only when the invoice has
+    none of them yet. Experio adds the parts back to the HT (get_actual_amount_ht) and to its TTC check
+    (get_amounts_list), so the HT must hold only the rest. Nothing is added when the parts exceed the HT."""
     parts = {
         field: extracted[field]
         for field in HOTEL
@@ -172,7 +183,8 @@ def hotel_parts(extracted, invoice, changes):
 
 
 def _currency(code, changes, notes):
-    """Add the currency ``code`` (ISO) the scan shows to ``changes``, or a note to ``notes`` when Experio lacks it."""
+    """Add the currency ``code`` (ISO) the scan shows to ``changes`` (nothing for MAD), or a note to ``notes`` when
+    Experio has no such currency."""
     if code == "MAD":
         return
     currency = odoo_call("res.currency", "search_read", [("name", "=", code)], fields=["id"], limit=1)
@@ -183,8 +195,8 @@ def _currency(code, changes, notes):
 
 
 def _payment_method(name, invoice, changes):
-    """Add the payment method ``name`` the scan shows (especes, cheque...) to ``changes``, when the invoice has none
-    and Experio has it."""
+    """Add the payment method ``name`` (especes, cheque..., from the client or the scan) to ``changes`` when the
+    invoice has none and Experio has a matching one."""
     method = PAYMENT_METHODS.get((name or "").lower())
     if method and not invoice["payment_method_id"]:
         found = odoo_call(
@@ -196,13 +208,14 @@ def _payment_method(name, invoice, changes):
 
 @step_tool
 def correct_invoice(invoice_id: int, payment_method: str = "", client_message: str = "") -> dict:
-    """Correct a draft invoice from its check: writes what check_invoice read on
-    the scan over the fields Experio captured differently (amounts, number,
-    date, credit note, multi-TVA, currency, payment method), then lets Experio
-    rebuild its TVA lines. Call check_invoice first. A scan whose total is 0 or less (a payment's
-    receipt) keeps the amounts Experio captured; stopped, nothing written, when Experio has none
-    either. ``payment_method``: the one the client wrote with the invoice (especes, cheque, virement, effet,
-    prelevement, compensation), over the scan's; taken only when ``client_message`` holds it."""
+    """Correct a draft invoice from its check: write what check_invoice read on the scan over the fields Experio
+    captured differently (amounts, number, date, credit note, multi-TVA, hotel HT parts, currency, payment method),
+    then let Experio rebuild its TVA lines. Call check_invoice first (ToolError otherwise).
+
+    A scan whose total is 0 or less (a payment's receipt) keeps the amounts Experio captured; when Experio has none
+    either, a stop result and nothing written. ``payment_method``: the one the client wrote with the invoice
+    (especes, cheque, virement, effet, prelevement, compensation), over the scan's; used only when
+    ``client_message`` holds it."""
     fields = [
         "state",
         "company_id",

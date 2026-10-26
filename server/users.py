@@ -15,7 +15,9 @@ from server.server import DATABASE
 
 
 def asked_password():
-    """The new password, typed twice, checked before anything is opened."""
+    """Ask for the new password twice in the terminal and return it.
+
+    Raises SystemExit (nothing changed) when it is shorter than 12 characters or the two entries differ."""
     password = getpass.getpass("Mot de passe (12 caracteres au moins) : ")
     if len(password) < 12:
         raise SystemExit(f"Mot de passe trop court : {len(password)} caracteres, 12 au moins. Rien n'a change.")
@@ -25,6 +27,10 @@ def asked_password():
 
 
 async def main(command, email, name=""):
+    """Run one users.py ``command`` ("add", "role" or "disable") on account ``email`` and record it in the Journal.
+
+    ``name`` is the account's name for "add" and the role (admin or member) for "role". Exits with the usage text for
+    an unknown command, and with « Rien n'a change » when the account change is refused (ValueError, LookupError)."""
     if command not in ("add", "role", "disable"):
         raise SystemExit(__doc__)
     password = asked_password() if command == "add" else None
