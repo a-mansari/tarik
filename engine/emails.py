@@ -11,7 +11,7 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from engine.calls import ToolFailure, call
+from engine.calls import ToolFailure, call, stops_at
 from engine.chat import answered
 from engine.tools.core.conversation import for_client, left_out
 from engine.tools.invoices.pipeline import NOTHING
@@ -193,6 +193,7 @@ async def finish(state: Thread):
     return {"done": [{"thread_id": thread["thread_id"], "sent": sent, "reason": state.get("error", "")}]}
 
 
+@stops_at("fin")
 def after_refusal(state: Thread):
     """A refused sender's manager is told; anyone else gets the reply. A refusal not read ends the thread."""
     if state.get("error"):
@@ -214,14 +215,17 @@ for name, node in {
     fil.add_node(name, node)
 fil.add_conditional_edges(START, kind, ["accuse", "suite_documents"])
 fil.add_edge("accuse", "tarik")
-fil.add_conditional_edges("tarik", lambda s: "fin" if s.get("error") else "refus", ["fin", "refus"])
+on_error = stops_at("fin")  # an error ends the thread: kept off the canvas
+fil.add_conditional_edges("tarik", on_error(lambda s: "fin" if s.get("error") else "refus"), ["fin", "refus"])
 fil.add_conditional_edges("refus", after_refusal, ["fin", "manager", "reponse"])
 fil.add_edge("manager", END)  # thread_refusal set the thread aside and counted its emails: finish_thread would undo it
 fil.add_edge("reponse", "fin")
 fil.add_conditional_edges(
-    "suite_documents", lambda s: "fin" if s.get("error") else "suite_dossiers", ["fin", "suite_dossiers"]
+    "suite_documents", on_error(lambda s: "fin" if s.get("error") else "suite_dossiers"), ["fin", "suite_dossiers"]
 )
-fil.add_conditional_edges("suite_dossiers", lambda s: "fin" if s.get("error") else "reponse", ["fin", "reponse"])
+fil.add_conditional_edges(
+    "suite_dossiers", on_error(lambda s: "fin" if s.get("error") else "reponse"), ["fin", "reponse"]
+)
 fil.add_edge("fin", END)
 FIL = fil.compile(name="fil")
 

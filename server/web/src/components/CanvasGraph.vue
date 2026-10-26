@@ -26,6 +26,10 @@ const panel = ref({ type: "intro" });
 const tools = reactive({ dirty: false, note: "", saving: false, confirm: false, foldHidden: true, allOpen: false });
 const replay = reactive({ instances: [], focus: "", max: 0, value: 0, label: "", whole: true });
 const momentSteps = ref([]);
+const zoom = ref(100); // the canvas's zoom, in %, as its slider shows it
+const MIN_ZOOM = 10;
+const MAX_ZOOM = 250;
+const ZOOM_TICKS = [10, 25, 50, 75, 100, 150, 200, 250]; // the slider's marks, in %
 const details = reactive({}); // step id -> its whole output, once opened
 const loaded = new Set(); // the steps whose output was fetched (or is being)
 
@@ -858,8 +862,17 @@ async function undo() {
 
 // --- Gestures on the canvas: click, drag, bend, fold ---
 
+// The zoom slider: the canvas zoomed about its centre, as the wheel would.
+function onZoom(event) {
+  const level = Number(event.target.value) / 100;
+  cy.zoom({ level, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+}
+
 function wireCanvas() {
   cy.on("viewport", grid);
+  cy.on("zoom", () => {
+    zoom.value = Math.round(cy.zoom() * 100);
+  });
   wireSelection();
   wireDragging();
   wireHandles();
@@ -979,7 +992,13 @@ async function draw() {
   readShape();
   layout = kept(await fetchJson(layoutUrl()));
   if (gone) return;
-  cy = cytoscape({ container: container.value, style: styles(), wheelSensitivity: 0.25, minZoom: 0.1, maxZoom: 2.5 });
+  cy = cytoscape({
+    container: container.value,
+    style: styles(),
+    wheelSensitivity: 0.25,
+    minZoom: MIN_ZOOM / 100,
+    maxZoom: MAX_ZOOM / 100,
+  });
   wireCanvas();
   if (props.run) {
     await loadRun();
@@ -992,6 +1011,8 @@ async function draw() {
 // The whole graph's lookups, made once it is fetched.
 function readShape() {
   groups = new Map(shape.nodes.filter((n) => n.kind === "group").map((n) => [n.id, n]));
+  opened.clear(); // every sub-workflow shown spread out at first: each step it runs in sight
+  for (const group of groups.keys()) opened.add(group);
   parentOf = new Map(shape.nodes.map((n) => [n.id, n.parent || null]));
   leaves = shape.nodes.filter((n) => n.kind !== "group").map((n) => n.id);
   auto = automatic();
@@ -1084,6 +1105,14 @@ cytoscape.use(cytoscapeDagre); // once, whatever number of canvases
         <button type="button" class="icon-button" aria-label="Tout voir" data-tip="Tout voir : le schéma entier, centré" @click="fit">
           <svg v-bind="ICON"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
         </button>
+        <label class="zoom-slider" data-tip="Zoom : glisser, ou cliquer une graduation">
+          <svg v-bind="ICON" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M8 11h6"/></svg>
+          <input type="range" :min="MIN_ZOOM" :max="MAX_ZOOM" step="5" list="zoom-ticks" :value="zoom"
+            aria-label="Zoom" :aria-valuetext="`${zoom} %`" @input="onZoom">
+          <datalist id="zoom-ticks"><option v-for="tick in ZOOM_TICKS" :key="tick" :value="tick" :label="`${tick} %`"></option></datalist>
+          <svg v-bind="ICON" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M8 11h6M11 8v6"/></svg>
+          <span class="zoom-value">{{ zoom }} %</span>
+        </label>
         <button type="button" id="fold-all" class="icon-button" :class="{ folding: tools.allOpen }" :hidden="tools.foldHidden"
           :aria-label="tools.allOpen ? 'Tout replier' : 'Tout déplier'"
           :data-tip="tools.allOpen ? 'Tout replier : refermer chaque sous-workflow' : 'Tout déplier : ouvrir chaque sous-workflow'" @click="foldAll">
@@ -1129,7 +1158,7 @@ cytoscape.use(cytoscapeDagre); // once, whatever number of canvases
         </template>
         <span class="gestures">
           <span><svg v-bind="ICON"><path d="M9 9l6 12 2-5 5-2z"/><path d="M5 3v3M3 5h3M9 2v2M2 9h2"/></svg>Clic : voir</span>
-          <span><b class="key">▸</b>Double-clic : déplier</span>
+          <span><b class="key">▸</b>Double-clic : replier ou déplier</span>
           <span><svg v-bind="ICON"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>Glisser : ranger</span>
           <span><svg v-bind="ICON"><rect x="6" y="2" width="12" height="20" rx="6"/><path d="M12 6v4"/></svg>Molette : zoom</span>
         </span>
