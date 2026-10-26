@@ -122,6 +122,8 @@ def test_experios_refusal_is_said_in_its_words(experio):
     result = export.export_entries(857, quoi="les tiers", session_id="s")
     assert result["status"] == "stop" and "modèle de partenaire" in result["message"]
     assert experio["created"][0]["export_type"] == "partner"
+    # what models Experio has for the tiers (here none), so a journal export's model is never offered for them
+    assert result["message"].endswith("Experio n'a aucun modèle d'export de tiers : il est à créer dans Experio.")
 
 
 @pytest.mark.communication

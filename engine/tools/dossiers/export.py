@@ -81,6 +81,16 @@ def template_named(model, words, context):
     return found[0]["id"] if found else None
 
 
+def models_note(model, kind, context):
+    """What export models Experio has for ``kind``, told with its refusal when none was chosen: the client then names
+    one of them, never a model of the other kind (a journal export's for the tiers)."""
+    names = [t["name"] for t in odoo_call(model, "search_read", [], fields=["name"], context=context)]
+    what = "de tiers" if kind == "partner" else "d'écritures"
+    if not names:
+        return f" Experio n'a aucun modèle d'export {what} : il est à créer dans Experio."
+    return f" Modèles d'export {what} d'Experio : " + ", ".join(f"`{name}`" for name in names) + "."
+
+
 def selected_lines(wizard_id, context):
     """The journal items Experio's export selects (get_line_ids, its own filters): their ids. Its answer is the
     recordset's text, « exp.move.line(1, 2) », over JSON-RPC (no _returns)."""
@@ -190,7 +200,8 @@ def export_entries(
                 confirmed = {**context, "exp_export_tiers_confirmed": True}
                 action = odoo_json(WIZARD, method, [wizard_id], context=confirmed)
         except ExperioRefusal as error:
-            return stop(f"{told}. Experio refuse l'export : {experio_refusal(error)}")
+            models = "" if template else models_note(model, kind, context)
+            return stop(f"{told}. Experio refuse l'export : {experio_refusal(error)}{models}")
         if integration:
             if not client_confirmed:
                 return question(
