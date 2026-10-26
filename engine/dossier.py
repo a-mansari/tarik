@@ -9,7 +9,7 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, summary
+from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, stops_at, summary
 from engine.tools.dossiers.identity import EDITABLE
 
 INPUTS = [
@@ -64,6 +64,7 @@ async def start(state: Run, config):
     return {**begun, "target": begun["call"].get("dossier_id") or 0}
 
 
+@stops_at("resume")
 def by_mode(state: Run):
     call = state["call"]
     if failed(state):
@@ -98,6 +99,7 @@ async def create(state: Run):
     return update
 
 
+@stops_at("resume")
 def after_create(state: Run):
     """A new dossier takes the model dossier's configuration first (a dossier reused from earlier in the conversation
     keeps its own), then its files."""
@@ -121,6 +123,7 @@ async def creator(state: Run):
     return {"outcomes": [await run_step(state, "check_creator", session_id=state["call"]["session_id"])]}
 
 
+@stops_at("resume")
 def after_creator(state: Run):
     if failed(state):
         return "resume"
@@ -131,6 +134,7 @@ async def sender(state: Run):
     return await sender_checked(state, state["call"]["dossier_id"])
 
 
+@stops_at("resume")
 def after_sender(state: Run):
     if failed(state):
         return "resume"
@@ -206,6 +210,7 @@ async def files(state: Run):
     return {"files": found.get("files", []), "outcomes": [found]}
 
 
+@stops_at("resume")
 def after_files(state: Run):
     if failed(state):
         return "resume"
@@ -240,6 +245,7 @@ async def entries(state: Run):
     return {"outcomes": outcomes}
 
 
+@stops_at("resume")
 def after_entries(state: Run):
     """The onboarding goes on unless an import was refused (the client sends that file again first)."""
     imported = state["outcomes"][-len(state["files"]) :] if state.get("files") else []
@@ -272,6 +278,7 @@ async def finish(state: Run):
     return {"outcomes": outcomes, "finished": done}
 
 
+@stops_at("resume")
 def after_finish(state: Run):
     return "etat" if state.get("finished") else "resume"
 

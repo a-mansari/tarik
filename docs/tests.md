@@ -999,7 +999,9 @@ Covers Experio's warnings, each handled on its own (docs/experio-warnings.md).
 Covers the canvases the UI draws: every step drawn, named and described; each agent tool hands its workflow its inputs.
 - `test_each_step_of_a_workflow_is_drawn_named_and_described` [communication, param]: every workflow, the agent too.
 - `test_the_split_steps_have_each_their_own_box` [functionality, param]: Dossier, Déclarations, Export, Traitement, Fil.
-- `test_a_step_a_part_may_start_at_is_drawn_from_its_first_entry_only` [technical]: the hidden edges' rule.
+- `test_a_step_a_part_may_start_at_is_drawn_from_its_first_entry_only` [technical]: a part's later entries hidden.
+- `test_only_the_ways_taken_when_a_step_failed_are_kept_off_the_canvas` [communication, param]: stops hidden, ordinary ends drawn.
+- `test_every_drawn_step_lies_on_a_drawn_way_from_the_start_to_the_end` [communication, param]: no step cut off from the summary.
 - `test_each_workflow_tool_runs_its_own_workflow_with_its_inputs` [functionality]: each tool's workflow and inputs.
 
 ### tests/graphs/conftest.py (helper, no tests)

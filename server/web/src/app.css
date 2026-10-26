@@ -166,6 +166,10 @@ pre.said { font-family: var(--font); font-size: 1em; }
 }
 .canvas-tools { flex-wrap: wrap; align-items: center; right: .5rem; }
 .canvas-tools button:disabled { opacity: .5; cursor: default; }
+.zoom-slider { display: inline-flex; align-items: center; gap: .3rem; font-size: .8rem; color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: .15rem .5rem; }
+.zoom-slider input[type=range] { width: 9rem; accent-color: var(--accent); }
+.zoom-slider .zoom-value { min-width: 3.2rem; text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) { .zoom-slider input[type=range] { width: 6rem; } }
 .canvas-note { font-size: .8rem; color: var(--muted); background: var(--surface); padding: .15rem .4rem; border-radius: 4px; }
 .canvas-note:empty { display: none; }
 .panel-button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
