@@ -85,7 +85,7 @@ def extra(tool, call, run_id):
     """What a step is given besides its invoice."""
     words = {"client_message": call.get("client_message") or ""}
     return {
-        "create_draft_invoice": {"invoice_type": call.get("invoice_type") or ""},
+        "create_draft_invoice": {"invoice_type": call.get("invoice_type") or call.get("scan_side") or ""},
         "wait_until_read": {"run_id": run_id},
         "correct_invoice": {"payment_method": call.get("mode_paiement") or "", **words},
         "classify_invoice": {"invoice_type": call.get("invoice_type") or ""},
@@ -206,6 +206,7 @@ async def split(state: File):
         file_id=state["file_id"],
         invoice_type=call.get("invoice_type") or "",
         client_message=call.get("client_message") or "",
+        dossier_id=call.get("dossier_id") or 0,
     )
     return {"last": result, "outcomes": [result]}
 
@@ -218,19 +219,24 @@ def after_identify(state: File):
     return "releve" if last.get("kind") == "statement" else "decoupage"
 
 
-def invoice_run(state: File, entry, **document):
+def invoice_run(state: File, entry, call=None, **document):
     """An invoice's run in the file's: started at step ``entry``, on ``document`` (its file_id or invoice_id)."""
-    return Send(
-        "facture", {"call": state["call"], "run_id": state["run_id"], "entry": entry, **document, "outcomes": []}
-    )
+    call = call or state["call"]
+    return Send("facture", {"call": call, "run_id": state["run_id"], "entry": entry, **document, "outcomes": []})
 
 
-@stops_at(END)
-def drafts(state: File):
-    """One invoice run per invoice cut out of the file, from its draft."""
-    if state["last"].get("status") != "ok":
+def drafts(state: File):  # its end is also an ordinary one: a file sent again, already posted
+    """One invoice run per invoice cut out of the file, from its draft (made as the side the scan shows when the client
+    gave none); a file sent again whose invoice is still a draft: that draft, from Experio's reading on."""
+    last = state["last"]
+    if last.get("status") != "ok":
         return END
-    return [invoice_run(state, "create_draft_invoice", file_id=file_id) for file_id in state["last"]["files"]]
+    if last.get("resume_invoice"):
+        return [invoice_run(state, "wait_until_read", invoice_id=last["resume_invoice"])]
+    call = {**state["call"], "scan_side": last["invoice_type"]} if last.get("invoice_type") else state["call"]
+    if not last["files"]:
+        return END  # sent again, already posted: nothing to do
+    return [invoice_run(state, "create_draft_invoice", call=call, file_id=file_id) for file_id in last["files"]]
 
 
 def split_drafts(state: File):

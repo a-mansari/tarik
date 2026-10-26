@@ -6,9 +6,9 @@ Experio's screen types each page (Transit, Douane, DUM, Pièce jointe...), then:
 through exp.invoice.import with its type, its reading held back (defer_bluejay_send); creates the folder
 from them (create_folder_from_js, which sends their reading); sends the DUM pages to be read on their own
 (bluejay_create_dum_tokens_from_javascript); attaches the attachment pages (action_attach_pages_from_javascript).
-Tarik does the same, each page typed by the model among Experio's own types; the drafts made then go through the
-invoice's usual steps. Only on the client's own words: « dossier d'import », and « plusieurs dossiers » for one
-folder per file.
+Tarik does the same, each page typed by the model among Experio's own types, but attaches the DUM unread (Experio's
+reading needs its screen's request); the drafts made then go through the invoice's usual steps.
+Only on the client's own words: « dossier d'import », and « plusieurs dossiers » for one folder per file.
 """
 
 import base64
@@ -123,12 +123,13 @@ def create_in_experio(dossier_id, group, documents, number_rule):
         "folder_number": first_name.rsplit(".", 1)[0] if number_rule == "file_name" else False,
     }
     folder_id = odoo_json("exp.import.folder", "create_folder_from_js", values, context=context)
-    dum = [b64(pdf) for _, _, kind, pdf in documents if kind == "dum"]
-    if dum:
-        odoo_json("exp.folder.import", "bluejay_create_dum_tokens_from_javascript", [], dum, folder_id, context=context)
-    attached = [{"name": name, "datas": b64(pdf)} for _, name, kind, pdf in documents if kind == "attachment"]
+    # Experio reads a DUM only from its screen: its call reads the web request's address (exp_folder_import.py:305),
+    # which an RPC call has not ("object is not bound"). The DUM is joined to the folder like an attachment page.
+    attached = [{"name": name, "datas": b64(pdf)} for _, name, kind, pdf in documents if kind in ("dum", "attachment")]
     if attached:
-        odoo_json("exp.folder.import", "action_attach_pages_from_javascript", [], attached, folder_id, context=context)
+        odoo_json(
+            "exp.folder.import", "action_attach_pages_from_javascript", [wizard], attached, folder_id, context=context
+        )
     return folder_id, made
 
 
@@ -198,6 +199,10 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
             kinds_of = {i["id"]: i["import_invoice_type"] for i in folder_invoices([m[2] for m in made])}
             invoices += [invoice_id for _, _, invoice_id in transit_last(made, kinds_of)]
             said.append(f"dossier d'import n° {folder_id} créé dans le dossier {dossier} : {listed}")
+            if any(kind == "dum" for _, _, kind, _ in documents):
+                said.append(
+                    "la DUM y est jointe sans être lue : Experio ne lit une DUM que déposée sur son écran « Imports »"
+                )
     return ok(" ; ".join(said) + ".", invoices=invoices)
 
 

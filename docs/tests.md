@@ -434,6 +434,7 @@ Covers turning the client's words into one account of the chart.
 - `test_the_account_the_client_answers_is_applied_confirmed_or_asked_again` [functionality]: set_account applies, asks to confirm, or asks again.
 - `test_a_confirmed_account_is_applied_and_a_non_asks_which` [functionality]: oui applies the account, non asks which.
 - `test_a_chart_experio_cannot_give_is_said_and_a_long_one_cut_at_100` [communication]: a chart Experio cannot give is said; a long one is cut at 100.
+- `test_words_naming_no_account_guide_the_choice_and_are_said` [functionality, param]: « gasoil » guides the choice, told; words naming accounts still asked.
 
 ### tests/invoices/test_answers.py
 Covers the client's answers to waiting questions (db_cabinet).
@@ -543,6 +544,8 @@ Covers corrections planned from a check (the HT/TVA fuel case).
 - `test_an_unchecked_or_unreadable_invoice_is_not_corrected` [functionality]: unreadable scan: nothing; unchecked: refused.
 - `test_each_corrected_field_is_said_as_the_client_reads_it` [communication]: each corrected field said as the client reads it.
 - `test_every_header_amount_correct_invoice_writes_is_said_in_french` [communication, xfail]: the stamp, débours... amounts are said by Experio's field name (suspected bug).
+- `test_a_tourist_tax_counts_only_with_its_setting_and_its_account` [functionality, param]: setting turned on with its account; without it, Experio's reading kept.
+- `test_a_tourist_tax_already_on_the_invoice_turns_its_setting_on_too` [functionality]: an earlier correction's tax gets its setting.
 
 ### tests/invoices/test_duplicates.py
 Covers the duplicate check.
@@ -623,6 +626,9 @@ Covers intake: dossier first, file identification, PDF splitting.
 - `test_a_pdf_is_cut_where_its_invoices_start` [technical]: a multi-invoice PDF is split at each invoice's start.
 - `test_a_file_is_identified_before_anything_is_made_from_it` [functionality]: the file type is identified before any processing.
 - `test_test_mode_creates_no_draft_and_imports_no_statement` [security]: test mode creates no draft and imports no statement.
+- `test_the_side_the_client_does_not_give_is_read_on_the_scan_and_said` [communication, param]: achat or vente read on the scan and told; asked when unclear.
+- `test_the_side_the_client_gives_is_never_read_on_the_scan` [functionality]: the client's word wins.
+- `test_a_file_sent_again_is_its_invoice_taken_up_while_a_draft` [functionality, param]: a draft taken up, posted said, in progress said.
 
 ### tests/invoices/test_intake_experio.py
 Covers intake's calls to Experio: draft and statement imports, refusals, test mode, questions.
@@ -995,6 +1001,13 @@ Covers Experio's warnings, each handled on its own (docs/experio-warnings.md).
 
 ---
 
+### tests/graphs/test_answered.py
+Covers Tarik's reply to a message: asked again while files stay untaken, and once when no tool ran while a question waits.
+- `test_a_reply_calling_no_tool_while_a_question_waits_is_asked_once_again` [functionality]: reminded to use Experio_repondre.
+- `test_a_reply_without_a_tool_and_no_question_waiting_is_given_as_is` [functionality]: a plain reply, asked once.
+- `test_the_question_reminder_is_given_once_only` [functionality]: never a third ask.
+- `test_untaken_files_are_reminded_until_taken` [functionality]: the files reminder.
+
 ### tests/graphs/test_canvases.py
 Covers the canvases the UI draws: every step drawn, named and described; each agent tool hands its workflow its inputs.
 - `test_each_step_of_a_workflow_is_drawn_named_and_described` [communication, param]: every workflow, the agent too.
@@ -1065,6 +1078,9 @@ Covers the Traitement graph's routing: where a message goes, import folders, eac
 - `test_a_follow_up_with_nothing_waiting_goes_to_the_summary` [functionality]: waiting_drafts then summary.
 - `test_an_answer_with_files_or_asked_to_post_does_both_in_one_run` [functionality, param]: the answer and the files branch, summary last.
 - `test_without_the_databases_route_the_mode_decides_and_an_unknown_one_means_files` [technical, param]: route_message failing or unknown.
+- `test_a_file_sent_again_takes_its_draft_up_from_experios_reading` [functionality]: its draft from wait_until_read, none made.
+- `test_a_file_sent_again_already_posted_makes_nothing` [functionality]: no draft, no step.
+- `test_the_side_read_on_the_scan_makes_the_draft_as_that_side` [functionality]: the draft made as the side read.
 
 ### tests/graphs/test_email_thread_graph.py
 Covers the Emails graph and its Fil d'emails routing: acknowledgement, the agent, a refused sender, sending, finishing, the follow-up, and the threads claimed.

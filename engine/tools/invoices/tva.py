@@ -25,7 +25,8 @@ from engine.tools.invoices.classify import side_of
 from engine.tools.invoices.taxes import add_missing_taxes
 
 # CGI art. 106: a confirmer par le comptable avant usage en production.
-NON_RECOVERABLE_ACCOUNTS = ("6142", "6143", "61251", "2340")  # travel, receptions, fuel, passenger cars
+NON_RECOVERABLE_ACCOUNTS = ("6142", "6143", "61223", "2340")  # travel, receptions, fuel, passenger cars
+# 61223 « Achats de combustibles » in Experio's chart (exp_account experio_history.py:477); 61251 is water, electricity.
 
 
 def _non_recoverable(invoice, answer):

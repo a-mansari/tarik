@@ -419,3 +419,37 @@ def test_a_chart_experio_cannot_give_is_said_and_a_long_one_cut_at_100(monkeypat
     monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: many)
     listed = accounts.list_accounts(5)
     assert listed.startswith("120 compte(s) du dossier ALPHA (les 100 premiers") and listed.count("\n") == 100
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("words", "matching", "chosen"),
+    [
+        ("gasoil", [], True),  # no account called so: the client describes the invoice
+        ("transport", [{"id": 7, "code": "61425000", "name": "Transports"}], False),  # names accounts: theirs to pick
+    ],
+)
+def test_words_naming_no_account_guide_the_choice_and_are_said(experio, monkeypatch, words, matching, chosen):
+    monkeypatch.setattr(accounts, "set_account", lambda *a: {"status": "question", "message": "lequel ?"})
+    monkeypatch.setattr(accounts, "searched", lambda found, search: matching)
+    monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: [])
+    monkeypatch.setattr(accounts, "stored_check", lambda i: (True, {"designation": "Gasoil 40 L"}, []))
+    monkeypatch.setattr(
+        accounts,
+        "require_invoice",
+        lambda invoice_id, fields: {"company_id": [857, "D"], **{f: False for f in fields if f != "company_id"}},
+    )
+    picked = []
+
+    def choice(invoice, kind, designation):
+        picked.append(designation)
+        return {"id": 9, "code": "61241000", "name": "Achats de carburants"}, "du gasoil pour les véhicules"
+
+    monkeypatch.setattr(accounts, "_model_choice", choice)
+    monkeypatch.setattr(accounts, "_memorized", lambda *a: pytest.fail("the client's words come before the memory"))
+    result = accounts.assign_account(3, answer=words, client_message=f"{words} TARIK TEST")
+    if not chosen:
+        assert result["status"] == "question" and not picked
+        return
+    assert picked and f"le client précise : « {words} »" in picked[0]
+    assert result["status"] == "ok" and f"« {words} » ne désigne aucun compte du dossier" in result["message"]

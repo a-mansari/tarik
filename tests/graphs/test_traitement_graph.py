@@ -315,3 +315,42 @@ def test_without_the_databases_route_the_mode_decides_and_an_unknown_one_means_f
     routed(steps, route_message=routing, answer_pending={"status": "question"})
     steps.run(graph, mode=mode)
     assert steps.names[2] == first
+
+
+@pytest.mark.functionality
+def test_a_file_sent_again_takes_its_draft_up_from_experios_reading(steps):
+    routed(
+        steps,
+        files=[11],
+        identify_document={"status": "ok", "kind": "invoice"},
+        split_invoices={"status": "ok", "files": [], "resume_invoice": 272493},
+        wait_until_read=STOP,
+    )
+    steps.run(graph, mode="files")
+    assert "create_draft_invoice" not in steps.names and invoice_ids(steps, "wait_until_read") == [272493]
+
+
+@pytest.mark.functionality
+def test_a_file_sent_again_already_posted_makes_nothing(steps):
+    routed(
+        steps,
+        files=[11],
+        identify_document={"status": "ok", "kind": "invoice"},
+        split_invoices={"status": "ok", "files": []},
+    )
+    steps.run(graph, mode="files")
+    assert "create_draft_invoice" not in steps.names and "wait_until_read" not in steps.names
+
+
+@pytest.mark.functionality
+def test_the_side_read_on_the_scan_makes_the_draft_as_that_side(steps):
+    routed(
+        steps,
+        files=[11],
+        identify_document={"status": "ok", "kind": "invoice"},
+        split_invoices={"status": "ok", "files": [21], "invoice_type": "vente"},
+        create_draft_invoice=STOP,
+    )
+    steps.run(graph, mode="files")
+    assert steps.args("create_draft_invoice")[0]["invoice_type"] == "vente"
+    assert steps.args("split_invoices")[0]["dossier_id"] == 5

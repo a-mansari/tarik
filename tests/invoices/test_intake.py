@@ -324,3 +324,79 @@ def test_a_file_is_named_by_its_own_words_never_by_a_common_one(name, said, name
     from engine.tools.invoices.intake import file_named
 
     assert file_named(name, said) is named
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize(
+    ("read", "expected"),
+    [
+        (("achat", "Facture adressée au client du cabinet"), "achat"),
+        (("vente", "Émise par le client du cabinet"), "vente"),
+        (None, None),  # the scan says neither plainly: asked
+    ],
+)
+def test_the_side_the_client_does_not_give_is_read_on_the_scan_and_said(db_cabinet, monkeypatch, read, expected):
+    from engine.tools.invoices import intake
+
+    monkeypatch.setattr(intake, "side_read", lambda name, mime, data, dossier_id: read)
+    file_id = saved(db_cabinet, pdf(1), "s-side")
+    result = intake.split_invoices(file_id=file_id, client_message="facture TARIK TEST", dossier_id=857)
+    if expected is None:
+        assert result["status"] == "question" and "achat ou de vente" in result["message"]
+        return
+    assert result["status"] == "ok" and not result.get("routine") and result["tell"]  # recorded and told
+    assert result["invoice_type"] == expected and result["files"] == [file_id]
+    assert "d'après le scan" in result["message"] and "dites-le-moi si c'est" in result["message"]
+
+
+@pytest.mark.functionality
+def test_the_side_the_client_gives_is_never_read_on_the_scan(db_cabinet, monkeypatch):
+    from engine.tools.invoices import intake
+
+    monkeypatch.setattr(intake, "side_read", lambda *a: pytest.fail("the client said it"))
+    file_id = saved(db_cabinet, pdf(1), "s-said")
+    result = intake.split_invoices(
+        file_id=file_id, invoice_type="vente", client_message="facture de vente", dossier_id=857
+    )
+    assert result["files"] == [file_id] and "invoice_type" not in result
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("state", "working", "status", "said", "resumed"),
+    [
+        ("draft", False, "ok", "je la reprends", 272493),
+        ("post", False, "ok", "déjà comptabilisée", None),
+        ("draft", True, "stop", "en cours de traitement", None),
+    ],
+)
+def test_a_file_sent_again_is_its_invoice_taken_up_while_a_draft(
+    db_cabinet, monkeypatch, state, working, status, said, resumed
+):
+    from engine.tools.core.cabinets import cabinet_db
+    from engine.tools.invoices import intake
+
+    data = pdf(1)
+    first = saved(db_cabinet, data, "s-first")
+    with cabinet_db() as db:
+        db.execute("update tarik_files set invoice_id = 272493 where id = %s", (first,))
+        if working:
+            db.execute("insert into tarik_working (run_id, invoice_id) values ('other', 272493)")
+    monkeypatch.setattr(
+        intake,
+        "odoo_call",
+        lambda model, method, *a, **k: (
+            [272493] if method == "search" else [{"state": state, "invoice_number": "26FC04471"}]
+        ),
+    )
+    monkeypatch.setattr(intake, "side_read", lambda *a: pytest.fail("a file sent again is never asked its side"))
+    again = saved(db_cabinet, data, "s-again")
+    result = intake.split_invoices(file_id=again, client_message="re facture", dossier_id=857)
+    assert (
+        result["status"] == status
+        and said in result["message"]
+        and "facture n° 272493 (26FC04471)" in result["message"]
+    )
+    assert result.get("resume_invoice") == resumed
+    if status == "ok":
+        assert result["files"] == [] and result["tell"]  # in the reply, though split_invoices' ok is quiet
