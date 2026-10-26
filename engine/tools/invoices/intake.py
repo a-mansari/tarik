@@ -258,10 +258,11 @@ def sent_again(db, file_id, name, data, dossier_id):
     invoice = odoo_call("exp.invoice", "read", [twin], fields=["state", "invoice_number"])[0]
     label = f"facture n° {twin}" + (f" ({invoice['invoice_number']})" if invoice["invoice_number"] else "")
     if invoice["state"] != "draft":
-        return ok(f"`{name}` : déjà envoyé, c'est la {label}, déjà comptabilisée : rien de nouveau créé.", files=[])
+        told = f"`{name}` : déjà envoyé, c'est la {label}, déjà comptabilisée : rien de nouveau créé."
+        return ok(told, files=[], tell=True)  # tell: split_invoices' ok is otherwise not recorded (QUIET_WHEN_OK)
     if db.execute(Q.invoices_worked_on, ([twin],)).fetchone():
         return stop(f"`{name}` : déjà envoyé, c'est la {label}, en cours de traitement : rien de nouveau créé.")
-    return ok(f"`{name}` : déjà envoyé, c'est la {label} : je la reprends.", files=[], resume_invoice=twin)
+    return ok(f"`{name}` : déjà envoyé, c'est la {label} : je la reprends.", files=[], resume_invoice=twin, tell=True)
 
 
 def side_read(name, mime, data, dossier_id):
@@ -299,7 +300,7 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
             if not read:
                 return question(f"`{name}` : s'agit-il de factures d'achat ou de vente ? Rien n'a été créé.")
             kind, other = ("d'achat", "une vente") if read[0] == "achat" else ("de vente", "un achat")
-            side = {"invoice_type": read[0]}
+            side = {"invoice_type": read[0], "tell": True}  # told in the reply (QUIET_WHEN_OK records it then)
             said_side = f"facture {kind} d'après le scan ({read[1]}) ; dites-le-moi si c'est {other}. "
         parts = db.execute(Q.cut_parts_of_file, (file_id,)).fetchall()
         if parts:

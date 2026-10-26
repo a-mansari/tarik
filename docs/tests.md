@@ -434,6 +434,7 @@ Covers turning the client's words into one account of the chart.
 - `test_the_account_the_client_answers_is_applied_confirmed_or_asked_again` [functionality]: set_account applies, asks to confirm, or asks again.
 - `test_a_confirmed_account_is_applied_and_a_non_asks_which` [functionality]: oui applies the account, non asks which.
 - `test_a_chart_experio_cannot_give_is_said_and_a_long_one_cut_at_100` [communication]: a chart Experio cannot give is said; a long one is cut at 100.
+- `test_words_naming_no_account_guide_the_choice_and_are_said` [functionality, param]: « gasoil » guides the choice, told; words naming accounts still asked.
 
 ### tests/invoices/test_answers.py
 Covers the client's answers to waiting questions (db_cabinet).

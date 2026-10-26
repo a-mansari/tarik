@@ -344,7 +344,7 @@ def test_the_side_the_client_does_not_give_is_read_on_the_scan_and_said(db_cabin
     if expected is None:
         assert result["status"] == "question" and "achat ou de vente" in result["message"]
         return
-    assert result["status"] == "ok" and not result.get("routine")  # told, never left out of the summary
+    assert result["status"] == "ok" and not result.get("routine") and result["tell"]  # recorded and told
     assert result["invoice_type"] == expected and result["files"] == [file_id]
     assert "d'après le scan" in result["message"] and "dites-le-moi si c'est" in result["message"]
 
@@ -399,4 +399,4 @@ def test_a_file_sent_again_is_its_invoice_taken_up_while_a_draft(
     )
     assert result.get("resume_invoice") == resumed
     if status == "ok":
-        assert result["files"] == []
+        assert result["files"] == [] and result["tell"]  # in the reply, though split_invoices' ok is quiet
