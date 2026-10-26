@@ -623,6 +623,9 @@ Covers intake: dossier first, file identification, PDF splitting.
 - `test_a_pdf_is_cut_where_its_invoices_start` [technical]: a multi-invoice PDF is split at each invoice's start.
 - `test_a_file_is_identified_before_anything_is_made_from_it` [functionality]: the file type is identified before any processing.
 - `test_test_mode_creates_no_draft_and_imports_no_statement` [security]: test mode creates no draft and imports no statement.
+- `test_the_side_the_client_does_not_give_is_read_on_the_scan_and_said` [communication, param]: achat or vente read on the scan and told; asked when unclear.
+- `test_the_side_the_client_gives_is_never_read_on_the_scan` [functionality]: the client's word wins.
+- `test_a_file_sent_again_is_its_invoice_taken_up_while_a_draft` [functionality, param]: a draft taken up, posted said, in progress said.
 
 ### tests/invoices/test_intake_experio.py
 Covers intake's calls to Experio: draft and statement imports, refusals, test mode, questions.
@@ -1065,6 +1068,9 @@ Covers the Traitement graph's routing: where a message goes, import folders, eac
 - `test_a_follow_up_with_nothing_waiting_goes_to_the_summary` [functionality]: waiting_drafts then summary.
 - `test_an_answer_with_files_or_asked_to_post_does_both_in_one_run` [functionality, param]: the answer and the files branch, summary last.
 - `test_without_the_databases_route_the_mode_decides_and_an_unknown_one_means_files` [technical, param]: route_message failing or unknown.
+- `test_a_file_sent_again_takes_its_draft_up_from_experios_reading` [functionality]: its draft from wait_until_read, none made.
+- `test_a_file_sent_again_already_posted_makes_nothing` [functionality]: no draft, no step.
+- `test_the_side_read_on_the_scan_makes_the_draft_as_that_side` [functionality]: the draft made as the side read.
 
 ### tests/graphs/test_email_thread_graph.py
 Covers the Emails graph and its Fil d'emails routing: acknowledgement, the agent, a refused sender, sending, finishing, the follow-up, and the threads claimed.

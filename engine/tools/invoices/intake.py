@@ -245,43 +245,94 @@ def save_parts(db, session_id, name, file_id, documents):
     return made
 
 
+def sent_again(db, file_id, name, data, dossier_id):
+    """The result for a file whose very content already made an invoice of the dossier (another file), else None:
+    still a draft, it is taken up again here (``resume_invoice``), unless a run works on it now; posted, nothing is
+    made."""
+    if not dossier_id:
+        return None
+    twin = twin_draft(db, file_id, data, dossier_id)
+    if not twin:
+        return None
+    db.execute(Q.set_file_twin, (twin, file_id))
+    invoice = odoo_call("exp.invoice", "read", [twin], fields=["state", "invoice_number"])[0]
+    label = f"facture n° {twin}" + (f" ({invoice['invoice_number']})" if invoice["invoice_number"] else "")
+    if invoice["state"] != "draft":
+        return ok(f"`{name}` : déjà envoyé, c'est la {label}, déjà comptabilisée : rien de nouveau créé.", files=[])
+    if db.execute(Q.invoices_worked_on, ([twin],)).fetchone():
+        return stop(f"`{name}` : déjà envoyé, c'est la {label}, en cours de traitement : rien de nouveau créé.")
+    return ok(f"`{name}` : déjà envoyé, c'est la {label} : je la reprends.", files=[], resume_invoice=twin)
+
+
+def side_read(name, mime, data, dossier_id):
+    """(achat or vente, the reason) the scan's first page shows for the dossier (the model, told the dossier's name),
+    None when it shows neither plainly (a bank statement, no invoice, or the model unsure)."""
+    try:
+        dossier = require_dossier(dossier_id) if dossier_id else ""
+        category, reason = classify_pages(pdf_pages(as_pdf(mime, data), limit=1), f"Achat ou vente : `{name}`", dossier)
+    except ToolError, pypdfium2.PdfiumError:
+        return None
+    return (category, reason) if category in ("achat", "vente") else None
+
+
 @step_tool
-def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "") -> dict:
-    """Call it for every file identify_document found to be an invoice. A PDF of several pages is cut as the
+def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "", dossier_id: int = 0) -> dict:
+    """Call it for every file identify_document found to be an invoice. A file whose very content already made an
+    invoice of the dossier is that invoice, taken up again while a draft. A PDF of several pages is cut as the
     client says, the two ways Experio's import screen offers: one invoice per page, or one for the whole document;
     until they say, they are asked and nothing is made. Returns the file number of each invoice (the same file when
     it is one); create one draft per number returned.
-    ``invoice_type``: achat, vente or mixte, only as the client wrote it in this
-    conversation; otherwise the client is asked first and nothing is made."""
+    ``invoice_type``: achat, vente or mixte, as the client wrote it in this conversation; otherwise the side the
+    scan shows for the dossier, told the client (``invoice_type`` in the answer), and asked only when it shows none."""
     with cabinet_db() as db:
         session_id, name, mime, data, invoice_id, kind, parent_id = file_row(
             db, file_id, "session_id", "file_name", "mime_type", "data", "invoice_id", "kind", "parent_id"
         )
         require_kind(name, kind, "invoice")
+        again = None if invoice_id or parent_id else sent_again(db, file_id, name, bytes(data), dossier_id)
+        if again:
+            return again
         messages = client_messages(session_id, client_message)
+        side, said_side = {}, ""
         if not client_side(invoice_type, " ".join(messages)):
-            return question(f"`{name}` : s'agit-il de factures d'achat ou de vente ? Rien n'a été créé.")
+            read = side_read(name, mime, data, dossier_id)
+            if not read:
+                return question(f"`{name}` : s'agit-il de factures d'achat ou de vente ? Rien n'a été créé.")
+            kind, other = ("d'achat", "une vente") if read[0] == "achat" else ("de vente", "un achat")
+            side = {"invoice_type": read[0]}
+            said_side = f"facture {kind} d'après le scan ({read[1]}) ; dites-le-moi si c'est {other}. "
         parts = db.execute(Q.cut_parts_of_file, (file_id,)).fetchall()
         if parts:
             return ok(
-                f"`{name}` : déjà découpé en {len(parts)} factures : {listed(parts)}.", files=[i for i, _ in parts]
+                f"`{name}` : {said_side}déjà découpé en {len(parts)} factures : {listed(parts)}.",
+                files=[i for i, _ in parts],
+                **side,
             )
-        one = routine(f"`{name}` : 1 facture, fichier n° {file_id}.", files=[file_id])
+        told = ok if said_side else routine  # a side read on the scan is told, never left out of the summary
+        one = told(f"`{name}` : {said_side}1 facture, fichier n° {file_id}.", files=[file_id], **side)
         if invoice_id or parent_id or mime != "application/pdf":  # parent_id: already one invoice cut out of a PDF
             return one
         try:
             count = len(pypdfium2.PdfDocument(bytes(data)))
         except pypdfium2.PdfiumError:
-            return ok(f"`{name}` : PDF illisible, 1 document, fichier n° {file_id}.", files=[file_id])
+            return ok(
+                f"`{name}` : {said_side}PDF illisible, 1 document, fichier n° {file_id}.", files=[file_id], **side
+            )
         if count == 1:
             return one
         choice = split_choice(messages)
         if choice is None:
             return question(SPLIT_QUESTION.format(name=name, count=count))
         if choice == "by_document":
-            return routine(f"`{name}` : 1 facture sur {count} pages, fichier n° {file_id}.", files=[file_id])
+            return told(
+                f"`{name}` : {said_side}1 facture sur {count} pages, fichier n° {file_id}.", files=[file_id], **side
+            )
         made = save_parts(db, session_id, name, file_id, split_pdf(bytes(data), range(1, count + 1)))
-    return ok(f"`{name}` : {len(made)} factures, une par page : {listed(made)}.", files=[i for i, _ in made])
+    return ok(
+        f"`{name}` : {said_side}{len(made)} factures, une par page : {listed(made)}.",
+        files=[i for i, _ in made],
+        **side,
+    )
 
 
 def import_pdf(wizard, name, raw, dossier_id, **values):
