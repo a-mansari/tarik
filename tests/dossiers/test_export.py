@@ -17,6 +17,9 @@ def test_the_period_named_becomes_dates():
     assert export.dates_named("2026") == ("2026-01-01", "2026-12-31")
     assert export.dates_named("du 01/07/2026 au 15/08/2026") == ("2026-07-01", "2026-08-15")
     assert export.dates_named("") == (None, None)
+    year = export.date.today().year  # a quarter or a month without its year: this year's, never the whole exercice
+    assert export.dates_named("T3") == (f"{year}-07-01", f"{year}-09-30")
+    assert export.dates_named("septembre") == (f"{year}-09-01", f"{year}-09-30")
 
 
 @pytest.fixture
