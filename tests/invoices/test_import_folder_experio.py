@@ -90,13 +90,14 @@ def folder_of(file_id):
 def test_experio_page_types_are_read_from_its_own_screen(monkeypatch):
     asked = []
 
-    def odoo_call(model, method, fields, attributes):
-        asked.append((model, method, fields, attributes))
+    def odoo_call(model, method, fields, attributes, context):
+        asked.append((model, method, fields, attributes, context))
         return {"import_invoice_type": {"selection": TYPES}}
 
     monkeypatch.setattr(import_folder, "odoo_call", odoo_call)
     assert import_folder.page_types()["customs"] == "Douane"
-    assert asked == [("exp.folder.import", "fields_get", ["import_invoice_type"], ["selection"])]
+    # in French: the labels are told to the client, whatever language Tarik's Experio user reads
+    assert asked == [("exp.folder.import", "fields_get", ["import_invoice_type"], ["selection"], {"lang": "fr_FR"})]
 
 
 @pytest.mark.functionality
