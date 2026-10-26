@@ -313,7 +313,7 @@ def test_an_invoice_stays_a_verified_draft_until_the_client_says_to_post_it(db_c
     searched = []
 
     def search(model, method, domain, **kw):
-        if method == "search_read":  # the dossier's drafts, when nothing is to be posted: none left
+        if method == "search_read" or domain[0][1] == "not in":  # the dossier's drafts left: none
             return []
         searched.append(domain)
         return domain[0][2]  # all still drafts
@@ -479,6 +479,8 @@ def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them
     def odoo_call(model, method, domain, **kw):
         if method == "search_read" and domain[0][0] == "id":
             return [{"id": i, "invoice_number": drafts[i][0], "partner_id": drafts[i][1]} for i in domain[0][2]]
+        if domain[0][1] == "not in":
+            return []  # nothing else left a draft in the dossier
         return [] if method == "search_read" else domain[0][2]  # nothing to post: the dossier's drafts, none
 
     monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
@@ -496,6 +498,49 @@ def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them
         ("Comptabilisez toutes les factures du fournisseur Exelentia.", [8]),  # filtered, not the whole dossier
     ]:
         assert pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message=said)["invoices"] == taken, said
+
+
+@pytest.mark.functionality
+def test_a_held_draft_of_the_conversation_is_posted_though_its_hold_was_recorded_in_another(db_cabinet, monkeypatch):
+    # the same file sent in two threads: the hold kept under the first, the client asks to post in the second
+    monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])
+    monkeypatch.setattr(
+        pipeline, "odoo_call", lambda model, method, domain, **kw: [] if domain[0][1] == "not in" else domain[0][2]
+    )
+    pipeline.hold_posting(4, "first")
+    pipeline.record_step(
+        "R", "s", "hold_posting", {"status": "stop", "message": "laissée en brouillon", "invoice_id": 4}
+    )
+    assert pipeline.waiting_drafts("s", held=True, dossier_id=5, client_message="comptabilisez la")["invoices"] == [4]
+
+
+@pytest.mark.communication
+def test_asked_for_the_whole_dossier_what_stays_a_draft_is_said_with_why(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])
+    left = [21, 22, 23, 24]
+
+    def odoo_call(model, method, domain, **kw):
+        return left if domain[0][1] == "not in" else domain[0][2]
+
+    monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
+            "('x', 'a.pdf', 'application/pdf', '', 21), ('x', 'b.pdf', 'application/pdf', '', 22)"
+        )
+        db.execute(
+            "insert into tarik_pending (invoice_id, session_id, step, question) values "
+            "(21, 'x', 'assign_account', 'quel compte ?')"
+        )
+    pipeline.hold_posting(4, "s")
+    told = pipeline.waiting_drafts(
+        "s", held=True, dossier_id=5, client_message="comptabilisez toutes les factures du dossier"
+    )
+    assert told["invoices"] == [4] and told["tell"]
+    assert told["message"] == (
+        "Restent en brouillon dans ce dossier : 1 attend(ent) une réponse à sa question dans sa conversation, "
+        "1 arrêtée(s) par une étape, à corriger, 2 pas importée(s) par Tarik, à comptabiliser dans Experio."
+    )
 
 
 @pytest.mark.security
