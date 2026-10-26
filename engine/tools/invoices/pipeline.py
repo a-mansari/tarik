@@ -1090,9 +1090,11 @@ def nothing_to_post(session_id, dossier_id):
         made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (ids,))}
         asked = dict(db.execute(Q.pending_of_invoices, (ids,)))
         outcomes = db.execute(Q.outcomes_of_invoices, (ids,)).fetchall()
-        working = {i for (i,) in db.execute(Q.invoices_worked_on, (ids,))}
-    rows = [(i, step, status) for i, step, status, _ in outcomes]
-    messages = {(i, step): message for i, step, _, message in outcomes}
+        working = dict(db.execute(Q.invoices_worked_on, (ids,)).fetchall())
+    # An invoice a run is at: only that run's outcomes, an earlier run's stop no longer says where it is.
+    outcomes = [row for row in outcomes if row[0] not in working or row[4] == working[row[0]]]
+    rows = [(i, step, status) for i, step, status, _, _ in outcomes]
+    messages = {(i, step): message for i, step, _, message, _ in outcomes}
     furthest = furthest_outcomes(rows)
     lines = []
     for draft in drafts:

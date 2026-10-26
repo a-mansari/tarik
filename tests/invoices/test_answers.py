@@ -427,6 +427,29 @@ def test_a_draft_another_run_is_working_on_is_said_in_progress(db_cabinet, monke
     assert "facture 2 (F-2) : en cours de traitement" in told and "brouillon 2 créé" not in told
 
 
+@pytest.mark.communication
+def test_an_earlier_runs_stop_is_not_said_of_a_draft_another_run_took_up_again(db_cabinet, monkeypatch):
+    drafts = [{"id": 2, "invoice_number": "F-2"}]
+    monkeypatch.setattr(
+        pipeline, "odoo_call", lambda model, method, domain, **kw: drafts if method == "search_read" else []
+    )
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
+            "('s', 'b.pdf', 'application/pdf', '', 2)"
+        )
+    pipeline.record_step(  # an earlier run held it at its draft, furthest in the sequence
+        "A", "s", "hold_posting", {"status": "stop", "message": "laissée en brouillon", "invoice_id": 2}
+    )
+    with cabinet_db() as db:
+        db.execute("delete from tarik_working where run_id = 'A'")  # run A ended: its claim released
+    pipeline.record_step(  # the same file sent again in another thread: run C took it up from its reading
+        "C", "other", "wait_until_read", {"status": "ok", "message": "lue par Experio", "invoice_id": 2}
+    )
+    told = pipeline.waiting_drafts("s", held=True, dossier_id=5, run_id="B")["message"]
+    assert "facture 2 (F-2) : en cours de traitement" in told and "laissée en brouillon" not in told
+
+
 @pytest.mark.functionality
 def test_posting_takes_the_conversations_own_held_drafts_first(db_cabinet, monkeypatch):
     monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])  # none in this dossier
