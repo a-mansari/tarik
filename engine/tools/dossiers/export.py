@@ -16,6 +16,7 @@ temporary record), so Tarik keeps it in the conversation's outbox (tarik_outbox)
 
 import base64
 import re
+from datetime import date
 from urllib.parse import unquote
 
 from engine.tools.core.app import ToolError, ok, question, step_tool, stop
@@ -42,18 +43,18 @@ SEPARATORS = {"virgule": ",", "point virgule": ";", "tabulation": "\t", ";": ";"
 
 def dates_named(words):
     """(from, to) the client's ``words`` name: « du 01/07/2026 au 30/09/2026 », « T3 2026 », « septembre 2026 »,
-    « 2026 »; (None, None) when they name none."""
+    « 2026 », « T3 » or « septembre » (this year's); (None, None) when they name none."""
     words = normalized(words or "")
     found = re.findall(r"(?<!\d)(\d{1,2}) (\d{1,2}) (20\d\d)(?!\d)", words)  # 01/07/2026, normalized
     if len(found) == 2:
         (d1, m1, y1), (d2, m2, y2) = found
         return f"{y1}-{int(m1):02d}-{int(d1):02d}", f"{y2}-{int(m2):02d}-{int(d2):02d}"
     year = re.search(r"(?<!\d)(20\d\d)(?!\d)", words)
-    if not year:
-        return None, None
-    year = int(year.group(1))
     quarter = re.search(r"(?<![a-z0-9])(?:t|q)([1-4])(?![0-9])|(?<!\d)([1-4]) ?(?:er|e|eme)? trimestre", words)
     month = next((n for n, name in enumerate(MONTHS, 1) if re.search(rf"(?<![a-z]){name}(?![a-z])", words)), None)
+    if not year and not (quarter or month):
+        return None, None
+    year = int(year.group(1)) if year else date.today().year  # « T3 », « septembre »: this year's
     if quarter:
         number = int(quarter.group(1) or quarter.group(2))
         first, last = 3 * number - 2, 3 * number
