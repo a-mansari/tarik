@@ -190,7 +190,7 @@ def summary(table, label):
     due = round(table["tva_due"] or 0, 2)
     owed = f"TVA à payer {due:.2f}" if due > 0 else f"crédit de TVA {abs(due):.2f}"
     return (
-        f"Déclaration de TVA {label} (n° {table['id']}, régime {table['regime']}) : {owed} ; TVA facturée "
+        f"Déclaration de TVA {label} (n° `{table['id']}`, régime {table['regime']}) : {owed} ; TVA facturée "
         f"{table['imposable_amount'] or 0:.2f}, TVA déductible {table['tax_purchase_amount'] or 0:.2f}, crédit "
         f"reporté {table['tva_en_rouge'] or 0:.2f}, chiffre d'affaires {table['ca_total'] or 0:.2f} ; "
         f"{table['count_imposable_ids']} ligne(s) de ventes, {table['count_deduction_ids']} de déductions."
@@ -224,14 +224,14 @@ def prepare_tva_declaration(
         company = odoo_call("res.company", "read", [dossier_id], fields=["declaration_mode", "regime_type"])[0]
         mode = company["declaration_mode"]
         if mode not in ("monthly", "quarterly"):
-            return stop(f"Le dossier {dossier} est hors champ de la TVA dans Experio : pas de déclaration à faire.")
+            return stop(f"Le dossier `{dossier}` est hors champ de la TVA dans Experio : pas de déclaration à faire.")
         today = date.today()
         number, year = period_named(mode, periode, today) or last_ended(mode, today)
         period = find_period(mode, number)
         label = f"{period['name']} {year}"
         table_id, made = declaration_of(dossier_id, period, year, company["regime_type"] or "encaissement", context)
         if table_id is None:
-            return ok(f"{TEST_MODE}La déclaration de TVA {label} du dossier {dossier} serait créée et préparée.")
+            return ok(f"{TEST_MODE}La déclaration de TVA {label} du dossier `{dossier}` serait créée et préparée.")
         table = read_table(table_id, context)
         if table["state"] == "done":
             return ok(f"Déjà déclarée dans Experio. {summary(table, label)}", declaration_id=table_id)
@@ -245,7 +245,7 @@ def prepare_tva_declaration(
         table = read_table(table_id, context)
         if first and given is None and not table["tva_en_rouge"]:
             return question(
-                f"Déclaration de TVA {label} du dossier {dossier} (n° {table_id}) : c'est sa première déclaration "
+                f"Déclaration de TVA {label} du dossier `{dossier}` (n° `{table_id}`) : c'est sa première déclaration "
                 "dans Experio. Quel crédit de TVA reste reporté de la période précédente (0 s'il n'y en a pas) ?",
                 declaration_id=table_id,
             )
@@ -302,7 +302,7 @@ def declare(table, label, text, client_confirmed, context):
         )
     done = read_table(table["id"], context)
     return ok(
-        f"Déclaration de TVA {label} déclarée dans Experio ({done['name']}), écritures de TVA passées. "
+        f"Déclaration de TVA {label} déclarée dans Experio (`{done['name']}`), écritures de TVA passées. "
         "Reste au cabinet : le dépôt sur le portail de la DGI (fichier XML de la déclaration).",
         declaration_id=table["id"],
     )

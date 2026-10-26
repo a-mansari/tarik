@@ -247,6 +247,7 @@ SECTIONS = {
     "question": "**Questions**",
 }
 SECTION_OF = {"ok": "done", "wait": "wait", "stop": "problem", "question": "question"}  # any other status: a problem
+CODE = re.compile(r"`([^`\n]+)`")  # a name as the client reads it apart (`ATLAS`): the emails' own mark
 QUESTION_MARK = "QUESTION : "  # what the agent recognizes a question by (its answer goes to Experio_repondre)
 
 
@@ -293,13 +294,23 @@ def joined(key, texts):
     return "; ".join(part.rstrip(". ") for part in parts) + "."
 
 
+def listed(texts):
+    """An invoice's (or file's) outcomes as the client reads them, in a glance: one line when there is one, else its
+    name (the « Facture N » or `file` they start with) on a line, then each outcome on its own line under it."""
+    head, sep, _ = texts[0].partition(" : ")
+    if len(texts) == 1 or not sep or not (head.lower().startswith("facture") or head.startswith("`")):
+        return [f"- {text}" for text in texts]
+    named = head.lower() + " : "
+    return [f"- {head} :"] + [f"  - {text[len(named) :] if text.lower().startswith(named) else text}" for text in texts]
+
+
 @tool
 def run_summary(run_id: str) -> dict:
     """What happened in one processing run, for the client, in sections: Fait, En attente, Doublons, À corriger,
-    Questions (empty ones left out). Each invoice (or file) is one line, in the section of where it stands (its
-    furthest outcome): its outcomes that say something (what was set or changed) joined when it is done, else only
-    what it waits on, the problem or the question. Routine ones (nothing to do, the expected setting) are left out; a
-    dossier's setup keeps one line per outcome."""
+    Questions (empty ones left out). Each invoice (or file) is in the section of where it stands (its furthest
+    outcome): its outcomes that say something (what was set or changed) when it is done, else only what it waits on,
+    the problem or the question; one line when there is one, else each on its own line under the invoice's name.
+    Routine ones (nothing to do, the expected setting) are left out; a dossier's setup keeps one line per outcome."""
     with cabinet_db() as db:
         rows = db.execute(
             Q.run_outcomes,
@@ -328,8 +339,9 @@ def note_in_history(rows):
         ]
         if not told:
             continue
-        # One line: Experio keeps a text body as one <span>, its line breaks unseen in the history.
-        body = "Tarik (traitement automatique) : " + joined(key, told)
+        # One line: Experio keeps a text body as one <span>, its line breaks unseen in the history. Its names in « »:
+        # the history shows no Markdown, a `name`'s backticks would stay raw.
+        body = "Tarik (traitement automatique) : " + CODE.sub(r"« \1 »", joined(key, told))
         try:
             odoo_json(
                 "exp.invoice", "message_post", [key], body=body, message_type="comment", subtype_xmlid="mail.mt_note"
@@ -360,14 +372,14 @@ def sections_of(outcomes):
         shown = [outcome for outcome in found if not outcome[3] or outcome is found[-1]]
         if key is None:  # a dossier's setup: each outcome in its own section, on its own line
             for step, status, message, _ in shown:
-                sections[section_of(step, status, message)].append(summary_text(key, step, status, message))
+                sections[section_of(step, status, message)].append("- " + summary_text(key, step, status, message))
             continue
         where = section_of(*found[-1][:3])
         texts = [summary_text(key, *outcome[:3]) for outcome in shown if section_of(*outcome[:3]) == where]
         # An invoice waits on one question, its latest (asked again in other words, it is still the one); a file may
         # wait on several different ones (how to cut it, which side): each is asked.
         if where != "question":
-            sections[where].append(joined(key, texts))
+            sections[where] += listed(texts)
         elif key > 0:
             sections[where] += texts[-1:]
         else:
@@ -381,10 +393,8 @@ def summary_sections(sections):
     for name, lines in sections.items():
         if not lines:
             continue
-        if name == "question":
-            items = [f"{i}. {line}" for i, line in enumerate(lines, start=1)]
-        else:
-            items = [f"- {line}" for line in lines]
+        # Questions numbered; the other lines are already listed (« - », an invoice's outcomes indented under it).
+        items = [f"{i}. {line}" for i, line in enumerate(lines, start=1)] if name == "question" else lines
         parts.append(SECTIONS[name] + "\n" + "\n".join(items))
     return "\n\n".join(parts)
 
@@ -1090,9 +1100,11 @@ def nothing_to_post(session_id, dossier_id):
         made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (ids,))}
         asked = dict(db.execute(Q.pending_of_invoices, (ids,)))
         outcomes = db.execute(Q.outcomes_of_invoices, (ids,)).fetchall()
-        working = {i for (i,) in db.execute(Q.invoices_worked_on, (ids,))}
-    rows = [(i, step, status) for i, step, status, _ in outcomes]
-    messages = {(i, step): message for i, step, _, message in outcomes}
+        working = dict(db.execute(Q.invoices_worked_on, (ids,)).fetchall())
+    # An invoice a run is at: only that run's outcomes, an earlier run's stop no longer says where it is.
+    outcomes = [row for row in outcomes if row[0] not in working or row[4] == working[row[0]]]
+    rows = [(i, step, status) for i, step, status, _, _ in outcomes]
+    messages = {(i, step): message for i, step, _, message, _ in outcomes}
     furthest = furthest_outcomes(rows)
     lines = []
     for draft in drafts:

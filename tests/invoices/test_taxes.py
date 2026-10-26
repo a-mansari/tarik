@@ -64,7 +64,7 @@ def test_a_missing_rate_gets_its_tax_on_the_dossiers_tva_account(experio):
     ]
     assert experio["listed"] == [4949, 4951, 5000]  # Configuration > General > Achats > Autres taxes
     assert notes == [
-        "taxe TVA 10% ACHATS créée (compte 34550000)",
+        "taxe `TVA 10% ACHATS` créée (compte `34550000`)",
         "taxe 10 % ajoutee aux taxes du dossier (Configuration > General)",
     ]
 
@@ -79,7 +79,7 @@ def test_a_rate_with_its_listed_tax_changes_nothing(experio):
 @pytest.mark.functionality
 def test_in_test_mode_nothing_is_created(experio):
     experio["dry"] = True
-    assert taxes.add_missing_taxes(272379, {}) == ["taxe TVA 10% ACHATS serait créée (compte 34550000)"]
+    assert taxes.add_missing_taxes(272379, {}) == ["taxe `TVA 10% ACHATS` serait créée (compte `34550000`)"]
     assert experio["created"] == []
 
 
@@ -215,7 +215,7 @@ def test_a_tax_the_cabinets_rights_keep_out_of_the_settings_is_left_to_the_cabin
         taxes, "odoo_call", lambda model, *a, **kw: 9 if model == "res.config.settings" else fake(model, *a, **kw)
     )
     assert taxes.add_missing_taxes(272379, {}) == [
-        "taxe TVA 10% ACHATS créée (compte 34550000)",
+        "taxe `TVA 10% ACHATS` créée (compte `34550000`)",
         "taxe 10 % a ajouter par le cabinet dans Configuration > General (autres taxes)",
     ]
     assert experio["listed"] == [4949, 4951]

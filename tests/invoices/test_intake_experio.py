@@ -174,7 +174,7 @@ def test_a_journal_without_bank_has_no_bank_code(monkeypatch):
 @pytest.mark.parametrize(
     ("journals", "said"),
     [
-        ([{"id": 5, "name": "BQ1", "bank_id": False}], "aucun journal de banque utilisable (BQ1 sans banque"),
+        ([{"id": 5, "name": "BQ1", "bank_id": False}], "aucun journal de banque utilisable (`BQ1` sans banque"),
         ([], "aucun journal de banque utilisable : a configurer"),
     ],
 )
@@ -268,7 +268,7 @@ def test_a_statement_of_a_bank_experio_cannot_read_is_not_imported(experio, monk
     experio.bank_code = "bti"
     monkeypatch.setattr(intake.tpe, "tpe_network", lambda raw, words: (False, None))
     answer = intake.import_bank_statement(saved("r.pdf", pdf(1), "statement"), 857)
-    assert answer["status"] == "stop" and "ne lit pas encore les relevés de BMCE" in answer["message"]
+    assert answer["status"] == "stop" and "ne lit pas encore les relevés de `BMCE" in answer["message"]
     assert not any(method == "create" for _, method, _, _ in experio.calls)
 
 

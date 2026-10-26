@@ -217,7 +217,7 @@ def test_the_stepper_is_walked_to_its_end_with_the_dossiers_journals_and_prefixe
 def test_a_finished_setup_says_how_many_lines_went_to_experio(stepper):
     answer = setup.finish_setup(557)
     assert answer["message"] == (
-        "Dossier Gecafisc : integration terminee (40 ligne(s) d'ecritures transmises au traitement d'Experio)."
+        "Dossier `Gecafisc` : integration terminee (40 ligne(s) d'ecritures transmises au traitement d'Experio)."
     )
     assert stepper[-1][0] == "complete_onboarding"
 
@@ -225,7 +225,7 @@ def test_a_finished_setup_says_how_many_lines_went_to_experio(stepper):
 @pytest.mark.communication
 def test_experio_refusing_to_finish_the_onboarding_gives_its_reason(stepper, monkeypatch):
     monkeypatch.setattr(setup, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("journal requis")))
-    with pytest.raises(ToolError, match=r"Gecafisc : Experio refuse de terminer l'integration \(journal requis\)"):
+    with pytest.raises(ToolError, match=r"`Gecafisc` : Experio refuse de terminer l'integration \(journal requis\)"):
         setup.finish_setup(557)
 
 
@@ -235,7 +235,7 @@ def test_in_test_mode_the_onboarding_is_only_said_finished(stepper, monkeypatch)
     monkeypatch.setattr(setup, "exercice_note", lambda dossier_id, dossier: "un exercice 2026 serait ouvert")
     answer = setup.finish_setup(557)
     assert answer["message"] == (
-        f"{TEST_MODE}Dossier Gecafisc : integration terminee (un exercice 2026 serait ouvert, stepper termine)."
+        f"{TEST_MODE}Dossier `Gecafisc` : integration terminee (un exercice 2026 serait ouvert, stepper termine)."
     )
     assert stepper == []
 
@@ -330,9 +330,10 @@ def test_the_state_tells_experios_errors_the_missing_settings_and_another_dossie
     monkeypatch.setattr(setup, "setup_facts", lambda dossier_id, context: facts)
     monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {"local_purchase_journal_id": "ACH"})
     assert setup.setup_status(557)["message"] == (
-        "Dossier Gecafisc : 4 comptes, 4 journaux, 4 taxes, 4 tiers ; ecritures importees : 5 traitees, 2 en erreur ; "
+        "Dossier `Gecafisc` : 4 comptes, 4 journaux, 4 taxes, 4 tiers ; "
+        "ecritures importees : 5 traitees, 2 en erreur ; "
         "erreurs signalees par Experio, a corriger dans le fichier puis a renvoyer : Compte inconnu (2 lignes) ; "
-        "exercices ouverts : 2025 (en cours) ; a parametrer avant de comptabiliser : journal de ventes ; "
+        "exercices ouverts : `2025` (en cours) ; a parametrer avant de comptabiliser : journal de ventes ; "
         "reglages sur les journaux d'un autre dossier (a creer ou importer) : journal d'achats ; "
         "integration pas encore terminee."
     )
@@ -343,7 +344,7 @@ def test_experio_not_giving_the_state_is_said(monkeypatch):
     monkeypatch.setattr(setup, "require_dossier", lambda dossier_id: "Gecafisc")
     monkeypatch.setattr(setup, "in_dossier", lambda dossier_id: {})
     monkeypatch.setattr(setup, "odoo_call", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("timeout")))
-    with pytest.raises(ToolError, match="Gecafisc : Experio n'a pas pu donner l'etat du parametrage"):
+    with pytest.raises(ToolError, match="`Gecafisc` : Experio n'a pas pu donner l'etat du parametrage"):
         setup.setup_status(557)
 
 

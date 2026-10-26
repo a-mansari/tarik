@@ -32,12 +32,12 @@ def amount(value):
 
 
 def line(invoice):
-    """One invoice of the list: "- facture 12 : F-001, ATLAS, 2026-03-15, 1 200.00 DH, brouillon"."""
+    """One invoice of the list: "- facture 12 : F-001, `ATLAS`, 2026-03-15, 1 200.00 DH, brouillon"."""
     tiers = without_if((invoice["partner_id"] or [0, "tiers inconnu"])[1])
     kind = "avoir" if invoice.get("refund") else "facture"
     shown = -invoice["amount_total"] if invoice.get("refund") else invoice["amount_total"]  # as Experio shows it
     return (
-        f"- {kind} {invoice['id']} : {invoice['invoice_number'] or 'sans numéro'}, {tiers}, "
+        f"- {kind} {invoice['id']} : {invoice['invoice_number'] or 'sans numéro'}, `{tiers}`, "
         f"{invoice['invoice_date'] or 'sans date'}, {amount(shown)} DH, {label(invoice)}"
     )
 
@@ -72,7 +72,7 @@ def list_invoices(dossier_id: int, status: str = "", limit: int = 20, side: str 
     side_words = SIDES[side][1] if side else ""
     what = " ".join(word for word in ("facture(s)", side_words, wanted) if word)
     if not found:
-        return ok(f"Aucune {what.replace('(s)', '')} dans le dossier {dossier}.")
+        return ok(f"Aucune {what.replace('(s)', '')} dans le dossier `{dossier}`.")
     lines = [line(invoice) for invoice in found]
     more = f" (les {len(found)} plus recentes)" if total > len(found) else ""
-    return ok(f"{total} {what} dans le dossier {dossier}{more} :\n" + "\n".join(lines))
+    return ok(f"{total} {what} dans le dossier `{dossier}`{more} :\n" + "\n".join(lines))

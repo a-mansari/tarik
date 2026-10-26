@@ -270,7 +270,9 @@ def without_accounts(monkeypatch):
 def test_an_operation_whose_account_the_dossier_lacks_stops_for_the_cabinet(experio, monkeypatch):
     without_accounts(monkeypatch)
     result = tpe.settle_tpe(460)
-    assert result["status"] == "stop" and "l'opération TPE FRAIS BANCAIRES ni son compte (61471)" in result["message"]
+    assert (
+        result["status"] == "stop" and "l'opération TPE `FRAIS BANCAIRES` ni son compte (`61471`)" in result["message"]
+    )
     assert experio["created"] == []
 
 
@@ -288,7 +290,7 @@ def test_the_client_named_at_settling_gets_the_sales_and_lines_left_are_said(exp
     experio["lines"].append(line(6, "TOTAL REMISE", credit=1.0, state="post"))
     experio["ignore_remise"] = True
     result = tpe.settle_tpe(460, "clients divers")
-    assert result["status"] == "ok" and "ventes rattachées au client CLIENTS DIVERS" in result["message"]
+    assert result["status"] == "ok" and "ventes rattachées au client `CLIENTS DIVERS`" in result["message"]
     assert "À compléter dans Experio : Compte manquant (1)" in result["message"]
     assert "1 déjà comptabilisée(s)" in result["message"] and "Ignorer la ligne de solde remise" in result["message"]
     assert not experio["lines"][5]["operation_id"]  # a posted line is never written

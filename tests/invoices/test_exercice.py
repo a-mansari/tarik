@@ -124,7 +124,7 @@ def test_experio_refusing_the_new_exercice_offers_the_open_ones_instead(experio,
     assert result["status"] == "question" and experio["written"] == []
     assert result["message"] == (
         "Facture 3 : Experio refuse de créer l'exercice 2023 (ValidationError: Chevauchement d'exercices). "
-        "La comptabiliser plutôt comme facture antérieure dans un exercice ouvert ? (Exercice 2024, Exercice 2025)"
+        "La comptabiliser plutôt comme facture antérieure dans un exercice ouvert ? (`Exercice 2024`, `Exercice 2025`)"
     )
 
 
@@ -140,7 +140,7 @@ def test_in_test_mode_no_exercice_is_created(experio):
 @pytest.mark.functionality
 def test_a_late_invoice_is_booked_by_experios_own_action_in_the_exercice_chosen(experio):
     result = exercice.settle_exercice(3, answer="dans 2025", decision="Exercice 2025")
-    assert result["message"] == "Facture 3 : facture antérieure dans l'exercice Exercice 2025."
+    assert result["message"] == "Facture 3 : facture antérieure dans l'exercice `Exercice 2025`."
     context = {"cron_fiscal_entry_id": 2, "allowed_company_ids": [5]}
     assert json_calls(experio) == [("action_activate_old_invoice", [3], context)]
 
@@ -157,7 +157,7 @@ def test_a_dossier_without_a_late_invoice_account_is_told_its_current_account_st
 def test_in_test_mode_the_late_invoice_is_only_said(experio):
     experio["dry"] = True
     result = exercice.settle_exercice(3, answer="2025", decision="Exercice 2025")
-    assert result["message"].startswith(f"{TEST_MODE}Facture 3 : facture antérieure dans l'exercice Exercice 2025")
+    assert result["message"].startswith(f"{TEST_MODE}Facture 3 : facture antérieure dans l'exercice `Exercice 2025`")
     assert json_calls(experio) == []
 
 
@@ -172,7 +172,7 @@ def test_experio_refusing_the_late_invoice_is_a_tool_error(experio):
 def test_without_an_answer_or_with_an_unclear_one_the_client_is_asked(experio):
     asked = exercice.settle_exercice(3)
     assert asked["status"] == "question"
-    assert "datée du 2023-06-10, en dehors des exercices ouverts (Exercice 2024, Exercice 2025)" in asked["message"]
+    assert "datée du 2023-06-10, en dehors des exercices ouverts (`Exercice 2024`, `Exercice 2025`)" in asked["message"]
     unclear = exercice.settle_exercice(3, answer="je ne sais pas", decision="")
     assert unclear["status"] == "question" and unclear["message"].startswith("Réponse non comprise. Facture 3 :")
     assert json_calls(experio) == [] and experio["written"] == []
@@ -196,7 +196,7 @@ def test_an_invoice_without_a_date_is_asked_it_then_the_date_given_is_saved(expe
         ({"invoice_date": "2025-03-15"}, {"allowed_company_ids": [5]}),
         ({"exercice_id": 2}, {"allowed_company_ids": [5]}),
     ]
-    assert result["message"] == "Facture 3 : rattachée à l'exercice Exercice 2025."
+    assert result["message"] == "Facture 3 : rattachée à l'exercice `Exercice 2025`."
 
 
 @pytest.mark.communication

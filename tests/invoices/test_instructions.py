@@ -81,4 +81,4 @@ def test_an_account_given_for_another_invoice_is_asked_to_be_confirmed_never_app
     monkeypatch.setattr(accounts, "apply_account", lambda *a: pytest.fail("never applied before the client confirms"))
     asked = accounts.set_account(272471, "61425000", confirm=True)
     assert asked["status"] == "question" and asked["choices"] == {9: "61425000 Transport"}
-    assert "je la passe en compte 61425000 Transport" in asked["message"] and asked["message"].endswith("oui / non")
+    assert "je la passe en compte `61425000 Transport`" in asked["message"] and asked["message"].endswith("oui / non")

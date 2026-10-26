@@ -238,8 +238,8 @@ def certificate_step(invoice, partner, answer):
     if sent or reading:
         what = f"l'attestation « {sent} »" if sent else "l'attestation envoyée"
         return wait(
-            f"Facture {invoice['id']} : {what} de {name} est en cours de lecture par Experio ; la retenue sera réglée "
-            "dès qu'elle est lue (reprise à votre prochain message)."
+            f"Facture {invoice['id']} : {what} de `{name}` est en cours de lecture par Experio ; la retenue sera "
+            "réglée dès qu'elle est lue (reprise à votre prochain message)."
         )
     if answer and any(said(words, normalized(answer)) for words in NO_CERTIFICATE):
         with cabinet_db() as db:
@@ -248,7 +248,7 @@ def certificate_step(invoice, partner, answer):
     why = f"L'attestation envoyée n'a pas été validée par Experio ({refused}). " if refused else ""
     activity = EXPENSE_LABEL.get(partner["expense_type"], "")
     return question(
-        f"Facture {invoice['id']} : {why}{'L' if why else 'l'}a RAS TVA de {name} ({activity}) dépend de son "
+        f"Facture {invoice['id']} : {why}{'L' if why else 'l'}a RAS TVA de `{name}` ({activity}) dépend de son "
         "attestation de "
         "régularité fiscale, que le dossier n'a pas (ou plus) en cours de validité. Envoyez-la en pièce jointe, ou "
         "répondez « sans attestation » (Experio retient alors la RAS TVA prévue sans attestation)."
@@ -284,7 +284,7 @@ def _local(invoice, partner, answer):
         return None, {**values, **read}
     if invoice["retenue"] or not account_code(invoice).startswith(LOCAL_RAS_ACCOUNTS):
         return None, values
-    return question(f"Facture de {tier} : {QUESTIONS['local']}"), None
+    return question(f"Facture de `{tier}` : {QUESTIONS['local']}"), None
 
 
 def _foreign(invoice, answer):
@@ -298,7 +298,7 @@ def _foreign(invoice, answer):
     values = _last_foreign_rule(invoice)
     if values:
         return None, values
-    return question(f"Facture de {invoice['partner_id'][1]} : {QUESTIONS['foreign']}"), None
+    return question(f"Facture de `{invoice['partner_id'][1]}` : {QUESTIONS['foreign']}"), None
 
 
 @step_tool

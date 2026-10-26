@@ -293,7 +293,7 @@ def test_a_foreign_suppliers_last_posted_rule_is_written_again(foreign):
 @pytest.mark.communication
 def test_a_foreign_supplier_with_no_known_rule_is_asked_and_its_answer_written(foreign, model):
     asked = withholding.settle_withholding(3)
-    assert asked["status"] == "question" and asked["message"].startswith("Facture de ACME LTD : quelle retenue")
+    assert asked["status"] == "question" and asked["message"].startswith("Facture de `ACME LTD` : quelle retenue")
     model[0].update(rule="maybe")
     unclear = withholding.settle_withholding(3, "on verra", answering=True)
     assert unclear["status"] == "question" and "réponse non comprise" in unclear["message"]

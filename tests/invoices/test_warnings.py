@@ -117,7 +117,7 @@ def test_a_sale_read_as_a_purchase_stops_and_another_buyer_is_asked_once(experio
     experio["invoice"].update(detected_supplier_ice=False, detected_customer_ice="009999")  # the buyer: another one
     experio["others"] = [{"name": "AUTRE SARL"}]
     asked = warnings.settle_warnings(3)
-    assert asked["status"] == "question" and "C'est l'ICE du dossier AUTRE SARL." in asked["message"]
+    assert asked["status"] == "question" and "C'est l'ICE du dossier `AUTRE SARL`." in asked["message"]
     experio["kept"] = True  # the client said it is for this dossier: dismissed, never asked again
     assert "gardée dans ce dossier" in warnings.settle_warnings(3)["message"]
     assert experio["dismissed"] == ["detected_ice_mismatch_with_company_record"]

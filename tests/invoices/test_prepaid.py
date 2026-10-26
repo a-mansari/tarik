@@ -118,7 +118,7 @@ def test_a_dossier_without_a_prepaid_journal_gets_its_general_one_set_and_said(e
     experio["prepaid_journal_id"], experio["journals"] = False, [{"id": 12, "name": "Opérations Divers"}]
     result = prepaid.settle_prepaid(3, "oui")
     assert experio["settings"] == [{"prepaid_journal_id": 12}] and len(experio["written"]) == 1
-    assert "journal Opérations Divers paramétré dans le dossier" in result["message"]
+    assert "journal `Opérations Divers` paramétré dans le dossier" in result["message"]
 
 
 @pytest.mark.functionality
@@ -127,7 +127,7 @@ def test_an_invoice_spread_before_its_journal_was_set_gets_it(experio):
     assert prepaid.settle_prepaid(3)["routine"]  # the dossier has one: nothing to say
     experio["prepaid_journal_id"], experio["journals"] = False, [{"id": 12, "name": "Opérations Divers"}]
     result = prepaid.settle_prepaid(3)
-    assert result["status"] == "ok" and "journal Opérations Divers paramétré" in result["message"]
+    assert result["status"] == "ok" and "journal `Opérations Divers` paramétré" in result["message"]
     assert experio["settings"] == [{"prepaid_journal_id": 12}] and experio["written"] == []
 
 

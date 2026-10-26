@@ -169,6 +169,17 @@ def test_numbered_questions_stay_numbered(monkeypatch):
     assert "<ol" in page and "<li>Facture 13 : quel compte ?</li></ol>" in page
 
 
+@pytest.mark.communication
+def test_an_invoice_s_outcomes_stay_listed_under_it(monkeypatch):
+    monkeypatch.setattr(sending, "cabinet_name", lambda: "")
+    text, page = render(
+        "**Fait**\n- Facture 21 :\n  - tiers `ATLAS`\n  - comptabilisée.\n- Facture 22 : comptabilisée."
+    )
+    assert "- Facture 21 :\n  - tiers « ATLAS »\n  - comptabilisée.\n- Facture 22 : comptabilisée." in text
+    assert "<li>Facture 21 :<ul" in page and "<li>comptabilisée.</li></ul></li><li>Facture 22" in page
+    assert "max-width:960px;min-width:320px" in page  # as wide as the window, within bounds
+
+
 @pytest.mark.functionality
 def test_the_files_tarik_made_go_with_the_email(monkeypatch):
     monkeypatch.setattr(sending, "cabinet_name", lambda: "")

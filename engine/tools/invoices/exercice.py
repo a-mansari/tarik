@@ -64,7 +64,7 @@ def open_exercice(company_id, year):
 
 def asked(invoice, opens):
     """The question: book ``invoice`` late in one of ``opens``, or a new exercice."""
-    names = [e["name"] for e in opens]
+    names = [f"`{e['name']}`" for e in opens]
     return (
         f"Elle est datée du {invoice['invoice_date']}, en dehors des exercices ouverts ({', '.join(names)}). "
         "Je la comptabilise dans un de ceux-là (comme facture antérieure, précisez lequel), ou je crée un nouvel "
@@ -76,13 +76,13 @@ def relink(invoice_id, invoice, exercice):
     """Link the invoice to ``exercice`` (the open one covering its date), when it isn't yet: ok."""
     linked = invoice["exercice_id"]
     if linked and linked[0] == exercice["id"]:
-        return routine(f"Facture {invoice_id} : exercice {exercice['name']}.")
+        return routine(f"Facture {invoice_id} : exercice `{exercice['name']}`.")
     # The exercice was created after the invoice: Experio's compute only reruns when the date changes.
     with refused(
         f"settle_exercice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu la rattacher à l'exercice."
     ):
         fill_invoice(invoice_id, {"exercice_id": exercice["id"]}, in_dossier(invoice["company_id"][0]))
-    return ok(f"{test_mode_note()}Facture {invoice_id} : rattachée à l'exercice {exercice['name']}.")
+    return ok(f"{test_mode_note()}Facture {invoice_id} : rattachée à l'exercice `{exercice['name']}`.")
 
 
 def book_late(invoice_id, company_id, exercice):
@@ -103,7 +103,7 @@ def book_late(invoice_id, company_id, exercice):
             # Experio keeps the real date, books it at the exercice's start, switches to the late-invoice account.
             context = {"cron_fiscal_entry_id": exercice["id"], **in_dossier(company_id)}
             odoo_json("exp.invoice", "action_activate_old_invoice", [invoice_id], context=context)
-    return ok(f"{head}Facture {invoice_id} : facture antérieure dans l'exercice {exercice['name']}.{warning}")
+    return ok(f"{head}Facture {invoice_id} : facture antérieure dans l'exercice `{exercice['name']}`.{warning}")
 
 
 def new_exercice(invoice_id, invoice, opens):
@@ -121,7 +121,7 @@ def new_exercice(invoice_id, invoice, opens):
         return question(
             f"Facture {invoice_id} : Experio refuse de créer l'exercice {year} ({experio_refusal(error)}). "
             f"La comptabiliser plutôt comme facture antérieure dans un exercice ouvert ? "
-            f"({', '.join(e['name'] for e in opens)})"
+            f"({', '.join(f'`{e["name"]}`' for e in opens)})"
         )
     return ok(f"Facture {invoice_id} : exercice {year} créé et ouvert, la facture y est rattachée.")
 

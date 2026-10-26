@@ -72,7 +72,7 @@ def test_a_proposed_tiers_is_named_by_its_id_or_its_name():
 def test_another_tiers_the_client_names_is_searched_or_linked_by_its_ice(chosen):
     assert chosen("001234567000089", "non, celui avec l'ICE 001234567000089") == 10  # an ICE names one tiers
     proposed = chosen("Nova Telecom", "non, c'est plutôt Nova Telecom")
-    assert "« Nova Telecom »" in proposed and "(id 9" in proposed and "(id 10" in proposed  # proposed, not picked
+    assert "« Nova Telecom »" in proposed and "(id `9`" in proposed and "(id `10`" in proposed  # proposed, not picked
     assert chosen("Beta Services", "c'est Beta Services") == "Beta Services"  # nothing like it: created as written
     assert "ne désigne pas" in chosen("009999999000011", "ICE 009999999000011")  # an unknown ICE creates nothing
 
@@ -121,7 +121,7 @@ def scanned(monkeypatch):
     monkeypatch.setattr(tiers, "side_of", lambda invoice: "purchase")
 
     def link(invoice, partner_id, kind):
-        return {"status": "ok", "message": f"fournisseur BETA SERVICES, id {partner_id}"}
+        return {"status": "ok", "message": f"fournisseur `BETA SERVICES`, id {partner_id}"}
 
     def odoo_call(model, method, values, **kw):
         calls.append((model, method, values))
@@ -153,7 +153,7 @@ def test_a_tiers_nothing_resembles_is_created_from_the_scan(scanned):
             },
         )
     ]
-    assert result["message"] == "fournisseur BETA SERVICES créé, id 55"
+    assert result["message"] == "fournisseur `BETA SERVICES` créé, id 55"
     invoice["supplier_name"], calls[:] = "Atlas Transports", []
     assert tiers.link_tiers(4)["status"] == "question" and not calls  # close names: asked, not created
 
@@ -199,7 +199,7 @@ def test_why_experio_refused_a_tiers_is_said(scanned, monkeypatch):
         raise xmlrpc.client.Fault(2, "Le nom du tiers est obligatoire")
 
     monkeypatch.setattr(tiers, "odoo_call", odoo_call)
-    with pytest.raises(ToolError, match=r"refusé le tiers BETA SERVICES \(.*Le nom du tiers est obligatoire"):
+    with pytest.raises(ToolError, match=r"refusé le tiers `BETA SERVICES` \(.*Le nom du tiers est obligatoire"):
         tiers.link_tiers(4)
 
 
@@ -254,7 +254,7 @@ def test_only_a_tiers_of_the_very_same_name_is_linked_and_the_client_told(scanne
     if linked is None:
         assert result["status"] == "question"
     else:
-        assert result["status"] == "ok" and f"(id {linked})" in result["message"]
+        assert result["status"] == "ok" and f"(id `{linked}`)" in result["message"]
         assert "même nom" in result["message"] and "BETA SERVICES SARL" in result["message"]  # the lookalike named
     assert calls == []
 
@@ -307,7 +307,7 @@ def test_a_tiers_is_put_through_experios_form_and_gets_the_compte_tiers_its_wiza
     from engine.tools.invoices import tiers
 
     result = tiers.link(linking["invoice"], 7, "purchase")
-    assert result == {"status": "ok", "message": "Facture 4 : fournisseur ATLAS, compte tiers 44110123 créé."}
+    assert result == {"status": "ok", "message": "Facture 4 : fournisseur `ATLAS`, compte tiers `44110123` créé."}
     assert linking["filled"] == [(4, {"partner_id": 7}, CONTEXT)]
     assert linking["calls"][0] == (
         "exp.partner",
@@ -329,7 +329,7 @@ def test_a_tiers_already_on_the_invoice_with_its_compte_tiers_writes_nothing(lin
         {"name": "ATLAS", "company_id": [778, "D"], "third_party_supplier_account": "44110007"}
     ]
     assert tiers.link(linking["invoice"], 7, "purchase")["message"] == (
-        "Facture 4 : fournisseur ATLAS, compte tiers 44110007."
+        "Facture 4 : fournisseur `ATLAS`, compte tiers `44110007`."
     )
     assert linking["filled"] == [] and linking["confirmed"] == [] and len(linking["calls"]) == 2
 
@@ -341,7 +341,7 @@ def test_a_dossier_numbering_no_compte_tiers_is_told_the_cabinet_assigns_it(link
     linking["answers"][("exp.invoice.partner.account.wizard", "read")] = lambda fields: [{"third_party_account": False}]
     linking["invoice"]["type"] = "sale"
     result = tiers.link(linking["invoice"], 7, "sale")
-    assert "client ATLAS, pas de Compte Tiers client : dans ce dossier le cabinet les attribue" in result["message"]
+    assert "client `ATLAS`, pas de Compte Tiers client : dans ce dossier le cabinet les attribue" in result["message"]
     assert linking["confirmed"] == []  # no code proposed: the wizard is never confirmed
 
 
@@ -366,7 +366,7 @@ def test_why_experio_refused_to_link_a_tiers_is_said(linking, monkeypatch):
         raise RuntimeError("Traceback\nValidationError: tiers archivé")
 
     monkeypatch.setattr(tiers, "fill_invoice", refuse)
-    with pytest.raises(ToolError, match=r"Facture 4 : Experio a refusé le tiers ATLAS \(.*tiers archivé\)"):
+    with pytest.raises(ToolError, match=r"Facture 4 : Experio a refusé le tiers `ATLAS` \(.*tiers archivé\)"):
         tiers.link(linking["invoice"], 7, "purchase")
     assert linking["confirmed"] == []
 
@@ -436,7 +436,7 @@ def test_a_customs_invoice_without_customs_tiers_goes_the_usual_way(scanned, mon
 
     invoice, calls = scanned
     invoice["import_invoice_type"] = "customs"
-    assert tiers.link_tiers(4)["message"] == "fournisseur BETA SERVICES créé, id 55"  # created from the scan
+    assert tiers.link_tiers(4)["message"] == "fournisseur `BETA SERVICES` créé, id 55"  # created from the scan
 
 
 @pytest.mark.functionality
@@ -500,7 +500,7 @@ def test_a_tiers_the_registry_refuses_even_unchecked_is_said_refused(scanned, mo
         raise xmlrpc.client.Fault(2, "Aucune donnée n'a pu être récupérée pour BETA SERVICES")
 
     monkeypatch.setattr(tiers, "odoo_call", odoo_call)
-    with pytest.raises(ToolError, match="refusé le tiers BETA SERVICES"):
+    with pytest.raises(ToolError, match="refusé le tiers `BETA SERVICES`"):
         tiers.create_tiers(invoice, "BETA SERVICES", "purchase", unchecked=True)
 
 
@@ -526,6 +526,6 @@ def test_a_name_only_the_check_read_is_linked_to_the_dossiers_tiers_of_that_very
     result = tiers.link_tiers(4)
     assert (
         result["status"] == "ok"
-        and "relié au tiers du dossier de même nom « NOVA TELECOM » (id 9)" in result["message"]
+        and "relié au tiers du dossier de même nom `NOVA TELECOM` (id `9`)" in result["message"]
     )
     assert calls == []

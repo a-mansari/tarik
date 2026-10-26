@@ -79,7 +79,7 @@ def header_columns(name, header):
     missing = [LABELS[key] for key in REQUIRED if key not in columns.values()]
     if missing:
         raise ToolError(
-            f"{name} : il manque des colonnes dans la premiere ligne : {', '.join(missing)}. "
+            f"`{name}` : il manque des colonnes dans la premiere ligne : {', '.join(missing)}. "
             "Les colonnes attendues sont : Nom, Type, ICE, IF, Mode de declaration (puis Pays, Ville, Code postal, "
             "RAS TVA, facultatives)."
         )
@@ -109,17 +109,17 @@ def read_rows(name, mime, data):
     ras_tva}] (the words as given kept under <key>_given). ToolError, in French, when it can't be read."""
     excel = name.lower().endswith((".xlsx", ".xlsm"))
     if not (excel or name.lower().endswith((".csv", ".txt")) or (mime or "").startswith("text/")):
-        raise ToolError(f"{name} : envoyez la liste des dossiers en Excel (.xlsx) ou en CSV.")
-    with refused(f"import_dossiers {name}", f"{name} : fichier illisible.", ToolError):
+        raise ToolError(f"`{name}` : envoyez la liste des dossiers en Excel (.xlsx) ou en CSV.")
+    with refused(f"import_dossiers {name}", f"`{name}` : fichier illisible.", ToolError):
         text = table_text(name, data)
     table = [row for row in csv.reader(io.StringIO(text), delimiter=separator_of(text)) if any(row)]
     if not table:
-        raise ToolError(f"{name} : le fichier est vide.")
+        raise ToolError(f"`{name}` : le fichier est vide.")
     header, body = table[0], table[1:]
     columns = header_columns(name, header)
     rows = [read_row(line, cells, columns) for line, cells in enumerate(body, start=2)]  # line 1 is the header
     if not rows:
-        raise ToolError(f"{name} : aucune ligne de dossier sous l'en-tete.")
+        raise ToolError(f"`{name}` : aucune ligne de dossier sous l'en-tete.")
     return rows
 
 
@@ -167,7 +167,7 @@ def problems_of(rows):
     problems, seen_names, seen_ices = [], {}, {}
     existing = {normalized(d["name"]): d["name"] for d in dossiers()}
     for row in rows:
-        where = f"Ligne {row['line']}" + (f" ({row['name']})" if row["name"] else "")
+        where = f"Ligne {row['line']}" + (f" (`{row['name']}`)" if row["name"] else "")
         if not row["name"]:
             problems.append(f"{where} : le nom est vide")
             continue
@@ -177,7 +177,7 @@ def problems_of(rows):
             problems.append(f"{where} : en double avec la ligne {seen_names[key]}")
         seen_names.setdefault(key, row["line"])
         if key in existing:
-            problems.append(f"{where} : le dossier {existing[key]} existe deja")
+            problems.append(f"{where} : le dossier `{existing[key]}` existe deja")
         if row["ice"] and row["ice"] not in PLACEHOLDER_IDS:
             if row["ice"] in seen_ices:
                 problems.append(f"{where} : meme ICE que la ligne {seen_ices[row['ice']]}")
@@ -185,7 +185,7 @@ def problems_of(rows):
         ids = real_ids((("ice", row["ice"]), ("vat", row["vat"])))
         same = having(ids) if ids else []
         if same:
-            problems.append(f"{where} : l'ICE ou l'IF est deja celui du dossier {same[0]['name']}")
+            problems.append(f"{where} : l'ICE ou l'IF est deja celui du dossier `{same[0]['name']}`")
     return problems
 
 
@@ -203,7 +203,7 @@ def row_recap(row):
         parts.append(place)
     if row["ras_tva"] is not None:
         parts.append("RAS TVA " + ("oui" if row["ras_tva"] else "non"))
-    return f"- {row['name']} : " + ", ".join(parts)
+    return f"- `{row['name']}` : " + ", ".join(parts)
 
 
 def values_of(row):
@@ -245,28 +245,28 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
         shown = "\n".join(f"- {p}" for p in problems[:MAX_SHOWN])
         more = f"\n- ... et {len(problems) - MAX_SHOWN} autre(s)" if len(problems) > MAX_SHOWN else ""
         return stop(
-            f"{name} : aucun dossier cree, le fichier a {len(problems)} probleme(s).\n{shown}{more}\n"
+            f"`{name}` : aucun dossier cree, le fichier a {len(problems)} probleme(s).\n{shown}{more}\n"
             "Corrigez-le (ou supprimez les lignes en double) et renvoyez-le."
         )
     if not confirmed(session_id, client_confirmed, "je les cree", name):
         listed = "\n".join(row_recap(r) for r in rows[:MAX_SHOWN])
         more = f"\n- ... et {len(rows) - MAX_SHOWN} autres" if len(rows) > MAX_SHOWN else ""
         return question(
-            f"{name} contient {len(rows)} dossier(s), tous corrects :\n{listed}{more}\nJe les cree ? oui / non"
+            f"`{name}` contient {len(rows)} dossier(s), tous corrects :\n{listed}{more}\nJe les cree ? oui / non"
         )
     if dry_run():
-        return ok(f"{TEST_MODE}{name} : {len(rows)} dossier(s) seraient crees.")
+        return ok(f"{TEST_MODE}`{name}` : {len(rows)} dossier(s) seraient crees.")
     created, refused_rows = [], []
     for r in rows:
         try:
             dossier_id = odoo_json("res.company", "create", values_of(r))
         except Exception as error:
-            refused_rows.append(f"- Ligne {r['line']} ({r['name']}) : {experio_refusal(error)}")
+            refused_rows.append(f"- Ligne {r['line']} (`{r['name']}`) : {experio_refusal(error)}")
             continue
         attach_user(None, dossier_id)
         created.append(r["name"])
     taken(file_id)
-    message = f"{name} : {len(created)} dossier(s) cree(s) sur {len(rows)}."
+    message = f"`{name}` : {len(created)} dossier(s) cree(s) sur {len(rows)}."
     if refused_rows:
         message += (
             "\nRefuses par Experio :\n" + "\n".join(refused_rows) + "\nCorrigez ces lignes et renvoyez-les seules."
@@ -295,13 +295,13 @@ def person_recap(label, dossier, given, chosen, existing):
     """What the client checks before the person is created (or, ``existing``, attached)."""
     if existing:
         return (
-            f"Le {label} {existing['name']} existe deja ({existing['login']}). Avant de le rattacher, verifiez :\n"
-            f"- Dossier : {dossier}\n- Profil : {chosen}"
+            f"Le {label} `{existing['name']}` existe deja (`{existing['login']}`). Avant de le rattacher, verifiez :\n"
+            f"- Dossier : `{dossier}`\n- Profil : `{chosen}`"
         )
     tel = f"- Telephone : {given['phone']}\n" if given.get("phone") else ""
     return (
-        f"Avant de creer ce {label}, verifiez ces informations :\n- Nom : {given['name']}\n"
-        f"- E-mail : {given['email']}\n{tel}- Profil : {chosen}\n- Dossier : {dossier}"
+        f"Avant de creer ce {label}, verifiez ces informations :\n- Nom : `{given['name']}`\n"
+        f"- E-mail : `{given['email']}`\n{tel}- Profil : `{chosen}`\n- Dossier : `{dossier}`"
     )
 
 
@@ -345,10 +345,10 @@ def create_person(
     if not given.get("email"):
         missing.append("son e-mail")
     if not chosen:
-        missing.append(f"son profil ({', '.join(known)})")
+        missing.append(f"son profil ({', '.join(f'`{p}`' for p in known)})")
     if missing:
         unread = f" ({', '.join(not_written)} : pas ecrit par le client)" if not_written else ""
-        return question(f"Pour creer ce {label} sur le dossier {dossier}, il me faut {' et '.join(missing)}.{unread}")
+        return question(f"Pour creer ce {label} sur le dossier `{dossier}`, il me faut {' et '.join(missing)}.{unread}")
     with refused(f"create_person {given['email']}", "Experio n'a pas pu verifier cet utilisateur."):
         existing = user_by_email(given["email"], employee_type)
     recap = person_recap(label, dossier, given, chosen, existing)
@@ -356,7 +356,8 @@ def create_person(
         return question(f"{recap}\nVous confirmez ? oui / non")
     if dry_run():
         return ok(
-            f"{TEST_MODE}{label.capitalize()} {given['name']} ({given['email']}) serait rattache au dossier {dossier}."
+            f"{TEST_MODE}{label.capitalize()} `{given['name']}` (`{given['email']}`) serait rattache au dossier "
+            f"`{dossier}`."
         )
     with refused(f"create_person {given['email']}", f"Experio refuse ce {label} : {{reason}}"):
         if existing:
@@ -374,7 +375,9 @@ def create_person(
             user_id = odoo_json("res.users", "create", values)
         attach_user(user_id, dossier_id, known[chosen], employee_type)
     made = "rattache" if existing else "cree et rattache"
-    return ok(f"{label.capitalize()} {given['name']} ({given['email']}) {made} au dossier {dossier}, profil {chosen}.")
+    return ok(
+        f"{label.capitalize()} `{given['name']}` (`{given['email']}`) {made} au dossier `{dossier}`, profil `{chosen}`."
+    )
 
 
 # --- Archiving a dossier ---
@@ -386,18 +389,20 @@ def archive_dossier(dossier_id: int, client_confirmed: bool = False, session_id:
     restorable from Experio (filtre Archives, Desarchiver). What it hides is read back first;
     archived once the client said yes (``client_confirmed``)."""
     dossier = require_dossier(dossier_id)
-    with refused(f"archive_dossier {dossier_id}", f"Dossier {dossier} : Experio n'a pas pu compter ses factures."):
+    with refused(f"archive_dossier {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu compter ses factures."):
         total = odoo_call("exp.invoice", "search_count", [("company_id", "=", dossier_id)])
         posted = odoo_call(
             "exp.invoice", "search_count", [("company_id", "=", dossier_id), ("state", "in", list(POSTED))]
         )
     if not confirmed(session_id, client_confirmed, "je l'archive", dossier):
         return question(
-            f"Je vais archiver le dossier {dossier} ({total} facture(s), dont {posted} comptabilisee(s)). "
+            f"Je vais archiver le dossier `{dossier}` ({total} facture(s), dont {posted} comptabilisee(s)). "
             "Il disparaitra des listes, rien n'est supprime et il pourra etre restaure. Je l'archive ? oui / non"
         )
     if dry_run():
-        return ok(f"{TEST_MODE}Le dossier {dossier} serait archive.")
-    with refused(f"archive_dossier {dossier_id}", f"Experio refuse d'archiver le dossier {dossier} : {{reason}}"):
+        return ok(f"{TEST_MODE}Le dossier `{dossier}` serait archive.")
+    with refused(f"archive_dossier {dossier_id}", f"Experio refuse d'archiver le dossier `{dossier}` : {{reason}}"):
         odoo_json("res.company", "action_archive_folder", [dossier_id])
-    return ok(f"Dossier {dossier} archive. Il peut etre restaure depuis Experio (filtre Archives, bouton Desarchiver).")
+    return ok(
+        f"Dossier `{dossier}` archive. Il peut etre restaure depuis Experio (filtre Archives, bouton Desarchiver)."
+    )

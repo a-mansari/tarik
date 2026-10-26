@@ -44,13 +44,16 @@ LIST_LINE = re.compile(rb'\(([^)]*)\) "[^"]*" "?([^"]+)"?$')
 PARAGRAPH = '<p style="margin:0 0 14px">{}</p>'
 LIST = '<ul style="margin:0 0 14px;padding-left:22px">{}</ul>'
 NUMBERED_LIST = '<ol style="margin:0 0 14px;padding-left:22px">{}</ol>'
+SUBLIST = '<ul style="margin:2px 0 0;padding-left:22px">{}</ul>'  # an item's own items, indented under it
 SIGNED = (
     '<p style="margin:22px 0 0;padding-top:12px;border-top:1px solid #dddddd;color:#555555">'
     "Cordialement,<br><br><strong>Tarik</strong><br>{}</p>"
 )
 PAGE = (
     '<!doctype html><html><body style="margin:0;padding:24px;background:#ffffff">'
-    '<div style="max-width:640px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222222">'
+    # As wide as the reader's window, up to 960px (longer lines read badly), never squeezed under 320px.
+    '<div style="max-width:960px;min-width:320px;font-family:Arial,Helvetica,sans-serif;font-size:14px;'
+    'line-height:1.5;color:#222222">'
     "{}{}</div></body></html>"
 )
 
@@ -135,7 +138,8 @@ def block_kind(line):
 
 def blocks(body):
     """The message as paragraphs and lists, cleaned of HTML tags and Markdown headings and rules:
-    [("p", [lines]) | ("ul", [items]) | ("ol", [items])]."""
+    [("p", [lines]) | ("ul", [items]) | ("ol", [items])], each item (text, [its own items]): a list item indented
+    under another is its own item (one level)."""
     found = []
     for line in strip_tags(body).replace("\r", "").split("\n"):
         line = HEADING.sub("", line).rstrip()
@@ -144,6 +148,12 @@ def blocks(body):
             continue
         kind = block_kind(line)
         text = BULLET.sub("", line) if kind != "p" else line.strip()
+        listing = found and found[-1] and found[-1][0] != "p"
+        if kind != "p" and listing and line[:2] == "  ":  # indented under the list's last item: its own item
+            found[-1][1][-1][1].append(text)
+            continue
+        if kind != "p":
+            text = (text, [])
         if found and found[-1] and found[-1][0] == kind:
             found[-1][1].append(text)
         else:
@@ -181,11 +191,14 @@ def inline_html(text):
 
 
 def plain_block(kind, lines):
-    """One block as plain text: a list's items with "- ", a numbered one's with their number."""
-    if kind == "ol":
-        return "\n".join(f"{i}. {inline_text(line)}" for i, line in enumerate(lines, 1))
-    if kind == "ul":
-        return "\n".join(f"- {inline_text(line)}" for line in lines)
+    """One block as plain text: a list's items with "- ", a numbered one's with their number, their own items
+    indented under them."""
+    if kind in ("ul", "ol"):
+        shown = []
+        for i, (text, subs) in enumerate(lines, 1):
+            shown.append(f"{f'{i}.' if kind == 'ol' else '-'} {inline_text(text)}")
+            shown += [f"  - {inline_text(sub)}" for sub in subs]
+        return "\n".join(shown)
     return "\n".join(inline_text(line) for line in lines)
 
 
@@ -193,8 +206,13 @@ def html_block(kind, lines):
     """One block as HTML: a list, or a paragraph with its lines broken."""
     if kind in ("ul", "ol"):
         frame = LIST if kind == "ul" else NUMBERED_LIST
-        return frame.format("".join(f"<li>{inline_html(item)}</li>" for item in lines))
+        return frame.format("".join(f"<li>{inline_html(text)}{sublist(subs)}</li>" for text, subs in lines))
     return PARAGRAPH.format("<br>".join(inline_html(line) for line in lines))
+
+
+def sublist(items):
+    """An item's own items as an HTML list under it, "" when it has none."""
+    return SUBLIST.format("".join(f"<li>{inline_html(item)}</li>" for item in items)) if items else ""
 
 
 def render(body):

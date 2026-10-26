@@ -116,11 +116,11 @@ def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
         raise ToolError("Le dossier modele doit etre un autre dossier.")
     if odoo_call("experio.history", "search_count", [("company_id", "=", dossier_id)]):
         raise ToolError(
-            f"Le dossier {dossier} a deja des ecritures importees : copier la configuration "
+            f"Le dossier `{dossier}` a deja des ecritures importees : copier la configuration "
             "effacerait les reglages qu'Experio en a tires."
         )
     if dry_run():
-        return ok(f"{TEST_MODE}La configuration du dossier {model} serait copiee dans {dossier}.")
+        return ok(f"{TEST_MODE}La configuration du dossier `{model}` serait copiee dans `{dossier}`.")
     parts = ("accounts", "taxes", "journals", "bank_operations", "monetary_operations", "configuration")
     wizard = {
         "source_company_id": model_dossier_id,
@@ -136,7 +136,7 @@ def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
         wizard_id = odoo_json("company.config.wizard", "create", wizard)
         odoo_json("company.config.wizard", "action_apply", [wizard_id])
     return ok(
-        f"Configuration du dossier {model} copiee dans {dossier} : plan comptable, taxes, journaux, "
+        f"Configuration du dossier `{model}` copiee dans `{dossier}` : plan comptable, taxes, journaux, "
         "operations bancaires et TPE, parametres."
     )
 
@@ -371,23 +371,23 @@ def errors_of(answer):
 
 def tested(file_id, name, label, arguments, context):
     """Experio's test of the import (execute_import's dry run): its answer; Refused when it finds errors."""
-    with refused(f"import_entries {file_id} test", f"{label} {name} refuse par Experio : {{reason}}", Refused):
+    with refused(f"import_entries {file_id} test", f"{label} `{name}` refuse par Experio : {{reason}}", Refused):
         test = odoo_json("base_import.import", "execute_import", *arguments, True, context=context)
     errors = errors_of(test)
     if errors:
         raise Refused(
-            f"{label} {name} refuse par le test Experio ({len(errors)} erreur(s)) : " + " | ".join(errors[:3])
+            f"{label} `{name}` refuse par le test Experio ({len(errors)} erreur(s)) : " + " | ".join(errors[:3])
         )
     return test
 
 
 def imported(file_id, name, label, arguments, context):
     """The import itself: Experio's answer; Refused when it reports errors."""
-    with refused(f"import_entries {file_id}", f"{label} {name} : Experio a refuse l'import ({{reason}}).", Refused):
+    with refused(f"import_entries {file_id}", f"{label} `{name}` : Experio a refuse l'import ({{reason}}).", Refused):
         result = odoo_json("base_import.import", "execute_import", *arguments, False, context=context)
     errors = errors_of(result)
     if errors:
-        raise Refused(f"{label} {name} refuse par Experio : " + " | ".join(errors[:3]))
+        raise Refused(f"{label} `{name}` refuse par Experio : " + " | ".join(errors[:3]))
     return result
 
 
@@ -408,7 +408,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     if twin:  # the very same file sent again: its lines would be imported twice
         taken(file_id)
         return stop(
-            f"`{name}` : deja importe dans le dossier {dossier} le {twin[1]:%d/%m/%Y} (`{twin[0]}`, meme contenu) : "
+            f"`{name}` : deja importe dans le dossier `{dossier}` le {twin[1]:%d/%m/%Y} (`{twin[0]}`, meme contenu) : "
             "rien n'est importe une seconde fois.",
             file_id=file_id,
         )
@@ -440,7 +440,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         if dry_run():
             lines = len(test.get("ids") or [])
             return ok(
-                f"{TEST_MODE}{label} {name} : test Experio reussi ({lines} lignes), rien n'est importe.",
+                f"{TEST_MODE}{label} `{name}` : test Experio reussi ({lines} lignes), rien n'est importe.",
                 file_id=file_id,
             )
         before = setup_counts(dossier_id, context) if target == "ecritures" else None
@@ -453,7 +453,7 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
     taken(file_id)
     setup_waits(dossier_id, file_id)
     return ok(
-        f"{label} {name} importe dans le dossier {dossier} : {len(result.get('ids') or [])} lignes.{made}",
+        f"{label} `{name}` importe dans le dossier `{dossier}` : {len(result.get('ids') or [])} lignes.{made}",
         file_id=file_id,
         target=target,
     )
@@ -498,16 +498,16 @@ def ask_banks(dossier_id: int) -> dict:
     asks (a FEC says nothing of it). One journal at a time: the question lists Experio's banks,
     the client's answer goes to set_journal_bank (answer_pending), then the next journal is asked."""
     dossier = require_dossier(dossier_id)
-    with refused(f"ask_banks {dossier_id}", f"Dossier {dossier} : Experio n'a pas pu lire les journaux de banque."):
+    with refused(f"ask_banks {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu lire les journaux de banque."):
         journals = bank_journals_without_bank(dossier_id)
         banks = odoo_call("res.bank", "search_read", [], fields=["name"], order="name") if journals else []
     if not journals:
-        return routine(f"Dossier {dossier} : chaque journal de banque a sa banque.")
+        return routine(f"Dossier `{dossier}` : chaque journal de banque a sa banque.")
     journal = journals[0]
-    listed = ", ".join(f"{bank['name']} (n° {bank['id']})" for bank in banks)
+    listed = ", ".join(f"`{bank['name']}` (n° `{bank['id']}`)" for bank in banks)
     others = f" ({len(journals) - 1} autre(s) journal(aux) a renseigner ensuite.)" if len(journals) > 1 else ""
     return question(
-        f"Dossier {dossier} : le journal {journal['name']} est a quelle banque ? {listed}.{others}",
+        f"Dossier `{dossier}` : le journal `{journal['name']}` est a quelle banque ? {listed}.{others}",
         choices={bank["id"]: bank["name"] for bank in banks},
         journal_id=journal["id"],
     )
@@ -518,11 +518,11 @@ def set_journal_bank(dossier_id, journal_id, bank_id):
     is one), as its form sets them; then the next journal's question (ask_banks)."""
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
-    with refused(f"set_journal_bank {journal_id}", f"Dossier {dossier} : Experio a refuse la banque du journal."):
+    with refused(f"set_journal_bank {journal_id}", f"Dossier `{dossier}` : Experio a refuse la banque du journal."):
         bank = odoo_call("res.bank", "read", [bank_id], fields=["name"])[0]
         journal = odoo_call("exp.journal", "read", [journal_id], fields=["name", "company_id", "partner_id"])[0]
         if journal["company_id"][0] != dossier_id:
-            raise ToolError(f"Le journal n° {journal_id} n'est pas un journal du dossier {dossier}.")
+            raise ToolError(f"Le journal n° `{journal_id}` n'est pas un journal du dossier `{dossier}`.")
         values = {"bank_id": bank_id}
         if not journal["partner_id"]:
             tiers = odoo_call(
@@ -537,7 +537,7 @@ def set_journal_bank(dossier_id, journal_id, bank_id):
         if not dry_run():
             odoo_call("exp.journal", "write", [journal_id], values, context=context)
     done = test_mode_note()
-    done += f"Dossier {dossier} : journal {journal['name']} a la banque {bank['name']}."
+    done += f"Dossier `{dossier}` : journal `{journal['name']}` a la banque `{bank['name']}`."
     following = ask_banks(dossier_id)
     if following["status"] == "question":
         return {**following, "message": f"{done} {following['message']}"}
@@ -574,7 +574,7 @@ def exercice_note(dossier_id, dossier):
     if dry_run():
         return f"un exercice {year} serait ouvert"
     with refused(
-        f"finish_setup {dossier_id}", f"Dossier {dossier} : Experio refuse d'ouvrir l'exercice {year} ({{reason}})."
+        f"finish_setup {dossier_id}", f"Dossier `{dossier}` : Experio refuse d'ouvrir l'exercice {year} ({{reason}})."
     ):
         open_exercice(dossier_id, year)
     return f"exercice {year} ouvert"
@@ -656,13 +656,15 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     fields = ["show_onboarding", *STEPPER_JOURNALS, *STEPPER_PREFIXES]
     company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
     if not company["show_onboarding"]:  # its lines still in Experio's processing keep it waiting (setup_status)
-        return routine(f"Dossier {dossier} : integration deja terminee, Experio traite les ecritures des leur import.")
+        return routine(
+            f"Dossier `{dossier}` : integration deja terminee, Experio traite les ecritures des leur import."
+        )
     if not finish and not entries_count(dossier_id, context):
         setup_waits(dossier_id)  # nothing to wait for: the client's next files, or their word
         missing = setup_missing(dossier_id, context)
         lacking = f" Il manque : {', '.join(missing)}." if missing else ""
         return ok(
-            f"Dossier {dossier} : integration en attente de vos fichiers.{lacking} Envoyez-les (plan comptable, "
+            f"Dossier `{dossier}` : integration en attente de vos fichiers.{lacking} Envoyez-les (plan comptable, "
             "journaux, fournisseurs, clients), ou dites que tout est envoye pour terminer l'integration."
         )
     notes = []
@@ -670,16 +672,16 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     if exercice:
         notes.append(exercice)
     if dry_run():
-        return ok(f"{TEST_MODE}Dossier {dossier} : integration terminee ({', '.join(notes + ['stepper termine'])}).")
+        return ok(f"{TEST_MODE}Dossier `{dossier}` : integration terminee ({', '.join(notes + ['stepper termine'])}).")
     pause = lines_ready_in(dossier_id, context)
     if seconds_left and pause > seconds_left - STEPPER_SECONDS:
         return wait(
-            f"Dossier {dossier} : Experio enregistre encore les ecritures importees ; son integration et l'etat "
+            f"Dossier `{dossier}` : Experio enregistre encore les ecritures importees ; son integration et l'etat "
             "du dossier suivront dans quelques minutes."
         )
     time.sleep(pause)
     with refused(
-        f"finish_setup {dossier_id}", f"Dossier {dossier} : Experio refuse de terminer l'integration ({{reason}})."
+        f"finish_setup {dossier_id}", f"Dossier `{dossier}` : Experio refuse de terminer l'integration ({{reason}})."
     ):
         complete_stepper(company, context)
     waiting = entries_count(dossier_id, context)
@@ -692,7 +694,7 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
             f"a regler : {foreign} sont ceux d'un autre dossier, creer ou importer les journaux du dossier "
             "(Configuration > Comptabilite > Journaux)"
         )
-    return ok(f"Dossier {dossier} : integration terminee ({', '.join(notes)}).")
+    return ok(f"Dossier `{dossier}` : integration terminee ({', '.join(notes)}).")
 
 
 # --- Where the setup stands ---
@@ -798,7 +800,9 @@ def setup_status(dossier_id: int) -> dict:
     """Where a dossier's setup stands: its imported entries by state, its exercices,
     and the settings Experio needs before an invoice can be posted."""
     dossier = require_dossier(dossier_id)
-    with refused(f"setup_status {dossier_id}", f"Dossier {dossier} : Experio n'a pas pu donner l'etat du parametrage."):
+    with refused(
+        f"setup_status {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner l'etat du parametrage."
+    ):
         resent = resend_stale(dossier_id, in_dossier(dossier_id))
         processed(dossier_id, in_dossier(dossier_id))
         company, states, reasons, exercices, counts = setup_facts(dossier_id, in_dossier(dossier_id))
@@ -815,7 +819,7 @@ def setup_status(dossier_id: int) -> dict:
         parts.append(
             "erreurs signalees par Experio, a corriger dans le fichier puis a renvoyer : " + error_reasons(reasons)
         )
-    opened = [e["name"] + (" (en cours)" if e["selected"] else "") for e in exercices if e["state"] == "open"]
+    opened = [f"`{e['name']}`" + (" (en cours)" if e["selected"] else "") for e in exercices if e["state"] == "open"]
     parts.append("exercices ouverts : " + (", ".join(opened) if opened else "aucun"))
     missing = [label for key, label in POSTING_SETTINGS.items() if not company[key]]
     if missing:
@@ -829,4 +833,4 @@ def setup_status(dossier_id: int) -> dict:
         parts.append("integration pas encore terminee")
     elif still:
         parts.append(f"{still} ligne(s) encore en traitement chez Experio : leur resultat suivra")
-    return ok(f"Dossier {dossier} : " + " ; ".join(parts) + ".")
+    return ok(f"Dossier `{dossier}` : " + " ; ".join(parts) + ".")

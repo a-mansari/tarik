@@ -88,7 +88,7 @@ def check_duplicate(invoice_id: int) -> dict:
         if invoice_id in (odoo_json("exp.invoice", "get_duplicated_invoice_ids", [invoice_id], context=context) or []):
             message = odoo_json("exp.invoice", "get_duplicated_invoice_msg", [invoice_id], context=context) or ""
             log(f"check_duplicate {invoice_id}: {plain(message)}")  # Experio's long wording: for the team
-            tier = invoice["partner_id"][1].split(" - ")[0] if invoice["partner_id"] else "client non renseigné"
+            tier = f"`{invoice['partner_id'][1].split(' - ')[0]}`" if invoice["partner_id"] else "client non renseigné"
             message = (
                 f"déjà enregistrée (n° {invoice['invoice_number']}, {tier}, {invoice['invoice_date'] or 'sans date'})"
             )

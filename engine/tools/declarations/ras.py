@@ -260,7 +260,7 @@ def prepare(kind, dossier_id, words, declarer, client_confirmed, context, sessio
     table["id"] = table_id
     lines = lines_of(kind, table_id, context)
     if table["state"] == "done":
-        return "ok", f"{label} (n° {table_id}) : déjà déclarée dans Experio. {totals(spec, lines)}", table_id
+        return "ok", f"{label} (n° `{table_id}`) : déjà déclarée dans Experio. {totals(spec, lines)}", table_id
     manual = sum(bool(line["added_manually"]) for line in lines)
     kept = ""
     if manual and kind in ("tva", "is", "ir"):  # Experio's refresh deletes them
@@ -268,7 +268,7 @@ def prepare(kind, dossier_id, words, declarer, client_confirmed, context, sessio
     elif not dry_run():
         refresh(kind, table_id, context)
         lines = lines_of(kind, table_id, context)
-    text = f"{label} (n° {table_id}{', créée' if made else ''}) : {totals(spec, lines)}{kept}"
+    text = f"{label} (n° `{table_id}`{', créée' if made else ''}) : {totals(spec, lines)}{kept}"
     full = sum(line["withholding_percentage"] == "100" for line in lines) if kind == "tva" else 0
     if full:
         text += f" {full} retenue(s) à 100 % : tiers sans attestation de régularité valide à la comptabilisation."
@@ -328,7 +328,7 @@ def prepare_ras_declaration(
         kinds = kinds_named(declarations, company)
         if not kinds:
             return stop(
-                f"Le dossier {dossier} ne déclare aucune RAS dans Experio (RAS TVA, IS et IR décochées) : dites "
+                f"Le dossier `{dossier}` ne déclare aucune RAS dans Experio (RAS TVA, IS et IR décochées) : dites "
                 "laquelle préparer (RAS TVA, IS, IR ou non-résidents)."
             )
         results = [

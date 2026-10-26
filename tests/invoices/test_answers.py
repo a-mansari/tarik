@@ -188,7 +188,7 @@ def test_the_date_the_client_gives_is_the_invoices(monkeypatch):
     monkeypatch.setattr(exercice, "fill_invoice", lambda invoice_id, values, context: written.append(values))
     monkeypatch.setattr(exercice, "test_mode_note", lambda: "")
     assert exercice.settle_exercice(7, "")["status"] == "question"
-    assert exercice.settle_exercice(7, "du 15/03/2026")["message"].endswith("rattachée à l'exercice Exercice 2026.")
+    assert exercice.settle_exercice(7, "du 15/03/2026")["message"].endswith("rattachée à l'exercice `Exercice 2026`.")
     assert written == [{"invoice_date": "2026-03-15"}, {"exercice_id": 5}]
 
 
@@ -425,6 +425,29 @@ def test_a_draft_another_run_is_working_on_is_said_in_progress(db_cabinet, monke
     )
     told = pipeline.waiting_drafts("s", held=True, dossier_id=5, run_id="B")["message"]
     assert "facture 2 (F-2) : en cours de traitement" in told and "brouillon 2 créé" not in told
+
+
+@pytest.mark.communication
+def test_an_earlier_runs_stop_is_not_said_of_a_draft_another_run_took_up_again(db_cabinet, monkeypatch):
+    drafts = [{"id": 2, "invoice_number": "F-2"}]
+    monkeypatch.setattr(
+        pipeline, "odoo_call", lambda model, method, domain, **kw: drafts if method == "search_read" else []
+    )
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
+            "('s', 'b.pdf', 'application/pdf', '', 2)"
+        )
+    pipeline.record_step(  # an earlier run held it at its draft, furthest in the sequence
+        "A", "s", "hold_posting", {"status": "stop", "message": "laissée en brouillon", "invoice_id": 2}
+    )
+    with cabinet_db() as db:
+        db.execute("delete from tarik_working where run_id = 'A'")  # run A ended: its claim released
+    pipeline.record_step(  # the same file sent again in another thread: run C took it up from its reading
+        "C", "other", "wait_until_read", {"status": "ok", "message": "lue par Experio", "invoice_id": 2}
+    )
+    told = pipeline.waiting_drafts("s", held=True, dossier_id=5, run_id="B")["message"]
+    assert "facture 2 (F-2) : en cours de traitement" in told and "laissée en brouillon" not in told
 
 
 @pytest.mark.functionality

@@ -105,7 +105,7 @@ def test_the_tax_lines_experio_rebuilt_are_read_back_untaxed_ones_only(monkeypat
 
     state = {"ids": [41, 42, 43]}
     monkeypatch.setattr(tva, "odoo_call", odoo_call)
-    assert tva._tax_lines(3, {}) == ["500.0 HT à 20.0 % (TVA 20% ACHATS)", "30.0 HT à 0.0 % (sans taxe)"]
+    assert tva._tax_lines(3, {}) == ["500.0 HT à 20.0 % (`TVA 20% ACHATS`)", "30.0 HT à 0.0 % (sans taxe)"]
     calls.clear()
     state["ids"] = []  # no TVA line yet: nothing more read
     assert tva._tax_lines(3, {}) == [] and calls == ["exp.invoice"]
