@@ -1,13 +1,14 @@
-"""Tarik's mailbox over IMAP, read without changing it (folder opened read-only, bodies
-fetched with BODY.PEEK): no flag is set, nothing is moved. The one thing Tarik adds is a
-copy of each email it sends, in the Sent folder (engine.tools.emails.sending.save_sent). What Tarik did with each email
-is tracked in Postgres instead, thread by thread, so an email someone already read in the
-mailbox is still answered, and a thread waiting for the client comes back when they reply.
+"""Read Tarik's mailbox over IMAP without changing it, and track in Postgres what Tarik did with each email.
 
-Only the cabinet's collaborators and Experio's own staff are answered, and only if the whitelist
-(MAIL_ALLOWED_RECIPIENTS) lets Tarik write to them: any other email is set aside unread by
-Tarik, so it creates nothing in Experio.
-"""
+The folder is opened read-only and bodies are fetched with BODY.PEEK, so no flag is set and nothing is moved. The
+only thing Tarik adds to the mailbox is a copy of each email it sends, in the Sent folder
+(engine.tools.emails.sending.save_sent). Progress is tracked thread by thread in Postgres, so an email someone
+already opened in the mailbox is still answered, and a thread waiting for the client comes back when the client
+replies.
+
+Tarik answers only the cabinet's collaborators and Experio's own staff, and only when the whitelist
+(MAIL_ALLOWED_RECIPIENTS) lets Tarik write to them. Any other email is set aside without being read by the agent, so
+it creates nothing in Experio."""
 
 import contextlib
 import hashlib
@@ -55,7 +56,7 @@ IMAGE_MARK = re.compile(r"\[(?:image|cid:[^\]\n]*|[^\]\n]*\.(?:png|jpe?g|gif|bmp
 
 
 def without_images(text):
-    """``text`` without its inline images' marks (IMAGE_MARK), each line's spaces they leave trimmed."""
+    """Return ``text`` without its inline image marks (IMAGE_MARK), each line's leftover spaces trimmed."""
     return "\n".join(IMAGE_MARK.sub("", line).strip() for line in text.splitlines())
 
 
@@ -64,20 +65,20 @@ MESSAGE_ID = re.compile(r"<[^>]+>")  # one <message id> in In-Reply-To or Refere
 
 
 def folder():
-    """The current cabinet's mailbox folder (IMAP_FOLDER)."""
+    """Return the current cabinet's mailbox folder (IMAP_FOLDER, default INBOX)."""
     return setting("IMAP_FOLDER", "INBOX")
 
 
 @contextlib.contextmanager
 def connect():
-    """The folder, opened read-only, on the pinned (or verified) certificate; closed on the way out."""
+    """Context manager: yield the IMAP session with the cabinet's folder opened read-only (see imap_session)."""
     with imap_session() as box:
         box.select(f'"{folder()}"', readonly=True)
         yield box
 
 
 def body_text(message):
-    """The email's body as text: its plain text, or its HTML without its tags ("" without either)."""
+    """Return the email's body as text: its plain-text part, else its HTML part without tags; "" when it has neither."""
     part = message.get_body(preferencelist=("plain", "html"))
     if not part:
         return ""
@@ -88,7 +89,11 @@ def body_text(message):
 
 
 def unquoted_lines(text):
-    """The lines of ``text`` that are not quoted history: no « > » line, nothing after an unmarked earlier email."""
+    """Return the lines of ``text`` that are not quoted history.
+
+    Lines starting with « > » are dropped. A quote header (QUOTE_START) followed by « > » lines is skipped, since the
+    client may answer below or between the quoted lines; a quote header followed by unmarked text (Outlook) ends the
+    client's part: nothing after it is kept."""
     lines, all_lines = [], text.splitlines()
     for at, line in enumerate(all_lines):
         if QUOTE_START.match(line):
@@ -102,8 +107,10 @@ def unquoted_lines(text):
 
 
 def client_text(message):
-    """The client's own words: the plain text (or the HTML without its tags), the quoted history and the inline
-    images' marks cut off. What they write below a « > » quote, or between its lines, is theirs too."""
+    """Return the client's own words in ``message``, at most 4000 characters.
+
+    Uses the plain text (or the HTML without tags), with the quoted history and inline image marks removed. Text the
+    client writes below a « > » quote, or between its lines, is kept."""
     lines = unquoted_lines(body_text(message))
     return BLANK_LINES.sub("\n\n", without_images("\n".join(lines))).strip()[:4000]
 
@@ -112,7 +119,7 @@ SIGNATURE_LINES = 3  # a shorter block two emails end with is more likely the cl
 
 
 def same_ending(lines, theirs):
-    """How many lines ``lines`` and ``theirs`` end with alike (spaces aside)."""
+    """Return how many trailing lines ``lines`` and ``theirs`` (lists of str) share, ignoring surrounding spaces."""
     same = 0
     while same < min(len(lines), len(theirs)) and lines[-1 - same].strip() == theirs[-1 - same].strip():
         same += 1
@@ -120,8 +127,11 @@ def same_ending(lines, theirs):
 
 
 def without_signature(text, earlier):
-    """``text`` without the lines it ends with that one of the sender's ``earlier`` emails ends with too: their
-    signature (name, title, phone, links), at least SIGNATURE_LINES non-empty lines; never the whole text."""
+    """Return ``text`` without the signature it shares with one of the sender's ``earlier`` emails (list of str).
+
+    The signature is the longest run of trailing lines that ``text`` and an earlier email have in common (name,
+    title, phone, links). It is cut only when it holds at least SIGNATURE_LINES non-empty lines and leaves some text;
+    otherwise ``text`` is returned unchanged. An earlier email identical to ``text`` is ignored."""
     lines = text.splitlines()
     shared = 0
     for other in earlier:
@@ -136,9 +146,13 @@ def without_signature(text, earlier):
 
 
 def attachments(message):
-    """The files the client sent, as ([(name, mime type, bytes)], what a zip of theirs left out and why): an invoice, a
-    statement, a FEC; a zip replaced by the files in it (engine.tools.core.archives). Inline images (signature logos)
-    and unnamed parts are left out, unsaid: never the client's; a named file of another type is said."""
+    """Return the files the client sent in ``message``, as (files, skipped).
+
+    Returns:
+        files: [(name, mime type, bytes)] for supported types (FILE_TYPES: invoices, statements, FEC...); each zip is
+            replaced by the files inside it (engine.tools.core.archives.unpacked).
+        skipped: messages (str) for a named file of an unsupported type, and for what a zip left out and why.
+    Inline images (signature logos) and unnamed parts are dropped silently: they are never the client's files."""
     found, other = [], []
     for part in message.iter_attachments():
         name = part.get_filename() or ""
@@ -154,7 +168,8 @@ def attachments(message):
 
 
 def automatic(message):
-    """Out-of-office replies, bounces and mailing lists: never answered (a reply loop otherwise)."""
+    """True when ``message`` is an out-of-office reply, a bounce or a mailing-list email: never answered, to avoid reply
+    loops."""
     sender = parseaddr(message.get("From", ""))[1].lower()
     return (
         message.get("Auto-Submitted", "no").lower() != "no"
@@ -165,18 +180,24 @@ def automatic(message):
 
 
 def without_nul(text):
-    """``text`` without NUL characters: Postgres text never holds one, and one in an email would stop every reading
-    at it."""
+    """Return ``text`` without NUL characters: Postgres text cannot hold one."""
     return text.replace("\x00", "")
 
 
 class UnreadableEmail(Exception):
-    """An email Python can't read (an unknown charset, a broken header): skipped, never tried again."""
+    """Raised when Python cannot read an email (unknown charset, broken header): it is skipped and never tried again."""
 
 
 def read_email(message_id, message):
-    """What ``message`` holds: (sender, reply_to, subject, linked message ids, text, files, what its zips left out,
-    automatic?). UnreadableEmail when Python can't read it."""
+    """Return what ``message`` holds, as (sender, reply_to, subject, linked, text, files, skipped, auto).
+
+    Returns:
+        sender, reply_to: lowercased bare addresses; reply_to is the sender when there is no Reply-To.
+        linked: the message ids named in In-Reply-To and References.
+        text: the client's own words (client_text); files and skipped: as attachments returns them.
+        auto: True for an automatic email (automatic).
+    Raises:
+        UnreadableEmail: anything in the email Python cannot read (``message_id`` names it in the error)."""
     try:
         sender = parseaddr(message.get("From", ""))[1].lower()
         reply_to = parseaddr(message.get("Reply-To", ""))[1].lower() or sender
@@ -194,8 +215,11 @@ def read_email(message_id, message):
 
 
 def refusal(sender, auto):
-    """Why an email from ``sender`` is not for Tarik, and why the manager must hear of it: (reason, unauthorized),
-    each None when it does not apply."""
+    """Return why an email from ``sender`` is not for Tarik, as (reason, unauthorized).
+
+    reason is set whenever Tarik must not answer; unauthorized is set too when the cabinet's manager must be told (a
+    sender off the whitelist, or neither a cabinet collaborator nor Experio staff). Both are None when the sender may
+    use Tarik; an automatic email (``auto``) gives a reason only."""
     if auto:
         return "reponse automatique ou liste de diffusion", None
     if not recipient_allowed(sender):
@@ -207,8 +231,12 @@ def refusal(sender, auto):
 
 
 def thread_of(db, linked, sender, subject, reason, message_id):
-    """The id of the sender's thread the email belongs to (one of ``linked`` is in it); a new thread, ignored
-    when there is a ``reason``, otherwise. A thread the client wrote again in goes back to Tarik."""
+    """Return the id of the sender's thread this email belongs to, creating the thread when needed.
+
+    The thread is the sender's one that holds one of the ``linked`` message ids (one of their emails, or one Tarik
+    sent). When none does, a new thread is created with ``message_id`` as its id, in state "ignored" when there is a
+    refusal ``reason``, else "new". An existing thread the client writes in again without a ``reason`` goes back to
+    "new" for Tarik."""
     row = db.execute(
         Q.thread_of_linked_message,
         {"linked": linked, "sender": sender},
@@ -231,17 +259,21 @@ def thread_of(db, linked, sender, subject, reason, message_id):
 
 
 def own_addresses():
-    """Tarik's own addresses (SMTP_FROM, SMTP_USER, IMAP_USER), lowercased."""
+    """Return Tarik's own addresses (SMTP_FROM, SMTP_USER, IMAP_USER), lowercased, as a set."""
     own = (parseaddr(setting("SMTP_FROM", ""))[1], setting("SMTP_USER", ""), setting("IMAP_USER", ""))
     return {address.lower() for address in own if address}
 
 
 def store(db, uid, message):
-    """Record one email in its sender's thread (found by In-Reply-To and References), with its files.
-    Who wrote is the From address alone: Reply-To is only where the reply may go. A reply from someone
-    else in a thread (a colleague in copy) starts that person's own thread, with their own rights; a
-    refused one is kept aside and leaves the thread alone. Returns what the cabinet's manager must hear
-    of when the sender may not use Tarik, else None."""
+    """Store one email (``message``, IMAP ``uid``) in its sender's thread, with its files, and return an alert or None.
+
+    The thread is found by In-Reply-To and References (thread_of). The sender is the From address alone: Reply-To
+    only says where the reply goes. A reply from someone else in a thread (a colleague in copy) starts that person's
+    own thread, with their own rights. A refused email is stored marked as ignored, and its files are not stored.
+    Emails already stored, and Tarik's own sent copies, are skipped.
+
+    Returns {"sender", "subject", "reason"} when the cabinet's manager must be told the sender may not use Tarik,
+    else None."""
     message_id = (message.get("Message-ID") or f"<uid-{uid}@{folder()}>").strip()
     if db.execute(Q.mail_message_exists, (message_id,)).fetchone():
         return
@@ -276,8 +308,11 @@ def store(db, uid, message):
 
 
 def unanswered_text(messages, theirs):
-    """The client's unanswered ``messages`` as one message, each without the signature their other emails
-    (``theirs``) end with too; "(pas de texte)" when none has text."""
+    """Return the client's unanswered ``messages`` joined into one text, each without its signature.
+
+    ``messages`` is rows of (message_id, body, skipped); ``theirs`` is rows of (message_id, body) for all the
+    sender's emails, used to find the signature (without_signature). Returns "(pas de texte)" when no message has
+    text."""
     bodies = []
     for message_id, body, _ in messages:
         if body:
@@ -287,9 +322,13 @@ def unanswered_text(messages, theirs):
 
 
 def thread_item(db, thread_id, session_id, address, subject):
-    """A claimed thread as the workflow works on it (dict): where the reply goes, its subject, the client's
-    unanswered emails as one message, the files waiting, and what the reply answers (the thread's last email).
-    With no unanswered email, it is a follow-up: Tarik takes up the drafts Experio was reading."""
+    """Return a claimed thread as the workflow works on it (dict).
+
+    Keys: thread_id, session_id; to (the Reply-To when whitelisted, else ``address``); subject (with « Re: »);
+    message (the client's unanswered emails as one text); files (names of the conversation's files not taken yet);
+    skipped (what the zips left out); message_ids (the unanswered emails); follow_up (True when there is no
+    unanswered email: Tarik takes up the drafts Experio was reading); in_reply_to and references (from the thread's
+    last email, for the reply's headers)."""
     messages = db.execute(
         Q.unhandled_messages_of_thread,
         (thread_id,),
@@ -324,8 +363,10 @@ def thread_item(db, thread_id, session_id, address, subject):
 
 
 def claim(db):
-    """The threads with emails Tarik hasn't answered (list of thread_item), locked for this run; after 3 failed
-    runs, set aside."""
+    """Lock for this run the threads Tarik must answer and return them (list of thread_item dicts).
+
+    First sets aside in error the threads whose runs failed MAX_ATTEMPTS times. Claims new threads, threads whose run
+    died (lease of LEASE_MINUTES over) and follow-up threads that are ready (follow_ups_ready)."""
     db.execute(
         Q.set_aside_failed_threads,
         (f"traitement echoue {MAX_ATTEMPTS} fois", MAX_ATTEMPTS, LEASE_MINUTES),
@@ -339,7 +380,8 @@ def claim(db):
 
 
 def drafts_to_resume(session_id):
-    """The conversation's drafts to take up again (invoice ids); none when Experio can't be asked (logged)."""
+    """Return the invoice ids of the conversation's drafts to take up again; [] when Experio cannot be reached (logged).
+    Return the invoice ids of the conversation's drafts to take up again; [] when Experio cannot be reached (logged)."""
     try:
         return waiting_drafts(session_id)["invoices"]
     except Exception as error:
@@ -348,9 +390,12 @@ def drafts_to_resume(session_id):
 
 
 def follow_ups_ready(db):
-    """The follow-up threads to take now (thread ids): a dossier to finish, Experio has read every draft their
-    conversation waits on, or their time is up. One with nothing left (drafts posted or deleted in Experio
-    meanwhile) is done."""
+    """Return the ids of the follow-up threads to take now.
+
+    A thread is ready when it has a dossier to finish, when Experio has finished reading every draft its conversation
+    waits on (bluejay_state no longer in READING), or when its follow-up time is up. A thread with no draft left
+    (posted or deleted in Experio meanwhile) is marked done. When Experio cannot be reached, the thread is checked
+    again at the next tick."""
     ready = []
     for thread_id, session_id, over in db.execute(Q.follow_up_threads).fetchall():
         if waiting_setups(session_id)["dossiers"]:  # Experio's wait on its lines is over by the next tick
@@ -374,8 +419,10 @@ def follow_ups_ready(db):
 
 
 def last_read(db, uidvalidity, newest):
-    """The uid of the last email read in the folder, or None on a first reading (or a folder rebuilt, its
-    ``uidvalidity`` changed): then the folder's ``newest`` uid is noted, and earlier emails are left alone."""
+    """Return the uid of the last email read in the folder, or None on a first reading.
+
+    A first reading, or a rebuilt folder (``uidvalidity`` changed), records ``newest`` (the folder's newest uid) as
+    read and returns None, so earlier emails are left alone."""
     state = db.execute(Q.mail_folder_state, (folder(),)).fetchone()
     if state and state[0] == uidvalidity:
         return state[1]
@@ -387,21 +434,24 @@ def last_read(db, uidvalidity, newest):
 
 
 def uids_after(box, last):
-    """The folder's uids after ``last``, in order."""
+    """Return the folder's uids greater than ``last``, sorted."""
     found = box.uid("search", None, f"UID {last + 1}:*")[1][0]  # (status, [b"uid uid ..."])
     uids = [int(uid) for uid in found.split()]
     return sorted(uid for uid in uids if uid > last)  # "n:*" also returns the last email when there's nothing new
 
 
 def fetched(box, uid):
-    """Email ``uid``'s raw bytes, read without marking it read; None when the server gave none."""
+    """Return email ``uid``'s raw bytes, fetched without marking it read; None when the server returned none."""
     data = box.uid("fetch", str(uid), "(BODY.PEEK[])")[1]  # (status, data): the email is the tuple in data
     return next((part[1] for part in data if isinstance(part, tuple)), None)
 
 
 def store_new(box, db, last):
-    """Store each email after uid ``last``, each committed before the next; returns the manager's alerts. An
-    unreadable email is skipped for good; any other failure stops here, for the next reading to go on."""
+    """Store each email after uid ``last``, committing each before the next, and return the manager alerts (list of
+    store results).
+
+    An unreadable email is skipped for good. Any other failure (Experio or the database out) stops the loop: that
+    email and the following ones are read at the next reading."""
     alerts = []
     for uid in uids_after(box, last):
         try:
@@ -422,15 +472,16 @@ def store_new(box, db, last):
 
 
 def folder_number(box, code):
-    """The number the server gave for ``code`` (UIDVALIDITY, UIDNEXT) when the folder was opened."""
+    """Return the number the server sent for ``code`` (UIDVALIDITY, UIDNEXT) when the folder was opened."""
     return int(box.response(code)[1][0])  # (code, [b"number"])
 
 
 def read_mailbox():
-    """Store the mailbox's new emails in their threads (without changing anything there), and return
-    what the cabinet's manager must hear of: the refused senders. Run by the mail watcher (engine/mail.py), never by a
-    workflow: however many emails wait, no run waits on it. The first reading only notes where the mailbox
-    stands: earlier emails are left alone."""
+    """Store the mailbox's new emails in their threads without changing the mailbox, and return the manager alerts.
+
+    Returns the list of alerts for refused senders (see store); [] on a first reading, which only records where the
+    mailbox stands, and [] when another reading of this cabinet holds the lock. Run by the mail watcher
+    (engine/mail.py), never by a workflow, so no run waits on it."""
     with connect() as box, cabinet_db() as db:
         uidvalidity = folder_number(box, "UIDVALIDITY")
         newest = folder_number(box, "UIDNEXT") - 1
@@ -442,14 +493,14 @@ def read_mailbox():
 
 
 def threads_waiting():
-    """Is a thread waiting for Tarik's answer, so that "Tarik - Emails" has work?"""
+    """True when a thread waits for Tarik's answer or a follow-up is ready, so "Tarik - Emails" has work."""
     with cabinet_db() as db:
         waiting = db.execute(Q.any_thread_waiting, (LEASE_MINUTES,)).fetchone()
         return waiting is not None or bool(follow_ups_ready(db))
 
 
 def set_aside(db, thread_id, state, reason):
-    """Unlock thread ``thread_id`` in ``state`` ('ignored' or 'error'), with ``reason`` (str, cut to 300)."""
+    """Unlock thread ``thread_id`` in ``state`` ("ignored" or "error"), with ``reason`` (cut to 300 characters)."""
     db.execute(
         Q.set_aside_thread,
         (state, reason[:300], thread_id),
@@ -458,8 +509,10 @@ def set_aside(db, thread_id, state, reason):
 
 @tool
 def acknowledge_thread(thread_id: str) -> dict:
-    """Tell the client their new thread was received, in that thread, before Tarik works on it: once per
-    thread, and only for one Tarik never answered (a reply in an existing thread or a follow-up gets none)."""
+    """Send the client an acknowledgement of their new thread, in that thread, before Tarik works on it.
+
+    Sent once per thread, and only for a thread Tarik never answered: a reply in an existing thread or a follow-up
+    gets none. Returns an ok result with sent=True when sent, sent=False otherwise."""
     with cabinet_db() as db:
         row = db.execute(
             Q.thread_to_acknowledge,
@@ -481,7 +534,8 @@ def acknowledge_thread(thread_id: str) -> dict:
 
 @tool
 def claim_threads() -> dict:
-    """The threads waiting for Tarik's answer, each locked for this run (tarik-mail-watch stored their emails)."""
+    """Lock the threads waiting for Tarik's answer for this run and return them (ok result, threads: thread_item dicts).
+    Lock the threads waiting for Tarik's answer for this run and return them (ok result, threads: thread_item dicts)."""
     with cabinet_db() as db:
         threads = claim(db)
     return ok(f"{len(threads)} fil(s) a traiter.", threads=threads)
@@ -489,9 +543,12 @@ def claim_threads() -> dict:
 
 @tool
 def thread_refusal(thread_id: str) -> dict:
-    """After Tarik's run on a thread: was the work refused because the sender lacks the
-    dossier (check_sender)? Then nothing goes back to the sender: the thread is set aside,
-    its emails counted as handled, and ``refused`` says the manager is to be told."""
+    """Check, after Tarik's run on a thread, whether the work was refused because the sender lacks the dossier
+    (check_sender).
+
+    When it was, nothing goes back to the sender: the thread's emails are marked handled, the thread is set aside as
+    ignored, and the ok result has refused=True with sender, subject and reason for the manager alert. Otherwise
+    refused=False."""
     with cabinet_db() as db:
         thread = db.execute(
             Q.thread_of_refusal,
@@ -513,8 +570,11 @@ def thread_refusal(thread_id: str) -> dict:
 
 
 def cabinet_manager():
-    """The cabinet's manager's address: the "Responsable" of the cabinet's own company in Experio, else
-    MAIL_MANAGER, else None. Only an active collaborator counts. Experio has no other place for it."""
+    """Return the cabinet manager's email address, or None.
+
+    Uses the « Responsable » (responsable_id) of the cabinet's own company in Experio (res.company id 1), else
+    MAIL_MANAGER; either counts only when it is an active collaborator or Experio staff member (collaborator).
+    Experio has no other field for the cabinet's manager."""
     responsable = odoo_call("res.company", "read", [1], fields=["responsable_id"])[0]["responsable_id"]
     if responsable:
         found = odoo_call("res.users", "read", [responsable[0]], fields=["login"])
@@ -526,8 +586,11 @@ def cabinet_manager():
 
 @tool
 def notify_manager(sender: str, subject: str, reason: str) -> dict:
-    """Tell the cabinet's manager that ``sender`` wrote to Tarik and was refused, at most
-    once a day per sender. The sender gets nothing."""
+    """Tell the cabinet's manager that ``sender`` wrote to Tarik and was refused (``subject`` and ``reason`` included),
+    at most once a day per sender. The sender gets nothing.
+
+    Raises:
+        ToolError: no manager address (cabinet_manager returned None)."""
     manager = cabinet_manager()
     if not manager:
         raise ToolError(
@@ -548,8 +611,14 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
 
 
 def thread_state(db, thread_id, session):
-    """Where the thread stands after Tarik's reply: "new" (an email came in during this run), "waiting" (for the
-    client), "follow_up" (drafts to take up again or dossiers to finish, FOLLOW_UP_MINUTES at most) or "done"."""
+    """Return where the thread stands after Tarik's reply.
+
+    Returns:
+        "new": an email came in during this run.
+        "waiting": the conversation has a pending question for the client.
+        "follow_up": drafts to take up again or dossiers to finish, within FOLLOW_UP_MINUTES of the reply.
+        "done": nothing left.
+    ``session`` is the (session_id,) row of the thread."""
     newer = db.execute(Q.thread_has_unhandled, (thread_id,)).fetchone()
     waiting = db.execute(Q.session_has_pending, session).fetchone()
     if newer:
@@ -567,11 +636,11 @@ def thread_state(db, thread_id, session):
 
 @tool
 def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "", sent_id: str = "") -> dict:
-    """After Tarik's reply: its emails are answered, and the thread waits for the client
-    when Tarik asked a question, or is followed up while drafts Experio was reading or
-    dossiers to finish wait (FOLLOW_UP_MINUTES at most). When the reply could not be sent, the thread is set
-    aside in error, with ``reason``. ``sent_id``: the Message-ID of Tarik's reply, which the client's next email may
-    name alone."""
+    """Close Tarik's run on a thread after the reply.
+
+    When the reply was sent, ``message_ids`` are marked answered and the thread becomes "new", "waiting", "follow_up"
+    or "done" (thread_state). When it was not (``sent`` False), the thread is set aside in error with ``reason``.
+    ``sent_id`` is the Message-ID of Tarik's reply, recorded so the client's next email can name it alone."""
     with cabinet_db() as db:
         session = db.execute(Q.session_of_thread, (thread_id,)).fetchone()
         if not session:
@@ -597,8 +666,9 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
 
 
 def untaken(session_id):
-    """How many of the conversation's files no tool has taken yet (int): a processed file is taken (kind, invoice or
-    statement set) by the tools themselves, so files still untaken after the agent's reply mean it never called the
-    files tool, or asked the client first."""
+    """Return how many of the conversation's files no tool has taken yet (int).
+
+    Tools mark a file taken when they process it (kind, invoice or statement set), so files still untaken after the
+    agent's reply mean it never called the files tool, or asked the client first."""
     with cabinet_db() as db:
         return len(db.execute(Q.untaken_file_names, (session_id,)).fetchall())

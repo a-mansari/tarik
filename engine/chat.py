@@ -1,8 +1,9 @@
-"""The Discussion page's conversations with Tarik (server/api/chat.py): each message a run of the "Discussion"
-workflow, the cabinet's agent answering in the conversation's own thread. Its files are saved in the cabinet's
-schema before the run (save_files), as the mail watcher saves an email's: the run's input names them, never holds
-them. As in n8n's chat, whoever writes is the team (logged in to these pages): no sender to check. Also the agent's
-asking for the email threads (engine/emails.py)."""
+"""The Discussion page's conversations with Tarik (server/api/chat.py).
+
+Each message is a run of the "Discussion" graph: the cabinet's agent answers in the conversation's own thread. The
+message's files are saved in the cabinet's schema before the run (save_files), as the mail watcher saves an
+email's; the run's input names them and never holds their data. Whoever writes here is logged in to the team's
+pages, so there is no sender to check. answered() is also how the email threads ask the agent (engine/emails.py)."""
 
 import time
 from typing import TypedDict
@@ -28,7 +29,8 @@ ANSWER_REMINDER = (
 
 
 def called_a_tool(messages):
-    """True when the agent called a tool after the last message of the client, in this turn."""
+    """True when ``messages`` hold a tool message after the client's last message (the agent called a tool this
+    turn)."""
     for message in reversed(messages):
         if message.type == "human":
             return False
@@ -38,9 +40,19 @@ def called_a_tool(messages):
 
 
 async def answered(cabinet, session, message, files, node, skipped=()):
-    """Tarik's reply to the client's ``message`` and its saved ``files`` (their names), in the conversation
-    ``session`` (its own thread): asked again with a reminder while the files stay untaken. Each ask is a run of the
-    agent's own, started from the step ``node``."""
+    """Ask the agent about the client's ``message`` and return its reply, cleaned for the client (for_client).
+
+    Args:
+        cabinet: the cabinet to run in.
+        session: the conversation's id, also the agent's thread.
+        message: the client's words.
+        files: the names of the files saved with the message.
+        node: the graph node each agent run is nested under (runs.nested).
+        skipped: what a zip held that Tarik does not take, and why; added to the agent's message (handed).
+
+    The agent is asked again, at most ASK_TRIES times in all and only within QUICK seconds, with REMINDER while
+    ``files`` stay untaken, or once with ANSWER_REMINDER when it called no tool while a question waits on the client.
+    The last reply is returned."""
     from engine import runs  # runs imports the graphs, this one among them
 
     text = handed(message, files, skipped)
@@ -78,6 +90,7 @@ class Chat(Steps, total=False):
 
 
 async def ask(state: Chat):
+    """Graph node: set "reply" to the agent's answer, or "error" to a plain retry message when the agent failed."""
     try:
         given = state["cabinet"], state["session_id"], state["message"], state["files"]
         reply = await answered(*given, "tarik", state.get("skipped", ()))

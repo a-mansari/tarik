@@ -1,9 +1,9 @@
-"""Comptabiliser -- only when Experio's own check is clear.
+"""Post (« Comptabiliser ») a draft invoice, only when Experio's own check finds nothing blocking.
 
-All on Experio's own methods: its refresh,
-collect_validation_messages (what the Comptabiliser button checks), action_post, then the
-state read back, since action_post returns nothing to trust. Posting also saves the
-invoice's account, RAS and TVA flags on its tiers for next time (Experio's memorization).
+Everything goes through Experio's own methods: its refresh, collect_validation_messages (what the Comptabiliser
+button checks), action_post, then the state read back, because action_post's return value says nothing reliable.
+Posting also saves the invoice's account, non-recoverable TVA and RAS settings on its tiers for the next invoices
+(exp.invoice.memorize_partner_values).
 """
 
 import time
@@ -32,8 +32,13 @@ ACCOUNT = {
 
 
 def missing_compte_tiers(invoice):
-    """The role ("fournisseur" or "client") whose Compte Tiers the invoice's tiers lacks, else None. Experio posts
-    without it unless the dossier turned on its optional block, and a posting without one cannot be exported."""
+    """Return the role ("fournisseur" or "client") whose Compte Tiers the invoice's tiers lacks, else None.
+
+    None also when the invoice has no tiers or the dossier ignores Compte Tiers (ignore_third_party_account).
+    Experio posts without a Compte Tiers unless the dossier turned on its optional block
+    (block_invoice_validation_without_third_party_account, validate_third_party_account), and a posting without one
+    cannot be exported.
+    """
     field, role = ACCOUNT.get(invoice["type"], (None, None))
     if not field or not invoice["partner_id"]:
         return None
@@ -45,10 +50,15 @@ def missing_compte_tiers(invoice):
 
 
 def disbursements_first(invoice):
-    """A transit agent's invoice of an import folder: a stop while invoices of the folder paid by the transit agent
-    (« Payée par transitaire ») are not posted yet -- Experio links only posted ones --, else those posted ones linked
-    as Experio's form does (_onchange_autofill_disbursement_invoices: same folder, posted, not a transit invoice, not
-    linked to another), its writing rebuilt with them. None otherwise."""
+    """Link a transit agent's invoice to the folder's invoices it paid, before it is posted.
+
+    Only for a transit invoice (invoice_type "transit") of an import folder. Returns a stop result while some
+    invoices of the folder paid by the transit agent (« Payée par transitaire ») are still draft or pending, because
+    Experio links only posted ones. Otherwise links the posted ones it lacks as Experio's form does
+    (_onchange_autofill_disbursement_invoices: same folder, posted, not a transit invoice, not linked to another
+    transit invoice), refreshes the invoice so its writing gets one disbursement line per linked invoice, and returns
+    None. Returns None for any other invoice.
+    """
     fields = ["invoice_type", "folder_id", "folder_type", "disbursement_invoice_ids", "company_id", "exercice_id"]
     found = odoo_call("exp.invoice", "read", [invoice["id"]], fields=fields)[0]
     if found["invoice_type"] != "transit" or not found["folder_id"] or found["folder_type"] != "import":
@@ -79,9 +89,12 @@ def disbursements_first(invoice):
 
 
 def auto_merge(invoice):
-    """A stop when posting would merge two tiers for good: the dossier merges the tiers Experio read into the one set on
-    the invoice when they differ (auto_merge_detected_partner, in action_post's _merge_partners_and_flag_duplicates),
-    deleting one. Only the cabinet decides that; else None."""
+    """Return a stop result when posting would merge two tiers for good, else None.
+
+    When the dossier has auto_merge_detected_partner on and the tiers set on the invoice is not the one Experio read
+    (has_wrong_partner), action_post merges the read tiers into the set one and deletes it
+    (_merge_partners_and_flag_duplicates, then _auto_merge_detected_partner). Only the cabinet decides that.
+    """
     company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["auto_merge_detected_partner"])[0]
     if not company["auto_merge_detected_partner"]:
         return None
@@ -96,8 +109,11 @@ def auto_merge(invoice):
 
 
 def _blocking(invoice_id, context):
-    """What Experio's own check (the Comptabiliser button's) says blocks the invoice ([str], plain text), asked
-    again up to RETRIES times while it says something."""
+    """Return what Experio's own check (the Comptabiliser button's) says blocks the invoice, as plain-text strings.
+
+    Asks again up to RETRIES times, PAUSE seconds apart, while the list is not empty: the check can lag right after a
+    refresh.
+    """
     for attempt in range(RETRIES + 1):
         found = blocking(invoice_id, context)
         if not found or attempt == RETRIES:
@@ -107,8 +123,13 @@ def _blocking(invoice_id, context):
 
 @step_tool
 def post_invoice(invoice_id: int) -> dict:
-    """Post (comptabiliser) a draft invoice when Experio's own check finds nothing
-    blocking; otherwise list what blocks it."""
+    """Post (comptabiliser) a draft invoice when Experio's own check finds nothing blocking.
+
+    Returns a stop result listing what blocks it otherwise: a tiers merge only the cabinet can decide, transit
+    disbursements not posted yet, a missing Compte Tiers, Experio's own blocking messages, assets without a category,
+    a confirmation window Experio opens instead of posting, or Experio's refusal. An already posted invoice is a
+    routine result.
+    """
     invoice = require_invoice(invoice_id, ["state", "company_id", "exercice_id", "type", "partner_id", "line_ids"])
     if invoice["state"] in POSTED:
         return routine(f"Facture {invoice_id} : déjà comptabilisée.")

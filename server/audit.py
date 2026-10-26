@@ -1,9 +1,11 @@
-"""Who did what in the UI, in one journal (table audit, the Journal page, an admin's): logging in and out (a failed
-try too), the accounts made, closed, given a role or a new link, a password set through a link, the content and
-the cabinets' settings changed (each also keeps its own history), a canvas's layout saved or forgotten, a run
-started by hand. Recorded once the action is done; a journal that cannot be written is logged, never the action
-undone. A secret never goes in: a password, a link's token, a setting's value only for what is not secret (as
-settings_changes keeps it)."""
+"""Record who did what in the UI, in one journal (table audit, shown on the admins' Journal page).
+
+Recorded actions (ACTIONS): logging in and out (failed attempts too); accounts made, closed, given a role or a new
+link; a password set through a link; content and cabinet settings changed (each also keeps its own history); a canvas
+layout saved or reset; a run started by hand; cabinets created, reactivated or closed. An entry is written once the
+action is done; when the journal cannot be written, the failure is logged and the action is not undone. A secret
+never goes in: no password, no link token, and a setting's value only when it is not secret (as settings_changes
+keeps it)."""
 
 from psycopg.types.json import Jsonb
 
@@ -33,7 +35,8 @@ ACTIONS = (
 
 
 async def record(actor, action, target="", **detail):
-    """One entry: ``actor`` did ``action`` (one of ACTIONS) on ``target``, with ``detail``."""
+    """Record that ``actor`` did ``action`` (one of ACTIONS) on ``target``, with ``detail`` (stored as JSON); a write
+    failure is only logged."""
     assert action in ACTIONS, action
     try:
         async with runs.pool.connection() as db:
@@ -43,8 +46,11 @@ async def record(actor, action, target="", **detail):
 
 
 async def listed(action=None, actor=None, before=None, limit=100):
-    """The latest entries (before id ``before``), of one action or one actor when given: [{id, at, actor, action,
-    target, detail}]."""
+    """Return the latest journal entries and the list of actors, as (entries, actors).
+
+    entries: [{id, at, actor, action, target, detail}], newest first, at most ``limit``, older than entry id
+    ``before`` when given, filtered by ``action`` or ``actor`` when given. actors: every actor in the journal, for
+    the page's filter."""
     asked = {"action": action or None, "actor": actor or None, "before": before or 2**62, "limit": limit}
     async with runs.pool.connection() as db:
         rows = await (await db.execute(Q.audit_listed, asked)).fetchall()

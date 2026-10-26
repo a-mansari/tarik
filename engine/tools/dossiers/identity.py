@@ -1,6 +1,6 @@
-"""A dossier's identity, as the top of Experio's dossier form shows it (name, type, ICE, IF, RC...):
-creating a dossier, and changing those fields of an existing one. Only values the client wrote
-themselves are used; an ICE, IF or name another dossier has is refused."""
+"""Create a dossier, or change the identity fields at the top of Experio's dossier form (name, type, ICE, IF,
+RC...) of an existing one. Only values the client wrote themselves are used; an ICE, IF or name another dossier
+already has is refused."""
 
 import re
 from typing import Final
@@ -52,8 +52,8 @@ LINK = r"(?:[\s:=.,°-]|\b(?:en|est|devient|par|du|de|le|la|numero|num|n|no)\b)*
 
 
 def labelled(label):
-    """A regex for the number written right after ``label`` (a regex): the label as a whole word, LINK, then
-    its digits (captured), not followed by another digit."""
+    """Return a compiled regex for the number written right after ``label`` (a regex): the label as a whole word,
+    LINK, then its digits (captured), not followed by another digit."""
     return re.compile(rf"\b{label}\b{LINK}(\d+)(?!\d)", re.IGNORECASE)
 
 
@@ -75,15 +75,22 @@ TYPE_WORDS = {
 
 
 def joined(text, separators=" .  "):
-    """``text`` with the ``separators`` inside a number removed: "IF 71 234 561" -> "IF 71234561"."""
+    """Return ``text`` with each of ``separators`` that sits between two digits removed: "IF 71 234 561" ->
+    "IF 71234561"."""
     return re.sub(rf"(?<=\d)[{separators}](?=\d)", "", text or "")  # one separator between two digits
 
 
 def as_written(value, written, current=None):
-    """An ICE or IF as the client wrote it (``written``: the numbers found in their messages). The
-    model may send it as a number, which loses its leading zeros, or leave it out: the client's own
-    number is used whenever it is the same number, or when it is the only one in ``current`` (their
-    latest message, by default ``written``)."""
+    """Return the ICE or IF ``value`` given by the model, as the client wrote it.
+
+    The model may send it as a number, losing leading zeros, or leave it out. Returns, in order: the number of
+    ``written`` equal to ``value`` once leading zeros are ignored; for an empty ``value``, the only distinct
+    number in ``current``; otherwise ``value`` itself as text (a trailing ".0" removed, "" when None).
+
+    Args:
+        written: the numbers found in all the client's messages.
+        current: the numbers found in their latest message; None means ``written``.
+    """
     current = written if current is None else current
     value = str(value if value is not None else "").strip()
     if value.endswith(".0") and value.removesuffix(".0").isdigit():
@@ -97,16 +104,17 @@ def as_written(value, written, current=None):
 
 
 def written_id(value, pattern, words, latest=None):
-    """``value`` (an ICE or IF, ``pattern`` finding it) as_written in ``words`` (all the client's messages) and
-    ``latest`` (their last message; None: ``words``)."""
+    """Return ``value`` (an ICE or IF) as_written by the client: ``pattern`` finds the candidate numbers in
+    ``words`` (all the client's messages) and in ``latest`` (their last message; None: use ``words``)."""
     current = None if latest is None else pattern.findall(joined(latest))
     return as_written(value, pattern.findall(joined(words)), current)
 
 
 def client_wrote(key, value, words):
-    """Did the client write this new value themselves? A model may not choose nor "correct" one.
-    An identifier is one of the numbers they wrote, digit for digit; the capital, one of their amounts,
-    its decimals kept (100 000,50); a text, whole words of theirs."""
+    """True when the client wrote the new ``value`` for field ``key`` themselves in ``words``: a model may not
+    choose nor "correct" one. An identifier must be one of their numbers digit for digit (an ICE as a 15-digit
+    number, an IF or RC after its label, a placeholder 1111/2222 as a whole word); the capital one of their
+    amounts, decimals kept (100 000,50); the type one of its TYPE_WORDS; a text, whole words of theirs."""
     if key == "capital":
         try:
             amount = as_number(value)
@@ -128,9 +136,10 @@ def client_wrote(key, value, words):
 
 
 def confirmed(session_id, client_confirmed, *parts):
-    """The agent read a clear yes (``client_confirmed``) to Tarik's last question in this conversation, and that
-    question holds every one of ``parts`` (its kind and the dossier's name): a yes to another question, or about
-    another dossier, confirms nothing, and nothing is confirmed before Tarik asked."""
+    """True when the agent read a clear yes (``client_confirmed`` is True) and Tarik's last question in conversation
+    ``session_id`` contains every text of ``parts`` (normalized), typically the question's key phrase and the
+    dossier's name. A yes to another question, or about another dossier, confirms nothing; nothing is confirmed
+    before Tarik asked."""
     with cabinet_db() as db:
         last = db.execute(
             Q.last_question_of_session,
@@ -143,7 +152,8 @@ def confirmed(session_id, client_confirmed, *parts):
 
 
 def real_ids(pairs):
-    """The (field, value) of ``pairs`` holding a real ICE or IF: stripped, neither empty nor a placeholder."""
+    """Return the (field, value) of ``pairs`` holding a real ICE or IF, value stripped: neither empty nor a
+    placeholder (PLACEHOLDER_IDS)."""
     return [
         (field, value.strip())
         for field, value in pairs
@@ -152,22 +162,23 @@ def real_ids(pairs):
 
 
 def having(keys, *extra):
-    """The dossiers ([{id, name}]) with any of ``keys`` ([(field, value)], at least one), ``extra`` domain terms
-    added."""
+    """Return the dossiers ([{id, name}]) having any of ``keys`` ([(field, value)], at least one), narrowed by the
+    ``extra`` domain terms (each a (field, operator, value) tuple, e.g. ("id", "!=", dossier_id))."""
     either = ["|"] * (len(keys) - 1)
     domain = [*DOSSIER_DOMAIN, *either, *[(field, "=", value) for field, value in keys], *extra]
     return odoo_call("res.company", "search_read", domain, fields=["name"])
 
 
 def lookalikes(name, ice, if_number):
-    """Existing dossiers a new one may duplicate: the same ICE or IF, or a very similar name."""
+    """Return (same, similar): the dossiers ([{id, name}]) with this real ICE or IF, and those whose name is at
+    least SIMILAR_NAME alike."""
     keys = real_ids((("ice", ice), ("vat", if_number)))
     same = having(keys) if keys else []
     return same, [dossier for dossier in dossiers() if similarity(name, dossier["name"]) >= SIMILAR_NAME]
 
 
 def require_folder_type(folder_type):
-    """ToolError unless ``folder_type`` is one of FOLDER_TYPES."""
+    """Raise ToolError unless ``folder_type`` is one of FOLDER_TYPES."""
     if folder_type not in FOLDER_TYPES:
         raise ToolError(f"Type de dossier inconnu : {', '.join(FOLDER_TYPES)}.")
 
@@ -176,8 +187,9 @@ def require_folder_type(folder_type):
 
 
 def client_ids(ice, if_number, words, client_message):
-    """The ICE and IF as the client wrote them, "" for one they did not write, and the note naming those
-    left out: (ice, if_number, note)."""
+    """Return (ice, if_number, note): the ICE and IF as the client wrote them (as_written from ``words``, all their
+    messages, and ``client_message``), "" for one they did not write; ``note`` is the French sentence naming
+    those left out, "" when none."""
     ice = written_id(ice, ICE_WRITTEN, words, client_message)
     if_number = written_id(if_number, IF_WRITTEN, words, client_message)
     given = (("ice", "ICE", ice), ("if_number", "IF", if_number))
@@ -191,7 +203,7 @@ def client_ids(ice, if_number, words, client_message):
 
 
 def created_here(session_id, name):
-    """The dossier ({id, name}) named ``name`` this conversation already created, or None."""
+    """Return the dossier ({id, name}) named ``name`` that this conversation already created, or None."""
     with cabinet_db() as db:
         rows = db.execute(Q.dossiers_created_in_session, (session_id,))
         created = [dossier_id for (dossier_id,) in rows]
@@ -204,8 +216,8 @@ def created_here(session_id, name):
 
 
 def duplicate(session_id, client_confirmed, name, ice, if_number):
-    """A stop when another dossier has this ICE or IF, a question while one has a very similar name the client
-    did not confirm; None when the dossier may be created."""
+    """Return a stop result when another dossier has this ICE or IF; a question result while a dossier has a very
+    similar name and the client has not confirmed creating it anyway; None when the dossier may be created."""
     same, similar = lookalikes(name, ice, if_number)
     if same:
         return stop(
@@ -232,17 +244,29 @@ def create_dossier(
     client_message: str = "",
     session_id: str = "",
 ) -> dict:
-    """Create a new dossier in Experio, as the Folders screen does. ``ice`` and
-    ``if_number`` are the client's ICE and IF, ``folder_type`` company (default),
-    person, cpu or st. Experio checks the name is free and the ICE/IF against the
-    official registry; ``skip_ice_if_check`` ticks the dossier form's "Ignore ICE/IF
-    Verification", once the client confirmed it (a question first: ``client_confirmed``, the agent's
-    reading of a clear yes to it, answers that question only). The ICE and IF are kept only
-    when the client wrote them (``client_message`` and their earlier messages).
-    A dossier of that name this conversation (``session_id``) already created is reused:
-    MiniMax sometimes asks for it again to import its entries. Nothing is created when a
-    dossier has the same ICE or IF; a very similar name is a question to the client first, which
-    ``client_confirmed`` answers too."""
+    """Create a new dossier in Experio, as the Folders screen does, and put Tarik's user on it.
+
+    Experio refuses a name already used (res.company name_uniq) and checks the ICE and IF against the official
+    registry (exp.partner.base _check_ice_if_verification).
+
+    Args:
+        ice, if_number: the client's ICE and IF; each is kept only when the client wrote it (``client_message``
+            and their earlier messages in ``session_id``).
+        folder_type: company (default), person, cpu or st.
+        skip_ice_if_check: tick the form's "Ignore ICE/IF Verification"; asked to the client first.
+        client_confirmed: the agent's reading of a clear yes to Tarik's last question (skip the check, or
+            create despite a very similar name); it confirms that question only.
+
+    Returns:
+        - an ok result with ``dossier_id`` (and reused=True) when this conversation already created a dossier
+          of that name (MiniMax sometimes asks again, to import its entries);
+        - a stop result when a dossier has the same ICE or IF;
+        - a question result for a very similar name, or for skipping the check, until confirmed;
+        - an ok result with ``dossier_id`` once created (in test mode, without creating it).
+
+    Raises:
+        ToolError: no name given, or an unknown ``folder_type``.
+    """
     client_message = own_words(client_message)
     name = " ".join((name or "").split())
     if not name:  # MiniMax sometimes calls with no fields at all: told how to call again, it does
@@ -284,8 +308,8 @@ def create_dossier(
 
 
 def given(arguments):
-    """The tool ``arguments`` ({key: value}) actually given, stripped text; a capital given as a number stays one
-    (as text, 1.005 would read 1.005 or 1005 again)."""
+    """Return the tool ``arguments`` ({key: value}) actually given (not None, not blank), as stripped text; a
+    capital given as a number stays one (as text, 1.005 could read back as 1.005 or 1005)."""
     return {
         key: value if key == "capital" and isinstance(value, (int, float)) else str(value).strip()
         for key, value in arguments.items()
@@ -294,7 +318,8 @@ def given(arguments):
 
 
 def new_value(key, value):
-    """The value Experio is given for ``key``: a capital as a number, a name with single spaces."""
+    """Return the value Experio is given for ``key``: a capital as a number, a name with single spaces, any
+    other value unchanged."""
     if key == "capital":
         return as_number(value)
     if key == "name":
@@ -303,15 +328,16 @@ def new_value(key, value):
 
 
 def changed(key, old, new):
-    """Is ``new`` another value than the dossier's ``old`` one? A capital is compared as a number."""
+    """True when ``new`` differs from the dossier's ``old`` value for ``key``; a capital is compared as a
+    number."""
     if (old or "") == new:
         return False
     return not (key == "capital" and float(old or 0) == new)
 
 
 def changes_to(dossier_id, asked):
-    """The dossier's current values of the ``asked`` fields ({Experio field: value}) and the changes
-    ({Experio field: new value}) that differ from them."""
+    """Return (current, changes) for the ``asked`` fields ({tool argument: value}): the dossier's current values
+    ({Experio field: value}) and the new values that differ from them ({Experio field: new value})."""
     fields = [EDITABLE[key][0] for key in asked]
     current = odoo_call("res.company", "read", [dossier_id], fields=fields)[0] if fields else {}
     changes = {}
@@ -324,7 +350,8 @@ def changes_to(dossier_id, asked):
 
 
 def conflict(dossier_id, dossier, changes):
-    """A stop when ``changes`` would give dossier ``dossier`` another dossier's ICE, IF or name; else None."""
+    """Return a stop result when ``changes`` would give dossier ``dossier`` (its name) another dossier's real ICE,
+    IF or name; else None."""
     for field, value in real_ids((field, changes.get(field)) for field in ("ice", "vat")):
         other = having([(field, value)], ("id", "!=", dossier_id))
         if other:
@@ -359,11 +386,20 @@ def update_dossier(
     client_message: str = "",
     session_id: str = "",
 ) -> dict:
-    """Change fields of an existing dossier, as its Experio form does: only those given (empty: unchanged),
+    """Change fields of an existing dossier, as its Experio form does: only the fields given (empty: unchanged),
     and only to values the client wrote themselves (``client_message`` and their earlier messages in
-    ``session_id``). An ICE or IF another dossier has, or a name another dossier has, is refused; Experio
-    checks the ICE and IF against the registry, skipped only once the client confirmed it (a question first:
-    ``client_confirmed``, the agent's reading of a clear yes to it, answers that question only)."""
+    ``session_id``); the others are named in the reply as not changed.
+
+    Experio checks the ICE and IF against the registry (exp.partner.base _check_ice_if_verification);
+    ``skip_ice_if_check`` ticks "Ignore ICE/IF Verification", asked to the client first. ``client_confirmed`` is
+    the agent's reading of a clear yes to that question and confirms it only.
+
+    Returns a stop result when nothing changes or when the new ICE, IF or name is another dossier's; a question
+    result to confirm skipping the check; an ok result listing each change (in test mode, without writing).
+
+    Raises:
+        ToolError: no field given, or an unknown ``folder_type``.
+    """
     client_message = own_words(client_message)
     dossier = require_dossier(dossier_id)
     asked = given(

@@ -1,11 +1,10 @@
 """The invoice's tiers (supplier for a purchase, customer for a sale).
 
-Experio does most of it: when Bluejay reads a draft, orion.wizard.get_partner_data finds the tiers by ICE then IF,
-creates it from the national registry when the dossier lacks it, and links it. And
-its own wizard assigns the Compte Tiers. So this step only links the right detected
-party and has Experio assign its Compte Tiers. A tiers the registry did not give and no
-tiers of the dossier resembles is created from the scan (its name, ICE and IF), as the
-invoice screen's "Créer" does; a name close to existing tiers is asked about first.
+Experio does most of it: when Bluejay reads a draft, orion.wizard.get_partner_data finds the tiers (the supplier by
+ICE then IF, the customer by name then ICE), creates it from the national registry when the dossier lacks it, and
+links it. Its own wizard assigns the Compte Tiers. So this step only links the right detected party and has Experio
+assign its Compte Tiers. A tiers the registry did not give and no tiers of the dossier resembles is created from the
+scan (its name, ICE and IF), as the invoice screen's "Créer" does; a name close to existing tiers is asked about first.
 """
 
 import re
@@ -81,9 +80,13 @@ INVOICE_FIELDS = [
 
 
 def ensure_tiers_account(invoice_id, partner_id, kind, context):
-    """The tiers' Compte Tiers for side ``kind``, created if missing through Experio's own "assign third-party
-    account" wizard, as the invoice screen does: a phrase for the message. Experio proposes a code only in
-    dossiers with automatic numbering on; elsewhere the cabinet assigns it, so Tarik doesn't invent one."""
+    """Make sure tiers ``partner_id`` has its Compte Tiers for side ``kind`` and return a phrase for the reply.
+
+    A missing one is created through Experio's own "assign third-party account" wizard
+    (exp.invoice.partner.account.wizard), as the invoice screen does. Experio proposes a code only in dossiers with
+    automatic numbering on (third_party_<side>_autofill, the wizard's default_get); elsewhere the cabinet assigns it,
+    so Tarik does not invent one and the phrase says so.
+    """
     field, role = SIDE[kind]["account"], SIDE[kind]["role"]
     partner = odoo_call("exp.partner", "read", [partner_id], fields=["name", field], context=context)[0]
     if partner[field]:
@@ -105,8 +108,13 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
 
 
 def link(invoice, partner_id, kind):
-    """Put tiers ``partner_id`` on ``invoice`` (dict) through Experio's form (its onchange fills the memorized
-    account, withholding... as on screen), then make sure it has its Compte Tiers: ok."""
+    """Put tiers ``partner_id`` on ``invoice`` (dict) and make sure it has its Compte Tiers: an ok result.
+
+    The tiers is set through Experio's form, so its onchange fills the memorized account, withholding... as on screen.
+
+    Raises:
+        ToolError: the tiers does not belong to the invoice's dossier.
+    """
     context = invoice_context(invoice)
     partner = odoo_call("exp.partner", "read", [partner_id], fields=["name", "company_id", "active"], context=context)
     if not partner or partner[0]["company_id"][0] != invoice["company_id"][0]:
@@ -129,15 +137,21 @@ UNCHECKED = "sans verification"  # normalized: the client's words that create th
 
 
 def as_named(name):
-    """``name`` as a tiers is named: in capitals when its case is scrambled (a logo read as "mIDAS")."""
+    """Return ``name`` as a tiers is named: in capitals when its case is scrambled (a logo read as "mIDAS")."""
     return name.upper() if re.search(r"[a-z][A-Z]", name) else name
 
 
 def create_tiers(invoice, name, kind, unchecked=False):
-    """Create tiers ``name`` in the invoice's dossier for side ``kind`` (its ICE and IF as read on the scan, when
-    the scan named this tiers) as the invoice screen's "Créer" does, then link it: ok. When the registry knows
-    nothing of that name and those numbers, the client is asked: the right name, or « sans vérification »
-    (``unchecked``: Experio's "Ignore ICE/IF Verification", ticked only on their word)."""
+    """Create tiers ``name`` in the invoice's dossier for side ``kind``, as the screen's "Créer" does, then link it.
+
+    The ICE and IF read on the scan are given only when the scan's printed name is this name. Returns the ok result
+    of link. When Experio's registry check knows nothing of that name and those numbers, returns a question result
+    asking for the right name or « sans vérification ». ``unchecked`` ticks Experio's "Ignore ICE/IF Verification",
+    only on the client's own words.
+
+    Raises:
+        ToolError: Experio refused the tiers for another reason.
+    """
     side = SIDE[kind]
     printed = invoice[side["printed"]]
     name = as_named(name)
@@ -175,7 +189,7 @@ def create_tiers(invoice, name, kind, unchecked=False):
 
 
 def dossier_tiers(company_id):
-    """The dossier's tiers: [{id, name, ice}]."""
+    """Return the dossier's tiers: [{id, name, ice}]."""
     return odoo_call(
         "exp.partner",
         "search_read",
@@ -187,11 +201,14 @@ def dossier_tiers(company_id):
 
 @step_tool
 def link_tiers(invoice_id: int) -> dict:
-    """Give a draft invoice its tiers -- the supplier of a purchase, the customer
-    of a sale -- as Experio detected it from the scan, and make sure that tiers has
-    its Compte Tiers (needed to post). Call it after classify_invoice. When no tiers
-    was detected, the question suggests close names (the client's answer goes to choose_tiers, answer_pending),
-    or, none being close, the tiers is created from the scan."""
+    """Give a draft invoice its tiers (the supplier of a purchase, the customer of a sale) and its Compte Tiers.
+
+    Call it after classify_invoice. Keeps a tiers already set, else links the one Experio detected from the scan. A
+    customs invoice gets the dossier's customs tiers. Without one, an invoice already in the dossier is stopped; then
+    the name printed on the scan (or read by the check) is linked to the one tiers of exactly that name, or created
+    when no tiers of the dossier comes close, or else a question result proposes the close names (the client's
+    answer goes to choose_tiers, via answer_pending).
+    """
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de tiers", read=True)
     kind = side_of(invoice)
     role = SIDE[kind]["role"]
@@ -240,8 +257,11 @@ CUSTOMS_WORDS = ("douane", "adii")  # how a dossier names its customs administra
 
 
 def customs_tiers(invoice):
-    """A customs invoice of an import folder linked to the dossier's customs administration tiers, when it has exactly
-    one (named « douane » or « ADII »); several: the question with them; none: None, the usual steps go on."""
+    """Link a customs invoice to the dossier's customs administration tiers (named « douane » or « ADII »).
+
+    Returns the ok result of link when the dossier has exactly one such tiers, a question result listing them when it
+    has several, None when it has none (the usual steps go on).
+    """
     found = [
         p for p in dossier_tiers(invoice["company_id"][0]) if any(w in normalized(p["name"]) for w in CUSTOMS_WORDS)
     ]
@@ -258,7 +278,7 @@ def customs_tiers(invoice):
 
 
 def flagged_tier(invoice_id):
-    """The tiers' name as the check read it on the scan, when the check flagged Experio's as different; else None."""
+    """Return the tiers' name the check read on the scan when the check flagged Experio's as different, else None."""
     check = stored_check(invoice_id)
     if not check or not any(bad.get("field") == "tier" for bad in check[2]):
         return None
@@ -266,15 +286,18 @@ def flagged_tier(invoice_id):
 
 
 def checked_values(invoice_id):
-    """What the check read on the scan (dict), empty when the invoice is not checked yet."""
+    """Return what the check read on the scan (dict), {} when the invoice is not checked yet."""
     check = stored_check(invoice_id)
     return check[1] if check else {}
 
 
 def same_name(invoice, name, kind):
-    """The invoice linked to the one tiers of its dossier named exactly ``name`` (case, accents and punctuation
-    aside: "Opca." is "OPCA"), the client told so and shown the tiers whose names come close, never chosen silently
-    among lookalikes; None when no tiers, or several, have that name."""
+    """Link the invoice to the one tiers of its dossier named exactly ``name``, else return None.
+
+    Case, accents and punctuation aside: "Opca." is "OPCA". Returns link's ok result, its message telling the client
+    the tiers was matched by name and listing tiers with close names, so a lookalike is never chosen silently. None
+    when no tiers, or several, have that name.
+    """
     found = dossier_tiers(invoice["company_id"][0])
     same = [p for p in found if normalized(p["name"]) == normalized(name)]
     if len(same) != 1:
@@ -293,10 +316,17 @@ def same_name(invoice, name, kind):
 
 
 def find_tiers(invoice_id, name, minimum=TIERS_MIN_SIMILARITY, ice=None):
-    """The tiers of the invoice's dossier whose name looks like ``name`` (misspelled or partial is fine), the 5
-    closest first with their id, for the client to choose: (a phrase for the question, {id: name} proposed).
-    However many tiers the dossier has, the client is shown 5 at most, and narrows them with another name or the
-    tiers' ICE. ``ice``: the tiers holding it come first."""
+    """Find the tiers of the invoice's dossier whose name looks like ``name`` (misspelled or partial is fine).
+
+    Args:
+        invoice_id: the invoice, for its dossier.
+        name: the name to look for.
+        minimum: the lowest similarity kept (0 to 1).
+        ice: an ICE; the tiers holding it come first.
+
+    Returns (phrase, proposed): the phrase for the question, and {id: name} of the 5 closest at most ({} when none
+    comes close). The client narrows them with another name or the tiers' ICE.
+    """
     company_id = require_invoice(invoice_id, ["company_id"])["company_id"][0]
     found = dossier_tiers(company_id)
     same_ice = [(1.0, p) for p in found if ice and p["ice"] == ice]
@@ -314,10 +344,18 @@ def find_tiers(invoice_id, name, minimum=TIERS_MIN_SIMILARITY, ice=None):
 
 
 def choose_tiers(invoice_id, decision, answer, choices=None):
-    """Link the tiers the client chose for a tiers question (``choices``: {id: name} it proposed). The agent's
-    ``decision``, read from the client's ``answer`` (their own words), names the chosen tiers (chosen_among: taken
-    only when the question proposed it); or it is the other name or ICE the client gave instead: the ICE of one
-    of the dossier's tiers links it, a name is searched for and the closest are proposed again."""
+    """Apply the client's answer to a tiers question: link, create, or ask again.
+
+    Args:
+        invoice_id: the draft invoice.
+        decision: what the agent read in the answer: a proposed tiers' id, or another name or ICE.
+        answer: the client's own words.
+        choices: {id: name} the question proposed; a decision is taken as a tiers only when it is among them.
+
+    « sans vérification » in the client's own words creates the scan's tiers without the registry check. Otherwise
+    the ICE of exactly one dossier tiers links it; a name nothing resembles is created; anything else returns a
+    question result with the closest tiers proposed again.
+    """
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de tiers", read=True)
     chosen = chosen_among(decision, choices)
     if chosen:

@@ -1,15 +1,14 @@
-"""Withholding tax (retenue a la source, RAS).
+"""Withholding tax (retenue à la source, RAS).
 
-Experio remembers each tiers' RAS: it saves the rule and rates on the tiers when an invoice
-is posted (memorize_partner_values) and applies them when the tiers is picked in the form,
-so nothing is written onto the tiers here. Experio also sets the RAS TVA rate itself once the
-retenue is on (its onchange on retenue, exp_invoice.py _onchange_tax_withholding_percentage), from
-the supplier's activity type and attestation de regularite, the dossier and the amount (the table in
-docs/experio-warnings.md): so Tarik never types that rate. Left here: turning the retenue on for a local
-purchase whose supplier has an activity type (the cabinet's rule, the client told after), the supplier's
-attestation when Experio's rate depends on it (asked once per supplier, its file uploaded to Experio),
-a foreign supplier's last posted rule, and the questions -- a foreign supplier with no known rule,
-local fees (6136) with no IS/IR rate.
+Experio remembers each tiers' RAS: it saves the rule and rates on the tiers when an invoice is posted
+(memorize_partner_values) and applies them when the tiers is picked in the form, so nothing is written onto the tiers
+here. Experio also sets the RAS TVA rate itself once the retenue is on (_onchange_tax_withholding_percentage, an
+onchange on partner_id, retenue and amount_total, in exp_invoice.py), from the supplier's activity type and
+attestation de régularité, the dossier and the amount (the table in docs/experio-warnings.md): so Tarik never types
+that rate. Left here: turning the retenue on for a local purchase whose supplier has an activity type (the cabinet's
+rule, reported to the client afterwards), the supplier's attestation when Experio's rate depends on it (asked once
+per supplier, its file uploaded to Experio), a foreign supplier's last posted rule, and the questions: a foreign
+supplier with no known rule, local fees (6136) with no IS/IR rate.
 """
 
 import base64
@@ -62,7 +61,7 @@ IS_IR_RATES, TVA_RATES = {5, 10, 15, 20, 30}, {0, 75, 100}
 
 
 def read_answer(kind, reply):
-    """The model's reading (dict) of the client's ``reply`` to QUESTIONS[kind] (kind: foreign or local)."""
+    """Return the model's reading (dict) of the client's ``reply`` to QUESTIONS[kind] (kind: "foreign" or "local")."""
     return ask_model(
         tool_prompt("read-withholding-answer"),
         [],
@@ -73,8 +72,11 @@ def read_answer(kind, reply):
 
 
 def rate(value):
-    """A whole rate the model gave (20, "20", "20 %", 20.0), or None when it gave none. A rate given but not
-    whole or not a number is ValueError: the client is asked again, never half of their answer applied."""
+    """Return the whole rate the model gave (20, "20", "20 %", 20.0) as an int, None when it gave none.
+
+    Raises:
+        ValueError: a rate that is not whole, so the client is asked again rather than half of the answer applied.
+    """
     number = as_number(value)
     if number is not None and number != int(number):
         raise ValueError(f"not a whole rate: {value!r}")
@@ -82,7 +84,7 @@ def rate(value):
 
 
 def withholding_answer(reply):
-    """The foreign rule the client chose in ``reply`` (Experio's fields), or None when their answer doesn't say."""
+    """Return the foreign rule the client chose in ``reply`` as Experio's fields, None when the answer does not say."""
     answer = read_answer("foreign", reply)
     rule = answer.get("rule")
     if rule not in ("none", "supplier", "society"):
@@ -91,7 +93,10 @@ def withholding_answer(reply):
 
 
 def local_withholding_answer(reply):
-    """No withholding, or its IS/IR and TVA rates, from ``reply`` (Experio's fields); None when it doesn't say."""
+    """Return the local withholding the client gave in ``reply`` as Experio's fields, None when unclear or invalid.
+
+    Either no withholding, or the retenue on with its IS/IR rate (5, 10, 15, 20, 30) and TVA rate (0, 75, 100).
+    """
     answer = read_answer("local", reply)
     if answer.get("retenue") is False:
         return {"retenue": False, "local_withholding_percentage": False, "tax_withholding_percentage": "0"}
@@ -132,7 +137,7 @@ EXPENSE_LABEL = {
 
 
 def described(values):
-    """The withholding ``values`` (Experio's fields) in French words, for the client."""
+    """Return the withholding ``values`` (Experio's fields) in French words, for the client."""
     if not values.get("retenue"):
         return "sans retenue à la source"
     if "foreign_withholding" in values:
@@ -147,7 +152,7 @@ def described(values):
 
 
 def _last_foreign_rule(invoice):
-    """The foreign rule (Experio's fields) of the tiers' last posted foreign invoice, else None."""
+    """Return the foreign rule (Experio's fields) of the tiers' last posted foreign invoice, else None."""
     domain = [
         ("partner_id", "=", invoice["partner_id"][0]),
         ("id", "!=", invoice["id"]),
@@ -166,9 +171,17 @@ def _last_foreign_rule(invoice):
 
 
 def certificate_matters(invoice_id, partner, public):
-    """True when Experio's RAS TVA rate for this supplier depends on its attestation (exp_invoice.py 7623-8030):
-    equipment or works (company or person) outside a public dossier, a person's services over Experio's thresholds
-    (should_use_service_regularity: TTC over 5 000, or the month over 50 000)."""
+    """True when Experio's RAS TVA rate for this supplier depends on its attestation de régularité.
+
+    Args:
+        invoice_id: the invoice.
+        partner: the supplier ({type, expense_type}).
+        public: the dossier is a public organization (exp_is_public_organization).
+
+    That is: equipment or works (company or person) outside a public dossier; a person's services over Experio's
+    thresholds (should_use_service_regularity: TTC over 5 000, or this invoice plus the month's posted ones over
+    50 000). Experio's rules: validate_warning_withholding_* in exp_invoice.py, lines 7623-8032.
+    """
     expense, kind = partner["expense_type"], partner["type"]
     if expense in ("equipment", "travaux"):
         return not public and kind in ("company", "person")
@@ -178,9 +191,14 @@ def certificate_matters(invoice_id, partner, public):
 
 
 def certificates(partner_id, day):
-    """(a valid attestation at ``day``, one still being read by Experio, why Experio refused the latest one or ""):
-    the supplier's exp.partner.regularity.form as Experio's RAS check takes them (state active, regularity_date <=
-    day < regularity_end_date)."""
+    """Return the state of supplier ``partner_id``'s attestations (exp.partner.regularity.form) at ``day``.
+
+    Returns (valid, reading, refused):
+        valid: one is valid at ``day`` as Experio's RAS check takes it (state active, regularity_date <= day <
+            regularity_end_date).
+        reading: one is still being read by Experio (bluejay_state in READING).
+        refused: why Experio refused the latest one (its state_msg, when its state is error), else "".
+    """
     fields = ["regularity_date", "regularity_end_date", "state", "bluejay_state", "state_msg"]
     domain = [("partner_id", "=", partner_id)]
     found = odoo_call("exp.partner.regularity.form", "search_read", domain, fields=fields, order="id desc")
@@ -193,13 +211,18 @@ def certificates(partner_id, day):
 
 
 def no_certificate_said(partner_id):
+    """True when the client already answered that supplier ``partner_id`` has no attestation (kept in Tarik's db)."""
     with cabinet_db() as db:
         return bool(db.execute(Q.no_certificate_of_partner, (partner_id,)).fetchone())
 
 
 def upload_certificate(invoice, partner_id):
-    """The attestation the client sent after the question, uploaded as the supplier's exp.partner.regularity.form
-    (Experio has Bluejay read it, as when the cabinet uploads it on the supplier's sheet): its name, else None."""
+    """Upload the attestation the client sent after the question as the supplier's exp.partner.regularity.form.
+
+    Experio then has Bluejay read it, as when the cabinet uploads it on the supplier's sheet. An image is turned into
+    a PDF first. Returns the file's name (also in test mode, where nothing is uploaded), None when no PDF or image was
+    sent.
+    """
     with cabinet_db() as db:
         files = db.execute(Q.files_after_question, (invoice["id"],)).fetchall()
         sent = [f for f in files if f[2] == "application/pdf" or f[2].startswith("image/")]
@@ -222,9 +245,14 @@ def upload_certificate(invoice, partner_id):
 
 
 def certificate_step(invoice, partner, answer):
-    """When Experio's rate depends on the supplier's attestation and it has no valid one: a result (the question, a
-    wait while Experio reads the one sent), else None (go on: a valid one, the client said there is none, or the
-    rate doesn't depend on it). ``answer``: the client's reply to the question, when it is one."""
+    """Get the supplier's attestation when Experio's RAS TVA rate depends on it and none is valid.
+
+    ``answer``: the client's reply to the attestation question, None when the call does not answer it.
+
+    Returns a wait result while Experio reads an attestation (one just sent is uploaded first), a question result
+    asking for it, or None to go on: no RAS TVA at that date, the rate does not depend on it, a valid one exists, or
+    the client said there is none (remembered for the supplier).
+    """
     if (invoice["invoice_date"] or "") < RAS_TVA_FROM:  # no RAS TVA before it: nothing depends on an attestation
         return None
     public = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["exp_is_public_organization"])[0]
@@ -256,7 +284,10 @@ def certificate_step(invoice, partner, answer):
 
 
 def is_ir_refused(values, kind):
-    """The question when the IS/IR rate in ``values`` is one Experio does not take for this tiers type, else None."""
+    """Return the question text when the IS/IR rate in ``values`` is refused by Experio for tiers type ``kind``.
+
+    None when the rate is accepted, or there is no rate or no rule for that type.
+    """
     rate, rates = values.get("local_withholding_percentage"), IS_IR_BY_TYPE.get(kind)
     if not rate or not rates or int(rate) in rates:
         return None
@@ -266,8 +297,12 @@ def is_ir_refused(values, kind):
 
 
 def _local(invoice, partner, answer):
-    """The local withholding to write (Experio's fields, the RAS TVA rate left to Experio), or the result that comes
-    first: (result, None) or (None, values); (None, {}) when there is nothing to write."""
+    """Decide the local withholding to write (Experio's fields; the RAS TVA rate is left to Experio).
+
+    Returns (result, None) when a question result comes first, or (None, values) with the values to write;
+    (None, {}) when there is nothing to write. The retenue is on when the supplier has an activity type and the invoice
+    is dated from RAS_TVA_FROM; fees accounts (6136) without a retenue are asked their IS/IR rate.
+    """
     invoice_id, tier = invoice["id"], partner["name"]
     auto = bool(partner["expense_type"]) and (invoice["invoice_date"] or "") >= RAS_TVA_FROM
     values = {"retenue": True} if auto else {}
@@ -288,8 +323,11 @@ def _local(invoice, partner, answer):
 
 
 def _foreign(invoice, answer):
-    """The foreign rule to write (Experio's fields): from the client's ``answer``, else the tiers' last foreign rule;
-    or the question first. Returns (result, None) or (None, values)."""
+    """Decide the foreign rule to write (Experio's fields): from the client's ``answer``, else the tiers' last one.
+
+    Returns (None, values), or (result, None) when a question result comes first (answer not understood, or no known
+    rule).
+    """
     if answer:
         values = withholding_answer(answer)
         if values is None:
@@ -347,10 +385,13 @@ def settle_withholding(invoice_id: int, answer: str = "", client_message: str = 
 
 
 def sale_withholding(invoice, answer, answering):
-    """A sale's RAS TVA, the customer's to hold: Experio applies the same rules as for a purchase, from the
-    customer's activity type and attestation (validate_warning_withholding; every sale is eligible,
-    _is_tax_withholding_eligible_type). The retenue is turned on when the customer has an activity type, its rate
-    left to Experio; else the customer's remembered rule, applied when it was picked."""
+    """Settle a sale's RAS TVA, which the customer holds, and return the step's result.
+
+    Experio applies the same rules as for a purchase, from the customer's activity type and attestation
+    (validate_warning_withholding; every sale is eligible, _is_tax_withholding_eligible_type). The retenue is turned
+    on when the customer has an activity type, its rate left to Experio; else the customer's remembered rule, applied
+    when it was picked, is reported.
+    """
     invoice_id = invoice["id"]
     partner = odoo_call("exp.partner", "read", [invoice["partner_id"][0]], fields=["name", "type", "expense_type"])[0]
     waiting = certificate_step(invoice, partner, answer if answering else None)
@@ -366,8 +407,11 @@ def sale_withholding(invoice, answer, answering):
 
 
 def write(invoice, values, why=""):
-    """Write ``values`` through Experio's form (its onchange sets the RAS lines, accounts and the RAS TVA rate), then
-    say what Experio holds."""
+    """Write ``values`` through Experio's form, then return an ok result saying what Experio holds.
+
+    Experio's onchange sets the RAS lines, accounts and the RAS TVA rate. ``why``: added to the reply (the reason the
+    retenue was turned on).
+    """
     invoice_id, context = invoice["id"], invoice_context(invoice)
     with refused(
         f"settle_withholding {invoice_id}", f"Facture {invoice_id} : Experio a refusé la retenue à la source."

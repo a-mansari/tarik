@@ -1,11 +1,11 @@
 """Stop an invoice already recorded in the dossier, before any account or TVA work.
 
-Experio's own check (get_duplicated_invoice_ids): for a purchase, same number, tiers and date
-(or not) as a posted invoice; for a sale, same number (and year, when the dossier says so),
-whatever the customer (exp_invoice.py get_duplicated_invoice_ids_impl) -- plus, to catch an
-invoice sent twice before either is posted, the same rule across same-number drafts. No
-"TIERS - NUMERO" label is set: Experio names the writing lines from each cabinet's own label
-format, and the label field would override it.
+Experio's own check (exp.invoice get_duplicated_invoice_ids / get_duplicated_invoice_ids_impl) compares an invoice
+with the posted ones of the same type and credit-note flag: for a purchase, same number (spaces aside) and tiers,
+plus the date when the dossier says so (purchase_invoice_duplicate_check_date); for a sale, same number, plus the
+year when the dossier says so (check_duplicate_with_year), whatever the customer. To catch an invoice sent twice
+before either is posted, Tarik also runs it on the same-number drafts together. No "TIERS - NUMERO" label is set:
+Experio names the writing lines from each cabinet's own label format, and the label field would override it.
 """
 
 from engine.tools.core.app import log, ok, routine, step_tool, stop
@@ -15,8 +15,8 @@ FIELDS = ["company_id", "exercice_id", "invoice_number", "invoice_date", "amount
 
 
 def _same_number_drafts(invoice, context):
-    """The ids of the dossier's drafts with the invoice's type and number (spaces aside) -- and tiers, for a purchase:
-    Experio's sale rule has none --, its own included, sorted: oldest first."""
+    """Return the ids of the dossier's drafts with the invoice's type and number (spaces aside), and its tiers for a
+    purchase (Experio's sale rule ignores the customer). The invoice's own id is included; sorted, oldest first."""
     number = invoice["invoice_number"].replace(" ", "")
     domain = [
         ("company_id", "=", invoice["company_id"][0]),
@@ -33,9 +33,12 @@ def _same_number_drafts(invoice, context):
 
 
 def without_tiers_twin(invoice, context):
-    """A stop when an older invoice of the dossier, not cancelled, is this one with no tiers to compare by: the
-    same type, number (spaces aside), date and total, one of them without its tiers yet (Experio's check needs
-    both). An invoice waiting on its supplier question is still caught, and one asked about after it too."""
+    """Return a stop result when an older, not cancelled invoice of the dossier is this one with no tiers to
+    compare by, else None.
+
+    Same type, credit-note flag, number (spaces aside), date and total, with one of the two still without its tiers:
+    Experio's check needs both tiers. So an invoice waiting on its supplier question is still caught, and so is one
+    asked about after it."""
     if not invoice.get("invoice_number") or invoice.get("amount_total") is None:
         return None
     domain = [
@@ -68,10 +71,13 @@ def without_tiers_twin(invoice, context):
 
 @step_tool
 def check_duplicate(invoice_id: int) -> dict:
-    """Check whether this invoice is already recorded in its dossier, by Experio's rule for its side (a purchase:
-    same number, tiers and date, or same number, date and total when one has no tiers yet; a sale: same number,
-    and year when the dossier says so). Call it once the tiers is set. A duplicate must not be processed any
-    further."""
+    """Check whether this invoice is already recorded in its dossier, by Experio's rule for its side. Call it once
+    the tiers is set.
+
+    A purchase: same number and tiers (and date when the dossier says so), or same number, date and total when one
+    has no tiers yet. A sale: same number (and year when the dossier says so). Compared with the posted invoices,
+    then with the same-number drafts, where the oldest is the original. A duplicate gets a stop result
+    (duplicate=True) and must not be processed any further."""
     invoice = require_invoice(invoice_id, FIELDS)
     sale = invoice["type"] == "sale"  # Experio's sale rule has no customer: nothing to wait for but the number
     twin = None if sale else without_tiers_twin(invoice, invoice_context(invoice))

@@ -1,6 +1,7 @@
-"""The Cabinets page: each cabinet's own settings (server/cabinet_settings.py), read and changed by the team, in
-plain words, each change kept (who, when, why). A secret is never sent to the page: only whether it is set, and a
-field to replace it."""
+"""Serve the Cabinets page: each cabinet's own settings (server/cabinet_settings.py), read and changed by the team in
+plain words, each change recorded (who, when, why).
+
+A secret is never sent to the page: only whether it is set, and a field to replace it."""
 
 import asyncio
 
@@ -24,7 +25,8 @@ assert sorted(key for keys in SECTIONS.values() for key in keys) == sorted(cabin
 
 
 def field(key, value, words):
-    """One setting as the page shows it: {key, kind, optional, name, description, value}."""
+    """Return one setting as the page shows it: {key, kind, optional, name, description, value}, its words from
+    labels.json (``words``)."""
     return {
         "key": key,
         "kind": cabinet_settings.FIELDS[key],
@@ -36,15 +38,19 @@ def field(key, value, words):
 
 
 def fields(data):
-    """The sections with their fields: [(title, [{key, kind, name, description, value}])], a secret's value only
-    whether it is set (True or False), never itself."""
+    """Return the page's sections with their fields: [(title, [field dicts])], a secret's value only True (set) or
+    False."""
     values, words = cabinet_settings.shown(data), LABELS.get("settings", {})
     return [(title, [field(key, values[key], words) for key in keys]) for title, keys in SECTIONS.items()]
 
 
 async def cabinet_page(request: Request):
-    """The settings of the cabinet picked in the sidebar (GET), and a change to them (POST, JSON): refused when the
-    sidebar picked another since the page showed its own. A change answers the page again, with what it saved."""
+    """GET or POST /ui/api/settings: return the settings of the cabinet chosen in the sidebar, after saving a change
+    when posted.
+
+    POST takes JSON {cabinet, version, <settings>}; it is refused when the sidebar has chosen another cabinet since
+    the page opened, or when Vault holds a newer version (see cabinet_settings.save). After a refusal (400) the
+    form's non-secret values are sent back as typed. 404 without any cabinet; 503 when Vault cannot be read."""
     cabinet = chosen(request)
     if cabinet is None:
         return page({"error": "aucun cabinet"}, 404)

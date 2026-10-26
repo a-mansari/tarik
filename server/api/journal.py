@@ -1,5 +1,5 @@
-"""The Logs serveur page (/ui/logs-serveur), an admin's: who did what in the UI, latest first (server/audit.py), one
-action or one person at a time, paged back."""
+"""Serve the Logs serveur page (/ui/logs-serveur, admins only): who did what in the UI (server/audit.py), newest first,
+filterable by action or person, paged back."""
 
 from starlette.requests import Request
 
@@ -12,7 +12,11 @@ PAGE = 100
 
 
 async def journal_page(request: Request):
-    """The entries (?action=, ?actor=, ?before= to page back), their times as the team reads them."""
+    """Return the journal entries for the page, filtered by ?action= and ?actor=, older than ?before= (an entry id) when
+    given.
+
+    Also returns the actor and action lists for the filters, and ``older`` (the id to page back from) when a full
+    page of PAGE entries came back."""
     query = request.query_params
     action = query.get("action") if query.get("action") in audit.ACTIONS else None
     before = int(query["before"]) if query.get("before", "").isdigit() else None

@@ -1,6 +1,7 @@
-"""Gladden: Experio's document classifier (LayoutLMv3 over Bluejay's OCR), on its runner. identify_document asks it
-first when GLADDEN_URL and GLADDEN_CALLBACK_URL are set (Vault secret/tarik/shared), and falls back to the model
-(engine/tools/invoices/classify.py) when it can't say.
+"""Gladden: Experio's document classifier (LayoutLMv3), on its runner. identify_document asks it first when
+GLADDEN_URL and GLADDEN_CALLBACK_URL are set (Vault secret/tarik/shared). The model
+(engine/tools/invoices/classify.py) decides when Gladden gives no type, and checks every answer other than
+"invoice" on a PDF (engine/tools/invoices/intake.py).
 
 Asynchronous: a POST only records the document (state 1, type and sub_type still null) and the classification is
 POSTed later to the ``response_uri`` given, matched by ``token``. Each POST makes a new record, even for a token
@@ -30,8 +31,9 @@ _waiting = {}
 
 
 def submit(url, pdf, token, response_uri):
-    """Send PDF bytes ``pdf`` to Gladden at ``url``, its result to be POSTed to ``response_uri`` under ``token``:
-    the record the runner made ({"id", "token", "state": 1, "type": None, "sub_type": None, "file", "response_uri"})."""
+    """Send PDF bytes ``pdf`` to Gladden at ``url``, its result to be POSTed to ``response_uri`` under ``token``.
+    Returns the record the runner made ({"id", "token", "state": 1, "type": None, "sub_type": None, "file",
+    "response_uri"}). Raises httpx.HTTPError when the runner refuses or can't be reached."""
     file = base64.b64encode(pdf).decode()
     body = [{"file": file, "token": token, "response_uri": response_uri, "doctype": "gladden"}]
     answer = httpx.post(url, json=body, headers=HEADERS, timeout=60)
@@ -40,9 +42,16 @@ def submit(url, pdf, token, response_uri):
 
 
 def classify(url, pdf, callback_url, wait=WAIT):
-    """Gladden's type (asked at ``url``) for PDF bytes ``pdf`` ("invoice", "bank"...), its callback POSTed to
-    ``callback_url``/<token> (this server's /gladden/ route, as the runner reaches it); None when it can't be sent
-    or doesn't answer in ``wait`` seconds. The token is random: it is the only key the open callback route asks for."""
+    """Return Gladden's type ("invoice", "bank"...) for PDF bytes ``pdf``, waiting for its callback.
+
+    Args:
+        url: Gladden's address on its runner (GLADDEN_URL).
+        callback_url: this server's /gladden/ route as the runner reaches it; the callback goes to
+            <callback_url>/<token>.
+        wait: seconds to wait for the callback.
+
+    Returns None when the document can't be sent, no callback comes in ``wait`` seconds, or it gives no type.
+    The token is random: it is the only key the open callback route checks."""
     token = secrets.token_urlsafe(24)
     event = threading.Event()
     _waiting[token] = (event, {})
@@ -61,7 +70,8 @@ def classify(url, pdf, callback_url, wait=WAIT):
 
 
 def answered(token, callback):
-    """Take Gladden's ``callback`` (its JSON body) for ``token``: whether a document was waiting for it."""
+    """Hand Gladden's ``callback`` (its JSON body) to the classify call waiting on ``token``. True when one was
+    waiting, False otherwise."""
     waiting = _waiting.get(token)
     if waiting is None:
         return False

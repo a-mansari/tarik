@@ -3,15 +3,17 @@
 temporary record), so Tarik keeps it in the conversation's outbox (tarik_outbox), sent with the reply.
 
 - What: the journals (Experio's « Journal Ledger », by default), the tiers (« Partner Ledger »), or the FEC.
-- Model: the one the client names, else Experio's own default (the only one, else the last used for the dossier,
-  else the first); none makes Experio refuse in its words.
-- Dates: the period the client names, else Experio's default (the open exercice); the import dates when they ask.
+- Model: the one the client names, else Experio's own default (_get_default_export_template: the only active one,
+  else the last used for the dossier, else the first); none makes Experio refuse in its words.
+- Dates: the period the client names, else Experio's default (_get_default_dates: the open exercice); the import
+  dates when they ask.
 - Format: Excel, or text (a ZIP of one file per journal) with the separator they name (Experio's default: tab).
-- « Lettrage » only when they ask. « Intégration » (Experio's default) marks the pieces exported, which locks them:
-  Tarik exports for analysis unless the client asks for an integration, and asks first. Tiers without their own
-  account (Experio's warning) are asked too; « Exporter quand même » is Experio's own.
-- Told: entries, lines, total debit and credit of what Experio selected (Experio counts none), Experio's refusal in
-  its words (no model, no line, a line without account).
+- « Lettrage » only when they ask. « Intégration » (Experio's default) marks the pieces exported (create_batch_id:
+  their moves set to state exported), which locks them; the FEC never marks any. Tarik exports for analysis unless
+  the client asks for an integration, and asks first. Tiers without their own account (Experio's warning, only when
+  the dossier's block_export_without_tiers is set) are asked too; « Exporter quand même » is Experio's own.
+- Reported to the client: entries, lines, total debit and credit of what Experio selected (Experio counts none),
+  Experio's refusal in its words (no model, no line, a line without account).
 """
 
 import base64
@@ -42,8 +44,11 @@ SEPARATORS = {"virgule": ",", "point virgule": ";", "tabulation": "\t", ";": ";"
 
 
 def dates_named(words):
-    """(from, to) the client's ``words`` name: « du 01/07/2026 au 30/09/2026 », « T3 2026 », « septembre 2026 »,
-    « 2026 », « T3 » or « septembre » (this year's); (None, None) when they name none."""
+    """Return (date_from, date_to) as ISO strings for the period the client's ``words`` name.
+
+    Understands « du 01/07/2026 au 30/09/2026 », « T3 2026 », « septembre 2026 », « 2026 », and « T3 » or
+    « septembre » without a year (this year's). Returns (None, None) when the words name no period.
+    """
     words = normalized(words or "")
     found = re.findall(r"(?<!\d)(\d{1,2}) (\d{1,2}) (20\d\d)(?!\d)", words)  # 01/07/2026, normalized
     if len(found) == 2:
@@ -67,7 +72,13 @@ def dates_named(words):
 
 
 def template_named(model, words, context):
-    """The export model the client names (its name in their words), else None (Experio's default)."""
+    """Return the id of the export model (``model``) whose name is in the client's ``words``, else None.
+
+    None leaves Experio's default model.
+
+    Raises:
+        ToolError: the words match several models.
+    """
     words = normalized(words or "")
     if not words:
         return None
@@ -82,8 +93,10 @@ def template_named(model, words, context):
 
 
 def models_note(model, kind, context):
-    """What export models Experio has for ``kind``, told with its refusal when none was chosen: the client then names
-    one of them, never a model of the other kind (a journal export's for the tiers)."""
+    """Return the French note listing Experio's export models (``model``) for ``kind``, added to its refusal.
+
+    Only the models of that kind are listed, so the client never names a journal export model for the tiers.
+    """
     names = [t["name"] for t in odoo_call(model, "search_read", [], fields=["name"], context=context)]
     what = "de tiers" if kind == "partner" else "d'écritures"
     if not names:
@@ -92,8 +105,10 @@ def models_note(model, kind, context):
 
 
 def selected_lines(wizard_id, context):
-    """The journal items Experio's export selects (get_line_ids, its own filters): their ids. Its answer is the
-    recordset's text, « exp.move.line(1, 2) », over JSON-RPC (no _returns)."""
+    """Return the ids of the journal items Experio's export selects (exp.export.wizard.get_line_ids, its own filters).
+
+    Over JSON-RPC the method's recordset comes back as its text, « exp.move.line(1, 2) », which is parsed here.
+    """
     text = odoo_json(WIZARD, "get_line_ids", [wizard_id], context=context) or ""
     return [int(i) for i in re.findall(r"\d+", text.partition("(")[2])]
 
@@ -107,11 +122,32 @@ def summary(line_ids, context):
     return len(moves), len(rows), sum(r["debit"] or 0 for r in rows), sum(r["credit"] or 0 for r in rows)
 
 
-def counted(kind, wizard_id, context):
-    """« : n écriture(s), n ligne(s), débit, crédit » of what Experio's export selects now; "" for the tiers."""
+def fec_lines(dossier_id, journals, wizard, context):
+    """Return the ids of the journal items Experio's FEC exports: _get_fec_line_ids's own domain (exp_export_wizard.py),
+    which RPC can't call (a private method). Unlike get_line_ids it ignores the template, the exported flag and the
+    import dates: the dossier's posted or exported lines of ``journals``, between ``wizard``'s date_from and date_to.
+    """
+    domain = [
+        ("company_id", "=", dossier_id),
+        ("parent_state", "in", ["posted", "exported"]),
+        ("exp_deleted", "=", False),
+        ("move_id.exp_deleted", "=", False),
+        ("journal_id", "in", journals),
+    ]
+    domain += [("date", ">=", wizard["date_from"])] if wizard["date_from"] else []
+    domain += [("date", "<=", wizard["date_to"])] if wizard["date_to"] else []
+    return odoo_call("exp.move.line", "search", domain, context=context)
+
+
+def counted(kind, wizard_id, context, fec=None):
+    """Return « : n écriture(s), n ligne(s), débit, crédit » of what Experio's export selects now; "" for the tiers.
+
+    ``fec``: for the FEC, its line ids (fec_lines); the other exports are counted with get_line_ids.
+    """
     if kind == "partner":
         return ""
-    entries, count, debit, credit = summary(selected_lines(wizard_id, context), context)
+    lines = fec if kind == "fec" else selected_lines(wizard_id, context)
+    entries, count, debit, credit = summary(lines, context)
     return f" : {entries} écriture(s), {count} ligne(s), débit {debit:.2f}, crédit {credit:.2f}"
 
 
@@ -128,11 +164,22 @@ def export_entries(
     client_confirmed: bool = False,
     session_id: str = "",
 ) -> dict:
-    """Export the dossier's entries (``quoi``: « écritures » by default, « tiers », « FEC ») with Experio's own
-    export, for the period named (``periode``: « T3 2026 », « 2026 », « du 01/07/2026 au 30/09/2026 »; empty: the open
-    exercice; ``date_import``: those are import dates), in the model named (``modele``; empty: Experio's), as Excel or
-    text (``format_fichier``: « texte avec ; »). ``lettrage``: with reconciliation. ``integration``: the client wants
-    the pieces marked exported (locked), asked first (``client_confirmed``). The file goes with Tarik's reply."""
+    """Export the dossier's entries, tiers or FEC with Experio's own export; the file goes with Tarik's reply.
+
+    Args:
+        quoi: what to export: « écritures » (default), « tiers », « FEC ».
+        periode: the period (« T3 2026 », « 2026 », « du 01/07/2026 au 30/09/2026 »); empty for the open exercice.
+        modele: the export model's name; empty for Experio's default.
+        format_fichier: Excel by default, or text (« texte avec ; »).
+        lettrage: include the reconciliation.
+        integration: the client wants the pieces marked exported (locked); asked first. Ignored for the FEC, which
+            Experio never marks exported (exp_export_wizard.py action_print_fec).
+        date_import: ``periode`` gives import dates, not entry dates.
+        client_confirmed: the client confirmed the integration or the export despite tiers without account.
+
+    Returns a question result before an integration or when tiers lack their account, a stop result when Experio
+    refuses or makes no file, else an ok result with ``file_name``.
+    """
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
     words = normalized(quoi)
@@ -143,6 +190,7 @@ def export_entries(
         if re.search(r"tiers|partenaire|fournisseurs|clients", words)
         else ("journal")
     )
+    integration = integration and kind != "fec"
     with refused(f"export_entries {dossier_id}", "Experio n'a pas pu préparer l'export ({reason})."):
         start, end = dates_named(periode)
         values = {"company_id": dossier_id, "export_type": kind, "reconciliation": bool(lettrage)}
@@ -165,6 +213,7 @@ def export_entries(
         chosen = template_named(model, modele, context)
         if chosen:
             values["partner_export_template_id" if kind == "partner" else "export_template_id"] = chosen
+        journals = []
         if kind != "partner":
             journals = odoo_call("exp.journal", "search", [("company_id", "=", dossier_id)], context=context)
             values["journal_ids"] = [(6, 0, journals)]
@@ -183,7 +232,8 @@ def export_entries(
         shown = f"`{template[1]}`" if template else "aucun"
         model_note = "" if kind == "fec" else f", modèle {shown}"  # the FEC has its own
         head = f"Export {KINDS[kind]} du dossier `{dossier}` ({period}{model_note})"
-        told = head + counted(kind, wizard_id, context)
+        fec = fec_lines(dossier_id, journals, wizard, context) if kind == "fec" else None
+        told = head + counted(kind, wizard_id, context, fec)
         tiers_note = ""
         method = "action_print_fec" if kind == "fec" else "print_excel_report"
         try:

@@ -35,7 +35,9 @@ INVOICE_FIELDS = [
     "company_id",
     "account_id",
     "folder_id",
+    "invoice_type",
     "is_local_invoice",
+    "retenue",
     "amount_tax_non_recoverable",
     "amount_untaxed",
     "amount_tva",
@@ -45,9 +47,12 @@ GAP = 1.0  # MAD: how far the rates' amounts may be from the invoice's TVA (roun
 
 
 def rates_used(invoice):
-    """The TVA rates the invoice really has: its amounts per rate when they add up to its TVA, else the one rate its
-    TVA and HT give (none when none fits). A stray amount Experio read under a rate (3.22 « TVA 3 % » next to 260
-    at 20 % on a 260 TVA) never makes a tax."""
+    """Return the TVA rates the invoice really has ([int]).
+
+    The rates with an amount (amount_tva_<rate>) when those amounts add up to the invoice's TVA within GAP; else the
+    one rate that HT * rate gives the TVA ([] when none fits). A stray amount Experio read under a rate (3.22
+    « TVA 3 % » next to 260 at 20 % on a 260 TVA) therefore never makes a tax.
+    """
     rates = [rate for rate in RATES if invoice[f"amount_tva_{rate}"]]
     if abs(sum(invoice[f"amount_tva_{rate}"] for rate in rates) - (invoice["amount_tva"] or 0)) <= GAP:
         return rates
@@ -57,8 +62,11 @@ def rates_used(invoice):
 
 
 def needs_zero_rate(invoice):
-    """True when Experio books the invoice on its side's 0 % tax (generate_tva_line_values asks get_tax_id for rate
-    0): TVA non récupérable / non facturée, or no TVA at all on an untaxed amount; never a foreign purchase."""
+    """True when Experio books the invoice on its side's 0 % tax.
+
+    That is TVA non récupérable / non facturée, or no TVA at all on a positive HT; never a foreign purchase.
+    generate_tva_line_values then asks get_tax_id for rate 0.
+    """
     if invoice["type"] == "purchase" and not invoice["is_local_invoice"]:
         return False
     no_tva = not invoice["amount_tva"] and (invoice["amount_untaxed"] or 0) > 0
@@ -66,9 +74,14 @@ def needs_zero_rate(invoice):
 
 
 def zero_rate_tax(company_id, side, context):
-    """The dossier's 0 % tax of ``side``: Experio's own (create_tax_ids always makes "TVA 0% ACHATS" and "TVA 0%
-    VENTES", its DGI code its own), made by it when missing. Its id, None when the dossier has no TVA account to make
-    it from; True in test mode when Experio would make it."""
+    """Return the dossier's 0 % tax of ``side`` ("purchase" or "sale"), having Experio make it when missing.
+
+    Experio's exp.account create_tax_ids always makes "TVA 0% ACHATS" and "TVA 0% VENTES" when missing; it is called
+    on the dossier's TVA accounts (3455*, 4455*).
+
+    Returns the tax id; None when the dossier has no TVA account to call it on (or Experio made none); True in test
+    mode when Experio would make it.
+    """
     domain = [("company_id", "=", company_id), ("type", "=", side), ("rate", "=", 0), ("is_immo_tax", "=", False)]
     found = odoo_call("exp.tax", "search", domain, limit=1)
     if found:
@@ -84,15 +97,23 @@ def zero_rate_tax(company_id, side, context):
 
 
 def settings_field(side, immo):
-    """The dossier's setting listing the taxes Experio picks from for this side."""
+    """Return the res.company field listing the taxes Experio picks from for ``side`` (immobilisation or not)."""
     if side == "sale":
         return "sale_tax_ids"
     return "purchase_immo_tax_ids" if immo else "purchase_exploit_tax_ids"
 
 
 def tva_account(company_id, side, immo, taxes):
-    """The TVA account ({id, code}) a new tax of the dossier takes: the one its other taxes of that kind use, else
-    by its code (34551 for an immobilisation, 34552 then 3455 for a purchase's charges, 4455 for a sale). None."""
+    """Return the TVA account ({id, code}) a new tax of the dossier takes, None when the dossier has none.
+
+    Args:
+        side: "purchase" or "sale".
+        immo: True for an immobilisation's tax.
+        taxes: the dossier's existing taxes of that side and kind (dicts, account_id as (id, name)).
+
+    The account most of those taxes use; else the first account by code: 34551 for an immobilisation, 34552 then 3455
+    (not 34551) for a purchase's charges, 4455 for a sale.
+    """
     used = Counter(tuple(tax["account_id"]) for tax in taxes if tax["account_id"])
     if used:
         account_id, name = used.most_common(1)[0][0]
@@ -114,7 +135,13 @@ def tva_account(company_id, side, immo, taxes):
 
 
 def dgi_code(side, rate, imported, account):
-    """The id of the tax's DGI code (exp.tax.code) from the cabinet's table, None when the table has none."""
+    """Return the id of the new tax's DGI code (exp.tax.code) from the cabinet's table, None when it has none.
+
+    Args:
+        side, rate: the tax's side and rate.
+        imported: the invoice belongs to an import folder.
+        account: the invoice's account code (services accounts get their own code, see SERVICES).
+    """
     prefixes, services = SERVICES.get((side, rate), ((), None))
     code = services if account.startswith(prefixes) and prefixes else DGI_CODES.get((side, rate, imported))
     if not code:
@@ -124,7 +151,7 @@ def dgi_code(side, rate, imported, account):
 
 
 def tax_values(invoice, rate, account, immo):
-    """The new tax as the cabinet fills its form."""
+    """Return the create values of the dossier's new tax for ``rate``, filled as the cabinet fills its form."""
     side = invoice["type"]
     name = f"TVA {rate}% {'VENTES' if side == 'sale' else 'ACHATS'}" + (" (Immo)" if immo else "")
     return {
@@ -141,9 +168,11 @@ def tax_values(invoice, rate, account, immo):
 
 
 def listed(company_id, field, tax_id, context):
-    """The tax listed in the dossier's setting ``field``, as its Configuration screen lists it (the form's creation
-    writes the dossier, see configuration.save_settings): "listed" already, "added", or "refused" (the cabinet's
-    rights)."""
+    """List tax ``tax_id`` in the dossier's setting ``field``, as the Configuration screen does.
+
+    The res.config.settings form's creation writes the dossier (see configuration.save_settings). Returns "listed" when
+    it already was, "added", or "refused" when the write did not take (the cabinet's rights).
+    """
     held = odoo_call("res.company", "read", [company_id], fields=[field], context=context)[0][field]
     if tax_id in held:
         return "listed"
@@ -153,12 +182,22 @@ def listed(company_id, field, tax_id, context):
 
 
 def add_missing_taxes(invoice_id, context):
-    """For each TVA rate of the invoice, the dossier's tax of that rate, side and kind (immobilisation or not):
-    created when missing, listed in the dossier's settings when not. What was done or is left to the cabinet
-    ([str]); [] when every rate has its tax."""
+    """Make sure the dossier has a listed tax for each TVA rate of the invoice, before Experio's refresh needs it.
+
+    For each rate (and the 0 % tax when Experio will use it), the dossier's tax of that rate, side and kind
+    (immobilisation or not: a local purchase on a class 2 account) is created when missing and listed in the dossier's
+    settings when not. None for a customs invoice of an import folder or a foreign purchase with retenue: Experio
+    takes their tax from a setting of its own (folder_customs_tax_id, withholding_purchase_tax_id), whatever the rate
+    (exp_invoice.py get_tax_id). Returns notes
+    for the reply on what was done or is left to the cabinet ([str]); [] when every rate already had its listed tax.
+    """
     invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=INVOICE_FIELDS, context=context)[0]
     side, company_id = invoice["type"], invoice["company_id"][0]
-    immo = side == "purchase" and account_code(invoice).startswith("2")  # an immobilisation's account, class 2
+    foreign_withheld = side == "purchase" and not invoice["is_local_invoice"] and invoice["retenue"]
+    if (invoice["folder_id"] and invoice["invoice_type"] == "customs") or foreign_withheld:
+        return []  # Experio takes one tax from its own setting there, whatever the rate (get_tax_id)
+    # an immobilisation's tax only for a local purchase on a class 2 account, as get_tax_id picks it
+    immo = side == "purchase" and invoice["is_local_invoice"] and account_code(invoice).startswith("2")
     field = settings_field(side, immo)
     domain = [("company_id", "=", company_id), ("type", "=", side), ("is_immo_tax", "=", immo)]
     taxes = odoo_call("exp.tax", "search_read", domain, fields=["rate", "account_id"])

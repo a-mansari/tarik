@@ -1,5 +1,7 @@
-"""The content pages: everything the team may change without touching code (engine/content.py), each document as a
-plain form, its history (who, when, why), what each version changed, and going back to one in a click."""
+"""Serve the content pages: everything the team may change without touching code (engine/content.py).
+
+Each document is shown as a plain form, with its history (who, when, why), what each version changed, and a one-click
+return to any version."""
 
 import difflib
 import json
@@ -16,7 +18,7 @@ SEP = "|"  # a JSON field's path in a form: keys joined
 
 
 def title(path):
-    """A document's name, as the team reads it."""
+    """Return a document's name as the team reads it."""
     if path == "agent.json":
         return "Instructions de Tarik et ses outils"
     if path == "labels.json":
@@ -28,7 +30,7 @@ def title(path):
 
 
 def what(path):
-    """What a document is for, in one sentence."""
+    """Return what a document is for, in one sentence."""
     if path == "agent.json":
         return "Ce que Tarik sait de son rôle, et comment chaque outil lui est présenté. Lu à chaque message."
     if path == "labels.json":
@@ -48,17 +50,18 @@ GROUPS = {  # key: (name, which documents)
 
 
 def groups():
-    """The documents by kind, for the list page: [(key, name, paths)]."""
+    """Return the documents by kind, for the list page: [(key, name, paths)]."""
     paths = content.documents()
     return [(key, name, [p for p in paths if belongs(p)]) for key, (name, belongs) in GROUPS.items()]
 
 
 def field(key, label, value, long=True, hint=""):
+    """Return one form field: {key (``key`` parts joined with SEP), label, value, long, hint}."""
     return {"key": SEP.join(key), "label": label, "value": value, "long": long, "hint": hint}
 
 
 def agent_sections(data):
-    """agent.json's sections: Tarik's instructions, then how each tool is presented to it."""
+    """Return agent.json's form sections: Tarik's instructions, then how each tool is presented to it."""
     tools = [field(["tools", name], name, value) for name, value in data["tools"].items()]
     read_tools = [field(["read_tools", name], f"Experio_{name}", value) for name, value in data["read_tools"].items()]
     return [
@@ -69,7 +72,8 @@ def agent_sections(data):
 
 
 def graph_fields(data, graph, name):
-    """labels.json's fields of one workflow: its name and what it does, then each step's name and what it does."""
+    """Return labels.json's fields for one workflow: its name and what it does, then each step's name and what it does.
+    Return labels.json's fields for one workflow: its name and what it does, then each step's name and what it does."""
     fields = [
         field(["graphs", graph], "Nom du workflow", name, long=False),
         field(["descriptions", "graphs", graph], "Ce qu'il fait", data["descriptions"]["graphs"].get(graph, "")),
@@ -83,7 +87,7 @@ def graph_fields(data, graph, name):
 
 
 def labels_sections(data):
-    """labels.json's sections: one per workflow, then the states."""
+    """Return labels.json's form sections: one per workflow, then the states."""
     found = []
     for graph, name in data["graphs"].items():
         found.append({"title": graph_name(graph), "fields": graph_fields(data, graph, name)})
@@ -93,7 +97,7 @@ def labels_sections(data):
 
 
 def sections(path, text):
-    """The document as form sections: [{title, fields: [{key, label, value, long, hint}]}]."""
+    """Return the document as form sections: [{title, fields: [{key, label, value, long, hint}]}]."""
     if path == "agent.json":
         return agent_sections(json.loads(text))
     if path == "labels.json":
@@ -110,7 +114,10 @@ MAX_FIELDS = 500
 
 
 def rebuilt(path, form):
-    """The document's new text from the form's fields ({key: text}), on top of its latest version."""
+    """Return the document's new text from the form's fields (``form``: {key: text}), applied on top of its latest
+    version.
+
+    Raises ValueError for an unreadable form or an unknown field."""
     if not isinstance(form, dict) or len(form) > MAX_FIELDS or not all(isinstance(v, str) for v in form.values()):
         raise ValueError("un formulaire illisible")
     values = {key: value.replace("\r\n", "\n") for key, value in form.items()}
@@ -141,8 +148,10 @@ CONTEXT = 40  # words kept around each change
 
 
 def diff(before, after):
-    """What changed between two texts, word by word: [(kind, text)], kind "+" (added), "-" (removed), " " (kept, cut
-    to CONTEXT words around each change, "…" where cut)."""
+    """Return what changed between two texts, word by word: [(kind, text)].
+
+    kind is "+" (added), "-" (removed) or " " (kept); a long kept stretch is cut to CONTEXT words around each change,
+    with "…" where cut."""
     old, new = re.split(r"(\s+)", before), re.split(r"(\s+)", after)
     found = []
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
@@ -163,8 +172,11 @@ def diff(before, after):
 
 
 def changes(path, before, after):
-    """{field key: {parts, before, after}} of each field one version changed, against the version before it (None:
-    the first): its change word by word, and its length in characters before and after."""
+    """Return {field key: {parts, before, after}} for each field a version (``after``) changed against the version
+    before it.
+
+    parts is the change word by word (diff); before and after are the field's lengths in characters. {} for the first
+    version (``before`` None)."""
     if before is None:
         return {}
     old = {f["key"]: f["value"] for section in sections(path, before) for f in section["fields"]}
@@ -199,6 +211,7 @@ TIPS = {  # what each button is for, and its file's format, shown when it is hov
 
 
 def download(data, name):
+    """Return ``data`` as a JSON file download named ``name``."""
     body = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
     return Response(
         body, media_type="application/json", headers={"content-disposition": f'attachment; filename="{name}"'}
@@ -206,7 +219,8 @@ def download(data, name):
 
 
 async def export_contents(request: Request):
-    """Every document's latest version as one file, or only a group's (?group=): to keep, or to fill another stack."""
+    """GET /ui/api/tarik-prompts-export: download every document's latest version as one file, or only a group's
+    (?group=), to keep or to copy to another stack."""
     key = request.query_params.get("group")
     belongs = GROUPS[key][1] if key in GROUPS else (lambda path: True)
     documents = {path: content.text(path) for path in content.documents() if belongs(path)}
@@ -216,8 +230,11 @@ async def export_contents(request: Request):
 
 
 async def import_contents(request: Request):
-    """An export's documents, each as a new version (made when the stack lacks it). Every document is checked before
-    any is saved: one refused, none saved. {saved: [...], unchanged: [...]} or {error}."""
+    """POST /ui/api/tarik-prompts-import: save an export's documents, each as a new version (created when the stack
+    lacks it).
+
+    Every document is checked before any is saved: if one is refused, none is. Returns {saved: [paths], unchanged:
+    [paths]}, or {error} with 400."""
     try:
         data = json.loads(await request.body())
         documents = data["documents"]
@@ -246,12 +263,16 @@ async def import_contents(request: Request):
 
 
 def author_of(request):
+    """Return the logged-in person as a version's author: "Name <email>"."""
     user = request.state.user
     return f"{user['name']} <{user['email']}>"
 
 
 async def import_section(request, path, data):
-    """One card's fields from its export, over the document's latest version: a new version, or {error}."""
+    """Save one card's fields from its export (``data``) over the document's latest version.
+
+    Returns {saved: whether a version was made}, or {error} with 400 when the file is not this document's section
+    export or names unknown fields."""
     try:
         if data.get("format") != SECTION or data.get("document") != path or not isinstance(data.get("fields"), dict):
             raise ValueError("ce fichier n'est pas l'export d'une section de ce document")
@@ -268,6 +289,7 @@ async def import_section(request, path, data):
 
 
 async def contents_page(request: Request):
+    """GET /ui/api/tarik-prompts: return the documents by group, each with its last change, and the buttons' tips."""
     last = await content.last_changes(runs.pool)
     listed = []
     for key, name, paths in groups():
@@ -277,14 +299,14 @@ async def contents_page(request: Request):
 
 
 def shown(change):
-    """A version's author (their name only) and time, as the pages read them; None for none."""
+    """Return a version's change with its author's name only and its time as the pages read them; None for None."""
     if change is None:
         return None
     return {**change, "author": change["author"].split(" <")[0], "at": runs.when(change["at"])}
 
 
 def card_download(path, text, index):
-    """Card ``index`` of the document (its fields) as a file to download; None when it has no such card."""
+    """Return card ``index`` of the document (its fields) as a JSON file download; None when it has no such card."""
     cards = sections(path, text)
     if index >= len(cards):
         return None
@@ -296,7 +318,8 @@ def card_download(path, text, index):
 
 
 async def compared(path, shown):
-    """What version ``shown`` (its id, as text) changed, for the page: {id, first, fields}; None for no such version."""
+    """Return what version ``shown`` (its id, as text) changed, as {id, first, fields}; None when there is no such
+    version."""
     if not shown or not shown.isdigit():
         return None
     after, before = await content.version(runs.pool, path, int(shown))
@@ -306,8 +329,12 @@ async def compared(path, shown):
 
 
 async def content_page(request: Request):
-    """A document's form (GET), saved (POST {fields, note}), one of its versions restored (POST {action: "restore",
-    version, note}), or one card's fields imported (POST its export): {saved} or {error}."""
+    """GET or POST /ui/api/tarik-prompts/{path}: return a document's form, history and a compared version, or save a
+    change.
+
+    GET with ?export=<card index> downloads that card's fields; ?version=<id> shows what that version changed. POST
+    takes {fields, note} to save, {action: "restore", version, note} to restore a version, or a card's export to
+    import it (see saved). 404 for an unknown document."""
     path = request.path_params["path"]
     if path not in content.documents():
         return page({"error": "document inconnu"}, 404)
@@ -334,7 +361,9 @@ async def content_page(request: Request):
 
 
 async def saved(request, path):
-    """The form's fields as a new version, or an old version again: {saved: whether a version was made} or {error}."""
+    """Save the posted form as a new version, restore an old version, or import a card's export.
+
+    Returns {saved: whether a version was made}, or {error} with 400."""
     try:
         data = await request.json()
         if not isinstance(data, dict):

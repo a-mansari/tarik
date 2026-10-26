@@ -1,9 +1,10 @@
-"""Tarik, the cabinet's agent: its instructions and tools' descriptions (content/agent.json), its skills
-(content/skills/), its read tools (engine/tools/) and the workflow tools (the graphs), on its model (model(): MiniMax-M3
-with a thinking budget, at the provider's Anthropic-style address, with this stack's own key, Vault
-secret/tarik/orchestrator).
-What every workflow tool is given besides the model's arguments (the conversation, its files, the client's words,
-the cabinet) is filled from the thread and its messages, never by the model."""
+"""Tarik, the cabinet's agent: its instructions and tool descriptions (content/agent.json), its skills
+(content/skills/), its read tools (engine/tools/) and its workflow tools (the graphs), on the cabinet's model.
+
+model() picks the model from the cabinet's MODEL_ADAPTER: MiniMax (agent.json's model, with a thinking budget, at the
+provider's Anthropic-style address and Vault's MODEL_API_KEY) or Claude through the Claude Code CLI.
+What every workflow tool gets besides the model's arguments (the conversation's id, its files, the client's latest
+message, the cabinet) comes from the thread and its messages, never from the model (fixed())."""
 
 import hashlib
 import html
@@ -27,7 +28,14 @@ from engine.tools.core.model import MODEL_URL, adapter
 
 
 def model(cabinet):
-    """The model, for a run of ``cabinet`` (the settings are read within it): its MODEL_ADAPTER's."""
+    """Return the chat model for a run of ``cabinet``, chosen by that cabinet's MODEL_ADAPTER setting.
+
+    "claude-code" gives ChatClaudeCode; otherwise ChatAnthropic on agent.json's model, at MODEL_API_URL (default
+    MiniMax's Anthropic-style address) with MODEL_API_KEY. Settings are read within the cabinet.
+
+    Raises:
+        RuntimeError: MODEL_API_KEY is not set and the adapter is not claude-code.
+    """
     with using(cabinet):
         chosen, key, url = adapter(), setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", MODEL_URL)
     if chosen == "claude-code":  # the Cabinets page's choice
@@ -60,7 +68,7 @@ READ_TOOLS = (
 
 
 def skills():
-    """The skills (name, description, instructions), their latest versions (content/skills/, edited in the UI)."""
+    """Return every skill as (name, description, instructions), from the latest content/skills/ documents."""
     found = []
     for path in content.documents():
         if path.startswith("skills/"):
@@ -70,7 +78,7 @@ def skills():
 
 
 def client_message(runtime):
-    """The client's latest message, word for word (its text parts)."""
+    """Return the text of the last HumanMessage in the agent's state, word for word; "" when there is none."""
     for message in reversed(runtime.state["messages"]):
         if isinstance(message, HumanMessage):
             return text_of(message.content)
@@ -78,7 +86,7 @@ def client_message(runtime):
 
 
 def text_of(parts):
-    """A message's text: its string, or its text parts joined."""
+    """Return a message content's text: the string itself, or its text parts joined with newlines."""
     if isinstance(parts, str):
         return parts
     return "\n".join(
@@ -87,9 +95,10 @@ def text_of(parts):
 
 
 def attachments(runtime):
-    """The conversation's files: [{id, file_name, mime_type, data (base64)}]. A file is a content part {type: file,
-    file_name, mime_type, data} of a client message; its id, the data's hash, saves it once however many times the
-    sequence runs."""
+    """Return every file the client attached in the conversation, as [{id, file_name, mime_type, data (base64)}].
+
+    A file is a content part {type: "file", file_name, mime_type, data} of a HumanMessage. Its id is a hash of
+    its data, so save_files stores it once however many runs see it."""
     files = []
     for message in runtime.state["messages"]:
         if not (isinstance(message, HumanMessage) and isinstance(message.content, list)):
@@ -101,7 +110,8 @@ def attachments(runtime):
 
 
 def attached(part):
-    """A file content part as the workflow tools are given it, its id the data's hash."""
+    """Return a file content part as {id, file_name, mime_type, data}: id is the data's sha256 (32 hex characters),
+    file_name defaults to it and mime_type to application/pdf."""
     digest = hashlib.sha256(part["data"].encode()).hexdigest()[:32]
     return {
         "id": digest,
@@ -112,8 +122,8 @@ def attached(part):
 
 
 def fixed(runtime):
-    """What every workflow tool is given besides the model's arguments: the conversation, its files, the client's
-    words, the cabinet."""
+    """Return the inputs every workflow tool adds to the model's arguments, read from the tool's ``runtime``:
+    session_id, attachments, client_message and cabinet."""
     return {
         "session_id": session_of(runtime.config),
         "attachments": attachments(runtime),
@@ -123,7 +133,9 @@ def fixed(runtime):
 
 
 def read_tool(tool_name):
-    """One of tarik's read tools, named for the model Experio_<tool>."""
+    """Return the agent tool "Experio_<tool_name>" for the read tool ``tool_name`` (one of READ_TOOLS).
+
+    Its description comes later from agent.json (described()); its output is wrapped by untrusted()."""
 
     async def experio_connection(runtime: ToolRuntime) -> str:
         return await reading(runtime, tool_name)
@@ -164,7 +176,10 @@ SOURCE = "Experio"
 
 
 def untrusted(text, tool_name):
-    """``text``, a read tool's output, as the model is handed it."""
+    """Return a read tool's output ``text`` wrapped in <untrusted_data source="Experio" label="tool_name"> tags.
+
+    Invisible Unicode characters are removed and any closing </untrusted_data> inside is escaped, so the data
+    cannot end the wrapper early."""
     visible = INVISIBLE.sub("", text)
     content = re.sub(r"<(\s*/\s*untrusted_data)", r"&lt;\1", visible, flags=re.IGNORECASE)  # no closing tag inside
     source, label = (html.escape(value, quote=True) for value in (SOURCE, tool_name))
@@ -172,6 +187,7 @@ def untrusted(text, tool_name):
 
 
 async def reading(runtime, tool_name, **arguments):
+    """Call the read tool ``tool_name`` in the run's cabinet and return its result or failure as untrusted text."""
     try:
         result = await call(cabinet_of(runtime.config), tool_name, **arguments)
     except ToolFailure as failure:
@@ -182,8 +198,10 @@ async def reading(runtime, tool_name, **arguments):
 
 
 async def run_workflow(name, runtime, call_inputs):
-    """A workflow tool's answer: the run's summary, word for word. The workflow is a run of its own, started from
-    the agent's tool step (runs.nested), never a turn of the conversation."""
+    """Run the workflow graph ``name`` and return its summary, word for word, as the tool's answer.
+
+    ``call_inputs`` are the model's arguments; fixed() adds the conversation's inputs. The workflow is a run of its
+    own, nested under the agent's tool step (runs.nested), never a turn of the conversation."""
     from engine import runs  # runs imports this module
 
     call = {**call_inputs, **fixed(runtime)}
@@ -462,9 +480,10 @@ def load_skill(name: str) -> str:
 
 
 def current_skills(messages):
-    """``messages`` with each skill loaded on an earlier turn as it is now: its load_skill result stays in the
-    conversation as the skill was then, and would hold over an edit made since (corrections sent to the processing
-    tool in thread X3, 2026-10-22)."""
+    """Return ``messages`` with every earlier load_skill result replaced by the skill's current instructions.
+
+    A load_skill result stays in the conversation's history as the skill was then; without this, the model would
+    keep following an old version of a skill after the team edited it."""
     loaded = {}  # load_skill's call id -> the skill it loaded
     for message in messages:
         for tool_call in getattr(message, "tool_calls", None) or []:
@@ -480,11 +499,12 @@ def current_skills(messages):
 
 @wrap_model_call
 async def skills_now(request, handler):
-    """The agent's middleware: the model sees the skills loaded earlier as they are now (current_skills)."""
+    """Middleware: show the model the skills it loaded earlier as they are now (current_skills)."""
     return await handler(request.override(messages=current_skills(request.messages)))
 
 
 def system_prompt():
+    """Return the agent's system prompt: the untrusted-data rule, agent.json's instructions, then the skills list."""
     listed = "\n".join(f"- « {name} » : {description}" for name, description, _ in skills())
     rules = f"<built_in_rules>\n- {UNTRUSTED_RULE}\n</built_in_rules>"  # first: they hold over everything after
     return f"{rules}\n\n{AGENT['instructions']}\n\nCOMPÉTENCES (load_skill avec le nom exact) :\n{listed}"
@@ -511,15 +531,15 @@ CHECKPOINTER = None  # the conversations' memory, set by server.py (Postgres); N
 
 
 def described():
-    """The tools, each with its latest description (content/agent.json, edited in the UI)."""
+    """Return TOOLS, each with its latest description from content/agent.json (read_tools and tools)."""
     read = {f"Experio_{name}": text for name, text in AGENT["read_tools"].items()}
     latest = {**read, **AGENT["tools"]}
     return [found.model_copy(update={"description": latest.get(found.name, found.description)}) for found in TOOLS]
 
 
 def make_agent(config=None, chat=None):
-    """The cabinet's Tarik (config.configurable.cabinet, else the default one). One thread per conversation.
-    ``chat``: another model, to draw the graph without one configured."""
+    """Build the agent for the cabinet in config.configurable.cabinet (else the default one); one thread per
+    conversation. ``chat`` replaces the model, to draw the graph without one configured."""
     return create_agent(
         chat or model(cabinet_of(config)),
         described(),

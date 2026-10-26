@@ -1,16 +1,20 @@
 """The payment delays declaration (déclaration des délais de paiement, loi 69-21), prepared as the cabinet does it on
 Experio's own screen (module declaration, exp.payment.delay), declared only when the client asks and confirms.
 
-- Whether: the dossier uses payment delays in Experio (res.company use_payment_delay); its mode, quarterly or yearly,
-  is the dossier's (payment_delay_declaration_mode). Period: the one the client names, else the last ended.
-- The turnover (CA) decides which mode the law requires (_get_required_declaration_mode); Experio never computes it,
-  it is typed on the declaration (default: the dossier's setting). Asked when it is 0, as Experio itself asks.
-- Lines: Experio's « Actualiser » (action_refresh: the period's overdue local purchases); it deletes the lines added
-  by hand, so a declaration holding some is left as it is.
-- Before declaring: Experio's own error (the mode the law requires for that CA), its refusals at « Déclarer » said
-  first (period declared, tiers without IF), and the period still running (Experio doesn't check it); what it leaves
-  out without a word (purchases of the period Experio doesn't follow for delays: supplier without valid RC, below the
-  threshold, before the start date; those blocked for this declaration). The XML runs Experio's own checks.
+- Whether: the dossier uses payment delays in Experio (res.company use_payment_delay). The mode, quarterly or yearly,
+  is the dossier's (payment_delay_declaration_mode). Period: the one the client names, else the last ended, as
+  Experio picks it (exp.declaration.base._get_last_ended_period_and_fiscal_year).
+- The turnover (CA) decides which mode the law requires (_get_required_declaration_mode). Experio never computes the
+  CA: it is typed on the declaration (default: the dossier's payment_delay_turnover_amount). Tarik asks the client
+  when it is 0, as Experio's error_msg does (« Please enter the turnover »).
+- Lines: Experio's « Actualiser » (action_refresh -> _get_overdue_invoices: overdue local purchases due before the
+  period's end). It clears every line first, including the lines added by hand, so a declaration holding some is
+  not refreshed.
+- Before declaring, reported to the client: Experio's error_msg (the mode the law requires for that CA), what
+  « Déclarer » would refuse (period already declared, tiers without IF), and the period still running (Experio
+  doesn't check it); the purchases Experio leaves out without a word (not followed for delays, should_use_payment_delay
+  False: supplier without valid RC, amount under the threshold, dated before the start date; or blocked for this
+  declaration, do_not_declare_ddp). Making the XML runs Experio's own checks.
 - « Déclarer » (action_post) only on the client's words, after a confirmation; the DGI deposit stays a person's.
 """
 
@@ -43,8 +47,10 @@ LINE_FIELDS += ["montant_paye_hors_delai", "amount_penalty"]
 
 
 def period_of(mode, words, today):
-    """(period number or None, year): the quarter named, else the last ended; the year named, else the year before,
-    for a yearly dossier."""
+    """Return (period number, year) of the declaration the client's ``words`` name for a dossier in ``mode``.
+
+    Quarterly: the quarter named, else the last ended. Yearly: (None, the year named, else the year before).
+    """
     if mode == "yearly":
         year = re.search(r"(?<!\d)(20\d\d)(?!\d)", normalized(words or ""))
         return None, int(year.group(1)) if year else today.year - 1
@@ -52,7 +58,11 @@ def period_of(mode, words, today):
 
 
 def declaration_of(dossier_id, period, year, context):
-    """The dossier's declaration of the period: declared, else its draft, else a new one (None in test mode)."""
+    """Find or create the dossier's payment delays declaration for ``period`` (None for a yearly one) and ``year``.
+
+    Returns (declaration_id, created): the declared one, else the latest draft, with created False; else a new draft
+    with created True. (None, False) in test mode when there is none to take up.
+    """
     domain = [("company_id", "=", dossier_id), ("fiscal_year", "=", str(year)), ("state", "!=", "cancel")]
     if period:
         domain.append(("period_id", "=", period["id"]))
@@ -68,7 +78,11 @@ def declaration_of(dossier_id, period, year, context):
 
 
 def left_out(dossier_id, table, context):
-    """The period's purchases Experio's computation leaves out without a word."""
+    """Return French phrases counting the period's local purchases Experio's refresh leaves out without a word.
+
+    ``table``: the declaration as read (start_date, end_date). Counts the invoices Experio doesn't follow for delays
+    (should_use_payment_delay False) and those blocked for this declaration (do_not_declare_ddp); [] when none.
+    """
     period = [("company_id", "=", dossier_id), ("type", "=", "purchase"), ("state", "in", ["post", "export"])]
     period += [("invoice_date", ">=", table["start_date"]), ("invoice_date", "<=", table["end_date"])]
     period += [("is_local_invoice", "=", True)]
@@ -88,6 +102,7 @@ def left_out(dossier_id, table, context):
 
 
 def totals(table, lines):
+    """Return the French summary of the declaration's ``lines``: count, suppliers, amounts, fine and BAM rate."""
     if not lines:
         return "aucune facture en retard sur la période (déclaration à néant)."
     owed = sum(line["montant_non_encore_paye"] or 0 for line in lines)
@@ -109,11 +124,20 @@ def prepare_payment_delay_declaration(
     client_confirmed: bool = False,
     session_id: str = "",
 ) -> dict:
-    """Prepare the dossier's payment delays declaration (loi 69-21) in Experio for the period the client names
-    (``periode``: « T3 2026 », « 2025 » for a yearly dossier; empty for the last ended): made or taken up, refreshed by
-    Experio, what Experio refuses and leaves out said, its XML made. ``chiffre_affaires``: the turnover the client
-    gives (Experio needs it to know the mode the law requires). ``declarer``: the client asks to declare it; declared
-    only once ``client_confirmed``. The DGI deposit stays the cabinet's."""
+    """Prepare the dossier's payment delays declaration (loi 69-21) in Experio, and declare it when asked and confirmed.
+
+    The declaration is created or taken up, refreshed by Experio, its XML made; what Experio would refuse and what it
+    leaves out are reported to the client.
+
+    Args:
+        periode: the period the client names (« T3 2026 », « 2025 » for a yearly dossier); empty for the last ended.
+        chiffre_affaires: the turnover the client gives; Experio needs it to know the mode the law requires.
+        declarer: the client asks to declare it.
+        client_confirmed: the client confirmed; only then is « Déclarer » run.
+
+    Returns a stop result when the dossier has no payment delays or Experio would refuse, a question result for the
+    turnover or the confirmation, else an ok result. The DGI deposit stays the cabinet's.
+    """
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
     with refused(

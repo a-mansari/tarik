@@ -48,6 +48,9 @@ def experio(monkeypatch):
             ]
         if model == export.TIERS_WIZARD:
             return [{"missing_count": state["tiers"]}]
+        if model == "exp.move.line" and method == "search":
+            state["fec_domain"] = args[0]
+            return [11, 12]
         if model == "exp.move.line":
             return [
                 {"move_id": [1, "A"], "debit": 100.0, "credit": 0.0},
@@ -148,6 +151,18 @@ def test_a_fec_is_exported_by_experio_own_fec_as_text(experio):
     result = export.export_entries(857, quoi="le FEC", periode="2026", session_id="s")
     assert experio["created"][0]["export_type"] == "fec" and ("action_print_fec", None) in experio["calls"]
     assert experio["kept"][0][1] == "TARIK TEST - Journals.txt" and "modèle" not in result["message"]
+
+
+@pytest.mark.functionality
+def test_a_fec_counts_the_lines_experio_fec_takes_and_never_asks_for_an_integration(experio):
+    result = export.export_entries(857, quoi="FEC", periode="T3 2026", integration=True, session_id="s")
+    assert result["status"] == "ok" and "get_line_ids" not in [method for method, _ in experio["calls"]]
+    assert ("parent_state", "in", ["posted", "exported"]) in experio["fec_domain"]
+    assert ("date", ">=", "2026-07-01") in experio["fec_domain"] and ("journal_id", "in", [1, 2]) in experio[
+        "fec_domain"
+    ]
+    assert "1 écriture(s), 2 ligne(s)" in result["message"] and "rien n'est verrouillé" in result["message"]
+    assert experio["writes"] == []  # never switched to integration
 
 
 @pytest.mark.functionality

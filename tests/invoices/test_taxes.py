@@ -9,7 +9,9 @@ WATER = {  # a water bill at 10 %, in a dossier made from a FEC: TVA 0 % and 20 
     "company_id": [902, "Naruto SARL"],
     "account_id": [243203, "61250000 Achats non stockes"],
     "folder_id": False,
+    "invoice_type": "normal",
     "is_local_invoice": True,
+    "retenue": False,
     "amount_tax_non_recoverable": False,
     **{f"amount_tva_{rate}": 0.0 for rate in taxes.RATES},
     "amount_tva_10": 4.18,
@@ -43,6 +45,7 @@ def experio(monkeypatch):
 
     monkeypatch.setattr(taxes, "odoo_call", odoo_call)
     monkeypatch.setattr(taxes, "dry_run", lambda: state["dry"])
+    state["odoo_call"] = odoo_call
     return state
 
 
@@ -253,3 +256,16 @@ def test_in_test_mode_an_existing_tax_is_never_listed(experio):
     experio["dry"] = True
     experio["taxes"].append({"id": 4960, "rate": 10.0, "account_id": [243204, "34550000 État"]})
     assert taxes.add_missing_taxes(272379, {}) == [] and experio["listed"] == [4949, 4951]
+
+
+@pytest.mark.functionality
+def test_a_foreign_class_2_purchase_gets_the_ordinary_tax_and_a_withheld_one_none(experio, monkeypatch):
+    """Experio's immobilisation taxes are a local purchase's only; a foreign purchase with retenue takes its own."""
+    machine = {**WATER, "account_id": [9, "23400000 Materiel"], "is_local_invoice": False}
+    monkeypatch.setattr(taxes, "odoo_call", lambda *a, **k: [machine] if a[0] == "exp.invoice" else inner(*a, **k))
+    inner = experio["odoo_call"]
+    taxes.add_missing_taxes(272379, {})
+    assert experio["created"][0]["is_immo_tax"] is False and experio["created"][0]["name"] == "TVA 10% ACHATS"
+    machine["retenue"] = True
+    experio["created"].clear()
+    assert taxes.add_missing_taxes(272379, {}) == [] and experio["created"] == []

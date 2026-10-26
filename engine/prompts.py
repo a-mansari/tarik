@@ -1,7 +1,8 @@
-"""What the agent is sent at each model call (n8n's prompt log, rebuilt): in the cabinet's own tarik_prompt_calls and
-tarik_prompt_parts (engine/sql/cabinet_schema.sql), each distinct piece (the system text, the tools, one message) kept
-once by its hash, so a growing conversation is not stored again at every call. Saving never blocks or fails a model
-call; files are shown by their size."""
+"""The prompt log: what the agent is sent at each model call, for the LLM Calls pages.
+
+Saved in the cabinet's own tarik_prompt_calls and tarik_prompt_parts (engine/sql/cabinet_schema.sql). Each distinct
+piece (the system text, the tools, one message) is kept once by its hash, so a growing conversation is not stored
+again at every call. Saving never blocks or fails a model call; files are logged as their size."""
 
 import asyncio
 import hashlib
@@ -23,7 +24,8 @@ AGENT = "Tarik - {}"
 
 
 def runs():
-    """engine.runs, for its pool: imported at use, since runs imports the agent, which imports this module."""
+    """Return the engine.runs module (for its pool), imported at use: runs imports the agent, which imports this
+    module."""
     from engine import runs as module
 
     return module
@@ -33,7 +35,8 @@ TABLES = {"calls": "tarik_prompt_calls", "parts": "tarik_prompt_parts"}
 
 
 def of(statement, cabinet):
-    """``statement`` (engine/sql/orchestrator.sql) on the cabinet's own prompt tables: its {calls} and {parts} named."""
+    """Return the SQL ``statement`` (engine/sql/orchestrator.sql) with {calls} and {parts} naming ``cabinet``'s prompt
+    tables and {runs} the run store's table."""
     named = {key: sql.Identifier(cabinet, table) for key, table in TABLES.items() if f"{{{key}}}" in statement}
     if "{runs}" in statement:  # the run store's own table, beside the cabinet's
         named["runs"] = sql.Identifier(runs().SCHEMA, "runs")
@@ -44,7 +47,8 @@ PENDING = set()  # the saves under way (a task nobody holds may be collected bef
 
 
 def plain(value):
-    """``value`` with a file's bytes, or a very long unbroken string (base64), shown by its size."""
+    """Return ``value`` with any bytes, or any string over 5000 characters without a space (base64), replaced by its
+    size."""
     if isinstance(value, dict):
         return {key: plain(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -57,12 +61,13 @@ def plain(value):
 
 
 def part(value):
+    """Return (hash, json_text) for one prompt piece: the JSON of plain(value) and the first 32 hex of its sha256."""
     content = json.dumps(plain(value), ensure_ascii=False, default=str)
     return hashlib.sha256(content.encode()).hexdigest()[:32], content
 
 
 def message(entry):
-    """One message as the model got it: its role, content (thinking and tool calls included) and tool ids."""
+    """Return one message as the model got it: {role, content} plus tool_calls, tool_call_id and name when set."""
     kept = {"role": entry.type, "content": entry.content}
     for key in ("tool_calls", "tool_call_id", "name"):
         if getattr(entry, key, None):
@@ -71,6 +76,11 @@ def message(entry):
 
 
 async def save(cabinet, session_id, agent, system, tools, messages):
+    """Save one model call's prompt in ``cabinet``'s prompt tables and wake the pages showing it.
+
+    ``agent`` is the agent's name, ``system`` the system text, ``tools`` [{name, description}], ``messages`` as
+    message() gives them. About once in 100 saves, calls older than KEEP_DAYS and unused parts are removed. A
+    failure is only printed to stderr."""
 
     try:
         system_part, tools_part, *message_parts = [part(value) for value in (system, tools, *messages)]
@@ -98,7 +108,8 @@ async def save(cabinet, session_id, agent, system, tools, messages):
 
 @wrap_model_call
 async def logged(request, handler):
-    """The agent's middleware: each model call's prompt saved (in the background), then the call itself."""
+    """Middleware: save each model call's prompt in a background task (when the run has a session), then make the
+    call."""
     try:
         config = get_config()
         if session := session_of(config):
@@ -119,8 +130,9 @@ async def logged(request, handler):
 
 
 async def listed(cabinet, before=None, limit=100):
-    """The cabinet's model calls, latest first, before call id ``before``: {id, agent, at, session_id, messages,
-    run_id} (the agent run it was made in, None when gone)."""
+    """Return up to ``limit`` of the cabinet's model calls with an id below ``before`` (all when None), latest
+    first, as [{id, agent, at, session_id, messages, run_id}]: messages is the number of messages, run_id the agent
+    run's id as text (None when it is gone)."""
     asked = {"cabinet": cabinet, "before": before or 2**31 - 1, "limit": limit}
     async with runs().pool.connection() as db:
         rows = await (await db.execute(of(Q.prompt_calls_listed, cabinet), asked)).fetchall()
@@ -129,7 +141,8 @@ async def listed(cabinet, before=None, limit=100):
 
 
 async def calls(cabinet, session_id, since=None, until=None):
-    """A conversation's model calls, in order (optionally those of one run's time): {id, agent, at, messages}."""
+    """Return a conversation's model calls in order, as [{id, agent, at, messages}] (messages: their number);
+    ``since``/``until`` (optional times) limit them to one run's time."""
 
     async with runs().pool.connection() as db:
         asked = (session_id, since, since, until, until)
@@ -138,7 +151,8 @@ async def calls(cabinet, session_id, since=None, until=None):
 
 
 async def prompt(cabinet, call_id):
-    """One call's whole prompt: {agent, at, session_id, system, tools, messages}, or None."""
+    """Return one call's whole prompt as {agent, at, session_id, system, tools, messages}; None when there is no such
+    call. A part removed since (older than KEEP_DAYS) shows as "[effacé]"."""
 
     async with runs().pool.connection() as db:
         row = await (await db.execute(of(Q.prompt_call, cabinet), (call_id,))).fetchone()

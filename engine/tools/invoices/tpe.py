@@ -8,13 +8,14 @@ handles it on Experio's own TPE screens (module bank: exp.monetary.statement, no
   wizard's direct create drops the network: exp_bank_statement_import._get_default_values.)
 - Operations: Experio's reading makes each remittance's lines (exp_bluejay_job, label + TOTAL REMISE, COMMISSION HT,
   COMMISSION TVA, NET REMISE) without an operation, and has no detection for them. Tarik gives each its operation
-  of Experio's own table (exp_account.MONETARY_OPERATION_TYPE_INFO): the sale is VENTE (client account, 34210), the
-  commission FRAIS BANCAIRES (61471, its TVA taken from the line of type « tax » of the same remittance,
-  monetary_statement_line._get_move_values), the commission's TVA TAXE BANCAIRE, the net paid to the bank SOLDE NET
-  REMISE (funds transfer, 51150). An operation missing from the dossier is made as Experio makes it on its chart's
-  import (create_monetary_operation_type), when the dossier has its account.
+  of Experio's own table (MONETARY_OPERATION_TYPE_INFO, bank/models/exp_account.py): the sale is VENTE (client
+  account, 34210), the commission FRAIS BANCAIRES (61471, its TVA taken from the line of type « tax » of the same
+  remittance, monetary_statement_line.generate_move_id), the commission's TVA TAXE BANCAIRE, the net paid to the bank
+  SOLDE NET REMISE (funds transfer, 51150). An operation missing from the dossier is made as Experio makes it on its
+  chart's import (create_monetary_operation_type), when the dossier has its account.
 - A VENTE line needs its client (« Le tiers est obligatoire pour cette opération »): Experio finds it from an
-  invoice of the line's number (_onchange_invoice_ids); for the others the client is asked once per statement.
+  invoice of the line's number (exp.monetary.statement.line create, then _onchange_invoice_ids); for the other lines
+  the client is asked once per statement.
 - Posting: Experio's own action_post. Its warning that the network changed since the last TPE statement is
   confirmed (the network was read on the statement or given by the client); its duplicate refusal stops.
 """
@@ -74,8 +75,11 @@ LINE_FIELDS = ["payment_ref", "operation_id", "partner_id", "invoice_ids", "stat
 
 
 def network_in(text):
-    """The network a TPE statement's ``text`` names (its header, or the client's words), None when it is no TPE
-    statement or names none or several."""
+    """Return the network key a TPE statement's ``text`` names (its header, or the client's words).
+
+    None when the text names no network or several. CMI is dropped when another network is named too, since CMI also
+    appears as a card brand in other networks' legends.
+    """
     words = normalized(text or "")
     found = [key for key, (_, pattern) in NETWORKS.items() if re.search(rf"(?<![a-z])(?:{pattern})(?![a-z])", words)]
     if len(found) > 1 and "cmi" in found:  # CMI is also a card brand, in the legend of the others' statements
@@ -84,16 +88,17 @@ def network_in(text):
 
 
 def network_label(key):
-    """Experio's label of network ``key`` (« ATTIJARI PAYMENT »)."""
+    """Return Experio's label of network ``key`` (« ATTIJARI PAYMENT »), the key itself when unknown."""
     return NETWORKS.get(key, (key,))[0]
 
 
 def is_tpe_text(text):
+    """True when ``text`` has words only a TPE statement has (TPE_WORDS: a remittance of card sales)."""
     return bool(TPE_WORDS.search(normalized(text or "")))
 
 
 def first_page_text(raw):
-    """The text of PDF ``raw``'s first page ("" for a scan)."""
+    """Return the text of PDF ``raw``'s first page ("" for a scan or an unreadable PDF)."""
     try:
         document = pypdfium2.PdfDocument(raw)
         return document[0].get_textpage().get_text_range() if len(document) else ""
@@ -102,8 +107,11 @@ def first_page_text(raw):
 
 
 def tpe_network(raw, words):
-    """(is a TPE statement, its network or None), from the PDF's own first page, else the client's ``words``
-    (« relevé TPE CMI »). shortcut: a scan without text is a TPE statement only by the client's words."""
+    """Return (is_tpe, network) for PDF ``raw``: whether it is a TPE statement, and its network key or None.
+
+    Read from the PDF's own first page, else from the client's ``words`` (« relevé TPE CMI »). shortcut: a scan
+    without text is a TPE statement only by the client's words.
+    """
     text = first_page_text(raw)
     if is_tpe_text(text):
         return True, network_in(text) or network_in(words)
@@ -113,7 +121,7 @@ def tpe_network(raw, words):
 
 
 def network_question(name):
-    """The question when the network can't be read: Experio's own list."""
+    """Return the question result asking file ``name``'s network, with Experio's own list as numbered choices."""
     return question(
         f"`{name}` : relevé TPE de quel réseau ? " + ", ".join(label for label, _ in NETWORKS.values()),
         choices={number: NETWORKS[key][0] for number, key in NETWORK_CHOICES.items()},
@@ -121,8 +129,10 @@ def network_question(name):
 
 
 def network_answered(choices, chosen):
-    """The network a question of network_question asked for (its ``choices`` as recorded) and the client ``chosen``
-    (its number), else None (another question)."""
+    """Return the network key the client ``chosen`` (a choice number) for a network_question, else None.
+
+    ``choices``: the question's recorded choices; None when they are not network_question's (another question).
+    """
     labels = {label for label, _ in NETWORKS.values()}
     if not choices or set(choices.values()) != labels:
         return None
@@ -130,14 +140,23 @@ def network_answered(choices, chosen):
 
 
 def last_journal(dossier_id):
-    """The journal of the dossier's last TPE statement (Experio's default for the next one), else None."""
+    """Return the journal id of the dossier's last TPE statement, else None.
+
+    That is Experio's default journal for the next one (exp.monetary.statement.import get_default_journal).
+    """
     found = odoo_call(STATEMENT, "search_read", [("company_id", "=", dossier_id)], fields=["journal_id"], limit=1)
     return found[0]["journal_id"][0] if found and found[0]["journal_id"] else None
 
 
 def import_tpe(name, raw, dossier_id, journal_id, network):
-    """Experio's own TPE upload of PDF ``raw`` (the screen's route: the document with its network as ``type``),
-    into journal ``journal_id``: the statement's id. RuntimeError unless it made exactly one."""
+    """Upload PDF ``raw`` as a TPE statement of journal ``journal_id`` through Experio's own TPE upload.
+
+    Same route as the screen: the document is sent with its ``network`` as ``type``, which becomes the statement's
+    type and its reading's doctype (get_document_values). Returns the new statement's id.
+
+    Raises:
+        RuntimeError: Experio did not make exactly one statement.
+    """
     context = in_dossier(dossier_id)
     wizard = odoo_call(
         WIZARD,
@@ -160,15 +179,17 @@ def import_tpe(name, raw, dossier_id, journal_id, network):
 
 
 def read_tpe(statement_id):
+    """Return TPE statement ``statement_id`` read with FIELDS (dict)."""
     return odoo_call(STATEMENT, "read", [statement_id], fields=FIELDS)[0]
 
 
 def being_read(statement):
-    """True while Experio has not read it: its reading sets statement_processed (and the lines, state draft)."""
+    """True while Experio has not read the TPE statement: its reading sets statement_processed (and its lines)."""
     return statement["state"] == "pending" and not statement["statement_processed"]
 
 
 def dossier_operations(dossier_id, context):
+    """Return the dossier's TPE operations (monetary.operation.type): [{id, name, type, bank_type, account_id}]."""
     return odoo_call(
         OPERATION,
         "search_read",
@@ -179,9 +200,13 @@ def dossier_operations(dossier_id, context):
 
 
 def ensure_operations(dossier_id, context):
-    """The dossier's TPE operations, Experio's 4 made when missing as Experio makes them on its chart's import (one
-    per account of the code, its tax by rate and type): (operations, names made, names that can't be made for
-    want of their account)."""
+    """Make sure the dossier has Experio's four TPE operations, making the missing ones as Experio does.
+
+    As on the chart's import (create_monetary_operation_type_from_code): one operation per account of the code, its
+    tax found by rate and type, its DGI code from Experio's map. Returns (operations, made, missing): the dossier's
+    operations, the names made (or that would be, in test mode), and the names that cannot be made because the
+    dossier lacks their account.
+    """
     operations = dossier_operations(dossier_id, context)
     have = {(o["name"], o["type"], o["bank_type"] or False) for o in operations}
     made, missing = [], []
@@ -227,7 +252,10 @@ def ensure_operations(dossier_id, context):
 
 
 def operation_named(line):
-    """The operation Experio's own label suffix gives a line read from the statement, None for another line."""
+    """Return the operation name a statement line's label gives (Experio's reading's suffix), None for another line.
+
+    A transaction line (« dd/mm/yyyy STAN ») is a sale: VENTE.
+    """
     label = (line["payment_ref"] or "").upper()
     if STAN.search(label):
         return "VENTE"
@@ -238,8 +266,11 @@ def operation_named(line):
 
 
 def sale_operation(operations, partner, context):
-    """The VENTE operation of the client ``partner`` (its customer account's, as Experio picks it from an
-    invoice: _onchange_invoice_ids), else the first VENTE of the dossier."""
+    """Return the VENTE operation for client ``partner`` (a partner id or None), None when the dossier has none.
+
+    The VENTE on the client's customer account, close to what Experio picks from an invoice (_onchange_invoice_ids
+    uses the invoice's payment-term account); else the dossier's VENTE with the lowest account.
+    """
     sales = [o for o in operations if o["type"] == "normal" and o["name"] == "VENTE"]
     if partner:
         account = odoo_call("exp.partner", "read", [partner], fields=["customer_account_id"], context=context)
@@ -251,8 +282,11 @@ def sale_operation(operations, partner, context):
 
 
 def set_operations(statement, operations, client, context):
-    """Each line read without operation given Experio's operation for its suffix; a sale line without client gets
-    ``client`` (a partner id, or None). (lines given an operation, sale lines still without client)."""
+    """Give each unposted line without an operation the operation for its label's suffix.
+
+    A sale line without a client also gets ``client`` (a partner id, or None). Returns (given, unknown): how many
+    lines got an operation, and how many sale lines are still without a client. In test mode nothing is written.
+    """
     lines = odoo_call(LINE, "read", statement["line_ids"], fields=LINE_FIELDS, context=context)
     by_name = {}
     for operation in operations:
@@ -283,8 +317,11 @@ def set_operations(statement, operations, client, context):
 
 
 def find_client(dossier_id, words, context):
-    """The dossier's one client the client's ``words`` name (exactly, else the only one containing them), None
-    otherwise; and the candidates found."""
+    """Find the dossier's tiers the client's ``words`` name.
+
+    Returns (tiers, found): tiers is {id, name} when one tiers has exactly that name or is the only one containing the
+    words, else None; found is the candidates (6 at most).
+    """
     words = " ".join((words or "").split())
     if not words:
         return None, []
@@ -297,6 +334,10 @@ def find_client(dossier_id, words, context):
 
 
 def client_question(statement_id, unknown, found=(), named=""):
+    """Return the question result asking which client the statement's ``unknown`` card sales belong to.
+
+    ``found``: candidate tiers to list; ``named``: the name the client gave, reported as unknown when nothing matched.
+    """
     listed = ", ".join(f"`{p['name']}`" for p in found)
     listed = f" Plusieurs tiers possibles : {listed}." if found else ""
     if named and not found:
@@ -308,9 +349,11 @@ def client_question(statement_id, unknown, found=(), named=""):
 
 
 def answer_client(file_id, answer, decision):
-    """apply_answer for a TPE statement asked its card sales' client: the dossier's client the agent read in the
-    answer (``decision``, else the client's own words), given to its sale lines still without one; else asked
-    again, with the candidates found."""
+    """Apply the client's answer naming the TPE statement's card sales' client (used by apply_answer).
+
+    The tiers is looked for by the agent's ``decision``, else by the client's own words in ``answer``, and given to
+    the sale lines still without a client: an ok result. Otherwise a question result asks again with the candidates.
+    """
     with cabinet_db() as db:
         statement_id = db.execute(Q.statement_of_file, (file_id,)).fetchone()[0]
     statement = read_tpe(statement_id)
@@ -328,7 +371,7 @@ def answer_client(file_id, answer, decision):
 
 
 def totals(lines):
-    """The statement's total remise, commissions HT, TVA on them and net remise, from its lines."""
+    """Return the statement's sums by operation name: total remise, commissions HT, their TVA and net remise."""
     sums = dict.fromkeys(("VENTE", "FRAIS BANCAIRES", "TAXE BANCAIRE", "SOLDE NET REMISE"), 0.0)
     for line in lines:
         name = operation_named(line)
@@ -338,7 +381,7 @@ def totals(lines):
 
 
 def blocked(lines):
-    """{Experio's reason: how many lines} for the lines not ready, and the counts ready and posted."""
+    """Return (reasons, ready, posted): {Experio's reason: how many lines} for draft and pending lines, then counts."""
     reasons = {}
     for line in lines:
         if line["state"] in ("draft", "pending"):
@@ -348,8 +391,12 @@ def blocked(lines):
 
 
 def settle_tpe(statement_id, client_words=""):
-    """settle_statement for a TPE statement once read: its operations given, its sales' client set (from the client's
-    ``client_words`` when they named one), and where it stands."""
+    """Settle a TPE statement once Experio has read it (settle_statement's TPE branch).
+
+    Makes the dossier's missing TPE operations (a stop result when an account is missing), gives each line its
+    operation, and the sale lines the client named in ``client_words``. Returns a question result while sale lines have
+    no client, else an ok result with the totals, the counts and what Experio says still blocks lines.
+    """
     statement = read_tpe(statement_id)
     dossier_id = statement["company_id"][0]
     context = in_dossier(dossier_id)
@@ -394,9 +441,14 @@ def settle_tpe(statement_id, client_words=""):
 
 
 def post_tpe(statement_id):
-    """post_statement for a TPE statement: Experio's action_post; its warning that the journal or network changed
-    since the last TPE statement confirmed (action_confirm_anyway): Tarik took the network from the statement or the
-    client; any other window or refusal stopping for the cabinet."""
+    """Post a TPE statement with Experio's action_post (post_statement's TPE branch).
+
+    Experio's warning that the journal or network changed since the last posted TPE statement is confirmed
+    (exp.monetary.statement.journal.warning.wizard action_confirm_anyway), since Tarik took the network from the
+    statement or the client; that confirmation runs action_post again, so a window it opens then (a duplicate)
+    stops too. Any other window or Experio's refusal returns a stop result for the cabinet. Otherwise
+    an ok result with how many lines were posted and how many are left to complete.
+    """
     statement = read_tpe(statement_id)
     if statement["state"] in POSTED:
         return routine(f"Relevé TPE n° {statement_id} : déjà comptabilisé.")
@@ -407,12 +459,12 @@ def post_tpe(statement_id):
     try:
         action = odoo_json(STATEMENT, "action_post", [statement_id], context=context)
         if isinstance(action, dict) and action.get("res_model") == JOURNAL_WARNING:
-            odoo_json(JOURNAL_WARNING, "action_confirm_anyway", [action["res_id"]], context=context)
+            # its action_post again: another window it opens (a duplicate) still stops below
+            action = odoo_json(JOURNAL_WARNING, "action_confirm_anyway", [action["res_id"]], context=context)
             confirmed = (
                 " Experio signalait un journal ou un réseau différent du dernier relevé TPE comptabilisé : confirmé, "
                 f"le réseau {network_label(statement['type'])} étant celui du relevé."
             )
-            action = None
     except Exception as error:  # Experio's refusal (an exact duplicate statement): its own words
         return stop(f"Relevé TPE n° {statement_id} : pas comptabilisé, Experio refuse : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):

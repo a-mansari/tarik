@@ -1,7 +1,7 @@
-"""Managing dossiers and who works on them, as the Folders screen does: a list of dossiers created from a
-spreadsheet, a collaborateur or a client created and given a dossier, a dossier archived.
+"""Manage dossiers and who works on them, as Experio's Folders screen does: create the dossiers listed in a
+spreadsheet, create a collaborateur or a client and give them a dossier, archive a dossier.
 
-Each one reads the values back and writes only once the client said yes to that read-back (identity.confirmed):
+Each tool reads the values back and writes only once the client said yes to that read-back (identity.confirmed):
 a res.company or a res.users cannot be deleted from here, and only the client can catch a misread digit.
 """
 
@@ -72,8 +72,8 @@ MAX_SHOWN = 15
 
 
 def header_columns(name, header):
-    """The spreadsheet's columns ({index: key of COLUMNS}) from its ``header`` row; ToolError, in French, when a
-    REQUIRED one is missing."""
+    """Return the spreadsheet's columns ({index: key of COLUMNS}) from its ``header`` row. Raises ToolError, in
+    French and naming the file ``name``, when a REQUIRED column is missing."""
     by_header = {normalized(alias): key for key, aliases in COLUMNS.items() for alias in aliases}
     columns = {i: by_header[normalized(h)] for i, h in enumerate(header) if normalized(h) in by_header}
     missing = [LABELS[key] for key in REQUIRED if key not in columns.values()]
@@ -87,7 +87,9 @@ def header_columns(name, header):
 
 
 def read_row(line, cells, columns):
-    """One spreadsheet row (its ``cells``, at ``line``) as a dossier, its words read as Experio's values."""
+    """Return one spreadsheet row (its ``cells``, at file line ``line``, ``columns`` from header_columns) as a
+    dossier dict: type, mode and RAS TVA read as Experio's values (None when not understood), the ICE padded to
+    15 digits, the words as given kept under <key>_given."""
     given = {key: (cells[i].strip() if i < len(cells) else "") for i, key in columns.items()}
     given = {key: given.get(key, "") for key in COLUMNS}
     return {
@@ -105,8 +107,9 @@ def read_row(line, cells, columns):
 
 
 def read_rows(name, mime, data):
-    """The spreadsheet's dossiers as [{line, name, folder_type, ice, vat, declaration_mode, country, city, zip,
-    ras_tva}] (the words as given kept under <key>_given). ToolError, in French, when it can't be read."""
+    """Return the spreadsheet's dossiers as [{line, name, folder_type, ice, vat, declaration_mode, country, city,
+    zip, ras_tva}] (the words as given kept under <key>_given). Raises ToolError, in French, when the file is not
+    Excel or CSV, unreadable, empty, misses a required column or has no row."""
     excel = name.lower().endswith((".xlsx", ".xlsm"))
     if not (excel or name.lower().endswith((".csv", ".txt")) or (mime or "").startswith("text/")):
         raise ToolError(f"`{name}` : envoyez la liste des dossiers en Excel (.xlsx) ou en CSV.")
@@ -124,7 +127,8 @@ def read_rows(name, mime, data):
 
 
 def country_of(term):
-    """The res.country ({id, name}) a cabinet means by "Maroc", "Morocco" or "MA", or None."""
+    """Return the res.country ({id, name}) a cabinet means by ``term`` ("Maroc", "Morocco" or "MA"), matched by
+    code then by French or English name; None when none matches."""
     for domain in ([("code", "=ilike", term)], [("name", "=ilike", term)]):
         for lang in ("fr_FR", "en_US"):
             found = odoo_call(
@@ -136,8 +140,9 @@ def country_of(term):
 
 
 def field_problems(row, where):
-    """What is wrong with the row's own values (type, ICE, IF, mode, country, RAS TVA), one French line each; the
-    country found is noted in ``row`` (country_id, country_name)."""
+    """Return what is wrong with the row's own values (type, ICE, IF, mode, country, RAS TVA), one French line
+    each, prefixed by ``where``. Side effect: the country found is stored in ``row`` (country_id,
+    country_name)."""
     problems = []
     if not row["folder_type"]:
         problems.append(f"{where} : type « {row['folder_type_given']} » inconnu ({', '.join(FOLDER_TYPES.values())})")
@@ -162,8 +167,9 @@ def field_problems(row, where):
 
 
 def problems_of(rows):
-    """Everything wrong with the rows, one French line per problem; [] when every row can be created. Duplicates
-    are looked for inside the file and in Experio, by name and by ICE or IF, as create_dossier does."""
+    """Return everything wrong with the rows, one French line per problem; [] when every row can be created.
+    Duplicates are looked for inside the file (by name and ICE) and in Experio (by name and by real ICE or IF,
+    as create_dossier does)."""
     problems, seen_names, seen_ices = [], {}, {}
     existing = {normalized(d["name"]): d["name"] for d in dossiers()}
     for row in rows:
@@ -190,7 +196,7 @@ def problems_of(rows):
 
 
 def row_recap(row):
-    """One dossier of the file as the client reads it back."""
+    """Return one dossier of the file as a French line the client reads back."""
     parts = [
         FOLDER_TYPES[row["folder_type"]],
         f"ICE {row['ice'] or 'non renseigne'}",
@@ -207,7 +213,8 @@ def row_recap(row):
 
 
 def values_of(row):
-    """A row as res.company values, as the Folders screen creates a dossier."""
+    """Return a row as res.company create values, as the Folders screen creates a dossier (enabled, empty values
+    left out)."""
     values = {
         "name": row["name"],
         "folder_type": row["folder_type"],
@@ -231,11 +238,20 @@ def values_of(row):
 @step_tool
 def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: str = "") -> dict:
     """Create the dossiers listed in a spreadsheet the client sent (columns Nom, Type, ICE, IF, Mode de
-    declaration; Pays, Ville, Code postal, RAS TVA optional). The whole file is checked first: one
-    problem and nothing is created, the client corrects the file. All good: the list is read back and
-    the dossiers are created once the client said yes (``client_confirmed``, the agent's reading of a
-    clear yes to that question). Experio checks each ICE and IF against the registry when creating:
-    the rows it refuses are listed, the others are created."""
+    declaration; Pays, Ville, Code postal, RAS TVA optional), and put Tarik's user on each.
+
+    Returns:
+        - a stop result listing the problems when any row has one: nothing is created, the client corrects
+          the file;
+        - a question result reading the list back until the client said yes (``client_confirmed``, the
+          agent's reading of a clear yes to that question);
+        - an ok result with how many were created (in test mode, would be). Experio checks each ICE and IF
+          against the registry on creation: the rows it refuses are listed, the others are created, and the
+          file is taken.
+
+    Raises:
+        ToolError: the file can't be read (read_rows).
+    """
     with cabinet_db() as db:
         name, mime, data = file_row(db, file_id, "file_name", "mime_type", "data")
     rows = read_rows(name, mime, data)
@@ -283,8 +299,8 @@ KINDS = {  # kind -> (res.users employee_type, exp.user.profile type, the word f
 
 
 def profiles(profile_type):
-    """The profiles a collaborateur ("employee") or a client ("customer") may be given, {name: id}: read from
-    Experio, never fixed, a cabinet adds its own."""
+    """Return the exp.user.profile entries of ``profile_type`` ("employee" for a collaborateur, "customer" for a
+    client) as {name: id}: read from Experio, never fixed, since a cabinet adds its own."""
     found = odoo_call(
         "exp.user.profile", "search_read", [("type", "=", profile_type)], fields=["id", "name"], order="name"
     )
@@ -292,7 +308,8 @@ def profiles(profile_type):
 
 
 def person_recap(label, dossier, given, chosen, existing):
-    """What the client checks before the person is created (or, ``existing``, attached)."""
+    """Return the French read-back the client checks before the person is created, or, when ``existing`` (the
+    user found by email) is given, before that user is attached to the dossier."""
     if existing:
         return (
             f"Le {label} `{existing['name']}` existe deja (`{existing['login']}`). Avant de le rattacher, verifiez :\n"
@@ -306,7 +323,7 @@ def person_recap(label, dossier, given, chosen, existing):
 
 
 def user_by_email(email, employee_type):
-    """The collaborateur or client whose login or email is ``email`` ({id, name, login}), or None."""
+    """Return the user of ``employee_type`` whose login or email is ``email`` ({id, name, login}), or None."""
     found = users_by_email(email, [employee_type], ["id", "name", "login"], 1)
     return found[0] if found else None
 
@@ -323,11 +340,19 @@ def create_person(
     client_message: str = "",
     session_id: str = "",
 ) -> dict:
-    """Create a collaborateur (``kind`` collaborator) or a client (``kind`` client) in Experio and give
-    them a dossier: a res.users with the email as login and a profile of its kind, in the dossier's
-    Collaborateurs or Clients. Only values the client wrote themselves (``client_message`` and their
-    earlier messages). One with that email already: only attached. Read back first; created once the
-    client said yes (``client_confirmed``, the agent's reading of a clear yes to that question)."""
+    """Create a collaborateur (``kind`` "collaborator") or a client (``kind`` "client") in Experio and give them
+    the dossier: a res.users with the email as login and a profile of that kind, added to the dossier's
+    Collaborateurs or Clients. A user of that kind with that email already exists: only attached.
+
+    Only values the client wrote themselves are used (``client_message`` and their earlier messages).
+
+    Returns a question result when the name, email or a known ``profile`` is missing, then a question result
+    reading the values back until the client said yes (``client_confirmed``, the agent's reading of a clear yes
+    to that question); an ok result once created or attached (in test mode, without writing).
+
+    Raises:
+        ToolError: unknown ``kind``.
+    """
     if kind not in KINDS:
         raise ToolError("kind : collaborator ou client.")
     employee_type, profile_type, label = KINDS[kind]
@@ -385,9 +410,11 @@ def create_person(
 
 @step_tool
 def archive_dossier(dossier_id: int, client_confirmed: bool = False, session_id: str = "") -> dict:
-    """Archive a dossier, as its form's Archiver does: hidden from the lists, nothing deleted,
-    restorable from Experio (filtre Archives, Desarchiver). What it hides is read back first;
-    archived once the client said yes (``client_confirmed``)."""
+    """Archive a dossier, as its form's Archiver does (res.company action_archive_folder: active False): hidden
+    from the lists, nothing deleted, restorable from Experio (filtre Archives, Desarchiver).
+
+    Returns a question result with the dossier's invoice counts until the client said yes (``client_confirmed``);
+    then an ok result (in test mode, without archiving)."""
     dossier = require_dossier(dossier_id)
     with refused(f"archive_dossier {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu compter ses factures."):
         total = odoo_call("exp.invoice", "search_count", [("company_id", "=", dossier_id)])

@@ -1,5 +1,8 @@
-"""The tools every module registers (TOOLS, by name: what the graphs and the agent call), what a step tool returns,
-the refusal a client may read (ToolError), and the log."""
+"""The tool registry (TOOLS: every tool the graphs and the agent call, by name), the step results a step tool returns,
+the refusal the client may read (ToolError), and the log.
+
+A step result is a dict {"status", "message", ...}: ok (go on), wait (Experio is still reading: retry later),
+question (ask the client) or stop (nothing more to do)."""
 
 import functools
 import inspect
@@ -11,22 +14,22 @@ CRASHED = "echec technique, reessayez plus tard."  # what the client reads of a 
 
 
 class ToolError(Exception):
-    """A tool's refusal: its message is the only text the client or the agent may read."""
+    """A tool's refusal: its message is the only text of a failure that reaches the client or the agent."""
 
 
 def tool(function):
-    """Decorator: ``function`` registered as a tool under its own name."""
+    """Decorator: register ``function`` in TOOLS under its own name."""
     TOOLS[function.__name__] = function
     return function
 
 
 def log(text):
-    """Print ``text`` to the container's log at once (never to the agent)."""
+    """Print ``text`` to the container's log, flushed at once; the agent never sees it."""
     print(text, flush=True)
 
 
 def _result(status):
-    """A step result maker: message (str) and extra fields -> {"status": status, "message": message, **extra}."""
+    """Return a maker of step results with ``status``: (message, **extra) -> {"status", "message", **extra}."""
     return lambda message, **extra: {"status": status, "message": message, **extra}
 
 
@@ -36,14 +39,15 @@ ok, wait, question, stop = map(_result, ("ok", "wait", "question", "stop"))
 
 
 def routine(message, **extra):
-    """An ok outcome the client needn't read (nothing to do, nothing found, the expected setting): recorded as any
-    other, left out of the run's summary unless it is where the invoice stands (run_summary)."""
+    """Return a routine result: an ok result the client need not read (nothing to do, nothing found, the expected
+    setting). It is recorded like any other result and left out of the run's summary (run_summary) unless it is
+    where the invoice stands."""
     return ok(message, routine=True, **extra)
 
 
 def with_ids(function):
-    """Decorator: copy the ids a tool was called with (invoice_id, file_id, dossier_id) into its dict result, so
-    every outcome says which invoice, file or dossier it is about."""
+    """Decorator: copy the invoice_id, file_id and dossier_id a tool was called with into its dict result (keys it
+    already has are kept), so every result names the invoice, file or dossier it is about."""
     signature = inspect.signature(function)
 
     @functools.wraps(function)
@@ -60,5 +64,5 @@ def with_ids(function):
 
 
 def step_tool(function):
-    """Decorator: a step of the workflows, registered as a tool, its ids copied into its result (with_ids)."""
+    """Decorator: register a workflow step as a tool (tool) whose results carry its ids (with_ids)."""
     return tool(with_ids(function))

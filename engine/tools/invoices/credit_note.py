@@ -1,11 +1,11 @@
-"""A posted credit note (avoir) applied to the invoice it cancels, as the cabinet does from Experio's « Crédits /
+"""Apply a posted credit note (avoir) to the invoice it cancels, as the cabinet does from Experio's « Crédits /
 Débits en attente » block.
 
-Experio lists, on the posted credit note, the open lines of the same tiers and account it may be applied to
+On a posted credit note, Experio lists the open lines of the same tiers and account it may be applied to
 (exp.move _compute_payments_widget_to_reconcile_info: each with its entry's number and what is left on it), and
-applies one with js_assign_outstanding_line (a reconciliation, undone from the same block). Tarik applies it when the
-choice is plain: the invoice the credit note names on its scan, else the one invoice of that tiers left owing exactly
-the credit note's amount. Anything else is listed for the cabinet.
+applies one with js_assign_outstanding_line (a reconciliation, undone from the same block). Tarik applies it only
+when the choice is plain: the invoice the credit note names on its scan, else the one invoice of that tiers left
+owing exactly the credit note's amount. Any other case is listed for the cabinet.
 """
 
 from engine.tools.core.app import ok, routine, step_tool
@@ -19,13 +19,13 @@ WIDGET = "invoice_outstanding_credits_debits_widget"
 
 
 def plain(number):
-    """An invoice number as compared: lowercase letters and digits only ("FA 2026-01" is "fa202601")."""
+    """Return an invoice number as compared: lowercase letters and digits only ("FA 2026-01" is "fa202601")."""
     return normalized(str(number or "")).replace(" ", "")
 
 
 def invoice_lines(candidates, partner_id):
-    """Of the widget's ``candidates``, those that are an invoice of the tiers (not a credit note, a payment nor an
-    opening balance), by their entry."""
+    """Return the widget's ``candidates`` (lines) whose entry is an invoice of tiers ``partner_id``: not a credit
+    note, a payment nor an opening balance."""
     moves = [line["move_id"] for line in candidates]
     domain = [("move_id", "in", moves), ("partner_id", "=", partner_id), ("refund", "=", False)]
     found = {i["move_id"][0] for i in odoo_call("exp.invoice", "search_read", domain, fields=["move_id"])}
@@ -33,8 +33,10 @@ def invoice_lines(candidates, partner_id):
 
 
 def chosen(candidates, named, amount):
-    """The line to apply the credit note to, and why: the invoice it names (``named``, read on its scan), else the one
-    invoice left owing exactly its ``amount``; (None, "") when it is no plain choice."""
+    """Return (line, why): the widget line to apply the credit note to, and the French reason for the reply.
+
+    The line is the invoice the credit note names (``named``, read on its scan), else the one invoice left owing
+    exactly its ``amount``. Returns (None, "") when neither gives exactly one line."""
     if named:
         by_name = [line for line in candidates if plain(line["journal_name"]) == plain(named)]
         if len(by_name) == 1:
@@ -48,8 +50,9 @@ def chosen(candidates, named, amount):
 @step_tool
 def apply_credit_note(invoice_id: int) -> dict:
     """Apply a posted credit note to the invoice it cancels, with Experio's own « Crédits en attente »: the invoice
-    its scan names, else the one invoice of that tiers left owing exactly its amount; otherwise the candidates are
-    listed for the cabinet. Nothing to do for an invoice, a draft, or a credit note already used up."""
+    its scan names, else the one invoice of that tiers left owing exactly its amount. Otherwise an ok result lists
+    the candidates for the cabinet. A routine result when there is nothing to do: an invoice, a draft, a credit
+    note already used up or without tiers, or no open invoice of that tiers."""
     invoice = require_invoice(invoice_id, FIELDS)
     if not invoice["refund"] or invoice["state"] not in POSTED:
         return routine(f"Facture {invoice_id} : pas d'avoir comptabilisé à imputer.")

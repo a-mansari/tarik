@@ -1,4 +1,4 @@
-"""The dossier's invoices, as Experio lists them, filtered by where they stand."""
+"""List a dossier's invoices as Experio holds them (exp.invoice), filtered by status and side."""
 
 from engine.tools.core.app import ToolError, ok, tool
 from engine.tools.core.experio import odoo_call, refused, require_dossier
@@ -18,7 +18,8 @@ SIDES = {"achat": ("purchase", "d'achat"), "vente": ("sale", "de vente")}  # the
 
 
 def label(invoice):
-    """Where ``invoice`` (with state and payment_state) stands, as the client reads it."""
+    """Return where ``invoice`` (a dict with state and payment_state) stands, in the client's words: a name of
+    STATUSES, or "comptabilisee (payée en partie)" for a posted invoice Experio marks partly paid."""
     if invoice["state"] in LABELS:
         return LABELS[invoice["state"]]
     if invoice["payment_state"] == "partial":  # Experio's unpaid / partial / paid (_compute_payment_state)
@@ -27,12 +28,14 @@ def label(invoice):
 
 
 def amount(value):
-    """An amount as Experio shows it: two decimals, thousands spaced (999.9960000000001 is 1 000.00)."""
+    """Return ``value`` as Experio shows an amount: two decimals, thousands separated by a space (999.9960000000001
+    gives "1 000.00")."""
     return f"{float(value or 0):,.2f}".replace(",", " ")
 
 
 def line(invoice):
-    """One invoice of the list: "- facture 12 : F-001, `ATLAS`, 2026-03-15, 1 200.00 DH, brouillon"."""
+    """Return one invoice's line of the list, e.g. "- facture 12 : F-001, `ATLAS`, 2026-03-15, 1 200.00 DH, brouillon".
+    A credit note (refund) reads « avoir », its amount negated as Experio shows it."""
     tiers = without_if((invoice["partner_id"] or [0, "tiers inconnu"])[1])
     kind = "avoir" if invoice.get("refund") else "facture"
     shown = -invoice["amount_total"] if invoice.get("refund") else invoice["amount_total"]  # as Experio shows it
@@ -44,10 +47,19 @@ def line(invoice):
 
 @tool
 def list_invoices(dossier_id: int, status: str = "", limit: int = 20, side: str = "") -> dict:
-    """List a dossier's invoices, most recent first. ``status`` filters them, exactly one of: "en cours" (Experio
-    still reading), "brouillon", "comptabilisee" (posted, not paid: the unpaid ones), "payee", "exportee"; empty for
-    all of them. ``side``: "achat", "vente", or empty for both. The agent chooses them from what the client asked;
-    any other value is refused."""
+    """List a dossier's invoices, most recent first; cancelled ones are never listed.
+
+    Args:
+        dossier_id: the dossier.
+        status: exactly one of "en cours" (Experio still reading), "brouillon", "comptabilisee" (posted, not fully
+            paid), "payee", "exportee"; empty for all. The agent chooses it from the client's words.
+        limit: how many lines to show, 1 to 100.
+        side: "achat", "vente", or empty for both.
+
+    Returns an ok result: the total count, then one line per invoice (see ``line``), the most recent ``limit`` only.
+
+    Raises:
+        ToolError: ``status`` or ``side`` is not one of the values above."""
     dossier = require_dossier(dossier_id)
     wanted = (status or "").strip()
     if wanted and wanted not in STATUSES:

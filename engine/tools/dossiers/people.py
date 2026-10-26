@@ -1,12 +1,11 @@
-"""The cabinet's people, as Experio knows them, and who may have work done on which dossier.
+"""The cabinet's people as Experio knows them, and who may have work done on which dossier.
 
-Experio has no collaborator model: they are res.users with employee_type "employee" (the
-cabinet), "internal" (Experio's own staff, given every dossier of every cabinet) or "client" (a
-dossier's contacts). A user's role is their profile (exp_profile_id:
-"Collaborateur", "Chef de mission", "Manager"...), whose management level is none, user,
-approver or admin; Experio's own user_is_manager() says who manages. A user's dossiers are
-their company_ids, which Experio keeps in step with each dossier's Employees and Contacts:
-the same dossiers they see in Experio.
+Experio has no collaborator model: people are res.users with employee_type "employee" (the cabinet's
+collaborators), "internal" (Experio's own staff, who see every active dossier) or "client" (a dossier's
+contacts). A user's role is their profile (exp_profile_id: "Collaborateur", "Chef de mission", "Manager"...),
+whose management_group is none, user, approver or admin; Experio's own res.users user_is_manager() says who
+manages (never a client). A user's dossiers are their company_ids, which Experio keeps in step with each
+dossier's employee_ids and contact_ids (res.company and res.users write): the same dossiers they see in Experio.
 """
 
 import re
@@ -23,8 +22,13 @@ USER_FIELDS = ["name", "login", "employee_state", "exp_profile_id", "is_super_ma
 
 
 def collaborator_line(user, levels, manager):
-    """One line on ``user`` (res.users, USER_FIELDS): role, manager or not (``manager``), dossiers, account state.
-    ``levels`` is management_levels() of the users' profiles."""
+    """Return one French line on ``user`` (res.users read with USER_FIELDS): role, manager or not, number of
+    dossiers, account state.
+
+    Args:
+        levels: {profile id: management_group} of the users' profiles.
+        manager: Experio's user_is_manager() for this user.
+    """
     profile = user["exp_profile_id"]
     role = f"{profile[1]} (gestion : {LEVELS[levels.get(profile[0], 'none')]})" if profile else "sans profil"
     super_manager = ", super manager" if user["is_super_manager"] else ""
@@ -37,8 +41,9 @@ def collaborator_line(user, levels, manager):
 
 @tool
 def list_collaborators() -> str:
-    """The cabinet's collaborators in Experio: their role (profile and management level),
-    whether Experio counts them as managers, and how many dossiers are assigned to them."""
+    """Return, as French text, the cabinet's collaborators (employee_type "employee") in Experio: each one's
+    role (profile and management level), whether Experio counts them as a manager, and how many dossiers are
+    assigned to them."""
     with refused("list_collaborators", "Experio n'a pas pu donner la liste des collaborateurs."):
         users = odoo_call(
             "res.users", "search_read", [("employee_type", "=", "employee")], order="name", fields=USER_FIELDS
@@ -54,9 +59,9 @@ def list_collaborators() -> str:
 
 
 def users_by_email(address, employee_types, fields, limit):
-    """The res.users of ``employee_types`` whose login or email is ``address`` (at most ``limit``, their ``fields``).
-    Compared whole, case aside: Experio's =ilike would read % and _ in an address as wildcards (jean%@cabinet.ma
-    matching jean.dupont@cabinet.ma)."""
+    """Return the res.users (at most ``limit``, read with ``fields``) of ``employee_types`` whose login or email is
+    ``address``, compared whole and case-insensitively. %, _ and backslash are escaped, since =ilike would read
+    them as wildcards (jean%@cabinet.ma matching jean.dupont@cabinet.ma)."""
     exact = re.sub(r"([\\%_])", r"\\\1", address)  # a backslash, % or _: escaped with a backslash
     return odoo_call(
         "res.users",
@@ -68,17 +73,19 @@ def users_by_email(address, employee_types, fields, limit):
 
 
 def collaborator(address):
-    """The active Experio collaborator or staff member (STAFF) with this email (their login), or None: client
-    contacts and unknown addresses don't give Tarik work."""
+    """Return the Experio collaborator or staff member (STAFF) whose login or email is ``address``, as {id, name,
+    company_ids, employee_type}; None for an unknown address, a client contact, or an address two users share."""
     found = users_by_email(address, STAFF, ["name", "company_ids", "employee_type"], 2)
     return found[0] if len(found) == 1 else None  # two users with one address: not a reliable sender
 
 
 @tool
 def check_creator(session_id: str) -> dict:
-    """Before dossiers are created (one, or a spreadsheet's list): the email's sender must be one of the cabinet's
-    managers (Experio's own user_is_manager) or Experio's staff. Any other collaborator is told so, and nothing is
-    created. The chat has no sender to check."""
+    """Check, before dossiers are created (one, or a spreadsheet's list), that the email's sender is a cabinet
+    manager (Experio's own user_is_manager) or Experio staff.
+
+    Returns a routine result when allowed or in the chat (no sender to check); a stop result, reported to the
+    client, when the sender is unknown or not a manager: nothing is created."""
     address = sender_of(session_id)
     if address is None:
         return routine("Conversation sans expediteur a verifier.")
@@ -96,10 +103,17 @@ def check_creator(session_id: str) -> dict:
 
 
 def attach_user(user_id, dossier_id, profile_id=None, employee_type="employee"):
-    """Put a user on a dossier, with a profile there, as the dossier form does: in its Collaborateurs
-    (employee_ids) or Clients (contact_ids), which Experio copies into the user's dossiers, and the
-    "Profils par Dossier" row (exp.user.company.profile). Already on it: left as is. ``user_id`` None: Tarik's
-    own user, with its own profile, so Tarik sees the dossier it just made."""
+    """Put a user on a dossier with a profile there, as the dossier form does.
+
+    Adds the user to the dossier's Collaborateurs (employee_ids) for ``employee_type`` "employee", else to its
+    Clients (contact_ids); Experio's res.company write copies that into the user's company_ids. Then creates the
+    "Profils par Dossier" row (exp.user.company.profile) unless one exists or ``profile_id`` is empty.
+
+    Args:
+        user_id: the res.users id; None for Tarik's own user, with its own profile, so Tarik sees the dossier it
+            just created.
+        profile_id: the exp.user.profile id to give on this dossier.
+    """
     if user_id is None:
         user_id = login()
         profile_id = odoo_call("res.users", "read", [user_id], fields=["exp_profile_id"])[0]["exp_profile_id"]
@@ -116,7 +130,8 @@ def attach_user(user_id, dossier_id, profile_id=None, employee_type="employee"):
 
 
 def sender_of(session_id):
-    """Who wrote, for an email conversation; None in the chat, where Experio can't tell who writes."""
+    """Return the sender's address of an email conversation; None in the chat, where nobody can tell who
+    writes."""
     with cabinet_db() as db:
         row = db.execute(Q.sender_of_session, (session_id,)).fetchone()
     return row[0] if row else None
@@ -124,9 +139,11 @@ def sender_of(session_id):
 
 @tool
 def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> dict:
-    """Before work on an existing dossier (``dossier_id``, or the dossier of ``invoice_id``):
-    the email's sender must be Experio staff, or a collaborator with that dossier assigned to them.
-    The chat has no sender to check."""
+    """Check, before work on an existing dossier (``dossier_id``, or the dossier of ``invoice_id``), that the
+    email's sender is Experio staff or a collaborator with that dossier in their company_ids.
+
+    Returns a routine result when allowed or in the chat (no sender to check); a stop result, reported to the
+    client, when the sender is unknown or the dossier isn't assigned to them."""
     if invoice_id and not dossier_id:
         dossier_id = require_invoice(invoice_id, ["company_id"])["company_id"][0]
     dossier = require_dossier(dossier_id)

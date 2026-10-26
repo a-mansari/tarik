@@ -2,18 +2,20 @@
 exp.deduction.table), declared only when the client asks and confirms.
 
 - Period: the one the client names, else the last one ended for the dossier's declaration mode, as Experio's form
-  picks it (exp_declaration_base._onchange_fiscal_year_auto_select_period). A dossier « hors champ » declares none.
-- The declaration: the dossier's draft of that period, else a new one; its lines made by Experio's « Actualiser »
-  (action_refresh, which RPC's create doesn't run).
-- Crédit de TVA reporté (tva_en_rouge): Experio carries it from the dossier's last declared period; for its first
-  declaration in Experio it is 0 and « Actualiser » writes 0 over any value, so the client's figure is asked once and
-  written after each refresh.
-- Before declaring, what the declaration leaves out without a word (drafts of the period, blocked invoices, unpaid
-  purchases: no lettered payment, no deduction), Experio's own checks (check_declaration_requirements), the lines in
-  error, and its coherence screen's findings (bank operations in suspense, tiers to verify) are told; the XML is made
-  on the declaration when the checks pass.
-- « Déclarer » (action_post: TVA writings, period locked) only on the client's words, after a confirmation. The
-  deposit on the DGI's portal stays a person's act: Tarik never logs in there, and never cancels a declaration.
+  picks it (exp.declaration.base._onchange_fiscal_year_auto_select_period). A dossier « hors champ » declares none.
+- The declaration: the dossier's declared one or draft of that period, else a new one; its lines made by Experio's
+  « Actualiser » (action_refresh, which keeps the lines added by hand; an RPC create runs no onchange).
+- Crédit de TVA reporté (tva_en_rouge): Experio carries it from the dossier's last declared period (get_tva_en_rouge);
+  for its first declaration in Experio it is 0 and « Actualiser » writes 0 over any value, so the client's figure is
+  asked once and written after each refresh.
+- Before declaring, reported to the client: what the declaration leaves out without a word (drafts of the period,
+  blocked invoices, unpaid purchases under the encaissement regime: no lettered payment, no deduction), Experio's own
+  checks (check_declaration_requirements), the lines in error, and the bank operations in suspense its coherence
+  screen flags (get_bank_lines_in_suspense; its other findings are not reported). The XML is made on the declaration
+  when the checks pass.
+- « Déclarer » (action_post: TVA entry made, the declared invoices and lines flagged) only on the client's words,
+  after a confirmation, with the coherence screen skipped (exp_skip_coherence_check). The deposit on the DGI's portal
+  stays a person's act: Tarik never logs in there, and never cancels a declaration.
 """
 
 import re
@@ -43,11 +45,14 @@ MONTHS += ("novembre", "decembre")
 FIELDS = ["state", "period_id", "fiscal_year", "start_date", "end_date", "regime", "tva_en_rouge", "tva_due"]
 FIELDS += ["deduction_amount", "tax_purchase_amount", "imposable_amount", "ca_total", "count_deduction_ids"]
 FIELDS += ["count_imposable_ids", "error_msg", "warning_msg", "config_error_msg", "datas_fname", "name"]
+FIELDS += ["declaration_type"]
 
 
 def last_ended(mode, today):
-    """(period number, year) of the last period ended at ``today``, as Experio's form picks it: the month before,
-    or the quarter before (January: the year before's last)."""
+    """Return (period number, year) of the last period ended at ``today`` in ``mode`` ("monthly" or "quarterly").
+
+    The month before, or the quarter before; in January (or Q1) the last of the year before, as Experio picks it.
+    """
     if mode == "monthly":
         return (today.month - 1, today.year) if today.month > 1 else (12, today.year - 1)
     quarter = (today.month - 1) // 3
@@ -55,8 +60,13 @@ def last_ended(mode, today):
 
 
 def period_named(mode, words, today):
-    """(period number, year) the client's ``words`` name (« T3 », « 3e trimestre 2026 », « août », « 08/2026 »),
-    None when they name none; ToolError when they name a month for a quarterly dossier or the reverse."""
+    """Return (period number, year) the client's ``words`` name (« T3 », « 3e trimestre 2026 », « août », « 08/2026 »).
+
+    The year defaults to ``today``'s. Returns None when the words name no period.
+
+    Raises:
+        ToolError: a month named for a quarterly dossier, or a quarter for a monthly one.
+    """
     words = normalized(words or "")
     if not words:
         return None
@@ -83,6 +93,11 @@ def period_named(mode, words, today):
 
 
 def find_period(mode, number):
+    """Return Experio's period record {"id", "name"} of type ``mode`` and number ``number``.
+
+    Raises:
+        ToolError: Experio has no such period (exp.declaration.period).
+    """
     found = odoo_call(
         PERIOD, "search_read", [("type", "=", mode), ("period_id", "=", number)], fields=["name"], limit=1
     )
@@ -92,8 +107,11 @@ def find_period(mode, number):
 
 
 def declaration_of(dossier_id, period, year, regime, context):
-    """The dossier's declaration of the period: its declared one, else its draft, else a new draft (None in test
-    mode). (id or None, made now)."""
+    """Find or create the dossier's TVA declaration for ``period`` and ``year``; a new one gets ``regime``.
+
+    Returns (declaration_id, created): the declared one, else the latest draft, with created False; else a new draft
+    with created True. (None, False) in test mode when there is none to take up.
+    """
     domain = [("company_id", "=", dossier_id), ("period_id", "=", period["id"]), ("fiscal_year", "=", str(year))]
     domain += [("state", "!=", "cancel")]
     found = odoo_call(TABLE, "search_read", domain, fields=["state"], order="state desc, id desc", context=context)
@@ -114,13 +132,15 @@ def declaration_of(dossier_id, period, year, regime, context):
 
 
 def is_first(dossier_id, table, context):
-    """True when the dossier has no declared TVA period before this one in Experio (no carried credit)."""
+    """True when the dossier has no declared TVA declaration of ``table``'s type ending before ``table`` starts (no
+    carried credit): get_tva_en_rouge's own search (exp_deduction_table.py)."""
     domain = [("company_id", "=", dossier_id), ("state", "=", "done"), ("end_date", "<", table["start_date"])]
+    domain.append(("declaration_type", "=", table["declaration_type"]))
     return not odoo_call(TABLE, "search_count", domain, context=context)
 
 
 def left_out(dossier_id, table, context):
-    """What the period's declaration leaves out without a word: [« n description »]."""
+    """Return French phrases counting what the period's declaration leaves out without a word; [] when nothing."""
     period = [("company_id", "=", dossier_id), ("invoice_date", ">=", table["start_date"])]
     period += [("invoice_date", "<=", table["end_date"])]
     said = []
@@ -145,8 +165,11 @@ def left_out(dossier_id, table, context):
 
 
 def suspense_count(dossier_id, table, context):
-    """The bank operations of the period Experio's coherence screen flags (get_bank_lines_in_suspense's domain:
-    unfinished, or posted without tiers, or a posted purchase/sale not reconciled)."""
+    """Return how many bank operations of the period Experio's coherence screen flags.
+
+    Same as get_bank_lines_in_suspense: unfinished, or posted without tiers, or a posted purchase/sale not reconciled,
+    except the operations already in the declaration (its deduction_ids and imposable_ids lines' bank operations).
+    """
     domain = [
         ("company_id", "=", dossier_id),
         ("date", ">=", table["start_date"]),
@@ -163,11 +186,28 @@ def suspense_count(dossier_id, table, context):
         ("operation_type", "in", ["purchase", "sale"]),
         ("is_reconciled", "=", False),
     ]
-    return odoo_call("exp.bank.statement.line", "search_count", domain, context=context)
+    declared = [  # deduction_ids | imposable_ids, their One2many domains (exp_deduction_table.py)
+        "|",
+        "&",
+        "&",
+        "&",
+        ("deduction_id", "=", table["id"]),
+        ("line_category", "=", "deduction"),
+        ("is_previous_period", "=", False),
+        ("exp_deleted", "=", False),
+        "&",
+        "&",
+        ("imposable_id", "=", table["id"]),
+        ("line_category", "=", "imposable"),
+        ("exp_deleted", "=", False),
+    ]
+    lines = odoo_call(LINE, "search_read", declared, fields=["bank_statement_line_id"], context=context)
+    inside = [line["bank_statement_line_id"][0] for line in lines if line["bank_statement_line_id"]]
+    return odoo_call("exp.bank.statement.line", "search_count", domain + [("id", "not in", inside)], context=context)
 
 
 def line_errors(table_id, context):
-    """{Experio's error on a line: how many lines}."""
+    """Return {Experio's error on a line, in plain text: how many lines of the declaration have it}."""
     domain = [("error_msg", "!=", False), "|", ("deduction_id", "=", table_id), ("imposable_id", "=", table_id)]
     errors = {}
     for line in odoo_call(LINE, "search_read", domain, fields=["error_msg"], context=context):
@@ -177,8 +217,11 @@ def line_errors(table_id, context):
 
 
 def check(table_id, context):
-    """Experio's own checks before declaring (check_declaration_requirements: the company's IF, the period ended and
-    single, the lines' errors, the carried credit...): its refusal in its words, else ""."""
+    """Run Experio's own checks before declaring and return its refusal in its words, else "".
+
+    check_declaration_requirements: the company's IF, the period ended and not already declared, the lines' errors,
+    a negative carried credit, the non-resident and RAS TVA client lines.
+    """
     try:
         odoo_json(TABLE, "check_declaration_requirements", [table_id], context=context)
     except ExperioRefusal as error:
@@ -187,6 +230,7 @@ def check(table_id, context):
 
 
 def summary(table, label):
+    """Return the French summary of the declaration ``table``: TVA due or credit, amounts, line counts."""
     due = round(table["tva_due"] or 0, 2)
     owed = f"TVA à payer {due:.2f}" if due > 0 else f"crédit de TVA {abs(due):.2f}"
     return (
@@ -198,6 +242,7 @@ def summary(table, label):
 
 
 def read_table(table_id, context):
+    """Return the declaration read with FIELDS, its "id" added."""
     table = odoo_call(TABLE, "read", [table_id], fields=FIELDS, context=context)[0]
     table["id"] = table_id
     return table
@@ -212,12 +257,20 @@ def prepare_tva_declaration(
     client_confirmed: bool = False,
     session_id: str = "",
 ) -> dict:
-    """Prepare the dossier's TVA declaration in Experio for the period the client names (``periode``: « T3 2026 »,
-    « août », empty for the last period ended): made or taken up, its lines refreshed by Experio, what it leaves out
-    and Experio's checks said, its XML made when they pass. ``credit_reporte``: the TVA credit carried from before
-    Experio, asked on the dossier's first declaration. ``declarer``: the client asks to declare it; it is declared
-    (Experio's « Déclarer »: TVA writings, period locked) only once ``client_confirmed``. The DGI deposit stays
-    the cabinet's."""
+    """Prepare the dossier's TVA declaration in Experio, and declare it when asked and confirmed.
+
+    The declaration is created or taken up, its lines refreshed by Experio; what it leaves out and Experio's checks are
+    reported to the client, and its XML is made when they pass.
+
+    Args:
+        periode: the period the client names (« T3 2026 », « août »); empty for the last period ended.
+        credit_reporte: the TVA credit carried from before Experio, asked on the dossier's first declaration.
+        declarer: the client asks to declare it.
+        client_confirmed: the client confirmed; only then is Experio's « Déclarer » run (TVA entry made).
+
+    Returns a stop result for a dossier « hors champ » or when Experio refuses, a question result for the carried
+    credit or the confirmation, else an ok result. The DGI deposit stays the cabinet's.
+    """
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
     with refused(f"prepare_tva_declaration {dossier_id}", "Experio n'a pas pu préparer la déclaration ({reason})."):
@@ -274,8 +327,12 @@ def prepare_tva_declaration(
 
 
 def declare(table, label, text, client_confirmed, context):
-    """Experio's « Déclarer » on the declaration prepared, once the client confirmed: its TVA writings settings first,
-    its coherence screen passed (the client read its findings in the confirmation)."""
+    """Run Experio's « Déclarer » on the prepared declaration ``table`` once ``client_confirmed``.
+
+    Returns a stop result when the TVA entry settings are missing (config_error_msg) or Experio refuses or shows a
+    screen to confirm, a question result before confirmation, else an ok result. The coherence screen is skipped
+    (exp_skip_coherence_check): the client read its bank findings in the confirmation (``text``).
+    """
     if table["config_error_msg"]:
         return stop(
             f"{text} Pas déclarée : réglage des écritures de TVA manquant dans Experio : "
@@ -284,8 +341,8 @@ def declare(table, label, text, client_confirmed, context):
         )
     if not client_confirmed:
         return question(
-            f"{text} Je la déclare dans Experio (écritures de TVA passées, période verrouillée) ? Le dépôt sur le "
-            "portail de la DGI restera à faire par le cabinet. Je le fais ?",
+            f"{text} Je la déclare dans Experio (écritures de TVA passées, factures et opérations marquées "
+            "déclarées) ? Le dépôt sur le portail de la DGI restera à faire par le cabinet. Je le fais ?",
             declaration_id=table["id"],
         )
     if dry_run():

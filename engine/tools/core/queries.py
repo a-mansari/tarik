@@ -12,7 +12,7 @@ NAMED = re.compile(r"^-- name: (\w+)\n(.*?)(?=^-- name: |\Z)", re.S | re.M)
 
 
 def load():
-    """{name: statement} of every engine/sql/*.sql; a name given twice is an error."""
+    """Return {name: statement} of every engine/sql/*.sql. Raises ValueError for a name used twice."""
     found = {}
     for path in sorted(SQL.glob("*.sql")):
         for name, body in NAMED.findall(path.read_text()):

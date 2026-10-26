@@ -1,5 +1,5 @@
-"""Export as a graph: a dossier's entries by journal, its tiers or its FEC exported with Experio's own export, its file
-sent with Tarik's reply, for a sender who has the dossier."""
+"""The Export graph: export a dossier's entries by journal, its tiers or its FEC with Experio's own export, the file
+sent with Tarik's reply. The sender must have access to the dossier."""
 
 import operator
 from typing import Annotated, TypedDict
@@ -33,10 +33,12 @@ class Run(TypedDict, total=False):
 
 
 async def sender(state: Run):
+    """Graph node: check the sender may work on the call's dossier (check_sender)."""
     return await sender_checked(state, state["call"]["dossier_id"])
 
 
 async def export(state: Run):
+    """Graph node: run the export the call describes (export_entries)."""
     call = state["call"]
     result = await run_step(
         state,

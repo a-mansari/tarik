@@ -1,4 +1,4 @@
-"""Tarik's server, started with python -m server (the image's command): server/server.py's routes on uvicorn."""
+"""Start Tarik's server (python -m server, the image's command): server/server.py's routes on uvicorn, port 2024."""
 
 import uvicorn
 

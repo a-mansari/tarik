@@ -1,9 +1,10 @@
 """A payment difference (écart de paiement): what is left owing on a posted invoice, written off through Experio's own
 wizard (exp.invoice.difference.change, Actions > « Générer écriture d'écart »).
 
-Experio's wizard takes one posted invoice, proposes its remainder (amount_residual), the dossier's first 6585 account
-and its latest general journal, then posts a two-line entry reconciled with the invoice, which leaves it paid. Tarik
-uses it as is, after the client confirmed the invoice, the amount and the account it would use.
+Experio's wizard takes one posted invoice and proposes its remainder (amount_residual), an account of the dossier
+whose code holds 6585 and the dossier's most recently created general journal; it then posts an entry reconciled with
+the invoice, which leaves it paid. Tarik uses it as is, once the client confirmed the invoice, the amount and the
+account.
 """
 
 from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop
@@ -16,8 +17,8 @@ FIELDS = ["invoice_number", "partner_id", "state", "amount_residual", "payment_s
 
 
 def posted_invoice(dossier_id, facture):
-    """The dossier's one posted invoice ``facture`` names (Tarik's number, or its own number, spaces aside); a
-    ToolError naming the trouble otherwise."""
+    """Return the dossier's one posted invoice that ``facture`` names: Tarik's number (the Experio id), or the
+    invoice's own number, spaces aside. Raises ToolError when it is empty, or names no invoice or several."""
     words = normalized(facture or "").replace(" ", "")
     if not words:
         raise ToolError("Quelle facture solder ? Donnez son numéro.")
@@ -44,9 +45,12 @@ def posted_invoice(dossier_id, facture):
 
 @step_tool
 def settle_difference(dossier_id: int, facture: str, client_confirmed: bool = False, session_id: str = "") -> dict:
-    """Write off what is left owing on a posted invoice (écart de paiement), with Experio's own wizard: its amount
-    (the invoice's remainder), the dossier's 6585 account and general journal, as Experio proposes them. Asks the
-    client to confirm first (``client_confirmed``: they did, after reading the amount and the account)."""
+    """Write off what is left owing on a posted invoice (écart de paiement) with Experio's own wizard, using what
+    it proposes: the invoice's remainder, a 6585 account and a general journal.
+
+    ``facture``: the invoice's number (Tarik's or its own). Without ``client_confirmed`` (the client read the
+    amount and the account and said yes), returns a question result asking them. A stop result when the dossier
+    has no 6585 account or no general journal; a routine result when the invoice is already paid."""
     dossier = require_dossier(dossier_id)
     invoice = posted_invoice(dossier_id, facture)
     invoice_id, label = invoice["id"], f"Facture {invoice['id']} ({invoice['invoice_number']})"

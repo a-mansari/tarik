@@ -1,6 +1,8 @@
-"""The Discussion page: the team writes to a cabinet's Tarik, as the cabinet's clients would, with files
-(engine/chat.py). A conversation's messages are its agent thread's, read from the agent's memory; each message sent
-is a Discussion run, followed on its own page."""
+"""Serve the Discussion page and the dashboard: the team writes to a cabinet's Tarik as the cabinet's clients would,
+with files (engine/chat.py).
+
+A conversation's messages are its agent thread's, read from the agent's memory; each message sent starts a Discussion
+run, followed on its own page."""
 
 import base64
 import hashlib
@@ -59,12 +61,15 @@ FORM = {
 
 
 def megabytes(size):
+    """Return ``size`` (bytes) as text in MB, French style ("1,5 Mo")."""
     return f"{size / MB:.1f} Mo".replace(".", ",")
 
 
 def problems(text, files):
-    """Each cap ``text`` and ``files`` exceed, in plain French: which one, by how much, and how to stay under it.
-    ChatForm.vue says the same before sending; this is what holds."""
+    """Return each limit ``text`` and ``files`` exceed, in plain French: which one, by how much, and how to stay under
+    it.
+
+    ChatForm.vue checks the same before sending; this server check is the one that holds. [] when nothing exceeds."""
     found = []
     if len(text) > MAX_TEXT:
         found.append(f"Message de {len(text)} caractères : {MAX_TEXT} au plus. Raccourcissez-le.")
@@ -88,7 +93,8 @@ def problems(text, files):
 
 
 def known(cabinet, session=None, written=True):
-    """A cabinet served and, when given, a conversation of it: one of the page's own (``written``), else any to read."""
+    """True when ``cabinet`` is served and, when ``session`` is given, its id fits the page's own conversations
+    (``written``) or any readable conversation."""
     return cabinet in CABINETS and (session is None or (SESSION if written else SHOWN).fullmatch(session))
 
 
@@ -96,8 +102,11 @@ MEDIUMS = {"discussion": "chat", "fil": "email"}  # the run that answers each me
 
 
 def state(status, waiting):
-    """Where a conversation stands, as the team reads it: Tarik answering, failed, waiting for its client (a question
-    asked, drafts to post once told to), or answered. A key of labels.json's conversation_states."""
+    """Return where a conversation stands (a key of labels.json's conversation_states): "answering", "failed", "waiting"
+    or "answered".
+
+    ``status`` is its latest run's; ``waiting`` is True when Tarik waits for the client (a question asked, or drafts
+    to post once told to)."""
     if status in ("queued", "running"):
         return "answering"
     if status == "error":
@@ -106,7 +115,8 @@ def state(status, waiting):
 
 
 async def waiting_for_client(cabinet, sessions):
-    """Those of ``sessions`` whose client Tarik waits for (a question asked, drafts to post once told to): a set."""
+    """Return the set of ``sessions`` whose client Tarik waits for (a pending question, or held drafts to post once told
+    to)."""
     tables = {key: sql.Identifier(cabinet, f"tarik_{key}") for key in ("pending", "held")}
     query = sql.SQL(Q.sessions_waiting_for_client).format(**tables)
     async with runs.pool.connection() as db:
@@ -115,9 +125,10 @@ async def waiting_for_client(cabinet, sessions):
 
 
 async def conversations(cabinet):
-    """The cabinet's conversations, from the Discussions page and by email, latest first: their latest message's run
-    {session_id, started, status, graph...}, how the client writes (``medium``: chat or email), the first message's
-    words (``first``, cut, else its files) and for an email its subject and sender."""
+    """Return the cabinet's conversations (Discussion page and email), newest first.
+
+    Each is its latest run {session_id, started, status, graph, ...} plus medium ("chat" or "email"), state (see
+    state), and first, subject and sender (see openings)."""
     latest = []
     for graph in MEDIUMS:
         latest += await runs.recent(cabinet, graph, 200)
@@ -133,7 +144,7 @@ async def conversations(cabinet):
 
 
 def said(message):
-    """A client's message as written: its text and the names of its files; None for a reminder Tarik was sent."""
+    """Return a client's message as written: {who, text, files, skipped}; None for a reminder sent to Tarik."""
     text = agent.text_of(message.content)
     if text.endswith(REMINDER):
         return None
@@ -147,8 +158,10 @@ def said(message):
 
 
 async def messages(session):
-    """The conversation as the client reads it, as n8n's chat shows one: their messages, and each of Tarik's turns
-    with the tools it called (done, failed, or still going) before its reply."""
+    """Return the conversation as the client reads it, from the agent's memory.
+
+    Client messages, and each of Tarik's turns with the tools it called (state "running", "done" or "failed") before
+    its reply."""
     saved = await agent.CHECKPOINTER.aget({"configurable": {"thread_id": session, "checkpoint_ns": ""}})
     shown, called = [], {}  # tool call id -> its line in the turn
     for message in (saved or {}).get("channel_values", {}).get("messages", []):
@@ -171,8 +184,10 @@ async def messages(session):
 
 
 async def on_its_way(latest, shown):
-    """The client's message of the run ``latest`` still going, as sent, while Tarik's memory does not have it yet
-    (not the last of the client's messages ``shown``); else None."""
+    """Return the client's message of the run still going (``latest``), as sent, while Tarik's memory does not have it
+    yet.
+
+    None when it is already the last client message in ``shown``."""
     given = (await runs.run(latest["run_id"]))["input"] or {}
     clients = [entry for entry in shown if entry["who"] == "Client"]
     if clients and clients[-1]["text"].strip() == (given.get("message") or "").strip():
@@ -186,8 +201,10 @@ async def on_its_way(latest, shown):
 
 
 async def talk(cabinet, session):
-    """What the conversation shows: its messages, and the message on its way (its Discussion run still going), its
-    client's words shown at once, before Tarik's memory has them; the files Tarik made for it (``made``)."""
+    """Return what the conversation shows: {messages, latest, going, made}.
+
+    messages includes the message on its way (its Discussion run still going), so the client's words appear at once;
+    latest is the conversation's latest run; going is True while it runs; made lists the files Tarik made for it."""
     shown = await messages(session)
     latest = next((run for run in await conversations(cabinet) if run["session_id"] == session), None)
     going = bool(latest and latest["status"] in ("queued", "running"))
@@ -202,7 +219,8 @@ async def talk(cabinet, session):
 
 
 async def chat_page(request: Request):
-    """The conversations of the cabinet picked in the sidebar, and a new one to start."""
+    """GET /ui/api/discussion: return the conversations of the cabinet chosen in the sidebar, and a new conversation id
+    to start one."""
     cabinet = chosen(request)
     found = await conversations(cabinet) if cabinet else []
     return page(
@@ -215,14 +233,16 @@ async def chat_page(request: Request):
 
 
 def rendered(shown):
-    """The messages with their words as the page shows them: markdown rendered here, its HTML never kept."""
+    """Return the messages with their text rendered as HTML under text_html (markdown)."""
     return [{**entry, "text_html": str(markdown(entry["text"])) if entry["text"] else ""} for entry in shown]
 
 
 async def conversation_page(request: Request):
-    """One conversation: its messages, the message on its way, and the form's limits; the page reads it again at
-    each change of the conversation while Tarik works (its tools showing as they run). The cabinet picked in the
-    sidebar's."""
+    """GET /ui/api/discussion/{session_id}: return one conversation of the cabinet chosen in the sidebar: its messages,
+    the message on its way, and the form's limits.
+
+    The page reads it again at each change of the conversation while Tarik works, so its tools show as they run. 404
+    for an unknown conversation."""
     cabinet, session = chosen(request), request.path_params["session_id"]
     if not known(cabinet, session, written=False):
         return page({"error": "Discussion introuvable."}, 404)
@@ -240,8 +260,10 @@ async def conversation_page(request: Request):
 
 
 async def download(request: Request):
-    """A file the client sent in the conversation (``?nom=``), as sent, else one Tarik made for it: always downloaded,
-    never opened in the page."""
+    """GET /ui/api/discussion/{session_id}/fichier?nom=: return a file the client sent in the conversation, as sent,
+    else one Tarik made for it.
+
+    Always sent as a download, never opened in the page. 404 when not found."""
     cabinet, session = chosen(request), request.path_params["session_id"]
     name = request.query_params.get("nom", "")
     if not known(cabinet, session, written=False):
@@ -265,18 +287,23 @@ async def download(request: Request):
 
 
 def digest(file):
-    """A file's id, its data's hash, as the agent's attachments have (engine.agent.attachments): saved once."""
+    """Return a file's id: the first 32 hex characters of its data's SHA-256, as the agent's attachments use
+    (engine.agent.attachments), so it is saved once."""
     return hashlib.sha256(file["data"]).hexdigest()[:32]
 
 
 def refused(why):
+    """Return a 400 response {error: ``why``}."""
     return JSONResponse({"error": why}, status_code=400)
 
 
 async def send(request: Request):
-    """A message sent: {message, files: [{file_name, mime_type, data (base64)}]}. Its files saved in the cabinet's
-    schema for this conversation, then a Discussion run started; its run_id at once. ``cabinet``, the one the page
-    showed: refused when the sidebar picked another since, never sent to the wrong cabinet."""
+    """POST /ui/api/discussion/{session_id}: send a message {cabinet, message, files: [{file_name, mime_type, data
+    (base64)}]} and start a Discussion run.
+
+    The files are checked (see problems), zips unpacked, and the files saved in the cabinet's schema for this
+    conversation before the run starts. Returns {run_id, skipped} at once (202). Refused (400) when the sidebar has
+    chosen another cabinet since the page showed ``cabinet``, so a message never goes to the wrong cabinet."""
     cabinet, session = chosen(request), request.path_params["session_id"]
     if not known(cabinet, session):
         return refused("Discussion inconnue.")
@@ -331,8 +358,10 @@ NUMBERS = {}  # cabinet: (its changes' count when read, when, its numbers)
 
 
 async def metrics_of(cabinet):
-    """The cabinet's last DAYS days in four numbers: read once for each change of the cabinet (engine/live.py), and
-    kept for every dashboard open on it, however many follow it."""
+    """Return the cabinet's last DAYS days in four numbers: {runs, seconds, failed, conversations}.
+
+    Read once per change of the cabinet (engine/live.py), or after KEPT_SECONDS, and shared by every dashboard open
+    on it."""
     version = live.versions([("cabinet", cabinet)])
     if cabinet in NUMBERS:
         read_version, read_at, kept = NUMBERS[cabinet]
@@ -346,8 +375,9 @@ async def metrics_of(cabinet):
 
 
 def readable(metrics):
-    """The four numbers as the team reads them: a mean duration in s or min s, a share failed in %, "—" for none;
-    ``bad`` when some failed."""
+    """Return the four numbers as the team reads them: mean duration in s or min s, failed share in %, "—" when none.
+
+    ``bad`` is True when some runs failed."""
     seconds, failed = metrics["seconds"], metrics["failed"]
     if seconds is None:
         duration = "—"
@@ -366,8 +396,10 @@ def readable(metrics):
 
 
 async def dashboard_page(request: Request):
-    """The cabinet picked: its last DAYS days in four numbers, read again by the page at each change of the cabinet,
-    and a message to Tarik that opens a new conversation (``new``) with the form's limits."""
+    """GET /ui/api/accueil: return the dashboard of the cabinet chosen in the sidebar: its last DAYS days in four
+    numbers, a new conversation id (``new``) and the form's limits.
+
+    The page reads it again at each change of the cabinet."""
     cabinet = chosen(request)
     metrics = readable(await metrics_of(cabinet)) if cabinet else None
     return page({"cabinet": cabinet, "metrics": metrics, "days": DAYS, "new": f"chat-{uuid.uuid4().hex}", **FORM})

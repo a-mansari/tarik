@@ -1,4 +1,5 @@
-"""What the client sent becomes an invoice draft or a bank statement in Experio."""
+"""Turn what the client sent into invoice drafts or bank statements in Experio: identify each file, cut a multi-page
+PDF, create the drafts, import the statements."""
 
 import base64
 import io
@@ -34,8 +35,9 @@ FILE_COLUMNS = ("session_id", "file_name", "mime_type", "data", "kind", "invoice
 
 
 def require_kind(name, kind, wanted):
-    """ToolError unless file ``name`` was identified as ``wanted`` ("invoice" or "statement"): a bank statement
-    must never become an invoice draft (nor be cut page by page), nor the reverse."""
+    """Raise ToolError unless file ``name``'s stored ``kind`` is ``wanted`` ("invoice" or "statement"), so a bank
+    statement never becomes an invoice draft (nor is cut page by page), nor the reverse. Also raises when the file is
+    not identified yet (``kind`` None)."""
     if kind is None:
         raise ToolError(f"`{name}` n'est pas encore identifie : appelez d'abord identify_document.")
     if kind != wanted:
@@ -71,8 +73,8 @@ COMMON_NAME_WORDS = {
 
 
 def file_named(name, words):
-    """True when the client's ``words`` name file ``name`` (a zip's member by its own name): written whole, with its
-    extension, or by a stem with a word of its own (« douane », « mars midas »)."""
+    """True when the client's ``words`` name file ``name`` (a zip member by its own name): the whole name with its
+    extension, or its stem when the stem has a word of its own (« douane », « mars midas »; not « facture 2 »)."""
     base = name.split(" › ")[-1]
     stem = normalized(base.rsplit(".", 1)[0])
     words = normalized(words)
@@ -81,22 +83,22 @@ def file_named(name, words):
 
 
 def client_kind(text):
-    """The kind ("invoice" or "statement") the client's own ``text`` gives a file they sent, or None (neither, or
-    both said)."""
+    """Return the kind ("invoice" or "statement") the client's own ``text`` gives a file, or None when it says neither
+    or both."""
     words = normalized(text or "")
     found = {kind for kind, pattern in KIND_WORDS.items() if re.search(rf"(?<![a-z0-9])(?:{pattern})", words)}
     return found.pop() if len(found) == 1 else None
 
 
 def set_kind(file_id, kind):
-    """Store ``kind`` for the file, as the client said it is (apply_answer)."""
+    """Store ``kind`` as file ``file_id``'s kind, as the client said it is (apply_answer)."""
     with cabinet_db() as db:
         db.execute(Q.set_file_kind, (kind, file_id))
 
 
 def gladden_type(raw):
-    """Gladden's type for the first page of PDF ``raw``, or None: GLADDEN_URL or GLADDEN_CALLBACK_URL not set, or
-    no answer."""
+    """Return Gladden's type for the first page of PDF ``raw``; None when GLADDEN_URL or GLADDEN_CALLBACK_URL is not
+    set, or Gladden gives no answer."""
     url = setting("GLADDEN_URL", "")
     callback_url = setting("GLADDEN_CALLBACK_URL", "")
     if not url or not callback_url:
@@ -106,8 +108,8 @@ def gladden_type(raw):
 
 
 def file_row(db, file_id, *columns):
-    """The file's ``columns`` (of tarik_files), as a tuple, its row locked until ``db`` commits; ToolError when there
-    is no such file."""
+    """Return file ``file_id``'s ``columns`` (names from FILE_COLUMNS) as a tuple, its row locked until ``db`` commits.
+    Raises ToolError when there is no such file."""
     row = db.execute(Q.file_locked, (file_id,)).fetchone()
     if not row:
         raise ToolError(f"Aucun fichier n° {file_id}.")
@@ -116,14 +118,14 @@ def file_row(db, file_id, *columns):
 
 
 def as_pdf(mime, data):
-    """The file's ``data`` as PDF bytes: a photo becomes a one-page PDF (identify_document lets only PDFs and
-    images through)."""
+    """Return the file's ``data`` as PDF bytes: an image (by ``mime``) becomes a one-page PDF, anything else is returned
+    as is (identify_document lets only PDFs and images through)."""
     return to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
 
 
 def identified(name, file_id, kind, reason=""):
-    """identify_document's answer: routine for an invoice or a statement, a stop for anything else (nothing is
-    made of it)."""
+    """Return identify_document's result for file ``name``: a routine result for an invoice or a statement; for ``kind``
+    "other", a stop result giving ``reason`` (nothing is made of the file)."""
     if kind == "other":
         why = f" ({reason})" if reason else ""
         return stop(
@@ -136,10 +138,18 @@ def identified(name, file_id, kind, reason=""):
 
 @step_tool
 def identify_document(file_id: int, client_message: str = "") -> dict:
-    """Call it first for every file the client sends: says whether it is an
-    invoice (then split_invoices, create_draft_invoice), a bank statement
-    (then import_bank_statement), or neither (nothing is made of it). Nothing else accepts a file it hasn't seen.
-    What the client says the file is (``client_message``, their own words) wins, until it is imported."""
+    """Identify a file the client sent: an invoice (then split_invoices, create_draft_invoice), a bank statement (then
+    import_bank_statement), or neither (nothing is made of it). Call it first for every file: no other tool accepts a
+    file it has not identified.
+
+    ``client_message``: the client's own words. When they name a file already identified and say what it is, their kind
+    wins, as long as the file is not imported yet.
+
+    Otherwise, in order: the kind already stored; Experio's Excel statement template; a TPE statement's own first-page
+    text; Gladden's type for page 1; the model on page 1 when Gladden does not say "invoice" or the file is a photo.
+
+    Raises:
+        ToolError: the file is not a PDF or an image, or the PDF is unreadable."""
     with cabinet_db() as db:
         name, mime, data, kind, invoice_id, statement_id = file_row(
             db, file_id, "file_name", "mime_type", "data", "kind", "invoice_id", "statement_id"
@@ -196,8 +206,8 @@ SPLIT_QUESTION = (
 
 
 def split_choice(messages):
-    """``by_page`` or ``by_document``, as the client's latest message that says one (and only one) of them; else
-    None: the client is asked."""
+    """Return "by_page" or "by_document" from the latest of the client's ``messages`` that says exactly one of them;
+    None when none does (the client is asked)."""
     for message in reversed(messages):
         found = {choice for choice, words in SPLIT_WORDS.items() if re.search(rf"\b(?:{words})\b", normalized(message))}
         if len(found) == 1:
@@ -206,8 +216,8 @@ def split_choice(messages):
 
 
 def split_pdf(raw, starts):
-    """One PDF per invoice, as (first page, last page, bytes). ``starts``: 1-based pages
-    that begin an invoice; page 1 always does, numbers out of range are dropped."""
+    """Cut PDF ``raw`` into one PDF per invoice: [(first page, last page, bytes)], 1-based. ``starts``: the pages that
+    begin an invoice; page 1 always does, numbers out of range are dropped."""
     pdf = pypdfium2.PdfDocument(raw)
     count = len(pdf)
     starts = sorted({1, *(n for n in starts if 1 <= n <= count)})
@@ -227,13 +237,13 @@ def pages_of(first, last):
 
 
 def listed(files):
-    """[(file id, label)] as "fichier n° 12 (label), fichier n° 13 (label)"."""
+    """Return [(file id, label)] as "fichier n° 12 (label), fichier n° 13 (label)"."""
     return ", ".join(f"fichier n° {file_id} ({label})" for file_id, label in files)
 
 
 def save_parts(db, session_id, name, file_id, documents):
-    """Save each of ``documents`` (first page, last page, PDF bytes) cut out of file ``file_id`` (named ``name``)
-    as its own invoice file; [(new file id, its pages)]."""
+    """Save each of ``documents`` (first page, last page, PDF bytes), cut out of file ``file_id`` named ``name``, as its
+    own invoice file; return [(new file id, its pages as pages_of reads them)]."""
     stem = name.removesuffix(".pdf")
     made = []
     for first, last, document in documents:
@@ -246,9 +256,12 @@ def save_parts(db, session_id, name, file_id, documents):
 
 
 def sent_again(db, file_id, name, data, dossier_id):
-    """The result for a file whose very content already made an invoice of the dossier (another file), else None:
-    still a draft, it is taken up again here (``resume_invoice``), unless a run works on it now; posted, nothing is
-    made."""
+    """Return the result for a file whose very content already made an invoice of the dossier from another file; None
+    when there is none or no ``dossier_id``.
+
+    The result: an ok result saying it is already posted and nothing is made, when that invoice is no longer a draft; a
+    stop result when a run works on that draft now; else an ok result with ``resume_invoice`` (the draft's id), so that
+    draft is taken up again."""
     if not dossier_id:
         return None
     twin = twin_draft(db, file_id, data, dossier_id)
@@ -266,8 +279,9 @@ def sent_again(db, file_id, name, data, dossier_id):
 
 
 def side_read(name, mime, data, dossier_id):
-    """(achat or vente, the reason) the scan's first page shows for the dossier (the model, told the dossier's name),
-    None when it shows neither plainly (a bank statement, no invoice, or the model unsure)."""
+    """Return (side, reason), side "achat" or "vente", that the scan's first page shows for the dossier (the model,
+    given the dossier's name); None when it shows neither plainly (a bank statement, no invoice, the model unsure) or
+    the file or dossier can't be read."""
     try:
         dossier = require_dossier(dossier_id) if dossier_id else ""
         category, reason = classify_pages(pdf_pages(as_pdf(mime, data), limit=1), f"Achat ou vente : `{name}`", dossier)
@@ -278,13 +292,24 @@ def side_read(name, mime, data, dossier_id):
 
 @step_tool
 def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "", dossier_id: int = 0) -> dict:
-    """Call it for every file identify_document found to be an invoice. A file whose very content already made an
-    invoice of the dossier is that invoice, taken up again while a draft. A PDF of several pages is cut as the
-    client says, the two ways Experio's import screen offers: one invoice per page, or one for the whole document;
-    until they say, they are asked and nothing is made. Returns the file number of each invoice (the same file when
-    it is one); create one draft per number returned.
-    ``invoice_type``: achat, vente or mixte, as the client wrote it in this conversation; otherwise the side the
-    scan shows for the dossier, told the client (``invoice_type`` in the answer), and asked only when it shows none."""
+    """Return the file number of each invoice in a file identify_document found to be an invoice; create one draft per
+    number returned (the same file when it holds one invoice).
+
+    A file whose very content already made an invoice of the dossier is that invoice, taken up again while it is a draft
+    (sent_again). A PDF of several pages is cut as the client says, the two ways Experio's import screen offers
+    (exp.invoice.import split_type): « par page », one invoice per page, or « par document », one for the whole file.
+    Until the client says, a question result asks and nothing is made.
+
+    Args:
+        file_id: the file.
+        invoice_type: achat, vente or mixte, as the client wrote it in this conversation. Without it, the side the scan
+            shows for the dossier is used and reported to the client (``invoice_type`` in the result); a question result
+            when the scan shows none.
+        client_message: the client's message, read with the conversation's others for the side and the cut.
+        dossier_id: the dossier, for the duplicate check and the side read.
+
+    Raises:
+        ToolError: the file is not identified as an invoice."""
     with cabinet_db() as db:
         session_id, name, mime, data, invoice_id, kind, parent_id = file_row(
             db, file_id, "session_id", "file_name", "mime_type", "data", "invoice_id", "kind", "parent_id"
@@ -337,9 +362,12 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
 
 
 def import_pdf(wizard, name, raw, dossier_id, **values):
-    """Run Experio's own import ``wizard`` (model name) on PDF ``raw`` of file ``name`` in the dossier, as its
-    upload screen does (its defaults, the pending state, the Bluejay job): the id of the one record it made.
-    ``values``: the wizard's own fields. RuntimeError unless it made exactly one."""
+    """Run Experio's own import ``wizard`` (model name, e.g. exp.invoice.import) on PDF ``raw`` of file ``name`` in the
+    dossier, as its upload screen does (its defaults, the pending state, the Bluejay reading job), one record for the
+    whole file (split_type by_document); return the id of the record made. ``values``: more of the wizard's own fields.
+
+    Raises:
+        RuntimeError: the wizard made no record or several."""
     context = in_dossier(dossier_id)
     values |= {
         "data": base64.b64encode(raw).decode(),
@@ -358,12 +386,21 @@ def import_pdf(wizard, name, raw, dossier_id, **values):
 
 @step_tool
 def create_draft_invoice(file_id: int, dossier_id: int, invoice_type: str = "") -> dict:
-    """Create a draft invoice in Experio from a file the client sent, in the
-    client's dossier. file_id is the number shown next to the file name;
-    dossier_id comes from find_dossier. Safe to call again for the same file:
-    it answers with the draft already made. ``invoice_type``: the side the client gave (checked by split_invoices):
-    a sale is imported as one, for Experio's reading takes the side it is given (its tiers, its memorized account);
-    achat or mixte as a purchase, classify_invoice settling each one."""
+    """Create a draft invoice in Experio from a file the client sent, in the client's dossier; an ok result gives its
+    ``invoice_id``.
+
+    Args:
+        file_id: the number shown next to the file name (one split_invoices returned).
+        dossier_id: the dossier, from find_dossier.
+        invoice_type: the side the client gave (checked by split_invoices). "vente" is imported as a sale, since
+            Experio's reading looks up the tiers (and its memorized account) on the side it is given; achat or mixte as
+            a purchase, classify_invoice settling each one.
+
+    Safe to call again for the same file: a stop result names the draft already made. A file whose very content already
+    made an invoice of the dossier gives a stop result (duplicate) and nothing new.
+
+    Raises:
+        ToolError: the file is not an invoice, or was cut into parts (create their drafts instead)."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
         name, mime, data, existing, kind = file_row(db, file_id, "file_name", "mime_type", "data", "invoice_id", "kind")
@@ -398,8 +435,9 @@ def create_draft_invoice(file_id: int, dossier_id: int, invoice_type: str = "") 
 
 
 def twin_draft(db, file_id, data, dossier_id):
-    """The draft of the dossier (not cancelled) already made from a file of the very same content, else None. Two
-    copies arriving together wait for each other here, until the first is made."""
+    """Return the dossier's latest invoice (any state except cancelled) already made from another file of the very same
+    content, else None. It first locks on that content, so two copies arriving together wait here until the first one's
+    draft is made."""
     db.execute(Q.lock_file_content, (bytes(data),))
     made = [invoice_id for (invoice_id,) in db.execute(Q.invoices_of_same_content, (bytes(data), file_id))]
     if not made:
@@ -417,7 +455,8 @@ SAME_STATEMENT = re.compile(
 
 
 def bank_code(journal):
-    """The code of the journal's bank (res.bank.code: what Experio's reading picks its model by), "" without one."""
+    """Return the code of ``journal``'s bank (res.bank.code), "" without a bank. Experio sends that code as the
+    reading's doctype, which picks how the statement is read (exp_bank_statement_import.py:223)."""
     if not journal.get("bank_id"):
         return ""
     found = odoo_call("res.bank", "search_read", [("id", "=", journal["bank_id"][0])], fields=["code"])
@@ -425,15 +464,15 @@ def bank_code(journal):
 
 
 def same_statement_files(db, file_id, client_message):
-    """When the client's own words say their files are one statement: the conversation's other statement files not
-    imported yet, in the order sent [(id, name, mime, data)]; else []."""
+    """When the client's own words say their files are one statement (SAME_STATEMENT): return the conversation's other
+    statement files not imported yet, in the order sent, as [(id, name, mime, data)]; else []."""
     if not SAME_STATEMENT.search(normalized(own_words(client_message))):
         return []
     return db.execute(Q.other_statement_files, (file_id, file_id)).fetchall()
 
 
 def merged_pdf(raws):
-    """PDFs ``raws`` as one, their pages in order."""
+    """Return PDFs ``raws`` merged into one, their pages in order."""
     document = pypdfium2.PdfDocument.new()
     for raw in raws:
         document.import_pages(pypdfium2.PdfDocument(raw))
@@ -443,8 +482,9 @@ def merged_pdf(raws):
 
 
 def bank_journals(dossier_id):
-    """The dossier's bank journals, and those Experio can import into (a journal without its bank is refused):
-    two lists of {id, name, bank_id}."""
+    """Return (journals, usable): the dossier's bank journals, and those of them that have a bank, each {id, name,
+    bank_id}. Experio refuses to import a statement into a journal without a bank (exp.bank.statement.import
+    action_create_bank_statements, exp_bank_statement_import.py:142)."""
     with refused(
         f"bank_journals {dossier_id}", "Experio est injoignable : les journaux de banque n'ont pas pu être lus."
     ):
@@ -473,8 +513,8 @@ BANK_ALIASES = {
 
 
 def bank_names(journal):
-    """Every name ``journal`` can be called by (normalized): its own, its bank's, the sigle in its bank's name
-    (« BANK OF AFRICA (BMCE) »), and the bank's usual other names."""
+    """Return every name ``journal`` can be called by (normalized): its own, its bank's, the sigle in its bank's name («
+    BANK OF AFRICA (BMCE) »), and the bank's usual other names (BANK_ALIASES)."""
     bank = journal["bank_id"][1] if journal["bank_id"] else ""
     plain = re.sub(r"\([^)]*\)", " ", bank)  # « BANK OF AFRICA (BMCE) » is also « BANK OF AFRICA »
     parts = [*bank.split(" - "), *plain.split(" - ")]
@@ -487,16 +527,22 @@ def bank_names(journal):
 
 
 def journal_named(usable, words):
-    """The one usable journal the client's ``words`` name (by its name, its bank's, its sigle), else None."""
+    """Return the one ``usable`` journal the client's ``words`` name (by its name, its bank's, its sigle); None when
+    none or several."""
     words = normalized(words or "")
     named = [journal for journal in usable if any(said(name, words) for name in bank_names(journal))]
     return named[0] if len(named) == 1 else None
 
 
 def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
-    """The usable bank journal (dict) statement ``name`` goes to: ``journal_id``, the dossier's only one, or the
-    one the client named in ``client_message`` (« relevé du compte BMCE »). Without one to use, or with several to
-    choose from, the stop or question result (a dict with "status")."""
+    """Return the usable bank journal (dict) statement ``name`` goes to: ``journal_id`` when given, else the dossier's
+    only usable one, else the one the client names in ``client_message`` (« relevé du compte BMCE »).
+
+    Otherwise returns a result dict (it has "status"): a stop result when no journal of the dossier has a bank; a
+    question result listing the usable journals (``choices``) when several fit.
+
+    Raises:
+        ToolError: ``journal_id`` is not a usable bank journal of the dossier."""
     journals, usable = bank_journals(dossier_id)
     if not usable:
         unset = ", ".join(f"`{j['name']}`" for j in journals)
@@ -521,8 +567,13 @@ def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
 
 
 def import_tpe_file(db, file_id, name, raw, dossier, dossier_id, journal_id, network, client_message):
-    """import_bank_statement for a TPE statement: Experio's own TPE import of PDF ``raw``, its network given, into
-    the bank journal chosen (Experio's default: its last TPE statement's), the network asked when unknown."""
+    """import_bank_statement for a TPE statement: import PDF ``raw`` through Experio's own TPE import with its
+    ``network``, into the bank journal chosen.
+
+    Without ``network``, a question result asks it. Without ``journal_id``, the journal of the dossier's last TPE
+    statement is used while still usable (Experio's own default, exp_monetary_statement_import.py:24), else
+    statement_journal chooses. Returns an ok result with ``statement_id``, or statement_journal's stop or question
+    result."""
     if not network:
         return tpe.network_question(name)
     if not journal_id:
@@ -549,11 +600,27 @@ def import_tpe_file(db, file_id, name, raw, dossier, dossier_id, journal_id, net
 def import_bank_statement(
     file_id: int, dossier_id: int, journal_id: int = 0, client_message: str = "", network: str = ""
 ) -> dict:
-    """Import a bank statement the client sent into the dossier's bank journal,
-    through Experio's own statement import (Experio then reads its lines). A TPE statement (relevé des opérations
-    monétiques) goes to Experio's own TPE import instead, with its network (read on it, else asked: ``network``).
-    journal_id: leave 0 when the dossier has one bank journal; with several, the one the client's message names
-    (``client_message``, their own words), else the answer lists them and the client chooses. Safe to call again."""
+    """Import a bank statement the client sent into one of the dossier's bank journals, through Experio's own statement
+    import (exp.bank.statement.import; Experio then reads its lines). Safe to call again: a file already imported, or
+    the same content imported before in the dossier, gives that statement.
+
+    A TPE statement (relevé des opérations monétiques) goes to Experio's own TPE import instead, with its network (read
+    on it, else asked). Experio's Excel template goes to its own Excel import. Files the client says are one statement
+    (« même relevé ») are imported as one PDF, their pages in the order sent.
+
+    Args:
+        file_id: the statement file.
+        dossier_id: the dossier.
+        journal_id: 0 to choose: the dossier's only bank journal, else the one ``client_message`` names, else a question
+            result lists them (``choices``) for the client.
+        client_message: the client's own words.
+        network: the TPE network the client gave, when asked.
+
+    Returns an ok result with ``statement_id``; a stop result when no journal has a bank, or Experio does not read that
+    bank's statements (UNSUPPORTED_BANKS, bank_statement._compute_is_not_supported).
+
+    Raises:
+        ToolError: the file is not identified as a statement, or ``journal_id`` is not usable."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
         name, mime, data, kind, existing = file_row(
