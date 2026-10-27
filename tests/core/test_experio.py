@@ -289,7 +289,8 @@ def test_a_new_dossier_is_made_from_the_cabinet_main_one(monkeypatch):
 
 @pytest.mark.security
 def test_a_dossier_is_checked_in_experio_unknown_or_unreachable_is_refused(monkeypatch):
-    answers = [[{"name": "ATLAS"}], [], ConnectionRefusedError("down")]
+    atlas = {"name": "ATLAS", "user_ids": [2, 7]}
+    answers = [[atlas], [], [{**atlas, "user_ids": [2]}], ConnectionRefusedError("down")]
     domains = []
 
     def odoo_call(model, method, domain, fields):
@@ -300,10 +301,16 @@ def test_a_dossier_is_checked_in_experio_unknown_or_unreachable_is_refused(monke
         return answer
 
     monkeypatch.setattr(experio, "odoo_call", odoo_call)
+    monkeypatch.setattr(experio, "login", lambda: 7)
     assert experio.require_dossier(8) == "ATLAS"
     assert domains[0] == [("id", "=", 8), *experio.DOSSIER_DOMAIN]  # never a disabled, deleted or the main dossier
     with pytest.raises(ToolError, match="Aucun dossier n° 8"):
         experio.require_dossier(8)
+    # not among its users: Experio would refuse « Access to unauthorized or invalid companies »
+    with pytest.raises(ToolError, match="Tarik n'a pas accès au dossier ATLAS"):
+        experio.require_dossier(8)
+    answers.insert(0, [{**atlas, "user_ids": [2]}])
+    assert experio.require_dossier(8, opened=False) == "ATLAS"  # a tool naming no dossier to Experio
     with pytest.raises(ToolError, match="injoignable"):
         experio.require_dossier(8)
 

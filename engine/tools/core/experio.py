@@ -257,15 +257,25 @@ def _require_id(value, message):
         raise ToolError(message)
 
 
-def require_dossier(dossier_id):
+def require_dossier(dossier_id, opened=True):
     """Return the name (str) of dossier ``dossier_id``. Every tool working in a dossier calls this first.
-    Raises ToolError when the id is invalid, is not one of the cabinet's dossiers (DOSSIER_DOMAIN), or Experio
-    can't be reached: without a real dossier id from find_dossier, the tool fails instead of guessing."""
+    Raises ToolError when the id is invalid, is not one of the cabinet's dossiers (DOSSIER_DOMAIN), Tarik's Experio
+    account may not open it (not among its user_ids, which Experio refuses: search.opened_dossiers), or Experio
+    can't be reached: without a real dossier id from find_dossier, the tool fails instead of guessing.
+    ``opened`` False: Tarik need not open it, for the tools whose Experio calls name no dossier (in_dossier)."""
     _require_id(dossier_id, "dossier_id manquant ou invalide : trouvez d'abord le dossier avec Experio_find_dossier.")
     with refused(f"require_dossier {dossier_id}", "Experio est injoignable : le dossier n'a pas pu etre verifie."):
-        found = odoo_call("res.company", "search_read", [("id", "=", dossier_id), *DOSSIER_DOMAIN], fields=["name"])
+        found = odoo_call(
+            "res.company", "search_read", [("id", "=", dossier_id), *DOSSIER_DOMAIN], fields=["name", "user_ids"]
+        )
+        uid = login()
     if not found:
         raise ToolError(f"Aucun dossier n° {dossier_id} : trouvez-le avec Experio_find_dossier.")
+    if opened and uid not in found[0]["user_ids"]:
+        raise ToolError(
+            f"Tarik n'a pas accès au dossier {found[0]['name']} dans Experio : "
+            "demandez à un administrateur de l'y ajouter."
+        )
     return found[0]["name"]
 
 

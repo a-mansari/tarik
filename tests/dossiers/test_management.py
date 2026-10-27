@@ -104,7 +104,7 @@ def test_the_dossiers_are_created_only_on_the_clients_yes_to_the_list(experio, m
 
 @pytest.mark.security
 def test_a_person_is_made_of_the_clients_words_and_their_yes(monkeypatch):
-    monkeypatch.setattr(management, "require_dossier", lambda dossier_id: "BETA")
+    monkeypatch.setattr(management, "require_dossier", lambda dossier_id, **kw: "BETA")
     monkeypatch.setattr(management, "client_messages", lambda session_id, message: [message])
     monkeypatch.setattr(management, "profiles", lambda kind: {"Collaborateur": 1, "Chef de mission": 2})
     monkeypatch.setattr(management, "user_by_email", lambda email, kind: None)
@@ -160,7 +160,7 @@ def experio_users(written):
 
 @pytest.mark.security
 def test_archiving_reads_back_and_waits_for_the_yes(monkeypatch):
-    monkeypatch.setattr(management, "require_dossier", lambda dossier_id: "BETA")
+    monkeypatch.setattr(management, "require_dossier", lambda dossier_id, **kw: "BETA")
     monkeypatch.setattr(management, "odoo_call", lambda model, method, domain: 12 if len(domain) == 1 else 7)
     monkeypatch.setattr(management, "dry_run", lambda: False)
     archived = []
@@ -320,7 +320,7 @@ def test_a_person_is_found_by_their_email_among_their_kind(monkeypatch):
 def person(monkeypatch):
     """Dossier BETA, Experio's client profiles, and what was written."""
     written = []
-    monkeypatch.setattr(management, "require_dossier", lambda dossier_id: "BETA")
+    monkeypatch.setattr(management, "require_dossier", lambda dossier_id, **kw: "BETA")
     monkeypatch.setattr(management, "client_messages", lambda session_id, message: [message])
     monkeypatch.setattr(management, "profiles", lambda kind: {"Client": 7})
     monkeypatch.setattr(management, "user_by_email", lambda email, kind: None)
@@ -417,7 +417,7 @@ def test_experio_failing_a_person_says_where(person, monkeypatch):
 
 @pytest.mark.security
 def test_in_test_mode_nothing_is_archived(monkeypatch):
-    monkeypatch.setattr(management, "require_dossier", lambda dossier_id: "BETA")
+    monkeypatch.setattr(management, "require_dossier", lambda dossier_id, **kw: "BETA")
     monkeypatch.setattr(management, "odoo_call", lambda model, method, domain: 0)
     monkeypatch.setattr(management, "dry_run", lambda: True)
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
@@ -428,7 +428,7 @@ def test_in_test_mode_nothing_is_archived(monkeypatch):
 
 @pytest.mark.communication
 def test_experio_failing_the_archiving_says_where(monkeypatch):
-    monkeypatch.setattr(management, "require_dossier", lambda dossier_id: "BETA")
+    monkeypatch.setattr(management, "require_dossier", lambda dossier_id, **kw: "BETA")
     monkeypatch.setattr(management, "odoo_call", lambda *a: 1 / 0)
     with pytest.raises(ToolError, match="`BETA` : Experio n'a pas pu compter ses factures"):
         management.archive_dossier(5, True, "s")
@@ -450,7 +450,7 @@ def access(monkeypatch):
     state = {"user": {"id": 42, "name": "Samira Alami", "login": "samira@cabinet.ma", "employee_type": "employee"}}
     state["user"].update(employee_state="active", company_ids=[1], exp_profile_id=[1, "Collaborateur"])
     state["written"] = []
-    monkeypatch.setattr(management, "require_dossier", lambda dossier_id: "BETA")
+    monkeypatch.setattr(management, "require_dossier", lambda dossier_id, **kw: "BETA")
     monkeypatch.setattr(management, "client_messages", lambda session_id, message: [message])
     monkeypatch.setattr(management, "profiles", lambda kind: {"Collaborateur": 1, "Chef de mission": 2})
     monkeypatch.setattr(
