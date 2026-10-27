@@ -33,7 +33,7 @@ from engine.tools.core.experio import (
     type_in,
 )
 from engine.tools.core.queries import Q
-from engine.tools.core.words import as_number, normalized
+from engine.tools.core.words import as_number, normalized, said
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
 
@@ -179,70 +179,102 @@ def named_invoices(statement, words, context):
         words: the client's words.
         context: the dossier's context.
 
-    A line gets an invoice only when exactly one invoice named in ``words`` is among those its form offers
-    (named_for), is on no statement line yet (detection's already_in_use, bank/models/bank_statement_line.py:2441-2453;
-    reconcile_invoice_ids refuses an invoice paid already, :4372-4376) and is accepted by the line's form (typed_in),
-    which also gives the tiers it fills.
+    A line gets an invoice only when exactly one of the invoices named (named_in) is among those its form offers
+    for its amount (offered_to), is on no statement line yet (detection's already_in_use,
+    bank/models/bank_statement_line.py:2441-2453; reconcile_invoice_ids refuses an invoice paid already, :4372-4376)
+    and is accepted by the line's form (typed_in), which also gives the tiers it fills.
 
-    Returns (given, refusals): how many lines got one (counted also in test mode, where nothing is written), and
-    « number : Experio's reason » for each named invoice the form refused that no line got.
+    Returns (given, note): how many lines got one (counted also in test mode, where nothing is written), and a
+    sentence for the reply naming each named invoice no line got, and why ("" when there is none).
     """
-    words = normalized(words or "")
-    if not words:
-        return 0, []
+    named = named_in(normalized(words or ""), statement, context)
+    if not named:
+        return 0, ""
     fields = ["state", "invoice_ids", "partner_id", "debit", "credit", "operation_type", "invoice_ids_domain"]
-    lines = odoo_call(LINE, "read", statement["line_ids"], fields=fields, context=context)
-    choices = [(line, named) for line in lines if (named := named_for(line, words, context))]
-    ids = list({c["id"] for _, named in choices for c in named})
-    used = ids and odoo_call(LINE, "search_read", [("invoice_ids", "in", ids)], fields=["invoice_ids"], context=context)
-    # shortcut: in test mode, invoices Auto Point would have applied are not on their lines, so not seen as taken
+    lines = odoo_call(LINE, "read", statement["line_ids"], fields=fields + ["payment_ref"], context=context)
+    ids = [c["id"] for c in named]
+    used = odoo_call(LINE, "search_read", [("invoice_ids", "in", ids)], fields=["invoice_ids"], context=context)
+    # shortcut: test mode does not apply Auto Point's detections, so its invoices are not seen as taken and the lines
+    # keep their tiers and picker from before it: the count may promise a link the real run will not make
     taken = {i for row in used for i in row["invoice_ids"]}  # invoices on a line, this run's added below
-    given, refusals, numbers = 0, {}, {c["id"]: c["invoice_number"] for _, named in choices for c in named}
-    for line, named in choices:
-        accepted = []
-        for invoice_id in [c["id"] for c in named if c["id"] not in taken]:
-            values, reason = typed_in(line, invoice_id, context)
-            if values:
-                accepted.append((invoice_id, values))
-            else:
-                refusals[invoice_id] = reason
-            if len(accepted) > 1:
-                break  # two the form accepts: the line gets none, no need to try more
+    why = {i: "déjà sur une autre opération" for i in ids if i in taken}  # {invoice: why no line got it}
+    given, offered = set(), set()
+    for line in lines:
+        fit = offered_to(line, [c for c in named if c["id"] not in taken], context)
+        offered.update(c["id"] for c in fit)
+        accepted = accepted_by(line, fit, why, context)
         if len(accepted) == 1:
             invoice_id, values = accepted[0]
             if not dry_run():
                 odoo_call(LINE, "write", [line["id"]], values, context=context)
             taken.add(invoice_id)
-            given += 1
-    return given, [f"{numbers[i]} : {why}" for i, why in refusals.items() if i not in taken]
+            given.add(invoice_id)
+            continue
+        for invoice_id, _ in accepted:  # two the form accepts: the line gets none
+            why[invoice_id] = f"une autre facture citée convient aussi à l'opération « {line['payment_ref']} »"
+    for c in named:
+        why.setdefault(c["id"], f"aucune opération de son montant dû ({c['amount_residual']:.2f}) ne peut la recevoir")
+    left = " ; ".join(f"{c['invoice_number']} : {why[c['id']]}" for c in named if c["id"] not in given)
+    return len(given), left and f" Facture(s) citée(s) non rattachée(s) : {left}."
 
 
-def named_for(line, words, context):
-    """Return the invoices ({id, invoice_number}) statement ``line`` may get from the client's normalized ``words``.
+def named_in(words, statement, context):
+    """Return the dossier's posted invoices still owed ({id, invoice_number, amount_residual}) whose number is in the
+    client's normalized ``words`` as whole words: "FA-1" is not in "FA-12". One search for the whole statement."""
+    if not words:
+        return []
+    domain = [("company_id", "=", statement["company_id"][0]), ("state", "in", list(POSTED))]
+    domain += [("amount_residual", "!=", 0), ("invoice_number", "!=", False)]
+    fields = ["invoice_number", "amount_residual"]
+    invoices = odoo_call("exp.invoice", "search_read", domain, fields=fields, context=context)
+    return [c for c in invoices if said(normalized(c["invoice_number"]), words)]
 
-    Those its form's invoice picker offers (invoice_ids' domain, the line's stored invoice_ids_domain,
+
+def offered_to(line, named, context):
+    """Return those of the ``named`` invoices (from named_in) that statement ``line`` may get.
+
+    Those owing exactly the line's amount (as Experio's detection, bank/models/bank_statement_line.py:2456-2471)
+    that its form's invoice picker offers (invoice_ids' domain, the line's stored invoice_ids_domain,
     bank/views/bank_statement_views.xml:89; get_invoice_ids_domain, bank_statement_line.py:4236-4291: the dossier's
-    posted invoices still owed, of the line's tiers and of its operation's way) that owe exactly the line's amount and
-    whose number is in ``words``. None for a posted line, one with an invoice, one neither purchase nor sale, or of no
-    amount (verify_selected_invoices refuses it, :4548-4562). Not checked: the amount is the line's in the statement's
-    currency, where Experio compares the company's (:4548-4554), so a foreign-currency line's invoice is not found.
+    posted invoices still owed, of the line's tiers and of its operation's way). None for a posted line, one with an
+    invoice, one neither purchase nor sale, or of no amount (verify_selected_invoices refuses it, :4548-4562). Not
+    checked: the amount is the line's in the statement's currency, where Experio compares the company's (:4548-4554),
+    so a foreign-currency line's invoice is not found.
     """
     if line["state"] in POSTED or line["invoice_ids"] or line.get("operation_type") not in ("purchase", "sale"):
         return []
     amount = round(abs((line["credit"] or 0) - (line["debit"] or 0)), 2)
-    if not amount or not line["invoice_ids_domain"]:
+    fit = [c for c in named if amount and round(c["amount_residual"], 2) == amount]
+    if not fit or not line["invoice_ids_domain"]:
         return []
-    domain = ast.literal_eval(line["invoice_ids_domain"]) + [("amount_residual", "=", amount)]
-    candidates = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number"], context=context)
-    return [c for c in candidates if c["invoice_number"] and normalized(c["invoice_number"]) in words]
+    domain = ast.literal_eval(line["invoice_ids_domain"]) + [("id", "in", [c["id"] for c in fit])]
+    picked = set(odoo_call("exp.invoice", "search", domain, context=context))
+    return [c for c in fit if c["id"] in picked]
+
+
+def accepted_by(line, invoices, why, context):
+    """Return [(invoice id, values to write)] for the ``invoices`` statement ``line``'s form accepts (typed_in), trying
+    no more once two are: the line then gets none. Each refused one gets Experio's reason in ``why``, unless it has
+    one already."""
+    accepted = []
+    for c in invoices:
+        if len(accepted) > 1:
+            break
+        values, reason = typed_in(line, c["id"], context)
+        if values:
+            accepted.append((c["id"], values))
+        else:
+            why.setdefault(c["id"], f"Experio la refuse sur l'opération « {line['payment_ref']} » ({reason})")
+    return accepted
 
 
 def typed_in(line, invoice_id, context):
-    """Choose invoice ``invoice_id`` in statement ``line``'s form, as the cabinet does on screen; saves nothing.
+    """Choose invoice ``invoice_id`` in statement ``line``'s form; saves nothing.
 
     Experio's onchange on invoice_ids (_onchange_invoice_ids, bank/models/bank_statement_line.py:2138-2160) runs
     verify_selected_invoices (:4478-4596: the invoice's account matches the operation's, it is posted, it goes the
-    line's way) and fills the line's tiers when it has none (:2145-2146).
+    line's way) and fills the line's tiers when it has none (:2145-2146). On screen that tiers then empties
+    invoice_ids (_onchange_partner_id, :2118-2127) and the cabinet picks the invoice again: Tarik writes both at once.
 
     Returns (values, reason): the values to write (invoice_ids, and the tiers the form fills: an RPC write runs no
     onchange, and a purchase/sale line without tiers stays draft) and "", or None and Experio's reason when its form
@@ -360,7 +392,7 @@ def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -
     context = in_dossier(statement["company_id"][0])
     with refused(f"settle_statement {statement_id}", f"Relevé n° {statement_id} : Experio n'a pas pu le pointer."):
         pointed = auto_point(statement, context) if statement["state"] not in POSTED else 0
-        tied, refusals = named_invoices(statement, client_message, context)
+        tied, unnamed = named_invoices(statement, client_message, context)
         to_tpe = tie_tpe(statement, context) if statement["state"] not in POSTED else None
         statement = read_statement(statement_id)
         reasons, ready, posted = blocked_reasons(statement, context)
@@ -387,8 +419,7 @@ def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -
     text += opening
     if to_tpe and to_tpe[1]:
         text += f" {to_tpe[1]} versement(s) TPE sans relevé TPE certain : à rapprocher par le cabinet."
-    if refusals:
-        text += " Facture(s) citée(s) qu'Experio refuse sur l'opération : " + " ; ".join(refusals) + "."
+    text += unnamed
     if reasons:
         text += " À compléter dans Experio : " + " ; ".join(f"{why} ({n})" for why, n in reasons.items()) + "."
     return ok(f"{TEST_MODE if dry_run() else ''}{text}", statement_id=statement_id)
