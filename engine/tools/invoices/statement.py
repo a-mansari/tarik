@@ -170,29 +170,72 @@ def auto_point(statement, context):
 def named_invoices(statement, words, context):
     """Give unposted purchase/sale lines without an invoice the invoice the client names by its number in ``words``.
 
-    A line gets an invoice only when exactly one posted invoice of the dossier owes exactly the line's amount, is the
-    line's tiers' (when the line has one) and has its number in ``words``. Returns how many lines got one (counted
-    also in test mode, where nothing is written).
+    Args:
+        statement: the statement read with FIELDS (dict).
+        words: the client's words.
+        context: the dossier's context.
+
+    A line gets an invoice only when exactly one posted invoice of the dossier owes exactly the line's amount (not 0,
+    as detection's amount_residual != 0, bank/models/bank_statement_line.py:2451), is the line's tiers' (when the line
+    has one), has its number in ``words``, goes the line's way (credit: sale or purchase refund, debit: purchase or
+    sale refund; an FNP invoice either way, verify_selected_invoices' type check, bank_statement_line.py:4566-4596)
+    and is on no statement line yet (detection's already_in_use, bank_statement_line.py:2441-2453;
+    reconcile_invoice_ids refuses an invoice paid already, :4372-4376). A line without tiers gets the invoice's too, as
+    _onchange_invoice_ids would (bank_statement_line.py:2145-2146): an RPC write runs no onchange, and a purchase/sale
+    line without tiers stays draft. Not checked here: verify_selected_invoices' account match (the invoice's tiers
+    account against the line's operation account, :4485-4531), which action_post still refuses; and the amount is the
+    line's in the statement's currency, where Experio compares the company's (:4548-4554), so a foreign-currency
+    line's invoice is not found.
+
+    Returns how many lines got one (counted also in test mode, where nothing is written).
     """
     words = normalized(words or "")
     if not words:
         return 0
     fields = ["state", "invoice_ids", "partner_id", "debit", "credit", "operation_type", "payment_ref"]
     lines = odoo_call(LINE, "read", statement["line_ids"], fields=fields, context=context)
-    given = 0
+    choices = []  # (line, invoices it may get)
     for line in lines:
         if line["state"] in POSTED or line["invoice_ids"] or line.get("operation_type") not in ("purchase", "sale"):
             continue
         amount = round(abs((line["credit"] or 0) - (line["debit"] or 0)), 2)
+        if not amount:
+            continue
         domain = [("company_id", "=", statement["company_id"][0]), ("state", "in", list(POSTED))]
         domain += [("amount_residual", "=", amount)]
         if line["partner_id"]:
             domain.append(("partner_id", "=", line["partner_id"][0]))
-        candidates = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number"], context=context)
-        named = [c for c in candidates if c["invoice_number"] and normalized(c["invoice_number"]) in words]
+        candidates = odoo_call(
+            "exp.invoice",
+            "search_read",
+            domain,
+            fields=["invoice_number", "partner_id", "type", "refund", "is_fnp_invoice"],
+            context=context,
+        )
+        way = "sale" if (line["credit"] or 0) > 0 else "purchase"
+        named = [
+            c
+            for c in candidates
+            if c["invoice_number"]
+            and normalized(c["invoice_number"]) in words
+            and (c["is_fnp_invoice"] or (c["type"] == way) != bool(c["refund"]))
+        ]
+        if named:
+            choices.append((line, named))
+    ids = list({c["id"] for _, named in choices for c in named})
+    used = ids and odoo_call(LINE, "search_read", [("invoice_ids", "in", ids)], fields=["invoice_ids"], context=context)
+    # shortcut: in test mode, invoices Auto Point would have applied are not on their lines, so not seen as taken
+    taken = {i for row in used for i in row["invoice_ids"]}  # invoices on a line, this run's added below
+    given = 0
+    for line, named in choices:
+        named = [c for c in named if c["id"] not in taken]
         if len(named) == 1:
+            values = {"invoice_ids": [(4, named[0]["id"])]}
+            if not line["partner_id"] and named[0]["partner_id"]:
+                values["partner_id"] = named[0]["partner_id"][0]
             if not dry_run():
-                odoo_call(LINE, "write", [line["id"]], {"invoice_ids": [(4, named[0]["id"])]}, context=context)
+                odoo_call(LINE, "write", [line["id"]], values, context=context)
+            taken.add(named[0]["id"])
             given += 1
     return given
 

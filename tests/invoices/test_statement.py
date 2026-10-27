@@ -51,6 +51,10 @@ def experio(monkeypatch):
             {"id": 3, "state": "draft", "error_msg": "The partner is mandatory for this operation.", "invoice_ids": []},
         ],
         "detected": [11, 12],
+        "invoices": [
+            {"id": 70, "invoice_number": "FA-0012", "partner_id": [9, "ATLAS"], "type": "purchase", "refund": False}
+        ],
+        "in_use": [],
         "applied": [],
         "written": [],
         "post": None,
@@ -70,8 +74,10 @@ def experio(monkeypatch):
             return True
         if model == "bank.statement.line.detect.wizard":
             return [{"line_ids": state["detected"]}]
+        if model == statement.LINE and method == "search_read":
+            return [{"invoice_ids": state["in_use"]}]
         if model == "exp.invoice":
-            return [{"id": 70, "invoice_number": "FA-0012"}]
+            return [{"is_fnp_invoice": False, **invoice} for invoice in state["invoices"]]
         if method == "search_count":
             return 1  # not the journal's first statement
         return []
@@ -116,8 +122,54 @@ def test_its_balances_are_said_when_they_do_not_hold(experio):
 @pytest.mark.functionality
 def test_a_line_the_client_ties_to_an_invoice_by_its_number_gets_it(experio):
     result = statement.settle_statement(8, client_message="Le virement de 200 paie la facture FA-0012.")
-    assert experio["written"][0] == ([1], {"invoice_ids": [(4, 70)]})
-    assert "rattachée(s) à la facture que vous avez citée" in result["message"]
+    assert experio["written"] == [([1], {"invoice_ids": [(4, 70)]})]  # once: lines 2 and 3 owe the same, not twice
+    assert "1 rattachée(s) à la facture que vous avez citée" in result["message"]
+
+
+@pytest.mark.functionality
+def test_a_line_without_tiers_takes_the_invoices_tiers_with_it(experio):
+    experio["lines"] = experio["lines"][1:2]
+    statement.settle_statement(8, client_message="facture FA-0012")
+    assert experio["written"] == [([2], {"invoice_ids": [(4, 70)], "partner_id": 9})]  # as _onchange_invoice_ids
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "in_use, kind, refund",
+    [([70], "purchase", False), ([], "sale", False), ([], "purchase", True)],
+    ids=["on another line", "a sale for a debit", "a purchase refund for a debit"],
+)
+def test_an_invoice_on_another_line_or_the_other_way_is_not_given(experio, in_use, kind, refund):
+    experio["in_use"] = in_use
+    experio["invoices"][0].update(type=kind, refund=refund)
+    result = statement.settle_statement(8, client_message="facture FA-0012")
+    assert experio["written"] == []
+    assert "rattachée" not in result["message"]
+
+
+@pytest.mark.functionality
+def test_an_fnp_invoice_is_given_either_way(experio):
+    experio["lines"] = experio["lines"][:1]
+    experio["invoices"][0].update(type="sale", is_fnp_invoice=True)
+    statement.settle_statement(8, client_message="facture FA-0012")
+    assert experio["written"] == [([1], {"invoice_ids": [(4, 70)]})]
+
+
+@pytest.mark.functionality
+def test_a_line_of_no_amount_gets_no_invoice(experio):
+    experio["lines"] = experio["lines"][:1]
+    experio["lines"][0].update(debit=0.0)
+    statement.settle_statement(8, client_message="facture FA-0012")
+    assert experio["written"] == []
+
+
+@pytest.mark.functionality
+def test_a_credit_line_takes_a_sale_or_a_purchase_refund(experio):
+    experio["lines"] = experio["lines"][:1]
+    experio["lines"][0].update(debit=0.0, credit=200.0)
+    experio["invoices"][0].update(type="purchase", refund=True)
+    statement.settle_statement(8, client_message="avoir FA-0012")
+    assert experio["written"] == [([1], {"invoice_ids": [(4, 70)]})]
 
 
 @pytest.mark.functionality
