@@ -20,6 +20,7 @@ from engine.tools.core.app import ok, routine, step_tool, stop, wait
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import (
+    ExperioRefusal,
     dry_run,
     experio_refusal,
     in_dossier,
@@ -177,15 +178,14 @@ def named_invoices(statement, words, context):
 
     A line gets an invoice only when exactly one posted invoice of the dossier owes exactly the line's amount (not 0,
     as detection's amount_residual != 0, bank/models/bank_statement_line.py:2451), is the line's tiers' (when the line
-    has one), has its number in ``words``, goes the line's way (credit: sale or purchase refund, debit: purchase or
-    sale refund; an FNP invoice either way, verify_selected_invoices' type check, bank_statement_line.py:4566-4596)
-    and is on no statement line yet (detection's already_in_use, bank_statement_line.py:2441-2453;
-    reconcile_invoice_ids refuses an invoice paid already, :4372-4376). A line without tiers gets the invoice's too, as
-    _onchange_invoice_ids would (bank_statement_line.py:2145-2146): an RPC write runs no onchange, and a purchase/sale
-    line without tiers stays draft. Not checked here: verify_selected_invoices' account match (the invoice's tiers
-    account against the line's operation account, :4485-4531), which action_post still refuses; and the amount is the
-    line's in the statement's currency, where Experio compares the company's (:4548-4554), so a foreign-currency
-    line's invoice is not found.
+    has one), has its number in ``words``, is on no statement line yet (detection's already_in_use,
+    bank_statement_line.py:2441-2453; reconcile_invoice_ids refuses an invoice paid already, :4372-4376) and is
+    accepted by the line's form: Experio's onchange on invoice_ids (_onchange_invoice_ids, :2138-2160) runs
+    verify_selected_invoices (:4478-4596: the invoice's account matches the operation's, it is posted, it goes the
+    line's way) and fills the line's tiers when it has none. Tarik writes that tiers with the invoice: an RPC write
+    runs no onchange, and a purchase/sale line without tiers stays draft. Not checked: the amount is the line's in the
+    statement's currency, where Experio compares the company's (:4548-4554), so a foreign-currency line's invoice is
+    not found.
 
     Returns how many lines got one (counted also in test mode, where nothing is written).
     """
@@ -205,21 +205,8 @@ def named_invoices(statement, words, context):
         domain += [("amount_residual", "=", amount)]
         if line["partner_id"]:
             domain.append(("partner_id", "=", line["partner_id"][0]))
-        candidates = odoo_call(
-            "exp.invoice",
-            "search_read",
-            domain,
-            fields=["invoice_number", "partner_id", "type", "refund", "is_fnp_invoice"],
-            context=context,
-        )
-        way = "sale" if (line["credit"] or 0) > 0 else "purchase"
-        named = [
-            c
-            for c in candidates
-            if c["invoice_number"]
-            and normalized(c["invoice_number"]) in words
-            and (c["is_fnp_invoice"] or (c["type"] == way) != bool(c["refund"]))
-        ]
+        candidates = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number"], context=context)
+        named = [c for c in candidates if c["invoice_number"] and normalized(c["invoice_number"]) in words]
         if named:
             choices.append((line, named))
     ids = list({c["id"] for _, named in choices for c in named})
@@ -228,16 +215,41 @@ def named_invoices(statement, words, context):
     taken = {i for row in used for i in row["invoice_ids"]}  # invoices on a line, this run's added below
     given = 0
     for line, named in choices:
-        named = [c for c in named if c["id"] not in taken]
-        if len(named) == 1:
-            values = {"invoice_ids": [(4, named[0]["id"])]}
-            if not line["partner_id"] and named[0]["partner_id"]:
-                values["partner_id"] = named[0]["partner_id"][0]
+        accepted = [
+            (c["id"], filled)
+            for c in named
+            if c["id"] not in taken and (filled := typed_in(line, c, context)) is not None
+        ]
+        if len(accepted) == 1:
+            invoice_id, filled = accepted[0]
+            values = {"invoice_ids": [(4, invoice_id)]}
+            partner = filled.get("partner_id")
+            if not line["partner_id"] and partner:
+                values["partner_id"] = partner["id"] if isinstance(partner, dict) else partner
             if not dry_run():
                 odoo_call(LINE, "write", [line["id"]], values, context=context)
-            taken.add(named[0]["id"])
+            taken.add(invoice_id)
             given += 1
     return given
+
+
+def typed_in(line, invoice, context):
+    """Return what statement line ``line``'s form fills ({field: value}, maybe empty) once ``invoice`` is
+    chosen in its invoice_ids, as the cabinet does on screen; None when Experio's form refuses that invoice
+    (verify_selected_invoices, run by _onchange_invoice_ids, bank/models/bank_statement_line.py:2143). Saves nothing."""
+    try:
+        answer = odoo_json(
+            LINE,
+            "onchange",
+            [line["id"]],
+            {"invoice_ids": [(6, 0, [invoice["id"]])]},
+            ["invoice_ids"],
+            {"invoice_ids": {}, "partner_id": {}},
+            context=context,
+        )
+    except ExperioRefusal:
+        return None
+    return (answer or {}).get("value") or {}
 
 
 def blocked_reasons(statement, context):

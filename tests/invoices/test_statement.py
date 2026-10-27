@@ -51,10 +51,10 @@ def experio(monkeypatch):
             {"id": 3, "state": "draft", "error_msg": "The partner is mandatory for this operation.", "invoice_ids": []},
         ],
         "detected": [11, 12],
-        "invoices": [
-            {"id": 70, "invoice_number": "FA-0012", "partner_id": [9, "ATLAS"], "type": "purchase", "refund": False}
-        ],
+        "invoices": [{"id": 70, "invoice_number": "FA-0012"}],
         "in_use": [],
+        "form": {"partner_id": 9},  # what the line's form fills once the invoice is chosen; an error: refused
+        "typed": [],
         "applied": [],
         "written": [],
         "post": None,
@@ -77,12 +77,17 @@ def experio(monkeypatch):
         if model == statement.LINE and method == "search_read":
             return [{"invoice_ids": state["in_use"]}]
         if model == "exp.invoice":
-            return [{"is_fnp_invoice": False, **invoice} for invoice in state["invoices"]]
+            return state["invoices"]
         if method == "search_count":
             return 1  # not the journal's first statement
         return []
 
-    def odoo_json(model, method, ids, **kw):
+    def odoo_json(model, method, ids, *args, **kw):
+        if method == "onchange":
+            state["typed"].append((ids, args))
+            if isinstance(state["form"], Exception):
+                raise state["form"]
+            return {"value": state["form"]}
         if method == "action_refresh":
             return {"res_model": "bank.statement.line.detect.wizard", "res_id": 5}
         if method == "action_apply":
@@ -134,25 +139,25 @@ def test_a_line_without_tiers_takes_the_invoices_tiers_with_it(experio):
 
 
 @pytest.mark.functionality
-@pytest.mark.parametrize(
-    "in_use, kind, refund",
-    [([70], "purchase", False), ([], "sale", False), ([], "purchase", True)],
-    ids=["on another line", "a sale for a debit", "a purchase refund for a debit"],
-)
-def test_an_invoice_on_another_line_or_the_other_way_is_not_given(experio, in_use, kind, refund):
-    experio["in_use"] = in_use
-    experio["invoices"][0].update(type=kind, refund=refund)
-    result = statement.settle_statement(8, client_message="facture FA-0012")
-    assert experio["written"] == []
-    assert "rattachée" not in result["message"]
+def test_the_invoice_is_tried_in_the_lines_form_first(experio):
+    experio["lines"] = experio["lines"][:1]
+    statement.settle_statement(8, client_message="facture FA-0012")
+    spec = {"invoice_ids": {}, "partner_id": {}}
+    assert experio["typed"] == [([1], ({"invoice_ids": [(6, 0, [70])]}, ["invoice_ids"], spec))]
 
 
 @pytest.mark.functionality
-def test_an_fnp_invoice_is_given_either_way(experio):
-    experio["lines"] = experio["lines"][:1]
-    experio["invoices"][0].update(type="sale", is_fnp_invoice=True)
-    statement.settle_statement(8, client_message="facture FA-0012")
-    assert experio["written"] == [([1], {"invoice_ids": [(4, 70)]})]
+@pytest.mark.parametrize(
+    "in_use, form",
+    [([70], {}), ([], ExperioRefusal("...must have the same account as their operation..."))],
+    ids=["on another line", "refused by the line's form"],
+)
+def test_an_invoice_on_another_line_or_its_form_refuses_is_not_given(experio, in_use, form):
+    experio["in_use"] = in_use
+    experio["form"] = form
+    result = statement.settle_statement(8, client_message="facture FA-0012")
+    assert experio["written"] == []
+    assert "rattachée" not in result["message"]
 
 
 @pytest.mark.functionality
@@ -161,15 +166,6 @@ def test_a_line_of_no_amount_gets_no_invoice(experio):
     experio["lines"][0].update(debit=0.0)
     statement.settle_statement(8, client_message="facture FA-0012")
     assert experio["written"] == []
-
-
-@pytest.mark.functionality
-def test_a_credit_line_takes_a_sale_or_a_purchase_refund(experio):
-    experio["lines"] = experio["lines"][:1]
-    experio["lines"][0].update(debit=0.0, credit=200.0)
-    experio["invoices"][0].update(type="purchase", refund=True)
-    statement.settle_statement(8, client_message="avoir FA-0012")
-    assert experio["written"] == [([1], {"invoice_ids": [(4, 70)]})]
 
 
 @pytest.mark.functionality
