@@ -8,7 +8,7 @@ from engine.tools.dossiers import routines
 from server import api
 from tests.api.test_settings import asked
 
-ROUTINE = {"enabled": True, "kind": "instruction", "every": "week", "day": 0, "hour": 9}
+ROUTINE = {"enabled": True, "kind": "instruction", "every": "week", "days": [0], "hour": 9}
 ROUTINE |= {"notify": "chef@cabinet.ma", "prompt": "Liste les factures en brouillon."}
 
 
@@ -39,11 +39,11 @@ def test_a_routine_made_changed_and_deleted_from_the_page(page):
     assert status == 200 and data["error"] is None
     (made,) = data["routines"]
     assert made["created_by"] == "a@experio.ma" and made["schedule"] == "chaque lundi à 9 h" and made["enabled"]
-    changed = {**ROUTINE, "id": made["id"], "enabled": False, "every": "month", "day": 5, "prompt": "Autre consigne."}
+    changed = {**ROUTINE, "id": made["id"], "enabled": False, "every": "month", "days": [5], "prompt": "Autre."}
     status, data, _ = post(cabinet, "save", changed)
     (saved,) = data["routines"]
     assert not saved["enabled"] and saved["schedule"] == "chaque mois, le 5 à 9 h"
-    assert saved["prompt"] == "Autre consigne."
+    assert saved["prompt"] == "Autre."
     status, data, _ = post(cabinet, "delete", {"id": made["id"]})
     assert data["routines"] == [] and [entry[3]["change"] for entry in journal] == ["create", "save", "delete"]
 
@@ -92,9 +92,24 @@ def test_a_change_keeps_its_next_run_unless_its_schedule_moves(page):
 
 
 @pytest.mark.functionality
-def test_the_page_never_waits_on_experio_to_show_the_routines(page, monkeypatch):
-    cabinet, _ = page
-    nothing = lambda *a, **k: pytest.fail("no Experio call to show the page")  # noqa: E731
-    monkeypatch.setattr(routines, "odoo_call", nothing, raising=False)
+def test_the_page_offers_the_cabinets_admins_and_still_shows_without_experio(page, monkeypatch):
+    monkeypatch.setattr(api.routines, "admins", lambda: [{"name": "Chef", "email": "chef@cabinet.ma"}])
     status, data, _ = asked(api.routines.routines_page)
-    assert status == 200 and data["routines"] == [] and "dossiers" not in data
+    assert status == 200 and data["managers"] == [{"name": "Chef", "email": "chef@cabinet.ma"}]
+
+    def down():
+        raise ConnectionRefusedError("Experio down")
+
+    monkeypatch.setattr(api.routines, "admins", down)
+    status, data, _ = asked(api.routines.routines_page)
+    assert status == 200 and data["managers"] is None and data["routines"] == []  # the address is typed then
+
+
+@pytest.mark.functionality
+def test_a_routine_on_several_weekdays(page):
+    cabinet, _ = page
+    status, data, _ = post(cabinet, "create", {**ROUTINE, "days": [4, 0, 2, 0]})
+    assert status == 200 and data["routines"][0]["days"] == [0, 2, 4]
+    assert data["routines"][0]["schedule"] == "chaque lundi, mercredi et vendredi à 9 h"
+    status, data, _ = post(cabinet, "create", {**ROUTINE, "days": []})
+    assert status == 400 and "quels jours" in data["error"]

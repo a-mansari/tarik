@@ -18,11 +18,27 @@ def at(text):
 
 @pytest.mark.functionality
 def test_the_next_time_a_schedule_falls_on():
-    assert next_run("day", 0, 8, at("2026-10-27 07:59")) == at("2026-10-27 08:00")
-    assert next_run("day", 0, 8, at("2026-10-27 08:00")) == at("2026-10-28 08:00")  # its own time: the next one
-    assert next_run("week", 0, 9, at("2026-10-27 10:00")) == at("2026-11-02 09:00")  # a Tuesday: next Monday
-    assert next_run("month", 5, 8, at("2026-10-04 23:00")) == at("2026-10-05 08:00")
-    assert next_run("month", 5, 8, at("2026-12-05 08:00")) == at("2027-01-05 08:00")  # past December
+    assert next_run("day", [], 8, at("2026-10-27 07:59")) == at("2026-10-27 08:00")
+    assert next_run("day", [], 8, at("2026-10-27 08:00")) == at("2026-10-28 08:00")  # its own time: the next one
+    assert next_run("week", [0], 9, at("2026-10-27 10:00")) == at("2026-11-02 09:00")  # a Tuesday: next Monday
+    assert next_run("week", [1], 9, at("2026-10-27 10:00")) == at("2026-11-03 09:00")  # its own day, past: a week on
+    assert next_run("week", [0, 3], 9, at("2026-10-27 10:00")) == at("2026-10-29 09:00")  # Tuesday: then Thursday
+    assert next_run("week", [0, 1, 2, 3, 4], 9, at("2026-10-31 10:00")) == at("2026-11-02 09:00")  # Saturday: Monday
+    assert next_run("week", [5, 6], 9, at("2026-11-01 10:00")) == at("2026-11-07 09:00")  # Sunday, past: Saturday
+    assert next_run("month", [5], 8, at("2026-10-04 23:00")) == at("2026-10-05 08:00")
+    assert next_run("month", [5], 8, at("2026-12-05 08:00")) == at("2027-01-05 08:00")  # past December
+
+
+@pytest.mark.communication
+def test_a_schedule_said_in_plain_words():
+    assert routines.when("week", [0, 1, 2, 3, 4], 8) == "en semaine (du lundi au vendredi) à 8 h"
+    assert routines.when("week", [5, 6], 8) == "le week-end à 8 h"
+    assert routines.when("week", [0, 3, 4], 9) == "chaque lundi, jeudi et vendredi à 9 h"
+    assert routines.when("week", [2], 9) == "chaque mercredi à 9 h"
+    assert routines.when("week", list(range(7)), 9) == "chaque jour à 9 h"
+    assert routines.when("month", [5], 8) == "chaque mois, le 5 à 8 h"
+    assert "quels jours" in routines.routine_problem("tva", "week", [], 8, "")
+    assert "un seul" in routines.routine_problem("tva", "month", [5, 6], 8, "")
 
 
 @pytest.fixture
@@ -40,7 +56,7 @@ def chat(db_cabinet, monkeypatch):
 
 def make(yes, email="chef@cabinet.ma", hour=8, kind="tva", prompt=""):
     return routines.manage_routine(
-        "create", kind, "month", 5, hour, email=email, prompt=prompt, client_confirmed=yes, session_id="s"
+        "create", kind, "month", [5], hour, email=email, prompt=prompt, client_confirmed=yes, session_id="s"
     )
 
 
@@ -117,8 +133,8 @@ def due_routine(kind="progress", prompt=""):
     """Make a routine due an hour ago, its reports to chef@cabinet.ma; return its id."""
     with cabinet_db() as db:
         return db.execute(
-            "insert into tarik_routines (kind, every, day, hour, notify, created_by, next_run_at, prompt) "
-            "values (%s, 'day', 0, 8, 'chef@cabinet.ma', 'chat', %s, %s) returning id",
+            "insert into tarik_routines (kind, every, days, hour, notify, created_by, next_run_at, prompt) "
+            "values (%s, 'day', '{}', 8, 'chef@cabinet.ma', 'chat', %s, %s) returning id",
             (kind, datetime.now(ZONE) - timedelta(hours=1), prompt),
         ).fetchone()[0]
 
@@ -305,3 +321,19 @@ def test_a_period_still_running_is_never_claimed_again_behind_it(db_cabinet):
     with cabinet_db() as db:  # its next time already came, the first period not reported yet
         db.execute("update tarik_routines set next_run_at = now() - interval '1 minute' where id = %s", (routine_id,))
     assert [r[6] for r in clock.claimed()] == [row[6]]  # the unfinished one only, no second period
+
+
+@pytest.mark.functionality
+def test_the_cabinets_admins_offered_are_live_allowed_and_never_tarik_itself(monkeypatch):
+    seen = []
+
+    def odoo_call(model, method, domain, **kw):
+        seen.append(domain)
+        return [{"name": "Chef", "login": "chef@cabinet.ma"}, {"name": "Perso", "login": "chef@gmail.com"}]
+
+    monkeypatch.setattr(routines, "odoo_call", odoo_call)
+    monkeypatch.setattr(routines, "login", lambda: 7)
+    monkeypatch.setattr(routines, "recipient_allowed", lambda address: address.endswith("@cabinet.ma"))
+    assert routines.admins() == [{"name": "Chef", "email": "chef@cabinet.ma"}]
+    ((*_, admin, own),) = seen
+    assert admin == ("exp_profile_id.management_group", "=", "admin") and own == ("id", "!=", 7)

@@ -19,15 +19,16 @@ const banner = ref(null);
 const shown = ref(0); // bumped after a refused switch: the cards are drawn again, as the server holds them
 
 const blank = () => ({
-  enabled: true, kind: "instruction", every: "week", day: 0, hour: 8, notify: "", prompt: "",
+  enabled: true, kind: "instruction", every: "week", days: [0, 1, 2, 3, 4], hour: 8, notify: "", prompt: "",
 });
 
-// The form opens where it is asked, its first field focused: the button that opened it may be gone.
+// The form opens where it is asked, its chosen task focused (the button that opened it may be gone); the focus ring
+// shows only for the keyboard, so a click leaves the chosen card alone highlighted.
 async function open(routine) {
   editing.value = routine ? routine.id : "new";
-  form.value = routine ? { ...routine } : blank();
+  form.value = routine ? { ...routine, days: [...routine.days] } : blank();
   await nextTick();
-  document.querySelector(".routine-form input")?.focus();
+  document.querySelector(".routine-form input[name=kind]:checked")?.focus();
 }
 const close = () => { editing.value = null; form.value = null; };
 
@@ -35,7 +36,7 @@ async function post(action, routine) {
   busy.value = true;
   const answer = await send("/routines", { cabinet: data.value.cabinet, action, routine });
   busy.value = false;
-  if (answer.data) data.value = answer.data;
+  if (answer.data) data.value = { ...data.value, ...answer.data }; // a change's answer leaves Experio's admins out
   if (answer.ok && routine === form.value) close(); // saved: the form closes; refused: it stays as typed
   await nextTick();
   if (!answer.ok) banner.value?.scrollIntoView({ block: "center" });
@@ -72,7 +73,7 @@ function remove(routine) {
 
     <section v-if="editing === 'new'" class="panel accent" aria-label="Nouvelle routine">
       <h2>Nouvelle routine</h2>
-      <RoutineForm :form="form" :kinds="data.kinds" :weekdays="data.weekdays" :busy="busy"
+      <RoutineForm :form="form" :kinds="data.kinds" :weekdays="data.weekdays" :managers="data.managers" :busy="busy"
         submit-words="Créer la routine" @submit="submit" @cancel="close" />
     </section>
 
@@ -97,8 +98,8 @@ function remove(routine) {
         par {{ routine.created_by }}<template v-if="routine.last_due"> · dernière le
           <span class="num">{{ routine.last_due }}</span>{{ routine.last_report === null ? " (en cours)" : "" }}</template></p>
       <details v-if="routine.last_report" class="last"><summary>Dernier rapport</summary><pre>{{ routine.last_report }}</pre></details>
-      <RoutineForm v-if="editing === routine.id" :form="form" :kinds="data.kinds" :weekdays="data.weekdays" :busy="busy"
-        @submit="submit" @cancel="close" />
+      <RoutineForm v-if="editing === routine.id" :form="form" :kinds="data.kinds" :weekdays="data.weekdays"
+        :managers="data.managers" :busy="busy" @submit="submit" @cancel="close" />
     </article>
     <div v-if="!data.routines.length && editing !== 'new'" class="panel empty">
       <p><b>Aucune routine pour ce cabinet.</b></p>

@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.conversation import client_messages, own_words
-from engine.tools.core.experio import odoo_call, refused
+from engine.tools.core.experio import login, odoo_call, refused
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized
 from engine.tools.dossiers.identity import client_wrote, confirmed
@@ -36,35 +36,49 @@ KINDS = {
 }
 PROMPT_CHARACTERS = 2000  # an instruction's longest
 # routines_listed's columns, in order: every reader takes a row as dict(zip(COLUMNS, row)).
-COLUMNS = ("id", "kind", "every", "day", "hour", "notify", "enabled", "next_run_at", "created_by", "prompt")
+COLUMNS = ("id", "kind", "every", "days", "hour", "notify", "enabled", "next_run_at", "created_by", "prompt")
 WEEKDAYS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 ACTIONS = ("create", "list", "pause", "resume", "delete")
 CHAT = "chat"  # created_by of a routine made in the chat, where nobody can tell who writes
 
 
-def next_run(every, day, hour, after):
+WORKDAYS, WEEKEND = [0, 1, 2, 3, 4], [5, 6]
+
+
+def next_run(every, days, hour, after):
     """Return the first time after ``after`` (an aware datetime) the schedule falls on, in Casablanca time: each day
-    at ``hour``; each week on weekday ``day`` (Monday 0); each month on day ``day`` (1 to 28, in every month)."""
+    at ``hour``; each week on each weekday of ``days`` (Monday 0); each month on its day ``days[0]`` (1 to 28, in
+    every month)."""
     local = after.astimezone(ZONE)
     at = local.replace(hour=hour, minute=0, second=0, microsecond=0)
     if every == "day":
         return at if at > local else at + timedelta(days=1)
     if every == "week":
-        at += timedelta(days=(day - at.weekday()) % 7)
-        return at if at > local else at + timedelta(days=7)
-    at = at.replace(day=day)
+        return next(
+            at + timedelta(days=ahead)
+            for ahead in range(8)
+            if (at + timedelta(days=ahead)).weekday() in days and at + timedelta(days=ahead) > local
+        )
+    at = at.replace(day=days[0])
     if at > local:
         return at
     return at.replace(year=at.year + at.month // 12, month=at.month % 12 + 1)
 
 
-def when(every, day, hour):
-    """Return the schedule in the client's words: « chaque mois, le 5 à 8 h »."""
-    if every == "day":
+def when(every, days, hour):
+    """Return the schedule in the client's words: « chaque mois, le 5 à 8 h », « en semaine à 8 h », « chaque lundi
+    et jeudi à 8 h »."""
+    if every == "day" or (every == "week" and sorted(days) == list(range(7))):
         return f"chaque jour à {hour} h"
+    if every == "week" and sorted(days) == WORKDAYS:
+        return f"en semaine (du lundi au vendredi) à {hour} h"
+    if every == "week" and sorted(days) == WEEKEND:
+        return f"le week-end à {hour} h"
     if every == "week":
-        return f"chaque {WEEKDAYS[day]} à {hour} h"
-    return f"chaque mois, le {day} à {hour} h"
+        names = [WEEKDAYS[day] for day in sorted(days)]
+        listed = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} et {names[-1]}"
+        return f"chaque {listed} à {hour} h"
+    return f"chaque mois, le {days[0]} à {hour} h"
 
 
 def session_of(routine_id, due_at):
@@ -73,12 +87,12 @@ def session_of(routine_id, due_at):
     return f"{ROUTINE_SESSION}{routine_id}-{due_at.astimezone(ZONE):%Y%m%d%H}"
 
 
-def described(kind, every, day, hour, notify, next_at, prompt=""):
+def described(kind, every, days, hour, notify, next_at, prompt=""):
     """Return a routine as a French line: « préparer la TVA, chaque mois, le 5 à 8 h, rapport à x@cabinet.ma,
     prochaine le 2026-11-05 08:00 »; an instruction routine's own words quoted."""
     what = f"{KINDS[kind]} « {prompt} »" if kind == "instruction" else KINDS[kind]
     return (
-        f"{what}, {when(every, day, hour)}, rapport à `{notify}`, "
+        f"{what}, {when(every, days, hour)}, rapport à `{notify}`, "
         f"prochaine le {next_at.astimezone(ZONE):%Y-%m-%d %H:%M}"
     )
 
@@ -91,11 +105,11 @@ def routines_of_cabinet():
 
 def listed(r):
     """Return one routine (routines_of_cabinet's) as « n° 3 : <described> (en pause) »."""
-    shown = described(r["kind"], r["every"], r["day"], r["hour"], r["notify"], r["next_run_at"], r["prompt"])
+    shown = described(r["kind"], r["every"], r["days"], r["hour"], r["notify"], r["next_run_at"], r["prompt"])
     return f"n° {r['id']} : {shown}" + ("" if r["enabled"] else " (en pause)")
 
 
-def routine_problem(kind, every, day, hour, prompt):
+def routine_problem(kind, every, days, hour, prompt):
     """Return what is wrong with a routine's kind, schedule and instruction (French), "" when nothing: the checks
     the chat's tool and the Routines page share."""
     if kind not in KINDS:
@@ -106,15 +120,34 @@ def routine_problem(kind, every, day, hour, prompt):
         return "à quelle heure (0 à 23) ?"
     if hour == 0 and kind != "progress":  # midnight in Morocco is still the day before on the server (UTC)
         return "à quelle heure, de 1 à 23 (à minuit, la période terminée serait encore celle d'avant) ?"
-    if every == "week" and not 0 <= day <= 6:
-        return "quel jour de la semaine ?"
-    if every == "month" and not 1 <= day <= 28:
-        return "quel jour du mois (1 à 28, pour tomber chaque mois) ?"
+    if every == "week" and (not days or not set(days) <= set(range(7))):
+        return "quels jours de la semaine ?"
+    if every == "month" and (len(days) != 1 or not 1 <= days[0] <= 28):
+        return "quel jour du mois (un seul, de 1 à 28, pour tomber chaque mois) ?"
     if kind == "instruction" and not prompt.strip():
         return "quelle consigne Tarik doit-il suivre à chaque fois ?"
     if len(prompt) > PROMPT_CHARACTERS:
         return f"une consigne plus courte ({PROMPT_CHARACTERS} caractères au plus) ?"
     return ""
+
+
+def admins():
+    """Return the cabinet's live admins in Experio, who may get a routine's reports (live), as [{name, email}] by name:
+    collaborators whose profile's management_group is admin and whose account is active, among the addresses the
+    cabinet allows. Experio's staff may get them too, but are not listed: theirs is typed."""
+    found = odoo_call(
+        "res.users",
+        "search_read",
+        [
+            ("employee_type", "=", "employee"),
+            ("employee_state", "=", "active"),
+            ("exp_profile_id.management_group", "=", "admin"),
+            ("id", "!=", login()),  # Tarik's own account, an admin too
+        ],
+        fields=["name", "login"],
+        order="name",
+    )
+    return [{"name": user["name"], "email": user["login"]} for user in found if recipient_allowed(user["login"])]
 
 
 def live(notify):
@@ -149,7 +182,7 @@ def manage_routine(
     action: str,
     kind: str = "",
     every: str = "",
-    day: int = 0,
+    days: list | None = None,
     hour: int = 8,
     routine_id: int = 0,
     email: str = "",
@@ -160,12 +193,12 @@ def manage_routine(
 ) -> dict:
     """Make, list, pause, resume or delete the cabinet's routines (``action`` create, list, pause, resume, delete).
 
-    create: ``kind`` (tva, ras, progress, instruction with its ``prompt``), ``every`` (day, week, month), ``day`` (a
-    weekday 0-6 from Monday, or a day of the month 1-28) and ``hour`` (0-23, Casablanca time); it works on every
-    dossier Tarik's Experio account sees, so only Experio's staff and the cabinet's admins make or resume one (in the
-    chat, the team). Its reports go to the email's sender, or in the chat to the ``email`` the client wrote
-    (address_problem). Read back, made once the client said yes (``client_confirmed``). pause, resume, delete:
-    ``routine_id``; delete is read back first. A sender sees and manages only the routines they made (mine).
+    create: ``kind`` (tva, ras, progress, instruction with its ``prompt``), ``every`` (day, week, month), ``days``
+    (weekdays 0-6 from Monday each week, or the one day 1-28 each month) and ``hour`` (0-23, Casablanca time); it
+    works on every dossier Tarik's Experio account sees, so only Experio's staff and the cabinet's admins make or
+    resume one (in the chat, the team). Its reports go to the email's sender, or in the chat to the ``email`` the
+    client wrote (address_problem). Read back, made once the client said yes (``client_confirmed``). pause, resume,
+    delete: ``routine_id``; delete is read back first. A sender sees and manages only the routines they made (mine).
 
     Returns an ok result once done, a routine result for an empty list, a question result for what is missing or to
     confirm, a stop result for a sender who may not make one.
@@ -184,7 +217,7 @@ def manage_routine(
         )
     if action == "create":
         words = normalized("\n".join(client_messages(session_id, own_words(client_message))))
-        given = (kind, every, day, hour, email.strip(), prompt.strip())
+        given = (kind, every, sorted(set(days or [])), hour, email.strip(), prompt.strip())
         return created(*given, sender, client_confirmed, words, session_id)
     rows = [r for r in routines_of_cabinet() if mine(r, reach, sender)]
     if action == "list":
@@ -200,16 +233,16 @@ def manage_routine(
         if action == "delete":
             db.execute(Q.routine_removed, (routine_id,))
             return ok(f"Routine n° {routine_id} supprimée.")
-        upcoming = next_run(row["every"], row["day"], row["hour"], datetime.now(ZONE))
+        upcoming = next_run(row["every"], row["days"], row["hour"], datetime.now(ZONE))
         db.execute(Q.routine_enabled, (action == "resume", upcoming, routine_id))
     if action == "pause":
         return ok(f"Routine n° {routine_id} en pause.")
     return ok(f"Routine n° {routine_id} reprise : prochaine le {upcoming:%Y-%m-%d %H:%M}.")
 
 
-def created(kind, every, day, hour, email, prompt, sender, client_confirmed, words, session_id):
+def created(kind, every, days, hour, email, prompt, sender, client_confirmed, words, session_id):
     """manage_routine's create: check, read back, then save the routine (see manage_routine)."""
-    problem = routine_problem(kind, every, day, hour, prompt)
+    problem = routine_problem(kind, every, days, hour, prompt)
     if problem:
         return question(f"Pour cette routine : {problem}")
     notify = sender if sender != CHAT else (email if email and client_wrote("email", email, words) else "")
@@ -219,14 +252,14 @@ def created(kind, every, day, hour, email, prompt, sender, client_confirmed, wor
         problem = address_problem(notify)
     if problem:
         return question(f"{problem} : à quelle adresse envoyer ?")
-    upcoming = next_run(every, day, hour, datetime.now(ZONE))
-    recap = described(kind, every, day, hour, notify, upcoming, prompt)
-    if not confirmed(session_id, client_confirmed, "vous confirmez", KINDS[kind], when(every, day, hour)):
+    upcoming = next_run(every, days, hour, datetime.now(ZONE))
+    recap = described(kind, every, days, hour, notify, upcoming, prompt)
+    if not confirmed(session_id, client_confirmed, "vous confirmez", KINDS[kind], when(every, days, hour)):
         return question(
             f"Routine : {recap}, sur tous les dossiers du cabinet.\nRien n'est jamais déclaré ni comptabilisé sans "
             "vous. Vous confirmez ?"
         )
     with cabinet_db() as db:
-        values = (kind, every, day, hour, notify, sender, upcoming, prompt, True)
+        values = (kind, every, days, hour, notify, sender, upcoming, prompt, True)
         (new_id,) = db.execute(Q.routine_made, values).fetchone()
     return ok(f"Routine n° {new_id} créée : {recap}.")

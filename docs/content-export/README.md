@@ -91,3 +91,6 @@ uses another one. A stack that edited one of these documents itself loses that e
   Experio account sees: `Experio_routine` loses `dossier_ids` and says only admins and Experio's staff make one
   (`agent.json`), the skill no longer looks for dossiers first (`skills/gestion-dossiers.md`), the progress kind's
   name (`labels.json`). Import it after the routines-page export, once the stack runs the commit without the selector.
+- `tarik-contenu-routines-jours-20261027.json` (and its `.diff`): a weekly routine on several weekdays: `Experio_routine`
+  takes `days` (`agent.json`) and the input « Jours » (`labels.json`; « Jour » left for stacks still on the code before).
+  Import it after the routines-sans-dossiers export, once the stack runs the commit with the weekdays.

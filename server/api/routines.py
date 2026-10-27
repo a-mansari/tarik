@@ -17,6 +17,7 @@ from engine.tools.dossiers.routines import (
     WEEKDAYS,
     ZONE,
     address_problem,
+    admins,
     next_run,
     routine_problem,
     routines_of_cabinet,
@@ -25,8 +26,8 @@ from engine.tools.dossiers.routines import (
 from server import audit
 from server.api.runs import chosen, page
 
-FIELDS = ("enabled", "kind", "every", "day", "hour", "notify", "prompt")
-SCHEDULE = ("every", "day", "hour")
+FIELDS = ("enabled", "kind", "every", "days", "hour", "notify", "prompt")
+SCHEDULE = ("every", "days", "hour")
 
 
 def shown():
@@ -40,7 +41,7 @@ def shown():
         found.append(
             {
                 **routine,
-                "schedule": when(routine["every"], routine["day"], routine["hour"]),
+                "schedule": when(routine["every"], routine["days"], routine["hour"]),
                 "next_run_at": routine["next_run_at"].astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
                 "last_due": due and due.astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
                 "last_report": report,
@@ -55,7 +56,7 @@ def cleaned(given):
         "enabled": given.get("enabled") is True,
         "kind": str(given.get("kind") or ""),
         "every": str(given.get("every") or ""),
-        "day": int(given.get("day") or 0),
+        "days": sorted({int(day) for day in given.get("days") or []}),
         "hour": int(given.get("hour") if given.get("hour") is not None else 8),
         "notify": str(given.get("notify") or "").strip(),
         "prompt": str(given.get("prompt") or "").strip(),
@@ -98,7 +99,8 @@ def changed(action, given, author):
 
 async def routines_page(request: Request):
     """GET or POST /ui/api/routines: return the routines of the cabinet chosen in the sidebar and the choices the page
-    offers, after making a change when posted.
+    offers (on GET, the cabinet's admins in Experio who may get the reports: ``managers``, None when Experio does
+    not answer), after making a change when posted.
 
     POST takes JSON {cabinet, action (create, save, delete), routine {id, FIELDS}}; it is refused (400, the error
     said) when the sidebar has chosen another cabinet since the page opened, or the routine does not pass the tool's
@@ -128,5 +130,10 @@ async def routines_page(request: Request):
                 context["error"] = "Experio n'a pas pu vérifier l'adresse du rapport : rien n'est enregistré"
             if not context["error"]:
                 await audit.record(author, "routine_saved", f"{cabinet} n° {routine_id}", change=action)
+    else:
+        try:
+            context["managers"] = await within(cabinet, admins)
+        except Exception:  # Experio unreachable: the address is typed, still checked on saving
+            context["managers"] = None
     context["routines"] = await within(cabinet, shown)
     return page(context, 400 if context["error"] else 200)
