@@ -5,8 +5,12 @@ tool, keeps the conversation and logs each call as it does with the API. The con
 each turn headed by its role, images and PDFs kept as content blocks."""
 
 import asyncio
+import contextvars
+import functools
 import json
+import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from langchain_anthropic.chat_models import _format_messages, convert_to_anthropic_tool
 from langchain_core.language_models import BaseChatModel
@@ -15,24 +19,33 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 
 from engine.tools.core import claude_code
 from engine.tools.core.cabinets import using
+from engine.tools.core.config import MODEL_TIMEOUT
+
+# The agent's model calls' own threads, one per run at most (engine/runs.py SLOTS): not asyncio's default pool, the
+# server's other short to_thread work never waits behind them. The CLI processes are capped in claude_code.PROCESSES.
+POOL = ThreadPoolExecutor(20, thread_name_prefix="model")
 
 PROTOCOL = """
 
 <tool_protocol>
-You cannot run tools yourself. To use some, answer with "tool_calls": each {"name", "args"}, the args in the shape
-your answer's schema gives that tool; their results come back in the next message. When you need no tool, answer
+You cannot run tools yourself, and none of the tools below can be called directly: your one callable tool is
+StructuredOutput. To use some, answer with "tool_calls": each {"name", "args"}, the args in the shape your answer's
+schema gives that tool; their results come back in the next message. When you need no tool, answer
 the client in "text" with "tool_calls" empty. The tools:
 {tools}
 </tool_protocol>"""
 
 
-def answer_schema(tools):
+def answer_schema(tools, loose=False):
     """Return the JSON schema of the CLI's answer: {"text", "tool_calls": [{"name", "args"}]}, each call one of
-    ``tools`` (Anthropic tool dicts) with its args matching that tool's input_schema; any call without tools."""
+    ``tools`` (Anthropic tool dicts) with its args matching that tool's input_schema; any call without tools.
+    ``loose`` (the fallback when the CLI keeps refusing args): only the tools' names and their args' names, any
+    values, for the tools' own checks to answer."""
+    shape = loosened if loose else dict
     calls = [
         {
             "type": "object",
-            "properties": {"name": {"const": found["name"]}, "args": found["input_schema"]},
+            "properties": {"name": {"const": found["name"]}, "args": shape(found["input_schema"])},
             "required": ["name", "args"],
         }
         for found in tools
@@ -47,6 +60,13 @@ def answer_schema(tools):
         "properties": {"text": {"type": "string"}, "tool_calls": {"type": "array", "items": item}},
         "required": ["text", "tool_calls"],
     }
+
+
+def loosened(schema):
+    """Return an input_schema keeping only its args' names: any value each, no other arg (a misnamed one would
+    be dropped silently by the tool, which then runs on its defaults)."""
+    names = dict.fromkeys(schema.get("properties", {}), {})
+    return {"type": "object", "properties": names, "additionalProperties": False}
 
 
 def written(block):
@@ -106,12 +126,17 @@ class ChatClaudeCode(BaseChatModel):
             for found in tools
         )
         names = [found["name"] for found in tools]
+        prompt, content = (system or "") + PROTOCOL.replace("{tools}", listed or "(none)"), flattened(conversation)
         with using(self.cabinet):
-            answer = claude_code.ask(
-                (system or "") + PROTOCOL.replace("{tools}", listed or "(none)"),
-                flattened(conversation),
-                answer_schema(tools),
-            )
+            started = time.monotonic()
+            try:
+                answer = claude_code.ask(prompt, content, answer_schema(tools))
+            except claude_code.ClaudeCodeUnreadable:
+                left = MODEL_TIMEOUT - (time.monotonic() - started)
+                if not tools or left < 60:  # nothing to loosen, or no time: one model call's time in all
+                    raise
+                # args the CLI kept refusing: asked again with any values, the tools' own checks then answer them
+                answer = claude_code.ask(prompt, content, answer_schema(tools, loose=True), timeout=left)
         calls = [
             {"name": call["name"], "args": call.get("args") or {}, "id": f"toolu_{uuid.uuid4().hex[:24]}"}
             for call in answer.get("tool_calls") or []
@@ -121,4 +146,5 @@ class ChatClaudeCode(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=message)])
 
     async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-        return await asyncio.to_thread(self._generate, messages, stop, None, **kwargs)
+        call = functools.partial(self._generate, messages, stop, None, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(POOL, contextvars.copy_context().run, call)
