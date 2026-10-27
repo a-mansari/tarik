@@ -7,6 +7,7 @@ import { callLink, graphName, plural, statusName, stepName, usePage } from "../a
 import CabinetLabel from "../components/CabinetLabel.vue";
 import CanvasGraph from "../components/CanvasGraph.vue";
 import Icon from "../components/Icon.vue";
+import ModelUsage from "../components/ModelUsage.vue";
 import PageState from "../components/PageState.vue";
 import RunSteps from "../components/RunSteps.vue";
 import RunTalk from "../components/RunTalk.vue";
@@ -41,7 +42,8 @@ onUnmounted(() => events.value?.close());
         <h1>{{ graphName(run.graph) }}</h1>
         <p class="muted">Cabinet <b><CabinetLabel :name="run.cabinet" /></b>
           · discussion <span class="mono">{{ run.session_id }}</span>
-          · début {{ run.when }}</p>
+          · début {{ run.when }}
+          · modèle <ModelUsage :usage="data.usage" full /></p>
         <div v-if="run.parent_id || run.children.length" class="run-links">
           <RouterLink v-if="run.parent_id" class="run-link" :to="`/ui/executions/${run.parent_id}`">
             <Icon name="up" />
@@ -105,7 +107,7 @@ onUnmounted(() => events.value?.close());
         <li v-for="(call, index) in data.prompts" :key="call.id">
           <RouterLink :to="callLink(run.session_id, call.id)">
             <span class="num">{{ call.when }} · Appel {{ index + 1 }}</span>
-            <span class="muted">{{ call.messages }} message(s)</span>
+            <span class="muted">{{ call.messages }} message(s) · <ModelUsage :usage="data.call_usage[call.id]" /></span>
           </RouterLink>
         </li>
       </ul>

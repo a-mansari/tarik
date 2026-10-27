@@ -227,6 +227,41 @@ async def home(request: Request):
     return RedirectResponse(HOME)
 
 
+def tokens(count):
+    """Return a token count as read at a glance: "850", "12,4 k", "1,25 M"."""
+    for size, unit in ((1_000_000, " M"), (1_000, " k")):
+        if count >= size * 0.9995:  # 999 600 reads "1 M", never "1e+03 k"
+            return f"{count / size:.3g}".replace(".", ",") + unit
+    return str(count)
+
+
+def dollars(cost):
+    """Return a cost in US dollars as "3,21 $", under a cent as "< 0,01 $"."""
+    return "< 0,01 $" if 0 < cost < 0.01 else f"{cost:.2f} $".replace(".", ",")
+
+
+def cost_shown(cost, priced):
+    """Return model calls' cost (None: no price known) as the team reads it; missing some model's price
+    (``priced`` False), it ends in "+ ?"."""
+    return "prix inconnu" if cost is None else dollars(cost) + ("" if priced else " + ?")
+
+
+def usage_shown(fresh, cached, output, cost, priced):
+    """Return model calls' tokens and cost as the team reads them: {tokens (all of them), detail (input, cached,
+    output), cost (cost_shown)}."""
+    return {
+        "tokens": tokens(fresh + cached + output),
+        "detail": f"{tokens(fresh + cached)} en entrée (dont {tokens(cached)} en cache), {tokens(output)} en sortie",
+        "cost": cost_shown(cost, priced),
+    }
+
+
+async def spending(cabinet, statement, keys):
+    """Return {key: usage_shown} of prompts.spent(): the model calls of each run, conversation or agent call."""
+    found = await prompts.spent(cabinet, statement, keys)
+    return {str(key): usage_shown(*row) for key, row in found.items()}
+
+
 def dated(found, key="started"):
     """Return ``found`` rows (runs, model calls), each with its ``key`` time as the team reads it (runs.when) under
     "when"."""
@@ -237,31 +272,40 @@ async def runs_page(request: Request):
     """GET /ui/api/executions: return the latest 100 runs of the cabinet chosen in the sidebar (one workflow's with
     ?graph=), newest first.
 
-    Each run is followed by the runs started in its steps."""
+    Each run is followed by the runs started in its steps; ``usage`` holds each run's model calls (usage_shown), its
+    nested runs' included."""
     query = request.query_params
     cabinet, graph = chosen(request), query.get("graph") or None
     found = await runs.recent(cabinet, graph, 100) if cabinet else []
-    return page({"runs": dated(found), "cabinet": cabinet, "graph": graph, "graphs": runs.NAMES})
+    spent = await spending(cabinet, Q.usage_of_runs, [run["run_id"] for run in found])
+    return page({"runs": dated(found), "usage": spent, "cabinet": cabinet, "graph": graph, "graphs": runs.NAMES})
 
 
 async def run_page(request: Request):
     """GET /ui/api/executions/{run_id}: return one run step by step: what it was asked, its summary for the client, its
-    conversation and its model calls; 404 when unknown."""
+    conversation and its model calls, with their tokens and cost: ``usage`` the run's (its nested runs' included),
+    ``call_usage`` each call's (usage_shown); 404 when unknown."""
     found = await runs.run(request.path_params["run_id"])
     if not found:
         return page({"error": "Exécution introuvable"}, 404)
     output = found["output"] or {}
     is_agent = found["graph"] == "agent"
     shown = conversation(output.get("messages")) if is_agent else []
-    calls = []  # the model calls of this run: its conversation's, while it ran
-    if is_agent and found["cabinet"] in CABINETS:
-        calls = await prompts.calls(found["cabinet"], found["session_id"], found["started"], found["ended"])
+    calls, usage, call_usage = [], None, {}  # the model calls of this run: its conversation's, while it ran
+    if found["cabinet"] in CABINETS:
+        cabinet = found["cabinet"]
+        usage = (await spending(cabinet, Q.usage_of_runs, [found["run_id"]])).get(found["run_id"])
+        if is_agent:
+            calls = await prompts.calls(cabinet, found["session_id"], found["started"], found["ended"])
+            call_usage = await spending(cabinet, Q.usage_of_calls, [call["id"] for call in calls])
     context = {
         "run": {**found, "when": runs.when(found["started"])},
         "asked": asked(found),
         "summary": None if is_agent else output.get("message"),
         **ran_here(shown),
         "prompts": dated(calls, "at"),
+        "usage": usage,
+        "call_usage": call_usage,
     }
     return page(context)
 
@@ -292,7 +336,7 @@ async def titles(cabinet, sessions):
 
 async def prompts_page(request: Request):
     """GET /ui/api/llm-calls: return the model calls Tarik made for the cabinet chosen in the sidebar, newest first,
-    with their conversations' titles.
+    with their conversations' titles and each call's tokens and cost (``usage``, usage_shown).
 
     ?before= (a call id) pages back; ``older`` is set when a full page of 100 came back."""
     cabinet, before = chosen(request), request.query_params.get("before", "")
@@ -302,13 +346,15 @@ async def prompts_page(request: Request):
         "calls": dated(found, "at"),
         "titles": await titles(cabinet, list({call["session_id"] for call in found})) if found else {},
         "older": found[-1]["id"] if len(found) == 100 else None,
+        "usage": await spending(cabinet, Q.usage_of_calls, [call["id"] for call in found]),
     }
     return page(context)
 
 
 async def prompt_calls_page(request: Request):
-    """GET /ui/api/llm-calls/{session_id}: return a conversation's model calls (cabinet chosen in the sidebar) and its
-    title; 404 when it has none."""
+    """GET /ui/api/llm-calls/{session_id}: return a conversation's model calls (cabinet chosen in the sidebar), its
+    title, and the tokens and cost (usage_shown) of each call (``usage``) and of the whole conversation (``total``,
+    its tools' model calls included); 404 when it has none."""
     cabinet, session = chosen(request), request.path_params["session_id"]
     if cabinet is None:
         return page({"error": "Discussion introuvable"}, 404)
@@ -316,7 +362,10 @@ async def prompt_calls_page(request: Request):
     if not found:
         return page({"error": "Discussion introuvable"}, 404)
     title = (await titles(cabinet, [session])).get(session)
-    return page({"cabinet": cabinet, "session_id": session, "title": title, "calls": dated(found, "at")})
+    usage = await spending(cabinet, Q.usage_of_calls, [call["id"] for call in found])
+    total = (await spending(cabinet, Q.usage_of_sessions, [session])).get(session)
+    context = {"cabinet": cabinet, "session_id": session, "title": title, "calls": dated(found, "at")}
+    return page({**context, "usage": usage, "total": total})
 
 
 async def workflows_page(request: Request):

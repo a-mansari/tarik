@@ -465,6 +465,7 @@ html { scroll-padding-top: 4rem; }
 .metric .value { font-size: 1.9rem; font-weight: 700; line-height: 1.1; }
 .metric .what { color: var(--muted); font-size: .85rem; }
 .metric.bad .value { color: var(--bad); }
+.metrics .usage { grid-column: 1 / -1; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: .85rem; }
 .chat-start .ask { margin: 0 0 .4rem; transition: opacity .3s ease; }
 .dashboard:not(.chatting) #talk { display: none; }
 .dashboard.chatting .metrics { max-height: 0; opacity: 0; margin-block: -.55rem; }

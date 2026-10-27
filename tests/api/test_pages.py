@@ -130,11 +130,17 @@ def test_the_runs_list_gives_each_run_its_time_as_read(monkeypatch):
 
     monkeypatch.setattr(api.runs, "CABINETS", {"cab_a"})
     monkeypatch.setattr(api.runs.runs, "recent", recent)
+
+    async def spending(cabinet, statement, keys):
+        return {"r1": {"tokens": "15", "detail": "", "cost": "< 0,01 $"}}
+
+    monkeypatch.setattr(api.runs, "spending", spending)
     status, shown = answered(api.runs.runs_page, cookie="cab_a")
     assert (
         status == 200
         and shown["cabinet"] == "cab_a"
         and shown["runs"][0]["when"] == api.runs.runs.when("2026-10-20T09:33:22+00:00")
+        and shown["usage"]["r1"]["tokens"] == "15"
     )
 
 

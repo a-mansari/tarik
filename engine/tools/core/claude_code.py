@@ -8,6 +8,7 @@ import os
 import subprocess
 import tempfile
 
+from engine.tools.core import usage
 from engine.tools.core.cabinets import setting
 from engine.tools.core.config import MODEL_TIMEOUT
 
@@ -47,6 +48,7 @@ def ask(system, content, schema=None):
     result = result_event(done.stdout)
     if result is None:
         raise ClaudeCodeError(f"claude CLI exited {done.returncode}: {done.stderr[-500:] or done.stdout[-500:]}")
+    usage.cli_usage(result)  # an answer refused is billed too
     if result.get("is_error"):
         raise ClaudeCodeError(f"claude CLI: {result.get('result') or result.get('subtype')}")
     if schema is not None:

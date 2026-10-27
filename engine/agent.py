@@ -6,6 +6,8 @@ provider's Anthropic-style address and Vault's MODEL_API_KEY) or Claude through 
 What every workflow tool gets besides the model's arguments (the conversation's id, its files, the client's latest
 message, the cabinet) comes from the thread and its messages, never from the model (fixed())."""
 
+import asyncio
+import contextlib
 import hashlib
 import html
 import json
@@ -17,12 +19,14 @@ from langchain.agents.middleware import wrap_model_call
 from langchain.tools import ToolRuntime, tool
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage
+from langgraph.config import get_config
 
 from engine import content, prompts
 from engine.calls import ToolFailure, call
 from engine.claude_code import ChatClaudeCode
 from engine.content import AGENT
 from engine.settings import cabinet_of, session_of
+from engine.tools.core import usage
 from engine.tools.core.cabinets import setting, using
 from engine.tools.core.model import MODEL_URL, adapter
 
@@ -503,6 +507,27 @@ async def skills_now(request, handler):
     return await handler(request.override(messages=current_skills(request.messages)))
 
 
+@wrap_model_call
+async def usage_counted(request, handler):
+    """Middleware: keep each MiniMax call's tokens and cost in the run's cabinet (usage.counted). ChatClaudeCode's
+    answers carry no usage_metadata: the CLI's calls are kept where they are made (claude_code.ask)."""
+    response = await handler(request)
+    for message in getattr(response, "result", []):
+        used = getattr(message, "usage_metadata", None)
+        if used:
+            cached = (used.get("input_token_details") or {}).get("cache_read") or 0
+            fresh, output = used["input_tokens"] - cached, used["output_tokens"]
+            # the model asked (agent.json), as PRICES names it; not the tools' threads, a long tool never delays it
+            await asyncio.to_thread(counted_in, cabinet_of(get_config()), AGENT["model"], fresh, cached, output)
+    return response
+
+
+def counted_in(cabinet, *call):
+    """usage.counted(*call) in ``cabinet``; nothing kept, never an error, when it is no longer served."""
+    with contextlib.suppress(PermissionError), using(cabinet):
+        usage.counted(*call)
+
+
 def system_prompt():
     """Return the agent's system prompt: the untrusted-data rule, agent.json's instructions, then the skills list."""
     listed = "\n".join(f"- « {name} » : {description}" for name, description, _ in skills())
@@ -546,5 +571,6 @@ def make_agent(config=None, chat=None):
         system_prompt=system_prompt(),
         name=f"Tarik - {cabinet_of(config)}",
         checkpointer=CHECKPOINTER,
-        middleware=[skills_now, prompts.logged],  # each model call's prompt saved (Prompts page), as the model saw it
+        # each model call's prompt saved (Prompts page), as the model saw it, and its tokens and cost (dashboard)
+        middleware=[skills_now, prompts.logged, usage_counted],
     )

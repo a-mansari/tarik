@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+from decimal import Decimal
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -136,9 +137,11 @@ def test_a_conversation_reads_as_where_it_stands():
     ],
 )
 def test_the_dashboard_shows_its_numbers_as_the_team_reads_them(metrics, shown, monkeypatch):
+    metrics = {**metrics, "usage": []}  # no model call yet
     readable = api.chat.readable(metrics)
     assert [readable[key] for key in ("runs", "seconds", "failed", "conversations")] == shown
     assert readable["bad"] == bool(metrics["failed"])
+    assert readable["cost"] == "—" and readable["models"] == []
 
     async def numbers(cabinet):
         return metrics
@@ -148,6 +151,21 @@ def test_the_dashboard_shows_its_numbers_as_the_team_reads_them(metrics, shown, 
     page = json.loads(asyncio.run(api.chat.dashboard_page(Request(scope))).body)
     assert page["cabinet"] == "cabinet_a" and page["metrics"] == readable
     assert api.chat.SESSION.fullmatch(page["new"]) and page["checks"]["max_files"] == api.chat.MAX_FILES
+
+
+def test_the_dashboard_shows_each_model_s_tokens_and_cost():
+    usage = [
+        ("claude-x", 850_000, 350_000, 12_400, Decimal("3.2104"), True),
+        ("MiniMax-M3", 850, 0, 40, Decimal("0.0003"), True),
+        ("other-model", 10, 0, 5, None, False),
+    ]
+    readable = api.chat.readable({"runs": 1, "seconds": 1.0, "failed": 0.0, "conversations": 1, "usage": usage})
+    assert readable["cost"] == "3,21 $ + ?"  # other-model has no price
+    assert [{key: row[key] for key in ("model", "detail", "cost")} for row in readable["models"]] == [
+        {"model": "claude-x", "detail": "1,2 M en entrée (dont 350 k en cache), 12,4 k en sortie", "cost": "3,21 $"},
+        {"model": "MiniMax-M3", "detail": "850 en entrée (dont 0 en cache), 40 en sortie", "cost": "< 0,01 $"},
+        {"model": "other-model", "detail": "10 en entrée (dont 0 en cache), 5 en sortie", "cost": "prix inconnu"},
+    ]
 
 
 def test_the_dashboard_s_numbers_are_read_once_per_change_for_every_viewer(monkeypatch):
@@ -165,11 +183,15 @@ def test_the_dashboard_s_numbers_are_read_once_per_change_for_every_viewer(monke
                     return False
 
                 async def execute(self, statement, values):
-                    asked.append(values)
+                    if len(values) == 2:  # the numbers (cabinet, days), not the model calls (days)
+                        asked.append(values)
 
                     class Rows:
                         async def fetchone(self):
                             return (len(asked), 1.0, 0.0, 1)
+
+                        async def fetchall(self):
+                            return []
 
                     return Rows()
 
@@ -208,7 +230,11 @@ def test_a_conversation_s_words_reach_the_page_only_as_the_server_s_markdown(mon
         said = {"who": "Client", "text": "**urgent** <script>alert(1)</script>", "files": [], "skipped": []}
         return {"messages": [said, {"who": "Tarik", "tools": [], "text": ""}], "latest": None, "going": False}
 
+    async def spending(cabinet, statement, keys):
+        return {}  # no model call yet
+
     monkeypatch.setattr(api.chat, "talk", talk)
+    monkeypatch.setattr(api.chat, "spending", spending)
     scope = {
         "type": "http",
         "headers": [(b"cookie", b"tarik_cabinet=cabinet_a")],
@@ -217,6 +243,6 @@ def test_a_conversation_s_words_reach_the_page_only_as_the_server_s_markdown(mon
     page = json.loads(asyncio.run(api.chat.conversation_page(Request(scope))).body)
     client, tarik = page["messages"]
     assert "<strong>urgent</strong>" in client["text_html"] and "<script>" not in client["text_html"]
-    assert tarik["text_html"] == "" and page["written"] is True
+    assert tarik["text_html"] == "" and page["written"] is True and page["usage"] is None
     scope["path_params"] = {"session_id": "../etc"}
     assert asyncio.run(api.chat.conversation_page(Request(scope))).status_code == 404

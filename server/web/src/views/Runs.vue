@@ -1,10 +1,11 @@
-<!-- The runs of the cabinet picked in the sidebar, latest first, each with the runs it started under it; read again at
+<!-- The runs of the cabinet picked in the sidebar, latest first, each with the runs it started under it and its model calls' tokens and cost (theirs included); read again at
 each change of the cabinet's runs. A type picked shows one workflow's. -->
 <script setup>
 import { useRoute, useRouter } from "vue-router";
 
 import { graphName, pickedCabinet, statusName, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
+import ModelUsage from "../components/ModelUsage.vue";
 import PageState from "../components/PageState.vue";
 import { useLive } from "../live.js";
 
@@ -37,7 +38,7 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
     </div>
     <div class="table-wrap">
       <table class="runs">
-        <thead><tr><th>Début</th><th>Type</th><th>Discussion</th><th>État</th><th>Durée</th></tr></thead>
+        <thead><tr><th>Début</th><th>Type</th><th>Discussion</th><th>État</th><th>Durée</th><th>Modèle</th></tr></thead>
         <tbody>
           <tr v-for="run in data.runs" :key="run.run_id" :class="{ child: run.depth }">
             <td class="num">{{ run.when }}</td>
@@ -50,8 +51,9 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
             <td><RouterLink class="mono" :to="`/ui/discussion/${encodeURIComponent(run.session_id)}`">{{ run.session_id }}</RouterLink></td>
             <td><span :class="`chip ${run.status}`">{{ statusName(run.status) }}</span></td>
             <td class="num">{{ run.seconds }} s<template v-if="!run.ended"> …</template></td>
+            <td><ModelUsage :usage="data.usage[run.run_id]" /></td>
           </tr>
-          <tr v-if="!data.runs.length"><td colspan="5" class="empty">Aucune exécution pour l'instant. Elles apparaissent ici dès que Tarik travaille.</td></tr>
+          <tr v-if="!data.runs.length"><td colspan="6" class="empty">Aucune exécution pour l'instant. Elles apparaissent ici dès que Tarik travaille.</td></tr>
         </tbody>
       </table>
     </div>

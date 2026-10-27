@@ -6,7 +6,7 @@ import httpx
 import pytest
 from PIL import Image
 
-from engine.tools.core import model
+from engine.tools.core import model, usage
 from engine.tools.core.app import ToolError
 from engine.tools.core.config import MAX_SIDE
 
@@ -35,3 +35,10 @@ def test_a_failed_reading_says_it_is_tarik_s_reader_not_experio(monkeypatch, sta
     with pytest.raises(ToolError) as raised:
         model.ask_model("s", [], "i", "Identification du document")
     assert says in str(raised.value) and "pas Experio" in str(raised.value)
+
+
+@pytest.mark.functionality
+def test_a_minimax_call_is_priced_at_its_published_rates():
+    assert usage.priced("MiniMax-M3", 100_000, 100_000, 100_000) == pytest.approx(0.030 + 0.006 + 0.120)
+    assert usage.priced("MiniMax-M3", 600_000, 0, 0) == pytest.approx(2 * 0.18)  # a long prompt: every rate doubled
+    assert usage.priced("unknown", 10, 0, 10) is None

@@ -15,7 +15,7 @@ from psycopg import sql
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from engine import agent, live, runs
+from engine import agent, live, prompts, runs
 from engine.calls import call
 from engine.chat import REMINDER
 from engine.tools.core import archives
@@ -24,7 +24,7 @@ from engine.tools.core.cabinets import CABINETS
 from engine.tools.core.config import FILE_TYPES, MAX_PAGES
 from engine.tools.core.conversation import SKIPPED_NOTE, files_of, own_words
 from engine.tools.core.queries import Q
-from server.api.runs import chosen, markdown, openings, page
+from server.api.runs import chosen, cost_shown, markdown, openings, page, spending, usage_shown
 
 SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations: the only ones written to from here
 SHOWN = re.compile(r"[\w.@-]{1,120}")  # any conversation's id, to read it (an email thread's, a workflow's)
@@ -219,14 +219,18 @@ async def talk(cabinet, session):
 
 
 async def chat_page(request: Request):
-    """GET /ui/api/discussion: return the conversations of the cabinet chosen in the sidebar, and a new conversation id
-    to start one."""
+    """GET /ui/api/discussion: return the conversations of the cabinet chosen in the sidebar, each with its model
+    calls' tokens and cost (``usage``, usage_shown, None before any), and a new conversation id to start one."""
     cabinet = chosen(request)
     found = await conversations(cabinet) if cabinet else []
+    spent = await spending(cabinet, Q.usage_of_sessions, [item["session_id"] for item in found])
     return page(
         {
             "cabinet": cabinet,
-            "conversations": [{**item, "started": runs.when(item["started"])} for item in found],
+            "conversations": [
+                {**item, "started": runs.when(item["started"]), "usage": spent.get(item["session_id"])}
+                for item in found
+            ],
             "new": f"chat-{uuid.uuid4().hex}",
         }
     )
@@ -239,7 +243,8 @@ def rendered(shown):
 
 async def conversation_page(request: Request):
     """GET /ui/api/discussion/{session_id}: return one conversation of the cabinet chosen in the sidebar: its messages,
-    the message on its way, and the form's limits.
+    the message on its way, its model calls' tokens and cost (``usage``, usage_shown, None before any), and the
+    form's limits.
 
     The page reads it again at each change of the conversation while Tarik works, so its tools show as they run. 404
     for an unknown conversation."""
@@ -254,6 +259,7 @@ async def conversation_page(request: Request):
             "written": bool(SESSION.fullmatch(session)),
             **talked,
             "messages": rendered(talked["messages"]),
+            "usage": (await spending(cabinet, Q.usage_of_sessions, [session])).get(session),
             **FORM,
         }
     )
@@ -358,7 +364,8 @@ NUMBERS = {}  # cabinet: (its changes' count when read, when, its numbers)
 
 
 async def metrics_of(cabinet):
-    """Return the cabinet's last DAYS days in four numbers: {runs, seconds, failed, conversations}.
+    """Return the cabinet's last DAYS days in four numbers, {runs, seconds, failed, conversations}, and its model
+    calls per model, ``usage``: [(model, input, cached, output, cost, priced)] (dashboard_usage).
 
     Read once per change of the cabinet (engine/live.py), or after KEPT_SECONDS, and shared by every dashboard open
     on it."""
@@ -369,13 +376,15 @@ async def metrics_of(cabinet):
             return kept
     async with runs.pool.connection() as db:
         count, seconds, failed, talks = await (await db.execute(Q.dashboard_metrics, (cabinet, DAYS))).fetchone()
-    metrics = {"runs": count, "seconds": seconds, "failed": failed, "conversations": talks}
+        usage = await (await db.execute(prompts.of(Q.dashboard_usage, cabinet), (DAYS,))).fetchall()
+    metrics = {"runs": count, "seconds": seconds, "failed": failed, "conversations": talks, "usage": usage}
     NUMBERS[cabinet] = (version, time.monotonic(), metrics)
     return metrics
 
 
 def readable(metrics):
-    """Return the four numbers as the team reads them: mean duration in s or min s, failed share in %, "—" when none.
+    """Return the four numbers as the team reads them: mean duration in s or min s, failed share in %, "—" when none;
+    and the model calls' cost (the priced ones') with each model's tokens and cost.
 
     ``bad`` is True when some runs failed."""
     seconds, failed = metrics["seconds"], metrics["failed"]
@@ -386,7 +395,11 @@ def readable(metrics):
     else:
         duration = f"{int(seconds // 60)} min {round(seconds % 60)} s"
     share = "—" if failed is None else f"{round(failed * 100, 1):g} %".replace(".", ",")
+    usage = metrics["usage"]
+    known = [row[4] for row in usage if row[4] is not None]
     return {
+        "cost": cost_shown(sum(known) if known else None, all(row[5] for row in usage)) if usage else "—",
+        "models": [{"model": model, **usage_shown(*row)} for model, *row in usage],
         "runs": str(metrics["runs"]),
         "seconds": duration,
         "failed": share,
@@ -397,7 +410,7 @@ def readable(metrics):
 
 async def dashboard_page(request: Request):
     """GET /ui/api/accueil: return the dashboard of the cabinet chosen in the sidebar: its last DAYS days in four
-    numbers, a new conversation id (``new``) and the form's limits.
+    numbers and its model calls' cost, a new conversation id (``new``) and the form's limits.
 
     The page reads it again at each change of the cabinet."""
     cabinet = chosen(request)

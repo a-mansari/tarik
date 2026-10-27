@@ -4,6 +4,7 @@ Each call runs in a worker thread (the tools are plain blocking Python) inside u
 touches that cabinet's schema and settings. Also holds the nodes every workflow begins and ends with."""
 
 import asyncio
+import contextvars
 import inspect
 import os
 import uuid
@@ -71,13 +72,14 @@ async def call(cabinet, tool, /, **arguments):
 async def within(cabinet, function, /, *args):
     """Run ``function(*args)`` (a plain Tarik function, not a tool) the way a tool runs and return its result.
 
-    It runs in the worker pool inside using(``cabinet``). No slot is taken and exceptions pass through as raised."""
+    It runs in the worker pool inside using(``cabinet``), in a copy of the caller's context (its run, for the model
+    calls it makes: usage.RUNNING). No slot is taken and exceptions pass through as raised."""
 
     def run():
         with using(cabinet):
             return function(*args)
 
-    return await asyncio.get_running_loop().run_in_executor(POOL, run)
+    return await asyncio.get_running_loop().run_in_executor(POOL, contextvars.copy_context().run, run)
 
 
 async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a tool may take a run_id of its own

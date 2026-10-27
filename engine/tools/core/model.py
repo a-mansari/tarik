@@ -11,7 +11,7 @@ import psycopg
 import pypdfium2
 from PIL import Image, ImageOps
 
-from engine.tools.core import claude_code
+from engine.tools.core import claude_code, usage
 from engine.tools.core.app import ToolError, log
 from engine.tools.core.cabinets import current, setting
 from engine.tools.core.config import MAX_PAGES, MAX_SIDE, MODEL_TIMEOUT, POSTGRES, SCALE
@@ -126,6 +126,7 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
             json=body,
         )
         answer.raise_for_status()
+        usage.anthropic_usage(body["model"], answer.json().get("usage") or {})
         text = "".join(block.get("text", "") for block in answer.json()["content"])
         return json_answer(text, keys)
     except httpx.HTTPStatusError as error:
