@@ -246,7 +246,6 @@ create table if not exists tarik_no_certificate (
 create table if not exists tarik_routines (
     id serial primary key,
     kind text not null check (kind in ('tva', 'ras', 'progress')), -- prepare the TVA or RAS, or report progress
-    dossier_ids integer[] not null,
     every text not null check (every in ('day', 'week', 'month')),
     day integer not null default 0, -- 0-6 for a weekday (Monday 0), 1-28 for a day of the month; unused daily
     hour integer not null check (hour between 0 and 23), -- Africa/Casablanca time
@@ -259,6 +258,8 @@ create table if not exists tarik_routines (
 -- An instruction routine: its own words, handed to Tarik's agent at each run. Its kind added to the allowed ones
 -- (dropped and added again at each start, so it applies to schemas made before).
 alter table tarik_routines add column if not exists prompt text not null default '';
+-- A routine works on every dossier Tarik's Experio account sees: no list of its own any more.
+alter table tarik_routines drop column if exists dossier_ids;
 alter table tarik_routines drop constraint if exists tarik_routines_kind_check;
 alter table tarik_routines add constraint tarik_routines_kind_check
     check (kind in ('tva', 'ras', 'progress', 'instruction'));

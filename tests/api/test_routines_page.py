@@ -4,31 +4,27 @@ tool checks it, and journaled."""
 import pytest
 
 from engine.tools.core.cabinets import cabinet_db
+from engine.tools.dossiers import routines
 from server import api
 from tests.api.test_settings import asked
 
-ROUTINE = {"enabled": True, "kind": "instruction", "dossier_ids": [5], "every": "week", "day": 0, "hour": 9}
+ROUTINE = {"enabled": True, "kind": "instruction", "every": "week", "day": 0, "hour": 9}
 ROUTINE |= {"notify": "chef@cabinet.ma", "prompt": "Liste les factures en brouillon."}
 
 
 @pytest.fixture
 def page(db_cabinet, monkeypatch):
-    """The page's handler on the test cabinet (dossiers 5 ALPHA and 6 BETA, addresses @cabinet.ma allowed, Chef a
-    live collaborator who has dossier 5 only); the journal's entries."""
+    """The page's handler on the test cabinet (addresses @cabinet.ma allowed, Chef a live collaborator); the
+    journal's entries."""
     journal = []
 
     async def record(actor, action, target="", **detail):
         journal.append((actor, action, target, detail))
 
     monkeypatch.setattr(api.routines, "chosen", lambda request: db_cabinet)
-    monkeypatch.setattr(api.routines, "dossiers", lambda: [{"id": 5, "name": "ALPHA"}, {"id": 6, "name": "BETA"}])
-    monkeypatch.setattr(api.routines, "recipient_allowed", lambda address: address.endswith("@cabinet.ma"))
+    monkeypatch.setattr(routines, "recipient_allowed", lambda address: address.endswith("@cabinet.ma"))
+    monkeypatch.setattr(routines, "live", lambda address: address == "chef@cabinet.ma")
     monkeypatch.setattr(api.routines.audit, "record", record)
-    monkeypatch.setattr(
-        api.routines,
-        "allowed_dossiers",
-        lambda notify, ids: [d for d in ids if d == 5] if notify == "chef@cabinet.ma" else None,
-    )
     return db_cabinet, journal
 
 
@@ -57,11 +53,9 @@ def test_a_routine_made_changed_and_deleted_from_the_page(page):
     ("change", "said"),
     [
         ({"notify": "moi@gmail.com"}, "pas dans les adresses autorisées"),
-        ({"dossier_ids": [5, 6]}, "n'a pas, dans Experio, tous les dossiers choisis"),
         ({"notify": "client@cabinet.ma"}, "n'est pas un collaborateur actif d'Experio"),
-        ({"dossier_ids": []}, "pour quels dossiers"),
         ({"prompt": ""}, "quelle consigne"),
-        ({"kind": "tva", "dossier_ids": [5], "hour": 0}, "de 1 à 23"),
+        ({"kind": "tva", "hour": 0}, "de 1 à 23"),
         ({"hour": "huit"}, "illisible"),
     ],
 )
@@ -81,25 +75,26 @@ def test_a_page_opened_on_another_cabinet_changes_nothing(page):
 
 
 @pytest.mark.functionality
-def test_a_change_keeps_its_next_run_and_its_closed_dossiers_unless_its_schedule_moves(page):
+def test_a_change_keeps_its_next_run_unless_its_schedule_moves(page):
     cabinet, _ = page
     _, data, _ = post(cabinet, "create", ROUTINE)
     (made,) = data["routines"]
-    with cabinet_db() as db:  # BETA (6) on it since, then taken from Chef: it may stay, its runs leave it out
-        db.execute("update tarik_routines set dossier_ids = '{5,6}', next_run_at = now() - interval '1 minute'")
+    with cabinet_db() as db:
+        db.execute("update tarik_routines set next_run_at = now() - interval '1 minute'")
         (due,) = db.execute("select next_run_at from tarik_routines").fetchone()
-    status, data, _ = post(cabinet, "save", {**ROUTINE, "id": made["id"], "dossier_ids": [5, 6], "prompt": "Autre."})
+    status, data, _ = post(cabinet, "save", {**ROUTINE, "id": made["id"], "prompt": "Autre."})
     with cabinet_db() as db:
         assert db.execute("select next_run_at from tarik_routines").fetchone() == (due,)  # still due: not skipped
     assert status == 200 and data["error"] is None
-    post(cabinet, "save", {**ROUTINE, "id": made["id"], "dossier_ids": [5, 6], "hour": 10})
+    post(cabinet, "save", {**ROUTINE, "id": made["id"], "hour": 10})
     with cabinet_db() as db:
         assert db.execute("select next_run_at from tarik_routines").fetchone()[0] > due  # a new hour: rescheduled
 
 
 @pytest.mark.functionality
-def test_a_change_never_waits_on_experios_whole_dossier_list(page, monkeypatch):
+def test_the_page_never_waits_on_experio_to_show_the_routines(page, monkeypatch):
     cabinet, _ = page
-    monkeypatch.setattr(api.routines, "dossiers", lambda: pytest.fail("the whole list is read for the page only"))
-    status, data, _ = post(cabinet, "create", ROUTINE)
-    assert status == 200 and "dossiers" not in data
+    nothing = lambda *a, **k: pytest.fail("no Experio call to show the page")  # noqa: E731
+    monkeypatch.setattr(routines, "odoo_call", nothing, raising=False)
+    status, data, _ = asked(api.routines.routines_page)
+    assert status == 200 and data["routines"] == [] and "dossiers" not in data

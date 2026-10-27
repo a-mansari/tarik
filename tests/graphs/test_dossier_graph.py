@@ -162,10 +162,10 @@ def test_a_person_or_an_access_is_changed_after_the_manager_check(steps, mode, t
 
 @pytest.mark.functionality
 def test_a_routine_is_managed_after_the_manager_check(steps):
-    steps.run(graph, mode="routine", action="create", routine_kind="tva", dossier_ids=[5, 6], every="month", day=5)
+    steps.run(graph, mode="routine", action="create", routine_kind="tva", every="month", day=5)
     assert steps.names == ["save_files", "check_manager", "manage_routine", "run_summary"]
     (given,) = steps.args("manage_routine")
-    assert given["kind"] == "tva" and given["dossier_ids"] == [5, 6] and given["every"] == "month"
+    assert given["kind"] == "tva" and given["every"] == "month"
     assert given["day"] == 5 and given["hour"] == 8  # no hour given: 8 h
 
 
