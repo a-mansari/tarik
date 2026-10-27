@@ -240,3 +240,27 @@ create table if not exists tarik_no_certificate (
     partner_id integer primary key,
     said_at timestamptz not null default now()
 );
+
+-- The cabinet's routines: a task Tarik runs again and again on a schedule (engine/routines.py), made by a manager
+-- (engine/tools/dossiers/routines.py). Kept in the cabinet's own schema: a routine never runs for another cabinet.
+create table if not exists tarik_routines (
+    id serial primary key,
+    kind text not null check (kind in ('tva', 'ras', 'progress')), -- prepare the TVA or RAS, or report progress
+    dossier_ids integer[] not null,
+    every text not null check (every in ('day', 'week', 'month')),
+    day integer not null default 0, -- 0-6 for a weekday (Monday 0), 1-28 for a day of the month; unused daily
+    hour integer not null check (hour between 0 and 23), -- Africa/Casablanca time
+    notify text not null, -- who gets each run's report (an address the cabinet whitelists)
+    created_by text not null,
+    enabled boolean not null default true,
+    next_run_at timestamptz not null,
+    created_at timestamptz not null default now()
+);
+-- Each period a routine ran for: the same period never runs twice, after a restart included.
+create table if not exists tarik_routine_runs (
+    routine_id integer not null references tarik_routines (id) on delete cascade,
+    due_at timestamptz not null,
+    report text, -- what was sent, once the run ended
+    ran_at timestamptz not null default now(),
+    primary key (routine_id, due_at)
+);
