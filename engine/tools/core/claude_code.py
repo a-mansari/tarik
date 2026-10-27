@@ -3,6 +3,7 @@ its own tools and settings off, logged in with CLAUDE_CODE_OAUTH_TOKEN (`claude 
 secret/tarik/orchestrator) or ANTHROPIC_API_KEY. The prompt goes in as Anthropic content blocks (stream-json), so
 images and PDFs reach the model as they would through the API."""
 
+import errno
 import json
 import os
 import pathlib
@@ -29,7 +30,7 @@ class ClaudeCodeError(RuntimeError):
 
 
 class ClaudeCodeUnreadable(ClaudeCodeError):
-    """The CLI answered, but not in the shape asked: no structured answer, or its retries at one spent."""
+    """No answer in the shape asked: none structured, the CLI's retries at one spent, or the schema too long."""
 
 
 def ask(system, content, schema, timeout=MODEL_TIMEOUT):
@@ -64,7 +65,9 @@ def ask(system, content, schema, timeout=MODEL_TIMEOUT):
                 raise ClaudeCodeError("the claude CLI is not installed in this image") from None
             except subprocess.TimeoutExpired:
                 raise ClaudeCodeError(f"no answer from the claude CLI in {timeout:.0f} s") from None
-            except OSError as error:  # the prompt not written, the schema too long for one argument, among others
+            except OSError as error:  # the prompt not written, among others
+                if error.errno == errno.E2BIG:  # the schema past one argument's 128 KiB (the CLI takes no file)
+                    raise ClaudeCodeUnreadable("the answer's schema is too long for the claude CLI") from None
                 raise ClaudeCodeError(f"the claude CLI could not start: {error}") from None
     finally:
         PROCESSES.release()

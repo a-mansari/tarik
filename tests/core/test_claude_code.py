@@ -1,6 +1,7 @@
 """The Claude Code CLI as the model (MODEL_ADAPTER claude-code): what it is sent, and its answers read back, a fake
 `claude` on the PATH standing in for it."""
 
+import errno
 import json
 import os
 import stat
@@ -78,6 +79,17 @@ def test_a_call_waits_for_a_free_cli_process_and_gives_up_at_its_timeout(tmp_pat
     with cabinets.using("cabinet_a"), pytest.raises(claude_code.ClaudeCodeError, match="free"):
         claude_code.ask("sys", [], {"type": "object"}, timeout=0.05)
     assert not (tmp_path / "args").exists()  # no CLI started
+
+
+@pytest.mark.technical
+def test_a_schema_too_long_for_one_argument_is_an_answer_out_of_shape_for_the_loose_retry(monkeypatch):
+    def run(*args, **kwargs):
+        raise OSError(errno.E2BIG, "Argument list too long")
+
+    monkeypatch.setattr(claude_code.subprocess, "run", run)
+    monkeypatch.setattr(cabinets, "CABINETS", frozenset({"cabinet_a"}))
+    with cabinets.using("cabinet_a"), pytest.raises(claude_code.ClaudeCodeUnreadable, match="too long"):
+        claude_code.ask("sys", [], {"type": "object"})
 
 
 @pytest.mark.technical

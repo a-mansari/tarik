@@ -146,12 +146,11 @@ def ask_claude_code(system, pages, instruction, what, keys):
     blocks = [*images_of(pages), {"type": "text", "text": instruction}]
     try:
         return claude_code.ask(system, blocks, {"type": "object", "required": list(keys)})
-    except claude_code.ClaudeCodeUnreadable as error:
-        log(f"{what}: {error}")
-        raise ToolError(f"{what} : {READER} a donne une reponse illisible ; reessayez dans quelques minutes.") from None
     except claude_code.ClaudeCodeError as error:
         log(f"{what}: {error}")
-        raise ToolError(f"{what} : {READER} est indisponible ; reessayez dans quelques minutes.") from None
+        unreadable = isinstance(error, claude_code.ClaudeCodeUnreadable)
+        why = "a donne une reponse illisible" if unreadable else "est indisponible"
+        raise ToolError(f"{what} : {READER} {why} ; reessayez dans quelques minutes.") from None
 
 
 def images_of(pages):
