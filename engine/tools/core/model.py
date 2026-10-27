@@ -141,17 +141,14 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
 
 
 def ask_claude_code(system, pages, instruction, what, keys):
-    """Return ask_model's answer through the Claude Code CLI (it does not think on demand: no ``think``).
-    Raises ToolError when the CLI fails or its answer is unreadable."""
+    """Return ask_model's answer through the Claude Code CLI (it does not think on demand: no ``think``), a JSON
+    object holding ``keys`` by the CLI's own schema check. Raises ToolError when the CLI fails or gives no answer."""
     blocks = [*images_of(pages), {"type": "text", "text": instruction}]
     try:
-        return json_answer(claude_code.ask(system, blocks), keys)
+        return claude_code.ask(system, blocks, {"type": "object", "required": list(keys)})
     except claude_code.ClaudeCodeError as error:
         log(f"{what}: {error}")
         raise ToolError(f"{what} : {READER} est indisponible ; reessayez dans quelques minutes.") from None
-    except ValueError as error:
-        log(f"{what}: {error!r}")
-        raise ToolError(f"{what} : {READER} a donne une reponse illisible ; reessayez dans quelques minutes.") from None
 
 
 def images_of(pages):

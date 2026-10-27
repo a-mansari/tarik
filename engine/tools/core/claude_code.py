@@ -13,6 +13,7 @@ from engine.tools.core.cabinets import setting
 from engine.tools.core.config import MODEL_TIMEOUT
 
 MODEL = "sonnet"  # shortcut: one model for the CLI, make it a setting when a cabinet needs another
+EFFORT = "medium"  # set, not left to the CLI's default, which can change between versions
 
 
 class ClaudeCodeError(RuntimeError):
@@ -30,7 +31,7 @@ def ask(system, content, schema=None):
     command = [
         "claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
         "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence",
-        "--model", MODEL, "--system-prompt", system,
+        "--model", MODEL, "--effort", EFFORT, "--system-prompt", system,
     ]  # fmt: skip
     if schema is not None:
         command += ["--json-schema", json.dumps(schema)]
