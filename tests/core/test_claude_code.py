@@ -15,11 +15,12 @@ from engine.tools.core.app import ToolError
 
 
 def fake_cli(tmp_path, monkeypatch, result):
-    """A `claude` that saves its arguments and stdin, then answers with the ``result`` event."""
+    """A `claude` that saves its arguments, system prompt and stdin, then answers with the ``result`` event."""
     script = tmp_path / "claude"
     script.write_text(
         "#!/bin/sh\n"
         f'printf "%s\\n" "$@" > {tmp_path}/args\ncat > {tmp_path}/stdin\n'
+        f"cp \"$(sed -n '/^--system-prompt-file$/{{n;p}}' {tmp_path}/args)\" {tmp_path}/system\n"
         f"echo '{{\"type\": \"system\"}}'\necho '{json.dumps({'type': 'result', **result})}'\n"
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
@@ -61,6 +62,35 @@ def test_a_cli_out_of_quota_says_tarik_s_reader_is_unavailable(tmp_path, monkeyp
         model.ask_model("sys", [], "Quoi ?", "Identification")
 
 
+@pytest.mark.communication
+def test_a_cli_answer_out_of_shape_says_tarik_s_reader_could_not_read_it(tmp_path, monkeypatch):
+    fake_cli(tmp_path, monkeypatch, {"is_error": True, "subtype": "error_max_structured_output_retries"})
+    with cabinets.using("cabinet_a"), pytest.raises(ToolError, match="illisible"):
+        model.ask_model("sys", [], "Quoi ?", "Identification", keys=("kind",))
+
+
+@pytest.mark.technical
+def test_tool_args_the_cli_keeps_refusing_are_asked_again_with_any_args_for_the_tool_to_check(monkeypatch):
+    @tool
+    def find_dossier(name: str) -> str:
+        """Find a dossier."""
+        return name
+
+    schemas = []
+
+    def ask(system, content, schema):
+        schemas.append(schema["properties"]["tool_calls"]["items"])
+        if len(schemas) == 1:
+            raise claude_code.ClaudeCodeUnreadable("retries spent")
+        return {"text": "", "tool_calls": [{"name": "find_dossier", "args": {"nom": "x"}}]}
+
+    monkeypatch.setattr(claude_code, "ask", ask)
+    monkeypatch.setattr(cabinets, "CABINETS", frozenset({"cabinet_a"}))
+    reply = ChatClaudeCode(cabinet="cabinet_a").bind_tools([find_dossier]).invoke([HumanMessage("Bonjour")])
+    assert "anyOf" in schemas[0] and schemas[1]["properties"]["args"] == {"type": "object"}
+    assert [(call["name"], call["args"]) for call in reply.tool_calls] == [("find_dossier", {"nom": "x"})]
+
+
 @pytest.mark.technical
 def test_the_agent_gets_the_cli_s_tool_calls_and_the_cli_the_whole_conversation(tmp_path, monkeypatch):
     @tool
@@ -84,7 +114,7 @@ def test_the_agent_gets_the_cli_s_tool_calls_and_the_cli_the_whole_conversation(
     words = " ".join(block.get("text", "") for block in sent)
     assert "Bonjour" in words and "[tool call t1]" in words and "aucun" in words
     arguments = (tmp_path / "args").read_text()
-    assert "Tu es Tarik." in arguments and "find_dossier" in arguments
+    assert "Tu es Tarik." in (tmp_path / "system").read_text() and "find_dossier" in arguments
     lines = arguments.splitlines()
     (call,) = json.loads(lines[lines.index("--json-schema") + 1])["properties"]["tool_calls"]["items"]["anyOf"]
     assert call["properties"]["name"] == {"const": "find_dossier"}  # its args checked by the CLI as the tool's

@@ -20,23 +20,29 @@ class ClaudeCodeError(RuntimeError):
     """The CLI failed: not installed, not logged in, out of quota, or no answer."""
 
 
-def ask(system, content, schema=None):
+class ClaudeCodeUnreadable(ClaudeCodeError):
+    """The CLI answered, but not in the shape asked: no structured answer, or its retries at one spent."""
+
+
+def ask(system, content, schema):
     """Return the CLI's answer to one user message ``content`` (Anthropic content blocks) under system prompt
-    ``system``: its text ("" when empty), or, when JSON ``schema`` is given, the dict matching it.
-    Raises ClaudeCodeError when the CLI is missing, times out, fails, or gives no structured answer."""
+    ``system``: the dict matching JSON ``schema``.
+    Raises ClaudeCodeUnreadable when it gives no answer in that shape, ClaudeCodeError when the CLI is missing,
+    times out or fails."""
     token = setting("CLAUDE_CODE_OAUTH_TOKEN", "")
     env = {**os.environ, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
     if token:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token
-    command = [
-        "claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-        "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence",
-        "--model", MODEL, "--effort", EFFORT, "--system-prompt", system,
-    ]  # fmt: skip
-    if schema is not None:
-        command += ["--json-schema", json.dumps(schema)]
     message = {"type": "user", "message": {"role": "user", "content": content}}
     with tempfile.TemporaryDirectory() as empty:  # nothing of the server's for it to see
+        prompt = os.path.join(empty, "system.md")  # a file: one argument may not pass 128 KiB, the prompt may
+        with open(prompt, "w", encoding="utf-8") as file:
+            file.write(system)
+        command = [
+            "claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+            "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence",
+            "--model", MODEL, "--effort", EFFORT, "--system-prompt-file", prompt, "--json-schema", json.dumps(schema),
+        ]  # fmt: skip
         try:
             done = subprocess.run(
                 command, input=json.dumps(message), capture_output=True, text=True, env=env, cwd=empty,
@@ -46,17 +52,19 @@ def ask(system, content, schema=None):
             raise ClaudeCodeError("the claude CLI is not installed in this image") from None
         except subprocess.TimeoutExpired:
             raise ClaudeCodeError(f"no answer from the claude CLI in {MODEL_TIMEOUT} s") from None
+        except OSError as error:  # the schema too long for one argument, among others
+            raise ClaudeCodeError(f"the claude CLI could not start: {error}") from None
     result = result_event(done.stdout)
     if result is None:
         raise ClaudeCodeError(f"claude CLI exited {done.returncode}: {done.stderr[-500:] or done.stdout[-500:]}")
     usage.cli_usage(result)  # an answer refused is billed too
+    if result.get("subtype") == "error_max_structured_output_retries":
+        raise ClaudeCodeUnreadable("claude CLI: no answer in the schema's shape after its retries")
     if result.get("is_error"):
         raise ClaudeCodeError(f"claude CLI: {result.get('result') or result.get('subtype')}")
-    if schema is not None:
-        if not isinstance(result.get("structured_output"), dict):
-            raise ClaudeCodeError(f"claude CLI gave no structured answer: {str(result.get('result'))[:300]}")
-        return result["structured_output"]
-    return result.get("result") or ""
+    if not isinstance(result.get("structured_output"), dict):
+        raise ClaudeCodeUnreadable(f"claude CLI gave no structured answer: {str(result.get('result'))[:300]}")
+    return result["structured_output"]
 
 
 def result_event(output):

@@ -5,8 +5,12 @@ tool, keeps the conversation and logs each call as it does with the API. The con
 each turn headed by its role, images and PDFs kept as content blocks."""
 
 import asyncio
+import contextvars
+import functools
 import json
+import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 from langchain_anthropic.chat_models import _format_messages, convert_to_anthropic_tool
 from langchain_core.language_models import BaseChatModel
@@ -16,11 +20,16 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from engine.tools.core import claude_code
 from engine.tools.core.cabinets import using
 
+# The CLI calls' own threads (each holds one up to MODEL_TIMEOUT): not asyncio's default pool, the server's other
+# short to_thread work never waits behind them.
+POOL = ThreadPoolExecutor(int(os.getenv("TARIK_MODEL_CALLS", "40")), thread_name_prefix="model")
+
 PROTOCOL = """
 
 <tool_protocol>
-You cannot run tools yourself. To use some, answer with "tool_calls": each {"name", "args"}, the args in the shape
-your answer's schema gives that tool; their results come back in the next message. When you need no tool, answer
+You cannot run tools yourself, and none of the tools below can be called directly: your one callable tool is
+StructuredOutput. To use some, answer with "tool_calls": each {"name", "args"}, the args in the shape your answer's
+schema gives that tool; their results come back in the next message. When you need no tool, answer
 the client in "text" with "tool_calls" empty. The tools:
 {tools}
 </tool_protocol>"""
@@ -28,7 +37,8 @@ the client in "text" with "tool_calls" empty. The tools:
 
 def answer_schema(tools):
     """Return the JSON schema of the CLI's answer: {"text", "tool_calls": [{"name", "args"}]}, each call one of
-    ``tools`` (Anthropic tool dicts) with its args matching that tool's input_schema; any call without tools."""
+    ``tools`` (Anthropic tool dicts) with its args matching that tool's input_schema; any call with
+    no tools (the fallback when the CLI keeps refusing args)."""
     calls = [
         {
             "type": "object",
@@ -106,12 +116,12 @@ class ChatClaudeCode(BaseChatModel):
             for found in tools
         )
         names = [found["name"] for found in tools]
+        prompt, content = (system or "") + PROTOCOL.replace("{tools}", listed or "(none)"), flattened(conversation)
         with using(self.cabinet):
-            answer = claude_code.ask(
-                (system or "") + PROTOCOL.replace("{tools}", listed or "(none)"),
-                flattened(conversation),
-                answer_schema(tools),
-            )
+            try:
+                answer = claude_code.ask(prompt, content, answer_schema(tools))
+            except claude_code.ClaudeCodeUnreadable:  # args the CLI kept refusing: asked again with any args, the
+                answer = claude_code.ask(prompt, content, answer_schema(()))  # tools' own checks then answer them
         calls = [
             {"name": call["name"], "args": call.get("args") or {}, "id": f"toolu_{uuid.uuid4().hex[:24]}"}
             for call in answer.get("tool_calls") or []
@@ -121,4 +131,5 @@ class ChatClaudeCode(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=message)])
 
     async def _agenerate(self, messages, stop=None, run_manager=None, **kwargs):
-        return await asyncio.to_thread(self._generate, messages, stop, None, **kwargs)
+        call = functools.partial(self._generate, messages, stop, None, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(POOL, contextvars.copy_context().run, call)
