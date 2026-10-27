@@ -74,7 +74,8 @@ def changed(action, given, author):
     before = next((r for r in routines_of_cabinet() if r["id"] == routine_id), None)
     if action != "create" and not before:
         return 0, "cette routine n'existe plus : rechargez la page"
-    if values:
+    switched = before and all(values[key] == before[key] for key in FIELDS if key != "enabled") if values else False
+    if values and not (switched and not values["enabled"]):  # pausing is always allowed, even a routine gone bad
         problem = routine_problem(*(values[key] for key in ("kind", *SCHEDULE, "prompt")))
         problem = problem or address_problem(values["notify"])
         if problem:

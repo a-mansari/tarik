@@ -53,7 +53,7 @@ def test_a_routine_made_changed_and_deleted_from_the_page(page):
     ("change", "said"),
     [
         ({"notify": "moi@gmail.com"}, "pas dans les adresses autorisées"),
-        ({"notify": "client@cabinet.ma"}, "n'est pas un collaborateur actif d'Experio"),
+        ({"notify": "client@cabinet.ma"}, "n'est ni un administrateur actif du cabinet"),
         ({"prompt": ""}, "quelle consigne"),
         ({"kind": "tva", "hour": 0}, "de 1 à 23"),
         ({"hour": "huit"}, "illisible"),

@@ -5,30 +5,19 @@ import { computed } from "vue";
 
 const props = defineProps({
   form: { type: Object, required: true },
+  kinds: { type: Object, required: true }, // the server's names of the tasks (routines.KINDS)
   weekdays: { type: Array, required: true },
   busy: { type: Boolean, default: false },
   submitWords: { type: String, default: "Enregistrer" },
 });
 defineEmits(["submit", "cancel"]);
 
-// Each task as the client reads it: its name and what it does, in a sentence.
+// Each task's card: a short title and what it does; the recap and the server say it with kinds[...].
 const TASKS = {
-  instruction: {
-    name: "Suivre une consigne",
-    text: "Vous écrivez ce que Tarik doit faire ; il le fait à chaque fois et vous envoie sa réponse.",
-  },
-  progress: {
-    name: "Envoyer l'avancement",
-    text: "L'état de chaque dossier : pièces, relevés bancaires, opérations en suspens, déclarations.",
-  },
-  tva: {
-    name: "Préparer la TVA",
-    text: "La déclaration de la période terminée, pour chaque dossier. Une déclaration déjà commencée n'est jamais touchée.",
-  },
-  ras: {
-    name: "Préparer les RAS",
-    text: "Les déclarations de retenue à la source de la période terminée, préparées comme la TVA.",
-  },
+  instruction: ["Suivre une consigne", "Vous écrivez ce que Tarik doit faire ; il le fait à chaque fois et vous envoie sa réponse."],
+  progress: ["Envoyer l'avancement", "L'état de chaque dossier : pièces, relevés bancaires, opérations en suspens, déclarations."],
+  tva: ["Préparer la TVA", "La déclaration de la période terminée, pour chaque dossier. Une déclaration déjà commencée n'est jamais touchée."],
+  ras: ["Préparer les RAS", "Les déclarations de retenue à la source de la période terminée, préparées comme la TVA."],
 };
 const EXAMPLES = [
   "Dis-moi les factures restées en brouillon et ce qui les bloque.",
@@ -38,7 +27,7 @@ const EXAMPLES = [
 const RHYTHMS = { day: "Chaque jour", week: "Chaque semaine", month: "Chaque mois" };
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const MONTH_DAYS = Array.from({ length: 28 }, (_, day) => day + 1);
-const PROMPT_MOST = 2000;
+const PROMPT_MOST = 2000; // the server's PROMPT_CHARACTERS
 
 function setRhythm(every) {
   props.form.every = every;
@@ -46,7 +35,7 @@ function setRhythm(every) {
   if (every === "month" && props.form.day < 1) props.form.day = 1;
 }
 
-// The schedule and the whole routine read back, as the server will say them.
+// As the server says the schedule (routines.when) and refuses midnight (routine_problem): kept the same.
 const when = computed(() => {
   const { every, day, hour } = props.form;
   if (every === "day") return `chaque jour à ${hour} h`;
@@ -55,44 +44,44 @@ const when = computed(() => {
 });
 const midnight = computed(() => props.form.hour === 0 && props.form.kind !== "progress");
 const what = computed(() => (props.form.kind === "instruction" && props.form.prompt.trim()
-  ? `« ${props.form.prompt.trim()} »`
-  : TASKS[props.form.kind].name.toLowerCase()));
+  ? `suivre la consigne « ${props.form.prompt.trim()} »`
+  : props.kinds[props.form.kind]));
 </script>
 
 <template>
   <form class="routine-form" @submit.prevent="$emit('submit')">
     <fieldset>
       <legend><span class="step">1</span> Que doit faire Tarik ?</legend>
-      <div class="tasks" role="radiogroup">
+      <div class="tasks">
         <label v-for="(task, key) in TASKS" :key="key" class="task" :class="{ chosen: form.kind === key }">
-          <input v-model="form.kind" type="radio" :value="key">
-          <b>{{ task.name }}</b>
-          <span class="muted">{{ task.text }}</span>
+          <input v-model="form.kind" type="radio" name="kind" :value="key">
+          <b>{{ task[0] }}</b>
+          <span class="muted">{{ task[1] }}</span>
         </label>
       </div>
-      <label v-if="form.kind === 'instruction'" class="field">
-        <span>Consigne</span>
-        <textarea v-model="form.prompt" rows="3" :maxlength="PROMPT_MOST" required
+      <div v-if="form.kind === 'instruction'" class="field">
+        <label for="routine-prompt">Consigne</label>
+        <textarea id="routine-prompt" v-model="form.prompt" rows="3" :maxlength="PROMPT_MOST" required
           placeholder="Écrivez ce que Tarik doit faire à chaque fois."></textarea>
-        <span class="examples">
+        <span class="count">{{ form.prompt.length }} / {{ PROMPT_MOST }}</span>
+        <div class="examples">
           <span class="muted">Exemples :</span>
-          <button v-for="example in EXAMPLES" :key="example" type="button" class="example"
+          <button v-for="example in EXAMPLES" :key="example" type="button" class="panel-button"
             @click="form.prompt = example">{{ example }}</button>
-          <span class="muted count">{{ form.prompt.length }} / {{ PROMPT_MOST }}</span>
-        </span>
-      </label>
+        </div>
+      </div>
     </fieldset>
 
     <fieldset>
       <legend><span class="step">2</span> Quand ?</legend>
-      <div class="segmented" role="radiogroup" aria-label="Rythme">
-        <button v-for="(words, key) in RHYTHMS" :key="key" type="button" role="radio"
-          :aria-checked="form.every === key" :class="{ on: form.every === key }" @click="setRhythm(key)">{{ words }}</button>
+      <div class="choices" aria-label="Rythme">
+        <button v-for="(words, key) in RHYTHMS" :key="key" type="button" class="panel-button"
+          :aria-pressed="form.every === key" @click="setRhythm(key)">{{ words }}</button>
       </div>
       <div class="when">
-        <div v-if="form.every === 'week'" class="days" role="radiogroup" aria-label="Jour">
-          <button v-for="(name, index) in weekdays" :key="name" type="button" role="radio"
-            :aria-checked="form.day === index" :class="{ on: form.day === index }" @click="form.day = index">{{ name.slice(0, 3) }}</button>
+        <div v-if="form.every === 'week'" class="choices" aria-label="Jour de la semaine">
+          <button v-for="(name, index) in weekdays" :key="name" type="button" class="panel-button day"
+            :aria-pressed="form.day === index" :aria-label="name" @click="form.day = index">{{ name.slice(0, 3) }}</button>
         </div>
         <label v-if="form.every === 'month'" class="field inline"><span>Le</span>
           <select v-model.number="form.day">
@@ -103,7 +92,7 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
             <option v-for="hour in HOURS" :key="hour" :value="hour">{{ hour }} h</option>
           </select><span class="muted">heure de Casablanca</span></label>
       </div>
-      <p v-if="midnight" class="warn">À minuit, le serveur est encore la veille : choisissez au moins 1 h.</p>
+      <p v-if="midnight" class="warn" role="alert">À minuit, le serveur est encore la veille : choisissez au moins 1 h.</p>
     </fieldset>
 
     <fieldset>
@@ -116,8 +105,7 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
     </fieldset>
 
     <div class="recap" aria-live="polite">
-      <p><b>Tarik va {{ what }}</b>, {{ when }}, et envoyer le rapport à
-        <b>{{ form.notify || "…" }}</b>.</p>
+      <p><b>Tarik va {{ what }}</b>, {{ when }}, et envoyer le rapport à <b>{{ form.notify || "…" }}</b>.</p>
       <p class="muted">Sur tous les dossiers que voit le compte Experio de Tarik. Rien n'est jamais déclaré,
         comptabilisé ni confirmé par une routine.</p>
       <label class="switch"><input v-model="form.enabled" type="checkbox"> Active dès maintenant</label>
@@ -136,26 +124,18 @@ fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: .6rem; }
 legend { font-weight: 600; margin-bottom: .5rem; display: flex; align-items: center; gap: .5rem; }
 .step { display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: .8rem; }
 .tasks { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: .6rem; }
-.task { display: grid; gap: .25rem; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--bg); }
-.task input { position: absolute; opacity: 0; pointer-events: none; }
+.task { position: relative; display: grid; gap: .25rem; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--bg); color: var(--fg); }
+.task input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .task.chosen { border-color: var(--accent); background: var(--accent-soft); }
 .task:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .task span { font-size: .85rem; }
 .examples { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
-.example { font: inherit; font-size: .8rem; border: 1px dashed var(--line); background: var(--bg); color: var(--fg); border-radius: 999px; padding: .2rem .6rem; cursor: pointer; }
-.example:hover { border-color: var(--accent); }
-.count { margin-left: auto; }
-.segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; width: fit-content; }
-.segmented button, .days button { font: inherit; border: 0; background: var(--bg); color: var(--fg); padding: .45rem .9rem; cursor: pointer; }
-.segmented button + button { border-left: 1px solid var(--line); }
-.segmented .on, .days .on { background: var(--accent); color: var(--on-accent); }
+.choices { display: flex; flex-wrap: wrap; gap: .3rem; }
+.day { text-transform: capitalize; }
 .when { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
-.days { display: flex; gap: .3rem; }
-.days button { border: 1px solid var(--line); border-radius: 6px; padding: .35rem .55rem; text-transform: capitalize; }
 .field.inline { display: flex; align-items: center; gap: .5rem; }
 .field.inline select { width: auto; }
 .warn { color: var(--bad); margin: 0; font-size: .85rem; }
 .recap { border-left: 4px solid var(--accent); background: var(--bg); border-radius: 6px; padding: .7rem .9rem; display: grid; gap: .35rem; }
 .recap p { margin: 0; }
-.switch { display: flex; align-items: center; gap: .4rem; }
 </style>

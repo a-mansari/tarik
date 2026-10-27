@@ -570,8 +570,10 @@ delete from tarik_routines where id = %s
 -- name: routines_due
 -- === engine/routines.py ===
 -- The enabled routines whose time came, each locked until the transaction ends (another loop skips them).
-select id, kind, every, day, hour, notify, next_run_at, prompt from tarik_routines
-where enabled and next_run_at <= now() order by next_run_at for update skip locked
+select id, kind, every, day, hour, notify, next_run_at, prompt from tarik_routines r
+where enabled and next_run_at <= now()
+and not exists (select 1 from tarik_routine_runs where routine_id = r.id and report is null)
+order by next_run_at for update skip locked
 
 -- name: routines_unfinished
 -- The periods a routine started and never reported (the server stopped meanwhile), each locked until the

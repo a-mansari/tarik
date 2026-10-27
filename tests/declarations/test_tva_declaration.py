@@ -72,7 +72,7 @@ def experio(monkeypatch):
 
     def odoo_call(model, method, *args, **kw):
         if model == "res.company":
-            return [{"declaration_mode": "quarterly", "regime_type": "encaissement"}]
+            return [{"declaration_mode": "quarterly", "regime_type": "encaissement", "vat": "IF-1"}]
         if model == tva.PERIOD:
             return [{"id": 3, "name": "Trimestre 3"}]
         if model == tva.TABLE and method == "search_read":
@@ -330,3 +330,15 @@ def test_a_routine_makes_and_prepares_a_declaration_not_there_yet(experio):
 def test_a_routine_leaves_a_dossiers_first_declaration_to_the_cabinet(experio):
     result = tva.prepare_tva_declaration(857, new_only=True)  # no declared one before: its carried credit is asked
     assert result["status"] == "stop" and "sa première dans Experio" in result["message"] and methods(experio) == []
+
+
+@pytest.mark.functionality
+def test_a_routine_makes_no_declaration_experio_would_refuse_nor_tells_of_one_out_of_field(experio, monkeypatch):
+    inner = tva.odoo_call
+    company = {"declaration_mode": "quarterly", "regime_type": "encaissement", "vat": False}
+    read = lambda model, *a, **k: [company] if model == "res.company" else inner(model, *a, **k)  # noqa: E731
+    monkeypatch.setattr(tva, "odoo_call", read)
+    result = tva.prepare_tva_declaration(857, new_only=True)
+    assert result["status"] == "stop" and "pas d'IF" in result["message"] and methods(experio) == []
+    company["declaration_mode"] = "out_of_field"
+    assert tva.prepare_tva_declaration(857, new_only=True)["routine"]  # nothing due: nothing said in a report

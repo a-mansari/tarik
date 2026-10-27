@@ -20,13 +20,16 @@ from engine import runs
 from engine.calls import ToolFailure, call, within
 from engine.tools.core.app import CRASHED, log
 from engine.tools.core.cabinets import CABINETS, cabinet_db
+from engine.tools.core.outbox import keep_file
 from engine.tools.core.queries import Q
-from engine.tools.dossiers.routines import KINDS, ZONE, live, next_run, session_of, when
+from engine.tools.dossiers.routines import KINDS, ZONE, address_problem, next_run, session_of, when
 from engine.tools.dossiers.search import dossiers
+from engine.tools.invoices.pipeline import NOTHING
 
 TICK_SECONDS = 60
 RUNNING_AT_ONCE = 2  # routines running at once, all cabinets together (runs.SLOTS holds 20 runs)
 INSTRUCTION_SECONDS = 30 * 60  # an instruction's agent run is cut off after this: the other routines wait for it
+BODY_CHARACTERS = 20_000  # a report longer than this goes as a text file, its start in the email and on the page
 EVERYWHERE = asyncio.Semaphore(RUNNING_AT_ONCE)
 ONE_PER_CABINET = {}  # cabinet -> its semaphore of 1
 RUNNING = set()  # (cabinet, routine id, due_at) of the runs under way in this process: never started twice
@@ -51,11 +54,12 @@ async def ran(cabinet, row):
     """Run one claimed routine of ``cabinet`` (one at a time per cabinet, RUNNING_AT_ONCE in all), email its report
     and keep it; return the report. A dossier's failure is a line of the report, never the end of the others."""
     routine_id, _, _, _, _, notify, due_at, _ = row
-    async with ONE_PER_CABINET.setdefault(cabinet, asyncio.Semaphore(1)), EVERYWHERE:
+    async with ONE_PER_CABINET.setdefault(cabinet, asyncio.Semaphore(1)):
         try:
-            if not await within(cabinet, live, notify):  # someone gone: nothing more sent to them
+            problem = await within(cabinet, address_problem, notify)
+            if problem:  # someone gone, moved down, or no longer allowed: nothing more sent to them
                 await within(cabinet, paused, routine_id)
-                report = f"Routine en pause : `{notify}` n'est plus un collaborateur actif d'Experio."
+                report = f"Routine en pause : {problem}."
             else:
                 report = await reported(cabinet, row)
         except Exception as error:  # the period stays reported: never run again in a loop
@@ -66,27 +70,46 @@ async def ran(cabinet, row):
 
 
 async def reported(cabinet, row):
-    """Run routine ``row`` (an instruction once, another kind on each dossier Tarik sees), email the report with the
-    runs' files, and return it."""
+    """Run routine ``row`` (an instruction once, another kind on each dossier Tarik sees, until its next time comes),
+    email the report with the runs' files, and return it (its start when long: BODY_CHARACTERS). Dossiers with
+    nothing to say are counted, not listed; each part takes a slot of EVERYWHERE, so cabinets take turns."""
     routine_id, kind, every, day, hour, notify, due_at, prompt = row
     session = session_of(routine_id, due_at)
-    parts = []
+    deadline = next_run(every, day, hour, due_at)
+    parts, quiet, left = [], 0, 0
     if kind == "instruction":
-        parts.append(await instructed(cabinet, prompt, session))
+        async with EVERYWHERE:
+            parts.append(await instructed(cabinet, prompt, session))
     else:
         for dossier_id in [dossier["id"] for dossier in await within(cabinet, dossiers)]:
+            if datetime.now(ZONE) >= deadline:  # its next period is due: the rest waits for it
+                left += 1
+                continue
             try:
-                parts.append(await dossier_part(cabinet, kind, dossier_id, session))
+                async with EVERYWHERE:
+                    part = await dossier_part(cabinet, kind, dossier_id, session)
             except Exception as error:  # the cause is logged, the client reads Tarik's usual words
                 log(f"{cabinet} routine {routine_id} dossier {dossier_id}: {type(error).__name__}: {error}")
-                parts.append(f"Dossier n° {dossier_id} : {error if isinstance(error, ToolFailure) else CRASHED}")
-    report = "\n\n".join(parts)
+                part = f"Dossier n° {dossier_id} : {error if isinstance(error, ToolFailure) else CRASHED}"
+            if part.strip() == NOTHING:
+                quiet += 1
+            else:
+                parts.append(part)
+    if quiet:
+        parts.append(f"{quiet} dossier(s) sans rien à préparer.")
+    if left:
+        parts.append(f"{left} dossier(s) non traité(s) : la période suivante est arrivée avant.")
+    report = "\n\n".join(parts) or NOTHING
     subject = f"Routine n° {routine_id} : {KINDS[kind]} ({when(every, day, hour)})"
+    body = report
+    if len(report) > BODY_CHARACTERS:  # the whole report as a file, its start in the email
+        await within(cabinet, keep_file, session, f"routine-{routine_id}.txt", report.encode())
+        body = report[:BODY_CHARACTERS] + "\n\n(Suite dans le fichier joint.)"
     try:
-        await call(cabinet, "send_email", to=notify, subject=subject, body=report, attach_session=session)
+        await call(cabinet, "send_email", to=notify, subject=subject, body=body, attach_session=session)
     except ToolFailure as failure:
         log(f"{cabinet} routine {routine_id}: report not sent: {failure}")
-    return report
+    return body
 
 
 async def instructed(cabinet, prompt, session):

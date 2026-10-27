@@ -7,8 +7,9 @@ limit, as in the chat. It prepares or reports, never declares nor posts: « tva 
 the last ended period that do not exist yet (the Déclarations graph in its routine mode: one already there is only
 reported, never refreshed), « progress » sends each dossier's progress (dossier_progress), « instruction » hands its
 own ``prompt`` to Tarik's agent as a message, with nothing confirmed, declared nor posted and only the workflows that
-prepare (agent.run_workflow). Each run's report goes by email to ``notify``: an address the cabinet allows, of a live
-Experio collaborator or staff member (live, checked again at each run).
+prepare (agent.run_workflow). Each run's report goes by email to ``notify``: an address the cabinet allows, of
+someone Experio itself shows every dossier to (live: Experio's staff, or a collaborator of the cabinet's admin
+profile, the users Experio puts on every new dossier, base_client res_company.py create), checked again at each run.
 
 Routines live in each cabinet's own schema: the Routines page and the tool only ever see the current cabinet's.
 """
@@ -19,11 +20,11 @@ from zoneinfo import ZoneInfo
 from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.conversation import client_messages, own_words
-from engine.tools.core.experio import refused
+from engine.tools.core.experio import odoo_call, refused
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized
 from engine.tools.dossiers.identity import client_wrote, confirmed
-from engine.tools.dossiers.people import RANK, ROUTINE_SESSION, collaborator, sender_of, sender_reach
+from engine.tools.dossiers.people import RANK, ROUTINE_SESSION, collaborator, level_of, sender_of, sender_reach
 from engine.tools.emails.sending import recipient_allowed
 
 ZONE = ZoneInfo("Africa/Casablanca")
@@ -117,11 +118,15 @@ def routine_problem(kind, every, day, hour, prompt):
 
 
 def live(notify):
-    """True when ``notify`` may get a routine's reports: an Experio collaborator whose account is live (employee_state
-    « active »: not invited and never in, not deactivated) or a member of Experio's staff. Checked again at each run:
-    someone gone pauses their routines."""
+    """True when ``notify`` may get a routine's reports, which cover every dossier: a member of Experio's staff, or a
+    collaborator whose account is live (employee_state « active »: not invited and never in, not deactivated) and
+    whose profile is the cabinet's admin (management_group admin: Experio shows a lesser one only its own dossiers).
+    Checked again at each run: someone gone or moved down pauses their routines."""
     user = collaborator(notify)
-    return bool(user) and (user["employee_type"] == "internal" or user.get("employee_state") == "active")
+    if not user or user["employee_type"] == "internal":
+        return bool(user)
+    profile = odoo_call("res.users", "read", [user["id"]], fields=["exp_profile_id"])[0]["exp_profile_id"]
+    return user.get("employee_state") == "active" and RANK[level_of(profile)] >= RANK["admin"]
 
 
 def address_problem(notify):
@@ -129,7 +134,7 @@ def address_problem(notify):
     if not recipient_allowed(notify):
         return f"`{notify}` n'est pas dans les adresses autorisées du cabinet (Réglages)"
     if not live(notify):
-        return f"`{notify}` n'est pas un collaborateur actif d'Experio : il ne recevrait aucun rapport"
+        return f"`{notify}` n'est ni un administrateur actif du cabinet dans Experio ni de l'équipe Experio"
     return ""
 
 
@@ -157,10 +162,10 @@ def manage_routine(
 
     create: ``kind`` (tva, ras, progress, instruction with its ``prompt``), ``every`` (day, week, month), ``day`` (a
     weekday 0-6 from Monday, or a day of the month 1-28) and ``hour`` (0-23, Casablanca time); it works on every
-    dossier Tarik's Experio account sees, so only Experio's staff and the cabinet's admins make one (in the chat, the
-    team). Its reports go to the email's sender, or in the chat to the ``email`` the client wrote (address_problem).
-    Read back, made once the client said yes (``client_confirmed``). pause, resume, delete: ``routine_id``; delete is
-    read back first. A sender sees and manages only the routines they made (mine).
+    dossier Tarik's Experio account sees, so only Experio's staff and the cabinet's admins make or resume one (in the
+    chat, the team). Its reports go to the email's sender, or in the chat to the ``email`` the client wrote
+    (address_problem). Read back, made once the client said yes (``client_confirmed``). pause, resume, delete:
+    ``routine_id``; delete is read back first. A sender sees and manages only the routines they made (mine).
 
     Returns an ok result once done, a routine result for an empty list, a question result for what is missing or to
     confirm, a stop result for a sender who may not make one.
@@ -172,12 +177,12 @@ def manage_routine(
     with refused(f"manage_routine {action}", "Experio n'a pas pu verifier vos droits."):
         reach = sender_reach(session_id)
     sender = sender_of(session_id) or CHAT
+    if action in ("create", "resume") and reach is not None and reach.get("rank", 0) < RANK["admin"]:
+        return stop(
+            "Une routine travaille sur tous les dossiers du cabinet : seuls ses administrateurs Experio et "
+            "l'équipe Experio en créent ou en reprennent une (ou la page Routines). Rien n'est changé."
+        )
     if action == "create":
-        if reach is not None and reach.get("rank", 0) < RANK["admin"]:
-            return stop(
-                "Une routine travaille sur tous les dossiers du cabinet : seuls ses administrateurs Experio et "
-                "l'équipe Experio en créent (ou la page Routines). Rien n'est créé."
-            )
         words = normalized("\n".join(client_messages(session_id, own_words(client_message))))
         given = (kind, every, day, hour, email.strip(), prompt.strip())
         return created(*given, sender, client_confirmed, words, session_id)

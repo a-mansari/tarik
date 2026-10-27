@@ -223,7 +223,7 @@ async def run_workflow(name, runtime, call_inputs):
 
     call = {**call_inputs, **fixed(runtime)}
     if call["session_id"].startswith(ROUTINE_SESSION):  # a routine's run: nobody there to say yes
-        if name not in ROUTINE_WORKFLOWS:
+        if name not in ROUTINE_WORKFLOWS or call.get("mode") == "delais":  # delais takes its declaration up
             return NOT_IN_ROUTINE
         call.update(client_confirmed=False, declarer=False, routine=True)
         call["comptabiliser"] = "" if call.get("comptabiliser") == "oui" else call.get("comptabiliser", "")

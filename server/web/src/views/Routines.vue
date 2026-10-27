@@ -16,14 +16,18 @@ const editing = ref(null); // "new", a routine's id, or null
 const form = ref(null);
 const busy = ref(false);
 const banner = ref(null);
+const shown = ref(0); // bumped after a refused switch: the cards are drawn again, as the server holds them
 
 const blank = () => ({
   enabled: true, kind: "instruction", every: "week", day: 0, hour: 8, notify: "", prompt: "",
 });
 
-function open(routine) {
+// The form opens where it is asked, its first field focused: the button that opened it may be gone.
+async function open(routine) {
   editing.value = routine ? routine.id : "new";
   form.value = routine ? { ...routine } : blank();
+  await nextTick();
+  document.querySelector(".routine-form input")?.focus();
 }
 const close = () => { editing.value = null; form.value = null; };
 
@@ -39,7 +43,11 @@ async function post(action, routine) {
 }
 
 const submit = () => post(editing.value === "new" ? "create" : "save", form.value);
-const toggle = (routine) => post("save", { ...routine, enabled: !routine.enabled });
+async function toggle(routine) {
+  const saved = await post("save", { ...routine, enabled: !routine.enabled });
+  if (!saved) shown.value += 1; // the switch back as it was
+  else if (form.value?.id === routine.id) form.value.enabled = !routine.enabled; // an open form keeps up
+}
 function remove(routine) {
   if (confirm(`Supprimer la routine n° ${routine.id} ? Ses rapports passés sont oubliés.`)) post("delete", routine);
 }
@@ -52,8 +60,8 @@ function remove(routine) {
       <div>
         <h1>Routines · <CabinetLabel :name="data.cabinet" /></h1>
         <p class="what">Ce que Tarik refait à date fixe pour ce cabinet, sur tous les dossiers que voit son compte
-          Experio, et dont il envoie le rapport par e-mail. Une routine prépare et rapporte : elle ne déclare, ne
-          comptabilise et ne confirme jamais rien.</p>
+          Experio, et dont il envoie le rapport par e-mail à un administrateur du cabinet. Une routine prépare et
+          rapporte : elle ne déclare, ne comptabilise et ne confirme jamais rien.</p>
       </div>
       <button v-if="editing !== 'new'" type="button" class="primary" @click="open(null)">
         <Icon name="plus" /> Nouvelle routine</button>
@@ -64,15 +72,15 @@ function remove(routine) {
 
     <section v-if="editing === 'new'" class="panel accent" aria-label="Nouvelle routine">
       <h2>Nouvelle routine</h2>
-      <RoutineForm :form="form" :weekdays="data.weekdays" :busy="busy" submit-words="Créer la routine"
-        @submit="submit" @cancel="close" />
+      <RoutineForm :form="form" :kinds="data.kinds" :weekdays="data.weekdays" :busy="busy"
+        submit-words="Créer la routine" @submit="submit" @cancel="close" />
     </section>
 
-    <article v-for="routine in data.routines" :key="routine.id" class="panel routine" :class="{ paused: !routine.enabled }">
+    <article v-for="routine in data.routines" :key="`${routine.id}-${shown}`" class="panel routine">
       <div class="routine-head">
         <label class="switch" :title="routine.enabled ? 'Mettre en pause' : 'Activer'">
           <input type="checkbox" :checked="routine.enabled" :disabled="busy" @change="toggle(routine)">
-          <span>{{ routine.enabled ? "Active" : "En pause" }}</span>
+          <span class="chip" :class="routine.enabled ? 'ok' : ''">{{ routine.enabled ? "Active" : "En pause" }}</span>
         </label>
         <div class="routine-what">
           <b>{{ data.kinds[routine.kind] }}</b>
@@ -89,8 +97,8 @@ function remove(routine) {
         par {{ routine.created_by }}<template v-if="routine.last_due"> · dernière le
           <span class="num">{{ routine.last_due }}</span>{{ routine.last_report === null ? " (en cours)" : "" }}</template></p>
       <details v-if="routine.last_report" class="last"><summary>Dernier rapport</summary><pre>{{ routine.last_report }}</pre></details>
-      <RoutineForm v-if="editing === routine.id" :form="form" :weekdays="data.weekdays" :busy="busy" @submit="submit"
-        @cancel="close" />
+      <RoutineForm v-if="editing === routine.id" :form="form" :kinds="data.kinds" :weekdays="data.weekdays" :busy="busy"
+        @submit="submit" @cancel="close" />
     </article>
     <div v-if="!data.routines.length && editing !== 'new'" class="panel empty">
       <p><b>Aucune routine pour ce cabinet.</b></p>
@@ -102,18 +110,14 @@ function remove(routine) {
 </template>
 
 <style scoped>
-.head .primary { display: inline-flex; align-items: center; gap: .4rem; }
 .routine { display: grid; gap: .5rem; }
-.routine.paused { opacity: .75; }
 .routine-head { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1rem; }
 .routine-what { display: grid; gap: .15rem; flex: 1 1 18rem; min-width: 0; }
 .prompt { overflow-wrap: anywhere; }
 .routine-tools { display: flex; gap: .4rem; }
-.switch { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; }
 .when { margin: 0; font-size: .85rem; }
 .last pre { white-space: pre-wrap; max-height: 16rem; overflow: auto; font-size: .8rem; }
 .empty { display: grid; gap: .4rem; justify-items: start; }
 .empty p { margin: 0; }
-.empty .primary { display: inline-flex; align-items: center; gap: .4rem; }
 section h2 { margin: 0 0 .8rem; font-size: 1.05rem; }
 </style>

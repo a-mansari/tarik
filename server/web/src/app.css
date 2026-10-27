@@ -329,6 +329,8 @@ table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 
 
 /* The Discussion page: the conversation, then the message to send with its files. */
 a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none; border-radius: 6px; padding: 0 .9rem; background: var(--accent); color: var(--on-accent); }
+button.primary:has(.icon) { display: inline-flex; align-items: center; gap: .4rem; }
+.switch { display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem; cursor: pointer; }
 .talk .files { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .9rem; color: var(--muted); }
 .talk .files li { border: 0; padding: 0; }
 .made { margin-top: 1rem; }

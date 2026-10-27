@@ -21,7 +21,7 @@ exp.deduction.table), declared only when the client asks and confirms.
 import re
 from datetime import date
 
-from engine.tools.core.app import ToolError, ok, question, step_tool, stop
+from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import (
     ExperioRefusal,
@@ -278,10 +278,14 @@ def prepare_tva_declaration(
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
     with refused(f"prepare_tva_declaration {dossier_id}", "Experio n'a pas pu préparer la déclaration ({reason})."):
-        company = odoo_call("res.company", "read", [dossier_id], fields=["declaration_mode", "regime_type"])[0]
+        fields = ["declaration_mode", "regime_type", "vat"]
+        company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
         mode = company["declaration_mode"]
         if mode not in ("monthly", "quarterly"):
-            return stop(f"Le dossier `{dossier}` est hors champ de la TVA dans Experio : pas de déclaration à faire.")
+            text = f"Le dossier `{dossier}` est hors champ de la TVA dans Experio : pas de déclaration à faire."
+            return routine(text) if new_only else stop(text)
+        if new_only and not company["vat"]:  # Experio refuses to declare without it (check_declaration_requirements)
+            return stop(f"Dossier `{dossier}` : pas d'IF dans Experio, aucune déclaration de TVA créée.")
         today = date.today()
         number, year = period_named(mode, periode, today) or last_ended(mode, today)
         period = find_period(mode, number)
