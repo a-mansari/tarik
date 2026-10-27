@@ -537,8 +537,8 @@ values (%s, %s, %s, %s, %s, %s, %s)
 -- name: routine_made
 -- === engine/tools/dossiers/routines.py ===
 -- A new routine; its id back.
-insert into tarik_routines (kind, dossier_ids, every, day, hour, notify, created_by, next_run_at, prompt)
-values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning id
+insert into tarik_routines (kind, dossier_ids, every, day, hour, notify, created_by, next_run_at, prompt, enabled)
+values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) returning id
 
 -- name: routines_listed
 -- The cabinet's routines, oldest first.
@@ -550,6 +550,10 @@ from tarik_routines order by id
 -- A routine's report address: whose rights its runs have.
 select notify from tarik_routines where id = %s
 
+-- name: routine_dossiers
+-- A routine's dossiers: the only ones its runs may reach.
+select dossier_ids from tarik_routines where id = %s
+
 -- name: routine_changed
 -- === server/api/routines.py ===
 -- A routine as the Routines page saved it, with its next run.
@@ -557,8 +561,12 @@ update tarik_routines set enabled = %s, kind = %s, dossier_ids = %s, every = %s,
 prompt = %s, next_run_at = %s where id = %s
 
 -- name: routine_last_runs
--- Each routine's latest run: when it was due and what it reported (null while it runs).
-select distinct on (routine_id) routine_id, due_at, report from tarik_routine_runs order by routine_id, due_at desc
+-- Each routine's latest run: when it was due and the start of what it reported (null while it runs), one primary
+-- key probe per routine.
+select r.id, last.due_at, left(last.report, 4000) from tarik_routines r
+left join lateral (
+    select due_at, report from tarik_routine_runs where routine_id = r.id order by due_at desc limit 1
+) last on true
 
 -- name: routine_enabled
 -- Pause or resume a routine, with its next run (a resumed routine runs at its next time, never the missed ones).

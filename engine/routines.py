@@ -25,6 +25,7 @@ from engine.tools.dossiers.routines import KINDS, ZONE, allowed_dossiers, dossie
 
 TICK_SECONDS = 60
 RUNNING_AT_ONCE = 2  # routines running at once, all cabinets together (runs.SLOTS holds 20 runs)
+INSTRUCTION_SECONDS = 30 * 60  # an instruction's agent run is cut off after this: the other routines wait for it
 EVERYWHERE = asyncio.Semaphore(RUNNING_AT_ONCE)
 ONE_PER_CABINET = {}  # cabinet -> its semaphore of 1
 RUNNING = set()  # (cabinet, routine id, due_at) of the runs under way in this process: never started twice
@@ -53,7 +54,7 @@ async def ran(cabinet, row):
     async with ONE_PER_CABINET.setdefault(cabinet, asyncio.Semaphore(1)), EVERYWHERE:
         try:
             allowed = await within(cabinet, allowed_dossiers, notify, dossier_ids)
-            if allowed is None or (dossier_ids and not allowed):
+            if not allowed:  # None: the address is gone; []: none of its dossiers is still theirs and open
                 await within(cabinet, paused, routine_id)
                 report = f"Routine en pause : `{notify}` n'a plus accès à Experio ou à aucun de ses dossiers."
             else:
@@ -73,15 +74,17 @@ async def reported(cabinet, row, allowed):
     parts = []
     if kind == "instruction":
         parts.append(await instructed(cabinet, prompt, allowed, session))
-    for dossier_id in allowed if kind != "instruction" else ():
-        try:
-            parts.append(await dossier_part(cabinet, kind, dossier_id, session))
-        except Exception as error:  # the cause is logged, the client reads Tarik's usual words
-            log(f"{cabinet} routine {routine_id} dossier {dossier_id}: {type(error).__name__}: {error}")
-            parts.append(f"Dossier n° {dossier_id} : {error if isinstance(error, ToolFailure) else CRASHED}")
+    else:
+        for dossier_id in allowed:
+            try:
+                parts.append(await dossier_part(cabinet, kind, dossier_id, session))
+            except Exception as error:  # the cause is logged, the client reads Tarik's usual words
+                log(f"{cabinet} routine {routine_id} dossier {dossier_id}: {type(error).__name__}: {error}")
+                parts.append(f"Dossier n° {dossier_id} : {error if isinstance(error, ToolFailure) else CRASHED}")
     left = len(dossier_ids) - len(allowed)
     if left:
-        parts.append(f"{left} dossier(s) laissé(s) de côté : `{notify}` ne les a plus dans Experio.")
+        closed = f"`{notify}` ne les a plus dans Experio, ou ils sont fermés"
+        parts.append(f"{left} dossier(s) laissé(s) de côté : {closed}.")
     report = "\n\n".join(parts)
     subject = f"Routine n° {routine_id} : {KINDS[kind]} ({when(every, day, hour)})"
     try:
@@ -92,13 +95,18 @@ async def reported(cabinet, row, allowed):
 
 
 async def instructed(cabinet, prompt, dossier_ids, session):
-    """Hand an instruction routine's ``prompt`` to the agent in the routine's ``session`` (a Discussion run) and
-    return its reply; the dossier ids it is limited to are added to the message."""
-    names = await within(cabinet, dossier_names, dossier_ids) if dossier_ids else {}
-    named = "\n\nDossiers : " + ", ".join(names.values()) if names else ""
-    given = {"cabinet": cabinet, "session_id": session, "message": prompt + named, "files": [], "skipped": []}
+    """Hand an instruction routine's ``prompt`` to the agent in the routine's ``session`` (a Discussion run, cut off
+    after INSTRUCTION_SECONDS) and return its reply. Its ``dossier_ids`` (the only ones its tools may reach:
+    people.sender_user) are named in the message, with their ids, so the agent need not look for them."""
+    names = await within(cabinet, dossier_names, dossier_ids)
+    named = ", ".join(f"{name} (id {dossier_id})" for dossier_id, name in names.items())
+    message = f"{prompt}\n\nDossiers (les seuls de cette routine) : {named}"
+    given = {"cabinet": cabinet, "session_id": session, "message": message, "files": [], "skipped": []}
     _, task = await runs.start("discussion", {"input": given, "session_id": session, "cabinet": cabinet})
-    output, failure = await task
+    try:
+        output, failure = await asyncio.wait_for(task, INSTRUCTION_SECONDS)
+    except TimeoutError:
+        return f"Consigne interrompue après {INSTRUCTION_SECONDS // 60} minutes : à reprendre dans une discussion."
     if failure:
         raise failure
     return (output or {}).get("reply") or (output or {}).get("error") or "Tarik n'a rien répondu."

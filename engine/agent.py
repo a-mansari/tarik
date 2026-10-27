@@ -22,14 +22,14 @@ from langchain_core.messages import HumanMessage
 from langgraph.config import get_config
 
 from engine import content, prompts
-from engine.calls import ToolFailure, call
+from engine.calls import ToolFailure, call, within
 from engine.claude_code import ChatClaudeCode
 from engine.content import AGENT
 from engine.settings import cabinet_of, session_of
 from engine.tools.core import usage
 from engine.tools.core.cabinets import setting, using
 from engine.tools.core.model import MODEL_URL, adapter
-from engine.tools.dossiers.people import ROUTINE_SESSION
+from engine.tools.dossiers.people import ROUTINE_SESSION, sender_user
 
 
 def model(cabinet):
@@ -195,10 +195,33 @@ def untrusted(text, tool_name):
     return f'<untrusted_data source="{source}" label="{label}">\n{content}\n</untrusted_data>'
 
 
+# What a routine's run may use: the read tools of one dossier, and the workflows that only prepare (its declarations:
+# made, never taken up nor declared; an export, never integrated). Anything else would act unattended.
+ROUTINE_READS = {"experio_connection", "list_invoices", "list_accounts", "dossier_progress"}
+ROUTINE_WORKFLOWS = {"declarations", "export"}
+NOT_IN_ROUTINE = "Pas dans une routine : elle prépare et rapporte seulement, sur ses propres dossiers."
+
+
+def beyond_routine(session, tool_name, dossier_id):
+    """Return why a routine's run (``session``) may not call read tool ``tool_name`` on ``dossier_id``, "" when it
+    may: one of ROUTINE_READS, on one of the routine's dossiers its address still has (people.sender_user)."""
+    if tool_name not in ROUTINE_READS:
+        return NOT_IN_ROUTINE
+    if dossier_id and dossier_id not in (sender_user(session)[1] or {}).get("company_ids", []):
+        return f"Le dossier n° {dossier_id} n'est pas un dossier de cette routine."
+    return ""
+
+
 async def reading(runtime, tool_name, **arguments):
-    """Call the read tool ``tool_name`` in the run's cabinet and return its result or failure as untrusted text."""
+    """Call the read tool ``tool_name`` in the run's cabinet and return its result or failure as untrusted text. In a
+    routine's run, only ROUTINE_READS on the routine's own dossiers (beyond_routine)."""
+    cabinet, session = cabinet_of(runtime.config), session_of(runtime.config)
+    if session.startswith(ROUTINE_SESSION):
+        refusal = await within(cabinet, beyond_routine, session, tool_name, arguments.get("dossier_id"))
+        if refusal:
+            return untrusted(refusal, tool_name)
     try:
-        result = await call(cabinet_of(runtime.config), tool_name, **arguments)
+        result = await call(cabinet, tool_name, **arguments)
     except ToolFailure as failure:
         return untrusted(str(failure), tool_name)
     if not isinstance(result, str):
@@ -211,12 +234,15 @@ async def run_workflow(name, runtime, call_inputs):
 
     ``call_inputs`` are the model's arguments; fixed() adds the conversation's inputs. The workflow is a run of its
     own, nested under the agent's tool step (runs.nested), never a turn of the conversation. In a routine's run
-    (ROUTINE_SESSION) nothing is confirmed, declared nor posted, and a declaration is only made, never taken up: the
-    routine's instruction is not a client's yes."""
+    (ROUTINE_SESSION) only ROUTINE_WORKFLOWS run, nothing is confirmed, declared nor posted, and a declaration is only
+    made, never taken up: the routine's instruction is not a client's yes. Their own checks (check_sender) keep it to
+    the routine's dossiers."""
     from engine import runs  # runs imports this module
 
     call = {**call_inputs, **fixed(runtime)}
     if call["session_id"].startswith(ROUTINE_SESSION):  # a routine's run: nobody there to say yes
+        if name not in ROUTINE_WORKFLOWS:
+            return NOT_IN_ROUTINE
         call.update(client_confirmed=False, declarer=False, routine=True)
         call["comptabiliser"] = "" if call.get("comptabiliser") == "oui" else call.get("comptabiliser", "")
     node = runtime.config.get("metadata", {}).get("langgraph_node")

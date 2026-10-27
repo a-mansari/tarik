@@ -2,8 +2,9 @@
 on or off, rescheduled, their instruction, address and dossiers changed, made or deleted by the team; each change in
 the journal (audit).
 
-A routine's checks are the tool's own (engine/tools/dossiers/routines.py): its kind, schedule and instruction, an
-address the cabinet allows, the cabinet's own dossiers."""
+A routine's checks are the tool's own (engine/tools/dossiers/routines.py routine_problem), plus what its runs will
+need: an address the cabinet allows, a live Experio user who has each dossier it adds (allowed_dossiers). A dossier
+already on the routine and closed since (archived, reset) may stay: its runs leave it out."""
 
 from datetime import datetime
 
@@ -12,53 +13,43 @@ from starlette.requests import Request
 from engine.calls import within
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.queries import Q
-from engine.tools.dossiers.routines import KINDS, WEEKDAYS, ZONE, next_run, schedule_problem, when
+from engine.tools.dossiers.routines import (
+    KINDS,
+    WEEKDAYS,
+    ZONE,
+    allowed_dossiers,
+    next_run,
+    routine_problem,
+    routines_of_cabinet,
+    when,
+)
 from engine.tools.dossiers.search import dossiers
 from engine.tools.emails.sending import recipient_allowed
 from server import audit
 from server.api.runs import chosen, page
 
 FIELDS = ("enabled", "kind", "dossier_ids", "every", "day", "hour", "notify", "prompt")
+SCHEDULE = ("every", "day", "hour")
 
 
-def listed():
-    """Return the current cabinet's routines for the page, each with its last run: [{id, kind, dossier_ids, every,
-    day, hour, notify, enabled, next_run_at, created_by, prompt, schedule, last_due, last_report}]."""
+def shown():
+    """Return the current cabinet's routines for the page, each with its schedule in words and its last run (when it
+    was due, the start of its report)."""
     with cabinet_db() as db:
-        rows = db.execute(Q.routines_listed).fetchall()
         last = {row[0]: row[1:] for row in db.execute(Q.routine_last_runs).fetchall()}
-    names = ("id", "kind", "dossier_ids", "every", "day", "hour", "notify", "enabled", "next_run_at")
     found = []
-    for row in rows:
-        item = dict(zip((*names, "created_by", "prompt"), row, strict=True))
-        due, report = last.get(item["id"], (None, None))
-        item.update(
-            schedule=when(item["every"], item["day"], item["hour"]),
-            next_run_at=item["next_run_at"].astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
-            last_due=due and due.astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
-            last_report=report,
+    for routine in routines_of_cabinet():
+        due, report = last.get(routine["id"], (None, None))
+        found.append(
+            {
+                **routine,
+                "schedule": when(routine["every"], routine["day"], routine["hour"]),
+                "next_run_at": routine["next_run_at"].astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
+                "last_due": due and due.astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
+                "last_report": report,
+            }
         )
-        found.append(item)
     return found
-
-
-def problem_of(given, known):
-    """Return what is wrong with a routine as the page sent it (French), "" when nothing. ``known``: the cabinet's
-    dossier ids."""
-    try:
-        values = cleaned(given)
-    except TypeError, ValueError:
-        return "une valeur est illisible"
-    problem = schedule_problem(values["kind"], values["every"], values["day"], values["hour"], values["prompt"])
-    if problem:
-        return problem
-    if not values["dossier_ids"] and values["kind"] != "instruction":
-        return "pour quels dossiers ?"
-    if set(values["dossier_ids"]) - known:
-        return "un dossier n'est pas un dossier du cabinet"
-    if not recipient_allowed(values["notify"]):
-        return f"`{values['notify']}` n'est pas dans les adresses autorisées du cabinet (Réglages)"
-    return ""
 
 
 def cleaned(given):
@@ -75,42 +66,66 @@ def cleaned(given):
     }
 
 
-def saved(action, given, author):
-    """Make, change or delete one routine of the current cabinet as the page asks (``action`` create, save, delete);
-    return its id. A routine changed gets its next run from its schedule as it is now."""
+def problem_of(values, before):
+    """Return what is wrong with routine ``values`` (cleaned) as the page sent it (French), "" when nothing.
+    ``before``: the routine as stored (None for a new one); its dossiers may stay even if closed since."""
+    problem = routine_problem(*(values[key] for key in ("kind", *SCHEDULE, "prompt", "dossier_ids")))
+    if problem:
+        return problem
+    if not recipient_allowed(values["notify"]):
+        return f"`{values['notify']}` n'est pas dans les adresses autorisées du cabinet (Réglages)"
+    added = set(values["dossier_ids"]) - set(before["dossier_ids"] if before else [])
+    allowed = allowed_dossiers(values["notify"], sorted(added))
+    if allowed is None:
+        return f"`{values['notify']}` n'est pas un collaborateur actif d'Experio : il ne recevrait aucun rapport"
+    if added - set(allowed):
+        return f"`{values['notify']}` n'a pas, dans Experio, tous les dossiers choisis (ou l'un d'eux est fermé)"
+    return ""
+
+
+def changed(action, given, author):
+    """Check, then make, change or delete one routine of the current cabinet as the page asks (``action`` create,
+    save, delete). Returns (its id, the problem in French or ""). A routine keeps its next run unless its schedule
+    changed or it is turned back on."""
+    try:
+        routine_id = int(given.get("id") or 0)
+        values = cleaned(given) if action != "delete" else None
+    except TypeError, ValueError:
+        return 0, "une valeur est illisible"
+    before = next((r for r in routines_of_cabinet() if r["id"] == routine_id), None)
+    if action != "create" and not before:
+        return 0, "cette routine n'existe plus : rechargez la page"
+    problem = problem_of(values, before) if values else ""
+    if problem:
+        return 0, problem
     with cabinet_db() as db:
         if action == "delete":
-            db.execute(Q.routine_removed, (int(given["id"]),))
-            return int(given["id"])
-        values = cleaned(given)
-        upcoming = next_run(values["every"], values["day"], values["hour"], datetime.now(ZONE))
+            db.execute(Q.routine_removed, (routine_id,))
+            return routine_id, ""
+        upcoming = next_run(*(values[key] for key in SCHEDULE), datetime.now(ZONE))
         if action == "create":
-            made = (values["kind"], values["dossier_ids"], values["every"], values["day"], values["hour"])
-            made += (values["notify"], author, upcoming, values["prompt"])
-            routine_id = db.execute(Q.routine_made, made).fetchone()[0]
-            if not values["enabled"]:
-                db.execute(Q.routine_enabled, (False, upcoming, routine_id))
-            return routine_id
-        changed = [values[key] for key in FIELDS]
-        db.execute(Q.routine_changed, (*changed, upcoming, int(given["id"])))
-        return int(given["id"])
+            made = (*(values[key] for key in ("kind", "dossier_ids", *SCHEDULE, "notify")), author, upcoming)
+            return db.execute(Q.routine_made, (*made, values["prompt"], values["enabled"])).fetchone()[0], ""
+        moved = any(values[key] != before[key] for key in SCHEDULE) or (values["enabled"] and not before["enabled"])
+        db.execute(
+            Q.routine_changed,
+            (*(values[key] for key in FIELDS), upcoming if moved else before["next_run_at"], routine_id),
+        )
+    return routine_id, ""
 
 
 async def routines_page(request: Request):
-    """GET or POST /ui/api/routines: return the routines of the cabinet chosen in the sidebar, its dossiers and the
-    choices the page offers, after making a change when posted.
+    """GET or POST /ui/api/routines: return the routines of the cabinet chosen in the sidebar and the choices the page
+    offers (its dossiers, on GET only: a change never waits on Experio's whole list), after making a change when
+    posted.
 
     POST takes JSON {cabinet, action (create, save, delete), routine {id, FIELDS}}; it is refused (400, the error
-    said) when the sidebar has chosen another cabinet since the page opened, or the routine does not pass the tool's
-    own checks. 404 without any cabinet."""
+    said) when the sidebar has chosen another cabinet since the page opened, or the routine does not pass the checks
+    (problem_of). 404 without any cabinet; 503 when Experio cannot give the dossiers."""
     cabinet = chosen(request)
     if cabinet is None:
         return page({"error": "aucun cabinet"}, 404)
-    try:
-        known = await within(cabinet, dossiers)
-    except Exception:
-        return page({"cabinet": cabinet, "error": "Experio n'a pas pu donner les dossiers du cabinet."}, 503)
-    error = None
+    context = {"cabinet": cabinet, "kinds": KINDS, "weekdays": WEEKDAYS, "error": None}
     if request.method == "POST":
         try:
             form = await request.json()
@@ -120,21 +135,22 @@ async def routines_page(request: Request):
         action, given = form.get("action"), form.get("routine")
         given = given if isinstance(given, dict) else {}
         if form.get("cabinet") != cabinet:
-            error = "un autre cabinet a été choisi depuis l'ouverture de la page : rechargez-la"
+            context["error"] = "un autre cabinet a été choisi depuis l'ouverture de la page : rechargez-la"
         elif action not in ("create", "save", "delete"):
-            error = "action inconnue"
-        elif action != "delete":
-            error = await within(cabinet, problem_of, given, {d["id"] for d in known}) or None
-        if not error:
+            context["error"] = "action inconnue"
+        else:
             author = request.state.user["email"]
-            routine_id = await within(cabinet, saved, action, given, author)
-            await audit.record(author, "routine_saved", f"{cabinet} n° {routine_id}", change=action)
-    context = {
-        "cabinet": cabinet,
-        "routines": await within(cabinet, listed),
-        "dossiers": known,
-        "kinds": KINDS,
-        "weekdays": WEEKDAYS,
-        "error": error,
-    }
-    return page(context, 400 if error else 200)
+            try:
+                routine_id, problem = await within(cabinet, changed, action, given, author)
+                context["error"] = problem or None
+            except Exception:  # Experio unreachable for its checks: nothing saved
+                context["error"] = "Experio n'a pas pu vérifier l'adresse et les dossiers : rien n'est enregistré"
+            if not context["error"]:
+                await audit.record(author, "routine_saved", f"{cabinet} n° {routine_id}", change=action)
+    else:
+        try:
+            context["dossiers"] = await within(cabinet, dossiers)
+        except Exception:
+            return page({**context, "error": "Experio n'a pas pu donner les dossiers du cabinet."}, 503)
+    context["routines"] = await within(cabinet, shown)
+    return page(context, 400 if context["error"] else 200)
