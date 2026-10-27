@@ -4,6 +4,7 @@
 import json
 import os
 import stat
+import threading
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -70,7 +71,17 @@ def test_a_cli_answer_out_of_shape_says_tarik_s_reader_could_not_read_it(tmp_pat
 
 
 @pytest.mark.technical
-def test_tool_args_the_cli_keeps_refusing_are_asked_again_with_any_args_for_the_tool_to_check(monkeypatch):
+def test_a_call_waits_for_a_free_cli_process_and_gives_up_at_its_timeout(tmp_path, monkeypatch):
+    fake_cli(tmp_path, monkeypatch, {"is_error": False, "structured_output": {}})
+    monkeypatch.setattr(claude_code, "PROCESSES", threading.BoundedSemaphore(1))
+    claude_code.PROCESSES.acquire()  # the one process busy
+    with cabinets.using("cabinet_a"), pytest.raises(claude_code.ClaudeCodeError, match="free"):
+        claude_code.ask("sys", [], {"type": "object"}, timeout=0.05)
+    assert not (tmp_path / "args").exists()  # no CLI started
+
+
+@pytest.mark.technical
+def test_tool_args_the_cli_keeps_refusing_are_asked_again_with_any_values_for_the_tool_to_check(monkeypatch):
     @tool
     def find_dossier(name: str) -> str:
         """Find a dossier."""
@@ -78,17 +89,22 @@ def test_tool_args_the_cli_keeps_refusing_are_asked_again_with_any_args_for_the_
 
     schemas = []
 
-    def ask(system, content, schema):
+    def ask(system, content, schema, timeout=0):
         schemas.append(schema["properties"]["tool_calls"]["items"])
         if len(schemas) == 1:
             raise claude_code.ClaudeCodeUnreadable("retries spent")
-        return {"text": "", "tool_calls": [{"name": "find_dossier", "args": {"nom": "x"}}]}
+        return {"text": "", "tool_calls": [{"name": "find_dossier", "args": {"name": 3}}]}
 
     monkeypatch.setattr(claude_code, "ask", ask)
     monkeypatch.setattr(cabinets, "CABINETS", frozenset({"cabinet_a"}))
     reply = ChatClaudeCode(cabinet="cabinet_a").bind_tools([find_dossier]).invoke([HumanMessage("Bonjour")])
-    assert "anyOf" in schemas[0] and schemas[1]["properties"]["args"] == {"type": "object"}
-    assert [(call["name"], call["args"]) for call in reply.tool_calls] == [("find_dossier", {"nom": "x"})]
+    strict, loose = (found["anyOf"][0]["properties"] for found in schemas)
+    assert strict["args"]["properties"]["name"]["type"] == "string"
+    assert loose == {  # the names kept, the values left to the tool's own check
+        "name": {"const": "find_dossier"},
+        "args": {"type": "object", "properties": {"name": {}}, "additionalProperties": False},
+    }
+    assert [(call["name"], call["args"]) for call in reply.tool_calls] == [("find_dossier", {"name": 3})]
 
 
 @pytest.mark.technical
