@@ -2,16 +2,20 @@
 once, their report sent to a live collaborator, and a routine's run never confirming nor writing unattended."""
 
 import asyncio
+import io
 from datetime import datetime, timedelta
 
+import openpyxl
 import pytest
 
 from engine import calls, graphs
 from engine import routine as flow
 from engine import routines as clock
 from engine.tools.core.cabinets import cabinet_db
+from engine.tools.dossiers import routine_report as report_files
 from engine.tools.dossiers import routines
 from engine.tools.dossiers.routines import ZONE, next_run
+from engine.tools.emails.sending import inline_html, plain, render
 
 
 def at(text):
@@ -185,19 +189,24 @@ def test_a_period_runs_once_here_whatever_changes_meanwhile_and_each_minute_has_
 def running(db_cabinet, monkeypatch):
     """A routine's period run as its Routine workflow on the test cabinet: dossiers 5 and 6 opened by Tarik, its
     address live; the tools called and the workflows run nested."""
-    state = {"calls": [], "nested": []}
+    state = {"calls": [], "nested": [], "files": {}}
     monkeypatch.setattr(flow, "opened_dossiers", lambda: [{"id": 5, "name": "ALPHA"}, {"id": 6, "name": "BETA"}])
     monkeypatch.setattr(flow, "address_problem", lambda notify: "")
+    monkeypatch.setattr(flow, "keep_file", lambda session, name, data: state["files"].update({name: data}))
 
     async def call(cabinet, tool, **arguments):
         state["calls"].append((tool, arguments))
-        return f"avancement {arguments.get('dossier_id')}" if tool == "dossier_progress" else {"status": "ok"}
+        if tool == "dossier_progress_figures":
+            dossier_id = arguments["dossier_id"]
+            figures = {"progress": 10 * dossier_id, "suspense": dossier_id - 5, "pieces": 4, "exercice": "2026"}
+            return {"status": "ok", "message": f"Dossier n° {dossier_id}\nAvancement", "figures": figures}
+        return {"status": "ok"}
 
     async def nested(name, given, cabinet, session, node=None):
         state["nested"].append((name, given, session))
         if name == "discussion":
             return {"reply": f"fait : {given['message']}"}
-        return {"message": f"TVA du dossier {given['call']['dossier_id']} préparée."}
+        return {"message": f"TVA du dossier {given['call']['dossier_id']} préparée.", "outcomes": [{"status": "ok"}]}
 
     async def start(name, payload, slots=None):  # the trigger's run, its graph run as is (no run store here)
         output = await graphs.COMPILED[name].ainvoke(payload["input"], {"run_id": "run"})
@@ -217,11 +226,22 @@ def test_a_routine_works_on_every_dossier_tarik_opens_and_its_report_goes_to_its
     routine_id = due_routine("tva")
     (row,) = clock.claimed()
     report = asyncio.run(clock.ran(db_cabinet, row))
-    assert report == "TVA du dossier 5 préparée.\n\nTVA du dossier 6 préparée."
+    assert f"Voici le rapport de la routine n° {routine_id} : " in report
+    assert "- **2** dossiers parcourus : **2** préparées" in report
+    assert "**À voir**" not in report and "**En échec**" not in report  # only what happened is said
     assert [given["call"]["routine"] for _, given, _ in running["nested"]] == [True, True]  # made, never taken up
     (sent,) = [arguments for tool, arguments in running["calls"] if tool == "send_email"]
     assert sent["to"] == "chef@cabinet.ma" and sent["body"] == report
-    assert sent["attach_session"].startswith(f"routine-{routine_id}-")  # the XML the runs made
+    assert sent["attach_session"].startswith(f"routine-{routine_id}-")  # the XML the runs made, and the report's
+    sheet = openpyxl.load_workbook(io.BytesIO(next(d for n, d in running["files"].items() if n.endswith(".xlsx"))))
+    rows = list(sheet.active.values)
+    assert rows == [
+        ("Dossier", "Résultat", "Détail"),
+        ("ALPHA", "Préparée", "TVA du dossier 5 préparée."),
+        ("BETA", "Préparée", "TVA du dossier 6 préparée."),
+    ]
+    text = next(d for n, d in running["files"].items() if n.endswith(".csv")).decode("utf-8-sig")
+    assert text.splitlines()[:2] == ["Dossier;Résultat;Détail", "ALPHA;Préparée;TVA du dossier 5 préparée."]
     with cabinet_db() as db:
         assert db.execute("select report from tarik_routine_runs").fetchone() == (report,)
 
@@ -256,7 +276,10 @@ def test_a_failing_dossier_reads_as_tarik_says_never_as_the_error(running, db_ca
 
     monkeypatch.setattr(clock.runs, "nested", nested)
     report = asyncio.run(clock.ran(db_cabinet, row))
-    assert "secret" not in report and report.startswith("Dossier `ALPHA` : echec technique")
+    assert "- **2** dossiers parcourus : **2** en échec" in report
+    assert "**En échec**\n\n- `ALPHA`\n- `BETA`" in report
+    texts = [data for name, data in running["files"].items() if not name.endswith(".xlsx")]
+    assert all(b"secret" not in data and b"echec technique" in data for data in texts)
 
 
 @pytest.mark.communication
@@ -278,13 +301,14 @@ def test_a_dossier_s_own_refusal_is_its_line_and_no_dossier_is_nothing_to_say(ru
     (row,) = clock.claimed()
 
     async def call(cabinet, tool, **arguments):
-        if tool == "dossier_progress":
-            raise calls.ToolFailure("Experio n'a pas pu donner son état.")
+        if tool == "dossier_progress_figures":
+            raise calls.ToolFailure("Dossier `ALPHA` : Experio n'a pas pu donner son état.")
         return {"status": "ok"}
 
     monkeypatch.setattr(flow, "call", call)
-    report = asyncio.run(clock.ran(db_cabinet, row))
-    assert report.startswith("Dossier `ALPHA` : Experio n'a pas pu donner son état.")
+    assert "**2** en échec" in asyncio.run(clock.ran(db_cabinet, row))
+    plain = next(data for name, data in running["files"].items() if name.endswith(".txt")).decode()
+    assert plain.startswith("Dossier `ALPHA` : Experio n'a pas pu donner son état.")  # its own words
     monkeypatch.setattr(flow, "opened_dossiers", lambda: [])
     (row,) = [(*row[:7], row[7] - timedelta(days=1), row[8])]  # another period
     assert asyncio.run(clock.ran(db_cabinet, row)) == flow.NOTHING
@@ -309,8 +333,8 @@ def test_the_dossiers_not_reached_before_the_next_period_are_left_to_it(running,
     (row,) = clock.claimed()
     late = (*row[:7], datetime.now(ZONE) - timedelta(days=2), row[8])  # a period whose next one already came
     report = asyncio.run(clock.ran(db_cabinet, late))
-    assert report == "2 dossier(s) non traité(s) : la période suivante est arrivée avant."
-    assert not [tool for tool, _ in running["calls"] if tool == "dossier_progress"]
+    assert ": **2** non traités (la période suivante est arrivée avant)" in report
+    assert not [tool for tool, _ in running["calls"] if tool == "dossier_progress_figures"]
 
 
 @pytest.fixture
@@ -402,23 +426,42 @@ def test_an_approver_resumes_no_routine_either(chat, monkeypatch):
     assert routines.manage_routine("pause", routine_id=routine_id, session_id="s")["status"] == "ok"  # stopping is
 
 
-@pytest.mark.functionality
-def test_a_long_report_goes_as_a_file_and_quiet_dossiers_are_only_counted(running, db_cabinet, monkeypatch):
-    routine_id = due_routine("tva")
+@pytest.mark.communication
+def test_a_progress_report_is_a_few_lines_and_every_dossier_s_figures_are_in_the_files(running, db_cabinet):
+    due_routine("progress")
     (row,) = clock.claimed()
-    kept = []
-    monkeypatch.setattr(flow, "keep_file", lambda session, name, data: kept.append((name, data)))
-    monkeypatch.setattr(flow, "BODY_CHARACTERS", 10)
-    monkeypatch.setattr(flow, "opened_dossiers", lambda: [{"id": d, "name": str(d)} for d in (5, 6, 7)])
+    report = asyncio.run(clock.ran(db_cabinet, row))
+    excel, spreadsheet, text = running["files"]
+    assert report.split("\n\n**En bref**\n\n")[1].splitlines() == [
+        "- **2** dossiers parcourus : **2** lus",
+        "- Avancement moyen des dossiers (celui de chacun selon Experio) : **55 %**",
+        "- Opérations bancaires en suspens (comptabilisées, sans facture lettrée, exercice en cours) : **1** opération "
+        "dans **1** dossier",
+        "",
+        "**Les moins avancés**",
+        "",
+        "1. `ALPHA` : 50 %",
+        "2. `BETA` : 60 %",
+        "",
+        "**Le détail de chaque dossier est joint**",
+        "",
+        f"- `{excel}` : le tableau, un dossier par ligne, avec des filtres",
+        f"- `{spreadsheet}` : le même tableau, pour un autre logiciel",
+        f"- `{text}` : le détail complet, à lire tel quel",
+    ]
+    assert [name.rsplit(".", 1)[1] for name in running["files"]] == ["xlsx", "csv", "txt"]
+    sheet = openpyxl.load_workbook(io.BytesIO(next(d for n, d in running["files"].items() if n.endswith(".xlsx"))))
+    header, alpha, _ = sheet.active.values
+    assert header[:3] == ("Dossier", "Résultat", "Avancement (%)") and alpha[:3] == ("ALPHA", "Lu", 50)
+    shown, page = render(report)  # as the client reads it: headings bold, lists, never a raw mark
+    assert "<strong>En bref</strong>" in page and "<ol" in page and "**" not in shown and "**" not in plain(report)
 
-    async def declared(given, dossier_id):
-        return flow.NOTHING if dossier_id == 7 else f"TVA du dossier {dossier_id} préparée."
 
-    monkeypatch.setitem(flow.PARTS, "tva", declared)
-    body = asyncio.run(clock.ran(db_cabinet, row))
-    ((name, data),) = kept
-    assert name == f"routine-{routine_id}.txt" and data.decode().endswith("1 dossier(s) sans rien à préparer.")
-    assert body == "TVA du dos\n\n(Suite dans le fichier joint.)"
+@pytest.mark.communication
+def test_many_dossiers_to_see_are_named_five_then_counted():
+    parts = [{"dossier": f"D{i}", "result": report_files.TO_SEE, "detail": "?"} for i in range(8)]
+    body = report_files.summary("tva", parts, "routine n° 1", ["a.xlsx", "a.csv", "a.txt"])
+    assert "- `D4`\n- et **3** autres dans les fichiers joints" in body and "`D5`" not in body
 
 
 @pytest.mark.functionality
@@ -428,3 +471,28 @@ def test_a_period_still_running_is_never_claimed_again_behind_it(db_cabinet):
     with cabinet_db() as db:  # its next time already came, the first period not reported yet
         db.execute("update tarik_routines set next_run_at = now() - interval '1 minute' where id = %s", (routine_id,))
     assert [r[7] for r in clock.claimed()] == [row[7]]  # the unfinished one only, no second period
+
+
+@pytest.mark.security
+def test_a_dossier_s_name_never_runs_as_a_formula_nor_breaks_the_files_or_the_email():
+    parts = [{"dossier": "=HYPERLINK(1)", "result": report_files.FAILED, "detail": "a\x0cb `x` [lien](https://x.ma)"}]
+    header, rows = report_files.table("tva", parts)
+    assert rows == [["'=HYPERLINK(1)", "Échec", "ab `x` [lien](https://x.ma)"]]
+    assert openpyxl.load_workbook(io.BytesIO(report_files.workbook(header, rows))).active["A2"].data_type == "s"
+    body = report_files.summary("tva", [{**parts[0], "dossier": "X` [Payer](https://evil.ma) `Y"}], "routine", "abc")
+    assert "<a href" not in inline_html(body)  # a backtick in a name never ends its code span
+
+
+@pytest.mark.communication
+def test_a_declaration_already_there_is_said_so_and_a_dossier_done_is_never_behind(running, db_cabinet, monkeypatch):
+    due_routine("tva")
+    (row,) = clock.claimed()
+
+    async def nested(name, given, cabinet, session, node=None):
+        return {"message": "Déjà déclarée dans Experio.", "outcomes": [{"status": "ok", "already": True}]}
+
+    monkeypatch.setattr(clock.runs, "nested", nested)
+    assert "**2** déjà faites" in asyncio.run(clock.ran(db_cabinet, row))
+    done = {"result": report_files.READ, "detail": "", "figures": {"progress": 100, "suspense": 0}}
+    body = report_files.summary("progress", [{**done, "dossier": "A"}], "routine", "abc")
+    assert "**100 %**" in body and "Les moins avancés" not in body

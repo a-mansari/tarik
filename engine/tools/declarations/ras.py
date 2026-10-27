@@ -275,8 +275,9 @@ def prepare(kind, dossier_id, words, declarer, client_confirmed, context, sessio
     """Prepare one ``kind`` declaration, and declare it when ``declarer`` and ``client_confirmed``. ``new_only``: a
     declaration already there is only reported, never refreshed (prepare_ras_declaration).
 
-    Returns (status, text, declaration_id): status is "ok", "question" (declaration asked, not confirmed yet) or
-    "stop" (Experio would refuse or refused); declaration_id is None in test mode when none exists.
+    Returns (status, text, declaration_id): status is "ok", "already" (one already declared, or already prepared and
+    left as is: ``new_only``), "question" (declaration asked, not confirmed yet) or "stop" (Experio would refuse or
+    refused); declaration_id is None in test mode when none exists.
     """
     spec = KINDS[kind]
     mode, number, year = period_of(kind, words, date.today())
@@ -289,9 +290,9 @@ def prepare(kind, dossier_id, words, declarer, client_confirmed, context, sessio
     table["id"] = table_id
     lines = lines_of(kind, table_id, context)
     if table["state"] == "done":
-        return "ok", f"{label} (n° `{table_id}`) : déjà déclarée dans Experio. {totals(spec, lines)}", table_id
+        return "already", f"{label} (n° `{table_id}`) : déjà déclarée dans Experio. {totals(spec, lines)}", table_id
     if new_only and not made:
-        return "ok", f"{label} (n° `{table_id}`) : déjà préparée, non actualisée. {totals(spec, lines)}", table_id
+        return "already", f"{label} (n° `{table_id}`) : déjà préparée, non actualisée. {totals(spec, lines)}", table_id
     manual = sum(bool(line["added_manually"]) for line in lines)
     kept = ""
     if manual and kind in ("tva", "is", "ir"):  # Experio's refresh deletes them
@@ -406,4 +407,4 @@ def prepare_ras_declaration(
     if "stop" in statuses:
         return stop(text, declarations=ids)
     hint = "" if declarer else " Écrivez « déclarez les RAS » pour les déclarer dans Experio."
-    return ok(text + hint, declarations=ids)
+    return ok(text + hint, declarations=ids, already=statuses == {"already"})

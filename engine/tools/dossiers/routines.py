@@ -5,11 +5,12 @@ after check_manager). engine/routines.py starts each period as a Routine run (en
 A routine works on every dossier Tarik's own Experio account may open (search.opened_dossiers): that account's
 access is the limit. It prepares or reports, never declares nor posts: « tva » and « ras » make the declarations of
 the last ended period that do not exist yet (the Déclarations graph in its routine mode: one already there is only
-reported, never refreshed), « progress » sends each dossier's progress (dossier_progress), « instruction » hands its
-own ``prompt`` to Tarik's agent as a message, with nothing confirmed, declared nor posted and only the workflows that
-prepare (agent.run_workflow). Each run's report goes by email to ``notify``: an address the cabinet allows, of
-someone Experio itself shows every dossier to (live: Experio's staff, or a collaborator of the cabinet's admin
-profile, the users Experio puts on every new dossier, base_client res_company.py create), checked again at each run.
+reported, never refreshed), « progress » sends each dossier's progress (dossier_progress_figures), « instruction »
+hands its own ``prompt`` to Tarik's agent as a message, with nothing confirmed, declared nor posted and only the
+workflows that prepare (agent.run_workflow). Each run's report goes by email to ``notify``: an address the cabinet
+allows, of someone Experio itself shows every dossier to (live: Experio's staff, or a collaborator of the cabinet's
+admin profile, the users Experio puts on every new dossier, base_client res_company.py create), checked again at
+each run.
 
 Routines live in each cabinet's own schema: the Routines page and the tool only ever see the current cabinet's.
 """

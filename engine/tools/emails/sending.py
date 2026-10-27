@@ -227,6 +227,11 @@ def sublist(items):
     return SUBLIST.format("".join(f"<li>{inline_html(item)}</li>" for item in items)) if items else ""
 
 
+def plain(body):
+    """Return Tarik's Markdown ``body`` as the plain text its email shows (render), without the signature."""
+    return "\n\n".join(plain_block(kind, lines) for kind, lines in blocks(body))
+
+
 def render(body):
     """Return the email Tarik sends as (plain text, HTML page), both signed with the cabinet's name.
 
@@ -234,7 +239,7 @@ def render(body):
     parts = blocks(body)
     name = cabinet_name()
     signer = "Assistant comptable" + (f" | {name}" if name else "")
-    text = "\n\n".join(plain_block(kind, lines) for kind, lines in parts)
+    text = plain(body)
     rendered = "".join(html_block(kind, lines) for kind, lines in parts)
     page = PAGE.format(rendered, SIGNED.format(html.escape(signer)))
     return text + "\n\n" + "\n".join(["Cordialement,", "", "Tarik", signer]), page

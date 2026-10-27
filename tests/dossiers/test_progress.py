@@ -63,3 +63,12 @@ def test_a_dossiers_progress_by_experios_own_statuses(experio):
     assert "Déclarations 2026 :\n- TVA : Trimestre 1 Déclaré, T2 Brouillon" in text
     assert "Délais" not in text  # a declaration Experio lacks is left out
     assert all(context["skip_fiscal_year_filter"] for context in experio)  # every exercice's posted rows counted
+
+
+@pytest.mark.functionality
+def test_a_routine_reads_the_same_progress_as_figures_for_its_table(experio):
+    result = progress.dossier_progress_figures(5)
+    assert result["message"] == progress.dossier_progress(5)
+    figures = {"dossier": "BETA", "progress": 50, "pieces_booked": 8, "pieces": 16, "operations_booked": 8}
+    assert figures.items() <= result["figures"].items()
+    assert result["figures"]["suspense"] == 4 and result["figures"]["exercice"] == "Exercice 2026"
