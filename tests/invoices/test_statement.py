@@ -5,6 +5,7 @@ import io
 import openpyxl
 import pytest
 
+from engine.tools.core import experio as core
 from engine.tools.core.app import ToolError
 from engine.tools.core.experio import ExperioRefusal
 from engine.tools.invoices import intake, pipeline, statement
@@ -53,8 +54,9 @@ def experio(monkeypatch):
         "detected": [11, 12],
         "invoices": [{"id": 70, "invoice_number": "FA-0012"}],
         "in_use": [],
-        "form": {"partner_id": 9},  # what the line's form fills once the invoice is chosen; an error: refused
+        "form": {70: {"partner_id": 9}},  # {invoice: what the line's form fills once it is chosen, or its error}
         "typed": [],
+        "searched": [],
         "applied": [],
         "written": [],
         "post": None,
@@ -62,7 +64,7 @@ def experio(monkeypatch):
     for line in state["lines"]:
         line.setdefault("partner_id", False)
         line.update(operation_type="purchase", debit=200.0, credit=0.0, payment_ref=f"VIR {line['id']}")
-        line.update(payment_state="unpaid", is_reconciled=False)
+        line.update(payment_state="unpaid", is_reconciled=False, invoice_ids_domain="[('company_id', '=', 857)]")
 
     def odoo_call(model, method, *args, **kw):
         if model == statement.STATEMENT and method == "read":
@@ -77,6 +79,7 @@ def experio(monkeypatch):
         if model == statement.LINE and method == "search_read":
             return [{"invoice_ids": state["in_use"]}]
         if model == "exp.invoice":
+            state["searched"].append(args[0])
             return state["invoices"]
         if method == "search_count":
             return 1  # not the journal's first statement
@@ -84,10 +87,11 @@ def experio(monkeypatch):
 
     def odoo_json(model, method, ids, *args, **kw):
         if method == "onchange":
-            state["typed"].append((ids, args))
-            if isinstance(state["form"], Exception):
-                raise state["form"]
-            return {"value": state["form"]}
+            state["typed"].append((ids, (dict(args[0]), *args[1:])))
+            filled = state["form"].get(args[0]["invoice_ids"][0][2][0], {})
+            if isinstance(filled, Exception):
+                raise filled
+            return {"value": filled}
         if method == "action_refresh":
             return {"res_model": "bank.statement.line.detect.wizard", "res_id": 5}
         if method == "action_apply":
@@ -102,6 +106,7 @@ def experio(monkeypatch):
 
     monkeypatch.setattr(statement, "odoo_call", odoo_call)
     monkeypatch.setattr(statement, "odoo_json", odoo_json)
+    monkeypatch.setattr(core, "odoo_json", odoo_json)  # the line's form, typed in by core.type_in
     monkeypatch.setattr(statement, "dry_run", lambda: False)
     monkeypatch.setattr(statement, "statement_of", lambda file_id: (40, None))
     return state
@@ -128,6 +133,7 @@ def test_its_balances_are_said_when_they_do_not_hold(experio):
 def test_a_line_the_client_ties_to_an_invoice_by_its_number_gets_it(experio):
     result = statement.settle_statement(8, client_message="Le virement de 200 paie la facture FA-0012.")
     assert experio["written"] == [([1], {"invoice_ids": [(4, 70)]})]  # once: lines 2 and 3 owe the same, not twice
+    assert experio["searched"][0] == [("company_id", "=", 857), ("amount_residual", "=", 200.0)]  # the form's picker
     assert "1 rattachée(s) à la facture que vous avez citée" in result["message"]
 
 
@@ -147,17 +153,47 @@ def test_the_invoice_is_tried_in_the_lines_form_first(experio):
 
 
 @pytest.mark.functionality
-@pytest.mark.parametrize(
-    "in_use, form",
-    [([70], {}), ([], ExperioRefusal("...must have the same account as their operation..."))],
-    ids=["on another line", "refused by the line's form"],
-)
-def test_an_invoice_on_another_line_or_its_form_refuses_is_not_given(experio, in_use, form):
-    experio["in_use"] = in_use
-    experio["form"] = form
+def test_an_invoice_on_another_line_is_not_given(experio):
+    experio["in_use"] = [70]
+    result = statement.settle_statement(8, client_message="facture FA-0012")
+    assert experio["written"] == [] and experio["typed"] == []
+    assert "rattachée" not in result["message"]
+
+
+SAME_ACCOUNT = "Les factures sélectionnées doivent avoir le même compte que leur opération"
+
+
+@pytest.mark.functionality
+def test_an_invoice_the_lines_form_refuses_is_not_given_and_its_reason_said(experio):
+    experio["form"] = {70: ExperioRefusal(SAME_ACCOUNT, "odoo.exceptions.UserError")}
     result = statement.settle_statement(8, client_message="facture FA-0012")
     assert experio["written"] == []
-    assert "rattachée" not in result["message"]
+    assert f"qu'Experio refuse sur l'opération : FA-0012 : {SAME_ACCOUNT}." in result["message"]
+
+
+@pytest.mark.functionality
+def test_of_two_invoices_named_the_one_the_form_accepts_is_given(experio):
+    experio["lines"] = experio["lines"][1:2]
+    experio["invoices"].append({"id": 71, "invoice_number": "FA-0013"})
+    experio["form"] = {70: ExperioRefusal(SAME_ACCOUNT, "odoo.exceptions.UserError"), 71: {}}
+    result = statement.settle_statement(8, client_message="FA-0012 ou FA-0013")
+    assert experio["written"] == [([2], {"invoice_ids": [(4, 71)]})]  # the form filled no tiers: none written
+    assert "FA-0012 : " in result["message"]
+
+
+@pytest.mark.functionality
+def test_a_line_two_invoices_fit_gets_none_and_no_more_is_tried(experio):
+    experio["lines"] = experio["lines"][:1]
+    experio["invoices"] += [{"id": 71, "invoice_number": "FA-0013"}, {"id": 72, "invoice_number": "FA-0014"}]
+    statement.settle_statement(8, client_message="FA-0012 FA-0013 FA-0014")
+    assert experio["written"] == [] and len(experio["typed"]) == 2
+
+
+@pytest.mark.functionality
+def test_an_experio_error_other_than_a_refusal_stops_the_step(experio):
+    experio["form"] = {70: ExperioRefusal("Access denied", "odoo.exceptions.AccessError")}
+    with pytest.raises(ToolError, match="n'a pas pu le pointer"):
+        statement.settle_statement(8, client_message="facture FA-0012")
 
 
 @pytest.mark.functionality

@@ -441,11 +441,12 @@ def _form_values(invoice_id, types, context):
     return values
 
 
-def _type_in(invoice_id, values, name, types, context):
-    """Update ``values`` (the form's {field: value}, field ``name`` just typed in) in place with what Experio's
-    onchange fills in after it, limited to the fields in ``types``."""
+def type_in(model, record_id, values, name, types, context):
+    """Update ``values`` (record ``record_id``'s ``model`` form, {field: value}, field ``name`` just typed in) in place
+    with what Experio's onchange fills in after it, limited to the fields in ``types``. Saves nothing. Raises
+    ExperioRefusal when the form refuses the value."""
     spec = {field: {} for field in types}
-    answer = odoo_json("exp.invoice", "onchange", [invoice_id], values, [name], spec, context=context)
+    answer = odoo_json(model, "onchange", [record_id], values, [name], spec, context=context)
     filled = (answer or {}).get("value") or {}
     for key, new in filled.items():
         if key in types:
@@ -465,7 +466,7 @@ def fill_invoice(invoice_id, changes, context, save=True):
     start = dict(values)
     for name, value in changes.items():
         values[name] = value
-        _type_in(invoice_id, values, name, types, context)
+        type_in("exp.invoice", invoice_id, values, name, types, context)
 
     changed = {
         name: value
