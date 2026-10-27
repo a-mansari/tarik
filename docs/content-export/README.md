@@ -83,3 +83,7 @@ uses another one. A stack that edited one of these documents itself loses that e
   (`agent.json`, `skills/gestion-dossiers.md`), the step « Routine » and its inputs (`labels.json`). Import it after the
   acces-avancement export, once the stack runs the routines commit: before, the import is refused (it names a tool
   the stack lacks).
+- `tarik-contenu-routines-page-20261027.json` (and its `.diff`): the routine kind « instruction » and its `prompt` in
+  `Experio_routine` (`agent.json`) and when to use it (`skills/gestion-dossiers.md`), the input « Consigne de la
+  routine », the kind's name and the journal's « Routine modifiée » (`labels.json`). Import it after the routines
+  export, once the stack runs the Routines page commit.

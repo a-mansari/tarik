@@ -1,11 +1,11 @@
 """Record who did what in the UI, in one journal (table audit, shown on the admins' Journal page).
 
 Recorded actions (ACTIONS): logging in and out (failed attempts too); accounts made, closed, given a role or a new
-link; a password set through a link; content and cabinet settings changed (each also keeps its own history); a canvas
-layout saved or reset; a run started by hand; cabinets created, reactivated or closed. An entry is written once the
-action is done; when the journal cannot be written, the failure is logged and the action is not undone. A secret
-never goes in: no password, no link token, and a setting's value only when it is not secret (as settings_changes
-keeps it)."""
+link; a password set through a link; content and cabinet settings changed (each also keeps its own history); a
+routine made, changed or deleted; a canvas layout saved or reset; a run started by hand; cabinets created,
+reactivated or closed. An entry is written once the action is done; when the journal cannot be written, the
+failure is logged and the action is not undone. A secret never goes in: no password, no link token, and a setting's
+value only when it is not secret (as settings_changes keeps it)."""
 
 from psycopg.types.json import Jsonb
 
@@ -25,6 +25,7 @@ ACTIONS = (
     "password_set",
     "content_saved",
     "settings_saved",
+    "routine_saved",
     "layout_saved",
     "layout_reset",
     "run_started",

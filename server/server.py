@@ -72,11 +72,12 @@ COOKIE = "tarik_session"
 def admin_only(method, path):
     """True when the call (``method``, ``path``) needs an admin.
 
-    Admin-only: the cabinets' settings (reading too: they show logins, mailboxes, the whitelist), the accounts, the
+    Admin-only: the cabinets' settings (reading too: they show logins, mailboxes, the whitelist) and routines, the
+    accounts, the
     Journal, a change to the content, a change to a canvas's layout, and a run started by hand. Discussion stays open
     to every member."""
     return (
-        path.startswith(("/ui/api/settings", "/ui/api/comptes", "/ui/api/logs-serveur"))
+        path.startswith(("/ui/api/settings", "/ui/api/routines", "/ui/api/comptes", "/ui/api/logs-serveur"))
         or (method == "POST" and path.startswith(("/ui/api/tarik-prompts", "/runs/")))
         or (method in ("PUT", "DELETE") and path.startswith("/graphs/"))
     )
@@ -390,6 +391,7 @@ app = Starlette(
         Route("/ui/api/logs-serveur", api.journal.journal_page),
         Route("/ui/live", changes),
         Route("/ui/api/settings", api.settings.cabinet_page, methods=["GET", "POST"]),
+        Route("/ui/api/routines", api.routines.routines_page, methods=["GET", "POST"]),
         Route("/ui/api/tarik-prompts", api.content.contents_page),
         Route("/ui/api/tarik-prompts-export", api.content.export_contents),
         Route("/ui/api/tarik-prompts-import", api.content.import_contents, methods=["POST"]),

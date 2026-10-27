@@ -256,6 +256,12 @@ create table if not exists tarik_routines (
     next_run_at timestamptz not null,
     created_at timestamptz not null default now()
 );
+-- An instruction routine: its own words, handed to Tarik's agent at each run. Its kind added to the allowed ones
+-- (dropped and added again at each start, so it applies to schemas made before).
+alter table tarik_routines add column if not exists prompt text not null default '';
+alter table tarik_routines drop constraint if exists tarik_routines_kind_check;
+alter table tarik_routines add constraint tarik_routines_kind_check
+    check (kind in ('tva', 'ras', 'progress', 'instruction'));
 -- Each period a routine ran for: the same period never runs twice, after a restart included.
 create table if not exists tarik_routine_runs (
     routine_id integer not null references tarik_routines (id) on delete cascade,

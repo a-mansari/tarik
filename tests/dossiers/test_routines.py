@@ -39,8 +39,9 @@ def chat(db_cabinet, monkeypatch):
     return said
 
 
-def make(yes, email="chef@cabinet.ma", dossiers=(5, 6), hour=8):
-    return routines.manage_routine("create", "tva", list(dossiers), "month", 5, hour, 0, email, yes, "", "s")
+def make(yes, email="chef@cabinet.ma", dossiers=(5, 6), hour=8, kind="tva", prompt=""):
+    schedule = ("create", kind, list(dossiers), "month", 5, hour)
+    return routines.manage_routine(*schedule, email=email, prompt=prompt, client_confirmed=yes, session_id="s")
 
 
 @pytest.mark.security
@@ -147,7 +148,7 @@ def test_a_routines_report_is_sent_to_its_maker_and_kept(db_cabinet, monkeypatch
     monkeypatch.setattr(clock.runs, "start", start)
     monkeypatch.setattr(clock, "allowed_dossiers", lambda notify, ids: [5])  # 6 taken from them meanwhile
     report = asyncio.run(clock.ran(db_cabinet, row))
-    left = "1 dossier(s) laissé(s) de côté : `chef@cabinet.ma` ne les a plus dans Experio."
+    left = "1 dossier(s) laissé(s) de côté : `chef@cabinet.ma` ne les a plus dans Experio, ou ils sont fermés."
     assert report == f"TVA du dossier 5 préparée.\n\n{left}"
     (tool, sent) = calls[-1]
     assert tool == "send_email" and sent["to"] == "chef@cabinet.ma" and sent["body"] == report
@@ -191,12 +192,143 @@ def test_a_failing_dossier_reads_as_tarik_says_never_as_the_error(db_cabinet, mo
 
 
 @pytest.mark.functionality
-def test_the_address_may_still_see_only_the_dossiers_experio_gives_it(monkeypatch):
-    people = {
-        "chef@cabinet.ma": {"employee_type": "employee", "company_ids": [5]},
-        "jane@experio.ma": {"employee_type": "internal", "company_ids": []},
+def test_the_address_may_still_see_only_its_open_dossiers_in_experio(monkeypatch):
+    from engine.tools.dossiers import people
+
+    users = {
+        "chef@cabinet.ma": {"employee_type": "employee", "employee_state": "active", "company_ids": [5, 7]},
+        "jane@experio.ma": {"employee_type": "internal", "employee_state": "new", "company_ids": []},
+        "invite@cabinet.ma": {"employee_type": "employee", "employee_state": "new", "company_ids": [5]},
     }
-    monkeypatch.setattr(routines, "collaborator", people.get)
-    assert routines.allowed_dossiers("chef@cabinet.ma", [5, 6]) == [5]
-    assert routines.allowed_dossiers("jane@experio.ma", [5, 6]) == [5, 6]
-    assert routines.allowed_dossiers("parti@cabinet.ma", [5, 6]) == []
+    monkeypatch.setattr(routines, "collaborator", users.get)
+    open_dossiers = {5, 6}  # 7 reset to new: still in Chef's company_ids, closed all the same
+    still_open = lambda model, method, domain: [d for d in domain[-1][2] if d in open_dossiers]  # noqa: E731
+    monkeypatch.setattr(people, "odoo_call", still_open)
+    assert routines.allowed_dossiers("chef@cabinet.ma", [5, 6, 7]) == [5]
+    assert routines.allowed_dossiers("jane@experio.ma", [5, 6, 7]) == [5, 6]  # staff: every open dossier
+    assert routines.allowed_dossiers("invite@cabinet.ma", [5]) is None  # never came in: no report
+    assert routines.allowed_dossiers("parti@cabinet.ma", [5, 6]) is None  # gone: nothing, the routine paused
+
+
+@pytest.mark.functionality
+def test_an_instruction_routine_needs_its_words_and_its_dossiers(chat):
+    assert "quelle consigne" in make(True, kind="instruction")["message"]
+    said = "Dis-moi les factures en brouillon."
+    assert "pour quels dossiers" in make(True, dossiers=(), kind="instruction", prompt=said)["message"]
+    asked = make(False, dossiers=(5,), kind="instruction", prompt=said)
+    assert "suivre sa consigne « Dis-moi les factures en brouillon. »" in asked["message"]
+    assert make(True, dossiers=(5,), kind="instruction", prompt=said)["status"] == "ok"
+    with cabinet_db() as db:
+        assert db.execute("select kind, prompt from tarik_routines").fetchone() == (
+            "instruction",
+            "Dis-moi les factures en brouillon.",
+        )
+
+
+@pytest.mark.functionality
+def test_an_instruction_is_handed_to_the_agent_in_the_routines_own_session(db_cabinet, monkeypatch):
+    with cabinet_db() as db:
+        routine_id = db.execute(
+            "insert into tarik_routines (kind, dossier_ids, every, day, hour, notify, created_by, next_run_at, prompt) "
+            "values ('instruction', '{5}', 'day', 0, 8, 'chef@cabinet.ma', 'chat', %s, 'Liste les brouillons.') "
+            "returning id",
+            (datetime.now(ZONE) - timedelta(hours=1),),
+        ).fetchone()[0]
+    (row,) = clock.claimed()
+    started = []
+
+    async def start(name, payload):
+        started.append((name, payload))
+        done = asyncio.get_running_loop().create_future()
+        done.set_result(({"reply": "3 brouillons."}, None))
+        return "run", done
+
+    async def call(cabinet, tool, **arguments):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(clock, "allowed_dossiers", lambda notify, ids: ids)
+    monkeypatch.setattr(clock, "dossier_names", lambda ids: {5: "ALPHA"})
+    monkeypatch.setattr(clock.runs, "start", start)
+    monkeypatch.setattr(clock, "call", call)
+    assert asyncio.run(clock.ran(db_cabinet, row)) == "3 brouillons."
+    ((name, payload),) = started
+    named = "Liste les brouillons.\n\nDossiers (les seuls de cette routine) : ALPHA (id 5)"
+    assert name == "discussion" and payload["input"]["message"] == named
+    assert payload["session_id"].startswith(f"routine-{routine_id}-")
+
+
+@pytest.mark.security
+def test_a_routines_run_has_its_address_as_sender_and_a_routine_gone_none(db_cabinet):
+    from engine.tools.dossiers import people
+
+    routine_id = due_routine()
+    assert people.sender_of(f"routine-{routine_id}-2026102708") == "chef@cabinet.ma"
+    assert people.sender_of("routine-999-2026102708") == ""  # an address nobody has: nothing allowed
+    assert people.sender_of("routine-x") == ""
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(("session", "kept"), [("routine-3-2026102708", False), ("chat-" + "0" * 32, True)])
+def test_a_routines_run_never_confirms_declares_nor_posts(monkeypatch, session, kept):
+    from types import SimpleNamespace
+
+    from engine import agent, runs
+
+    handed = []
+
+    async def nested(name, given, cabinet, session_id, node=None):
+        handed.append(given["call"])
+        return {"message": "fait"}
+
+    monkeypatch.setattr(runs, "nested", nested)
+    runtime = SimpleNamespace(state={"messages": []}, config={"configurable": {"session_id": session, "cabinet": "c"}})
+    asked = {"client_confirmed": True, "declarer": True, "comptabiliser": "oui"}
+    asyncio.run(agent.run_workflow("declarations", runtime, asked))
+    (call,) = handed
+    said = (call["client_confirmed"], call["declarer"], call["comptabiliser"] == "oui")
+    assert said == (kept, kept, kept) and call.get("routine", False) is not kept
+
+
+@pytest.mark.security
+def test_a_routines_run_reads_only_its_own_dossiers_and_runs_only_what_prepares(monkeypatch):
+    from types import SimpleNamespace
+
+    from engine import agent, runs
+
+    scope = {"company_ids": [5]}
+    monkeypatch.setattr(agent, "sender_user", lambda session: ("chef@cabinet.ma", scope))
+
+    async def within(cabinet, function, *args):
+        return function(*args)
+
+    async def call(cabinet, tool, **arguments):
+        return f"lu {tool}"
+
+    async def nested(name, given, cabinet, session_id, node=None):
+        return {"message": f"{name} fait"}
+
+    monkeypatch.setattr(agent, "within", within)
+    monkeypatch.setattr(agent, "call", call)
+    monkeypatch.setattr(runs, "nested", nested)
+    runtime = SimpleNamespace(
+        state={"messages": []}, config={"configurable": {"session_id": "routine-3-2026102708", "cabinet": "c"}}
+    )
+    read = lambda tool, **given: asyncio.run(agent.reading(runtime, tool, **given))  # noqa: E731
+    assert "lu dossier_progress" in read("dossier_progress", dossier_id=5)
+    assert "n'est pas un dossier de cette routine" in read("dossier_progress", dossier_id=6)
+    assert agent.NOT_IN_ROUTINE in read("list_dossiers")  # no list of the cabinet's dossiers
+    assert asyncio.run(agent.run_workflow("declarations", runtime, {})) == "declarations fait"
+    assert asyncio.run(agent.run_workflow("dossier", runtime, {})) == agent.NOT_IN_ROUTINE  # no writes unattended
+    assert asyncio.run(agent.run_workflow("traitement", runtime, {})) == agent.NOT_IN_ROUTINE
+
+
+@pytest.mark.security
+def test_a_routines_run_is_its_address_limited_to_the_routines_open_dossiers(db_cabinet, monkeypatch):
+    from engine.tools.dossiers import people
+
+    routine_id = due_routine()  # dossiers 5 and 6
+    staff = {"id": 1, "name": "Jane", "employee_type": "internal", "employee_state": "new", "company_ids": []}
+    monkeypatch.setattr(people, "collaborator", lambda address: staff)
+    monkeypatch.setattr(people, "odoo_call", lambda model, method, domain: [5])  # 6 closed since
+    address, user = people.sender_user(f"routine-{routine_id}-2026102708")
+    assert address == "chef@cabinet.ma" and user["company_ids"] == [5] and user["employee_type"] == "employee"
