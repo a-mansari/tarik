@@ -13,10 +13,11 @@ from engine.tools.core.app import ToolError, ok, question, routine, step_tool, s
 from engine.tools.core.cabinets import cabinet_db, setting
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.conversation import client_messages, own_words
-from engine.tools.core.experio import dry_run, in_dossier, odoo_call, refused, require_dossier
+from engine.tools.core.experio import dossier_lock, dry_run, in_dossier, odoo_call, refused, require_dossier, would
 from engine.tools.core.model import pdf_pages, to_pdf
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
+from engine.tools.dossiers.banks import BANK_ALIASES, bank_named, give_bank, make_bank_journal, one_bank_named
 from engine.tools.invoices import tpe
 from engine.tools.invoices.classify import classify_pages, client_side
 from engine.tools.invoices.statement import import_canvas, is_canvas
@@ -493,37 +494,21 @@ def bank_journals(dossier_id):
             "exp.journal",
             "search_read",
             [("company_id", "=", dossier_id), ("type", "=", "bank")],
-            fields=["id", "name", "bank_id"],
+            fields=["id", "name", "bank_id", "partner_id"],
             order="name",
         )
     return journals, [journal for journal in journals if journal["bank_id"]]
 
 
-# Other names clients give a bank (normalized): its sigle, its old or short name.
-BANK_ALIASES = {
-    "bank of africa": ("bmce", "boa"),
-    "attijariwafa": ("awb", "attijari", "wafa"),
-    "banque populaire": ("bcp", "chaabi"),
-    "societe generale": ("sgmb",),
-    "saham": ("sgmb",),
-    "credit du maroc": ("cdm",),
-    "credit agricole": ("cam",),
-    "cih": ("cih bank",),
-    "bmci": ("bnp",),
-}
-
-
 def bank_names(journal):
     """Return every name ``journal`` can be called by (normalized): its own, its bank's, the sigle in its bank's name («
-    BANK OF AFRICA (BMCE) »), and the bank's usual other names (BANK_ALIASES)."""
+    BANK OF AFRICA (BMCE) »), and the names clients use for the bank (banks.BANK_ALIASES)."""
     bank = journal["bank_id"][1] if journal["bank_id"] else ""
     plain = re.sub(r"\([^)]*\)", " ", bank)  # « BANK OF AFRICA (BMCE) » is also « BANK OF AFRICA »
     parts = [*bank.split(" - "), *plain.split(" - ")]
     names = {normalized(journal["name"]), *(normalized(part) for part in parts)}
     names |= {normalized(sigle) for sigle in re.findall(r"\(([^)]+)\)", bank)}
-    for known, aliases in BANK_ALIASES.items():
-        if said(known, normalized(bank)):
-            names.update(aliases)
+    names.update(alias for alias, words in BANK_ALIASES.items() if said(words, normalized(bank)))
     return {name for name in names if name}
 
 
@@ -535,36 +520,89 @@ def journal_named(usable, words):
     return named[0] if len(named) == 1 else None
 
 
-def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
-    """Return the usable bank journal (dict) statement ``name`` goes to: ``journal_id`` when given, else the dossier's
-    only usable one, else the one the client names in ``client_message`` (« relevé du compte BMCE »).
+BANK_QUESTION = "De quelle banque est ce relevé ?"  # the answer goes back to the import as the client's words
 
-    Otherwise returns a result dict (it has "status"): a stop result when no journal of the dossier has a bank; a
-    question result listing the usable journals (``choices``) when several fit.
+
+def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
+    """Return the usable bank journal (dict) statement ``name`` goes to, and what Tarik did to have it (French text,
+    "" when nothing): ``journal_id`` when given, else chosen_journal's, under the dossier's lock (dossier_lock: the
+    statements of one message, run in parallel, never make the same journal twice).
+
+    Otherwise returns chosen_journal's question result.
 
     Raises:
         ToolError: ``journal_id`` is not a usable bank journal of the dossier."""
+    if journal_id:
+        _, usable = bank_journals(dossier_id)
+        if journal_id not in {j["id"] for j in usable}:
+            raise ToolError(
+                f"journal_id {journal_id} n'est pas un journal de banque utilisable du dossier `{dossier}`."
+            )
+        return next(j for j in usable if j["id"] == journal_id), ""
+    with (
+        dossier_lock(dossier_id),
+        refused(f"statement_journal {dossier_id}", f"Dossier `{dossier}` : Experio a refusé le journal de banque."),
+    ):
+        return chosen_journal(name, dossier, dossier_id, own_words(client_message))
+
+
+def chosen_journal(name, dossier, dossier_id, words):
+    """statement_journal without a journal given: the dossier's journal at the one bank the file's name or the client's
+    ``words`` name (« relevé BMCE »), made when the dossier has none there (make_bank_journal); else its only usable
+    one, else the one the client names by its own name.
+
+    First, a bank journal without its bank whose own name names one bank (« BQ AWB ») gets it, as ask_banks does
+    (give_bank). A bank named when the dossier has one journal still without its bank goes to that journal: no
+    second treasury journal.
+
+    Returns (journal, done), or (a question result, done): asking the bank when the dossier has no usable journal and
+    nothing names one (``choices`` {bank_id: name}), or listing the usable journals (``choices``) when several fit."""
+    context = in_dossier(dossier_id)
     journals, usable = bank_journals(dossier_id)
+    banks = odoo_call("res.bank", "search_read", [], fields=["name"], order="name", context=context)
+    done = []
+    for journal in journals:
+        found = not journal["bank_id"] and bank_named(journal["name"], banks)
+        if found:
+            give_bank(dossier_id, journal, found, context)
+            journal["bank_id"] = [found["id"], found["name"]]
+            usable.append(journal)
+            done.append(f"journal `{journal['name']}` {would('mis')} à la banque `{found['name']}` (d'après son nom)")
+    bank = one_bank_named(f"{name.rsplit('.', 1)[0]} {words}", banks)  # « relevés BMCE et SGMB »: none taken
+    bankless = [j for j in journals if not j["bank_id"]]
+    if bank:
+        at = [j for j in usable if j["bank_id"][0] == bank["id"]]
+        if not at and len(bankless) == 1:  # the dossier's one journal without its bank: this bank's, no new one
+            give_bank(dossier_id, bankless[0], bank, context)
+            done.append(f"journal `{bankless[0]['name']}` {would('mis')} à la banque `{bank['name']}`")
+            return {**bankless[0], "bank_id": [bank["id"], bank["name"]]}, notice(done)
+        if not at:
+            made = make_bank_journal(dossier_id, bank, context)
+            done.append(
+                f"journal de banque `{made['name']}` {would('créé')} (code `{made['code']}`, compte "
+                f"`{made['account']}`) : le dossier n'en avait pas à cette banque"
+            )
+            return made, notice(done)
+        usable = at
+    named = usable[0] if len(usable) == 1 else journal_named(usable, words)
+    if named:
+        return named, notice(done)
     if not usable:
-        unset = ", ".join(f"`{j['name']}`" for j in journals)
-        unset = f" ({unset} sans banque renseignee)" if journals else ""
-        return stop(
-            f"Le dossier `{dossier}` n'a aucun journal de banque utilisable{unset} : a configurer par le cabinet."
-        )
-    if not journal_id:
-        if len(usable) == 1:
-            return usable[0]
-        named = journal_named(usable, own_words(client_message))
-        if named:
-            return named
-        accounts = ", ".join(f"`{j['name']}` - `{j['bank_id'][1]}` (n° {j['id']})" for j in usable)
         return question(
-            f"`{name}` : le dossier `{dossier}` a plusieurs comptes bancaires, lequel ? {accounts}",
-            choices={j["id"]: f"{j['name']} - {j['bank_id'][1]}" for j in usable},
-        )
-    if journal_id not in {j["id"] for j in usable}:
-        raise ToolError(f"journal_id {journal_id} n'est pas un journal de banque utilisable du dossier `{dossier}`.")
-    return next(j for j in usable if j["id"] == journal_id)
+            f"`{name}` : le dossier `{dossier}` n'a pas encore de journal de banque utilisable. {BANK_QUESTION} "
+            "Je règle son journal.",
+            choices={b["id"]: b["name"] for b in banks},
+        ), ""
+    accounts = ", ".join(f"`{j['name']}` - `{j['bank_id'][1]}` (n° {j['id']})" for j in usable)
+    return question(
+        f"`{name}` : le dossier `{dossier}` a plusieurs comptes bancaires, lequel ? {accounts}{notice(done)}",
+        choices={j["id"]: f"{j['name']} - {j['bank_id'][1]}" for j in usable},
+    ), ""
+
+
+def notice(done):
+    """Return what Tarik did to have the journal, as a sentence for the reply ("" when nothing)."""
+    return f" {TEST_MODE if dry_run() else 'Fait : '}{' ; '.join(done)}." if done else ""
 
 
 def import_tpe_file(db, file_id, name, raw, dossier, dossier_id, journal_id, network, client_message):
@@ -581,18 +619,18 @@ def import_tpe_file(db, file_id, name, raw, dossier, dossier_id, journal_id, net
         _, usable = bank_journals(dossier_id)
         last = tpe.last_journal(dossier_id)
         journal_id = last if last in {j["id"] for j in usable} else 0
-    journal = statement_journal(name, dossier, dossier_id, journal_id, client_message)
+    journal, done = statement_journal(name, dossier, dossier_id, journal_id, client_message)
     if "status" in journal:
         return journal
     label = tpe.network_label(network)
     if dry_run():
-        return ok(f"{TEST_MODE}`{name}` : le relevé TPE {label} serait importé, journal `{journal['name']}`.")
+        return ok(f"{TEST_MODE}`{name}` : le relevé TPE {label} serait importé, journal `{journal['name']}`.{done}")
     with refused(f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé TPE {name}."):
         statement_id = tpe.import_tpe(name, raw, dossier_id, journal["id"], network)
     db.execute(Q.set_file_statement, (statement_id, network, file_id))
     return ok(
         f"`{name}` : relevé TPE {label} importé (n° {statement_id}) dans le dossier `{dossier}`, "
-        f"journal `{journal['name']}`.",
+        f"journal `{journal['name']}`.{done}",
         statement_id=statement_id,
     )
 
@@ -653,17 +691,17 @@ def import_bank_statement(
                     network or read,
                     client_message,
                 )
-        journal = statement_journal(name, dossier, dossier_id, journal_id, client_message)
+        journal, done = statement_journal(name, dossier, dossier_id, journal_id, client_message)
         if "status" in journal:
             return journal
         if bank_code(journal) in UNSUPPORTED_BANKS:  # Experio's own list (bank_statement._compute_is_not_supported)
             return stop(
                 f"`{name}` : Experio ne lit pas encore les relevés de `{journal['bank_id'][1]}` : rien n'a été "
-                "importé, à saisir par le cabinet (ou en Excel, sur le canevas d'Experio)."
+                "importé, à saisir par le cabinet (ou en Excel, sur le canevas d'Experio)." + done
             )
         if is_canvas(name, data):  # Experio's Excel template: its own import, into a statement of this journal
             if dry_run():
-                return ok(f"{TEST_MODE}`{name}` : le relevé Excel serait importé, journal `{journal['name']}`.")
+                return ok(f"{TEST_MODE}`{name}` : le relevé Excel serait importé, journal `{journal['name']}`.{done}")
             with refused(
                 f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé {name} ({{reason}})."
             ):
@@ -671,14 +709,14 @@ def import_bank_statement(
             db.execute(Q.set_file_statement, (statement_id, None, file_id))
             return ok(
                 f"`{name}` : relevé Excel importé (n° {statement_id}) dans le dossier `{dossier}`, "
-                f"journal `{journal['name']}`.",
+                f"journal `{journal['name']}`.{done}",
                 statement_id=statement_id,
             )
         merged = same_statement_files(db, file_id, client_message)
         if dry_run():
             return ok(
                 f"{TEST_MODE}`{name}` : le relevé serait importé dans le dossier `{dossier}`, "
-                f"journal `{journal['name']}`."
+                f"journal `{journal['name']}`.{done}"
             )
         raw = as_pdf(mime, data)
         if merged:  # « le même relevé » in several files: one statement, their pages in the order sent (merged_pdf)
@@ -695,10 +733,11 @@ def import_bank_statement(
             names = ", ".join(f"`{other}`" for _, other, _, _ in merged)
             return ok(
                 f"`{name}` et {names} : un seul relevé importé (n° {statement_id}) dans le dossier `{dossier}`, "
-                f"journal `{journal['name']}`.",
+                f"journal `{journal['name']}`.{done}",
                 statement_id=statement_id,
             )
     return ok(
-        f"`{name}` : relevé importé (n° {statement_id}) dans le dossier `{dossier}`, journal `{journal['name']}`.",
+        f"`{name}` : relevé importé (n° {statement_id}) dans le dossier `{dossier}`, "
+        f"journal `{journal['name']}`.{done}",
         statement_id=statement_id,
     )

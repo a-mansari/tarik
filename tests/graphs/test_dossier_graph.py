@@ -115,7 +115,7 @@ def test_a_dossier_given_has_its_sender_checked_then_its_files_imported(steps):
 
 @pytest.mark.security
 @pytest.mark.parametrize("status", NOT_OK)
-@pytest.mark.parametrize("mode", ["", "update", "person", "archive", "difference"])
+@pytest.mark.parametrize("mode", ["", "update", "archive", "difference"])
 def test_a_refused_sender_changes_nothing(steps, mode, status):
     steps.answer("check_sender", {"status": status})
     steps.run(graph, mode=mode, dossier_id=5)
@@ -127,7 +127,6 @@ def test_a_refused_sender_changes_nothing(steps, mode, status):
     "mode, tool",
     [
         ("update", "update_dossier"),
-        ("person", "create_person"),
         ("archive", "archive_dossier"),
         ("difference", "settle_difference"),
     ],
@@ -138,6 +137,27 @@ def test_each_change_runs_its_one_step_after_the_sender_check(steps, mode, tool,
     steps.run(graph, mode=mode, dossier_id=5)
     assert steps.names == ["save_files", "check_sender", tool, "run_summary"]
     assert steps.args(tool)[0]["dossier_id"] == 5
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("status", NOT_OK)
+@pytest.mark.parametrize("mode", ["person", "access"])
+def test_a_sender_who_may_not_manage_people_changes_no_access(steps, mode, status):
+    steps.answer("check_manager", {"status": status})
+    steps.run(graph, mode=mode, dossier_id=5)
+    assert steps.names == ["save_files", "check_manager", "run_summary"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("mode, tool", [("person", "create_person"), ("access", "change_access")])
+@pytest.mark.parametrize("status", ["ok", *NOT_OK])
+def test_a_person_or_an_access_is_changed_after_the_manager_check(steps, mode, tool, status):
+    steps.answer(tool, {"status": status})
+    steps.run(graph, mode=mode, dossier_id=5, action="assign", email="samira@cabinet.ma")
+    assert steps.names == ["save_files", "check_manager", tool, "run_summary"]
+    assert steps.args(tool)[0]["dossier_id"] == 5 and steps.args("check_manager") == [{"session_id": "s1"}]
+    if tool == "change_access":
+        assert steps.args(tool)[0]["action"] == "assign" and steps.args(tool)[0]["email"] == "samira@cabinet.ma"
 
 
 @pytest.mark.functionality

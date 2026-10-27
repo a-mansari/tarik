@@ -68,6 +68,7 @@ READ_TOOLS = (
     "list_invoices",
     "list_collaborators",
     "list_accounts",
+    "dossier_progress",
 )
 
 
@@ -160,6 +161,9 @@ def read_tool(tool_name):
 
     async def list_accounts(dossier_id: int, runtime: ToolRuntime, search: str = "", side: str = "") -> str:
         return await reading(runtime, tool_name, dossier_id=dossier_id, search=search, side=side)
+
+    async def dossier_progress(dossier_id: int, runtime: ToolRuntime, year: int = 0) -> str:
+        return await reading(runtime, tool_name, dossier_id=dossier_id, year=year)
 
     function = locals()[tool_name]
     # Described by the tool's own docstring (engine/tools/), kept in content/agent.json to be edited.
@@ -364,6 +368,26 @@ async def creer_acces(
     return await run_workflow("dossier", runtime, inputs)
 
 
+@tool("Experio_gerer_acces", description=DESCRIBED_LATER)
+async def gerer_acces(
+    action: str,
+    email: str,
+    runtime: ToolRuntime,
+    dossier_id: int = 0,
+    profile: str = "",
+    client_confirmed: bool = False,
+) -> str:
+    inputs = {
+        "mode": "access",
+        "action": action,
+        "email": email,
+        "dossier_id": dossier_id,
+        "profile": profile,
+        "client_confirmed": client_confirmed,
+    }
+    return await run_workflow("dossier", runtime, inputs)
+
+
 @tool("Experio_archiver_dossier", description=DESCRIBED_LATER)
 async def archiver_dossier(dossier_id: int, runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
@@ -541,6 +565,7 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     parametrer_dossier,
     modifier_dossier,
     creer_acces,
+    gerer_acces,
     archiver_dossier,
     solder_ecart,
     declaration_tva,

@@ -10,6 +10,7 @@ from PIL import Image
 
 from engine.tools.core.app import ToolError
 from engine.tools.core.cabinets import cabinet_db
+from engine.tools.dossiers import banks
 from engine.tools.invoices import intake
 
 
@@ -56,7 +57,7 @@ class Experio:
         if model == "exp.journal":
             return self.journals
         if model == "res.bank":
-            return [{"code": self.bank_code}]
+            return [{"id": 1, "name": "BANK OF AFRICA (BMCE)", "code": self.bank_code}]
         if method == "create":
             if self.refusal:
                 raise self.refusal
@@ -170,25 +171,98 @@ def test_a_journal_without_bank_has_no_bank_code(monkeypatch):
     assert intake.bank_code({"bank_id": False}) == "" and intake.bank_code({"bank_id": [1, "X"]}) == ""
 
 
+BANKS = [{"id": 1, "name": "BANK OF AFRICA (BMCE)"}, {"id": 2, "name": "CIH"}]
+
+
+def fake_experio(journals, written):
+    """odoo_call for statement_journal: ``journals`` the dossier's bank journals; what is written or made goes in
+    ``written``."""
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "res.bank":
+            return BANKS
+        if method in ("write", "create", "unlink"):
+            written.append((model, method, *args))
+            return 90 + len(written)
+        if model == "exp.journal" and method == "search_read" and args[0][-1][0] == "active":  # codes, archived too
+            return [{"code": "BQ"}]
+        if model == "exp.journal":
+            return journals
+        if model == "exp.account" and method == "search_read":
+            return [{"code": "51410000"}]
+        if model == "exp.account" and method == "read":
+            return [{"code": "51411000"}]
+        if model == "exp.partner":
+            return []
+        if model == "res.company":
+            return [{"accounts_chart_length": 8}]
+        raise AssertionError((model, method))
+
+    return odoo_call
+
+
 @pytest.mark.communication
-@pytest.mark.parametrize(
-    ("journals", "said"),
-    [
-        ([{"id": 5, "name": "BQ1", "bank_id": False}], "aucun journal de banque utilisable (`BQ1` sans banque"),
-        ([], "aucun journal de banque utilisable : a configurer"),
-    ],
-)
-def test_a_dossier_without_usable_bank_journal_stops_for_the_cabinet(monkeypatch, journals, said):
-    monkeypatch.setattr(intake, "odoo_call", lambda *a, **k: journals)
-    answer = intake.statement_journal("r.pdf", "ATLAS", 857, 0)
-    assert answer["status"] == "stop" and said in answer["message"]
+@pytest.mark.parametrize("journals", [[{"id": 5, "name": "BQ1", "bank_id": False}], []])
+def test_a_dossier_without_bank_journal_asks_the_statements_bank(monkeypatch, journals):
+    monkeypatch.setattr(intake, "odoo_call", fake_experio(journals, []))
+    monkeypatch.setattr(intake, "dry_run", lambda: False)
+    answer, _ = intake.statement_journal("r.pdf", "ATLAS", 857, 0)
+    assert answer["status"] == "question" and intake.BANK_QUESTION in answer["message"]
+    assert answer["choices"] == {1: "BANK OF AFRICA (BMCE)", 2: "CIH"}
+
+
+@pytest.mark.functionality
+def test_a_journal_named_after_its_bank_gets_it_and_takes_the_statement(monkeypatch):
+    written = []
+    fake = fake_experio([{"id": 5, "name": "BQ BMCE", "bank_id": False, "partner_id": False}], written)
+    monkeypatch.setattr(intake, "odoo_call", fake)
+    monkeypatch.setattr(banks, "odoo_call", fake)
+    monkeypatch.setattr(intake, "dry_run", lambda: False)
+    monkeypatch.setattr(banks, "dry_run", lambda: False)
+    journal, done = intake.statement_journal("r.pdf", "ATLAS", 857, 0)
+    assert journal["id"] == 5 and written == [("exp.journal", "write", [5], {"bank_id": 1})]
+    assert "journal `BQ BMCE` mis à la banque `BANK OF AFRICA (BMCE)` (d'après son nom)" in done
+
+
+@pytest.mark.functionality
+def test_a_statement_of_a_bank_the_dossier_has_no_journal_at_makes_its_journal(monkeypatch):
+    written = []
+    bmce = [{"id": 5, "name": "BMCE", "bank_id": [1, "BANK OF AFRICA (BMCE)"]}]
+    monkeypatch.setattr(intake, "odoo_call", fake_experio(bmce, written))
+    monkeypatch.setattr(banks, "odoo_call", fake_experio(bmce, written))
+    monkeypatch.setattr(intake, "dry_run", lambda: False)
+    monkeypatch.setattr(banks, "dry_run", lambda: False)
+    journal, done = intake.statement_journal("releve_CIH_mars.pdf", "ATLAS", 857, 0)
+    account = ("exp.account", "create", {"code": "51411000", "name": "Banque CIH", "company_id": 857})
+    made = {"name": "Banque CIH", "code": "BQ1", "type": "bank", "company_id": 857, "bank_id": 2}
+    made["default_account_id"] = 91
+    assert written == [account, ("exp.journal", "create", made)]
+    assert journal["id"] == 92 and journal["bank_id"] == [2, "CIH"]
+    assert "Fait : journal de banque `Banque CIH` créé (code `BQ1`, compte `51411000`)" in done
+
+
+@pytest.mark.functionality
+def test_a_journal_refused_takes_back_the_account_made_for_it(monkeypatch):
+    written = []
+    fake = fake_experio([], written)
+
+    def refusing(model, method, *args, **kw):
+        if model == "exp.journal" and method == "create":
+            raise RuntimeError("code déjà utilisé")
+        return fake(model, method, *args, **kw)
+
+    monkeypatch.setattr(banks, "odoo_call", refusing)
+    monkeypatch.setattr(banks, "dry_run", lambda: False)
+    with pytest.raises(RuntimeError):
+        banks.make_bank_journal(857, BANKS[1], {})
+    assert [w[1] for w in written] == ["create", "unlink"] and written[1][2] == [91]
 
 
 @pytest.mark.security
 def test_the_journal_given_must_be_a_usable_bank_journal_of_the_dossier(monkeypatch):
     usable = [{"id": 5, "name": "BMCE", "bank_id": [1, "BMCE"]}, {"id": 6, "name": "CDM", "bank_id": [2, "CDM"]}]
     monkeypatch.setattr(intake, "odoo_call", lambda *a, **k: usable)
-    assert intake.statement_journal("r.pdf", "ATLAS", 857, 6) == usable[1]
+    assert intake.statement_journal("r.pdf", "ATLAS", 857, 6) == (usable[1], "")
     with pytest.raises(ToolError, match="journal_id 9"):
         intake.statement_journal("r.pdf", "ATLAS", 857, 9)
 
@@ -343,3 +417,26 @@ def test_a_statement_import_refused_says_so_and_links_nothing(experio, monkeypat
     with pytest.raises(ToolError, match="n'a pas pu importer le relevé releve.pdf"):
         intake.import_bank_statement(file_id, 857)
     assert row(file_id, "statement_id") == (None,)
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("said", ["ci-joint le relevé de ce mois", "relevés BMCE et CIH"])
+def test_a_journal_is_made_only_for_a_bank_named_in_whole_words(monkeypatch, said):
+    written = []
+    bmce = [{"id": 5, "name": "BMCE", "bank_id": [1, "BANK OF AFRICA (BMCE)"], "partner_id": False}]
+    monkeypatch.setattr(intake, "odoo_call", fake_experio(bmce, written))
+    monkeypatch.setattr(intake, "dry_run", lambda: False)
+    journal, _ = intake.statement_journal("r.pdf", "ATLAS", 857, 0, said)
+    assert written == [] and (journal.get("id") == 5 or journal["status"] == "question")  # never a CIH journal
+
+
+@pytest.mark.functionality
+def test_the_bank_named_goes_to_the_dossiers_one_journal_without_bank_not_a_new_one(monkeypatch):
+    written = []
+    fake = fake_experio([{"id": 5, "name": "BANQUE", "bank_id": False, "partner_id": False}], written)
+    for module in (intake, banks):
+        monkeypatch.setattr(module, "odoo_call", fake)
+        monkeypatch.setattr(module, "dry_run", lambda: False)
+    journal, done = intake.statement_journal("r.pdf", "ATLAS", 857, 0, "CIH")
+    assert journal["id"] == 5 and written == [("exp.journal", "write", [5], {"bank_id": 2})]
+    assert "journal `BANQUE` mis à la banque `CIH`" in done

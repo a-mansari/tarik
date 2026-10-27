@@ -3,8 +3,10 @@
 - Creation (the cabinet's managers and Experio's staff only, check_creator): create the dossier, or each dossier of a
   spreadsheet (mode dossiers); copy a model dossier's configuration; import the files' entries; ask the bank of each
   bank journal; finish the onboarding and report its state.
-- Modes update, person, archive, difference: one change to a dossier the sender has (difference: write off a posted
+- Modes update, archive, difference: one change to a dossier the sender has (difference: write off a posted
   invoice's remainder).
+- Modes person, access: create and invite a person, or change one's access (a dossier given or taken, a role, an
+  invitation sent again), for a sender whose own Experio profile may manage users (check_manager).
 - Mode resume: finish the conversation's dossiers left waiting.
 One step per node, so the canvas shows each. No time budget: finish_setup gets seconds_left 0 (no limit)."""
 
@@ -35,6 +37,7 @@ INPUTS = [
     "email",
     "phone",
     "profile",
+    "action",
     "rc",
     "patente",
     "tsc",
@@ -71,13 +74,16 @@ async def start(state: Run, config):
 
 @stops_at("resume")
 def by_mode(state: Run):
-    """Route after the start: "resume" on a failed save; "expediteur" for a change mode or a given dossier;
+    """Route after the start: "resume" on a failed save; "gestionnaire" for a person or an access change;
+    "expediteur" for another change mode or a given dossier;
     "reprise" for mode resume; else "createur" (create a dossier or a spreadsheet's dossiers)."""
     call = state["call"]
     if failed(state):
         return "resume"  # a failed save is recorded and goes no further: the files the run would work on are missing
     mode = call.get("mode")
-    if mode in ("update", "person", "archive", "difference"):
+    if mode in ("person", "access"):
+        return "gestionnaire"
+    if mode in ("update", "archive", "difference"):
         return "expediteur"
     if mode == "resume":
         return "reprise"
@@ -141,6 +147,36 @@ def after_creator(state: Run):
     return "fichiers" if state["call"].get("mode") == "dossiers" else "creation"
 
 
+async def manager(state: Run):
+    """Graph node: check the sender may manage people in Experio (check_manager)."""
+    return {"outcomes": [await run_step(state, "check_manager", session_id=state["call"]["session_id"])]}
+
+
+@stops_at("resume")
+def after_manager(state: Run):
+    """Route to "acces" (mode person) or "droits" (mode access); "resume" when the check failed."""
+    if failed(state):
+        return "resume"
+    return "acces" if state["call"].get("mode") == "person" else "droits"
+
+
+async def access(state: Run):
+    """Graph node: change a person's access (change_access)."""
+    call = state["call"]
+    result = await run_step(
+        state,
+        "change_access",
+        action=call.get("action") or "",
+        email=call.get("email") or "",
+        dossier_id=call.get("dossier_id") or 0,
+        profile=call.get("profile") or "",
+        client_confirmed=call.get("client_confirmed") is True,
+        client_message=call.get("client_message") or "",
+        session_id=call["session_id"],
+    )
+    return {"outcomes": [result]}
+
+
 async def sender(state: Run):
     """Graph node: check the sender may work on the call's dossier (check_sender)."""
     return await sender_checked(state, state["call"]["dossier_id"])
@@ -148,13 +184,12 @@ async def sender(state: Run):
 
 @stops_at("resume")
 def after_sender(state: Run):
-    """Route to the mode's change node (modification, acces, archivage, ecart), else "fichiers" (an existing dossier's
+    """Route to the mode's change node (modification, archivage, ecart), else "fichiers" (an existing dossier's
     onboarding); "resume" when the check failed."""
     if failed(state):
         return "resume"
     return {
         "update": "modification",
-        "person": "acces",
         "archive": "archivage",
         "difference": "ecart",
     }.get(state["call"].get("mode"), "fichiers")
@@ -318,9 +353,11 @@ for name, node in {
     "createur": creator,
     "creation": create,
     "configuration": configuration,
+    "gestionnaire": manager,
     "expediteur": sender,
     "modification": update,
     "acces": person,
+    "droits": access,
     "archivage": archive,
     "ecart": difference,
     "fichiers": files,
@@ -334,19 +371,18 @@ for name, node in {
 }.items():
     run.add_node(name, node)
 run.add_edge(START, "debut")
-run.add_conditional_edges("debut", by_mode, ["createur", "expediteur", "reprise", "resume"])
+run.add_conditional_edges("debut", by_mode, ["createur", "gestionnaire", "expediteur", "reprise", "resume"])
+run.add_conditional_edges("gestionnaire", after_manager, ["acces", "droits", "resume"])
 run.add_conditional_edges("createur", after_creator, ["creation", "fichiers", "resume"])
 run.add_conditional_edges("creation", after_create, ["configuration", "fichiers", "resume"])
 run.add_conditional_edges("configuration", *ok_or_summary("fichiers"))  # a refused copy goes no further
-run.add_conditional_edges(
-    "expediteur", after_sender, ["modification", "acces", "archivage", "ecart", "fichiers", "resume"]
-)
+run.add_conditional_edges("expediteur", after_sender, ["modification", "archivage", "ecart", "fichiers", "resume"])
 run.add_conditional_edges("fichiers", after_files, ["listes", "ecritures", "resume"])
 run.add_conditional_edges("ecritures", after_entries, ["banques", "resume"])
 run.add_edge("banques", "finalisation")
 run.add_edge("reprise", "finalisation")
 run.add_conditional_edges("finalisation", after_finish, ["etat", "resume"])
-for name in ("modification", "acces", "archivage", "ecart", "listes", "etat"):
+for name in ("modification", "acces", "droits", "archivage", "ecart", "listes", "etat"):
     run.add_edge(name, "resume")
 run.add_edge("resume", END)
 graph = run.compile(name="Tarik - Dossier")

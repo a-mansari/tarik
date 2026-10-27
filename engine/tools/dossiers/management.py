@@ -1,5 +1,6 @@
-"""Manage dossiers and who works on them, as Experio's Folders screen does: create the dossiers listed in a
-spreadsheet, create a collaborateur or a client and give them a dossier, archive a dossier.
+"""Manage dossiers and who works on them, as Experio's Folders and Users screens do: create the dossiers listed in a
+spreadsheet, create and invite a collaborateur or a client and give them a dossier, give or take a dossier, change a
+role, send an invitation again, archive a dossier.
 
 Each tool reads the values back and writes only once the client said yes to that read-back (identity.confirmed):
 a res.company or a res.users cannot be deleted from here, and only the client can catch a misread digit.
@@ -8,14 +9,14 @@ a res.company or a res.users cannot be deleted from here, and only the client ca
 import csv
 import io
 
-from engine.tools.core.app import ToolError, ok, question, step_tool, stop
+from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import POSTED, TEST_MODE
 from engine.tools.core.conversation import client_messages, own_words
 from engine.tools.core.experio import dry_run, experio_refusal, odoo_call, odoo_json, refused, require_dossier
 from engine.tools.core.words import ICE_WRITTEN, normalized, said
 from engine.tools.dossiers.identity import FOLDER_TYPES, PLACEHOLDER_IDS, confirmed, having, real_ids
-from engine.tools.dossiers.people import attach_user, users_by_email
+from engine.tools.dossiers.people import RANK, attach_user, level_of, sender_reach, users_by_email
 from engine.tools.dossiers.search import dossiers
 from engine.tools.dossiers.setup import separator_of, table_text, taken
 from engine.tools.invoices.intake import file_row
@@ -323,9 +324,22 @@ def person_recap(label, dossier, given, chosen, existing):
 
 
 def user_by_email(email, employee_type):
-    """Return the user of ``employee_type`` whose login or email is ``email`` ({id, name, login}), or None."""
-    found = users_by_email(email, [employee_type], ["id", "name", "login"], 1)
+    """Return the user of ``employee_type`` whose login or email is ``email`` ({id, name, login, employee_state,
+    exp_profile_id}), or None."""
+    found = users_by_email(email, [employee_type], ["id", "name", "login", "employee_state", "exp_profile_id"], 1)
     return found[0] if found else None
+
+
+def invited(user_id, email):
+    """Send Experio's invitation to a user never invited (employee_state « new »), as its « Inviter » button does
+    (res.users action_invite_user: a password made, the global Experio user, the invitation email with login and
+    password, the user active). Returns the sentence for the reply: sent, or Experio's refusal (seats all taken...)."""
+    try:
+        odoo_json("res.users", "action_invite_user", [user_id])
+    except Exception as error:  # the user stays made and on the dossier: only the invitation is to send again
+        why = experio_refusal(error)
+        return f" Invitation non envoyee, Experio refuse : {why} (a renvoyer depuis Experio, Inviter)."
+    return f" Invitation Experio envoyee a `{email}` (identifiant et mot de passe)."
 
 
 @step_tool
@@ -376,6 +390,13 @@ def create_person(
         return question(f"Pour creer ce {label} sur le dossier `{dossier}`, il me faut {' et '.join(missing)}.{unread}")
     with refused(f"create_person {given['email']}", "Experio n'a pas pu verifier cet utilisateur."):
         existing = user_by_email(given["email"], employee_type)
+    with refused(f"create_person {given['email']}", "Experio n'a pas pu verifier vos droits."):
+        reach = sender_reach(session_id)
+        why = beyond_reach(reach, dossier_id, dossier, known[chosen])
+        if not why and existing and reach and RANK[level_of(existing["exp_profile_id"])] > reach["rank"]:
+            why = f"`{existing['name']}` a plus de droits que `{reach['name']}`"
+    if why:
+        return stop(f"Pas d'acces cree pour `{given['email']}` : {why}. Rien n'est change.")
     recap = person_recap(label, dossier, given, chosen, existing)
     if not confirmed(session_id, client_confirmed, "vous confirmez", given["email"]):
         return question(f"{recap}\nVous confirmez ? oui / non")
@@ -388,21 +409,174 @@ def create_person(
         if existing:
             user_id = existing["id"]
         else:
+            # As the Users form makes one: the e-mail is the login only, and no Odoo sign-up mail (auth_signup's, sent
+            # to a user made with an e-mail): Experio's own invitation follows (invited).
             values = {
                 "name": given["name"],
                 "login": given["email"],
-                "email": given["email"],
                 "employee_type": employee_type,
                 "exp_profile_id": known[chosen],
             }
             if given.get("phone"):
                 values["phone"] = given["phone"]
-            user_id = odoo_json("res.users", "create", values)
-        attach_user(user_id, dossier_id, known[chosen], employee_type)
+            user_id = odoo_json("res.users", "create", values, context={"no_reset_password": True})
+        # A dossier's profile row is written by Experio's admins only (ir.model.access.csv line 23): for another
+        # sender, the person has their profile everywhere (exp_profile_id) and none of their own on the dossier.
+        on_dossier = known[chosen] if reach is None or reach["rank"] >= RANK["admin"] else None
+        attach_user(user_id, dossier_id, on_dossier, employee_type)
     made = "rattache" if existing else "cree et rattache"
+    sent = invited(user_id, given["email"]) if not existing or existing["employee_state"] == "new" else ""
     return ok(
-        f"{label.capitalize()} `{given['name']}` (`{given['email']}`) {made} au dossier `{dossier}`, profil `{chosen}`."
+        f"{label.capitalize()} `{given['name']}` (`{given['email']}`) {made} au dossier `{dossier}`, "
+        f"profil `{chosen}`.{sent}"
     )
+
+
+def beyond_reach(reach, dossier_id, dossier, profile_id=False, user=None):
+    """Return why the sender (sender_reach's ``reach``; None: no limit) may not make this change, else "": a dossier
+    not theirs, a profile above their own, someone above them, their own role (``user`` with ``profile_id``), or a
+    dossier's profile, which only Experio's admins write (exp.user.company.profile, ir.model.access.csv line 23)."""
+    if reach is None:
+        return ""
+    if dossier_id and dossier_id not in reach["company_ids"]:
+        return f"le dossier `{dossier}` n'est pas attribue a `{reach['name']}` dans Experio"
+    if profile_id and RANK[level_of(profile_id)] > reach["rank"]:
+        return f"ce profil donne plus de droits que celui de `{reach['name']}`"
+    if user and RANK[level_of(user["exp_profile_id"])] > reach["rank"]:
+        return f"`{user['name']}` a plus de droits que `{reach['name']}`"
+    if user and profile_id and user["id"] == reach["id"]:
+        return "on ne change pas son propre profil"
+    if user and profile_id and dossier_id and reach["rank"] < RANK["admin"]:
+        return "seuls les administrateurs d'Experio changent le profil d'une personne sur un dossier"
+    return ""
+
+
+# --- A person's access: a dossier given or taken, a role, an invitation sent again ---
+
+ACCESS = {  # action -> what the read-back says is done
+    "assign": "lui donner le dossier",
+    "unassign": "lui retirer le dossier",
+    "role": "changer son profil",
+    "invite": "lui renvoyer l'invitation Experio (un nouveau mot de passe, l'ancien ne marchera plus)",
+}
+PERSON_FIELDS = ["name", "login", "employee_type", "employee_state", "company_ids", "exp_profile_id"]
+
+
+def person_named(email):
+    """Return the collaborateur or client whose login or email is ``email`` (PERSON_FIELDS), None for none or two."""
+    found = users_by_email(email, ["employee", "client"], PERSON_FIELDS, 2)
+    return found[0] if len(found) == 1 else None
+
+
+def dossier_profile(user_id, dossier_id, profile_id):
+    """Set the user's profile on the dossier (« Profils par Dossier », exp.user.company.profile: one row per user and
+    dossier, exp_user_company_profile.py _sql_constraints), as its editable list does."""
+    row = odoo_call("exp.user.company.profile", "search", [("user_id", "=", user_id), ("company_id", "=", dossier_id)])
+    if row:
+        odoo_call("exp.user.company.profile", "write", row, {"profile_id": profile_id})
+    else:
+        values = {"user_id": user_id, "company_id": dossier_id, "profile_id": profile_id}
+        odoo_call("exp.user.company.profile", "create", values)
+
+
+def access_change(action, user, dossier_id, profile_id):
+    """Make the change, as Experio's own screens do; return what was done (French).
+
+    - assign / unassign: the dossier's Collaborateurs or Clients (employee_ids / contact_ids, Experio keeps the
+      user's company_ids in step, base_client res_company.py write); assign also sets the dossier's profile when one
+      is named (dossier_profile).
+    - role: with a dossier, the user's profile on that dossier (« Profils par Dossier », exp.user.company.profile);
+      else their profile (exp_profile_id; Experio recomputes their rights, res_users.py write).
+    - invite: « Inviter » (action_invite_or_reinvite_user): the first invitation, or a new password sent again.
+    """
+    members = "employee_ids" if user["employee_type"] == "employee" else "contact_ids"
+    if action == "assign":
+        attach_user(user["id"], dossier_id, None, user["employee_type"])
+        if profile_id:
+            dossier_profile(user["id"], dossier_id, profile_id)
+        return "dossier donne"
+    if action == "unassign":
+        odoo_call("res.company", "write", [dossier_id], {members: [(3, user["id"])]})
+        return "dossier retire"
+    if action == "invite":
+        odoo_json("res.users", "action_invite_or_reinvite_user", [user["id"]])
+        return "invitation Experio envoyee"
+    if dossier_id:
+        dossier_profile(user["id"], dossier_id, profile_id)
+        return "profil change sur ce dossier"
+    odoo_call("res.users", "write", [user["id"]], {"exp_profile_id": profile_id})
+    return "profil change"
+
+
+@step_tool
+def change_access(
+    action: str,
+    email: str,
+    dossier_id: int = 0,
+    profile: str = "",
+    client_confirmed: bool = False,
+    client_message: str = "",
+    session_id: str = "",
+) -> dict:
+    """Change an existing collaborateur's or client's access in Experio: ``action`` "assign" (give them dossier
+    ``dossier_id``, with ``profile`` there when named), "unassign" (take it back), "role" (their ``profile``: on
+    ``dossier_id`` only when given, else everywhere) or "invite" (Experio's invitation, sent again with a new
+    password). The person is found by the ``email`` the client wrote themselves.
+
+    Returns a question result when the email is not the client's own words, no single person has it, the dossier or
+    a known profile is missing; then a question result reading the change back until the client said yes
+    (``client_confirmed``); a routine result when nothing is to change; an ok result once done (in test mode,
+    without writing).
+
+    Raises:
+        ToolError: unknown ``action``; Experio's refusal.
+    """
+    if action not in ACCESS:
+        raise ToolError("action : assign, unassign, role ou invite.")
+    email = (email or "").strip()
+    words = normalized("\n".join(client_messages(session_id, own_words(client_message))))
+    if not email or not said(normalized(email), words):
+        return question("De qui s'agit-il ? Donnez son e-mail (son identifiant Experio).")
+    with refused(f"change_access {email}", "Experio n'a pas pu lire cet utilisateur."):
+        user = person_named(email)
+    if not user:
+        return question(f"Personne n'a l'e-mail `{email}` parmi les collaborateurs et clients d'Experio. Lequel ?")
+    dossier = require_dossier(dossier_id) if dossier_id else ""
+    if action in ("assign", "unassign") and not dossier:
+        return question(f"Quel dossier pour `{user['name']}` ?")
+    label = "collaborateur" if user["employee_type"] == "employee" else "client"
+    profile_id, chosen = False, ""
+    if profile or action == "role":
+        with refused(f"change_access {email}", "Experio n'a pas pu lire les profils."):
+            known = profiles(KINDS["collaborator" if label == "collaborateur" else "client"][1])
+        chosen = next((p for p in known if normalized(p) == normalized(profile)), None) if profile else None
+        if not chosen:
+            return question(f"Quel profil pour `{user['name']}` ? {', '.join(f'`{p}`' for p in known)}")
+        profile_id = known[chosen]
+    with refused(f"change_access {email}", "Experio n'a pas pu verifier vos droits."):
+        why = beyond_reach(sender_reach(session_id), dossier_id, dossier, profile_id, user)
+    if why:
+        return stop(f"Pas de changement d'acces pour `{user['name']}` : {why}. Rien n'est change.")
+    on = dossier_id in user["company_ids"]
+    if action == "role" and dossier and not on:
+        return question(
+            f"`{user['name']}` n'a pas le dossier `{dossier}` : je le lui donne avec le profil `{chosen}` ?"
+        )
+    if (action == "assign" and on and not chosen) or (action == "unassign" and not on):
+        state = "a deja" if on else "n'a pas"
+        return routine(f"Le {label} `{user['name']}` {state} le dossier `{dossier}` : rien a changer.")
+    recap = f"Pour le {label} `{user['name']}` (`{user['login']}`) : {ACCESS[action]}"
+    recap += f"\n- Dossier : `{dossier}`" if dossier else ""
+    recap += f"\n- Profil : `{chosen}`" if chosen else ""
+    if not confirmed(session_id, client_confirmed, "vous confirmez", user["login"], ACCESS[action], dossier, chosen):
+        return question(f"{recap}\nVous confirmez ? oui / non")
+    if dry_run():
+        return ok(f"{TEST_MODE}{recap.splitlines()[0]} : serait fait.")
+    with refused(f"change_access {email}", "Experio refuse ce changement : {reason}"):
+        done = access_change(action, user, dossier_id, profile_id)
+    where = f" (dossier `{dossier}`)" if dossier else ""
+    shown = f", profil `{chosen}`" if chosen else ""
+    return ok(f"{label.capitalize()} `{user['name']}` (`{user['login']}`) : {done}{where}{shown}.")
 
 
 # --- Archiving a dossier ---

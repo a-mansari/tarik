@@ -197,3 +197,28 @@ def test_work_on_an_invoice_is_checked_against_its_dossier(monkeypatch):
     assert answer["status"] == "stop" and "Le dossier `BETA` n'est pas attribue a `Sam`" in answer["message"]
     monkeypatch.setattr(people, "sender_of", lambda session_id: None)
     assert people.check_sender("s", invoice_id=31)["routine"]  # the chat: no sender to check
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "who, level, allowed",
+    [
+        ({"id": 1, "name": "Chef", "employee_type": "employee"}, "admin", True),
+        ({"id": 1, "name": "Chef", "employee_type": "employee"}, "approver", True),
+        ({"id": 3, "name": "Sam", "employee_type": "employee"}, "user", False),  # Experio lets them read users only
+        ({"id": 3, "name": "Sam", "employee_type": "employee"}, None, False),  # no profile
+        ({"id": 2, "name": "Jane", "employee_type": "internal"}, None, True),  # Experio's staff
+        (None, None, False),  # nobody Experio knows
+    ],
+)
+def test_only_who_experio_lets_manage_users_manages_access(monkeypatch, who, level, allowed):
+    monkeypatch.setattr(people, "sender_of", lambda session_id: "x@cabinet.ma")
+    monkeypatch.setattr(people, "collaborator", lambda address: who)
+
+    def odoo_call(model, method, ids, fields):
+        if model == "res.users":
+            return [{"exp_profile_id": [4, "Manager"] if level else False}]
+        return [{"management_group": level}]
+
+    monkeypatch.setattr(people, "odoo_call", odoo_call)
+    assert (people.check_manager("s")["status"] == "ok") is allowed

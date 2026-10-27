@@ -208,7 +208,7 @@ def assign_account(
     refusal = journal_stop(invoice_id, require_invoice(invoice_id, JOURNAL_FIELDS))
     if refusal:
         return refusal
-    check_journal(invoice_id)
+    check_journal(invoice_id, tell=False)  # the journal step tells what Tarik set
     kind = side_of(invoice)
     with refused(f"assign_account {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu proposer de compte."):
         simulated = _fill_empty_chart(invoice_id, invoice["company_id"][0])

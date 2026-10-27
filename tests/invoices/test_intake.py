@@ -249,7 +249,7 @@ def test_a_statement_sent_again_is_not_imported_twice_in_its_dossier(db_cabinet,
             (first,),
         )
     monkeypatch.setattr(intake, "require_dossier", lambda dossier_id: "D")
-    monkeypatch.setattr(intake, "statement_journal", lambda *a: {"status": "question", "message": "lequel ?"})
+    monkeypatch.setattr(intake, "statement_journal", lambda *a: ({"status": "question", "message": "lequel ?"}, ""))
     answer = intake.import_bank_statement(again, 557)
     assert answer["statement_id"] == 42 and "déjà importé (n° 42)" in answer["message"]
     with cabinet_db() as db:
@@ -290,9 +290,11 @@ def test_the_bank_account_the_client_names_takes_the_statement(said, journal, mo
         {"id": 3246, "name": "CREDIT DU MAROC", "bank_id": [2, "CREDIT DU MAROC"]},
         {"id": 3244, "name": "SGMB", "bank_id": [3, "SAHAM BANK"]},
     ]
+    banks = [{"id": i, "name": j["bank_id"][1]} for i, j in zip((1, 2, 3), usable, strict=True)]
     monkeypatch.setattr(intake, "bank_journals", lambda dossier_id: (usable, usable))
-    found = intake.statement_journal("r.pdf", "D", 1, 0, f"Objet : Relevé\n\n{said}")
-    assert (found.get("id") if "status" not in found else None) == journal
+    monkeypatch.setattr(intake, "odoo_call", lambda *a, **k: banks)
+    found, done = intake.statement_journal("r.pdf", "D", 1, 0, f"Objet : Relevé\n\n{said}")
+    assert (found.get("id") if "status" not in found else None) == journal and done == ""
 
 
 @pytest.mark.functionality

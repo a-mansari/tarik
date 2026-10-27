@@ -83,6 +83,7 @@ def test_the_dossiers_are_created_only_on_the_clients_yes_to_the_list(experio, m
     monkeypatch.setattr(management, "cabinet_db", lambda: Db())
     monkeypatch.setattr(management, "taken", lambda file_id: None)
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
     asked = management.import_dossiers(7, False, "s")
     assert (
         asked["status"] == "question"
@@ -109,9 +110,10 @@ def test_a_person_is_made_of_the_clients_words_and_their_yes(monkeypatch):
     monkeypatch.setattr(management, "user_by_email", lambda email, kind: None)
     monkeypatch.setattr(management, "dry_run", lambda: False)
     written = []
-    monkeypatch.setattr(management, "odoo_json", lambda model, method, values: written.append(values) or 42)
+    monkeypatch.setattr(management, "odoo_json", experio_users(written))
     monkeypatch.setattr(management, "attach_user", lambda *args: written.append(args))
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
     message = "Ajoute Samira Alami (samira@cabinet.ma) comme chef de mission sur BETA"
     missing = management.create_person(
         "collaborator", 5, "Samira Alami", "samira@cabinet.ma", "", "", False, message, "s"
@@ -131,11 +133,29 @@ def test_a_person_is_made_of_the_clients_words_and_their_yes(monkeypatch):
     assert done["message"].startswith(
         "Collaborateur `Samira Alami` (`samira@cabinet.ma`) cree et rattache au dossier `BETA`"
     )
-    assert (
-        written[0]["login"] == "samira@cabinet.ma"
-        and written[0]["exp_profile_id"] == 2
-        and written[1] == (42, 5, 2, "employee")
-    )
+    assert done["message"].endswith(" Invitation Experio envoyee a `samira@cabinet.ma` (identifiant et mot de passe).")
+    assert written[0] == {
+        "name": "Samira Alami",
+        "login": "samira@cabinet.ma",  # no "email": Odoo's sign-up mail is not Experio's invitation
+        "employee_type": "employee",
+        "exp_profile_id": 2,
+        "context": {"no_reset_password": True},
+    }
+    assert written[1] == (42, 5, 2, "employee") and written[2] == ("action_invite_user", [42])
+
+
+def experio_users(written):
+    """odoo_json for res.users: a create (its values and context kept) gives id 42; a button call is kept as (method,
+    ids)."""
+
+    def odoo_json(model, method, *args, **kw):
+        if method == "create":
+            written.append({**args[0], **kw})
+            return 42
+        written.append((method, *args))
+        return True
+
+    return odoo_json
 
 
 @pytest.mark.security
@@ -146,6 +166,7 @@ def test_archiving_reads_back_and_waits_for_the_yes(monkeypatch):
     archived = []
     monkeypatch.setattr(management, "odoo_json", lambda model, method, ids: archived.append(ids))
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
     asked = management.archive_dossier(5, False, "s")
     assert "`BETA` (12 facture(s), dont 7 comptabilisee(s))" in asked["message"] and archived == []
     done = management.archive_dossier(5, True, "s")
@@ -200,6 +221,7 @@ def listing(experio, monkeypatch):
     monkeypatch.setattr(management, "read_rows", lambda *a: rows_of(state["text"]))
     monkeypatch.setattr(management, "taken", lambda file_id: None)
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
     return state
 
 
@@ -304,7 +326,8 @@ def person(monkeypatch):
     monkeypatch.setattr(management, "user_by_email", lambda email, kind: None)
     monkeypatch.setattr(management, "dry_run", lambda: False)
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
-    monkeypatch.setattr(management, "odoo_json", lambda model, method, values: written.append(values) or 42)
+    monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
+    monkeypatch.setattr(management, "odoo_json", experio_users(written))
     monkeypatch.setattr(management, "attach_user", lambda *args: written.append(args))
     return written
 
@@ -321,23 +344,39 @@ def test_a_client_is_created_with_the_phone_the_client_wrote(person):
     done = management.create_person(
         "client", 5, "Karim Idrissi", "karim@beta.ma", "0612345678", "client", True, MESSAGE, "s"
     )
-    assert done["message"] == (
-        "Client `Karim Idrissi` (`karim@beta.ma`) cree et rattache au dossier `BETA`, profil `Client`."
+    assert done["message"].startswith(
+        "Client `Karim Idrissi` (`karim@beta.ma`) cree et rattache au dossier `BETA`, profil `Client`. Invitation"
     )
     assert person[0]["phone"] == "0612345678" and person[0]["employee_type"] == "client"
-    assert person[1] == (42, 5, 7, "client")
+    assert person[1] == (42, 5, 7, "client") and person[2] == ("action_invite_user", [42])
 
 
 @pytest.mark.functionality
 def test_a_person_already_in_experio_is_only_attached(person, monkeypatch):
-    monkeypatch.setattr(
-        management, "user_by_email", lambda email, kind: {"id": 8, "name": "K. Idrissi", "login": "karim@beta.ma"}
-    )
+    known = {"id": 8, "name": "K. Idrissi", "login": "karim@beta.ma", "employee_state": "active"}
+    monkeypatch.setattr(management, "user_by_email", lambda email, kind: known)
     asked = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", False, MESSAGE, "s")
     assert asked["message"].startswith("Le client `K. Idrissi` existe deja (`karim@beta.ma`). Avant de le rattacher")
     done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
     assert done["message"] == "Client `Karim Idrissi` (`karim@beta.ma`) rattache au dossier `BETA`, profil `Client`."
-    assert person == [(8, 5, 7, "client")]
+    assert person == [(8, 5, 7, "client")]  # already invited: no new password sent
+    known["employee_state"] = "new"  # made in Experio, never invited: invited now
+    done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
+    assert person[-1] == ("action_invite_user", [8]) and "Invitation Experio envoyee" in done["message"]
+
+
+@pytest.mark.communication
+def test_an_invitation_experio_refuses_leaves_the_person_made_and_says_why(person, monkeypatch):
+    def refusing(model, method, *args, **kw):
+        if method == "action_invite_user":
+            raise RuntimeError("Traceback\nUserError: Maximum number of active employees is reached")
+        return 42
+
+    monkeypatch.setattr(management, "odoo_json", refusing)
+    monkeypatch.setattr(management, "experio_refusal", lambda error: "nombre maximal d'utilisateurs atteint")
+    done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
+    assert done["status"] == "ok" and "cree et rattache" in done["message"]
+    assert "Invitation non envoyee, Experio refuse : nombre maximal d'utilisateurs atteint" in done["message"]
 
 
 @pytest.mark.communication
@@ -365,7 +404,7 @@ def test_in_test_mode_the_person_is_only_said(person, monkeypatch):
 
 @pytest.mark.communication
 def test_experio_failing_a_person_says_where(person, monkeypatch):
-    monkeypatch.setattr(management, "odoo_json", lambda *a: (_ for _ in ()).throw(RuntimeError("login deja pris")))
+    monkeypatch.setattr(management, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("login deja pris")))
     with pytest.raises(ToolError, match="Experio refuse ce client : login deja pris"):
         management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
     monkeypatch.setattr(management, "user_by_email", lambda *a: 1 / 0)
@@ -382,6 +421,7 @@ def test_in_test_mode_nothing_is_archived(monkeypatch):
     monkeypatch.setattr(management, "odoo_call", lambda model, method, domain: 0)
     monkeypatch.setattr(management, "dry_run", lambda: True)
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
     monkeypatch.setattr(management, "odoo_json", lambda *a: pytest.fail("archived"))
     assert management.archive_dossier(5, True, "s")["message"] == f"{TEST_MODE}Le dossier `BETA` serait archive."
 
@@ -395,6 +435,134 @@ def test_experio_failing_the_archiving_says_where(monkeypatch):
     monkeypatch.setattr(management, "odoo_call", lambda model, method, domain: 0)
     monkeypatch.setattr(management, "dry_run", lambda: False)
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
     monkeypatch.setattr(management, "odoo_json", lambda *a: (_ for _ in ()).throw(RuntimeError("factures ouvertes")))
     with pytest.raises(ToolError, match="Experio refuse d'archiver le dossier `BETA` : factures ouvertes"):
         management.archive_dossier(5, True, "s")
+
+
+ACCESS_MESSAGE = "Donne le dossier BETA a samira@cabinet.ma, et passe-la chef de mission"
+
+
+@pytest.fixture
+def access(monkeypatch):
+    """Samira, a collaborateur on dossier 1 only; what was written in Experio."""
+    state = {"user": {"id": 42, "name": "Samira Alami", "login": "samira@cabinet.ma", "employee_type": "employee"}}
+    state["user"].update(employee_state="active", company_ids=[1], exp_profile_id=[1, "Collaborateur"])
+    state["written"] = []
+    monkeypatch.setattr(management, "require_dossier", lambda dossier_id: "BETA")
+    monkeypatch.setattr(management, "client_messages", lambda session_id, message: [message])
+    monkeypatch.setattr(management, "profiles", lambda kind: {"Collaborateur": 1, "Chef de mission": 2})
+    monkeypatch.setattr(
+        management, "person_named", lambda email: state["user"] if email == "samira@cabinet.ma" else None
+    )
+    monkeypatch.setattr(management, "dry_run", lambda: False)
+    monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
+    monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
+    monkeypatch.setattr(management, "attach_user", lambda *args: state["written"].append(("attach", *args)))
+
+    def odoo_call(model, method, *args, **kw):
+        state["written"].append((model, method, *args))
+        return [] if method == "search" else True
+
+    monkeypatch.setattr(management, "odoo_call", odoo_call)
+    monkeypatch.setattr(management, "odoo_json", odoo_call)
+    return state
+
+
+def changed(action, dossier_id=5, profile="", yes=True, message=ACCESS_MESSAGE, email="samira@cabinet.ma"):
+    return management.change_access(action, email, dossier_id, profile, yes, message, "s")
+
+
+@pytest.mark.security
+def test_an_access_change_is_read_back_and_made_only_on_the_clients_yes(access):
+    asked = changed("assign", yes=False)
+    assert asked["status"] == "question" and "lui donner le dossier\n- Dossier : `BETA`" in asked["message"]
+    assert access["written"] == []
+    done = changed("assign")
+    assert done["message"] == "Collaborateur `Samira Alami` (`samira@cabinet.ma`) : dossier donne (dossier `BETA`)."
+    assert access["written"] == [("attach", 42, 5, None, "employee")]
+
+
+@pytest.mark.security
+def test_a_person_the_client_did_not_write_is_never_changed(access):
+    asked = changed("unassign", 1, email="karim@beta.ma")
+    assert asked["status"] == "question" and "Donnez son e-mail" in asked["message"] and access["written"] == []
+
+
+@pytest.mark.functionality
+def test_a_dossier_taken_back_and_nothing_to_change(access):
+    assert changed("unassign", 5)["routine"]  # not on it: nothing to take
+    assert changed("assign", 1)["routine"]  # already on it
+    changed("unassign", 1)
+    assert access["written"] == [("res.company", "write", [1], {"employee_ids": [(3, 42)]})]
+
+
+@pytest.mark.functionality
+def test_a_role_everywhere_or_on_one_dossier(access):
+    asked = changed("role", 0)
+    assert "Quel profil" in asked["message"] and "`Chef de mission`" in asked["message"]
+    changed("role", 0, "chef de mission")
+    assert access["written"] == [("res.users", "write", [42], {"exp_profile_id": 2})]
+    access["written"].clear()
+    done = changed("role", 1, "chef de mission")
+    row = {"user_id": 42, "company_id": 1, "profile_id": 2}
+    assert access["written"][-1] == ("exp.user.company.profile", "create", row)
+    assert done["message"].endswith("profil change sur ce dossier (dossier `BETA`), profil `Chef de mission`.")
+
+
+@pytest.mark.functionality
+def test_an_invitation_sent_again(access):
+    changed("invite", 0)
+    assert access["written"] == [("res.users", "action_invite_or_reinvite_user", [42])]
+
+
+@pytest.mark.functionality
+def test_an_unknown_access_action_is_refused(access):
+    with pytest.raises(ToolError, match="assign, unassign, role ou invite"):
+        changed("delete")
+
+
+@pytest.fixture
+def sender(access, monkeypatch):
+    """Samira's request comes from Chef, an approver on dossier 5 only; Karim is an admin. Profile 2 is « user », 3
+    « admin »."""
+    levels = {1: "none", 2: "user", 3: "admin", 9: "admin"}
+    monkeypatch.setattr(
+        management, "level_of", lambda profile: levels[profile[0] if isinstance(profile, list) else profile]
+    )
+    reach = {"id": 7, "name": "Chef", "company_ids": [5], "rank": management.RANK["approver"]}
+    monkeypatch.setattr(management, "sender_reach", lambda session_id: reach)
+    monkeypatch.setattr(management, "profiles", lambda kind: {"Collaborateur": 1, "Chef de mission": 2, "Admin": 3})
+    return reach
+
+
+@pytest.mark.security
+def test_a_sender_changes_access_only_on_their_dossiers_and_never_above_themselves(access, sender):
+    refused = changed("assign", 1)  # dossier 1 is not Chef's
+    assert refused["status"] == "stop" and "n'est pas attribue a `Chef`" in refused["message"]
+    assert "plus de droits" in changed("role", 0, "admin")["message"]  # a profile above Chef's own
+    access["user"]["exp_profile_id"] = [9, "Admin"]
+    assert "`Samira Alami` a plus de droits que `Chef`" in changed("invite", 0)["message"]  # no reset of an admin
+    access["user"].update(exp_profile_id=[1, "Collaborateur"], id=7)
+    assert "son propre profil" in changed("role", 0, "chef de mission")["message"]
+    access["user"]["id"] = 42
+    assert "seuls les administrateurs" in changed("role", 5, "chef de mission")["message"]  # a dossier's profile
+    assert access["written"] == []
+    assert changed("assign", 5)["status"] == "ok"  # their own dossier, someone not above them
+
+
+@pytest.mark.security
+def test_a_yes_confirms_only_the_change_read_back(access, monkeypatch):
+    asked = []
+    monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: asked.append(parts) or yes)
+    changed("unassign", 1)
+    assert asked == [("vous confirmez", "samira@cabinet.ma", "lui retirer le dossier", "BETA", "")]
+
+
+@pytest.mark.functionality
+def test_a_dossier_given_with_a_profile_sets_it_even_when_already_on_it(access):
+    done = changed("assign", 1, "chef de mission")
+    row = {"user_id": 42, "company_id": 1, "profile_id": 2}
+    assert access["written"][-1] == ("exp.user.company.profile", "create", row) and done["status"] == "ok"
+    assert "n'a pas le dossier" in changed("role", 5, "chef de mission")["message"]  # given first, then its profile

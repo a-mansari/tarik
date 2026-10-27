@@ -102,6 +102,65 @@ def check_creator(session_id: str) -> dict:
     )
 
 
+# Who may manage people in Experio: users and dossiers' members are written by group_management_approver and above
+# (base_client/security/ir.model.access.csv lines 9 and 13), the profile's management_group approver or admin; a
+# dossier's profiles (exp.user.company.profile) by admin only (line 23).
+RANK = {"none": 0, "user": 1, "approver": 2, "admin": 3}
+
+
+def level_of(profile):
+    """Return the management_group of ``profile`` ([id, name] or id; False for none): "none" when it has none."""
+    if not profile:
+        return "none"
+    profile_id = profile[0] if isinstance(profile, list) else profile
+    found = odoo_call("exp.user.profile", "read", [profile_id], fields=["management_group"])
+    return (found[0]["management_group"] if found else None) or "none"
+
+
+def sender_reach(session_id):
+    """Return how far the email's sender may manage people: None for no limit (the chat, where nobody can tell who
+    writes, and Experio's staff); else {id, name, company_ids, rank} of the collaborator (rank: RANK of their
+    profile's management_group), or {} when the sender is no collaborator.
+
+    Tarik writes with its own wide rights, while Experio no longer limits a manager to their dossiers (its
+    res_company_rule_employee is deleted, base_client/security/base_security.xml:31-33): the access tools keep a
+    sender to their own dossiers and to people at or below their own level."""
+    address = sender_of(session_id)
+    if address is None:
+        return None
+    user = collaborator(address)
+    if not user:
+        return {}
+    if user["employee_type"] == "internal":
+        return None
+    profile = odoo_call("res.users", "read", [user["id"]], fields=["exp_profile_id"])[0]["exp_profile_id"]
+    return {**user, "rank": RANK[level_of(profile)]}
+
+
+@tool
+def check_manager(session_id: str) -> dict:
+    """Check, before people are created, invited, given or taken a dossier or another role, that the email's sender
+    is Experio staff or a collaborator whose own Experio profile may do it (management_group approver or admin):
+    Tarik never does for someone what Experio would refuse them. Which dossiers and people the sender may touch is
+    checked by each tool (sender_reach).
+
+    Returns a routine result when allowed or in the chat (no sender to check); a stop result, reported to the
+    client, when the sender is unknown or their profile may not: nothing is changed."""
+    reach = sender_reach(session_id)
+    if reach is None:
+        return routine("Expediteur de l'equipe Experio, ou conversation sans expediteur a verifier.")
+    if not reach:
+        address = sender_of(session_id)
+        return stop(f"`{address}` n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun acces n'est change.")
+    if reach["rank"] >= RANK["approver"]:
+        return routine(f"`{reach['name']}` peut gerer les acces de ses dossiers.")
+    return stop(
+        "Seuls les managers du cabinet dont le profil Experio gere les utilisateurs (approbateur ou administrateur) "
+        f"et l'equipe Experio gerent les acces ; `{reach['name']}` n'en fait pas partie : rien n'est change. "
+        "Demandez a un manager du cabinet."
+    )
+
+
 def attach_user(user_id, dossier_id, profile_id=None, employee_type="employee"):
     """Put a user on a dossier with a profile there, as the dossier form does.
 

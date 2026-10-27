@@ -72,3 +72,9 @@ change made on the Contenu page reaches no other stack by itself.
 
 `agent.json` is imported whole, its `model` (MiniMax-M3) included: set the stack's own model back afterwards if it
 uses another one. A stack that edited one of these documents itself loses that edit on import: apply the diff instead.
+- `tarik-contenu-acces-avancement-20261027.json` (and its `.diff`): the tools `Experio_gerer_acces` (give or take a
+  dossier, change a profile, send the invitation again) and `Experio_dossier_progress` (where a dossier stands), the
+  invitation and the managers-only rule in `Experio_creer_acces` (`agent.json`), the steps « Droit de gérer les accès »
+  and « Accès modifié » with the input « Changement d'accès » (`labels.json`), and when to use them
+  (`skills/gestion-dossiers.md`). Import it after the mise-en-forme export, once the stack runs the commit that adds
+  them: before, the import is refused (it names tools the stack lacks).

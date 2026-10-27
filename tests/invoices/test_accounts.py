@@ -130,7 +130,7 @@ def test_an_immobilisation_the_model_picks_is_confirmed_by_the_client_first(monk
     monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: invoice)
     monkeypatch.setattr(accounts, "journal_stop", lambda *a: None)
     monkeypatch.setattr(accounts, "require_invoice", lambda *a: {})
-    monkeypatch.setattr(accounts, "check_journal", lambda invoice_id: None)
+    monkeypatch.setattr(accounts, "check_journal", lambda invoice_id, tell: None)
     monkeypatch.setattr(accounts, "side_of", lambda invoice: "purchase")
     monkeypatch.setattr(accounts, "_fill_empty_chart", lambda *a: None)
     monkeypatch.setattr(accounts, "_memorized", lambda *a: None)
@@ -182,7 +182,7 @@ def experio(monkeypatch):
     monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: dict(DRAFT))
     monkeypatch.setattr(accounts, "require_invoice", lambda *a: {})
     monkeypatch.setattr(accounts, "journal_stop", lambda *a: None)
-    monkeypatch.setattr(accounts, "check_journal", lambda invoice_id: None)
+    monkeypatch.setattr(accounts, "check_journal", lambda invoice_id, tell: None)
     monkeypatch.setattr(accounts, "side_of", lambda invoice: "purchase")
     monkeypatch.setattr(accounts, "stored_check", lambda i: (True, {"designation": None}, []))
     return state
