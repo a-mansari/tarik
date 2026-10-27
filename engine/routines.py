@@ -24,7 +24,7 @@ from engine.tools.core.cabinets import CABINETS, cabinet_db
 from engine.tools.core.outbox import keep_file
 from engine.tools.core.queries import Q
 from engine.tools.dossiers.routines import KINDS, ZONE, address_problem, next_run, session_of, when
-from engine.tools.dossiers.search import dossiers
+from engine.tools.dossiers.search import opened_dossiers
 from engine.tools.invoices.pipeline import NOTHING
 
 TICK_SECONDS = 60
@@ -84,7 +84,7 @@ async def reported(cabinet, row):
         async with EVERYWHERE:
             parts.append(await instructed(cabinet, prompt, session))
     else:
-        for dossier_id in [dossier["id"] for dossier in await within(cabinet, dossiers)]:
+        for dossier_id in [dossier["id"] for dossier in await within(cabinet, opened_dossiers)]:
             if datetime.now(ZONE) >= deadline:  # its next period is due: the rest waits for it
                 left += 1
                 continue
