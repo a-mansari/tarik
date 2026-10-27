@@ -19,9 +19,9 @@ from engine.tools.core.cabinets import using
 PROTOCOL = """
 
 <tool_protocol>
-You cannot run tools yourself. To use some, answer with "tool_calls": each {"name", "args"}, the args matching the
-tool's input_schema; their results come back in the next message. When you need no tool, answer the client in "text"
-with "tool_calls" empty. The tools:
+You cannot run tools yourself. To use some, answer with "tool_calls": each {"name", "args"}, the args in the shape
+your answer's schema gives that tool; their results come back in the next message. When you need no tool, answer
+the client in "text" with "tool_calls" empty. The tools:
 {tools}
 </tool_protocol>"""
 
@@ -100,7 +100,11 @@ class ChatClaudeCode(BaseChatModel):
         system, conversation = _format_messages(messages, model=None)
         if isinstance(system, list):
             system = "\n".join(part.get("text", "") for part in system)
-        listed = "\n".join(json.dumps(found, ensure_ascii=False) for found in tools)
+        # names and descriptions only: the args' shapes are in answer_schema, sent once
+        listed = "\n".join(
+            json.dumps({"name": found["name"], "description": found.get("description", "")}, ensure_ascii=False)
+            for found in tools
+        )
         names = [found["name"] for found in tools]
         with using(self.cabinet):
             answer = claude_code.ask(
