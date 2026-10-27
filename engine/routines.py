@@ -37,14 +37,14 @@ PENDING = set()  # their tasks (a task nobody holds may be collected before it e
 
 
 def claimed():
-    """Return the current cabinet's routines to run now, as (id, kind, every, day, hour, notify, due_at, prompt): the
+    """Return the current cabinet's routines to run now, as (id, kind, every, days, hour, notify, due_at, prompt): the
     periods started and never reported, then the due routines, each with its period taken and its next time set
     (one whose period already ran is skipped, its next time set all the same)."""
     with cabinet_db() as db, db.transaction():
         taken = db.execute(Q.routines_unfinished).fetchall()
         for row in db.execute(Q.routines_due).fetchall():
-            routine_id, _, every, day, hour, _, due_at, _ = row
-            db.execute(Q.routine_next, (next_run(every, day, hour, max(due_at, datetime.now(ZONE))), routine_id))
+            routine_id, _, every, days, hour, _, due_at, _ = row
+            db.execute(Q.routine_next, (next_run(every, days, hour, max(due_at, datetime.now(ZONE))), routine_id))
             if db.execute(Q.routine_period_taken, (routine_id, due_at)).fetchone():
                 taken.append(row)
     return taken
@@ -73,9 +73,9 @@ async def reported(cabinet, row):
     """Run routine ``row`` (an instruction once, another kind on each dossier Tarik sees, until its next time comes),
     email the report with the runs' files, and return it (its start when long: BODY_CHARACTERS). Dossiers with
     nothing to say are counted, not listed; each part takes a slot of EVERYWHERE, so cabinets take turns."""
-    routine_id, kind, every, day, hour, notify, due_at, prompt = row
+    routine_id, kind, every, days, hour, notify, due_at, prompt = row
     session = session_of(routine_id, due_at)
-    deadline = next_run(every, day, hour, due_at)
+    deadline = next_run(every, days, hour, due_at)
     parts, quiet, left = [], 0, 0
     if kind == "instruction":
         async with EVERYWHERE:
@@ -100,7 +100,7 @@ async def reported(cabinet, row):
     if left:
         parts.append(f"{left} dossier(s) non traité(s) : la période suivante est arrivée avant.")
     report = "\n\n".join(parts) or NOTHING
-    subject = f"Routine n° {routine_id} : {KINDS[kind]} ({when(every, day, hour)})"
+    subject = f"Routine n° {routine_id} : {KINDS[kind]} ({when(every, days, hour)})"
     body = report
     if len(report) > BODY_CHARACTERS:  # the whole report as a file, its start in the email
         await within(cabinet, keep_file, session, f"routine-{routine_id}.txt", report.encode())

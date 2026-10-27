@@ -3,9 +3,9 @@ off with a switch, changed through the same form a new one is made with, deleted
 Tarik's own routine tool does (server/api/routines.py) and keeps it in the Logs serveur. A refused change keeps what
 was typed. -->
 <script setup>
-import { nextTick, ref } from "vue";
+import { nextTick, ref, watch } from "vue";
 
-import { send, usePage } from "../api.js";
+import { read, send, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import Icon from "../components/Icon.vue";
 import PageState from "../components/PageState.vue";
@@ -17,17 +17,28 @@ const form = ref(null);
 const busy = ref(false);
 const banner = ref(null);
 const shown = ref(0); // bumped after a refused switch: the cards are drawn again, as the server holds them
+// The cabinet's admins in Experio who may get the reports, asked once the page shows: undefined while asked, null
+// when Experio did not answer (the address is then typed).
+const managers = ref(undefined);
+watch(() => data.value?.cabinet, async (cabinet) => {
+  if (!cabinet) return;
+  managers.value = undefined;
+  const answer = await read("/routines?managers");
+  if (data.value?.cabinet === cabinet) managers.value = answer.ok ? answer.data.managers : null;
+}, { immediate: true });
 
 const blank = () => ({
-  enabled: true, kind: "instruction", every: "week", day: 0, hour: 8, notify: "", prompt: "",
+  enabled: true, kind: "instruction", every: "week", days: [...data.value.presets.workdays], hour: 8, notify: "",
+  prompt: "",
 });
 
-// The form opens where it is asked, its first field focused: the button that opened it may be gone.
+// The form opens where it is asked, its chosen task focused (the button that opened it may be gone); the focus ring
+// shows only for the keyboard, so a click leaves the chosen card alone highlighted.
 async function open(routine) {
   editing.value = routine ? routine.id : "new";
-  form.value = routine ? { ...routine } : blank();
+  form.value = routine ? { ...routine, days: [...routine.days] } : blank();
   await nextTick();
-  document.querySelector(".routine-form input")?.focus();
+  document.querySelector(".routine-form input[name=kind]:checked")?.focus();
 }
 const close = () => { editing.value = null; form.value = null; };
 
@@ -35,6 +46,10 @@ async function post(action, routine) {
   busy.value = true;
   const answer = await send("/routines", { cabinet: data.value.cabinet, action, routine });
   busy.value = false;
+  if (answer.data?.cabinet && answer.data.cabinet !== data.value.cabinet) {
+    location.reload(); // another cabinet picked meanwhile: never one cabinet's page with another's data
+    return false;
+  }
   if (answer.data) data.value = answer.data;
   if (answer.ok && routine === form.value) close(); // saved: the form closes; refused: it stays as typed
   await nextTick();
@@ -63,7 +78,8 @@ function remove(routine) {
           Experio, et dont il envoie le rapport par e-mail à un administrateur du cabinet. Une routine prépare et
           rapporte : elle ne déclare, ne comptabilise et ne confirme jamais rien.</p>
       </div>
-      <button v-if="editing !== 'new'" type="button" class="primary" @click="open(null)">
+      <button v-if="editing !== 'new'" type="button" class="primary" :disabled="managers === undefined"
+        :title="managers === undefined ? 'Lecture des administrateurs dans Experio…' : undefined" @click="open(null)">
         <Icon name="plus" /> Nouvelle routine</button>
     </div>
     <div ref="banner">
@@ -72,8 +88,8 @@ function remove(routine) {
 
     <section v-if="editing === 'new'" class="panel accent" aria-label="Nouvelle routine">
       <h2>Nouvelle routine</h2>
-      <RoutineForm :form="form" :kinds="data.kinds" :weekdays="data.weekdays" :busy="busy"
-        submit-words="Créer la routine" @submit="submit" @cancel="close" />
+      <RoutineForm :form="form" :kinds="data.kinds" :weekdays="data.weekdays" :presets="data.presets" :managers="managers"
+        :busy="busy" submit-words="Créer la routine" @submit="submit" @cancel="close" />
     </section>
 
     <article v-for="routine in data.routines" :key="`${routine.id}-${shown}`" class="panel routine">
@@ -88,7 +104,8 @@ function remove(routine) {
           <span class="muted">{{ routine.schedule }} · rapport à {{ routine.notify }}</span>
         </div>
         <div class="routine-tools">
-          <button type="button" class="panel-button" @click="editing === routine.id ? close() : open(routine)">
+          <button type="button" class="panel-button" :disabled="managers === undefined"
+            @click="editing === routine.id ? close() : open(routine)">
             {{ editing === routine.id ? "Fermer" : "Modifier" }}</button>
           <button type="button" class="panel-button" @click="remove(routine)">Supprimer</button>
         </div>
@@ -97,14 +114,15 @@ function remove(routine) {
         par {{ routine.created_by }}<template v-if="routine.last_due"> · dernière le
           <span class="num">{{ routine.last_due }}</span>{{ routine.last_report === null ? " (en cours)" : "" }}</template></p>
       <details v-if="routine.last_report" class="last"><summary>Dernier rapport</summary><pre>{{ routine.last_report }}</pre></details>
-      <RoutineForm v-if="editing === routine.id" :form="form" :kinds="data.kinds" :weekdays="data.weekdays" :busy="busy"
-        @submit="submit" @cancel="close" />
+      <RoutineForm v-if="editing === routine.id" :form="form" :kinds="data.kinds" :weekdays="data.weekdays"
+        :presets="data.presets" :managers="managers" :busy="busy" @submit="submit" @cancel="close" />
     </article>
     <div v-if="!data.routines.length && editing !== 'new'" class="panel empty">
       <p><b>Aucune routine pour ce cabinet.</b></p>
       <p class="muted">Une routine fait faire à Tarik une tâche à date fixe : préparer la TVA chaque mois, envoyer
         l'avancement chaque lundi, ou suivre une consigne que vous écrivez.</p>
-      <button type="button" class="primary" @click="open(null)"><Icon name="plus" /> Créer la première</button>
+      <button type="button" class="primary" :disabled="managers === undefined" @click="open(null)">
+        <Icon name="plus" /> Créer la première</button>
     </div>
   </template>
 </template>

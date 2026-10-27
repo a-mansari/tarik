@@ -247,7 +247,7 @@ create table if not exists tarik_routines (
     id serial primary key,
     kind text not null check (kind in ('tva', 'ras', 'progress')), -- prepare the TVA or RAS, or report progress
     every text not null check (every in ('day', 'week', 'month')),
-    day integer not null default 0, -- 0-6 for a weekday (Monday 0), 1-28 for a day of the month; unused daily
+    days integer[] not null default '{}', -- weekdays 0-6 (Monday 0) each week, or the one day 1-28 each month
     hour integer not null check (hour between 0 and 23), -- Africa/Casablanca time
     notify text not null, -- who gets each run's report (an address the cabinet whitelists)
     created_by text not null, -- who made it: the email's sender, or 'chat' (who writes there is not known)
@@ -266,6 +266,16 @@ do $$ begin
     then
         update tarik_routines set enabled = false;
         alter table tarik_routines drop column dossier_ids;
+    end if;
+end $$;
+-- A weekly routine on several weekdays: its days as a list (the month's one day too), in place of a single day.
+alter table tarik_routines add column if not exists days integer[] not null default '{}';
+do $$ begin
+    if exists (select from information_schema.columns
+               where table_schema = current_schema() and table_name = 'tarik_routines' and column_name = 'day')
+    then
+        update tarik_routines set days = case when every = 'day' then '{}' else array[day] end;
+        alter table tarik_routines drop column day;
     end if;
 end $$;
 alter table tarik_routines drop constraint if exists tarik_routines_kind_check;

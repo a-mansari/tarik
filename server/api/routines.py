@@ -5,6 +5,8 @@ journal (audit).
 A routine works on every dossier Tarik's Experio account sees. Its checks are the tool's own
 (engine/tools/dossiers/routines.py routine_problem and address_problem)."""
 
+import asyncio
+import time
 from datetime import datetime
 
 from starlette.requests import Request
@@ -15,8 +17,11 @@ from engine.tools.core.queries import Q
 from engine.tools.dossiers.routines import (
     KINDS,
     WEEKDAYS,
+    WEEKEND,
+    WORKDAYS,
     ZONE,
     address_problem,
+    admins,
     next_run,
     routine_problem,
     routines_of_cabinet,
@@ -25,8 +30,8 @@ from engine.tools.dossiers.routines import (
 from server import audit
 from server.api.runs import chosen, page
 
-FIELDS = ("enabled", "kind", "every", "day", "hour", "notify", "prompt")
-SCHEDULE = ("every", "day", "hour")
+FIELDS = ("enabled", "kind", "every", "days", "hour", "notify", "prompt")
+SCHEDULE = ("every", "days", "hour")
 
 
 def shown():
@@ -40,7 +45,7 @@ def shown():
         found.append(
             {
                 **routine,
-                "schedule": when(routine["every"], routine["day"], routine["hour"]),
+                "schedule": when(routine["every"], routine["days"], routine["hour"]),
                 "next_run_at": routine["next_run_at"].astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
                 "last_due": due and due.astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
                 "last_report": report,
@@ -55,7 +60,7 @@ def cleaned(given):
         "enabled": given.get("enabled") is True,
         "kind": str(given.get("kind") or ""),
         "every": str(given.get("every") or ""),
-        "day": int(given.get("day") or 0),
+        "days": sorted({int(day) for day in given.get("days") or []}),
         "hour": int(given.get("hour") if given.get("hour") is not None else 8),
         "notify": str(given.get("notify") or "").strip(),
         "prompt": str(given.get("prompt") or "").strip(),
@@ -69,7 +74,7 @@ def changed(action, given, author):
     try:
         routine_id = int(given.get("id") or 0)
         values = cleaned(given) if action != "delete" else None
-    except TypeError, ValueError:
+    except TypeError, ValueError, OverflowError:
         return 0, "une valeur est illisible"
     before = next((r for r in routines_of_cabinet() if r["id"] == routine_id), None)
     if action != "create" and not before:
@@ -96,9 +101,35 @@ def changed(action, given, author):
     return routine_id, ""
 
 
+MANAGERS_SECONDS = 300  # the cabinet's admins, read from Experio again after this
+MANAGERS_WAIT = 10  # a page waits this long for them at most; Experio still answering, the next page gets them
+MANAGERS = {}  # cabinet -> (when read, its admins)
+ASKING = {}  # cabinet -> the one reading of its admins under way
+
+
+async def managers_of(cabinet):
+    """Return ``cabinet``'s admins in Experio who may get the reports (admins), kept MANAGERS_SECONDS; None when
+    Experio does not answer within MANAGERS_WAIT. One reading per cabinet at a time: pages opened meanwhile wait for
+    it, never start another (each holds a worker of the shared pool while Experio is slow)."""
+    kept = MANAGERS.get(cabinet)
+    if kept and time.monotonic() - kept[0] < MANAGERS_SECONDS:
+        return kept[1]
+    task = ASKING.get(cabinet)
+    if task is None or task.done():
+        task = ASKING[cabinet] = asyncio.ensure_future(within(cabinet, admins))
+        task.add_done_callback(lambda done: done.cancelled() or done.exception())  # a failure read, never warned
+    try:
+        found = await asyncio.wait_for(asyncio.shield(task), MANAGERS_WAIT)
+    except Exception:  # Experio slow or down: the address is typed, still checked on saving
+        return None
+    MANAGERS[cabinet] = (time.monotonic(), found)
+    return found
+
+
 async def routines_page(request: Request):
     """GET or POST /ui/api/routines: return the routines of the cabinet chosen in the sidebar and the choices the page
-    offers, after making a change when posted.
+    offers, after making a change when posted. GET /ui/api/routines?managers: the cabinet's admins in Experio who may
+    get the reports instead (managers_of), asked by the page once it shows, so Experio never holds it up.
 
     POST takes JSON {cabinet, action (create, save, delete), routine {id, FIELDS}}; it is refused (400, the error
     said) when the sidebar has chosen another cabinet since the page opened, or the routine does not pass the tool's
@@ -106,7 +137,10 @@ async def routines_page(request: Request):
     cabinet = chosen(request)
     if cabinet is None:
         return page({"error": "aucun cabinet"}, 404)
+    if request.method == "GET" and "managers" in request.query_params:
+        return page({"cabinet": cabinet, "managers": await managers_of(cabinet)})
     context = {"cabinet": cabinet, "kinds": KINDS, "weekdays": WEEKDAYS, "error": None}
+    context["presets"] = {"workdays": WORKDAYS, "weekend": WEEKEND}
     if request.method == "POST":
         try:
             form = await request.json()

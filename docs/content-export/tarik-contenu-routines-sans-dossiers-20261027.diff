@@ -10,7 +10,7 @@
  }
 --- a/labels.json
 +++ b/labels.json
-@@ -367,13 +367,13 @@
+@@ -367,7 +367,6 @@
      "date_import": "Dates d'import",
      "action": "Changement d'accès",
      "routine_kind": "Tâche de la routine",
@@ -18,15 +18,7 @@
      "every": "Rythme",
      "day": "Jour",
      "hour": "Heure",
-     "routine_id": "N° de routine",
-     "routine": "Routine (déclaration faite, jamais reprise)",
--    "prompt": "Consigne de la routine"
-+    "prompt": "Consigne de la routine",
-+    "dossier_ids": "Dossiers"
-   },
-   "_inputs": "Le nom de chaque information donnée à un workflow, dans « Ce qui a été demandé ».",
-   "input_values": {
-@@ -421,7 +421,7 @@
+@@ -421,7 +420,7 @@
      "routine_kind": {
        "tva": "Préparer la TVA",
        "ras": "Préparer les RAS",

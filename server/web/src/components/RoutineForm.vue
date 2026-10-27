@@ -1,12 +1,15 @@
 <!-- One routine's form on the Routines page, for a new routine or one already made, in three steps: what Tarik does,
-when, who gets the report; then the routine read back in one sentence before it is saved. -->
+when (one or several weekdays, or a day of the month), who gets the report (one of the cabinet's admins in Experio);
+then the routine read back in one sentence before it is saved. -->
 <script setup>
-import { computed } from "vue";
+import { computed, ref } from "vue";
 
 const props = defineProps({
   form: { type: Object, required: true },
   kinds: { type: Object, required: true }, // the server's names of the tasks (routines.KINDS)
   weekdays: { type: Array, required: true },
+  presets: { type: Object, required: true }, // the server's working week and weekend, {workdays, weekend}
+  managers: { type: Array, default: null }, // the cabinet's admins in Experio [{name, email}]; null: Experio silent
   busy: { type: Boolean, default: false },
   submitWords: { type: String, default: "Enregistrer" },
 });
@@ -24,25 +27,64 @@ const EXAMPLES = [
   "Liste les opérations bancaires en suspens de plus de 30 jours.",
   "Signale les dossiers sans relevé bancaire le mois dernier.",
 ];
-const RHYTHMS = { day: "Chaque jour", week: "Chaque semaine", month: "Chaque mois" };
+const RHYTHMS = { day: "Chaque jour", week: "Certains jours de la semaine", month: "Chaque mois" };
+const PRESETS = computed(() => [["En semaine", props.presets.workdays], ["Le week-end", props.presets.weekend]]);
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const MONTH_DAYS = Array.from({ length: 28 }, (_, day) => day + 1);
 const PROMPT_MOST = 2000; // the server's PROMPT_CHARACTERS
+const OTHER = "other"; // the « another address » option, never an address
 
+const same = (days, wanted) => days.length === wanted.length && wanted.every((day) => days.includes(day));
+
+// The routine as the form opened on it: its own days and address come back when chosen again.
+const opened = { every: props.form.every, days: [...props.form.days], notify: props.form.notify };
+
+// A new rhythm starts from the routine's own days for its rhythm, else its usual ones: the working week, the 1st.
 function setRhythm(every) {
+  if (every !== props.form.every) {
+    const usual = { day: [], week: [...props.presets.workdays], month: [1] }[every];
+    props.form.days = every === opened.every ? [...opened.days] : usual;
+  }
   props.form.every = every;
-  if (every === "week" && props.form.day > 6) props.form.day = 0;
-  if (every === "month" && props.form.day < 1) props.form.day = 1;
 }
+function toggleDay(day) {
+  const days = props.form.days.includes(day) ? props.form.days.filter((d) => d !== day) : [...props.form.days, day];
+  props.form.days = days.sort((a, b) => a - b);
+}
+const monthDay = computed({
+  get: () => props.form.days[0],
+  set: (day) => { props.form.days = [day]; },
+});
+
+// Who gets the report: one of the cabinet's admins, or another address typed (Experio's staff, a list Experio
+// could not give). A routine whose address is no longer among them keeps it, shown as typed.
+const listed = computed(() => (props.managers || []).some((manager) => manager.email === props.form.notify));
+const typing = ref(!props.managers?.length || (Boolean(props.form.notify) && !listed.value));
+const chosenManager = computed({
+  get: () => (typing.value ? OTHER : props.form.notify),
+  set: (email) => {
+    typing.value = email === OTHER;
+    const ownTyped = opened.notify && !(props.managers || []).some((manager) => manager.email === opened.notify);
+    props.form.notify = email === OTHER ? (ownTyped ? opened.notify : "") : email;
+  },
+});
 
 // As the server says the schedule (routines.when) and refuses midnight (routine_problem): kept the same.
 const when = computed(() => {
-  const { every, day, hour } = props.form;
-  if (every === "day") return `chaque jour à ${hour} h`;
-  if (every === "week") return `chaque ${props.weekdays[day]} à ${hour} h`;
-  return `chaque mois, le ${day} à ${hour} h`;
+  const { every, days, hour } = props.form;
+  if (every === "day" || (every === "week" && days.length === 7)) return `chaque jour à ${hour} h`;
+  if (every === "week" && same(days, props.presets.workdays)) return `en semaine (du lundi au vendredi) à ${hour} h`;
+  if (every === "week" && same(days, props.presets.weekend)) return `le week-end à ${hour} h`;
+  if (every === "week") {
+    const names = days.map((day) => props.weekdays[day]); // kept in order: toggleDay sorts them
+    if (!names.length) return "…";
+    const named = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} et ${names.at(-1)}`;
+    return `chaque ${named} à ${hour} h`;
+  }
+  return `chaque mois, le ${days[0]} à ${hour} h`;
 });
 const midnight = computed(() => props.form.hour === 0 && props.form.kind !== "progress");
+const noDay = computed(() => props.form.every === "week" && !props.form.days.length);
 const what = computed(() => (props.form.kind === "instruction" && props.form.prompt.trim()
   ? `suivre la consigne « ${props.form.prompt.trim()} »`
   : props.kinds[props.form.kind]));
@@ -74,17 +116,23 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
 
     <fieldset>
       <legend><span class="step">2</span> Quand ?</legend>
-      <div class="choices" aria-label="Rythme">
+      <div class="choices" role="group" aria-label="Rythme">
         <button v-for="(words, key) in RHYTHMS" :key="key" type="button" class="panel-button"
           :aria-pressed="form.every === key" @click="setRhythm(key)">{{ words }}</button>
       </div>
-      <div class="when">
-        <div v-if="form.every === 'week'" class="choices" aria-label="Jour de la semaine">
-          <button v-for="(name, index) in weekdays" :key="name" type="button" class="panel-button day"
-            :aria-pressed="form.day === index" :aria-label="name" @click="form.day = index">{{ name.slice(0, 3) }}</button>
+      <div v-if="form.every === 'week'" class="week">
+        <div class="choices" role="group" aria-label="Raccourcis">
+          <button v-for="[words, days] in PRESETS" :key="words" type="button" class="panel-button preset"
+            :class="{ on: same(form.days, days) }" @click="form.days = [...days]">{{ words }}</button>
         </div>
+        <div class="choices" role="group" aria-label="Jours de la semaine (plusieurs possibles)">
+          <button v-for="(name, index) in weekdays" :key="name" type="button" class="panel-button day"
+            :aria-pressed="form.days.includes(index)" :aria-label="name" @click="toggleDay(index)">{{ name.slice(0, 3) }}</button>
+        </div>
+      </div>
+      <div class="when">
         <label v-if="form.every === 'month'" class="field inline"><span>Le</span>
-          <select v-model.number="form.day">
+          <select v-model.number="monthDay">
             <option v-for="day in MONTH_DAYS" :key="day" :value="day">{{ day }}</option>
           </select></label>
         <label class="field inline"><span>à</span>
@@ -92,15 +140,26 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
             <option v-for="hour in HOURS" :key="hour" :value="hour">{{ hour }} h</option>
           </select><span class="muted">heure de Casablanca</span></label>
       </div>
+      <p v-if="noDay" class="warn" role="alert">Choisissez au moins un jour.</p>
       <p v-if="midnight" class="warn" role="alert">À minuit, le serveur est encore la veille : choisissez au moins 1 h.</p>
     </fieldset>
 
     <fieldset>
       <legend><span class="step">3</span> À qui envoyer le rapport ?</legend>
-      <label class="field">
+      <label v-if="managers?.length" class="field">
+        <span>Un administrateur du cabinet dans Experio</span>
+        <select v-model="chosenManager" required>
+          <option value="" disabled>Choisissez…</option>
+          <option v-for="manager in managers" :key="manager.email" :value="manager.email">{{ manager.name }} — {{ manager.email }}</option>
+          <option :value="OTHER">Autre adresse (équipe Experio)…</option>
+        </select>
+      </label>
+      <label v-if="typing || !managers?.length" class="field">
         <span>Adresse e-mail</span>
         <input v-model="form.notify" type="email" required autocomplete="off" placeholder="manager@cabinet.ma">
-        <small class="muted">Un collaborateur actif d'Experio, dans les adresses autorisées du cabinet (Réglages).</small>
+        <small class="muted"><template v-if="managers === null">Experio n'a pas donné la liste de ses administrateurs :
+          tapez l'adresse. </template>Un administrateur actif du cabinet dans Experio, ou de l'équipe Experio, dans les
+          adresses autorisées du cabinet (Réglages).</small>
       </label>
     </fieldset>
 
@@ -112,7 +171,7 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
     </div>
 
     <div class="panel-actions">
-      <button type="submit" class="primary" :disabled="busy || midnight">{{ busy ? "Enregistrement…" : submitWords }}</button>
+      <button type="submit" class="primary" :disabled="busy || midnight || noDay">{{ busy ? "Enregistrement…" : submitWords }}</button>
       <button type="button" class="panel-button" @click="$emit('cancel')">Annuler</button>
     </div>
   </form>
@@ -127,11 +186,13 @@ legend { font-weight: 600; margin-bottom: .5rem; display: flex; align-items: cen
 .task { position: relative; display: grid; gap: .25rem; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--bg); color: var(--fg); }
 .task input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .task.chosen { border-color: var(--accent); background: var(--accent-soft); }
-.task:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.task:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .task span { font-size: .85rem; }
 .examples { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
 .choices { display: flex; flex-wrap: wrap; gap: .3rem; }
-.day { text-transform: capitalize; }
+.week { display: grid; gap: .4rem; }
+.day { text-transform: capitalize; min-width: 3.2rem; }
+.preset.on { border-color: var(--accent); }
 .when { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
 .field.inline { display: flex; align-items: center; gap: .5rem; }
 .field.inline select { width: auto; }

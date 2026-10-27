@@ -18,11 +18,28 @@ def at(text):
 
 @pytest.mark.functionality
 def test_the_next_time_a_schedule_falls_on():
-    assert next_run("day", 0, 8, at("2026-10-27 07:59")) == at("2026-10-27 08:00")
-    assert next_run("day", 0, 8, at("2026-10-27 08:00")) == at("2026-10-28 08:00")  # its own time: the next one
-    assert next_run("week", 0, 9, at("2026-10-27 10:00")) == at("2026-11-02 09:00")  # a Tuesday: next Monday
-    assert next_run("month", 5, 8, at("2026-10-04 23:00")) == at("2026-10-05 08:00")
-    assert next_run("month", 5, 8, at("2026-12-05 08:00")) == at("2027-01-05 08:00")  # past December
+    assert next_run("day", [], 8, at("2026-10-27 07:59")) == at("2026-10-27 08:00")
+    assert next_run("day", [], 8, at("2026-10-27 08:00")) == at("2026-10-28 08:00")  # its own time: the next one
+    assert next_run("week", [0], 9, at("2026-10-27 10:00")) == at("2026-11-02 09:00")  # a Tuesday: next Monday
+    assert next_run("week", [1], 9, at("2026-10-27 10:00")) == at("2026-11-03 09:00")  # its own day, past: a week on
+    assert next_run("week", [0, 3], 9, at("2026-10-27 10:00")) == at("2026-10-29 09:00")  # Tuesday: then Thursday
+    assert next_run("week", [0, 1, 2, 3, 4], 9, at("2026-10-31 10:00")) == at("2026-11-02 09:00")  # Saturday: Monday
+    assert next_run("week", [5, 6], 9, at("2026-11-01 10:00")) == at("2026-11-07 09:00")  # Sunday, past: Saturday
+    assert next_run("month", [5], 8, at("2026-10-04 23:00")) == at("2026-10-05 08:00")
+    assert next_run("month", [5], 8, at("2026-12-05 08:00")) == at("2027-01-05 08:00")  # past December
+
+
+@pytest.mark.communication
+def test_a_schedule_said_in_plain_words():
+    assert routines.when("week", [0, 1, 2, 3, 4], 8) == "en semaine (du lundi au vendredi) à 8 h"
+    assert routines.when("week", [5, 6], 8) == "le week-end à 8 h"
+    assert routines.when("week", [0, 3, 4], 9) == "chaque lundi, jeudi et vendredi à 9 h"
+    assert routines.when("week", [2], 9) == "chaque mercredi à 9 h"
+    assert routines.when("week", list(range(7)), 9) == "chaque jour à 9 h"
+    assert routines.when("month", [5], 8) == "chaque mois, le 5 à 8 h"
+    assert "quels jours" in routines.routine_problem("tva", "week", [], 8, "")
+    assert "un seul" in routines.routine_problem("tva", "month", [5, 6], 8, "")
+    assert "pas de jour" in routines.routine_problem("tva", "day", [99], 8, "")
 
 
 @pytest.fixture
@@ -40,7 +57,7 @@ def chat(db_cabinet, monkeypatch):
 
 def make(yes, email="chef@cabinet.ma", hour=8, kind="tva", prompt=""):
     return routines.manage_routine(
-        "create", kind, "month", 5, hour, email=email, prompt=prompt, client_confirmed=yes, session_id="s"
+        "create", kind, "month", [5], hour, email=email, prompt=prompt, client_confirmed=yes, session_id="s"
     )
 
 
@@ -117,8 +134,8 @@ def due_routine(kind="progress", prompt=""):
     """Make a routine due an hour ago, its reports to chef@cabinet.ma; return its id."""
     with cabinet_db() as db:
         return db.execute(
-            "insert into tarik_routines (kind, every, day, hour, notify, created_by, next_run_at, prompt) "
-            "values (%s, 'day', 0, 8, 'chef@cabinet.ma', 'chat', %s, %s) returning id",
+            "insert into tarik_routines (kind, every, days, hour, notify, created_by, next_run_at, prompt) "
+            "values (%s, 'day', '{}', 8, 'chef@cabinet.ma', 'chat', %s, %s) returning id",
             (kind, datetime.now(ZONE) - timedelta(hours=1), prompt),
         ).fetchone()[0]
 
@@ -210,22 +227,42 @@ def test_a_failing_dossier_reads_as_tarik_says_never_as_the_error(running, db_ca
     assert "secret" not in report and report.startswith("Dossier n° 5 : echec technique")
 
 
-@pytest.mark.functionality
-def test_only_a_live_admin_of_the_cabinet_or_staff_gets_reports_of_every_dossier(monkeypatch):
-    users = {
-        "chef@cabinet.ma": {"id": 1, "employee_type": "employee", "employee_state": "active", "company_ids": [5]},
-        "junior@cabinet.ma": {"id": 2, "employee_type": "employee", "employee_state": "active", "company_ids": [5]},
-        "jane@experio.ma": {"id": 3, "employee_type": "internal", "employee_state": "new", "company_ids": []},
-        "invite@cabinet.ma": {"id": 4, "employee_type": "employee", "employee_state": "new", "company_ids": [5]},
-    }
-    profiles = {1: [9, "Admin"], 2: [8, "Collaborateur"], 4: [9, "Admin"]}
-    monkeypatch.setattr(routines, "collaborator", users.get)
-    read = lambda model, method, ids, fields: [{"exp_profile_id": profiles[ids[0]]}]  # noqa: E731
-    monkeypatch.setattr(routines, "odoo_call", read)
-    monkeypatch.setattr(routines, "level_of", lambda profile: {9: "admin", 8: "user"}[profile[0]])
+@pytest.fixture
+def experio_users(monkeypatch):
+    """Experio's users as admins_where reads them: Chef an admin, Démis an admin demoted on one dossier by a
+    « Profils par Dossier » row; Jane of Experio's staff; the domains asked."""
+    asked = []
+
+    def odoo_call(model, method, domain, **kw):
+        asked.append(domain)
+        if model == "exp.user.company.profile":
+            return [{"user_id": [2, "Démis"]}]
+        admins = [{"id": 1, "name": "Chef", "login": "chef@cabinet.ma"}]
+        admins.append({"id": 2, "name": "Démis", "login": "demis@cabinet.ma"})
+        logins = [d[2].lower() for d in domain if d[0] == "login"]
+        return [user for user in admins if not logins or user["login"] in logins]
+
+    monkeypatch.setattr(routines, "odoo_call", odoo_call)
+    staff = {"jane@experio.ma": {"employee_type": "internal"}, "junior@cabinet.ma": {"employee_type": "employee"}}
+    monkeypatch.setattr(routines, "collaborator", staff.get)
+    return asked
+
+
+@pytest.mark.security
+def test_only_a_live_admin_on_every_dossier_or_staff_gets_reports_of_every_dossier(experio_users):
     assert routines.live("chef@cabinet.ma") and routines.live("jane@experio.ma")
-    assert not routines.live("junior@cabinet.ma")  # Experio shows them their own dossiers only
-    assert not routines.live("invite@cabinet.ma") and not routines.live("parti@cabinet.ma")
+    assert not routines.live("demis@cabinet.ma")  # lower on a dossier: Experio shows them less there
+    assert not routines.live("junior@cabinet.ma") and not routines.live("parti@cabinet.ma")
+    rule = experio_users[0]
+    assert ("is_agent", "=", False) in rule  # Experio's technical accounts left out
+    assert ("employee_state", "=", "active") in rule
+    assert ("exp_profile_id.management_group", "=", "admin") in rule
+
+
+@pytest.mark.functionality
+def test_the_cabinets_admins_offered_are_the_same_rule_among_allowed_addresses(experio_users, monkeypatch):
+    monkeypatch.setattr(routines, "allowed_recipients", lambda: ["@cabinet.ma"])
+    assert routines.admins() == [{"name": "Chef", "email": "chef@cabinet.ma"}]
 
 
 @pytest.mark.security
