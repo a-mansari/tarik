@@ -12,7 +12,6 @@ import re
 
 from engine.tools.core.app import routine, stop, tool
 from engine.tools.core.cabinets import cabinet_db
-from engine.tools.core.config import DOSSIER_DOMAIN
 from engine.tools.core.experio import login, odoo_call, refused, require_dossier, require_invoice
 from engine.tools.core.queries import Q
 
@@ -81,35 +80,6 @@ def collaborator(address):
     return found[0] if len(found) == 1 else None  # two users with one address: not a reliable sender
 
 
-def scoped(user, dossier_ids):
-    """Return ``user`` (collaborator's) limited to the dossiers of ``dossier_ids`` it may still see: theirs in
-    Experio (company_ids; every one for Experio's staff) and still open (DOSSIER_DOMAIN: a dossier reset to new stays
-    in company_ids, res_company.py action_reset_to_new). Staff so limited are checked as a collaborator is.
-
-    Returns None for no user, or a collaborator whose account Experio does not count as live (employee_state not
-    « active »: invited and never in, or a copy)."""
-    if not user or (user["employee_type"] != "internal" and user.get("employee_state") != "active"):
-        return None
-    mine = [d for d in dossier_ids if user["employee_type"] == "internal" or d in user["company_ids"]]
-    found = set(odoo_call("res.company", "search", [*DOSSIER_DOMAIN, ("id", "in", mine)])) if mine else set()
-    return {**user, "employee_type": "employee", "company_ids": [d for d in mine if d in found]}
-
-
-def sender_user(session_id):
-    """Return (address, user) for the conversation's sender: (None, None) in the chat; the address and its
-    collaborator (None if none). A routine's run is its report address limited to the routine's dossiers (scoped):
-    its instruction never reaches another dossier, whatever the address may see."""
-    address = sender_of(session_id)
-    if address is None:
-        return None, None
-    user = collaborator(address) if address else None
-    if session_id.startswith(ROUTINE_SESSION):
-        with cabinet_db() as db:
-            row = db.execute(Q.routine_dossiers, (routine_of_session(session_id),)).fetchone()
-        user = scoped(user, row[0] if row else [])
-    return address, user
-
-
 @tool
 def check_creator(session_id: str) -> dict:
     """Check, before dossiers are created (one, or a spreadsheet's list), that the email's sender is a cabinet
@@ -117,9 +87,10 @@ def check_creator(session_id: str) -> dict:
 
     Returns a routine result when allowed or in the chat (no sender to check); a stop result, reported to the
     client, when the sender is unknown or not a manager: nothing is created."""
-    address, user = sender_user(session_id)
+    address = sender_of(session_id)
     if address is None:
         return routine("Conversation sans expediteur a verifier.")
+    user = collaborator(address)
     if not user:
         return stop(f"`{address}` n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun dossier n'est cree.")
     if user["employee_type"] == "internal":
@@ -155,9 +126,10 @@ def sender_reach(session_id):
     Tarik writes with its own wide rights, while Experio no longer limits a manager to their dossiers (its
     res_company_rule_employee is deleted, base_client/security/base_security.xml:31-33): the access tools keep a
     sender to their own dossiers and to people at or below their own level."""
-    address, user = sender_user(session_id)
+    address = sender_of(session_id)
     if address is None:
         return None
+    user = collaborator(address)
     if not user:
         return {}
     if user["employee_type"] == "internal":
@@ -217,22 +189,13 @@ def attach_user(user_id, dossier_id, profile_id=None, employee_type="employee"):
         )
 
 
-ROUTINE_SESSION = "routine-"  # a routine's run: routine-<id>-<period> (engine/tools/dossiers/routines.py)
-
-
-def routine_of_session(session_id):
-    """Return the routine id of a routine's run session (``ROUTINE_SESSION<id>-<period>``), 0 when unreadable."""
-    routine_id = session_id.removeprefix(ROUTINE_SESSION).split("-")[0]
-    return int(routine_id) if routine_id.isdigit() else 0
+ROUTINE_SESSION = "routine-"  # a routine's run: routine-<id>-<period>; no sender, Tarik's own account's reach
 
 
 def sender_of(session_id):
-    """Return the sender's address of an email conversation, the routine's report address for a routine's run (its
-    instruction runs with that person's rights); None in the chat, where nobody can tell who writes."""
+    """Return the sender's address of an email conversation; None in the chat and in a routine's run, where nobody
+    writes: Tarik's own Experio account's reach applies."""
     with cabinet_db() as db:
-        if session_id.startswith(ROUTINE_SESSION):
-            row = db.execute(Q.routine_notify, (routine_of_session(session_id),)).fetchone()
-            return row[0] if row else ""  # a routine gone: an address nobody has, so nothing is allowed
         row = db.execute(Q.sender_of_session, (session_id,)).fetchone()
     return row[0] if row else None
 
@@ -247,9 +210,10 @@ def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> d
     if invoice_id and not dossier_id:
         dossier_id = require_invoice(invoice_id, ["company_id"])["company_id"][0]
     dossier = require_dossier(dossier_id)
-    address, user = sender_user(session_id)
+    address = sender_of(session_id)
     if address is None:
         return routine("Conversation sans expediteur a verifier.")
+    user = collaborator(address)
     if not user:
         return stop(
             f"`{address}` n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun travail sur le dossier "

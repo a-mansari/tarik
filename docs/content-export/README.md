@@ -87,3 +87,7 @@ uses another one. A stack that edited one of these documents itself loses that e
   `Experio_routine` (`agent.json`) and when to use it (`skills/gestion-dossiers.md`), the input « Consigne de la
   routine », the kind's name and the journal's « Routine modifiée » (`labels.json`). Import it after the routines
   export, once the stack runs the Routines page commit.
+- `tarik-contenu-routines-sans-dossiers-20261027.json` (and its `.diff`): routines work on every dossier Tarik's
+  Experio account sees: `Experio_routine` loses `dossier_ids` and says only admins and Experio's staff make one
+  (`agent.json`), the skill no longer looks for dossiers first (`skills/gestion-dossiers.md`), the progress kind's
+  name (`labels.json`). Import it after the routines-page export, once the stack runs the commit without the selector.

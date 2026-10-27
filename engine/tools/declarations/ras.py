@@ -27,7 +27,7 @@ of residents (exp.withholding.table, by its type), RAS IS of non-residents, mont
 import re
 from datetime import date
 
-from engine.tools.core.app import ToolError, ok, question, step_tool, stop
+from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import (
     ExperioRefusal,
@@ -370,6 +370,8 @@ def prepare_ras_declaration(
         flags = [spec["flag"] for spec in KINDS.values() if spec.get("flag")]
         company = odoo_call("res.company", "read", [dossier_id], fields=flags)[0]
         kinds = kinds_named(declarations, company)
+        if not kinds and new_only:  # a routine's run: nothing due here, nobody to ask
+            return routine(f"Le dossier `{dossier}` ne déclare aucune RAS dans Experio : rien à préparer.")
         if not kinds:
             return stop(
                 f"Le dossier `{dossier}` ne déclare aucune RAS dans Experio (RAS TVA, IS et IR décochées) : dites "
