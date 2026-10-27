@@ -43,8 +43,8 @@ DECLARATIONS = [
 
 
 def experio_progress(dossier_id, context):
-    """Return (progress text, pieces booked, pieces, operations booked, operations) as Experio's dashboard computes
-    them, every exercice (search_count is not limited to the selected exercice)."""
+    """Return (progress in %, None when nothing to do yet; pieces booked, pieces, operations booked, operations) as
+    Experio's dashboard computes them, every exercice (search_count is not limited to the selected exercice)."""
     sides = []
     for models in (PIECES, OPERATIONS):
         mine = [("company_id", "=", dossier_id)]
@@ -54,8 +54,7 @@ def experio_progress(dossier_id, context):
         )
         sides.append((booked, total))
     ratios = [booked / total for booked, total in sides if total]
-    progress = f"{round(100 * sum(ratios) / len(ratios))} %" if ratios else "rien à traiter encore"
-    return progress, *sides[0], *sides[1]
+    return (round(100 * sum(ratios) / len(ratios)) if ratios else None), *sides[0], *sides[1]
 
 
 def counted(model, domain, groups, context):
@@ -119,9 +118,9 @@ def invoice_lines(dossier_id, exercice, context):
 
 
 def statement_lines(dossier_id, exercice, context):
-    """Return the lines of the dossier's bank and TPE statements of the exercice and their operations, with the
-    posted bank operations in suspense as Tarik's posting reports them (statement.suspense: unpaid or partly paid, not
-    reconciled)."""
+    """Return (lines, suspense): the lines of the dossier's bank and TPE statements of the exercice and their
+    operations, with the posted bank operations in suspense as Tarik's posting reports them (statement.suspense:
+    unpaid or partly paid, not reconciled), and how many those are."""
     dated = [("date", ">=", exercice["date_start"]), ("date", "<=", exercice["date_end"])] if exercice else []
     mine = [("company_id", "=", dossier_id), *dated]
     lines = []
@@ -139,7 +138,7 @@ def statement_lines(dossier_id, exercice, context):
     left = odoo_call("exp.bank.statement.line", "search_count", suspense, context=context)
     if left:
         lines.append(f"- Opérations bancaires en suspens (sans facture lettrée) : {left}")
-    return lines
+    return lines, left
 
 
 def declaration_lines(dossier_id, year, context):
@@ -165,6 +164,48 @@ def declaration_lines(dossier_id, year, context):
     return lines or ["- Aucune déclaration préparée dans Experio pour cette année."]
 
 
+def progress_of(dossier_id, year=0):
+    """Return (text, figures): where a dossier stands, as dossier_progress says it, and its figures for a table
+    (dossier, progress in % or None, pieces booked and all, operations booked and all, operations in suspense,
+    exercice). Raises ToolError as dossier_progress does."""
+    dossier = require_dossier(dossier_id)
+    context = in_dossier(dossier_id)
+    with refused(f"dossier_progress {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner son état."):
+        exercice = exercice_of(dossier_id, year, context)
+        if year and not exercice:
+            raise ToolError(f"Le dossier `{dossier}` n'a pas d'exercice {year} dans Experio.")
+        progress, pieces_booked, pieces, operations_booked, operations = experio_progress(dossier_id, context)
+        invoices = invoice_lines(dossier_id, exercice, context)
+        statements, suspense = statement_lines(dossier_id, exercice, context)
+        shown_year = int(exercice["date_end"][:4]) if exercice else year
+        declarations = declaration_lines(dossier_id, shown_year, context) if shown_year else []
+    period = f"{exercice['name']} ({exercice['date_start']} au {exercice['date_end']})" if exercice else "sans exercice"
+    progress_words = "rien à traiter encore" if progress is None else f"{progress} %"
+    parts = [
+        f"Dossier `{dossier}`",
+        f"Avancement (calcul d'Experio, tous exercices) : {progress_words} — pièces comptabilisées "
+        f"{pieces_booked}/{pieces}, opérations bancaires et de caisse comptabilisées {operations_booked}/{operations}",
+        f"Exercice : {period}",
+        "Pièces :",
+        *invoices,
+        "Banque :",
+        *statements,
+    ]
+    if declarations:
+        parts += [f"Déclarations {shown_year} :", *declarations]
+    figures = {
+        "dossier": dossier,
+        "progress": progress,
+        "pieces_booked": pieces_booked,
+        "pieces": pieces,
+        "operations_booked": operations_booked,
+        "operations": operations,
+        "suspense": suspense,
+        "exercice": exercice["name"] if exercice else "",
+    }
+    return "\n".join(parts), figures
+
+
 @tool
 def dossier_progress(dossier_id: int, year: int = 0) -> str:
     """Return, as French text, where a dossier stands in Experio: its progress (Experio's own « avancement », every
@@ -177,28 +218,15 @@ def dossier_progress(dossier_id: int, year: int = 0) -> str:
 
     Raises:
         ToolError: Experio can't give the counts."""
-    dossier = require_dossier(dossier_id)
-    context = in_dossier(dossier_id)
-    with refused(f"dossier_progress {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner son état."):
-        exercice = exercice_of(dossier_id, year, context)
-        if year and not exercice:
-            raise ToolError(f"Le dossier `{dossier}` n'a pas d'exercice {year} dans Experio.")
-        progress, pieces_booked, pieces, operations_booked, operations = experio_progress(dossier_id, context)
-        invoices = invoice_lines(dossier_id, exercice, context)
-        statements = statement_lines(dossier_id, exercice, context)
-        shown_year = int(exercice["date_end"][:4]) if exercice else year
-        declarations = declaration_lines(dossier_id, shown_year, context) if shown_year else []
-    period = f"{exercice['name']} ({exercice['date_start']} au {exercice['date_end']})" if exercice else "sans exercice"
-    parts = [
-        f"Dossier `{dossier}`",
-        f"Avancement (calcul d'Experio, tous exercices) : {progress} — pièces comptabilisées {pieces_booked}/{pieces}, "
-        f"opérations bancaires et de caisse comptabilisées {operations_booked}/{operations}",
-        f"Exercice : {period}",
-        "Pièces :",
-        *invoices,
-        "Banque :",
-        *statements,
-    ]
-    if declarations:
-        parts += [f"Déclarations {shown_year} :", *declarations]
-    return "\n".join(parts)
+    return progress_of(dossier_id, year)[0]
+
+
+@tool
+def dossier_progress_figures(dossier_id: int) -> dict:
+    """Return where a dossier stands for a routine's report: an ok result with dossier_progress's text as its message
+    and its figures for the report's table (progress_of), the dossier's latest exercice.
+
+    Raises:
+        ToolError: Experio can't give the counts."""
+    text, figures = progress_of(dossier_id)
+    return {"status": "ok", "message": text, "figures": figures}

@@ -11,6 +11,7 @@ MIMES = {
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "zip": "application/zip",
     "txt": "text/plain",
+    "csv": "text/csv",
     "xml": "application/xml",
 }
 

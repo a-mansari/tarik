@@ -301,9 +301,9 @@ def prepare_tva_declaration(
             return ok(f"{TEST_MODE}La déclaration de TVA {label} du dossier `{dossier}` serait créée et préparée.")
         table = read_table(table_id, context)
         if table["state"] == "done":
-            return ok(f"Déjà déclarée dans Experio. {summary(table, label)}", declaration_id=table_id)
+            return ok(f"Déjà déclarée dans Experio. {summary(table, label)}", declaration_id=table_id, already=True)
         if new_only and not made:
-            return ok(f"Déjà préparée, non actualisée. {summary(table, label)}", declaration_id=table_id)
+            return ok(f"Déjà préparée, non actualisée. {summary(table, label)}", declaration_id=table_id, already=True)
         first = is_first(dossier_id, table, context)
         given = as_number(credit_reporte) if str(credit_reporte).strip() else None
         carried = given if given is not None else (table["tva_en_rouge"] if first else None)

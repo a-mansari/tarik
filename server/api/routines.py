@@ -28,6 +28,7 @@ from engine.tools.dossiers.routines import (
     routines_of_cabinet,
     when,
 )
+from engine.tools.emails.sending import plain
 from server import audit
 from server.api.runs import chosen, page
 
@@ -48,7 +49,7 @@ def shown():
                 "schedule": when(*(routine[key] for key in SCHEDULE)),
                 "next_run_at": routine["next_run_at"].astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
                 "last_due": due and due.astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
-                "last_report": report,
+                "last_report": report and plain(report),  # as its email reads, never its Markdown
             }
         )
     return found

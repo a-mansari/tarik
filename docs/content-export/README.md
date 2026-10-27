@@ -98,3 +98,7 @@ uses another one. A stack that edited one of these documents itself loses that e
   time: its name, steps and their descriptions, and the inputs « Tâche de la routine »
   and « Période suivante » (`labels.json`). Import it after the routines-jours export, once the stack runs the commit
   with the Routine workflow: before, check.py finds no gap but the labels name a workflow the stack lacks.
+- `tarik-contenu-routine-fichiers-20261027.json` (and its `.diff`): the Routine workflow's « Rapport » and
+  « Rapport envoyé » steps say the report is a few lines in the email and every dossier in the files joined (Excel,
+  CSV, text) (`labels.json`). Import it after the routine-workflow export, once the stack runs the commit with the
+  report's files.

@@ -1,0 +1,13 @@
+--- a/labels.json
++++ b/labels.json
+@@ -273,8 +273,8 @@
+         "consigne": "Donne la consigne de la routine à Tarik, dans une discussion de la routine, et garde sa réponse.",
+         "dossiers": "Liste les dossiers que le compte Experio de Tarik peut ouvrir.",
+         "dossier": "Pour un dossier : son avancement, ou la déclaration TVA ou RAS de la période terminée préparée (jamais reprise ni déclarée ; la première TVA d'un dossier, un dossier sans IF ou sans RAS à faire sont signalés, rien n'est créé). Un dossier à la fois ; un dossier non atteint avant la période suivante lui est laissé.",
+-        "rapport": "Rédige le rapport : un paragraphe par dossier qui a quelque chose à dire, les autres comptés. Un long rapport est joint en fichier.",
+-        "envoi": "Envoie le rapport par email à son destinataire, avec les fichiers préparés (XML).",
++        "rapport": "Rédige le rapport : quelques lignes pour le corps de l'email (combien de dossiers et leur résultat, pour l'avancement la moyenne, les moins avancés et les opérations en suspens ; les dossiers à voir ou en échec), et chaque dossier dans les fichiers joints : Excel, CSV et texte. La réponse à une consigne est le corps même.",
++        "envoi": "Envoie le rapport par email à son destinataire, avec ses fichiers et ceux préparés (XML).",
+         "fin": "Termine la période : le rapport envoyé, ou la raison de la pause."
+       }
+     }
