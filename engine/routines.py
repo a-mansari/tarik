@@ -14,6 +14,7 @@ RUNNING_AT_ONCE across cabinets: a cabinet's 200 routines never take the slots i
 """
 
 import asyncio
+import time
 from datetime import datetime
 
 from engine import runs
@@ -37,14 +38,16 @@ PENDING = set()  # their tasks (a task nobody holds may be collected before it e
 
 
 def claimed():
-    """Return the current cabinet's routines to run now, as (id, kind, every, days, hour, notify, due_at, prompt): the
+    """Return the current cabinet's routines to run now, as (id, kind, every, days, hour, minute, notify, due_at,
+    prompt): the
     periods started and never reported, then the due routines, each with its period taken and its next time set
     (one whose period already ran is skipped, its next time set all the same)."""
     with cabinet_db() as db, db.transaction():
         taken = db.execute(Q.routines_unfinished).fetchall()
         for row in db.execute(Q.routines_due).fetchall():
-            routine_id, _, every, days, hour, _, due_at, _ = row
-            db.execute(Q.routine_next, (next_run(every, days, hour, max(due_at, datetime.now(ZONE))), routine_id))
+            routine_id, _, every, days, hour, minute, _, due_at, _ = row
+            upcoming = next_run(every, days, hour, minute, max(due_at, datetime.now(ZONE)))
+            db.execute(Q.routine_next, (upcoming, routine_id))
             if db.execute(Q.routine_period_taken, (routine_id, due_at)).fetchone():
                 taken.append(row)
     return taken
@@ -53,7 +56,7 @@ def claimed():
 async def ran(cabinet, row):
     """Run one claimed routine of ``cabinet`` (one at a time per cabinet, RUNNING_AT_ONCE in all), email its report
     and keep it; return the report. A dossier's failure is a line of the report, never the end of the others."""
-    routine_id, _, _, _, _, notify, due_at, _ = row
+    routine_id, _, _, _, _, _, notify, due_at, _ = row
     async with ONE_PER_CABINET.setdefault(cabinet, asyncio.Semaphore(1)):
         try:
             problem = await within(cabinet, address_problem, notify)
@@ -73,9 +76,9 @@ async def reported(cabinet, row):
     """Run routine ``row`` (an instruction once, another kind on each dossier Tarik sees, until its next time comes),
     email the report with the runs' files, and return it (its start when long: BODY_CHARACTERS). Dossiers with
     nothing to say are counted, not listed; each part takes a slot of EVERYWHERE, so cabinets take turns."""
-    routine_id, kind, every, days, hour, notify, due_at, prompt = row
+    routine_id, kind, every, days, hour, minute, notify, due_at, prompt = row
     session = session_of(routine_id, due_at)
-    deadline = next_run(every, days, hour, due_at)
+    deadline = next_run(every, days, hour, minute, due_at)
     parts, quiet, left = [], 0, 0
     if kind == "instruction":
         async with EVERYWHERE:
@@ -100,7 +103,7 @@ async def reported(cabinet, row):
     if left:
         parts.append(f"{left} dossier(s) non traité(s) : la période suivante est arrivée avant.")
     report = "\n\n".join(parts) or NOTHING
-    subject = f"Routine n° {routine_id} : {KINDS[kind]} ({when(every, days, hour)})"
+    subject = f"Routine n° {routine_id} : {KINDS[kind]} ({when(every, days, hour, minute)})"
     body = report
     if len(report) > BODY_CHARACTERS:  # the whole report as a file, its start in the email
         await within(cabinet, keep_file, session, f"routine-{routine_id}.txt", report.encode())
@@ -153,7 +156,7 @@ def record(routine_id, due_at, report):
 
 def started(cabinet, row):
     """Start claimed routine ``row`` of ``cabinet`` in the background, unless that period already runs here."""
-    key = (cabinet, row[0], row[6])  # its id and period
+    key = (cabinet, row[0], row[7])  # its id and period (due_at)
     if key in RUNNING:
         return
     RUNNING.add(key)
@@ -175,10 +178,10 @@ async def tick():
 
 
 async def clock():
-    """Run tick() once a minute for the server's whole life."""
+    """Run tick() at the start of each minute for the server's whole life."""
     while True:
         try:
             await tick()
         except Exception as error:  # never stop the clock
             log(f"routines: {type(error).__name__}: {error}")
-        await asyncio.sleep(TICK_SECONDS)
+        await asyncio.sleep(TICK_SECONDS - time.time() % TICK_SECONDS)  # on the minute: a routine's minute kept

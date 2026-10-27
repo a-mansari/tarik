@@ -16,6 +16,7 @@ from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.queries import Q
 from engine.tools.dossiers.routines import (
     KINDS,
+    SCHEDULE,
     WEEKDAYS,
     WEEKEND,
     WORKDAYS,
@@ -30,8 +31,7 @@ from engine.tools.dossiers.routines import (
 from server import audit
 from server.api.runs import chosen, page
 
-FIELDS = ("enabled", "kind", "every", "days", "hour", "notify", "prompt")
-SCHEDULE = ("every", "days", "hour")
+FIELDS = ("enabled", "kind", "every", "days", "hour", "minute", "notify", "prompt")
 
 
 def shown():
@@ -45,7 +45,7 @@ def shown():
         found.append(
             {
                 **routine,
-                "schedule": when(routine["every"], routine["days"], routine["hour"]),
+                "schedule": when(*(routine[key] for key in SCHEDULE)),
                 "next_run_at": routine["next_run_at"].astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
                 "last_due": due and due.astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
                 "last_report": report,
@@ -62,6 +62,7 @@ def cleaned(given):
         "every": str(given.get("every") or ""),
         "days": sorted({int(day) for day in given.get("days") or []}),
         "hour": int(given.get("hour") if given.get("hour") is not None else 8),
+        "minute": int(given.get("minute") or 0),
         "notify": str(given.get("notify") or "").strip(),
         "prompt": str(given.get("prompt") or "").strip(),
     }
