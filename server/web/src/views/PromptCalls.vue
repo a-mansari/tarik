@@ -1,4 +1,4 @@
-<!-- A conversation's model calls (of the cabinet picked in the sidebar), in order, each opened to read its whole prompt
+<!-- A conversation's model calls (of the cabinet picked in the sidebar), in order with their tokens and cost, each opened to read its whole prompt
 (fetched the first time it is opened); the call asked for (?call=) opens at once. New calls are added as they come:
 one opened stays open. -->
 <script setup>
@@ -7,6 +7,7 @@ import { useRoute } from "vue-router";
 
 import { cabinetDisplay, usePage } from "../api.js";
 import Icon from "../components/Icon.vue";
+import ModelUsage from "../components/ModelUsage.vue";
 import PageState from "../components/PageState.vue";
 import PromptBody from "../components/PromptBody.vue";
 import { useLive } from "../live.js";
@@ -56,13 +57,14 @@ const stop = watch(list, async (shown) => {
     <div class="head"><div>
       <h1>{{ data.title || "Discussion" }}</h1>
       <p class="muted"><span>{{ data.calls.length }}</span> appel(s) du modèle, dans l'ordre. Ouvrez-en un pour voir exactement ce que Tarik a reçu : ses instructions, ses outils, puis chaque message.</p>
+      <p class="muted">Toute la discussion, outils compris : <ModelUsage :usage="data.total" full /></p>
     </div></div>
     <ol ref="list" class="prompt-calls">
       <li v-for="(call, index) in data.calls" :id="`item-${call.id}`" :key="call.id">
         <details :id="`call-${call.id}`" :open="asked === String(call.id)" @toggle="load(call.id, $event)">
           <summary>
             <span class="time num">{{ call.when }}</span> <b>Appel {{ index + 1 }}</b> <span
-              class="muted">{{ call.agent }} · {{ call.messages }} message(s)</span>
+              class="muted">{{ call.agent }} · {{ call.messages }} message(s) · <ModelUsage :usage="data.usage[call.id]" /></span>
           </summary>
           <div class="prompt">
             <template v-if="typeof prompts[call.id] === 'string'">{{ prompts[call.id] }}</template>

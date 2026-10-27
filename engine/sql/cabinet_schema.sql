@@ -208,6 +208,24 @@ create table if not exists tarik_prompt_calls (
 );
 create index if not exists tarik_prompt_calls_session on tarik_prompt_calls (session_id, id);
 
+-- Each model call's tokens and cost, the agent's and the tools' (engine/tools/core/usage.py), for the dashboard.
+create table if not exists tarik_model_usage (
+    id serial primary key,
+    model text not null, -- as the provider names it: MiniMax-M3, claude-sonnet-...
+    input_tokens integer not null, -- read fresh, cache writes included
+    cached_tokens integer not null, -- read from the provider's cache
+    output_tokens integer not null, -- thinking included
+    cost numeric, -- US dollars; null for a model without a known price
+    created_at timestamptz not null default now()
+);
+create index if not exists tarik_model_usage_created on tarik_model_usage (created_at);
+-- The run it was made in (orchestrator.runs; the Executions and Discussions pages total them) and, for the agent's
+-- calls, its prompt (tarik_prompt_calls; the LLM Calls pages).
+alter table tarik_model_usage add column if not exists run_id uuid;
+alter table tarik_model_usage add column if not exists prompt_call integer;
+create index if not exists tarik_model_usage_run on tarik_model_usage (run_id);
+create index if not exists tarik_model_usage_prompt on tarik_model_usage (prompt_call);
+
 -- The invoices a processing run is working on: another run (another conversation) leaves them alone until it ends
 -- (run_summary releases them) or stops refreshing its claim for 30 minutes (a run cut short).
 create table if not exists tarik_working (

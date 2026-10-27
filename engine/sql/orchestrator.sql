@@ -12,6 +12,13 @@ select count(*) filter (where parent_id is null),
     count(distinct session_id) filter (where graph in ('discussion', 'fil'))
 from runs where cabinet = %s and started_at > now() - %s * interval '1 day'
 
+-- name: dashboard_usage
+-- A cabinet's last days of model calls ({usage}: its tarik_model_usage), per model, the costliest first; priced:
+-- the calls whose cost is known.
+select model, sum(input_tokens), sum(cached_tokens), sum(output_tokens), sum(cost), count(cost) = count(*)
+from {usage} where created_at > now() - %s * interval '1 day'
+group by model order by sum(cost) desc nulls last
+
 -- name: run_created
 -- A new run, queued; parent_id and parent_node when started in another run's step.
 insert into runs (id, graph, cabinet, session_id, thread_id, status, input, parent_id, parent_node)
@@ -180,6 +187,7 @@ with new_parts as (
     from unnest(%s::text[], %s::text[]) as t(hash, content) on conflict do nothing
 )
 insert into {calls} (session_id, agent, system_hash, tools_hash, message_hashes) values (%s, %s, %s, %s, %s)
+returning id
 
 -- name: prompt_calls_expired_removed
 delete from {calls} where created_at < now() - %s * interval '1 day'
@@ -206,6 +214,30 @@ select c.id, c.agent, c.created_at, c.session_id, cardinality(c.message_hashes),
         and c.created_at >= r.started_at and c.created_at <= coalesce(r.ended_at, now())
      order by r.started_at desc limit 1)
 from {calls} c where c.id < %(before)s order by c.id desc limit %(limit)s
+
+-- name: usage_of_runs
+-- Each run's model calls ({usage}: the cabinet's tarik_model_usage), the runs started in its steps included, at any
+-- depth; same columns as dashboard_usage, the run's id first.
+with recursive tree (root, id) as (
+    select id, id from {runs} where id = any(%(keys)s::uuid[])
+    union all
+    select tree.root, r.id from {runs} r join tree on r.parent_id = tree.id
+)
+select tree.root::text, sum(u.input_tokens), sum(u.cached_tokens), sum(u.output_tokens), sum(u.cost),
+    count(u.cost) = count(*)
+from tree join {usage} u on u.run_id = tree.id group by tree.root
+
+-- name: usage_of_sessions
+-- Each conversation's model calls, every run of it; same columns as dashboard_usage, the conversation first.
+select r.session_id, sum(u.input_tokens), sum(u.cached_tokens), sum(u.output_tokens), sum(u.cost),
+    count(u.cost) = count(*)
+from {usage} u join {runs} r on r.id = u.run_id
+where r.cabinet = %(cabinet)s and r.session_id = any(%(keys)s::text[]) group by r.session_id
+
+-- name: usage_of_calls
+-- Each agent model call's tokens and cost, by its prompt's id; same columns as dashboard_usage, the call first.
+select prompt_call, sum(input_tokens), sum(cached_tokens), sum(output_tokens), sum(cost), count(cost) = count(*)
+from {usage} where prompt_call = any(%(keys)s::int[]) group by prompt_call
 
 -- name: prompt_call
 select agent, created_at, session_id, system_hash, tools_hash, message_hashes from {calls} where id = %s

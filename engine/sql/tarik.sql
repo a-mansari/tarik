@@ -527,3 +527,9 @@ select id, file_name, mime_type, data from tarik_outbox where session_id = %s an
 -- name: mark_outbox_sent
 -- Files sent with Tarik's email reply.
 update tarik_outbox set sent_at = now() where id = any(%s)
+
+-- name: model_usage_counted
+-- === engine/tools/core/usage.py ===
+-- One model call's tokens and cost.
+insert into tarik_model_usage (model, input_tokens, cached_tokens, output_tokens, cost, run_id, prompt_call)
+values (%s, %s, %s, %s, %s, %s, %s)

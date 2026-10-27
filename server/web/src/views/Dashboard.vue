@@ -1,4 +1,4 @@
-<!-- The cabinet picked: its last days in four numbers, read again at each change of the cabinet as runs happen, and a
+<!-- The cabinet picked: its last days in five numbers (the model calls' cost, each model's tokens below them), read again at each change of the cabinet as runs happen, and a
 message to Tarik that opens a new conversation: once sent, the page becomes that conversation's (its address too, the
 back button back here). -->
 <script setup>
@@ -8,6 +8,7 @@ import { pickedCabinet, usePage } from "../api.js";
 import { useLive } from "../live.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import ChatForm from "../components/ChatForm.vue";
+import ModelUsage from "../components/ModelUsage.vue";
 import PageState from "../components/PageState.vue";
 
 const router = useRouter();
@@ -34,6 +35,12 @@ const opened = (answer) =>
       <div class="metric"><span class="value num">{{ data.metrics.seconds }}</span><span class="what">durée moyenne</span></div>
       <div class="metric" :class="{ bad: data.metrics.bad }"><span class="value num">{{ data.metrics.failed }}</span><span class="what">en échec</span></div>
       <div class="metric"><span class="value num">{{ data.metrics.conversations }}</span><span class="what">discussions</span></div>
+      <div class="metric"><span class="value num">{{ data.metrics.cost }}</span><span class="what">coût des modèles</span></div>
+      <ul v-if="data.metrics.models.length" class="usage">
+        <li v-for="used in data.metrics.models" :key="used.model">
+          <strong>{{ used.model }}</strong> : <ModelUsage :usage="used" full />
+        </li>
+      </ul>
     </section>
     <section class="panel chat-start">
       <h2 class="ask">Écrire à Tarik</h2>

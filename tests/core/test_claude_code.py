@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langchain_core.tools import tool
 
 from engine.claude_code import ChatClaudeCode
-from engine.tools.core import cabinets, claude_code, model
+from engine.tools.core import cabinets, claude_code, model, usage
 from engine.tools.core.app import ToolError
 
 
@@ -36,6 +36,18 @@ def test_the_vision_model_goes_through_the_cli_when_the_cabinet_picks_it(tmp_pat
     sent = json.loads((tmp_path / "stdin").read_text())["message"]["content"]
     assert sent[0]["type"] == "image" and sent[-1] == {"type": "text", "text": "Quoi ?"}
     assert "--tools" in (tmp_path / "args").read_text()  # its own tools off
+
+
+@pytest.mark.functionality
+def test_each_cli_call_s_tokens_and_cost_are_kept_as_the_cli_counts_them(tmp_path, monkeypatch):
+    used = {"inputTokens": 12, "cacheCreationInputTokens": 3000, "cacheReadInputTokens": 9000, "outputTokens": 40}
+    result = {"is_error": False, "result": '{"kind": "facture"}', "modelUsage": {"claude-x": {**used, "costUSD": 0.02}}}
+    fake_cli(tmp_path, monkeypatch, result)
+    kept = []
+    monkeypatch.setattr(usage, "counted", lambda *call: kept.append(call))
+    with cabinets.using("cabinet_a"):
+        model.ask_model("sys", [], "Quoi ?", "Identification", keys=("kind",))
+    assert kept == [("claude-x", 3012, 9000, 40, 0.02)]
 
 
 @pytest.mark.communication

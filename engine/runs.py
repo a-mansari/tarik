@@ -4,7 +4,6 @@ them (the LangGraph checkpointer's tables, same schema)."""
 
 import asyncio
 import contextlib
-import contextvars
 import json
 import re
 import time
@@ -20,6 +19,7 @@ from psycopg_pool import AsyncConnectionPool
 from engine import agent, graphs, live
 from engine.content import LABELS
 from engine.settings import DEFAULT_CABINET
+from engine.tools.core import usage
 from engine.tools.core.queries import Q
 
 SCHEMA = "orchestrator"
@@ -130,7 +130,9 @@ def thread_outcome(update, status):
 async def open_store(conninfo):
     """Open the connection pool for the server's whole life and create the orchestrator schema and its tables."""
     global pool
-    pool = AsyncConnectionPool(f"{conninfo} options='-c search_path={SCHEMA}'", open=False, kwargs={"autocommit": True})
+    pool = AsyncConnectionPool(
+        f"{conninfo} options='-c search_path={SCHEMA}'", open=False, max_size=20, kwargs={"autocommit": True}
+    )  # 20, not psycopg's 4: every page read and every agent model call's prompt save share it
     await pool.open()
     async with pool.connection() as db:
         await db.execute(Q.orchestrator_schema)
@@ -143,8 +145,8 @@ async def end_cut_off():
         await db.execute(Q.runs_cut_off)
 
 
-RUNNING = contextvars.ContextVar("running", default=None)  # the run whose steps are going on: a run started in one
-# of them is its child (the context reaches every task the graph starts for its steps)
+RUNNING = usage.RUNNING  # the run whose steps are going on: a run started in one of them is its child, and the model
+# calls made in them are its (the context reaches every task the graph starts for its steps, and their tools' threads)
 
 
 async def created(name, given, cabinet, session, thread=None, parent=None, parent_node=None):
@@ -235,34 +237,36 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
     inner = {}  # a part's path ("facture", "fichier|facture") -> the status of the last step that ran inside it
     rounds = {}  # (namespace, node) -> the round its latest task started in
     running = RUNNING.set(run_id)
-    # shortcut: one process's runs at once (20); several servers would need a shared queue
-    async with slots or contextlib.nullcontext():
-        async with pool.connection() as db:
-            await db.execute(Q.run_running, (run_id,))
-        try:  # the agent made here too: no model configured fails the run, never leaves it queued
-            graph = graph_of(name, configurable)
-            async for namespace, mode, data in graph.astream(
-                given,
-                {"configurable": configurable, "run_id": run_id},
-                stream_mode=["updates", "values", "debug"],
-                subgraphs=True,
-            ):
-                if mode == "debug":
-                    if data["type"] == "task":  # a step starting: its round, read when its update comes
-                        rounds[(namespace, data["payload"]["name"])] = data["step"]
-                elif mode == "values" and not namespace:
-                    output = data
-                elif mode == "updates":
-                    await recorded(run_id, namespace, data, rounds, inner)
-                    live.touched(run_id, cabinet, session)
-        except Exception as caught:  # the run's own failure: kept for whoever looks, the server goes on
-            status, error, failure = "error", f"{type(caught).__name__}: {caught}", caught
-        async with pool.connection() as db:
-            await db.execute(
-                Q.run_ended,
-                (status, capped(output) if output is not None else None, error, run_id),
-            )
-    RUNNING.reset(running)
+    try:  # reset even when the store fails: the parent's later model calls are its own
+        # shortcut: one process's runs at once (20); several servers would need a shared queue
+        async with slots or contextlib.nullcontext():
+            async with pool.connection() as db:
+                await db.execute(Q.run_running, (run_id,))
+            try:  # the agent made here too: no model configured fails the run, never leaves it queued
+                graph = graph_of(name, configurable)
+                async for namespace, mode, data in graph.astream(
+                    given,
+                    {"configurable": configurable, "run_id": run_id},
+                    stream_mode=["updates", "values", "debug"],
+                    subgraphs=True,
+                ):
+                    if mode == "debug":
+                        if data["type"] == "task":  # a step starting: its round, read when its update comes
+                            rounds[(namespace, data["payload"]["name"])] = data["step"]
+                    elif mode == "values" and not namespace:
+                        output = data
+                    elif mode == "updates":
+                        await recorded(run_id, namespace, data, rounds, inner)
+                        live.touched(run_id, cabinet, session)
+            except Exception as caught:  # the run's own failure: kept for whoever looks, the server goes on
+                status, error, failure = "error", f"{type(caught).__name__}: {caught}", caught
+            async with pool.connection() as db:
+                await db.execute(
+                    Q.run_ended,
+                    (status, capped(output) if output is not None else None, error, run_id),
+                )
+    finally:
+        RUNNING.reset(running)
     live.touched(run_id, cabinet, session)
     return output, failure
 

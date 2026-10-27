@@ -1,5 +1,5 @@
 <!-- The Discussion page: the team writes to a cabinet's Tarik, as the cabinet's clients would, with files. Without a
-session in the address, the cabinet's conversations, latest first, read again at each change of the cabinet; with
+session in the address, the cabinet's conversations, latest first, each with its model calls' tokens and cost, read again at each change of the cabinet; with
 one, that conversation, read again at each of its changes while Tarik works (each tool as it runs, then the reply),
 and its form when it is one of the page's own. -->
 <script setup>
@@ -12,6 +12,7 @@ import CabinetLabel from "../components/CabinetLabel.vue";
 import ChatForm from "../components/ChatForm.vue";
 import ChatTalk from "../components/ChatTalk.vue";
 import Icon from "../components/Icon.vue";
+import ModelUsage from "../components/ModelUsage.vue";
 import PageState from "../components/PageState.vue";
 
 const route = useRoute();
@@ -52,6 +53,7 @@ watch(() => data.value?.going, async (going, was) => {
       <div>
         <h1>Discussion</h1>
         <p class="muted">Tarik se souvient de cette discussion, pas des autres.</p>
+        <p class="muted">Modèle : <ModelUsage :usage="data.usage" full /></p>
       </div>
     </div>
     <section class="panel">
@@ -81,7 +83,7 @@ watch(() => data.value?.going, async (going, was) => {
     </div>
     <div class="table-wrap">
       <table class="runs">
-        <thead><tr><th>Dernier message</th><th>Canal</th><th>Premier message</th><th>État</th></tr></thead>
+        <thead><tr><th>Dernier message</th><th>Canal</th><th>Premier message</th><th>État</th><th>Modèle</th></tr></thead>
         <tbody>
           <tr v-for="item in data.conversations" :key="item.session_id">
             <td class="num">{{ item.started }}</td>
@@ -95,8 +97,9 @@ watch(() => data.value?.going, async (going, was) => {
               <template v-if="item.sender"><br><span class="muted">{{ item.sender }}</span></template>
             </td>
             <td><span class="chip" :class="chips[item.state]">{{ stateName(item.state) }}</span></td>
+            <td><ModelUsage :usage="item.usage" /></td>
           </tr>
-          <tr v-if="!data.conversations.length"><td colspan="4" class="muted">Aucune discussion pour ce cabinet.</td></tr>
+          <tr v-if="!data.conversations.length"><td colspan="5" class="muted">Aucune discussion pour ce cabinet.</td></tr>
         </tbody>
       </table>
     </div>
