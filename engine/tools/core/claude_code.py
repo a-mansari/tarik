@@ -22,6 +22,7 @@ EFFORT = "medium"  # set, not left to the CLI's default, which can change betwee
 # At most this many CLI processes at once in the server (each holds a few hundred MB), the agent's calls and the
 # tools' vision calls together: more wait their turn, within their own timeout.
 PROCESSES = threading.BoundedSemaphore(int(os.getenv("TARIK_MODEL_CALLS", "10")))
+ARGUMENT = 128 * 1024  # Linux's limit on one argument (MAX_ARG_STRLEN), its final NUL included
 
 
 class ClaudeCodeError(RuntimeError):
@@ -29,7 +30,7 @@ class ClaudeCodeError(RuntimeError):
 
 
 class ClaudeCodeUnreadable(ClaudeCodeError):
-    """The CLI answered, but not in the shape asked: no structured answer, or its retries at one spent."""
+    """No answer in the shape asked: none structured, the CLI's retries at one spent, or the schema too long."""
 
 
 def ask(system, content, schema, timeout=MODEL_TIMEOUT):
@@ -42,6 +43,9 @@ def ask(system, content, schema, timeout=MODEL_TIMEOUT):
     if token:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token
     message = {"type": "user", "message": {"role": "user", "content": content}}
+    shape = json.dumps(schema)  # ASCII: its length is its size in bytes
+    if len(shape) >= ARGUMENT:  # checked before waiting for a process: the CLI takes the schema inline only
+        raise ClaudeCodeUnreadable(f"the answer's schema ({len(shape)} bytes) is too long for the claude CLI")
     started = time.monotonic()
     if not PROCESSES.acquire(timeout=timeout):
         raise ClaudeCodeError(f"no claude CLI process free in {timeout:.0f} s")
@@ -52,7 +56,7 @@ def ask(system, content, schema, timeout=MODEL_TIMEOUT):
                 "claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence",
                 "--model", MODEL, "--effort", EFFORT, "--system-prompt-file", prompt,
-                "--json-schema", json.dumps(schema),
+                "--json-schema", shape,
             ]  # fmt: skip
             try:
                 pathlib.Path(prompt).write_text(system, encoding="utf-8")
@@ -64,7 +68,7 @@ def ask(system, content, schema, timeout=MODEL_TIMEOUT):
                 raise ClaudeCodeError("the claude CLI is not installed in this image") from None
             except subprocess.TimeoutExpired:
                 raise ClaudeCodeError(f"no answer from the claude CLI in {timeout:.0f} s") from None
-            except OSError as error:  # the prompt not written, the schema too long for one argument, among others
+            except OSError as error:  # the prompt not written, among others
                 raise ClaudeCodeError(f"the claude CLI could not start: {error}") from None
     finally:
         PROCESSES.release()

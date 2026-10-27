@@ -7,10 +7,12 @@ import stat
 import threading
 
 import pytest
+from langchain_anthropic.chat_models import convert_to_anthropic_tool
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 
-from engine.claude_code import ChatClaudeCode
+from engine import agent
+from engine.claude_code import ChatClaudeCode, answer_schema
 from engine.tools.core import cabinets, claude_code, model, usage
 from engine.tools.core.app import ToolError
 
@@ -78,6 +80,24 @@ def test_a_call_waits_for_a_free_cli_process_and_gives_up_at_its_timeout(tmp_pat
     with cabinets.using("cabinet_a"), pytest.raises(claude_code.ClaudeCodeError, match="free"):
         claude_code.ask("sys", [], {"type": "object"}, timeout=0.05)
     assert not (tmp_path / "args").exists()  # no CLI started
+
+
+@pytest.mark.technical
+def test_a_schema_too_long_for_one_argument_is_out_of_shape_at_once_without_a_process(tmp_path, monkeypatch):
+    fake_cli(tmp_path, monkeypatch, {"is_error": False, "structured_output": {}})
+    monkeypatch.setattr(claude_code, "PROCESSES", threading.BoundedSemaphore(1))
+    claude_code.PROCESSES.acquire()  # every process busy: a wait would end in "no process free", not "too long"
+    huge = {"type": "object", "description": "x" * claude_code.ARGUMENT}
+    with cabinets.using("cabinet_a"), pytest.raises(claude_code.ClaudeCodeUnreadable, match="too long"):
+        claude_code.ask("sys", [], huge, timeout=5)
+    assert not (tmp_path / "args").exists()
+
+
+@pytest.mark.technical
+def test_the_agent_s_answer_schema_fits_in_one_cli_argument():
+    tools = [convert_to_anthropic_tool(found) for found in agent.described()]
+    size = len(json.dumps(answer_schema(tools)))
+    assert size < claude_code.ARGUMENT / 2, f"{size} bytes: past the limit the tools' args go unchecked by the CLI"
 
 
 @pytest.mark.technical
