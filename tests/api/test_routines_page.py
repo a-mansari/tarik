@@ -88,7 +88,12 @@ def test_a_change_keeps_its_next_run_unless_its_schedule_moves(page):
     assert status == 200 and data["error"] is None
     post(cabinet, "save", {**ROUTINE, "id": made["id"], "hour": 10})
     with cabinet_db() as db:
-        assert db.execute("select next_run_at from tarik_routines").fetchone()[0] > due  # a new hour: rescheduled
+        (moved,) = db.execute("select next_run_at from tarik_routines").fetchone()
+    assert moved > due  # a new hour: rescheduled
+    _, data, _ = post(cabinet, "save", {**ROUTINE, "id": made["id"], "hour": 10, "minute": 30})
+    (routine,) = data["routines"]
+    assert routine["minute"] == 30 and routine["schedule"].endswith("à 10 h 30")
+    assert routine["next_run_at"].endswith("10:30")  # a new minute: rescheduled on it
 
 
 @pytest.mark.functionality

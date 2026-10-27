@@ -28,7 +28,7 @@ watch(() => data.value?.cabinet, async (cabinet) => {
 }, { immediate: true });
 
 const blank = () => ({
-  enabled: true, kind: "instruction", every: "week", days: [...data.value.presets.workdays], hour: 8, notify: "",
+  enabled: true, kind: "instruction", every: "week", days: [...data.value.presets.workdays], hour: 8, minute: 0, notify: "",
   prompt: "",
 });
 
@@ -113,7 +113,7 @@ function remove(routine) {
       <p class="muted when">n° {{ routine.id }} · prochaine le <span class="num">{{ routine.next_run_at }}</span> · créée
         par {{ routine.created_by }}<template v-if="routine.last_due"> · dernière le
           <span class="num">{{ routine.last_due }}</span>{{ routine.last_report === null ? " (en cours)" : "" }}</template></p>
-      <details v-if="routine.last_report" class="last"><summary>Dernier rapport</summary><pre>{{ routine.last_report }}</pre></details>
+      <details v-if="routine.last_report && editing !== routine.id" class="last"><summary>Dernier rapport</summary><pre>{{ routine.last_report }}</pre></details>
       <RoutineForm v-if="editing === routine.id" :form="form" :kinds="data.kinds" :weekdays="data.weekdays"
         :presets="data.presets" :managers="managers" :busy="busy" @submit="submit" @cancel="close" />
     </article>
@@ -134,6 +134,7 @@ function remove(routine) {
 .prompt { overflow-wrap: anywhere; }
 .routine-tools { display: flex; gap: .4rem; }
 .when { margin: 0; font-size: .85rem; }
+.routine > .routine-form { border-top: 1px solid var(--line); margin-top: .4rem; padding-top: .8rem; }
 .last pre { white-space: pre-wrap; max-height: 16rem; overflow: auto; font-size: .8rem; }
 .empty { display: grid; gap: .4rem; justify-items: start; }
 .empty p { margin: 0; }

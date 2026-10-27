@@ -18,28 +18,31 @@ def at(text):
 
 @pytest.mark.functionality
 def test_the_next_time_a_schedule_falls_on():
-    assert next_run("day", [], 8, at("2026-10-27 07:59")) == at("2026-10-27 08:00")
-    assert next_run("day", [], 8, at("2026-10-27 08:00")) == at("2026-10-28 08:00")  # its own time: the next one
-    assert next_run("week", [0], 9, at("2026-10-27 10:00")) == at("2026-11-02 09:00")  # a Tuesday: next Monday
-    assert next_run("week", [1], 9, at("2026-10-27 10:00")) == at("2026-11-03 09:00")  # its own day, past: a week on
-    assert next_run("week", [0, 3], 9, at("2026-10-27 10:00")) == at("2026-10-29 09:00")  # Tuesday: then Thursday
-    assert next_run("week", [0, 1, 2, 3, 4], 9, at("2026-10-31 10:00")) == at("2026-11-02 09:00")  # Saturday: Monday
-    assert next_run("week", [5, 6], 9, at("2026-11-01 10:00")) == at("2026-11-07 09:00")  # Sunday, past: Saturday
-    assert next_run("month", [5], 8, at("2026-10-04 23:00")) == at("2026-10-05 08:00")
-    assert next_run("month", [5], 8, at("2026-12-05 08:00")) == at("2027-01-05 08:00")  # past December
+    assert next_run("day", [], 8, 0, at("2026-10-27 07:59")) == at("2026-10-27 08:00")
+    assert next_run("day", [], 8, 0, at("2026-10-27 08:00")) == at("2026-10-28 08:00")  # its own time: the next one
+    assert next_run("week", [0], 9, 0, at("2026-10-27 10:00")) == at("2026-11-02 09:00")  # a Tuesday: next Monday
+    assert next_run("week", [1], 9, 0, at("2026-10-27 10:00")) == at("2026-11-03 09:00")  # its own day, past: a week on
+    assert next_run("week", [0, 3], 9, 0, at("2026-10-27 10:00")) == at("2026-10-29 09:00")  # Tuesday: then Thursday
+    assert next_run("week", [0, 1, 2, 3, 4], 9, 0, at("2026-10-31 10:00")) == at("2026-11-02 09:00")  # Saturday: Monday
+    assert next_run("week", [5, 6], 9, 0, at("2026-11-01 10:00")) == at("2026-11-07 09:00")  # Sunday, past: Saturday
+    assert next_run("month", [5], 8, 0, at("2026-10-04 23:00")) == at("2026-10-05 08:00")
+    assert next_run("month", [5], 8, 0, at("2026-12-05 08:00")) == at("2027-01-05 08:00")  # past December
+    assert next_run("day", [], 8, 30, at("2026-10-27 08:10")) == at("2026-10-27 08:30")  # its minute, not the hour
 
 
 @pytest.mark.communication
 def test_a_schedule_said_in_plain_words():
-    assert routines.when("week", [0, 1, 2, 3, 4], 8) == "en semaine (du lundi au vendredi) à 8 h"
-    assert routines.when("week", [5, 6], 8) == "le week-end à 8 h"
-    assert routines.when("week", [0, 3, 4], 9) == "chaque lundi, jeudi et vendredi à 9 h"
-    assert routines.when("week", [2], 9) == "chaque mercredi à 9 h"
-    assert routines.when("week", list(range(7)), 9) == "chaque jour à 9 h"
-    assert routines.when("month", [5], 8) == "chaque mois, le 5 à 8 h"
-    assert "quels jours" in routines.routine_problem("tva", "week", [], 8, "")
-    assert "un seul" in routines.routine_problem("tva", "month", [5, 6], 8, "")
-    assert "pas de jour" in routines.routine_problem("tva", "day", [99], 8, "")
+    assert routines.when("week", [0, 1, 2, 3, 4], 8, 0) == "en semaine (du lundi au vendredi) à 8 h"
+    assert routines.when("week", [5, 6], 8, 0) == "le week-end à 8 h"
+    assert routines.when("week", [0, 3, 4], 9, 0) == "chaque lundi, jeudi et vendredi à 9 h"
+    assert routines.when("week", [2], 9, 0) == "chaque mercredi à 9 h"
+    assert routines.when("week", list(range(7)), 9, 0) == "chaque jour à 9 h"
+    assert routines.when("month", [5], 8, 0) == "chaque mois, le 5 à 8 h"
+    assert routines.when("week", [5, 6], 8, 5) == "le week-end à 8 h 05"
+    assert "59 minutes" in routines.routine_problem("tva", "day", [], 8, 60, "")
+    assert "quels jours" in routines.routine_problem("tva", "week", [], 8, 0, "")
+    assert "un seul" in routines.routine_problem("tva", "month", [5, 6], 8, 0, "")
+    assert "pas de jour" in routines.routine_problem("tva", "day", [99], 8, 0, "")
 
 
 @pytest.fixture
@@ -146,13 +149,34 @@ def test_a_due_routine_is_claimed_once_and_moved_to_its_next_time(db_cabinet):
     due = clock.claimed()
     assert [row[0] for row in due] == [routine_id]
     assert clock.claimed() == due  # never reported (the server stopped): run again, the same period
-    clock.record(routine_id, due[0][6], "fait")
+    clock.record(routine_id, due[0][7], "fait")
     assert clock.claimed() == []  # reported: done
     with cabinet_db() as db:
         (upcoming,) = db.execute("select next_run_at from tarik_routines where id = %s", (routine_id,)).fetchone()
-        db.execute("update tarik_routines set next_run_at = %s where id = %s", (due[0][6], routine_id))
+        db.execute("update tarik_routines set next_run_at = %s where id = %s", (due[0][7], routine_id))
     assert upcoming > datetime.now(ZONE) and upcoming.astimezone(ZONE).hour == 8
     assert clock.claimed() == []  # the same period due again: recorded, never run twice
+
+
+@pytest.mark.functionality
+def test_a_period_runs_once_here_whatever_changes_meanwhile_and_each_minute_has_its_own_conversation(monkeypatch):
+    begun = []
+
+    async def ran(cabinet, row):
+        begun.append(row)
+
+    monkeypatch.setattr(clock, "ran", ran)
+    due = datetime(2026, 10, 27, 8, 0, tzinfo=ZONE)
+    row = (3, "progress", "day", [], 8, 0, "chef@cabinet.ma", due, "")
+
+    async def twice():
+        clock.started("c", row)
+        clock.started("c", (*row[:6], "autre@cabinet.ma", *row[7:]))  # its address changed while it runs
+        await asyncio.gather(*clock.PENDING)
+
+    asyncio.run(twice())
+    assert begun == [row]
+    assert routines.session_of(3, due) != routines.session_of(3, due.replace(minute=30))  # moved to 8:30 that day
 
 
 @pytest.fixture
@@ -341,4 +365,4 @@ def test_a_period_still_running_is_never_claimed_again_behind_it(db_cabinet):
     (row,) = clock.claimed()
     with cabinet_db() as db:  # its next time already came, the first period not reported yet
         db.execute("update tarik_routines set next_run_at = now() - interval '1 minute' where id = %s", (routine_id,))
-    assert [r[6] for r in clock.claimed()] == [row[6]]  # the unfinished one only, no second period
+    assert [r[7] for r in clock.claimed()] == [row[7]]  # the unfinished one only, no second period

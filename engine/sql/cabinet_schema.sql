@@ -278,6 +278,8 @@ do $$ begin
         alter table tarik_routines drop column day;
     end if;
 end $$;
+-- A routine's minute past its hour (0 at first: on the hour).
+alter table tarik_routines add column if not exists minute integer not null default 0 check (minute between 0 and 59);
 alter table tarik_routines drop constraint if exists tarik_routines_kind_check;
 alter table tarik_routines add constraint tarik_routines_kind_check
     check (kind in ('tva', 'ras', 'progress', 'instruction'));
