@@ -3,14 +3,23 @@
 from engine.tools.core import words
 from engine.tools.core.app import ToolError, log, ok, routine, step_tool, stop, tool
 from engine.tools.core.config import DOSSIER_DOMAIN, MIN_SIMILARITY
-from engine.tools.core.experio import odoo_call
+from engine.tools.core.experio import login, odoo_call
 
 UNAVAILABLE = "Experio n'a pas pu donner la liste des dossiers."
 
 
-def dossiers():
-    """Return every dossier (client company) Tarik may work in (DOSSIER_DOMAIN), as [{id, name}] by name."""
-    return odoo_call("res.company", "search_read", DOSSIER_DOMAIN, fields=["id", "name"], order="name")
+def dossiers(*domain):
+    """Return every dossier (client company) of the cabinet (DOSSIER_DOMAIN), or those ``domain`` selects among them,
+    as [{id, name}] by name."""
+    return odoo_call("res.company", "search_read", [*DOSSIER_DOMAIN, *domain], fields=["id", "name"], order="name")
+
+
+def opened_dossiers():
+    """Return the dossiers Tarik's Experio account may open, as dossiers() does: Experio lets a user into an active
+    company only when the user is among its users (res.company user_ids: base res_users.py fetch_user_company_ids,
+    which base_client res_users.py extends with company 1 only), else refuses « Access to unauthorized or invalid
+    companies » (api.py companies)."""
+    return dossiers(("user_ids", "in", login()))
 
 
 def dossiers_or_none(step):

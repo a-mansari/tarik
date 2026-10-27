@@ -184,7 +184,7 @@ def running(db_cabinet, monkeypatch):
     """A routine's run on the test cabinet: dossiers 5 and 6 seen by Tarik, its address live; the tools called and
     the runs started."""
     state = {"calls": [], "started": []}
-    monkeypatch.setattr(clock, "dossiers", lambda: [{"id": 5, "name": "ALPHA"}, {"id": 6, "name": "BETA"}])
+    monkeypatch.setattr(clock, "opened_dossiers", lambda: [{"id": 5, "name": "ALPHA"}, {"id": 6, "name": "BETA"}])
     monkeypatch.setattr(clock, "address_problem", lambda notify: "")
 
     async def call(cabinet, tool, **arguments):
@@ -347,7 +347,7 @@ def test_a_long_report_goes_as_a_file_and_quiet_dossiers_are_only_counted(runnin
     kept = []
     monkeypatch.setattr(clock, "keep_file", lambda session, name, data: kept.append((name, data)))
     monkeypatch.setattr(clock, "BODY_CHARACTERS", 10)
-    monkeypatch.setattr(clock, "dossiers", lambda: [{"id": d, "name": str(d)} for d in (5, 6, 7)])
+    monkeypatch.setattr(clock, "opened_dossiers", lambda: [{"id": d, "name": str(d)} for d in (5, 6, 7)])
 
     async def part(cabinet, kind, dossier_id, session):
         return clock.NOTHING if dossier_id == 7 else f"TVA du dossier {dossier_id} préparée."

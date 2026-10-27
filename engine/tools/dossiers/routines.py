@@ -2,8 +2,8 @@
 on the Routines page (server/api/routines.py) or by a manager in a conversation (the Dossier graph's mode routine,
 after check_manager). engine/routines.py runs them.
 
-A routine works on every dossier Tarik's own Experio account sees (DOSSIER_DOMAIN): that account's access is the
-limit, as in the chat. It prepares or reports, never declares nor posts: « tva » and « ras » make the declarations of
+A routine works on every dossier Tarik's own Experio account may open (search.opened_dossiers): that account's
+access is the limit. It prepares or reports, never declares nor posts: « tva » and « ras » make the declarations of
 the last ended period that do not exist yet (the Déclarations graph in its routine mode: one already there is only
 reported, never refreshed), « progress » sends each dossier's progress (dossier_progress), « instruction » hands its
 own ``prompt`` to Tarik's agent as a message, with nothing confirmed, declared nor posted and only the workflows that

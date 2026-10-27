@@ -90,3 +90,14 @@ def test_dossiers_are_counted_by_state_their_names_only_when_asked(monkeypatch):
     monkeypatch.setattr(search, "dossiers_or_none", lambda step: [{"id": 1, "name": "Cabinet Benali"}])
     assert search.list_dossiers() == "350 dossiers : 339 actifs, 0 nouveaux, 11 archives."
     assert "Cabinet Benali" in search.list_dossiers(names=True)
+
+
+@pytest.mark.security
+def test_a_routine_goes_only_through_the_dossiers_experio_lets_tarik_open(monkeypatch):
+    from engine.tools.dossiers import search
+
+    asked = []
+    monkeypatch.setattr(search, "login", lambda: 7)
+    monkeypatch.setattr(search, "odoo_call", lambda model, method, domain, **kw: asked.append(domain) or [])
+    search.opened_dossiers()
+    assert ("user_ids", "in", 7) in asked[0]  # one of the company's users, as Experio checks (else refused)
