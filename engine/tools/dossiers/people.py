@@ -58,11 +58,16 @@ def list_collaborators() -> str:
     return f"{len(users)} collaborateur(s) :\n" + "\n".join(lines)
 
 
+def exactly(address):
+    """Return ``address`` for an =ilike domain that matches it whole: %, _ and backslash escaped with a backslash."""
+    return re.sub(r"([\\%_])", r"\\\1", address)
+
+
 def users_by_email(address, employee_types, fields, limit):
     """Return the res.users (at most ``limit``, read with ``fields``) of ``employee_types`` whose login or email is
     ``address``, compared whole and case-insensitively. %, _ and backslash are escaped, since =ilike would read
     them as wildcards (jean%@cabinet.ma matching jean.dupont@cabinet.ma)."""
-    exact = re.sub(r"([\\%_])", r"\\\1", address)  # a backslash, % or _: escaped with a backslash
+    exact = exactly(address)
     return odoo_call(
         "res.users",
         "search_read",

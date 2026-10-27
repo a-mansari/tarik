@@ -39,6 +39,7 @@ def test_a_schedule_said_in_plain_words():
     assert routines.when("month", [5], 8) == "chaque mois, le 5 à 8 h"
     assert "quels jours" in routines.routine_problem("tva", "week", [], 8, "")
     assert "un seul" in routines.routine_problem("tva", "month", [5, 6], 8, "")
+    assert "pas de jour" in routines.routine_problem("tva", "day", [99], 8, "")
 
 
 @pytest.fixture
@@ -226,22 +227,42 @@ def test_a_failing_dossier_reads_as_tarik_says_never_as_the_error(running, db_ca
     assert "secret" not in report and report.startswith("Dossier n° 5 : echec technique")
 
 
-@pytest.mark.functionality
-def test_only_a_live_admin_of_the_cabinet_or_staff_gets_reports_of_every_dossier(monkeypatch):
-    users = {
-        "chef@cabinet.ma": {"id": 1, "employee_type": "employee", "employee_state": "active", "company_ids": [5]},
-        "junior@cabinet.ma": {"id": 2, "employee_type": "employee", "employee_state": "active", "company_ids": [5]},
-        "jane@experio.ma": {"id": 3, "employee_type": "internal", "employee_state": "new", "company_ids": []},
-        "invite@cabinet.ma": {"id": 4, "employee_type": "employee", "employee_state": "new", "company_ids": [5]},
-    }
-    profiles = {1: [9, "Admin"], 2: [8, "Collaborateur"], 4: [9, "Admin"]}
-    monkeypatch.setattr(routines, "collaborator", users.get)
-    read = lambda model, method, ids, fields: [{"exp_profile_id": profiles[ids[0]]}]  # noqa: E731
-    monkeypatch.setattr(routines, "odoo_call", read)
-    monkeypatch.setattr(routines, "level_of", lambda profile: {9: "admin", 8: "user"}[profile[0]])
+@pytest.fixture
+def experio_users(monkeypatch):
+    """Experio's users as admins_where reads them: Chef an admin, Démis an admin demoted on one dossier by a
+    « Profils par Dossier » row; Jane of Experio's staff; the domains asked."""
+    asked = []
+
+    def odoo_call(model, method, domain, **kw):
+        asked.append(domain)
+        if model == "exp.user.company.profile":
+            return [{"user_id": [2, "Démis"]}]
+        admins = [{"id": 1, "name": "Chef", "login": "chef@cabinet.ma"}]
+        admins.append({"id": 2, "name": "Démis", "login": "demis@cabinet.ma"})
+        logins = [d[2].lower() for d in domain if d[0] == "login"]
+        return [user for user in admins if not logins or user["login"] in logins]
+
+    monkeypatch.setattr(routines, "odoo_call", odoo_call)
+    staff = {"jane@experio.ma": {"employee_type": "internal"}, "junior@cabinet.ma": {"employee_type": "employee"}}
+    monkeypatch.setattr(routines, "collaborator", staff.get)
+    return asked
+
+
+@pytest.mark.security
+def test_only_a_live_admin_on_every_dossier_or_staff_gets_reports_of_every_dossier(experio_users):
     assert routines.live("chef@cabinet.ma") and routines.live("jane@experio.ma")
-    assert not routines.live("junior@cabinet.ma")  # Experio shows them their own dossiers only
-    assert not routines.live("invite@cabinet.ma") and not routines.live("parti@cabinet.ma")
+    assert not routines.live("demis@cabinet.ma")  # lower on a dossier: Experio shows them less there
+    assert not routines.live("junior@cabinet.ma") and not routines.live("parti@cabinet.ma")
+    rule = experio_users[0]
+    assert ("is_agent", "=", False) in rule  # Experio's technical accounts left out
+    assert ("employee_state", "=", "active") in rule
+    assert ("exp_profile_id.management_group", "=", "admin") in rule
+
+
+@pytest.mark.functionality
+def test_the_cabinets_admins_offered_are_the_same_rule_among_allowed_addresses(experio_users, monkeypatch):
+    monkeypatch.setattr(routines, "allowed_recipients", lambda: ["@cabinet.ma"])
+    assert routines.admins() == [{"name": "Chef", "email": "chef@cabinet.ma"}]
 
 
 @pytest.mark.security
@@ -321,19 +342,3 @@ def test_a_period_still_running_is_never_claimed_again_behind_it(db_cabinet):
     with cabinet_db() as db:  # its next time already came, the first period not reported yet
         db.execute("update tarik_routines set next_run_at = now() - interval '1 minute' where id = %s", (routine_id,))
     assert [r[6] for r in clock.claimed()] == [row[6]]  # the unfinished one only, no second period
-
-
-@pytest.mark.functionality
-def test_the_cabinets_admins_offered_are_live_allowed_and_never_tarik_itself(monkeypatch):
-    seen = []
-
-    def odoo_call(model, method, domain, **kw):
-        seen.append(domain)
-        return [{"name": "Chef", "login": "chef@cabinet.ma"}, {"name": "Perso", "login": "chef@gmail.com"}]
-
-    monkeypatch.setattr(routines, "odoo_call", odoo_call)
-    monkeypatch.setattr(routines, "login", lambda: 7)
-    monkeypatch.setattr(routines, "recipient_allowed", lambda address: address.endswith("@cabinet.ma"))
-    assert routines.admins() == [{"name": "Chef", "email": "chef@cabinet.ma"}]
-    ((*_, admin, own),) = seen
-    assert admin == ("exp_profile_id.management_group", "=", "admin") and own == ("id", "!=", 7)

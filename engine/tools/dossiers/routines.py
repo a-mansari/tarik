@@ -20,12 +20,12 @@ from zoneinfo import ZoneInfo
 from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.conversation import client_messages, own_words
-from engine.tools.core.experio import login, odoo_call, refused
+from engine.tools.core.experio import odoo_call, refused
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized
 from engine.tools.dossiers.identity import client_wrote, confirmed
-from engine.tools.dossiers.people import RANK, ROUTINE_SESSION, collaborator, level_of, sender_of, sender_reach
-from engine.tools.emails.sending import recipient_allowed
+from engine.tools.dossiers.people import RANK, ROUTINE_SESSION, collaborator, exactly, sender_of, sender_reach
+from engine.tools.emails.sending import allowed_recipients, recipient_allowed
 
 ZONE = ZoneInfo("Africa/Casablanca")
 KINDS = {
@@ -68,14 +68,15 @@ def next_run(every, days, hour, after):
 def when(every, days, hour):
     """Return the schedule in the client's words: « chaque mois, le 5 à 8 h », « en semaine à 8 h », « chaque lundi
     et jeudi à 8 h »."""
-    if every == "day" or (every == "week" and sorted(days) == list(range(7))):
+    days = sorted(days)
+    if every == "day" or (every == "week" and len(days) == len(WEEKDAYS)):
         return f"chaque jour à {hour} h"
-    if every == "week" and sorted(days) == WORKDAYS:
+    if every == "week" and days == WORKDAYS:
         return f"en semaine (du lundi au vendredi) à {hour} h"
-    if every == "week" and sorted(days) == WEEKEND:
+    if every == "week" and days == WEEKEND:
         return f"le week-end à {hour} h"
     if every == "week":
-        names = [WEEKDAYS[day] for day in sorted(days)]
+        names = [WEEKDAYS[day] for day in days]
         listed = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} et {names[-1]}"
         return f"chaque {listed} à {hour} h"
     return f"chaque mois, le {days[0]} à {hour} h"
@@ -120,6 +121,8 @@ def routine_problem(kind, every, days, hour, prompt):
         return "à quelle heure (0 à 23) ?"
     if hour == 0 and kind != "progress":  # midnight in Morocco is still the day before on the server (UTC)
         return "à quelle heure, de 1 à 23 (à minuit, la période terminée serait encore celle d'avant) ?"
+    if every == "day" and days:
+        return "pas de jour à choisir pour une routine de chaque jour"
     if every == "week" and (not days or not set(days) <= set(range(7))):
         return "quels jours de la semaine ?"
     if every == "month" and (len(days) != 1 or not 1 <= days[0] <= 28):
@@ -131,35 +134,56 @@ def routine_problem(kind, every, days, hour, prompt):
     return ""
 
 
-def admins():
-    """Return the cabinet's live admins in Experio, who may get a routine's reports (live), as [{name, email}] by name:
-    collaborators whose profile's management_group is admin and whose account is active, among the addresses the
-    cabinet allows. Experio's staff may get them too, but are not listed: theirs is typed."""
+def admins_where(*domain):
+    """Return the cabinet's admins in Experio among the users ``domain`` selects, as [{id, name, login}] by name: one
+    rule for the page's list and for the address check (live). A collaborator (not one of Experio's technical
+    accounts, is_agent, as its own Collaborateurs list leaves them out), whose account is active, whose profile is
+    admin (management_group, exp.user.profile) and who is admin on every dossier too (no « Profils par Dossier » row
+    below admin: Experio's rights there come from it first, res_users.py _compute_groups_id)."""
     found = odoo_call(
         "res.users",
         "search_read",
         [
             ("employee_type", "=", "employee"),
+            ("is_agent", "=", False),
             ("employee_state", "=", "active"),
             ("exp_profile_id.management_group", "=", "admin"),
-            ("id", "!=", login()),  # Tarik's own account, an admin too
+            *domain,
         ],
         fields=["name", "login"],
         order="name",
     )
-    return [{"name": user["name"], "email": user["login"]} for user in found if recipient_allowed(user["login"])]
+    if not found:
+        return []
+    lower = odoo_call(
+        "exp.user.company.profile",
+        "search_read",
+        [("user_id", "in", [user["id"] for user in found]), ("profile_id.management_group", "!=", "admin")],
+        fields=["user_id"],
+    )
+    demoted = {row["user_id"][0] for row in lower}
+    return [user for user in found if user["id"] not in demoted]
+
+
+def admins():
+    """Return the cabinet's admins who may get a routine's reports (admins_where), among the addresses the cabinet
+    allows, as [{name, email}]: Experio mails them at their login. Experio's staff may get them too, typed."""
+    allowed = allowed_recipients()
+    return [
+        {"name": user["name"], "email": user["login"]}
+        for user in admins_where()
+        if recipient_allowed(user["login"], allowed)
+    ]
 
 
 def live(notify):
-    """True when ``notify`` may get a routine's reports, which cover every dossier: a member of Experio's staff, or a
-    collaborator whose account is live (employee_state « active »: not invited and never in, not deactivated) and
-    whose profile is the cabinet's admin (management_group admin: Experio shows a lesser one only its own dossiers).
-    Checked again at each run: someone gone or moved down pauses their routines."""
+    """True when ``notify`` may get a routine's reports, which cover every dossier: the login of one of the cabinet's
+    admins (admins_where: Experio shows a lesser profile only its own dossiers), or a member of Experio's staff.
+    Checked again at each run: someone gone, moved down or demoted on a dossier pauses their routines."""
+    if admins_where(("login", "=ilike", exactly(notify))):
+        return True
     user = collaborator(notify)
-    if not user or user["employee_type"] == "internal":
-        return bool(user)
-    profile = odoo_call("res.users", "read", [user["id"]], fields=["exp_profile_id"])[0]["exp_profile_id"]
-    return user.get("employee_state") == "active" and RANK[level_of(profile)] >= RANK["admin"]
+    return bool(user) and user["employee_type"] == "internal"
 
 
 def address_problem(notify):

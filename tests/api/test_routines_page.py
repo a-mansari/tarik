@@ -92,17 +92,47 @@ def test_a_change_keeps_its_next_run_unless_its_schedule_moves(page):
 
 
 @pytest.mark.functionality
-def test_the_page_offers_the_cabinets_admins_and_still_shows_without_experio(page, monkeypatch):
-    monkeypatch.setattr(api.routines, "admins", lambda: [{"name": "Chef", "email": "chef@cabinet.ma"}])
+def managers_asked():
+    """The page's second request: GET /ui/api/routines?managers, as an admin."""
+    import asyncio
+    import json
+
+    from starlette.requests import Request
+
+    async def receive():
+        return {"type": "http.request", "body": b""}
+
+    scope = {"type": "http", "method": "GET", "path": "/ui/api/routines", "headers": [], "query_string": b"managers"}
+    request = Request(scope, receive)
+    request.state.user = {"email": "a@experio.ma", "name": "A", "role": "admin"}
+    return json.loads(asyncio.run(api.routines.routines_page(request)).body)
+
+
+@pytest.mark.functionality
+def test_the_page_shows_at_once_and_asks_the_cabinets_admins_apart_kept_a_while(page, monkeypatch):
+    monkeypatch.setattr(api.routines, "MANAGERS", {})
+    calls = []
+
+    def admins():
+        calls.append(1)
+        return [{"name": "Chef", "email": "chef@cabinet.ma"}]
+
+    monkeypatch.setattr(api.routines, "admins", admins)
     status, data, _ = asked(api.routines.routines_page)
-    assert status == 200 and data["managers"] == [{"name": "Chef", "email": "chef@cabinet.ma"}]
+    assert status == 200 and "managers" not in data and calls == []  # the page never waits on Experio
+    assert managers_asked()["managers"] == [{"name": "Chef", "email": "chef@cabinet.ma"}]
+    assert managers_asked()["managers"] and calls == [1]  # kept: Experio asked once
+
+
+@pytest.mark.functionality
+def test_without_experio_the_address_is_typed(page, monkeypatch):
+    monkeypatch.setattr(api.routines, "MANAGERS", {})
 
     def down():
         raise ConnectionRefusedError("Experio down")
 
     monkeypatch.setattr(api.routines, "admins", down)
-    status, data, _ = asked(api.routines.routines_page)
-    assert status == 200 and data["managers"] is None and data["routines"] == []  # the address is typed then
+    assert managers_asked()["managers"] is None
 
 
 @pytest.mark.functionality

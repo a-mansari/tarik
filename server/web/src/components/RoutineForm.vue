@@ -8,6 +8,7 @@ const props = defineProps({
   form: { type: Object, required: true },
   kinds: { type: Object, required: true }, // the server's names of the tasks (routines.KINDS)
   weekdays: { type: Array, required: true },
+  presets: { type: Object, required: true }, // the server's working week and weekend, {workdays, weekend}
   managers: { type: Array, default: null }, // the cabinet's admins in Experio [{name, email}]; null: Experio silent
   busy: { type: Boolean, default: false },
   submitWords: { type: String, default: "Enregistrer" },
@@ -27,19 +28,23 @@ const EXAMPLES = [
   "Signale les dossiers sans relevé bancaire le mois dernier.",
 ];
 const RHYTHMS = { day: "Chaque jour", week: "Certains jours de la semaine", month: "Chaque mois" };
-const WORKDAYS = [0, 1, 2, 3, 4];
-const WEEKEND = [5, 6];
-const PRESETS = [["En semaine", WORKDAYS], ["Le week-end", WEEKEND]];
+const PRESETS = computed(() => [["En semaine", props.presets.workdays], ["Le week-end", props.presets.weekend]]);
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const MONTH_DAYS = Array.from({ length: 28 }, (_, day) => day + 1);
 const PROMPT_MOST = 2000; // the server's PROMPT_CHARACTERS
-const OTHER = "";
+const OTHER = "other"; // the « another address » option, never an address
 
 const same = (days, wanted) => days.length === wanted.length && wanted.every((day) => days.includes(day));
 
-// A new rhythm starts from its usual days: the working week, the 1st of the month.
+// The routine as the form opened on it: its own days and address come back when chosen again.
+const opened = { every: props.form.every, days: [...props.form.days], notify: props.form.notify };
+
+// A new rhythm starts from the routine's own days for its rhythm, else its usual ones: the working week, the 1st.
 function setRhythm(every) {
-  if (every !== props.form.every) props.form.days = { day: [], week: [...WORKDAYS], month: [1] }[every];
+  if (every !== props.form.every) {
+    const usual = { day: [], week: [...props.presets.workdays], month: [1] }[every];
+    props.form.days = every === opened.every ? [...opened.days] : usual;
+  }
   props.form.every = every;
 }
 function toggleDay(day) {
@@ -47,7 +52,7 @@ function toggleDay(day) {
   props.form.days = days.sort((a, b) => a - b);
 }
 const monthDay = computed({
-  get: () => props.form.days[0] || 1,
+  get: () => props.form.days[0],
   set: (day) => { props.form.days = [day]; },
 });
 
@@ -59,7 +64,8 @@ const chosenManager = computed({
   get: () => (typing.value ? OTHER : props.form.notify),
   set: (email) => {
     typing.value = email === OTHER;
-    props.form.notify = email;
+    const ownTyped = opened.notify && !(props.managers || []).some((manager) => manager.email === opened.notify);
+    props.form.notify = email === OTHER ? (ownTyped ? opened.notify : "") : email;
   },
 });
 
@@ -67,10 +73,10 @@ const chosenManager = computed({
 const when = computed(() => {
   const { every, days, hour } = props.form;
   if (every === "day" || (every === "week" && days.length === 7)) return `chaque jour à ${hour} h`;
-  if (every === "week" && same(days, WORKDAYS)) return `en semaine (du lundi au vendredi) à ${hour} h`;
-  if (every === "week" && same(days, WEEKEND)) return `le week-end à ${hour} h`;
+  if (every === "week" && same(days, props.presets.workdays)) return `en semaine (du lundi au vendredi) à ${hour} h`;
+  if (every === "week" && same(days, props.presets.weekend)) return `le week-end à ${hour} h`;
   if (every === "week") {
-    const names = [...days].sort((a, b) => a - b).map((day) => props.weekdays[day]);
+    const names = days.map((day) => props.weekdays[day]); // kept in order: toggleDay sorts them
     if (!names.length) return "…";
     const named = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} et ${names.at(-1)}`;
     return `chaque ${named} à ${hour} h`;
@@ -110,16 +116,16 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
 
     <fieldset>
       <legend><span class="step">2</span> Quand ?</legend>
-      <div class="choices" aria-label="Rythme">
+      <div class="choices" role="group" aria-label="Rythme">
         <button v-for="(words, key) in RHYTHMS" :key="key" type="button" class="panel-button"
           :aria-pressed="form.every === key" @click="setRhythm(key)">{{ words }}</button>
       </div>
       <div v-if="form.every === 'week'" class="week">
-        <div class="choices" aria-label="Raccourcis">
+        <div class="choices" role="group" aria-label="Raccourcis">
           <button v-for="[words, days] in PRESETS" :key="words" type="button" class="panel-button preset"
-            :aria-pressed="same(form.days, days)" @click="form.days = [...days]">{{ words }}</button>
+            :class="{ on: same(form.days, days) }" @click="form.days = [...days]">{{ words }}</button>
         </div>
-        <div class="choices" aria-label="Jours de la semaine (plusieurs possibles)">
+        <div class="choices" role="group" aria-label="Jours de la semaine (plusieurs possibles)">
           <button v-for="(name, index) in weekdays" :key="name" type="button" class="panel-button day"
             :aria-pressed="form.days.includes(index)" :aria-label="name" @click="toggleDay(index)">{{ name.slice(0, 3) }}</button>
         </div>
@@ -142,7 +148,8 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
       <legend><span class="step">3</span> À qui envoyer le rapport ?</legend>
       <label v-if="managers?.length" class="field">
         <span>Un administrateur du cabinet dans Experio</span>
-        <select v-model="chosenManager">
+        <select v-model="chosenManager" required>
+          <option value="" disabled>Choisissez…</option>
           <option v-for="manager in managers" :key="manager.email" :value="manager.email">{{ manager.name }} — {{ manager.email }}</option>
           <option :value="OTHER">Autre adresse (équipe Experio)…</option>
         </select>
@@ -185,6 +192,7 @@ legend { font-weight: 600; margin-bottom: .5rem; display: flex; align-items: cen
 .choices { display: flex; flex-wrap: wrap; gap: .3rem; }
 .week { display: grid; gap: .4rem; }
 .day { text-transform: capitalize; min-width: 3.2rem; }
+.preset.on { border-color: var(--accent); }
 .when { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
 .field.inline { display: flex; align-items: center; gap: .5rem; }
 .field.inline select { width: auto; }
