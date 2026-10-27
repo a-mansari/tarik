@@ -19,32 +19,32 @@ from engine.tools.core.cabinets import using
 PROTOCOL = """
 
 <tool_protocol>
-You cannot run tools yourself. To use some, answer with "tool_calls": each {"name", "args"}, the args matching the
-tool's input_schema; their results come back in the next message. When you need no tool, answer the client in "text"
-with "tool_calls" empty. The tools:
+You cannot run tools yourself. To use some, answer with "tool_calls": each {"name", "args"}, the args in the shape
+your answer's schema gives that tool; their results come back in the next message. When you need no tool, answer
+the client in "text" with "tool_calls" empty. The tools:
 {tools}
 </tool_protocol>"""
 
 
-def answer_schema(names):
-    """Return the JSON schema of the CLI's answer: {"text", "tool_calls": [{"name", "args"}]}, names limited to
-    ``names`` when there are any."""
-    name = {"type": "string"}
-    if names:
-        name["enum"] = names
+def answer_schema(tools):
+    """Return the JSON schema of the CLI's answer: {"text", "tool_calls": [{"name", "args"}]}, each call one of
+    ``tools`` (Anthropic tool dicts) with its args matching that tool's input_schema; any call without tools."""
+    calls = [
+        {
+            "type": "object",
+            "properties": {"name": {"const": found["name"]}, "args": found["input_schema"]},
+            "required": ["name", "args"],
+        }
+        for found in tools
+    ]
+    item = {"anyOf": calls} if calls else {
+        "type": "object",
+        "properties": {"name": {"type": "string"}, "args": {"type": "object"}},
+        "required": ["name", "args"],
+    }  # fmt: skip
     return {
         "type": "object",
-        "properties": {
-            "text": {"type": "string"},
-            "tool_calls": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {"name": name, "args": {"type": "object"}},
-                    "required": ["name", "args"],
-                },
-            },
-        },
+        "properties": {"text": {"type": "string"}, "tool_calls": {"type": "array", "items": item}},
         "required": ["text", "tool_calls"],
     }
 
@@ -100,13 +100,17 @@ class ChatClaudeCode(BaseChatModel):
         system, conversation = _format_messages(messages, model=None)
         if isinstance(system, list):
             system = "\n".join(part.get("text", "") for part in system)
-        listed = "\n".join(json.dumps(found, ensure_ascii=False) for found in tools)
+        # names and descriptions only: the args' shapes are in answer_schema, sent once
+        listed = "\n".join(
+            json.dumps({"name": found["name"], "description": found.get("description", "")}, ensure_ascii=False)
+            for found in tools
+        )
         names = [found["name"] for found in tools]
         with using(self.cabinet):
             answer = claude_code.ask(
                 (system or "") + PROTOCOL.replace("{tools}", listed or "(none)"),
                 flattened(conversation),
-                answer_schema(names),
+                answer_schema(tools),
             )
         calls = [
             {"name": call["name"], "args": call.get("args") or {}, "id": f"toolu_{uuid.uuid4().hex[:24]}"}

@@ -30,18 +30,22 @@ def fake_cli(tmp_path, monkeypatch, result):
 
 @pytest.mark.technical
 def test_the_vision_model_goes_through_the_cli_when_the_cabinet_picks_it(tmp_path, monkeypatch):
-    fake_cli(tmp_path, monkeypatch, {"is_error": False, "result": 'Voici : {"kind": "facture"}'})
+    fake_cli(tmp_path, monkeypatch, {"is_error": False, "result": "", "structured_output": {"kind": "facture"}})
     with cabinets.using("cabinet_a"):
         assert model.ask_model("sys", [b"png"], "Quoi ?", "Identification", keys=("kind",)) == {"kind": "facture"}
     sent = json.loads((tmp_path / "stdin").read_text())["message"]["content"]
     assert sent[0]["type"] == "image" and sent[-1] == {"type": "text", "text": "Quoi ?"}
     assert "--tools" in (tmp_path / "args").read_text()  # its own tools off
+    arguments = (tmp_path / "args").read_text().splitlines()
+    assert arguments[arguments.index("--effort") + 1] == "medium"
+    assert json.loads(arguments[arguments.index("--json-schema") + 1])["required"] == ["kind"]  # the CLI checks it
 
 
 @pytest.mark.functionality
 def test_each_cli_call_s_tokens_and_cost_are_kept_as_the_cli_counts_them(tmp_path, monkeypatch):
     used = {"inputTokens": 12, "cacheCreationInputTokens": 3000, "cacheReadInputTokens": 9000, "outputTokens": 40}
-    result = {"is_error": False, "result": '{"kind": "facture"}', "modelUsage": {"claude-x": {**used, "costUSD": 0.02}}}
+    priced = {"claude-x": {**used, "costUSD": 0.02}}
+    result = {"is_error": False, "structured_output": {"kind": "facture"}, "modelUsage": priced}
     fake_cli(tmp_path, monkeypatch, result)
     kept = []
     monkeypatch.setattr(usage, "counted", lambda *call: kept.append(call))
@@ -80,7 +84,11 @@ def test_the_agent_gets_the_cli_s_tool_calls_and_the_cli_the_whole_conversation(
     words = " ".join(block.get("text", "") for block in sent)
     assert "Bonjour" in words and "[tool call t1]" in words and "aucun" in words
     arguments = (tmp_path / "args").read_text()
-    assert "Tu es Tarik." in arguments and "find_dossier" in arguments and "--json-schema" in arguments
+    assert "Tu es Tarik." in arguments and "find_dossier" in arguments
+    lines = arguments.splitlines()
+    (call,) = json.loads(lines[lines.index("--json-schema") + 1])["properties"]["tool_calls"]["items"]["anyOf"]
+    assert call["properties"]["name"] == {"const": "find_dossier"}  # its args checked by the CLI as the tool's
+    assert call["properties"]["args"]["required"] == ["name"]
 
 
 @pytest.mark.technical
