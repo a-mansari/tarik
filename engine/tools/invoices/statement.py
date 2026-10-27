@@ -242,9 +242,9 @@ def amount_of(line):
 
     0 for a posted line, one with an invoice, one neither purchase nor sale, one without picker domain, or of no
     amount (verify_selected_invoices refuses it, bank/models/bank_statement_line.py:4548-4562). The amount is
-    abs(credit - debit), the line's amount as Experio's detection matches it (:2456-2471, :617-623). Not checked: it
-    is in the statement's currency, where the form compares the company's (:4548-4554), so a foreign-currency line's
-    invoice is not found.
+    abs(credit - debit), in the statement's currency, matched against the invoice's amount_residual, in the
+    invoice's (exp_account/models/exp_move.py:680-686), as Experio's detection matches them, converting nothing
+    (:2456-2471, :617-623): a line and an invoice in two currencies never match.
     """
     if line["state"] in POSTED or line["invoice_ids"] or line.get("operation_type") not in ("purchase", "sale"):
         return 0
@@ -266,9 +266,10 @@ def named_in(words, statement, amounts, context):
 def cited(number, words):
     """True when invoice ``number`` is in the client's normalized ``words`` as whole words, its spaces aside as Experio
     compares invoice numbers (invoice/models/exp_invoice.py:1550-1557, :8795-8825): « FAC 123 » is « FAC123 », « FA-1 »
-    is not in « FA-12 ». A number of three digits or fewer never counts: it would be any date or amount."""
+    is not in « FA-12 ». A number without a digit (« Facture », « FNP ») or of three digits or fewer never counts: it
+    would be any word, date or amount."""
     compact = normalized(number).replace(" ", "")
-    if not compact or (compact.isdigit() and len(compact) <= 3):
+    if not re.search(r"\d", compact) or (compact.isdigit() and len(compact) <= 3):
         return False
     pattern = " ?".join(map(re.escape, compact))  # any space in the words, or none, between its characters
     return re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", words) is not None

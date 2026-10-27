@@ -253,9 +253,14 @@ def test_an_invoice_number_is_cited_its_spaces_aside_as_experio_compares_it(expe
 
 
 @pytest.mark.functionality
-def test_a_short_number_is_never_cited(experio):
-    experio["invoices"][0]["invoice_number"] = "15"
-    statement.settle_statement(8, client_message="virement du 15/10")
+@pytest.mark.parametrize(
+    "number, words",
+    [("15", "virement du 15/10"), ("Facture", "facture de mars")],
+    ids=["three digits or fewer", "no digit"],
+)
+def test_a_short_or_digitless_number_is_never_cited(experio, number, words):
+    experio["invoices"][0]["invoice_number"] = number
+    statement.settle_statement(8, client_message=words)
     assert experio["written"] == [] and experio["searched"][-1][0] == "search_read"
 
 
