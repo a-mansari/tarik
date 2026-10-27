@@ -76,6 +76,20 @@ def called(role, method, path, monkeypatch):
     return (sent[0]["status"] if sent else 200), bool(reached)
 
 
+def test_a_routine_is_never_started_by_hand_even_by_an_admin():
+    import json
+
+    async def receive():
+        return {"type": "http.request", "body": json.dumps({"input": {}}).encode()}
+
+    from starlette.requests import Request
+
+    scope = {"type": "http", "method": "POST", "path": "/runs/routine", "headers": []}
+    scope["path_params"] = {"graph": "routine"}
+    answer = asyncio.run(server.start(Request(scope, receive)))
+    assert answer.status_code == 403  # its period is claimed by its schedule first
+
+
 def test_a_member_s_change_is_refused_before_it_reaches_the_page(monkeypatch):
     assert called("member", "PUT", "/graphs/traitement/layout", monkeypatch) == (403, False)
     assert called("member", "POST", "/runs/traitement", monkeypatch) == (403, False)

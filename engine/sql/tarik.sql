@@ -583,10 +583,12 @@ from tarik_routine_runs rr join tarik_routines r on r.id = rr.routine_id
 where rr.report is null and r.enabled order by rr.due_at for update of rr skip locked
 
 -- name: routine_paused
+-- === engine/routine.py ===
 -- Pause a routine whose report may no longer go to its address (someone gone, no dossier of theirs left).
 update tarik_routines set enabled = false where id = %s
 
 -- name: routine_period_taken
+-- === engine/routines.py ===
 -- Record a routine's period as run; no row back when it already ran (a restart, another loop).
 insert into tarik_routine_runs (routine_id, due_at) values (%s, %s) on conflict do nothing returning routine_id
 

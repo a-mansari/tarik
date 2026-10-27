@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from engine import calls, graphs
+from engine import routine as flow
 from engine import routines as clock
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.dossiers import routines
@@ -181,38 +183,44 @@ def test_a_period_runs_once_here_whatever_changes_meanwhile_and_each_minute_has_
 
 @pytest.fixture
 def running(db_cabinet, monkeypatch):
-    """A routine's run on the test cabinet: dossiers 5 and 6 seen by Tarik, its address live; the tools called and
-    the runs started."""
-    state = {"calls": [], "started": []}
-    monkeypatch.setattr(clock, "opened_dossiers", lambda: [{"id": 5, "name": "ALPHA"}, {"id": 6, "name": "BETA"}])
-    monkeypatch.setattr(clock, "address_problem", lambda notify: "")
+    """A routine's period run as its Routine workflow on the test cabinet: dossiers 5 and 6 opened by Tarik, its
+    address live; the tools called and the workflows run nested."""
+    state = {"calls": [], "nested": []}
+    monkeypatch.setattr(flow, "opened_dossiers", lambda: [{"id": 5, "name": "ALPHA"}, {"id": 6, "name": "BETA"}])
+    monkeypatch.setattr(flow, "address_problem", lambda notify: "")
 
     async def call(cabinet, tool, **arguments):
         state["calls"].append((tool, arguments))
         return f"avancement {arguments.get('dossier_id')}" if tool == "dossier_progress" else {"status": "ok"}
 
-    async def start(name, payload):
-        state["started"].append((name, payload))
+    async def nested(name, given, cabinet, session, node=None):
+        state["nested"].append((name, given, session))
+        if name == "discussion":
+            return {"reply": f"fait : {given['message']}"}
+        return {"message": f"TVA du dossier {given['call']['dossier_id']} préparée."}
+
+    async def start(name, payload, slots=None):  # the trigger's run, its graph run as is (no run store here)
+        output = await graphs.COMPILED[name].ainvoke(payload["input"], {"run_id": "run"})
         done = asyncio.get_running_loop().create_future()
-        given = payload["input"]
-        reply = given["message"] if name == "discussion" else f"TVA du dossier {given['call']['dossier_id']} préparée."
-        done.set_result(({"reply": f"fait : {reply}", "message": reply}, None))
+        done.set_result((output, None))
         return "run", done
 
-    monkeypatch.setattr(clock, "call", call)
+    monkeypatch.setattr(flow, "call", call)
+    monkeypatch.setattr(calls, "call", call)
+    monkeypatch.setattr(clock.runs, "nested", nested)
     monkeypatch.setattr(clock.runs, "start", start)
     return state
 
 
 @pytest.mark.functionality
-def test_a_routine_works_on_every_dossier_tarik_sees_and_its_report_goes_to_its_address(running, db_cabinet):
+def test_a_routine_works_on_every_dossier_tarik_opens_and_its_report_goes_to_its_address(running, db_cabinet):
     routine_id = due_routine("tva")
     (row,) = clock.claimed()
     report = asyncio.run(clock.ran(db_cabinet, row))
     assert report == "TVA du dossier 5 préparée.\n\nTVA du dossier 6 préparée."
-    assert [p["input"]["call"]["routine"] for _, p in running["started"]] == [True, True]  # made, never taken up
-    (tool, sent) = running["calls"][-1]
-    assert tool == "send_email" and sent["to"] == "chef@cabinet.ma" and sent["body"] == report
+    assert [given["call"]["routine"] for _, given, _ in running["nested"]] == [True, True]  # made, never taken up
+    (sent,) = [arguments for tool, arguments in running["calls"] if tool == "send_email"]
+    assert sent["to"] == "chef@cabinet.ma" and sent["body"] == report
     assert sent["attach_session"].startswith(f"routine-{routine_id}-")  # the XML the runs made
     with cabinet_db() as db:
         assert db.execute("select report from tarik_routine_runs").fetchone() == (report,)
@@ -223,17 +231,17 @@ def test_an_instruction_is_handed_to_the_agent_once_in_the_routines_own_session(
     routine_id = due_routine("instruction", "Liste les brouillons.")
     (row,) = clock.claimed()
     assert asyncio.run(clock.ran(db_cabinet, row)) == "fait : Liste les brouillons."
-    ((name, payload),) = running["started"]
-    assert name == "discussion" and payload["session_id"].startswith(f"routine-{routine_id}-")
+    ((name, _, session),) = running["nested"]
+    assert name == "discussion" and session.startswith(f"routine-{routine_id}-")
 
 
 @pytest.mark.security
 def test_a_routine_whose_address_is_gone_is_paused_and_sends_nothing(running, db_cabinet, monkeypatch):
     routine_id = due_routine()
     (row,) = clock.claimed()
-    monkeypatch.setattr(clock, "address_problem", lambda notify: "`chef@cabinet.ma` est parti")
+    monkeypatch.setattr(flow, "address_problem", lambda notify: "`chef@cabinet.ma` est parti")
     assert asyncio.run(clock.ran(db_cabinet, row)) == "Routine en pause : `chef@cabinet.ma` est parti."
-    assert running["calls"] == []
+    assert [tool for tool, _ in running["calls"] if tool not in ("save_files", "record_step")] == []
     with cabinet_db() as db:
         assert db.execute("select enabled from tarik_routines where id = %s", (routine_id,)).fetchone() == (False,)
 
@@ -243,12 +251,66 @@ def test_a_failing_dossier_reads_as_tarik_says_never_as_the_error(running, db_ca
     due_routine("tva")
     (row,) = clock.claimed()
 
-    async def start(name, payload):
+    async def nested(name, given, cabinet, session, node=None):
         raise ConnectionError("postgres://tarik:secret@db/tarik refused")
 
-    monkeypatch.setattr(clock.runs, "start", start)
+    monkeypatch.setattr(clock.runs, "nested", nested)
     report = asyncio.run(clock.ran(db_cabinet, row))
-    assert "secret" not in report and report.startswith("Dossier n° 5 : echec technique")
+    assert "secret" not in report and report.startswith("Dossier `ALPHA` : echec technique")
+
+
+@pytest.mark.communication
+def test_experio_unreachable_sends_nothing_and_says_it_as_tarik_does(running, db_cabinet, monkeypatch):
+    due_routine("progress")
+    (row,) = clock.claimed()
+
+    def down(notify):
+        raise ConnectionError("odoo://tarik:secret@experio refused")
+
+    monkeypatch.setattr(flow, "address_problem", down)
+    report = asyncio.run(clock.ran(db_cabinet, row))
+    assert "secret" not in report and not [tool for tool, _ in running["calls"] if tool == "send_email"]
+
+
+@pytest.mark.communication
+def test_a_dossier_s_own_refusal_is_its_line_and_no_dossier_is_nothing_to_say(running, db_cabinet, monkeypatch):
+    due_routine("progress")
+    (row,) = clock.claimed()
+
+    async def call(cabinet, tool, **arguments):
+        if tool == "dossier_progress":
+            raise calls.ToolFailure("Experio n'a pas pu donner son état.")
+        return {"status": "ok"}
+
+    monkeypatch.setattr(flow, "call", call)
+    report = asyncio.run(clock.ran(db_cabinet, row))
+    assert report.startswith("Dossier `ALPHA` : Experio n'a pas pu donner son état.")
+    monkeypatch.setattr(flow, "opened_dossiers", lambda: [])
+    (row,) = [(*row[:7], row[7] - timedelta(days=1), row[8])]  # another period
+    assert asyncio.run(clock.ran(db_cabinet, row)) == flow.NOTHING
+
+
+@pytest.mark.functionality
+def test_an_instruction_too_long_is_cut_off_and_said(running, db_cabinet, monkeypatch):
+    due_routine("instruction", "Liste tout.")
+    (row,) = clock.claimed()
+
+    async def slow(name, given, cabinet, session, node=None):
+        await asyncio.sleep(1)
+
+    monkeypatch.setattr(clock.runs, "nested", slow)
+    monkeypatch.setattr(flow, "INSTRUCTION_SECONDS", 0.01)
+    assert asyncio.run(clock.ran(db_cabinet, row)).startswith("Consigne interrompue")
+
+
+@pytest.mark.functionality
+def test_the_dossiers_not_reached_before_the_next_period_are_left_to_it(running, db_cabinet):
+    due_routine("progress")
+    (row,) = clock.claimed()
+    late = (*row[:7], datetime.now(ZONE) - timedelta(days=2), row[8])  # a period whose next one already came
+    report = asyncio.run(clock.ran(db_cabinet, late))
+    assert report == "2 dossier(s) non traité(s) : la période suivante est arrivée avant."
+    assert not [tool for tool, _ in running["calls"] if tool == "dossier_progress"]
 
 
 @pytest.fixture
@@ -345,14 +407,14 @@ def test_a_long_report_goes_as_a_file_and_quiet_dossiers_are_only_counted(runnin
     routine_id = due_routine("tva")
     (row,) = clock.claimed()
     kept = []
-    monkeypatch.setattr(clock, "keep_file", lambda session, name, data: kept.append((name, data)))
-    monkeypatch.setattr(clock, "BODY_CHARACTERS", 10)
-    monkeypatch.setattr(clock, "opened_dossiers", lambda: [{"id": d, "name": str(d)} for d in (5, 6, 7)])
+    monkeypatch.setattr(flow, "keep_file", lambda session, name, data: kept.append((name, data)))
+    monkeypatch.setattr(flow, "BODY_CHARACTERS", 10)
+    monkeypatch.setattr(flow, "opened_dossiers", lambda: [{"id": d, "name": str(d)} for d in (5, 6, 7)])
 
-    async def part(cabinet, kind, dossier_id, session):
-        return clock.NOTHING if dossier_id == 7 else f"TVA du dossier {dossier_id} préparée."
+    async def declared(given, dossier_id):
+        return flow.NOTHING if dossier_id == 7 else f"TVA du dossier {dossier_id} préparée."
 
-    monkeypatch.setattr(clock, "dossier_part", part)
+    monkeypatch.setitem(flow.PARTS, "tva", declared)
     body = asyncio.run(clock.ran(db_cabinet, row))
     ((name, data),) = kept
     assert name == f"routine-{routine_id}.txt" and data.decode().endswith("1 dossier(s) sans rien à préparer.")

@@ -241,7 +241,8 @@ create table if not exists tarik_no_certificate (
     said_at timestamptz not null default now()
 );
 
--- The cabinet's routines: a task Tarik runs again and again on a schedule (engine/routines.py), made by a manager
+-- The cabinet's routines: a task Tarik runs again and again on a schedule (started by engine/routines.py, run by
+-- engine/routine.py), made by a manager
 -- (engine/tools/dossiers/routines.py). Kept in the cabinet's own schema: a routine never runs for another cabinet.
 create table if not exists tarik_routines (
     id serial primary key,

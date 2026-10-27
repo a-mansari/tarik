@@ -24,6 +24,8 @@ from engine.tools.core.queries import Q
 
 SCHEMA = "orchestrator"
 NAMES = sorted([*graphs.COMPILED, "agent"])  # the agent: made per run
+SLOTS = asyncio.Semaphore(20)  # runs going on at once in this process
+FOLDED = {"routine"}  # graphs whose nested runs the runs list leaves to their own page: one per dossier
 DETAIL_LIMIT = 50_000  # characters of a node's update kept: a scan's text or a long history is cut, never the run
 
 TIME_ZONE = ZoneInfo("Africa/Casablanca")  # the cabinets' time, from the server's own time-zone data
@@ -168,8 +170,9 @@ async def created(name, given, cabinet, session, thread=None, parent=None, paren
     return run_id
 
 
-async def start(name, payload):
-    """Record a new run of graph ``name`` and start it in the background; return (run_id, task).
+async def start(name, payload, slots=SLOTS):
+    """Record a new run of graph ``name`` and start it in the background; return (run_id, task). ``slots``: the
+    semaphore it runs under (execute), None for a run whose work is limited otherwise (a routine's period).
 
     ``payload`` is the POST /runs body: {input, session_id?, thread_id?, cabinet?}. The session and cabinet default
     to the input's call, then to a new id and DEFAULT_CABINET; only the agent gets a thread (thread_id, else the
@@ -180,7 +183,7 @@ async def start(name, payload):
     cabinet = payload.get("cabinet") or call.get("cabinet") or given.get("cabinet") or DEFAULT_CABINET
     thread = (payload.get("thread_id") or session) if name == "agent" else None
     run_id = await created(name, given, cabinet, session, thread)
-    task = asyncio.create_task(execute(run_id, name, cabinet, session, thread, given))
+    task = asyncio.create_task(execute(run_id, name, cabinet, session, thread, given, slots=slots))
     return run_id, task
 
 
@@ -217,9 +220,6 @@ def configurable_of(cabinet, session, thread):
 def graph_of(name, configurable):
     """Return the compiled graph for ``name``; the agent is built per run for its cabinet and conversation."""
     return agent.make_agent({"configurable": configurable}) if name == "agent" else graphs.COMPILED[name]
-
-
-SLOTS = asyncio.Semaphore(20)  # runs going on at once in this process
 
 
 async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
@@ -260,6 +260,10 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
                         live.touched(run_id, cabinet, session)
             except Exception as caught:  # the run's own failure: kept for whoever looks, the server goes on
                 status, error, failure = "error", f"{type(caught).__name__}: {caught}", caught
+            except asyncio.CancelledError:  # cut off by its caller (a routine's instruction too long): ended anyway
+                async with pool.connection() as db:
+                    await asyncio.shield(db.execute(Q.run_ended, ("error", None, "Interrompu", run_id)))
+                raise
             async with pool.connection() as db:
                 await db.execute(
                     Q.run_ended,
@@ -338,19 +342,19 @@ async def run(run_id):
 async def recent(cabinet=None, graph=None, limit=50):
     """Return the runs list: the latest ``limit`` top-level runs, newest first, each followed by the runs nested in
     it (recursively) with their "depth". With a ``graph`` filter, that graph's runs, nested ones included, without
-    their children. ``cabinet`` filters by cabinet."""
+    their children. ``cabinet`` filters by cabinet. A routine's runs (one per dossier) are left to its own page."""
     keys = ("run_id", "graph", "cabinet", "session_id", "status", "error", "started", "ended")
     async with pool.connection() as db:
         asked = {"cabinet": cabinet or None, "graph": graph or None, "limit": limit}
         rows = await (await db.execute(Q.runs_recent, asked)).fetchall()
         below = {}  # parent id -> its children, oldest first
-        level = [row[0] for row in rows]
+        level = [row[0] for row in rows if row[1] not in FOLDED]
         while level and not graph:
             found = await (await db.execute(Q.runs_under, (level,))).fetchall()
             for row in found:
                 parent_id = row[len(keys)]  # Q.runs_under's rows: a run's fields, then its parent's id
                 below.setdefault(parent_id, []).append(row)
-            level = [row[0] for row in found]
+            level = [row[0] for row in found if row[1] not in FOLDED]
 
     def shown(row, depth):
         fields = dict(zip(keys, row[: len(keys)], strict=True))

@@ -74,9 +74,12 @@ function remove(routine) {
     <div class="head">
       <div>
         <h1>Routines · <CabinetLabel :name="data.cabinet" /></h1>
-        <p class="what">Ce que Tarik refait à date fixe pour ce cabinet, sur tous les dossiers que voit son compte
-          Experio, et dont il envoie le rapport par e-mail à un administrateur du cabinet. Une routine prépare et
-          rapporte : elle ne déclare, ne comptabilise et ne confirme jamais rien.</p>
+        <p class="what">Ce que Tarik refait à date fixe pour ce cabinet, sur tous les dossiers que son compte
+          Experio peut ouvrir, et dont il envoie le rapport par e-mail à un administrateur du cabinet. Une routine
+          prépare et rapporte : elle ne déclare, ne comptabilise et ne confirme jamais rien.</p>
+        <p class="what">Chaque routine lance à son heure le workflow
+          <RouterLink to="/ui/workflows/routine">Routine</RouterLink> : chaque période se suit, dossier par dossier,
+          dans les <RouterLink to="/ui/executions?graph=routine">Exécutions</RouterLink>.</p>
       </div>
       <button v-if="editing !== 'new'" type="button" class="primary" :disabled="managers === undefined"
         :title="managers === undefined ? 'Lecture des administrateurs dans Experio…' : undefined" @click="open(null)">

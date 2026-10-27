@@ -2,8 +2,8 @@
 on or off, rescheduled, their instruction and report address changed, made or deleted by the team; each change in the
 journal (audit).
 
-A routine works on every dossier Tarik's Experio account sees. Its checks are the tool's own
-(engine/tools/dossiers/routines.py routine_problem and address_problem)."""
+A routine works on every dossier Tarik's Experio account may open (search.opened_dossiers). Its checks are the
+tool's own (engine/tools/dossiers/routines.py routine_problem and address_problem)."""
 
 import asyncio
 import time
