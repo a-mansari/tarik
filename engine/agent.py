@@ -388,6 +388,35 @@ async def gerer_acces(
     return await run_workflow("dossier", runtime, inputs)
 
 
+@tool("Experio_routine", description=DESCRIBED_LATER)
+async def routine(
+    action: str,
+    runtime: ToolRuntime,
+    routine_kind: str = "",
+    dossier_ids: list[int] | None = None,
+    every: str = "",
+    day: int = 0,
+    hour: int = 8,
+    routine_id: int = 0,
+    email: str = "",
+    client_confirmed: bool = False,
+) -> str:
+    inputs = {
+        "mode": "routine",
+        "action": action,
+        "routine_kind": routine_kind,
+        "dossier_ids": dossier_ids or [],
+        "every": every,
+        "day": day,
+        "hour": hour,
+        "routine_id": routine_id,
+        "email": email,
+        "dossier_id": 0,
+        "client_confirmed": client_confirmed,
+    }
+    return await run_workflow("dossier", runtime, inputs)
+
+
 @tool("Experio_archiver_dossier", description=DESCRIBED_LATER)
 async def archiver_dossier(dossier_id: int, runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
@@ -566,6 +595,7 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     modifier_dossier,
     creer_acces,
     gerer_acces,
+    routine,
     archiver_dossier,
     solder_ecart,
     declaration_tva,

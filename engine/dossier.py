@@ -7,6 +7,7 @@
   invoice's remainder).
 - Modes person, access: create and invite a person, or change one's access (a dossier given or taken, a role, an
   invitation sent again), for a sender whose own Experio profile may manage users (check_manager).
+- Mode routine: make, list, pause, resume or delete a routine (manage_routine), after the same check.
 - Mode resume: finish the conversation's dossiers left waiting.
 One step per node, so the canvas shows each. No time budget: finish_setup gets seconds_left 0 (no limit)."""
 
@@ -38,6 +39,12 @@ INPUTS = [
     "phone",
     "profile",
     "action",
+    "routine_kind",
+    "dossier_ids",
+    "every",
+    "day",
+    "hour",
+    "routine_id",
     "rc",
     "patente",
     "tsc",
@@ -81,7 +88,7 @@ def by_mode(state: Run):
     if failed(state):
         return "resume"  # a failed save is recorded and goes no further: the files the run would work on are missing
     mode = call.get("mode")
-    if mode in ("person", "access"):
+    if mode in ("person", "access", "routine"):
         return "gestionnaire"
     if mode in ("update", "archive", "difference"):
         return "expediteur"
@@ -154,10 +161,11 @@ async def manager(state: Run):
 
 @stops_at("resume")
 def after_manager(state: Run):
-    """Route to "acces" (mode person) or "droits" (mode access); "resume" when the check failed."""
+    """Route to "acces" (mode person), "droits" (mode access) or "routine" (mode routine); "resume" when the check
+    failed."""
     if failed(state):
         return "resume"
-    return "acces" if state["call"].get("mode") == "person" else "droits"
+    return {"person": "acces", "routine": "routine"}.get(state["call"].get("mode"), "droits")
 
 
 async def access(state: Run):
@@ -170,6 +178,27 @@ async def access(state: Run):
         email=call.get("email") or "",
         dossier_id=call.get("dossier_id") or 0,
         profile=call.get("profile") or "",
+        client_confirmed=call.get("client_confirmed") is True,
+        client_message=call.get("client_message") or "",
+        session_id=call["session_id"],
+    )
+    return {"outcomes": [result]}
+
+
+async def routine(state: Run):
+    """Graph node: make, list, pause, resume or delete a routine (manage_routine)."""
+    call = state["call"]
+    result = await run_step(
+        state,
+        "manage_routine",
+        action=call.get("action") or "",
+        kind=call.get("routine_kind") or "",
+        dossier_ids=call.get("dossier_ids") or [],
+        every=call.get("every") or "",
+        day=call.get("day") or 0,
+        hour=call.get("hour") if call.get("hour") is not None else 8,
+        routine_id=call.get("routine_id") or 0,
+        email=call.get("email") or "",
         client_confirmed=call.get("client_confirmed") is True,
         client_message=call.get("client_message") or "",
         session_id=call["session_id"],
@@ -358,6 +387,7 @@ for name, node in {
     "modification": update,
     "acces": person,
     "droits": access,
+    "routine": routine,
     "archivage": archive,
     "ecart": difference,
     "fichiers": files,
@@ -372,7 +402,7 @@ for name, node in {
     run.add_node(name, node)
 run.add_edge(START, "debut")
 run.add_conditional_edges("debut", by_mode, ["createur", "gestionnaire", "expediteur", "reprise", "resume"])
-run.add_conditional_edges("gestionnaire", after_manager, ["acces", "droits", "resume"])
+run.add_conditional_edges("gestionnaire", after_manager, ["acces", "droits", "routine", "resume"])
 run.add_conditional_edges("createur", after_creator, ["creation", "fichiers", "resume"])
 run.add_conditional_edges("creation", after_create, ["configuration", "fichiers", "resume"])
 run.add_conditional_edges("configuration", *ok_or_summary("fichiers"))  # a refused copy goes no further
@@ -382,7 +412,7 @@ run.add_conditional_edges("ecritures", after_entries, ["banques", "resume"])
 run.add_edge("banques", "finalisation")
 run.add_edge("reprise", "finalisation")
 run.add_conditional_edges("finalisation", after_finish, ["etat", "resume"])
-for name in ("modification", "acces", "droits", "archivage", "ecart", "listes", "etat"):
+for name in ("modification", "acces", "droits", "routine", "archivage", "ecart", "listes", "etat"):
     run.add_edge(name, "resume")
 run.add_edge("resume", END)
 graph = run.compile(name="Tarik - Dossier")

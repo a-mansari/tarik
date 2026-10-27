@@ -129,6 +129,13 @@ same rules. Only the sender changes.
 
 ## 3. Routines: scheduled, repeating tasks
 
+**Built (first version, 2026-10-27):** `tarik_routines` and `tarik_routine_runs` per cabinet, the clock in
+`engine/routines.py` (started with the server), the tool `Experio_routine` (Dossier graph, mode routine, behind
+`check_manager` and the sender's own dossiers). Kinds: `tva`, `ras` (prepared through the Déclarations graph, never
+declared) and `progress` (`dossier_progress`); every day, week or month at an hour, Casablanca time; each report
+emailed to its maker. Not built yet: the `rule` conditions, the suspense and missing-statement routines, the
+Routines page, and the notice queue of section 2 (reports go out at once).
+
 ### Today
 
 - There is no scheduler. The only timers are the mail watcher's 15-minute tick and IDLE (`engine/mail.py`).

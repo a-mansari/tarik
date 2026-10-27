@@ -533,3 +533,50 @@ update tarik_outbox set sent_at = now() where id = any(%s)
 -- One model call's tokens and cost.
 insert into tarik_model_usage (model, input_tokens, cached_tokens, output_tokens, cost, run_id, prompt_call)
 values (%s, %s, %s, %s, %s, %s, %s)
+
+-- name: routine_made
+-- === engine/tools/dossiers/routines.py ===
+-- A new routine; its id back.
+insert into tarik_routines (kind, dossier_ids, every, day, hour, notify, created_by, next_run_at)
+values (%s, %s, %s, %s, %s, %s, %s, %s) returning id
+
+-- name: routines_listed
+-- The cabinet's routines, oldest first.
+select id, kind, dossier_ids, every, day, hour, notify, enabled, next_run_at, created_by from tarik_routines order by id
+
+-- name: routine_enabled
+-- Pause or resume a routine, with its next run (a resumed routine runs at its next time, never the missed ones).
+update tarik_routines set enabled = %s, next_run_at = %s where id = %s
+
+-- name: routine_removed
+-- Delete a routine and the record of its runs.
+delete from tarik_routines where id = %s
+
+-- name: routines_due
+-- === engine/routines.py ===
+-- The enabled routines whose time came, each locked until the transaction ends (another loop skips them).
+select id, kind, dossier_ids, every, day, hour, notify, next_run_at from tarik_routines
+where enabled and next_run_at <= now() order by next_run_at for update skip locked
+
+-- name: routines_unfinished
+-- The periods a routine started and never reported (the server stopped meanwhile), each locked until the
+-- transaction ends: run again, the declarations already made being only reported.
+select r.id, r.kind, r.dossier_ids, r.every, r.day, r.hour, r.notify, rr.due_at
+from tarik_routine_runs rr join tarik_routines r on r.id = rr.routine_id
+where rr.report is null and r.enabled order by rr.due_at for update of rr skip locked
+
+-- name: routine_paused
+-- Pause a routine whose report may no longer go to its address (someone gone, no dossier of theirs left).
+update tarik_routines set enabled = false where id = %s
+
+-- name: routine_period_taken
+-- Record a routine's period as run; no row back when it already ran (a restart, another loop).
+insert into tarik_routine_runs (routine_id, due_at) values (%s, %s) on conflict do nothing returning routine_id
+
+-- name: routine_next
+-- A routine's next run.
+update tarik_routines set next_run_at = %s where id = %s
+
+-- name: routine_reported
+-- What a routine's run sent.
+update tarik_routine_runs set report = %s where routine_id = %s and due_at = %s

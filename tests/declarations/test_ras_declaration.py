@@ -283,3 +283,12 @@ def test_a_non_resident_period_already_declared_is_found_as_experio_finds_it(mon
     asked.clear()
     ras.refusals("non_resident_yearly", {**table, "period_id": False}, [], 857, {})
     assert ("mode_type", "=", "yearly") in asked[0] and not any(term[0] == "period_id" for term in asked[0])
+
+
+@pytest.mark.security
+def test_a_routine_reports_a_draft_already_there_without_touching_it(experio):
+    experio["tables"] = {"exp.withholding.table": [{"id": 70, "state": "draft"}]}
+    experio["lines"] = [line()]
+    result = ras.prepare_ras_declaration(857, "IS", new_only=True)
+    assert "déjà préparée, non actualisée" in result["message"]
+    assert methods(experio) == []  # no « Actualiser », no XML

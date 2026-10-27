@@ -46,7 +46,7 @@ from starlette.responses import JSONResponse, RedirectResponse, StreamingRespons
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from engine import agent, content, graphs, live, mail, prompts, runs
+from engine import agent, content, graphs, live, mail, prompts, routines, runs
 from engine.tools.core import gladden
 from engine.tools.core.cabinets import (
     CABINETS,
@@ -346,8 +346,8 @@ def check_cabinets():
 
 @contextlib.asynccontextmanager
 async def lifespan(app):
-    """Context manager: set up for the server's whole life the cabinets, the run store, the content, the mail watcher
-    and the agent's memory (the LangGraph Postgres checkpointer).
+    """Context manager: set up for the server's whole life the cabinets, the run store, the content, the mail watcher,
+    the routines' clock and the agent's memory (the LangGraph Postgres checkpointer).
 
     Also ends the runs a previous stop cut off (runs.end_cut_off), and closes the run store on the way out."""
     check_cabinets()
@@ -355,11 +355,13 @@ async def lifespan(app):
     await runs.end_cut_off()
     await content.setup(runs.pool)
     mail.start(asyncio.get_running_loop())
+    clock = asyncio.create_task(routines.clock())  # the routines' clock, for the server's whole life
     threading.Thread(target=api.runs.warm_names, daemon=True).start()  # the sidebar's names, read off the first pages
     async with AsyncPostgresSaver.from_conn_string(f"{DATABASE} options='-c search_path={runs.SCHEMA}'") as saver:
         await saver.setup()
         agent.CHECKPOINTER = saver
         yield
+    clock.cancel()
     await runs.pool.close()
 
 

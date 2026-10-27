@@ -161,6 +161,23 @@ def test_a_person_or_an_access_is_changed_after_the_manager_check(steps, mode, t
 
 
 @pytest.mark.functionality
+def test_a_routine_is_managed_after_the_manager_check(steps):
+    steps.run(graph, mode="routine", action="create", routine_kind="tva", dossier_ids=[5, 6], every="month", day=5)
+    assert steps.names == ["save_files", "check_manager", "manage_routine", "run_summary"]
+    (given,) = steps.args("manage_routine")
+    assert given["kind"] == "tva" and given["dossier_ids"] == [5, 6] and given["every"] == "month"
+    assert given["day"] == 5 and given["hour"] == 8  # no hour given: 8 h
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("status", NOT_OK)
+def test_a_sender_who_may_not_manage_makes_no_routine(steps, status):
+    steps.answer("check_manager", {"status": status})
+    steps.run(graph, mode="routine", action="create")
+    assert steps.names == ["save_files", "check_manager", "run_summary"]
+
+
+@pytest.mark.functionality
 def test_resume_finishes_the_waiting_dossiers_and_says_the_state_of_those_finished(steps):
     steps.answer("waiting_setups", {"status": "ok", "dossiers": [3, 4, 5]})
     steps.answer("finish_setup", lambda dossier_id: {"status": "wait" if dossier_id == 4 else "ok"})
