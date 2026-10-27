@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from engine import agent, chat, content, declarations, dossier, exports, graphs, traitement
+from engine import agent, chat, content, declarations, dossier, exports, graphs, routine, traitement
 from engine.calls import TOOLS
 from engine.content import AGENT, LABELS
 from engine.tools.invoices.pipeline import INVOICE_CHAIN
@@ -75,7 +75,7 @@ def unnamed():
     """Return the gaps: workflow inputs with no name in labels.json (inputs) except HIDDEN ones, and journal actions
     with no words (audit)."""
     discussion = set(chat.Chat.__annotations__) - set(chat.Steps.__annotations__)  # its inputs, not its outputs
-    given = {*traitement.INPUTS, *dossier.INPUTS, *declarations.INPUTS, *exports.INPUTS, *discussion}
+    given = {*traitement.INPUTS, *dossier.INPUTS, *declarations.INPUTS, *exports.INPUTS, *routine.INPUTS, *discussion}
     given |= {"sender", "subject", "files"}
     found = [f"input {key}: no name in labels.json" for key in sorted(given - HIDDEN - set(LABELS["inputs"]))]
     return found + [

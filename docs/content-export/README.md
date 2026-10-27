@@ -94,3 +94,7 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-routines-jours-20261027.json` (and its `.diff`): a weekly routine on several weekdays: `Experio_routine`
   takes `days` (`agent.json`) and the input « Jours » (`labels.json`; « Jour » left for stacks still on the code before).
   Import it after the routines-sans-dossiers export, once the stack runs the commit with the weekdays.
+- `tarik-contenu-routine-workflow-20261027.json` (and its `.diff`): the Routine workflow each routine starts at its
+  time: its name, steps and their descriptions, and the inputs « Tâche de la routine »
+  and « Période suivante » (`labels.json`). Import it after the routines-jours export, once the stack runs the commit
+  with the Routine workflow: before, check.py finds no gap but the labels name a workflow the stack lacks.

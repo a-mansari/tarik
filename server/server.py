@@ -211,10 +211,12 @@ async def start(request: Request):
     """POST /runs/{graph}: start a run of ``graph`` by hand and record it in the Journal.
 
     With wait true (the default), waits for the run and returns it (see runs.run); with wait false, returns {run_id,
-    status: "queued"} at once (202). 404 for an unknown graph."""
+    status: "queued"} at once (202). 404 for an unknown graph, 403 for the Routine workflow (its schedule starts it)."""
     name = request.path_params["graph"]
     if name not in runs.NAMES:
         return JSONResponse({"error": f"unknown graph {name!r}"}, status_code=404)
+    if name == "routine":  # a period is claimed by its schedule first (engine/routines.py): never one by hand
+        return JSONResponse({"error": "a routine runs at its time only (Routines page)"}, status_code=403)
     payload = await request.json()
     run_id, task = await runs.start(name, payload)
     await audit.record(request.state.user["email"], "run_started", name, run_id=run_id)

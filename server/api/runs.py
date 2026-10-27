@@ -182,7 +182,8 @@ def ran_here(shown):
     return {"earlier": shown[:starts], "conversation": shown[starts:]}
 
 
-HIDDEN = {"attachments", "cabinet", "session_id", "call", "done"}  # shown elsewhere, too long to read, or inner
+# Shown elsewhere, too long to read, inner, or an admin's own (a routine's report address: its Routines page)
+HIDDEN = {"attachments", "cabinet", "session_id", "call", "done", "notify"}
 
 
 def asked(run):

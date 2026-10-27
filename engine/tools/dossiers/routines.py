@@ -1,6 +1,6 @@
 """Routines: a task Tarik runs again and again on a schedule for a cabinet, made, listed, paused, resumed or deleted
 on the Routines page (server/api/routines.py) or by a manager in a conversation (the Dossier graph's mode routine,
-after check_manager). engine/routines.py runs them.
+after check_manager). engine/routines.py starts each period as a Routine run (engine/routine.py).
 
 A routine works on every dossier Tarik's own Experio account may open (search.opened_dossiers): that account's
 access is the limit. It prepares or reports, never declares nor posts: « tva » and « ras » make the declarations of

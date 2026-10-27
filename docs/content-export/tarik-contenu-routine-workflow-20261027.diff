@@ -1,0 +1,80 @@
+--- a/labels.json
++++ b/labels.json
+@@ -8,7 +8,8 @@
+     "fil": "Fil d'emails",
+     "discussion": "Discussion",
+     "declarations": "Déclarations",
+-    "export": "Export"
++    "export": "Export",
++    "routine": "Routine"
+   },
+   "steps": {
+     "agent": {
+@@ -116,6 +117,16 @@
+       "debut": "Pièces jointes",
+       "expediteur": "Accès de l'expéditeur",
+       "resume": "Résumé envoyé"
++    },
++    "routine": {
++      "debut": "Début",
++      "adresse": "Destinataire du rapport",
++      "consigne": "Consigne",
++      "dossiers": "Dossiers",
++      "dossier": "Dossier",
++      "rapport": "Rapport",
++      "envoi": "Rapport envoyé",
++      "fin": "Fin"
+     }
+   },
+   "statuses": {
+@@ -146,7 +157,8 @@
+       "fil": "Le traitement d'un fil d'emails, lancé par Emails pour chaque fil en attente : accusé de réception, réponse de Tarik, contrôle de l'expéditeur, puis envoi de la réponse et clôture du fil, ou alerte au responsable (le fil reste alors de côté). Pour une relance : suite des documents puis des dossiers, envoyée en un seul email.",
+       "discussion": "Un message écrit à Tarik depuis la page Discussion, avec ses fichiers : Tarik répond dans la même discussion et traite les fichiers joints.",
+       "declarations": "Prépare une déclaration d'un dossier dans Experio, à la demande du client : la TVA, les retenues à la source (RAS TVA, IS, IR, non-résidents) ou les délais de paiement. Dit ce qu'Experio refuserait et ce qu'il laisse de côté, joint le fichier XML à la réponse, et ne déclare qu'après l'accord du client.",
+-      "export": "Exporte avec l'export d'Experio les écritures par journal, les tiers ou le FEC d'un dossier, et joint le fichier à la réponse. Export d'analyse par défaut ; l'intégration, qui verrouille les pièces dans Experio, seulement après l'accord du client."
++      "export": "Exporte avec l'export d'Experio les écritures par journal, les tiers ou le FEC d'un dossier, et joint le fichier à la réponse. Export d'analyse par défaut ; l'intégration, qui verrouille les pièces dans Experio, seulement après l'accord du client.",
++      "routine": "Une période d'une routine du cabinet, lancée par son horaire (page Routines) : la consigne donnée à Tarik, ou pour chaque dossier que le compte Experio de Tarik peut ouvrir, l'avancement ou la préparation de la déclaration TVA ou RAS de la période terminée. Le rapport part ensuite par email à son destinataire. Une routine prépare et rapporte : elle ne déclare, ne comptabilise et ne confirme jamais rien."
+     },
+     "steps": {
+       "agent": {
+@@ -254,6 +266,16 @@
+         "debut": "Enregistre les fichiers joints au message.",
+         "expediteur": "Vérifie que l'expéditeur a accès au dossier.",
+         "resume": "Rédige le résumé que le client lit."
++      },
++      "routine": {
++        "debut": "Commence la période de la routine.",
++        "adresse": "Vérifie que le destinataire peut encore recevoir le rapport (administrateur actif du cabinet ou équipe Experio, parmi les adresses autorisées) ; sinon la routine est mise en pause et rien n'est envoyé. L'adresse se lit sur la page Routines.",
++        "consigne": "Donne la consigne de la routine à Tarik, dans une discussion de la routine, et garde sa réponse.",
++        "dossiers": "Liste les dossiers que le compte Experio de Tarik peut ouvrir.",
++        "dossier": "Pour un dossier : son avancement, ou la déclaration TVA ou RAS de la période terminée préparée (jamais reprise ni déclarée ; la première TVA d'un dossier, un dossier sans IF ou sans RAS à faire sont signalés, rien n'est créé). Un dossier à la fois ; un dossier non atteint avant la période suivante lui est laissé.",
++        "rapport": "Rédige le rapport : un paragraphe par dossier qui a quelque chose à dire, les autres comptés. Un long rapport est joint en fichier.",
++        "envoi": "Envoie le rapport par email à son destinataire, avec les fichiers préparés (XML).",
++        "fin": "Termine la période : le rapport envoyé, ou la raison de la pause."
+       }
+     }
+   },
+@@ -373,7 +395,9 @@
+     "routine_id": "N° de routine",
+     "routine": "Routine (déclaration faite, jamais reprise)",
+     "prompt": "Consigne de la routine",
+-    "days": "Jours"
++    "days": "Jours",
++    "task": "Tâche de la routine",
++    "until": "Période suivante"
+   },
+   "_inputs": "Le nom de chaque information donnée à un workflow, dans « Ce qui a été demandé ».",
+   "input_values": {
+@@ -428,6 +452,12 @@
+       "day": "Chaque jour",
+       "week": "Chaque semaine",
+       "month": "Chaque mois"
++    },
++    "task": {
++      "instruction": "Suivre une consigne",
++      "progress": "Envoyer l'avancement",
++      "tva": "Préparer la TVA",
++      "ras": "Préparer les RAS"
+     }
+   },
+   "_input_values": "Les mots affichés pour les valeurs codées de certaines de ces informations.",

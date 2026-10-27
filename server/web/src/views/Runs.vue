@@ -25,7 +25,7 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
     <div class="head">
       <div>
         <h1>Exécutions<template v-if="data.cabinet"> · <CabinetLabel :name="data.cabinet" /></template></h1>
-        <p class="muted">Chaque fois que Tarik travaille : une discussion, un traitement de documents, un dossier, des emails. Les plus récentes en premier, mises à jour toutes seules.</p>
+        <p class="muted">Chaque fois que Tarik travaille : une discussion, un traitement de documents, un dossier, des emails, une routine. Les plus récentes en premier, mises à jour toutes seules.</p>
       </div>
       <form class="filters" @submit.prevent>
         <label>Type

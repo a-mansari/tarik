@@ -11,7 +11,7 @@ from langchain_anthropic import ChatAnthropic
 from langgraph.graph import END
 from langgraph.graph.state import CompiledStateGraph
 
-from engine import agent, chat, declarations, dossier, emails, exports, traitement
+from engine import agent, chat, declarations, dossier, emails, exports, routine, traitement
 from engine.content import LABELS
 
 COMPILED = {
@@ -22,6 +22,7 @@ COMPILED = {
     "emails": emails.graph,
     "fil": emails.FIL,
     "discussion": chat.graph,
+    "routine": routine.graph,
 }
 # How deep each canvas opens nested graphs: Emails' follow-up runs Traitement (its own canvas), drawn as one box.
 XRAY = {"emails": 1}
