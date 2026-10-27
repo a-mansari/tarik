@@ -40,7 +40,7 @@
        },
        "emails": {
          "fils": "Prend les fils d'emails qui attendent une réponse de Tarik, et les relances prêtes (Experio a fini de lire les brouillons, ou un dossier est à terminer), et les réserve pour cette exécution. Un fil en échec trois fois est mis de côté.",
-@@ -363,7 +365,13 @@
+@@ -363,7 +365,14 @@
      "lettrage": "Lettrage",
      "integration": "Intégration",
      "date_import": "Dates d'import",
@@ -51,11 +51,12 @@
 +    "every": "Rythme",
 +    "day": "Jour",
 +    "hour": "Heure",
-+    "routine_id": "N° de routine"
++    "routine_id": "N° de routine",
++    "routine": "Routine (déclaration faite, jamais reprise)"
    },
    "_inputs": "Le nom de chaque information donnée à un workflow, dans « Ce qui a été demandé ».",
    "input_values": {
-@@ -376,7 +384,8 @@
+@@ -376,7 +385,8 @@
        "person": "Donner un accès au dossier",
        "archive": "Archiver un dossier",
        "dossiers": "Créer des dossiers depuis une liste",
@@ -65,7 +66,7 @@
      },
      "folder_type": {
        "company": "Société",
-@@ -400,7 +409,22 @@
+@@ -400,7 +410,22 @@
        "assign": "Donner un dossier",
        "unassign": "Retirer un dossier",
        "role": "Changer le profil",

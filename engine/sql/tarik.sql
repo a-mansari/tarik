@@ -542,11 +542,7 @@ values (%s, %s, %s, %s, %s, %s, %s, %s) returning id
 
 -- name: routines_listed
 -- The cabinet's routines, oldest first.
-select id, kind, dossier_ids, every, day, hour, notify, enabled, next_run_at from tarik_routines order by id
-
--- name: routine_of
--- One routine, as routines_listed reads it.
-select id, kind, dossier_ids, every, day, hour, notify, enabled, next_run_at from tarik_routines where id = %s
+select id, kind, dossier_ids, every, day, hour, notify, enabled, next_run_at, created_by from tarik_routines order by id
 
 -- name: routine_enabled
 -- Pause or resume a routine, with its next run (a resumed routine runs at its next time, never the missed ones).
@@ -561,6 +557,17 @@ delete from tarik_routines where id = %s
 -- The enabled routines whose time came, each locked until the transaction ends (another loop skips them).
 select id, kind, dossier_ids, every, day, hour, notify, next_run_at from tarik_routines
 where enabled and next_run_at <= now() order by next_run_at for update skip locked
+
+-- name: routines_unfinished
+-- The periods a routine started and never reported (the server stopped meanwhile), each locked until the
+-- transaction ends: run again, the declarations already made being only reported.
+select r.id, r.kind, r.dossier_ids, r.every, r.day, r.hour, r.notify, rr.due_at
+from tarik_routine_runs rr join tarik_routines r on r.id = rr.routine_id
+where rr.report is null and r.enabled order by rr.due_at for update of rr skip locked
+
+-- name: routine_paused
+-- Pause a routine whose report may no longer go to its address (someone gone, no dossier of theirs left).
+update tarik_routines set enabled = false where id = %s
 
 -- name: routine_period_taken
 -- Record a routine's period as run; no row back when it already ran (a restart, another loop).

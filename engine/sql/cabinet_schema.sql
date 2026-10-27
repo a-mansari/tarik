@@ -251,7 +251,7 @@ create table if not exists tarik_routines (
     day integer not null default 0, -- 0-6 for a weekday (Monday 0), 1-28 for a day of the month; unused daily
     hour integer not null check (hour between 0 and 23), -- Africa/Casablanca time
     notify text not null, -- who gets each run's report (an address the cabinet whitelists)
-    created_by text not null,
+    created_by text not null, -- who made it: the email's sender, or 'chat' (who writes there is not known)
     enabled boolean not null default true,
     next_run_at timestamptz not null,
     created_at timestamptz not null default now()

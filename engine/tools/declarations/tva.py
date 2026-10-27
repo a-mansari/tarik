@@ -256,6 +256,7 @@ def prepare_tva_declaration(
     declarer: bool = False,
     client_confirmed: bool = False,
     session_id: str = "",
+    new_only: bool = False,
 ) -> dict:
     """Prepare the dossier's TVA declaration in Experio, and declare it when asked and confirmed.
 
@@ -267,6 +268,9 @@ def prepare_tva_declaration(
         credit_reporte: the TVA credit carried from before Experio, asked on the dossier's first declaration.
         declarer: the client asks to declare it.
         client_confirmed: the client confirmed; only then is Experio's « Déclarer » run (TVA entry made).
+        new_only: a routine's unattended run: a declaration only made, never one taken up (« Actualiser » would
+            rebuild a draft someone is working on, exp_deduction_table.py _onchange_fiscal_year_and_period), and none
+            made for the dossier's first one (its carried credit is asked).
 
     Returns a stop result for a dossier « hors champ » or when Experio refuses, a question result for the carried
     credit or the confirmation, else an ok result. The DGI deposit stays the cabinet's.
@@ -282,12 +286,20 @@ def prepare_tva_declaration(
         number, year = period_named(mode, periode, today) or last_ended(mode, today)
         period = find_period(mode, number)
         label = f"{period['name']} {year}"
+        declared = [("company_id", "=", dossier_id), ("state", "=", "done")]
+        if new_only and not odoo_call(TABLE, "search_count", declared, context=context):
+            return stop(
+                f"Déclaration de TVA {label} du dossier `{dossier}` : sa première dans Experio, à préparer avec Tarik "
+                "(le crédit de TVA reporté est demandé). Rien n'a été créé."
+            )
         table_id, made = declaration_of(dossier_id, period, year, company["regime_type"] or "encaissement", context)
         if table_id is None:
             return ok(f"{TEST_MODE}La déclaration de TVA {label} du dossier `{dossier}` serait créée et préparée.")
         table = read_table(table_id, context)
         if table["state"] == "done":
             return ok(f"Déjà déclarée dans Experio. {summary(table, label)}", declaration_id=table_id)
+        if new_only and not made:
+            return ok(f"Déjà préparée, non actualisée. {summary(table, label)}", declaration_id=table_id)
         first = is_first(dossier_id, table, context)
         given = as_number(credit_reporte) if str(credit_reporte).strip() else None
         carried = given if given is not None else (table["tva_en_rouge"] if first else None)

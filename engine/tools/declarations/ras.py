@@ -271,8 +271,9 @@ def left_out(kind, table, dossier_id, context):
     return said
 
 
-def prepare(kind, dossier_id, words, declarer, client_confirmed, context, session_id=""):
-    """Prepare one ``kind`` declaration, and declare it when ``declarer`` and ``client_confirmed``.
+def prepare(kind, dossier_id, words, declarer, client_confirmed, context, session_id="", new_only=False):
+    """Prepare one ``kind`` declaration, and declare it when ``declarer`` and ``client_confirmed``. ``new_only``: a
+    declaration already there is only reported, never refreshed (prepare_ras_declaration).
 
     Returns (status, text, declaration_id): status is "ok", "question" (declaration asked, not confirmed yet) or
     "stop" (Experio would refuse or refused); declaration_id is None in test mode when none exists.
@@ -289,6 +290,8 @@ def prepare(kind, dossier_id, words, declarer, client_confirmed, context, sessio
     lines = lines_of(kind, table_id, context)
     if table["state"] == "done":
         return "ok", f"{label} (n° `{table_id}`) : déjà déclarée dans Experio. {totals(spec, lines)}", table_id
+    if new_only and not made:
+        return "ok", f"{label} (n° `{table_id}`) : déjà préparée, non actualisée. {totals(spec, lines)}", table_id
     manual = sum(bool(line["added_manually"]) for line in lines)
     kept = ""
     if manual and kind in ("tva", "is", "ir"):  # Experio's refresh deletes them
@@ -342,6 +345,7 @@ def prepare_ras_declaration(
     declarer: bool = False,
     client_confirmed: bool = False,
     session_id: str = "",
+    new_only: bool = False,
 ) -> dict:
     """Prepare the dossier's withholding declarations (RAS) in Experio, and declare them when asked and confirmed.
 
@@ -354,6 +358,8 @@ def prepare_ras_declaration(
         periode: the period named (« août 2026 », « T3 », « 2025 » for the yearly one); empty for the last ended.
         declarer: the client asks to declare them.
         client_confirmed: the client confirmed; only then is « Déclarer » run.
+        new_only: a routine's unattended run: a declaration already there is reported, never taken up (« Actualiser »
+            would rebuild a draft someone is working on).
 
     Returns a question result when any declaration waits for confirmation, else a stop result when any was refused,
     else an ok result. The DGI deposit stays the cabinet's.
@@ -370,7 +376,8 @@ def prepare_ras_declaration(
                 "laquelle préparer (RAS TVA, IS, IR ou non-résidents)."
             )
         results = [
-            prepare(kind, dossier_id, periode, declarer, client_confirmed, context, session_id) for kind in kinds
+            prepare(kind, dossier_id, periode, declarer, client_confirmed, context, session_id, new_only)
+            for kind in kinds
         ]
     notes = [
         f"(la {KINDS[k]['label']} n'est pas cochée pour ce dossier dans Experio)"

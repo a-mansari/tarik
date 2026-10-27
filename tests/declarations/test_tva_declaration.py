@@ -307,3 +307,26 @@ def test_operations_already_in_the_declaration_are_not_counted_in_suspense(monke
     assert tva.suspense_count(857, table, {}) == 2
     assert ("deduction_id", "=", 50) in asked["lines"] and ("imposable_id", "=", 50) in asked["lines"]
     assert asked["operations"][-1] == ("id", "not in", [31])
+
+
+@pytest.mark.security
+def test_a_routine_never_takes_up_a_draft_someone_works_on(experio):
+    experio["done_before"] = 1
+    experio["tables"] = [{"id": 50, "state": "draft"}]
+    result = tva.prepare_tva_declaration(857, new_only=True)
+    assert result["status"] == "ok" and result["message"].startswith("Déjà préparée, non actualisée.")
+    assert methods(experio) == []  # no « Actualiser », no XML: the draft is left as it is
+
+
+@pytest.mark.functionality
+def test_a_routine_makes_and_prepares_a_declaration_not_there_yet(experio):
+    experio["done_before"] = 1
+    result = tva.prepare_tva_declaration(857, new_only=True)
+    assert methods(experio)[:2] == ["create", "action_refresh"] and result["status"] == "ok"
+    assert "action_post" not in methods(experio)
+
+
+@pytest.mark.functionality
+def test_a_routine_leaves_a_dossiers_first_declaration_to_the_cabinet(experio):
+    result = tva.prepare_tva_declaration(857, new_only=True)  # no declared one before: its carried credit is asked
+    assert result["status"] == "stop" and "sa première dans Experio" in result["message"] and methods(experio) == []

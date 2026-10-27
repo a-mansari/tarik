@@ -2,7 +2,8 @@
 asked for it and confirmed.
 
 Modes: tva (the TVA declaration), ras (the withholding declarations), delais (the payment delays declaration, law
-69-21, Experio's exp.payment.delay). The sender must have access to the dossier."""
+69-21, Experio's exp.payment.delay). The sender must have access to the dossier. Input routine: a routine's
+unattended run, which makes a declaration but never takes one up (new_only)."""
 
 import operator
 from typing import Annotated, TypedDict
@@ -22,6 +23,7 @@ INPUTS = [
     "declarer",
     "client_confirmed",
     "client_message",
+    "routine",
     "attachments",
     "cabinet",
 ]
@@ -63,13 +65,17 @@ def asked(call):
 async def tva(state: Run):
     call = state["call"]
     credit = str(call.get("credit_reporte") or "")
-    return {"outcomes": [await run_step(state, "prepare_tva_declaration", credit_reporte=credit, **asked(call))]}
+    new_only = call.get("routine") is True  # a routine's run: an existing declaration is never taken up
+    result = await run_step(state, "prepare_tva_declaration", credit_reporte=credit, new_only=new_only, **asked(call))
+    return {"outcomes": [result]}
 
 
 async def ras(state: Run):
     call = state["call"]
     kinds = call.get("declarations") or ""
-    return {"outcomes": [await run_step(state, "prepare_ras_declaration", declarations=kinds, **asked(call))]}
+    new_only = call.get("routine") is True
+    result = await run_step(state, "prepare_ras_declaration", declarations=kinds, new_only=new_only, **asked(call))
+    return {"outcomes": [result]}
 
 
 async def delays(state: Run):
