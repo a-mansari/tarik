@@ -43,6 +43,7 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
+from engine.tools.dossiers.banks import bank_named, give_bank
 from engine.tools.invoices.exercice import open_exercice
 from engine.tools.invoices.intake import file_row
 
@@ -345,32 +346,7 @@ def file_kind(kind, text):
     return None
 
 
-# --- Banks: Experio's own list (res.bank), as a client names one ---
-
-GENERIC_BANK_WORDS = {"bank", "banque", "du", "de", "le", "la", "et", "pour", "s", "a", "maroc"}
-BANK_ALIASES = {"societe generale": "saham", "sgmb": "saham", "bmce": "bank of africa", "bp": "populaire"}
-
-
-def bank_named(text, banks):
-    """Return the bank of ``banks`` (Experio's res.bank list, [{id, name}]) that ``text`` names ("CIH",
-    "attijari", "la Banque Populaire"), or None.
-
-    A word of ``text`` matches a word of the bank's name that starts with it; old bank names are read as the
-    new ones (BANK_ALIASES). The bank with the most matched letters wins, then the one with fewest unmatched
-    words."""
-    words = normalized(text or "")
-    for old, new in BANK_ALIASES.items():
-        if said(old, words):
-            words = words.replace(old, new)
-    given = {w for w in words.split() if len(w) >= 2 and w not in GENERIC_BANK_WORDS}
-    best, score = None, (0, 0)
-    for bank in banks:
-        own = [w for w in normalized(bank["name"]).split() if w not in GENERIC_BANK_WORDS]
-        matched = [max((len(g) for g in given if w.startswith(g)), default=0) for w in own]
-        hit = (sum(matched), -sum(1 for m in matched if not m))  # letters matched, then fewest words unmatched
-        if hit[0] and hit > score:
-            best, score = bank, hit
-    return best
+# --- Banks: Experio's own list (res.bank), as a client names one (engine/tools/dossiers/banks.py) ---
 
 
 def with_bank_names(text, separator):
@@ -536,8 +512,9 @@ def ask_banks(dossier_id: int) -> dict:
 
     Returns:
         - a routine ok result when every bank journal has its bank;
-        - the result of set_journal_bank when the first journal's name spells a bank's whole name
-          (« Banque ATTIJARIWAFA BANK »), outside test mode;
+        - the result of set_journal_bank when the first journal's name names one bank only (bank_named:
+          « Banque ATTIJARIWAFA BANK », « BMCE », « BQ POPULAIRE »), outside test mode: set, and the client told
+          to correct it if wrong;
         - otherwise a question result listing Experio's banks (``choices``: {bank_id: name}) with the
           ``journal_id`` asked about; the client's answer goes to set_journal_bank (answer_pending).
     """
@@ -549,7 +526,7 @@ def ask_banks(dossier_id: int) -> dict:
         return routine(f"Dossier `{dossier}` : chaque journal de banque a sa banque.")
     journal = journals[0]
     found = bank_named(journal["name"], banks)
-    if found and named_in_full(journal["name"], found) and not dry_run():  # « Banque ATTIJARIWAFA BANK »
+    if found and not dry_run():  # « BMCE »: one bank only, set and told
         return set_journal_bank(dossier_id, journal["id"], found["id"], from_name=True)
     listed = ", ".join(f"`{bank['name']}` (n° `{bank['id']}`)" for bank in banks)
     others = f" ({len(journals) - 1} autre(s) journal(aux) a renseigner ensuite.)" if len(journals) > 1 else ""
@@ -558,15 +535,6 @@ def ask_banks(dossier_id: int) -> dict:
         choices={bank["id"]: bank["name"] for bank in banks},
         journal_id=journal["id"],
     )
-
-
-def named_in_full(text, bank):
-    """True when ``text`` (a journal's name) holds every non-generic word of ``bank``'s name, so the bank needs no
-    question: « Banque ATTIJARIWAFA BANK » names ATTIJARIWAFA BANK; « BQ CREDIT » doesn't name CREDIT AGRICOLE
-    DU MAROC."""
-    given = normalized(text or "").split()
-    own = [w for w in normalized(bank["name"]).split() if w not in GENERIC_BANK_WORDS]
-    return bool(own) and all(any(g.startswith(w) for g in given) for w in own)
 
 
 def set_journal_bank(dossier_id, journal_id, bank_id, from_name=False):
@@ -587,19 +555,7 @@ def set_journal_bank(dossier_id, journal_id, bank_id, from_name=False):
         journal = odoo_call("exp.journal", "read", [journal_id], fields=["name", "company_id", "partner_id"])[0]
         if journal["company_id"][0] != dossier_id:
             raise ToolError(f"Le journal n° `{journal_id}` n'est pas un journal du dossier `{dossier}`.")
-        values = {"bank_id": bank_id}
-        if not journal["partner_id"]:
-            tiers = odoo_call(
-                "exp.partner",
-                "search_read",
-                [("company_id", "=", dossier_id), ("name", "ilike", bank["name"].split(" (")[0])],
-                fields=["id"],
-                limit=1,
-            )
-            if tiers:
-                values["partner_id"] = tiers[0]["id"]
-        if not dry_run():
-            odoo_call("exp.journal", "write", [journal_id], values, context=context)
+        give_bank(dossier_id, {**journal, "id": journal_id}, {**bank, "id": bank_id}, context)
     done = test_mode_note()
     done += f"Dossier `{dossier}` : journal `{journal['name']}` a la banque `{bank['name']}`"
     done += " (d'après son nom ; dites-le-moi si ce n'est pas la bonne)." if from_name else "."

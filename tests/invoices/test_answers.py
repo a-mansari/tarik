@@ -5,7 +5,7 @@ import pytest
 from engine.tools.core.app import ok, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.conversation import yes_no
-from engine.tools.invoices import exercice, pipeline
+from engine.tools.invoices import exercice, intake, pipeline
 
 
 @pytest.fixture
@@ -142,6 +142,30 @@ def test_a_statement_gets_the_bank_account_the_client_names(answers, monkeypatch
         {"status": "ok", "message": "MODE TEST : importe", "file_id": file_id, "step": "import_bank_statement"},
     )  # test mode: no statement saved
     assert pipeline.waiting_on("s") == []  # answered: it waits no more
+
+
+@pytest.mark.functionality
+def test_the_bank_a_dossier_without_bank_journal_is_told_goes_to_the_import_as_the_clients_words(answers, monkeypatch):
+    with cabinet_db() as db:
+        file_id = db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, kind) values "
+            "('s', 'mars.pdf', 'application/pdf', '', 'statement') returning id"
+        ).fetchone()[0]
+        db.execute(
+            "insert into tarik_results (run_id, session_id, file_id, dossier_id, step, status, message, choices) "
+            "values ('r', 's', %s, 557, 'import_bank_statement', 'question', %s, %s)",
+            (file_id, f"mars.pdf : pas de journal. {intake.BANK_QUESTION}", '{"2": "CIH", "5": "BANK OF AFRICA"}'),
+        )
+    calls = []
+    monkeypatch.setattr(
+        pipeline,
+        "import_bank_statement",
+        lambda file_id, dossier_id, journal_id, client_message="": (
+            calls.append((journal_id, client_message)) or ok("x")
+        ),
+    )
+    pipeline.answer_pending("s", "c'est la BMCE", "5")
+    assert calls == [(0, "BANK OF AFRICA c'est la BMCE")]  # never the bank's id as a journal's
 
 
 @pytest.mark.functionality

@@ -5,7 +5,7 @@ import pytest
 
 from engine.tools.core.app import ToolError
 from engine.tools.core.config import TEST_MODE
-from engine.tools.dossiers import setup
+from engine.tools.dossiers import banks, setup
 from engine.tools.dossiers.setup import bank_named, file_kind
 
 BANKS = [
@@ -34,7 +34,12 @@ def test_the_bank_a_client_names():
     assert bank_named("CIH", BANKS)["id"] == 3 and bank_named("le compte attijari", BANKS)["id"] == 4
     assert bank_named("Banque Populaire", BANKS)["id"] == 5 and bank_named("BP", BANKS)["id"] == 5
     assert bank_named("societe generale", BANKS)["id"] == 6 and bank_named("BMCE", BANKS)["id"] == 7
-    assert bank_named("la banque", BANKS) is None and bank_named("Chaabi", BANKS) is None
+    assert bank_named("Chaabi", BANKS)["id"] == 5 and bank_named("AWB", BANKS)["id"] == 4
+    assert bank_named("la banque", BANKS) is None and bank_named("BQ1", BANKS) is None
+    two_credits = [{"id": 8, "name": "CREDIT AGRICOLE DU MAROC"}, {"id": 9, "name": "CREDIT DU MAROC"}]
+    assert bank_named("BQ CREDIT", [*two_credits, {"id": 10, "name": "CREDIT IMMOBILIER"}]) is None  # a tie: asked
+    assert bank_named("CAM", two_credits)["id"] == 8 and bank_named("CDM", two_credits)["id"] == 9
+    assert bank_named("relevé Crédit du Maroc", two_credits)["id"] == 9  # its whole name written: no tie
 
 
 @pytest.fixture
@@ -63,6 +68,8 @@ def experio(monkeypatch):
         raise AssertionError((model, method))
 
     monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    monkeypatch.setattr(banks, "odoo_call", odoo_call)
+    monkeypatch.setattr(banks, "dry_run", lambda: setup.dry_run())  # as the test sets it, now or later
     return state
 
 
@@ -80,14 +87,13 @@ def test_each_bank_journal_is_asked_its_bank_in_turn(experio):
 
 
 @pytest.mark.communication
-def test_a_bank_the_journals_name_says_in_full_is_set_and_said_not_asked(experio):
-    experio["journals"][0]["name"] = "Banque ATTIJARIWAFA BANK"
+@pytest.mark.parametrize("name", ["Banque ATTIJARIWAFA BANK", "BQ AWB", "Attijari"])
+def test_a_bank_the_journals_name_says_is_set_and_said_not_asked(experio, name):
+    experio["journals"][0]["name"] = name
     result = setup.ask_banks(557)
     assert experio["written"] == [{"bank_id": 4, "partner_id": 99}]
     assert "a la banque `ATTIJARIWAFA BANK` (d'après son nom" in result["message"]
     assert result["status"] == "question" and result["journal_id"] == 12  # BQ2 names none: asked
-    assert not setup.named_in_full("Banque Populaire", BANKS[2])  # a part of its name only: asked
-    assert not setup.named_in_full("BQ CREDIT", BANKS[0])
 
 
 @pytest.mark.functionality
@@ -103,6 +109,8 @@ def test_without_entries_the_onboarding_waits_for_the_clients_files(monkeypatch)
         return [{"show_onboarding": True}] if method == "read" else counts[model]
 
     monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    monkeypatch.setattr(banks, "odoo_call", odoo_call)
+    monkeypatch.setattr(banks, "dry_run", lambda: setup.dry_run())  # as the test sets it, now or later
     waiting = setup.finish_setup(557)
     assert "Il manque : journaux, fournisseurs, clients." in waiting["message"]
     assert "integration terminee" in setup.finish_setup(557, finish=True)["message"]  # the client said all was sent
@@ -120,6 +128,8 @@ def test_a_journal_of_another_dossier_is_never_given_a_bank(experio, monkeypatch
         return real(model, method, *args, **kw)
 
     monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    monkeypatch.setattr(banks, "odoo_call", odoo_call)
+    monkeypatch.setattr(banks, "dry_run", lambda: setup.dry_run())  # as the test sets it, now or later
     with pytest.raises(ToolError, match="n'est pas un journal du dossier `Gecafisc`"):
         setup.set_journal_bank(557, 31, 3)
     assert experio["written"] == []
@@ -145,6 +155,8 @@ def test_a_journal_with_its_tiers_keeps_it(experio, monkeypatch):
         return real(model, method, *args, **kw)
 
     monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    monkeypatch.setattr(banks, "odoo_call", odoo_call)
+    monkeypatch.setattr(banks, "dry_run", lambda: setup.dry_run())  # as the test sets it, now or later
     setup.set_journal_bank(557, 11, 3)
     assert experio["written"] == [{"bank_id": 3}]
 

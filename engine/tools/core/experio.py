@@ -93,6 +93,23 @@ def test_mode_note():
     return TEST_MODE if dry_run() else ""
 
 
+def would(done):
+    """Return ``done`` (« créé »), or « serait créé » in test mode, where nothing is written."""
+    return f"serait {done}" if dry_run() else done
+
+
+_DOSSIER_LOCKS = {}  # (cabinet, dossier id) -> its lock
+_LOCKS_LOCK = threading.Lock()
+
+
+def dossier_lock(dossier_id):
+    """Return the lock of dossier ``dossier_id`` in this cabinet: held around a check-then-make of the dossier's own
+    setup (a journal, its account), which the files of one message run in parallel would otherwise each make.
+    shortcut: one server process only (as engine/live.py); several would need a Postgres advisory lock."""
+    with _LOCKS_LOCK:
+        return _DOSSIER_LOCKS.setdefault((current(), dossier_id), threading.Lock())
+
+
 @contextlib.contextmanager
 def refused(log_text, message, error=ToolError):
     """Context manager: turn any exception raised in the block into ``error`` (ToolError by default) with ``message``.

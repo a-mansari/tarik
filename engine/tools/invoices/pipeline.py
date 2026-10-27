@@ -24,7 +24,7 @@ from engine.tools.invoices import tpe
 from engine.tools.invoices.accounts import confirm_account, set_account
 from engine.tools.invoices.classify import client_side
 from engine.tools.invoices.exercice import settle_exercice
-from engine.tools.invoices.intake import client_kind, file_named, import_bank_statement, set_kind
+from engine.tools.invoices.intake import BANK_QUESTION, client_kind, file_named, import_bank_statement, set_kind
 from engine.tools.invoices.prepaid import settle_prepaid
 from engine.tools.invoices.statement import is_canvas
 from engine.tools.invoices.tiers import choose_tiers
@@ -39,6 +39,7 @@ STEPS = {
     "resolve_dossier": "dossier",
     "check_sender": "accès au dossier",
     "check_creator": "droit de créer des dossiers",
+    "check_manager": "droit de gérer les accès",
     "create_dossier": "création du dossier",
     "update_dossier": "modification du dossier",
     "copy_configuration": "configuration",
@@ -48,6 +49,7 @@ STEPS = {
     "setup_status": "état du dossier",
     "import_dossiers": "liste de dossiers",
     "create_person": "accès",
+    "change_access": "accès",
     "archive_dossier": "archivage",
     "files_to_process": "fichiers",
     "create_import_folder": "dossier d'import",
@@ -93,6 +95,8 @@ SETUP_STEPS = {
     "setup_status",
     "import_dossiers",
     "create_person",
+    "change_access",
+    "check_manager",
     "archive_dossier",
 }
 # A pending question, and the call that applies the client's answer; the sequence resumes at the step after it.
@@ -619,6 +623,10 @@ def answer_statement(item, answer, decision):
         return {**imported, "step": "import_bank_statement"}
     if tpe.network_answered(item["choices"], 1):  # its network not understood: asked again
         imported = import_bank_statement(item["file_id"], item["dossier_id"], 0)
+        return {**imported, "step": "import_bank_statement"}
+    if BANK_QUESTION in item["question"]:  # the dossier had no bank journal: the bank named makes it
+        bank = (item["choices"] or {}).get(str(chosen), "")  # kept as JSON: string keys
+        imported = import_bank_statement(item["file_id"], item["dossier_id"], 0, client_message=f"{bank} {answer}")
         return {**imported, "step": "import_bank_statement"}
     imported = import_bank_statement(item["file_id"], item["dossier_id"], chosen)
     return {**imported, "step": "import_bank_statement"}

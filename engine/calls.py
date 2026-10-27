@@ -31,6 +31,7 @@ QUIET_WHEN_OK = {
     "waiting_setups",
     "check_sender",
     "check_creator",
+    "check_manager",
     "identify_document",
     "split_invoices",
     "resolve_dossier",
