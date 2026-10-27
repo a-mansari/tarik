@@ -40,9 +40,9 @@ def resolve(monkeypatch):
     """resolve_dossier over the fictional DOSSIERS, with Experio's listing replaced."""
     from engine.tools.dossiers import search
 
-    monkeypatch.setattr(
-        search, "dossiers_or_none", lambda step: [{"id": i, "name": n} for i, n in enumerate(DOSSIERS, 1)]
-    )
+    listing = [{"id": i, "name": n} for i, n in enumerate(DOSSIERS, 1)]
+    monkeypatch.setattr(search, "dossiers", lambda: listing)
+    monkeypatch.setattr(search, "opened_dossiers", lambda: listing)
     return search.resolve_dossier
 
 
@@ -69,9 +69,13 @@ def test_experio_not_giving_the_dossiers_is_an_error_not_a_guess(monkeypatch):
     from engine.tools.core.app import ToolError
     from engine.tools.dossiers import search
 
-    monkeypatch.setattr(search, "dossiers_or_none", lambda step: None)
+    def down():
+        raise ConnectionRefusedError("down")
+
+    monkeypatch.setattr(search, "dossiers", down)
     with pytest.raises(ToolError, match="liste des dossiers"):
         search.resolve_dossier("Atlas")
+    assert search.find_dossier("Atlas") == search.UNAVAILABLE
 
 
 @pytest.mark.communication
@@ -101,3 +105,20 @@ def test_a_routine_goes_only_through_the_dossiers_experio_lets_tarik_open(monkey
     monkeypatch.setattr(search, "odoo_call", lambda model, method, domain, **kw: asked.append(domain) or [])
     search.opened_dossiers()
     assert ("user_ids", "in", 7) in asked[0]  # one of the company's users, as Experio checks (else refused)
+
+
+@pytest.mark.functionality
+def test_a_dossier_tarik_may_open_is_preferred_one_tarik_may_not_still_found(monkeypatch):
+    from engine.tools.dossiers import search
+
+    every = [{"id": i, "name": name} for i, name in ((3, "Boulangerie Atlas"), (4, "Boulangerie Atlas"), (5, "Benali"))]
+    monkeypatch.setattr(search, "dossiers", lambda: every)
+    monkeypatch.setattr(search, "opened_dossiers", lambda: every[1:2])
+    assert search.resolve_dossier("boulangerie atlas")["dossier_id"] == 4  # the twin Tarik may open
+    assert "(id 4)" in search.find_dossier("atlas") and "(id 3)" not in search.find_dossier("atlas")
+    # none Tarik may open is close: taken among all, require_dossier then says Tarik has no access
+    assert search.resolve_dossier("benali")["dossier_id"] == 5
+    assert "(id 5)" in search.find_dossier("benali")
+    # one Tarik may not open, named exactly, beats a weaker one Tarik may open
+    every.append({"id": 6, "name": "ATLAS IMMOBILIER"})
+    assert search.resolve_dossier("atlas immobilier")["dossier_id"] == 6

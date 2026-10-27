@@ -31,6 +31,21 @@ def dossiers_or_none(step):
         return None
 
 
+def closest_or_none(step, name):
+    """Return the cabinet's dossiers closest to ``name`` (words.ranked, top 5), less those Tarik may not open
+    (opened_dossiers) when one Tarik may open is as close: a twin Tarik may open wins, while a closer dossier Tarik
+    may not open is still found, and require_dossier then tells the client to have Tarik added.
+    None when Experio can't give them (the error is logged under ``step``)."""
+    try:
+        close = words.ranked(name, dossiers(), MIN_SIMILARITY, top=5)
+        opened = {dossier["id"] for dossier in opened_dossiers()} if close else set()
+    except Exception as error:
+        log(f"{step}: {error}")
+        return None
+    best_opened = max((score for score, dossier in close if dossier["id"] in opened), default=-1)
+    return [(score, dossier) for score, dossier in close if dossier["id"] in opened or score > best_opened]
+
+
 # Experio's own states of a dossier (res.company state), as the client reads them.
 STATES = {"active": "actifs", "new": "nouveaux", "archived": "archives"}
 
@@ -60,14 +75,14 @@ def list_dossiers(names: bool = False) -> str:
 
 @tool
 def find_dossier(name: str) -> str:
-    """Find the dossier the client means from the ``name`` they gave, even misspelled or partial.
+    """Find the dossier the client means from the ``name`` they gave, even misspelled or partial, among those Tarik
+    may open first (closest_or_none).
 
     Returns French text: up to 5 closest dossiers with their id and similarity, best first; a line saying none
     is close; or UNAVAILABLE. One clear match: use its id. Several close ones: ask the client."""
-    found = dossiers_or_none("find_dossier")
-    if found is None:
+    close = closest_or_none("find_dossier", name)
+    if close is None:
         return UNAVAILABLE
-    close = words.ranked(name, found, MIN_SIMILARITY, top=5)
     if not close:
         return f"Aucun dossier ne ressemble a « {name} »."
     return "\n".join(f"- {c['name']} (id {c['id']}) : ressemblance {round(score * 100)} %" for score, c in close)
@@ -75,7 +90,8 @@ def find_dossier(name: str) -> str:
 
 @step_tool
 def resolve_dossier(name: str) -> dict:
-    """Pick the dossier a run works in from the ``name`` the client gave (even misspelled or partial).
+    """Pick the dossier a run works in from the ``name`` the client gave (even misspelled or partial), among those
+    Tarik may open first (closest_or_none).
 
     Returns:
         - a routine result with ``dossier_id`` when exactly one dossier matches at 100 %;
@@ -87,13 +103,12 @@ def resolve_dossier(name: str) -> dict:
     Raises:
         ToolError: Experio can't give the list of dossiers.
     """
-    found = dossiers_or_none("resolve_dossier")
-    if found is None:
-        raise ToolError(UNAVAILABLE)
     name = (name or "").strip()
     if not name:
         return stop("Pour quel dossier ? Rien n'a été traité.")
-    close = words.ranked(name, found, MIN_SIMILARITY, top=5)
+    close = closest_or_none("resolve_dossier", name)
+    if close is None:
+        raise ToolError(UNAVAILABLE)
     if not close:
         return stop(f"Aucun dossier ne ressemble a « {name} » : quel est le nom du dossier ? Rien n'a été traité.")
     exact = [dossier for score, dossier in close if round(score * 100) == 100]

@@ -541,7 +541,7 @@ def change_access(
         user = person_named(email)
     if not user:
         return question(f"Personne n'a l'e-mail `{email}` parmi les collaborateurs et clients d'Experio. Lequel ?")
-    dossier = require_dossier(dossier_id) if dossier_id else ""
+    dossier = require_dossier(dossier_id, opened=False) if dossier_id else ""  # Tarik may give access to it
     if action in ("assign", "unassign") and not dossier:
         return question(f"Quel dossier pour `{user['name']}` ?")
     label = "collaborateur" if user["employee_type"] == "employee" else "client"
@@ -589,7 +589,7 @@ def archive_dossier(dossier_id: int, client_confirmed: bool = False, session_id:
 
     Returns a question result with the dossier's invoice counts until the client said yes (``client_confirmed``);
     then an ok result (in test mode, without archiving)."""
-    dossier = require_dossier(dossier_id)
+    dossier = require_dossier(dossier_id, opened=False)
     with refused(f"archive_dossier {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu compter ses factures."):
         total = odoo_call("exp.invoice", "search_count", [("company_id", "=", dossier_id)])
         posted = odoo_call(
