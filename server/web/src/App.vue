@@ -33,7 +33,12 @@ const cabinetPages = computed(() => {
     { href: "/ui/discussion", icon: "chat", words: "Discussions" },
     { href: "/ui/llm-calls", icon: "prompts", words: "LLM Calls" },
   ];
-  if (session.admin) links.push({ href: "/ui/settings", icon: "settings", words: "Réglages" });
+  if (session.admin) {
+    links.push(
+      { href: "/ui/routines", icon: "clock", words: "Routines" },
+      { href: "/ui/settings", icon: "settings", words: "Réglages" },
+    );
+  }
   return links;
 });
 const current = (href) => route.path.startsWith(href);

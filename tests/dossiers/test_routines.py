@@ -39,8 +39,9 @@ def chat(db_cabinet, monkeypatch):
     return said
 
 
-def make(yes, email="chef@cabinet.ma", dossiers=(5, 6), hour=8):
-    return routines.manage_routine("create", "tva", list(dossiers), "month", 5, hour, 0, email, yes, "", "s")
+def make(yes, email="chef@cabinet.ma", dossiers=(5, 6), hour=8, kind="tva", prompt=""):
+    schedule = ("create", kind, list(dossiers), "month", 5, hour)
+    return routines.manage_routine(*schedule, email=email, prompt=prompt, client_confirmed=yes, session_id="s")
 
 
 @pytest.mark.security
@@ -199,4 +200,80 @@ def test_the_address_may_still_see_only_the_dossiers_experio_gives_it(monkeypatc
     monkeypatch.setattr(routines, "collaborator", people.get)
     assert routines.allowed_dossiers("chef@cabinet.ma", [5, 6]) == [5]
     assert routines.allowed_dossiers("jane@experio.ma", [5, 6]) == [5, 6]
-    assert routines.allowed_dossiers("parti@cabinet.ma", [5, 6]) == []
+    assert routines.allowed_dossiers("parti@cabinet.ma", [5, 6]) is None  # gone: nothing, the routine paused
+
+
+@pytest.mark.functionality
+def test_an_instruction_routine_needs_its_words_and_no_dossier(chat):
+    assert "quelle consigne" in make(True, dossiers=(), kind="instruction")["message"]
+    asked = make(False, dossiers=(), kind="instruction", prompt="Dis-moi les factures en brouillon.")
+    assert "suivre sa consigne « Dis-moi les factures en brouillon. »" in asked["message"]
+    assert make(True, dossiers=(), kind="instruction", prompt="Dis-moi les factures en brouillon.")["status"] == "ok"
+    with cabinet_db() as db:
+        assert db.execute("select kind, prompt from tarik_routines").fetchone() == (
+            "instruction",
+            "Dis-moi les factures en brouillon.",
+        )
+
+
+@pytest.mark.functionality
+def test_an_instruction_is_handed_to_the_agent_in_the_routines_own_session(db_cabinet, monkeypatch):
+    with cabinet_db() as db:
+        routine_id = db.execute(
+            "insert into tarik_routines (kind, dossier_ids, every, day, hour, notify, created_by, next_run_at, prompt) "
+            "values ('instruction', '{5}', 'day', 0, 8, 'chef@cabinet.ma', 'chat', %s, 'Liste les brouillons.') "
+            "returning id",
+            (datetime.now(ZONE) - timedelta(hours=1),),
+        ).fetchone()[0]
+    (row,) = clock.claimed()
+    started = []
+
+    async def start(name, payload):
+        started.append((name, payload))
+        done = asyncio.get_running_loop().create_future()
+        done.set_result(({"reply": "3 brouillons."}, None))
+        return "run", done
+
+    async def call(cabinet, tool, **arguments):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(clock, "allowed_dossiers", lambda notify, ids: ids)
+    monkeypatch.setattr(clock, "dossier_names", lambda ids: {5: "ALPHA"})
+    monkeypatch.setattr(clock.runs, "start", start)
+    monkeypatch.setattr(clock, "call", call)
+    assert asyncio.run(clock.ran(db_cabinet, row)) == "3 brouillons."
+    ((name, payload),) = started
+    assert name == "discussion" and payload["input"]["message"] == "Liste les brouillons.\n\nDossiers : ALPHA"
+    assert payload["session_id"].startswith(f"routine-{routine_id}-")
+
+
+@pytest.mark.security
+def test_a_routines_run_has_its_address_as_sender_and_a_routine_gone_none(db_cabinet):
+    from engine.tools.dossiers import people
+
+    routine_id = due_routine()
+    assert people.sender_of(f"routine-{routine_id}-2026102708") == "chef@cabinet.ma"
+    assert people.sender_of("routine-999-2026102708") == ""  # an address nobody has: nothing allowed
+    assert people.sender_of("routine-x") == ""
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(("session", "kept"), [("routine-3-2026102708", False), ("chat-" + "0" * 32, True)])
+def test_a_routines_run_never_confirms_declares_nor_posts(monkeypatch, session, kept):
+    from types import SimpleNamespace
+
+    from engine import agent, runs
+
+    handed = []
+
+    async def nested(name, given, cabinet, session_id, node=None):
+        handed.append(given["call"])
+        return {"message": "fait"}
+
+    monkeypatch.setattr(runs, "nested", nested)
+    runtime = SimpleNamespace(state={"messages": []}, config={"configurable": {"session_id": session, "cabinet": "c"}})
+    asked = {"client_confirmed": True, "declarer": True, "comptabiliser": "oui"}
+    asyncio.run(agent.run_workflow("declarations", runtime, asked))
+    (call,) = handed
+    said = (call["client_confirmed"], call["declarer"], call["comptabiliser"] == "oui")
+    assert said == (kept, kept, kept) and call.get("routine", False) is not kept

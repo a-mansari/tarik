@@ -29,6 +29,7 @@ from engine.settings import cabinet_of, session_of
 from engine.tools.core import usage
 from engine.tools.core.cabinets import setting, using
 from engine.tools.core.model import MODEL_URL, adapter
+from engine.tools.dossiers.people import ROUTINE_SESSION
 
 
 def model(cabinet):
@@ -209,10 +210,15 @@ async def run_workflow(name, runtime, call_inputs):
     """Run the workflow graph ``name`` and return its summary, word for word, as the tool's answer.
 
     ``call_inputs`` are the model's arguments; fixed() adds the conversation's inputs. The workflow is a run of its
-    own, nested under the agent's tool step (runs.nested), never a turn of the conversation."""
+    own, nested under the agent's tool step (runs.nested), never a turn of the conversation. In a routine's run
+    (ROUTINE_SESSION) nothing is confirmed, declared nor posted, and a declaration is only made, never taken up: the
+    routine's instruction is not a client's yes."""
     from engine import runs  # runs imports this module
 
     call = {**call_inputs, **fixed(runtime)}
+    if call["session_id"].startswith(ROUTINE_SESSION):  # a routine's run: nobody there to say yes
+        call.update(client_confirmed=False, declarer=False, routine=True)
+        call["comptabiliser"] = "" if call.get("comptabiliser") == "oui" else call.get("comptabiliser", "")
     node = runtime.config.get("metadata", {}).get("langgraph_node")
     result = await runs.nested(name, {"call": call, "outcomes": []}, call["cabinet"], call["session_id"], node=node)
     return result["message"]
@@ -399,10 +405,12 @@ async def routine(
     hour: int = 8,
     routine_id: int = 0,
     email: str = "",
+    prompt: str = "",
     client_confirmed: bool = False,
 ) -> str:
     inputs = {
         "mode": "routine",
+        "prompt": prompt,
         "action": action,
         "routine_kind": routine_kind,
         "dossier_ids": dossier_ids or [],

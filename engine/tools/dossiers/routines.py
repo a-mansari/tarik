@@ -3,8 +3,12 @@ by a manager (the Dossier graph's mode routine, after check_manager). engine/rou
 
 A routine prepares or reports, never declares nor posts: « tva » and « ras » make the declarations of the last ended
 period that do not exist yet (the Déclarations graph in its routine mode: one already there is only reported, never
-refreshed), « progress » sends each dossier's progress (dossier_progress). Each run's report goes by email to
-``notify``, an address the cabinet allows, on the dossiers that address may still see (allowed_dossiers).
+refreshed), « progress » sends each dossier's progress (dossier_progress), « instruction » hands its own
+``prompt`` to Tarik's agent as a message, run with the rights of ``notify`` (people.sender_of reads a routine's
+session as it) and with nothing confirmed, declared nor posted (agent.run_workflow). Each run's report goes by email
+to ``notify``, an address the cabinet allows, on the dossiers that address may still see (allowed_dossiers).
+
+Routines live in each cabinet's own schema: the Routines page and the tool only ever see the current cabinet's.
 """
 
 from datetime import datetime, timedelta
@@ -18,7 +22,7 @@ from engine.tools.core.experio import odoo_call, refused
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized
 from engine.tools.dossiers.identity import client_wrote, confirmed
-from engine.tools.dossiers.people import collaborator, sender_of, sender_reach
+from engine.tools.dossiers.people import ROUTINE_SESSION, collaborator, sender_of, sender_reach
 from engine.tools.emails.sending import recipient_allowed
 
 ZONE = ZoneInfo("Africa/Casablanca")
@@ -26,7 +30,9 @@ KINDS = {
     "tva": "préparer la déclaration de TVA de la dernière période",
     "ras": "préparer les déclarations RAS de la dernière période",
     "progress": "envoyer l'avancement",
+    "instruction": "suivre sa consigne",
 }
+PROMPT_CHARACTERS = 2000  # an instruction's longest
 WEEKDAYS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 ACTIONS = ("create", "list", "pause", "resume", "delete")
 CHAT = "chat"  # created_by of a routine made in the chat, where nobody can tell who writes
@@ -65,25 +71,33 @@ def dossier_names(ids):
     return {dossier["id"]: dossier["name"] for dossier in found}
 
 
-def described(kind, dossier_ids, every, day, hour, notify, next_at, names):
+def session_of(routine_id, due_at):
+    """Return the conversation id of a routine's run for period ``due_at``: its runs together on the Executions
+    page, and its sender read as the routine's address (people.sender_of)."""
+    return f"{ROUTINE_SESSION}{routine_id}-{due_at.astimezone(ZONE):%Y%m%d%H}"
+
+
+def described(kind, dossier_ids, every, day, hour, notify, next_at, names, prompt=""):
     """Return a routine as a French line: « préparer la TVA, chaque mois, le 5 à 8 h, dossier(s) `A`, `B`, rapport
-    à x@cabinet.ma, prochaine le 2026-11-05 08:00 ». ``names``: dossier_names of its dossiers."""
+    à x@cabinet.ma, prochaine le 2026-11-05 08:00 ». ``names``: dossier_names of its dossiers; ``prompt``: an
+    instruction routine's own words, quoted."""
+    what = f"{KINDS[kind]} « {prompt} »" if kind == "instruction" else KINDS[kind]
     dossiers = ", ".join(f"`{names.get(d, f'n° {d}')}`" for d in dossier_ids)
     return (
-        f"{KINDS[kind]}, {when(every, day, hour)}, dossier(s) {dossiers}, rapport à `{notify}`, "
+        f"{what}, {when(every, day, hour)}{f', dossier(s) {dossiers}' if dossiers else ''}, rapport à `{notify}`, "
         f"prochaine le {next_at.astimezone(ZONE):%Y-%m-%d %H:%M}"
     )
 
 
 def listed(row, names):
     """Return one routines_listed row as « n° 3 : <described> (en pause) »."""
-    routine_id, kind, dossier_ids, every, day, hour, notify, enabled, next_at, _ = row
-    text = f"n° {routine_id} : {described(kind, dossier_ids, every, day, hour, notify, next_at, names)}"
+    routine_id, kind, dossier_ids, every, day, hour, notify, enabled, next_at, _, prompt = row
+    text = f"n° {routine_id} : {described(kind, dossier_ids, every, day, hour, notify, next_at, names, prompt)}"
     return text + ("" if enabled else " (en pause)")
 
 
-def schedule_problem(kind, every, day, hour):
-    """Return what is wrong with a new routine's kind and schedule (French), "" when nothing."""
+def schedule_problem(kind, every, day, hour, prompt=""):
+    """Return what is wrong with a routine's kind, schedule and instruction (French), "" when nothing."""
     if kind not in KINDS:
         return f"quelle tâche : {', '.join(f'{k} ({w})' for k, w in KINDS.items())} ?"
     if every not in ("day", "week", "month"):
@@ -96,6 +110,10 @@ def schedule_problem(kind, every, day, hour):
         return "quel jour de la semaine ?"
     if every == "month" and not 1 <= day <= 28:
         return "quel jour du mois (1 à 28, pour tomber chaque mois) ?"
+    if kind == "instruction" and not prompt.strip():
+        return "quelle consigne Tarik doit-il suivre à chaque fois ?"
+    if len(prompt) > PROMPT_CHARACTERS:
+        return f"une consigne plus courte ({PROMPT_CHARACTERS} caractères au plus) ?"
     return ""
 
 
@@ -112,11 +130,11 @@ def mine(row, reach, sender):
 
 def allowed_dossiers(notify, dossier_ids):
     """Return the dossiers of ``dossier_ids`` whose data may still go to ``notify``, checked again at each run: all
-    for Experio's staff, those assigned in Experio for a collaborator, none for an address that is neither (someone
+    for Experio's staff, those assigned in Experio for a collaborator; None for an address that is neither (someone
     gone, or a routine made in the chat for an outside address)."""
     user = collaborator(notify)
     if not user:
-        return []
+        return None
     if user["employee_type"] == "internal":
         return list(dossier_ids)
     return [d for d in dossier_ids if d in user["company_ids"]]
@@ -132,14 +150,16 @@ def manage_routine(
     hour: int = 8,
     routine_id: int = 0,
     email: str = "",
+    prompt: str = "",
     client_confirmed: bool = False,
     client_message: str = "",
     session_id: str = "",
 ) -> dict:
     """Make, list, pause, resume or delete the cabinet's routines (``action`` create, list, pause, resume, delete).
 
-    create: ``kind`` (tva, ras, progress), ``dossier_ids``, ``every`` (day, week, month), ``day`` (a weekday 0-6 from
-    Monday, or a day of the month 1-28) and ``hour`` (0-23, Casablanca time). Its reports go to the email's sender,
+    create: ``kind`` (tva, ras, progress, instruction with its ``prompt``), ``dossier_ids`` (optional for an
+    instruction), ``every`` (day, week, month), ``day`` (a weekday 0-6 from Monday, or a day of the month 1-28) and
+    ``hour`` (0-23, Casablanca time). Its reports go to the email's sender,
     or in the chat to the ``email`` the client wrote; the cabinet must allow that address. Read back, made once the
     client said yes (``client_confirmed``). pause, resume, delete: ``routine_id``; delete is read back first.
     A sender sees and manages only the routines they made, on their own dossiers (mine).
@@ -162,6 +182,7 @@ def manage_routine(
             day=day,
             hour=hour,
             email=email,
+            prompt=prompt.strip(),
             reach=reach,
             sender=sender,
             client_confirmed=client_confirmed,
@@ -192,12 +213,12 @@ def manage_routine(
     return ok(f"Routine n° {routine_id} reprise : prochaine le {upcoming:%Y-%m-%d %H:%M}.")
 
 
-def created(*, kind, dossier_ids, every, day, hour, email, reach, sender, client_confirmed, words, session_id):
+def created(*, kind, dossier_ids, every, day, hour, email, prompt, reach, sender, client_confirmed, words, session_id):
     """manage_routine's create: check, read back, then save the routine (see manage_routine)."""
-    problem = schedule_problem(kind, every, day, hour)
+    problem = schedule_problem(kind, every, day, hour, prompt)
     if problem:
         return question(f"Pour cette routine : {problem}")
-    if not dossier_ids:
+    if not dossier_ids and kind != "instruction":
         return question("Pour quels dossiers ?")
     with refused("manage_routine create", "Experio n'a pas pu donner les dossiers."):
         names = dossier_names(dossier_ids)
@@ -215,10 +236,10 @@ def created(*, kind, dossier_ids, every, day, hour, email, reach, sender, client
     if not recipient_allowed(notify):
         return question(f"`{notify}` n'est pas dans les adresses autorisées du cabinet : à quelle adresse envoyer ?")
     upcoming = next_run(every, day, hour, datetime.now(ZONE))
-    recap = described(kind, dossier_ids, every, day, hour, notify, upcoming, names)
+    recap = described(kind, dossier_ids, every, day, hour, notify, upcoming, names, prompt)
     if not confirmed(session_id, client_confirmed, "vous confirmez", KINDS[kind], when(every, day, hour)):
         return question(f"Routine : {recap}.\nRien n'est jamais déclaré ni comptabilisé sans vous. Vous confirmez ?")
     with cabinet_db() as db:
-        values = (kind, dossier_ids, every, day, hour, notify, sender, upcoming)
+        values = (kind, dossier_ids, every, day, hour, notify, sender, upcoming, prompt)
         (new_id,) = db.execute(Q.routine_made, values).fetchone()
     return ok(f"Routine n° {new_id} créée : {recap}.")

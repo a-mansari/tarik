@@ -7,9 +7,10 @@ only reported. A routine missed while the server was down runs once when it is b
 
 A run: the dossiers its address may still see (allowed_dossiers, checked again each time; none left pauses it);
 « tva » and « ras » start a Déclarations run per dossier in its routine mode (a declaration made, none taken up nor
-declared), « progress » reads each dossier's progress; the report, with the files the runs made (the XML), goes by
-email to the routine's ``notify``. One routine at a time per cabinet, at most RUNNING_AT_ONCE across cabinets: a
-cabinet's 200 routines never take the slots its clients' own runs need.
+declared), « progress » reads each dossier's progress, « instruction » hands its words to the agent once (a Discussion
+run in the routine's session: the address's rights, nothing confirmed); the report, with the files the runs made (the
+XML), goes by email to the routine's ``notify``. One routine at a time per cabinet, at most RUNNING_AT_ONCE across
+cabinets: a cabinet's 200 routines never take the slots its clients' own runs need.
 """
 
 import asyncio
@@ -20,7 +21,7 @@ from engine.calls import ToolFailure, call, within
 from engine.tools.core.app import CRASHED, log
 from engine.tools.core.cabinets import CABINETS, cabinet_db
 from engine.tools.core.queries import Q
-from engine.tools.dossiers.routines import KINDS, ZONE, allowed_dossiers, next_run, when
+from engine.tools.dossiers.routines import KINDS, ZONE, allowed_dossiers, dossier_names, next_run, session_of, when
 
 TICK_SECONDS = 60
 RUNNING_AT_ONCE = 2  # routines running at once, all cabinets together (runs.SLOTS holds 20 runs)
@@ -31,13 +32,14 @@ PENDING = set()  # their tasks (a task nobody holds may be collected before it e
 
 
 def claimed():
-    """Return the current cabinet's routines to run now, as (id, kind, dossier_ids, every, day, hour, notify, due_at):
+    """Return the current cabinet's routines to run now, as (id, kind, dossier_ids, every, day, hour, notify, due_at,
+    prompt):
     the periods started and never reported, then the due routines, each with its period taken and its next time set
     (one whose period already ran is skipped, its next time set all the same)."""
     with cabinet_db() as db, db.transaction():
         taken = db.execute(Q.routines_unfinished).fetchall()
         for row in db.execute(Q.routines_due).fetchall():
-            routine_id, _, _, every, day, hour, _, due_at = row
+            routine_id, _, _, every, day, hour, _, due_at, _ = row
             db.execute(Q.routine_next, (next_run(every, day, hour, max(due_at, datetime.now(ZONE))), routine_id))
             if db.execute(Q.routine_period_taken, (routine_id, due_at)).fetchone():
                 taken.append(row)
@@ -47,13 +49,13 @@ def claimed():
 async def ran(cabinet, row):
     """Run one claimed routine of ``cabinet`` (one at a time per cabinet, RUNNING_AT_ONCE in all), email its report
     and keep it; return the report. A dossier's failure is a line of the report, never the end of the others."""
-    routine_id, kind, dossier_ids, every, day, hour, notify, due_at = row
+    routine_id, kind, dossier_ids, _, _, _, notify, due_at, _ = row
     async with ONE_PER_CABINET.setdefault(cabinet, asyncio.Semaphore(1)), EVERYWHERE:
         try:
             allowed = await within(cabinet, allowed_dossiers, notify, dossier_ids)
-            if not allowed:
+            if allowed is None or (dossier_ids and not allowed):
                 await within(cabinet, paused, routine_id)
-                report = f"Routine en pause : `{notify}` n'a plus aucun de ses dossiers dans Experio."
+                report = f"Routine en pause : `{notify}` n'a plus accès à Experio ou à aucun de ses dossiers."
             else:
                 report = await reported(cabinet, row, allowed)
         except Exception as error:  # the period stays reported: never run again in a loop
@@ -64,11 +66,14 @@ async def ran(cabinet, row):
 
 
 async def reported(cabinet, row, allowed):
-    """Run routine ``row`` on its ``allowed`` dossiers, email the report with the runs' files, and return it."""
-    routine_id, kind, dossier_ids, every, day, hour, notify, due_at = row
-    session = f"routine-{routine_id}-{due_at:%Y%m%d%H}"  # its runs, together on the Executions page
+    """Run routine ``row`` on its ``allowed`` dossiers (an instruction once, those dossiers named in it), email the
+    report with the runs' files, and return it."""
+    routine_id, kind, dossier_ids, every, day, hour, notify, due_at, prompt = row
+    session = session_of(routine_id, due_at)
     parts = []
-    for dossier_id in allowed:
+    if kind == "instruction":
+        parts.append(await instructed(cabinet, prompt, allowed, session))
+    for dossier_id in allowed if kind != "instruction" else ():
         try:
             parts.append(await dossier_part(cabinet, kind, dossier_id, session))
         except Exception as error:  # the cause is logged, the client reads Tarik's usual words
@@ -84,6 +89,19 @@ async def reported(cabinet, row, allowed):
     except ToolFailure as failure:
         log(f"{cabinet} routine {routine_id}: report not sent: {failure}")
     return report
+
+
+async def instructed(cabinet, prompt, dossier_ids, session):
+    """Hand an instruction routine's ``prompt`` to the agent in the routine's ``session`` (a Discussion run) and
+    return its reply; the dossier ids it is limited to are added to the message."""
+    names = await within(cabinet, dossier_names, dossier_ids) if dossier_ids else {}
+    named = "\n\nDossiers : " + ", ".join(names.values()) if names else ""
+    given = {"cabinet": cabinet, "session_id": session, "message": prompt + named, "files": [], "skipped": []}
+    _, task = await runs.start("discussion", {"input": given, "session_id": session, "cabinet": cabinet})
+    output, failure = await task
+    if failure:
+        raise failure
+    return (output or {}).get("reply") or (output or {}).get("error") or "Tarik n'a rien répondu."
 
 
 async def dossier_part(cabinet, kind, dossier_id, session):

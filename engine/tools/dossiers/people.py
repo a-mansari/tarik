@@ -188,10 +188,17 @@ def attach_user(user_id, dossier_id, profile_id=None, employee_type="employee"):
         )
 
 
+ROUTINE_SESSION = "routine-"  # a routine's run: routine-<id>-<period> (engine/tools/dossiers/routines.py)
+
+
 def sender_of(session_id):
-    """Return the sender's address of an email conversation; None in the chat, where nobody can tell who
-    writes."""
+    """Return the sender's address of an email conversation, the routine's report address for a routine's run (its
+    instruction runs with that person's rights); None in the chat, where nobody can tell who writes."""
     with cabinet_db() as db:
+        if session_id.startswith(ROUTINE_SESSION):
+            routine_id = session_id.removeprefix(ROUTINE_SESSION).split("-")[0]
+            row = db.execute(Q.routine_notify, (int(routine_id) if routine_id.isdigit() else 0,)).fetchone()
+            return row[0] if row else ""  # a routine gone: an address nobody has, so nothing is allowed
         row = db.execute(Q.sender_of_session, (session_id,)).fetchone()
     return row[0] if row else None
 

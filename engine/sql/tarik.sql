@@ -537,12 +537,28 @@ values (%s, %s, %s, %s, %s, %s, %s)
 -- name: routine_made
 -- === engine/tools/dossiers/routines.py ===
 -- A new routine; its id back.
-insert into tarik_routines (kind, dossier_ids, every, day, hour, notify, created_by, next_run_at)
-values (%s, %s, %s, %s, %s, %s, %s, %s) returning id
+insert into tarik_routines (kind, dossier_ids, every, day, hour, notify, created_by, next_run_at, prompt)
+values (%s, %s, %s, %s, %s, %s, %s, %s, %s) returning id
 
 -- name: routines_listed
 -- The cabinet's routines, oldest first.
-select id, kind, dossier_ids, every, day, hour, notify, enabled, next_run_at, created_by from tarik_routines order by id
+select id, kind, dossier_ids, every, day, hour, notify, enabled, next_run_at, created_by, prompt
+from tarik_routines order by id
+
+-- name: routine_notify
+-- === engine/tools/dossiers/people.py ===
+-- A routine's report address: whose rights its runs have.
+select notify from tarik_routines where id = %s
+
+-- name: routine_changed
+-- === server/api/routines.py ===
+-- A routine as the Routines page saved it, with its next run.
+update tarik_routines set enabled = %s, kind = %s, dossier_ids = %s, every = %s, day = %s, hour = %s, notify = %s,
+prompt = %s, next_run_at = %s where id = %s
+
+-- name: routine_last_runs
+-- Each routine's latest run: when it was due and what it reported (null while it runs).
+select distinct on (routine_id) routine_id, due_at, report from tarik_routine_runs order by routine_id, due_at desc
 
 -- name: routine_enabled
 -- Pause or resume a routine, with its next run (a resumed routine runs at its next time, never the missed ones).
@@ -555,13 +571,13 @@ delete from tarik_routines where id = %s
 -- name: routines_due
 -- === engine/routines.py ===
 -- The enabled routines whose time came, each locked until the transaction ends (another loop skips them).
-select id, kind, dossier_ids, every, day, hour, notify, next_run_at from tarik_routines
+select id, kind, dossier_ids, every, day, hour, notify, next_run_at, prompt from tarik_routines
 where enabled and next_run_at <= now() order by next_run_at for update skip locked
 
 -- name: routines_unfinished
 -- The periods a routine started and never reported (the server stopped meanwhile), each locked until the
 -- transaction ends: run again, the declarations already made being only reported.
-select r.id, r.kind, r.dossier_ids, r.every, r.day, r.hour, r.notify, rr.due_at
+select r.id, r.kind, r.dossier_ids, r.every, r.day, r.hour, r.notify, rr.due_at, r.prompt
 from tarik_routine_runs rr join tarik_routines r on r.id = rr.routine_id
 where rr.report is null and r.enabled order by rr.due_at for update of rr skip locked
 
