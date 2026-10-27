@@ -242,8 +242,14 @@ def test_an_invoice_the_lines_picker_leaves_out_is_said_not_given(experio):
 @pytest.mark.functionality
 @pytest.mark.parametrize(
     "number, words",
-    [("FAC 2024 015", "réglé FAC2024015"), ("FA12", "facture FA 12")],
-    ids=["spaces stored", "spaces written"],
+    [
+        ("FAC 2024 015", "réglé FAC2024015"),
+        ("FA12", "facture FA 12"),
+        ("FNP2024", "fnp 2024"),
+        ("2024 015", "facture 2024015"),
+        ("2024015", "facture 2024015"),
+    ],
+    ids=["spaces stored", "spaces written", "letters then digits", "digits spaced when stored", "digits together"],
 )
 def test_an_invoice_number_is_cited_its_spaces_aside_as_experio_compares_it(experio, number, words):
     experio["lines"] = experio["lines"][:1]
@@ -255,10 +261,15 @@ def test_an_invoice_number_is_cited_its_spaces_aside_as_experio_compares_it(expe
 @pytest.mark.functionality
 @pytest.mark.parametrize(
     "number, words",
-    [("15", "virement du 15/10"), ("Facture", "facture de mars")],
-    ids=["three digits or fewer", "no digit"],
+    [
+        ("15", "virement du 15/10"),
+        ("A15", "passé à 15 heures"),
+        ("Facture", "facture de mars"),
+        ("1510", "virement du 15/10/2024"),
+    ],
+    ids=["three digits", "three characters", "no digit", "digits spliced from a date"],
 )
-def test_a_short_or_digitless_number_is_never_cited(experio, number, words):
+def test_a_short_or_digitless_or_spliced_number_is_never_cited(experio, number, words):
     experio["invoices"][0]["invoice_number"] = number
     statement.settle_statement(8, client_message=words)
     assert experio["written"] == [] and experio["searched"][-1][0] == "search_read"

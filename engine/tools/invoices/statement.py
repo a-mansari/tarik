@@ -242,9 +242,10 @@ def amount_of(line):
 
     0 for a posted line, one with an invoice, one neither purchase nor sale, one without picker domain, or of no
     amount (verify_selected_invoices refuses it, bank/models/bank_statement_line.py:4548-4562). The amount is
-    abs(credit - debit), in the statement's currency, matched against the invoice's amount_residual, in the
-    invoice's (exp_account/models/exp_move.py:680-686), as Experio's detection matches them, converting nothing
-    (:2456-2471, :617-623): a line and an invoice in two currencies never match.
+    abs(credit - debit), in the line's currency (its currency_id, :720-729), matched as a bare number against the
+    invoice's amount_residual, in the invoice's (exp_account/models/exp_move.py:680-686), as Experio's detection
+    matches them (:2456-2471, :617-623): no currency is compared, so a line and an invoice in two currencies match
+    only when their numbers are equal, and then wrongly.
     """
     if line["state"] in POSTED or line["invoice_ids"] or line.get("operation_type") not in ("purchase", "sale"):
         return 0
@@ -266,12 +267,17 @@ def named_in(words, statement, amounts, context):
 def cited(number, words):
     """True when invoice ``number`` is in the client's normalized ``words`` as whole words, its spaces aside as Experio
     compares invoice numbers (invoice/models/exp_invoice.py:1550-1557, :8795-8825): « FAC 123 » is « FAC123 », « FA-1 »
-    is not in « FA-12 ». A number without a digit (« Facture », « FNP ») or of three digits or fewer never counts: it
-    would be any word, date or amount."""
+    is not in « FA-12 ». A number without a digit (« Facture », « FNP ») or of three characters or fewer (« 15 »,
+    « A15 ») never counts: it would be any word, date or amount. One of digits only is cited whole, its digits
+    together or spaced as stored, so « 1510 » is not in « 15/10 »."""
     compact = normalized(number).replace(" ", "")
-    if not re.search(r"\d", compact) or (compact.isdigit() and len(compact) <= 3):
+    if not re.search(r"\d", compact) or len(compact) <= 3:
         return False
-    pattern = " ?".join(map(re.escape, compact))  # any space in the words, or none, between its characters
+    if compact.isdigit():
+        pattern = "|".join(map(re.escape, {compact, normalized(number)}))
+    else:
+        pattern = " ?".join(map(re.escape, compact))  # any space in the words, or none, between its characters
+    pattern = f"(?:{pattern})"
     return re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", words) is not None
 
 
