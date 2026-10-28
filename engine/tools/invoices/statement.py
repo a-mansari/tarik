@@ -599,16 +599,16 @@ def being_read(statement):
 
 
 @step_tool
-def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -> dict:
-    """Settle a bank or TPE statement after its import, and report where it stands.
+def settle_statement(file_id: int, run_id: str = "") -> dict:
+    """Take a bank or TPE statement up after its import, once Experio has read it.
 
     Args:
         file_id: the imported file.
         run_id: the current run; its wait for Experio's reading is capped at 10 minutes across calls.
-        client_message: the client's words, where they may tie lines to invoices by number.
 
-    Waits for Experio's reading (a wait result past the deadline). A TPE statement goes to tpe.settle_tpe, a bank
-    statement to settled().
+    Waits for Experio's reading (a wait result past the deadline). A TPE statement is settled whole by
+    tpe.settle_tpe. A bank statement gets a routine ok result with its statement_id and bank True: its pointing steps
+    follow (detect_statement_lines to report_statement).
     """
     statement_id, network = statement_of(file_id)
     if not statement_id:
@@ -626,43 +626,131 @@ def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -
             f"settle_statement {statement_id}", f"Relevé TPE n° {statement_id} : Experio a refusé ({{reason}})."
         ):
             return tpe.settle_tpe(statement_id)
-    return settled(statement, client_message)
+    return routine(f"Relevé n° {statement_id} : lu par Experio.", statement_id=statement_id, bank=True)
 
 
-def settled(statement, client_message=""):
-    """Point bank ``statement`` (read with FIELDS, read by Experio) and return an ok result saying where it stands.
+# A bank statement's pointing, one step each, as the cabinet works the statement's « Operations » list: Experio's own
+# detection, then what it leaves, then where the statement stands (report_statement). Each step says what it did in
+# ``said`` (a part of the report's sentence) and ``note`` (a sentence after it), routine results the report gathers.
 
-    Experio's own « Auto Point » (confirmed), then what it leaves: operations and payment methods the model reads in
-    the labels (chosen_operations), the tiers labels name (named_tiers), the invoices the client named
-    (named_invoices), the one open invoice owing a line's amount (owed_invoices), TPE remittances tied to their TPE
-    statements. The result has the counts (pointed, ready, posted), the balance checks and what Experio says still
-    blocks lines."""
-    statement_id = statement["id"]
+
+def completing(statement_id, step, work):
+    """Run ``work(statement, context)`` -> (said, note) on bank statement ``statement_id`` and return its routine
+    result, ``said`` and ``note`` in it; nothing on a posted statement. Experio's refusal is a ToolError naming the
+    statement."""
+    statement = read_statement(statement_id)
+    if statement["state"] in POSTED:
+        return routine(f"Relevé n° {statement_id} : déjà comptabilisé.", statement_id=statement_id)
     context = in_dossier(statement["company_id"][0])
-    with refused(f"settle_statement {statement_id}", f"Relevé n° {statement_id} : Experio n'a pas pu le pointer."):
-        is_open = statement["state"] not in POSTED
-        pointed = auto_point(statement, context) if is_open else 0
-        operated = chosen_operations(statement, open_lines(statement, context), context) if is_open else 0
-        partnered = named_tiers(statement, open_lines(statement, context), context) if is_open else 0
+    with refused(f"{step} {statement_id}", f"Relevé n° {statement_id} : Experio a refusé ({{reason}})."):
+        said, note = work(statement, context)
+    text = f"{TEST_MODE if dry_run() else ''}Relevé n° {statement_id} : {said or 'rien de plus'}."
+    return routine(text, statement_id=statement_id, said=said, note=note)
+
+
+def counted(count, words):
+    """Return « <count> <words> », "" for none."""
+    return f"{count} {words}" if count else ""
+
+
+@step_tool
+def detect_statement_lines(statement_id: int) -> dict:
+    """Run Experio's « Auto Point » on bank statement ``statement_id`` and confirm what it finds (auto_point)."""
+    return completing(
+        statement_id,
+        "detect_statement_lines",
+        lambda statement, context: (
+            counted(auto_point(statement, context), "pointée(s) par la détection d'Experio"),
+            "",
+        ),
+    )
+
+
+@step_tool
+def choose_line_operations(statement_id: int) -> dict:
+    """Give the statement's lines the operation and payment method the model reads in their label
+    (chosen_operations)."""
+    phrase = "reçoivent de Tarik leur type d'opération ou mode de paiement, lu dans le libellé"
+    return completing(
+        statement_id,
+        "choose_line_operations",
+        lambda statement, context: (
+            counted(chosen_operations(statement, open_lines(statement, context), context), phrase),
+            "",
+        ),
+    )
+
+
+@step_tool
+def name_line_tiers(statement_id: int) -> dict:
+    """Give the statement's lines the one tiers their label names (named_tiers)."""
+    return completing(
+        statement_id,
+        "name_line_tiers",
+        lambda statement, context: (
+            counted(
+                named_tiers(statement, open_lines(statement, context), context), "leur tiers, nommé dans le libellé"
+            ),
+            "",
+        ),
+    )
+
+
+@step_tool
+def tie_cited_invoices(statement_id: int, client_message: str = "") -> dict:
+    """Give the statement's lines the invoice the client names by its number in ``client_message`` (named_invoices)."""
+
+    def work(statement, context):
         tied, unnamed = named_invoices(statement, client_message, context)
-        owed = owed_invoices(statement, open_lines(statement, context), context) if is_open else 0
-        to_tpe = tie_tpe(statement, context) if is_open else None
-        statement = read_statement(statement_id)
+        return counted(tied, "rattachée(s) à la facture que vous avez citée"), unnamed.strip()
+
+    return completing(statement_id, "tie_cited_invoices", work)
+
+
+@step_tool
+def tie_owed_invoices(statement_id: int) -> dict:
+    """Give the statement's lines with a tiers the one open invoice owing their amount (owed_invoices)."""
+    phrase = "la seule facture ouverte de leur tiers et de leur montant"
+    return completing(
+        statement_id,
+        "tie_owed_invoices",
+        lambda statement, context: (
+            counted(owed_invoices(statement, open_lines(statement, context), context), phrase),
+            "",
+        ),
+    )
+
+
+@step_tool
+def tie_tpe_remittances(statement_id: int) -> dict:
+    """Tie the statement's TPE remittances to their TPE statement when Experio is sure (tie_tpe)."""
+
+    def work(statement, context):
+        tied, left = tie_tpe(statement, context) or (0, 0)
+        note = f"{left} versement(s) TPE sans relevé TPE certain : à rapprocher par le cabinet." if left else ""
+        return counted(tied, "versement(s) TPE rapproché(s) de leur relevé TPE"), note
+
+    return completing(statement_id, "tie_tpe_remittances", work)
+
+
+@step_tool
+def report_statement(statement_id: int, said: list[str] | None = None, notes: list[str] | None = None) -> dict:
+    """Say where bank statement ``statement_id`` stands after its pointing, as one line for the client.
+
+    Args:
+        statement_id: the statement.
+        said: what the pointing steps did, each a part of the sentence (« 18 pointée(s) par la détection d'Experio »).
+        notes: their sentences to add after it.
+
+    The line has how many operations were read, ``said``, how many are ready and posted, the balance checks (the
+    statement's own, the journal's previous statement, the à-nouveau for the journal's first), ``notes``, and what
+    Experio says still blocks lines."""
+    statement = read_statement(statement_id)
+    context = in_dossier(statement["company_id"][0])
+    with refused(f"report_statement {statement_id}", f"Relevé n° {statement_id} : Experio a refusé ({{reason}})."):
         reasons, ready, posted = blocked_reasons(statement, context)
         opening = opening_note(statement, context)
-    parts = [f"Relevé n° {statement_id} : {len(statement['line_ids'])} opération(s) lue(s)"]
-    if pointed:
-        parts.append(f"{pointed} pointée(s) par la détection d'Experio")
-    if operated:
-        parts.append(f"{operated} reçoivent de Tarik leur type d'opération ou mode de paiement, lu dans le libellé")
-    if partnered:
-        parts.append(f"{partnered} leur tiers, nommé dans le libellé")
-    if owed:
-        parts.append(f"{owed} la seule facture ouverte de leur tiers et de leur montant")
-    if tied:
-        parts.append(f"{tied} rattachée(s) à la facture que vous avez citée")
-    if to_tpe and to_tpe[0]:
-        parts.append(f"{to_tpe[0]} versement(s) TPE rapproché(s) de leur relevé TPE")
+    parts = [f"Relevé n° {statement_id} : {len(statement['line_ids'])} opération(s) lue(s)", *(said or [])]
     parts.append(f"{ready} prête(s) à comptabiliser" + (f", {posted} déjà comptabilisée(s)" if posted else ""))
     text = ", ".join(parts) + "."
     no_balances = not statement["balance_start"] and not statement["balance_end_real"]
@@ -675,10 +763,7 @@ def settled(statement, client_message=""):
         )
     if not statement["is_valid"]:
         text += " Son solde initial ne suit pas le solde final du relevé précédent de ce journal."
-    text += opening
-    if to_tpe and to_tpe[1]:
-        text += f" {to_tpe[1]} versement(s) TPE sans relevé TPE certain : à rapprocher par le cabinet."
-    text += unnamed
+    text += opening + "".join(f" {note}" for note in notes or [])
     if reasons:
         text += " À compléter dans Experio : " + " ; ".join(f"{why} ({n})" for why, n in reasons.items()) + "."
     return ok(f"{TEST_MODE if dry_run() else ''}{text}", statement_id=statement_id)
@@ -803,12 +888,26 @@ def open_statements(dossier_id):
     return odoo_call(STATEMENT, "read", found, fields=FIELDS, context=in_dossier(dossier_id)) if found else []
 
 
+NO_STATEMENT = "Dossier n° {} : aucun relevé bancaire à pointer ou comptabiliser."
+
+
+@step_tool
+def list_open_statements(dossier_id: int) -> dict:
+    """List dossier ``dossier_id``'s bank statements already in Experio and not posted yet (open_statements), each to be
+    pointed step by step: a routine ok result with their ids (statement_ids), oldest first."""
+    found = [statement["id"] for statement in open_statements(dossier_id)]
+    if not found:
+        return routine(NO_STATEMENT.format(dossier_id), statement_ids=[])
+    numbers = ", ".join(f"n° {i}" for i in found)
+    return routine(f"Dossier n° {dossier_id} : {len(found)} relevé(s) à pointer ({numbers}).", statement_ids=found)
+
+
 def each_statement(dossier_id, step):
     """Run ``step`` (a statement read with FIELDS -> a step result) on each of the dossier's open statements and return
     one ok result joining their messages, with their ids (statement_ids); a routine result when there is none."""
     statements = open_statements(dossier_id)
     if not statements:
-        return routine(f"Dossier n° {dossier_id} : aucun relevé bancaire à pointer ou comptabiliser.")
+        return routine(NO_STATEMENT.format(dossier_id))
     results = []
     for statement in statements:
         try:
@@ -817,18 +916,6 @@ def each_statement(dossier_id, step):
             results.append({"message": str(failure)})
     text = "\n- ".join(result["message"] for result in results)  # one bullet each in the summary's « - » list
     return ok(text, statement_ids=[statement["id"] for statement in statements])
-
-
-@step_tool
-def settle_dossier_statements(dossier_id: int, client_message: str = "") -> dict:
-    """Point every bank statement of dossier ``dossier_id`` already in Experio and not posted yet, as settle_statement
-    points one imported from a file (settled), and report where each stands.
-
-    Args:
-        dossier_id: the dossier.
-        client_message: the client's words, where they may tie lines to invoices by number.
-    """
-    return each_statement(dossier_id, lambda statement: settled(statement, client_message))
 
 
 @step_tool

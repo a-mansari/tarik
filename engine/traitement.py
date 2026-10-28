@@ -19,6 +19,7 @@ from langgraph.types import Send
 
 from engine.calls import call as run_tool
 from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, stops_at, summary
+from engine.pointage import POINTING
 from engine.tools.core.conversation import mentions_attachment
 from engine.tools.invoices.import_folder import folder_mode
 from engine.tools.invoices.pipeline import INVOICE_CHAIN, position
@@ -188,6 +189,7 @@ class File(Given, Outcomes, total=False):
     with invoice_id or file_id)."""
 
     last: dict
+    statement_id: int  # the bank statement imported from the file, pointed by POINTING
 
 
 async def identify(state: File):
@@ -271,16 +273,10 @@ def split_drafts(state: File):
 
 
 async def point_statement(state: File):
-    """Graph node: point the statement's lines (settle_statement)."""
-    call = state["call"]
-    result = await run_step(
-        state,
-        "settle_statement",
-        file_id=state["file_id"],
-        run_id=state["run_id"],
-        client_message=call.get("client_message") or "",
-    )
-    return {"last": result, "outcomes": [result]}
+    """Graph node: take the statement up once Experio has read it (settle_statement): a TPE statement is settled
+    there, a bank statement's lines are pointed next (POINTING)."""
+    result = await run_step(state, "settle_statement", file_id=state["file_id"], run_id=state["run_id"])
+    return {"last": result, "outcomes": [result], "statement_id": result.get("statement_id")}
 
 
 async def post_statement(state: File):
@@ -296,17 +292,26 @@ def after_import(state: File):
     return "pointage" if last.get("status") == "ok" and last.get("statement_id") else END
 
 
+def after_reading(state: File):  # its end is also an ordinary one: a TPE statement, no posting asked
+    """Route after the statement is taken up: "operations" for a bank statement's lines, else as after_pointing."""
+    last = state["last"]
+    if last.get("status") == "ok" and last.get("bank"):
+        return "operations"
+    return after_pointing(state)
+
+
 def after_pointing(state: File):
     """Route to "comptabilisation_releve" only after an ok pointing when the client asked to post (comptabiliser
     "oui", « comptabilisez »), else END."""
     asked = state["call"].get("comptabiliser") == "oui"
-    return "comptabilisation_releve" if state["last"].get("status") == "ok" and asked else END
+    return "comptabilisation_releve" if state["outcomes"][-1].get("status") == "ok" and asked else END
 
 
 file = StateGraph(File, output_schema=Outcomes)
 file.add_node("identification", identify)
 file.add_node("releve", import_statement)
 file.add_node("pointage", point_statement)
+file.add_node("operations", POINTING)
 file.add_node("comptabilisation_releve", post_statement)
 file.add_node("decoupage", split)
 file.add_node("facture", INVOICE)
@@ -324,7 +329,8 @@ def file_start(state: File):
 file.add_conditional_edges(START, file_start, ["identification", "facture", "pointage"])
 file.add_conditional_edges("identification", after_identify, ["releve", "decoupage", END])
 file.add_conditional_edges("releve", after_import, ["pointage", END])
-file.add_conditional_edges("pointage", after_pointing, ["comptabilisation_releve", END])
+file.add_conditional_edges("pointage", after_reading, ["operations", "comptabilisation_releve", END])
+file.add_conditional_edges("operations", after_pointing, ["comptabilisation_releve", END])
 file.add_conditional_edges("decoupage", drafts, ["facture", END])
 file.add_conditional_edges("facture", split_drafts, ["facture", END])
 FILE = file.compile(name="fichier")  # a document: drawn once, whatever brought it
