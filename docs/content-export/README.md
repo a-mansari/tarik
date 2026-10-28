@@ -102,3 +102,7 @@ uses another one. A stack that edited one of these documents itself loses that e
   « Rapport envoyé » steps say the report is a few lines in the email and every dossier in the files joined (Excel,
   CSV, text) (`labels.json`). Import it after the routine-workflow export, once the stack runs the commit with the
   report's files.
+- `tarik-contenu-routine-outil-20261028.json` (and its `.diff`): `Experio_routine` changes a routine too (action
+  `update`: only what the client changes) and takes `minute` and `routine_name` (`agent.json`), when to use it
+  (`skills/gestion-dossiers.md`), the inputs « Minute » and « Nom de la routine » and the action « Modifier »
+  (`labels.json`). Import it after the routine-fichiers export, once the stack runs the commit with the update action.

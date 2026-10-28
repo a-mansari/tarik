@@ -7,7 +7,7 @@
   invoice's remainder).
 - Modes person, access: create and invite a person, or change one's access (a dossier given or taken, a role, an
   invitation sent again), for a sender whose own Experio profile may manage users (check_manager).
-- Mode routine: make, list, pause, resume or delete a routine (manage_routine), after the same check.
+- Mode routine: make, change, list, pause, resume or delete a routine (manage_routine), after the same check.
 - Mode resume: finish the conversation's dossiers left waiting.
 One step per node, so the canvas shows each. No time budget: finish_setup gets seconds_left 0 (no limit)."""
 
@@ -43,6 +43,8 @@ INPUTS = [
     "every",
     "days",
     "hour",
+    "minute",
+    "routine_name",
     "routine_id",
     "prompt",
     "rc",
@@ -186,7 +188,7 @@ async def access(state: Run):
 
 
 async def routine(state: Run):
-    """Graph node: make, list, pause, resume or delete a routine (manage_routine)."""
+    """Graph node: make, change, list, pause, resume or delete a routine (manage_routine)."""
     call = state["call"]
     result = await run_step(
         state,
@@ -195,10 +197,12 @@ async def routine(state: Run):
         kind=call.get("routine_kind") or "",
         every=call.get("every") or "",
         days=call.get("days") or [],
-        hour=call.get("hour") if call.get("hour") is not None else 8,
+        hour=call.get("hour") if call.get("hour") is not None else -1,
+        minute=call.get("minute") if call.get("minute") is not None else -1,
         routine_id=call.get("routine_id") or 0,
         email=call.get("email") or "",
         prompt=call.get("prompt") or "",
+        name=call.get("routine_name") or "",
         client_confirmed=call.get("client_confirmed") is True,
         client_message=call.get("client_message") or "",
         session_id=call["session_id"],

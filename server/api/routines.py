@@ -23,6 +23,7 @@ from engine.tools.dossiers.routines import (
     ZONE,
     address_problem,
     admins,
+    name_problem,
     next_run,
     routine_problem,
     routines_of_cabinet,
@@ -32,7 +33,6 @@ from server import audit
 from server.api.runs import chosen, page
 
 FIELDS = ("enabled", "kind", "every", "days", "hour", "minute", "notify", "prompt", "name")
-NAME_CHARACTERS = 80  # a routine's name: its email's subject
 
 
 def shown():
@@ -85,8 +85,7 @@ def changed(action, given, author):
     switched = before and all(values[key] == before[key] for key in FIELDS if key != "enabled") if values else False
     if values and not (switched and not values["enabled"]):  # pausing is always allowed, even a routine gone bad
         problem = routine_problem(*(values[key] for key in ("kind", *SCHEDULE, "prompt")))
-        if len(values["name"]) > NAME_CHARACTERS:
-            problem = problem or f"un nom de {NAME_CHARACTERS} caractères au plus"
+        problem = problem or name_problem(values["name"])
         problem = problem or address_problem(values["notify"])
         if problem:
             return 0, problem

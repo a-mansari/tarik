@@ -103,8 +103,6 @@ function remove(routine) {
         </label>
         <div class="routine-what">
           <b>{{ routine.name || data.kinds[routine.kind] }}</b>
-          <span v-if="routine.name" class="muted">{{ data.kinds[routine.kind] }}</span>
-          <span v-if="routine.kind === 'instruction'" class="prompt">« {{ routine.prompt }} »</span>
           <span class="muted">{{ routine.schedule }} · rapport à {{ routine.notify }}</span>
         </div>
         <div class="routine-tools">
@@ -134,7 +132,6 @@ function remove(routine) {
 .routine { display: grid; gap: .5rem; }
 .routine-head { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1rem; }
 .routine-what { display: grid; gap: .15rem; flex: 1 1 18rem; min-width: 0; }
-.prompt { overflow-wrap: anywhere; }
 .routine-tools { display: flex; gap: .4rem; }
 .when { margin: 0; font-size: .85rem; }
 .routine > .routine-form { border-top: 1px solid var(--line); margin-top: .4rem; padding-top: .8rem; }
