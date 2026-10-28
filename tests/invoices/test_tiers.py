@@ -85,9 +85,13 @@ def test_test_mode_creates_no_wizard_in_experio(monkeypatch, autofill, said):
     from engine.tools.invoices import tiers
 
     def odoo_call(model, method, *args, **kw):
-        assert method == "read", f"test mode wrote to Experio: {model}.{method}"
+        assert method in ("read", "search_read"), f"test mode wrote to Experio: {model}.{method}"
+        if method == "search_read":  # the dossier's tiers accounts: none to follow
+            return []
+        if model == "res.company" and "third_party_supplier_account" in kw["fields"]:
+            return [{"third_party_supplier_account": "4411"}]
         return (
-            [{"name": "ATLAS", "third_party_supplier_account": False}]
+            [{"name": "ATLAS", "ice": False, "vat": False, "third_party_supplier_account": False}]
             if model == "exp.partner"
             else [{"third_party_supplier_autofill": autofill}]
         )
@@ -284,8 +288,14 @@ def linking(monkeypatch):
     state["answers"] = {
         ("exp.partner", "read"): lambda fields: [
             {"name": "ATLAS", "company_id": [778, "D"], "active": True, "third_party_supplier_account": False}
-            | {"third_party_customer_account": False}
+            | {"third_party_customer_account": False, "ice": False, "vat": False}
         ],
+        ("res.company", "read"): lambda fields: [
+            {"third_party_supplier_account": "4411", "third_party_customer_account": "3421"}
+        ],
+        ("exp.partner", "search_read"): lambda fields: [],
+        ("exp.partner", "search_count"): lambda fields: 0,
+        ("exp.invoice.partner.account.wizard", "write"): lambda fields: True,
         ("exp.invoice.partner.account.wizard", "create"): lambda fields: 31,
         ("exp.invoice.partner.account.wizard", "read"): lambda fields: [{"third_party_account": "44110123"}],
     }
@@ -335,14 +345,72 @@ def test_a_tiers_already_on_the_invoice_with_its_compte_tiers_writes_nothing(lin
 
 
 @pytest.mark.functionality
-def test_a_dossier_numbering_no_compte_tiers_is_told_the_cabinet_assigns_it(linking):
+def test_a_tiers_of_a_dossier_without_a_series_is_told_the_cabinet_assigns_it(linking):
     from engine.tools.invoices import tiers
 
     linking["answers"][("exp.invoice.partner.account.wizard", "read")] = lambda fields: [{"third_party_account": False}]
     linking["invoice"]["type"] = "sale"
     result = tiers.link(linking["invoice"], 7, "sale")
     assert "client `ATLAS`, pas de Compte Tiers client : dans ce dossier le cabinet les attribue" in result["message"]
-    assert linking["confirmed"] == []  # no code proposed: the wizard is never confirmed
+    assert linking["confirmed"] == []  # no code proposed, none to follow: the wizard is never confirmed
+
+
+def numbered(linking, codes, prefix="4411"):
+    """A dossier with numbering off whose supplier accounts are ``codes``: link a tiers without one."""
+    linking["answers"][("exp.invoice.partner.account.wizard", "read")] = lambda fields: [{"third_party_account": False}]
+    linking["answers"][("res.company", "read")] = lambda fields: [{"third_party_supplier_account": prefix}]
+    linking["answers"][("exp.partner", "search_read")] = lambda fields: [
+        {"third_party_supplier_account": c} for c in codes
+    ]
+    return linking
+
+
+@pytest.mark.functionality
+def test_a_tiers_without_account_gets_the_next_code_of_the_dossiers_own_series(linking):
+    """A FEC's chart: 9-character codes after 4411, whatever Experio's stored length (8) and counter (1) say."""
+    from engine.tools.invoices import tiers
+
+    numbered(linking, ["441125726", "441125725", "441100030"])
+    result = tiers.link(linking["invoice"], 7, "purchase")
+    assert (
+        "compte tiers `441125727` attribué par Tarik, dans la suite de la numérotation du dossier" in result["message"]
+    )
+    wizard = "exp.invoice.partner.account.wizard"
+    assert (wizard, "write", ([31], {"third_party_account": "441125727"}), {"context": CONTEXT}) in linking["calls"]
+    assert linking["confirmed"] == [((wizard, "action_confirm", [31]), {"context": CONTEXT})]
+
+
+@pytest.mark.functionality
+def test_the_series_skips_a_code_a_tiers_holds_and_follows_a_short_series(linking):
+    from engine.tools.invoices import tiers
+
+    numbered(linking, ["44110033", "44110034"])
+    taken = iter([1, 0])  # 44110035 is held by an archived tiers
+    linking["answers"][("exp.partner", "search_count")] = lambda fields: next(taken)
+    assert "`44110036`" in tiers.link(linking["invoice"], 7, "purchase")["message"]
+
+
+@pytest.mark.functionality
+def test_no_series_means_no_invented_code(linking):
+    from engine.tools.invoices import tiers
+
+    numbered(linking, [])  # the dossier has no tiers account yet
+    assert "le cabinet les attribue" in tiers.link(linking["invoice"], 7, "purchase")["message"]
+    numbered(linking, ["4411ABC001"])  # a lettered series: no number to follow
+    assert "le cabinet les attribue" in tiers.link(linking["invoice"], 7, "purchase")["message"]
+    assert linking["confirmed"] == []
+
+
+@pytest.mark.functionality
+def test_a_foreign_tiers_is_left_to_the_cabinet(linking):
+    from engine.tools.invoices import tiers
+
+    numbered(linking, ["441125726"])
+    linking["answers"][("exp.partner", "read")] = lambda fields: [
+        {"name": "ACME", "company_id": [778, "D"], "active": True, "ice": "2222", "vat": False}
+        | {"third_party_supplier_account": False, "third_party_customer_account": False}
+    ]
+    assert "le cabinet les attribue" in tiers.link(linking["invoice"], 7, "purchase")["message"]
 
 
 @pytest.mark.security
