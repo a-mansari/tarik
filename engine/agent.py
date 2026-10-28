@@ -83,11 +83,18 @@ def skills():
     return found
 
 
+EARLIER_LABEL = "email_precedent"  # Tarik's own earlier email, handed before a reply to it (chat.answered)
+# That email's block at the head of the client's message, after its one line of introduction: its closing tag inside
+# is escaped (untrusted), so the first closing tag is its own end.
+EARLIER_BLOCK = re.compile(rf'^[^\n]*\n<untrusted_data [^>]*label="{EARLIER_LABEL}">.*?</untrusted_data>\s*', re.DOTALL)
+
+
 def client_message(runtime):
-    """Return the text of the last HumanMessage in the agent's state, word for word; "" when there is none."""
+    """Return the text of the last HumanMessage in the agent's state, word for word, without Tarik's own earlier
+    email handed before it (EARLIER_BLOCK: never the client's words); "" when there is none."""
     for message in reversed(runtime.state["messages"]):
         if isinstance(message, HumanMessage):
-            return text_of(message.content)
+            return EARLIER_BLOCK.sub("", text_of(message.content), count=1)
     return ""
 
 

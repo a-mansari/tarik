@@ -5,8 +5,9 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from langchain_core.messages import HumanMessage
 
-from engine import chat, runs
+from engine import agent, chat, runs
 
 
 def turn(*kinds, text="reponse"):
@@ -24,6 +25,8 @@ def asking(monkeypatch):
         return state["turns"].pop(0) if len(state["turns"]) > 1 else state["turns"][0]
 
     async def within(cabinet, function, *args):
+        if function is chat.remember_client_message:
+            state["remembered"] = args
         if function is chat.untaken:
             return state["untaken"].pop(0) if state["untaken"] else False
         if function is chat.waiting_on:
@@ -67,3 +70,15 @@ def test_untaken_files_are_reminded_until_taken(asking):
     asking["untaken"] = [True, False]
     assert reply(asking, files=["f.pdf"]) == "traite"
     assert "ces fichiers n'ont pas ete traites" in asking["asked"][1]
+
+
+@pytest.mark.security
+def test_tarik_s_own_earlier_email_is_handed_before_the_reply_never_kept_as_the_client_s_words(asking):
+    asking["turns"] = [turn("ai", text="fait")]
+    asyncio.run(chat.answered("c", "s", "oui", [], "tarik", earlier="Je prépare la TVA de ALPHA ?"))
+    (asked,) = asking["asked"]
+    assert asked.startswith("Votre email précédent") and 'label="email_precedent">' in asked
+    assert "Je prépare la TVA de ALPHA ?" in asked and asked.endswith("oui")
+    assert asking["remembered"] == ("s", "oui")  # their words alone confirm anything
+    runtime = SimpleNamespace(state={"messages": [HumanMessage(asked)]})
+    assert agent.client_message(runtime) == "oui"  # nor do the tools ever read Tarik's email as theirs
