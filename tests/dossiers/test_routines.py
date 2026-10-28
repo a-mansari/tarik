@@ -546,3 +546,18 @@ def test_by_email_a_routine_s_reports_never_move_to_another_address(chat, monkey
     monkeypatch.setattr(routines, "sender_of", lambda session_id: "chef@cabinet.ma")
     moved = routines.manage_routine("update", routine_id=routine_id, email="autre@cabinet.ma", session_id="s")
     assert moved["status"] == "stop" and "page Routines" in moved["message"]
+
+
+@pytest.mark.security
+def test_the_chat_and_the_page_refuse_a_routine_whose_address_left_alike(chat, monkeypatch):
+    make(True)
+    (row,) = routines.routines_of_cabinet()
+    monkeypatch.setattr(routines, "live", lambda address: False)  # chef@cabinet.ma left the cabinet
+    asked = routines.manage_routine("update", routine_id=row["id"], hour=10, client_confirmed=True, session_id="s")
+    assert asked["status"] == "question" and "chef@cabinet.ma" in asked["message"]
+    values = {key: row[key] for key in routines.FIELDS} | {"hour": 10}
+    assert "chef@cabinet.ma" in routines.problem_of(values)  # the page's check, the same one
+    with cabinet_db() as db:
+        db.execute("update tarik_routines set enabled = false")
+    resumed = routines.manage_routine("resume", routine_id=row["id"], session_id="s")
+    assert resumed["status"] == "question" and "Pour reprendre" in resumed["message"]  # resumed only once fixed
