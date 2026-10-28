@@ -41,6 +41,7 @@ SIDE = {
         "ice": "detected_supplier_ice",
         "if": "detected_supplier_if",
         "account": "third_party_supplier_account",
+        "prefix": "third_party_supplier_account",  # the company's own field: its prefix for the accounts (4411)
         "autofill": "third_party_supplier_autofill",
         "side": "is_supplier",
         "role": "fournisseur",
@@ -51,6 +52,7 @@ SIDE = {
         "ice": "detected_customer_ice",
         "if": "detected_customer_if",
         "account": "third_party_customer_account",
+        "prefix": "third_party_customer_account",
         "autofill": "third_party_customer_autofill",
         "side": "is_customer",
         "role": "client",
@@ -79,16 +81,60 @@ INVOICE_FIELDS = [
 ]
 
 
+SERIES_NOTE = "attribué par Tarik, dans la suite de la numérotation du dossier"
+
+
+def series_account(partner, kind, context):
+    """Return the next Compte Tiers of the dossier's own series for ``partner``, "" when there is none to give.
+
+    For a dossier whose automatic numbering is off, typically one made from a FEC: its tiers already follow a series
+    (4411 + digits, the length of the FEC's codes), which Experio's stored counter and length do not describe. The
+    next code is the highest one of the company's prefix plus one, as Experio does for a numbering by sequence
+    (_scan_third_party_max_sequence), at the length of that highest code; never one a tiers holds, archived or not.
+    A foreign tiers (ICE « 2222 », its own prefix in Experio) is left to the cabinet.
+    """
+    if "2222" in (partner.get("ice"), partner.get("vat")):
+        return ""
+    field, company_id = SIDE[kind]["account"], context["allowed_company_ids"][0]
+    prefix = odoo_call("res.company", "read", [company_id], fields=[SIDE[kind]["prefix"]])[0][SIDE[kind]["prefix"]]
+    if not prefix:
+        return ""
+    where = [("company_id", "=", company_id), (field, "=ilike", f"{prefix}%")]
+    # shortcut: the 100 highest codes by text, enough while a series keeps one length; read them all if lengths mix
+    found = odoo_call(
+        "exp.partner",
+        "search_read",
+        where,
+        fields=[field],
+        order=f"{field} desc",
+        limit=100,
+        context={**context, "active_test": False},
+    )
+    held = {p[field] for p in found}
+    suffixes = {code: int(code[len(prefix) :]) for code in held if code[len(prefix) :].isdigit()}
+    if not suffixes:
+        return ""
+    top = max(suffixes, key=suffixes.get)
+    number = suffixes[top] + 1
+    while True:
+        code = prefix + str(number).zfill(len(top) - len(prefix))
+        if not odoo_call("exp.partner", "search_count", [*where[:1], (field, "=", code)], context=context):
+            return code
+        number += 1
+
+
 def ensure_tiers_account(invoice_id, partner_id, kind, context):
     """Make sure tiers ``partner_id`` has its Compte Tiers for side ``kind`` and return a phrase for the reply.
 
     A missing one is created through Experio's own "assign third-party account" wizard
     (exp.invoice.partner.account.wizard), as the invoice screen does. Experio proposes a code only in dossiers with
-    automatic numbering on (third_party_<side>_autofill, the wizard's default_get); elsewhere the cabinet assigns it,
-    so Tarik does not invent one and the phrase says so.
+    automatic numbering on (third_party_<side>_autofill, the wizard's default_get). Elsewhere Tarik gives the next
+    code of the dossier's own series (series_account) and the phrase says so, for the cabinet to know; a tiers with
+    no series to follow is left to the cabinet.
     """
     field, role = SIDE[kind]["account"], SIDE[kind]["role"]
-    partner = odoo_call("exp.partner", "read", [partner_id], fields=["name", field], context=context)[0]
+    fields = ["name", "ice", "vat", field]
+    partner = odoo_call("exp.partner", "read", [partner_id], fields=fields, context=context)[0]
     if partner[field]:
         return f"compte tiers `{partner[field]}`"
     if dry_run():  # the wizard proposes its code only once created: test mode reads the dossier's switch instead
@@ -96,15 +142,19 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
         company = odoo_call("res.company", "read", context["allowed_company_ids"], fields=[autofill])[0]
         if company[autofill]:
             return "compte tiers serait créé par Experio (numérotation automatique)"
-        return NO_AUTOFILL.format(role=role)
+        code = series_account(partner, kind, context)
+        return f"compte tiers `{code}` serait {SERIES_NOTE}" if code else NO_AUTOFILL.format(role=role)
     wizard = "exp.invoice.partner.account.wizard"
     wizard_id = odoo_call(wizard, "create", {"invoice_id": invoice_id}, context=context)
     proposed = odoo_call(wizard, "read", [wizard_id], fields=["third_party_account"], context=context)[0]
-    code = proposed["third_party_account"]
-    if not code:
-        return NO_AUTOFILL.format(role=role)
+    code, note = proposed["third_party_account"], "créé"
+    if not code:  # numbering off: the next code of the dossier's series, told to the client afterwards
+        code, note = series_account(partner, kind, context), SERIES_NOTE
+        if not code:
+            return NO_AUTOFILL.format(role=role)
+        odoo_call(wizard, "write", [wizard_id], {"third_party_account": code}, context=context)
     odoo_json(wizard, "action_confirm", [wizard_id], context=context)
-    return f"compte tiers `{code}` créé"
+    return f"compte tiers `{code}` {note}"
 
 
 def link(invoice, partner_id, kind):
