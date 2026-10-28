@@ -8,12 +8,12 @@ from engine.tools.core.config import TEST_MODE
 from engine.tools.dossiers import banks, setup
 from engine.tools.dossiers.setup import bank_named, file_kind
 
-BANKS = [
-    {"id": 3, "name": "CREDIT IMMOBILIER ET HOTELIER (CIH)"},
-    {"id": 4, "name": "ATTIJARIWAFA BANK"},
-    {"id": 5, "name": "BANQUE CENTRALE POPULAIRE (BP)"},
-    {"id": 6, "name": "SAHAM BANK"},
-    {"id": 7, "name": "BANK OF AFRICA (BMCE)"},
+BANKS = [  # as Experio lists them (res.bank name and code)
+    {"id": 3, "name": "CREDIT IMMOBILIER ET HOTELIER (CIH)", "code": "cih"},
+    {"id": 4, "name": "ATTIJARIWAFA BANK", "code": "attijari"},
+    {"id": 5, "name": "BANQUE CENTRALE POPULAIRE (BP)", "code": "bp"},
+    {"id": 6, "name": "SAHAM BANK", "code": "sgeneral"},
+    {"id": 7, "name": "BANK OF AFRICA (BMCE)", "code": "bmce"},
 ]
 
 
@@ -40,6 +40,27 @@ def test_the_bank_a_client_names():
     assert bank_named("BQ CREDIT", [*two_credits, {"id": 10, "name": "CREDIT IMMOBILIER"}]) is None  # a tie: asked
     assert bank_named("CAM", two_credits)["id"] == 8 and bank_named("CDM", two_credits)["id"] == 9
     assert bank_named("relevé Crédit du Maroc", two_credits)["id"] == 9  # its whole name written: no tie
+
+
+@pytest.mark.functionality
+def test_the_bank_a_rib_says_by_its_first_three_digits():
+    assert banks.bank_of_rib("007780000937200000020230", BANKS)["id"] == 4
+    assert banks.bank_of_rib("RIB : 007 780 00 00082000020894 21", BANKS)["id"] == 4  # grouped, in a sentence
+    assert banks.bank_of_rib("011 810 0000012345678901 23", BANKS)["id"] == 7
+    assert banks.bank_of_rib("145 450 2111122223333444 55", BANKS)["id"] == 5  # a regional Banque Populaire
+    assert banks.bank_of_rib("00778000339100000283323", BANKS) is None  # 23 digits: no RIB
+    assert banks.bank_of_rib("999780000937200000020230", BANKS) is None  # a code not listed: the name decides
+    assert banks.bank_of_rib("51410000", BANKS) is None and banks.bank_of_rib(None, BANKS) is None
+    assert banks.bank_of_rib("MA12 007 780 0000082000020894 21", BANKS)["id"] == 4  # an IBAN: 12 is no bank code
+    assert banks.bank_of_rib("MA64007780000937200000020230", BANKS)["id"] == 4  # an IBAN without spaces
+
+
+@pytest.mark.functionality
+def test_a_rib_of_a_bank_not_listed_leaves_the_name_to_decide():
+    assert banks.journal_bank({"name": "BQ BMCE", "rib": "999780000937200000020230"}, BANKS) == (BANKS[4], "son nom")
+    assert banks.journal_bank({"name": "BQ BMCE", "rib": False}, BANKS) == (BANKS[4], "son nom")  # as Odoo gives none
+    assert banks.journal_bank({"name": "BQ 230 780 0000012345678901 23", "rib": False}, BANKS) == (BANKS[0], "son RIB")
+    assert banks.journal_bank({"name": "BQ1", "rib": False}, BANKS) == (None, "")
 
 
 @pytest.fixture
@@ -94,6 +115,14 @@ def test_a_bank_the_journals_name_says_is_set_and_said_not_asked(experio, name):
     assert experio["written"] == [{"bank_id": 4, "partner_id": 99}]
     assert "a la banque `ATTIJARIWAFA BANK` (d'après son nom" in result["message"]
     assert result["status"] == "question" and result["journal_id"] == 12  # BQ2 names none: asked
+
+
+@pytest.mark.communication
+def test_a_bank_the_journals_rib_says_is_set_even_over_its_name(experio):
+    experio["journals"][0].update(name="Banque CIH", rib="007 780 00 00082000020894 21")
+    result = setup.ask_banks(557)
+    assert experio["written"] == [{"bank_id": 4, "partner_id": 99}]  # Attijariwafa's RIB, whatever the name says
+    assert "a la banque `ATTIJARIWAFA BANK` (d'après son RIB" in result["message"]
 
 
 @pytest.mark.functionality

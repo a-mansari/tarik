@@ -43,7 +43,7 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
-from engine.tools.dossiers.banks import bank_named, give_bank
+from engine.tools.dossiers.banks import bank_named, give_bank, journal_bank
 from engine.tools.invoices.exercice import open_exercice
 from engine.tools.invoices.intake import file_row
 
@@ -495,13 +495,13 @@ def created_note(before, after):
 
 
 def bank_journals_without_bank(dossier_id):
-    """Return the dossier's bank journals whose Banque (bank_id) is still empty, as [{id, name}] by name.
+    """Return the dossier's bank journals whose Banque (bank_id) is still empty, as [{id, name, rib}] by name.
     A FEC or a grand livre names no bank, and a statement can't be imported into a journal without one."""
     return odoo_call(
         "exp.journal",
         "search_read",
         [("company_id", "=", dossier_id), ("type", "=", "bank"), ("bank_id", "=", False)],
-        fields=["id", "name"],
+        fields=["id", "name", "rib"],
         order="name",
     )
 
@@ -512,8 +512,8 @@ def ask_banks(dossier_id: int) -> dict:
 
     Returns:
         - a routine ok result when every bank journal has its bank;
-        - the result of set_journal_bank when the first journal's name names one bank only (bank_named:
-          « Banque ATTIJARIWAFA BANK », « BMCE », « BQ POPULAIRE »), outside test mode: set, and the client told
+        - the result of set_journal_bank when the first journal's RIB or name says one bank only (journal_bank:
+          « 007 780 … », « Banque ATTIJARIWAFA BANK », « BMCE »), outside test mode: set, and the client told
           to correct it if wrong;
         - otherwise a question result listing Experio's banks (``choices``: {bank_id: name}) with the
           ``journal_id`` asked about; the client's answer goes to set_journal_bank (answer_pending).
@@ -521,13 +521,13 @@ def ask_banks(dossier_id: int) -> dict:
     dossier = require_dossier(dossier_id)
     with refused(f"ask_banks {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu lire les journaux de banque."):
         journals = bank_journals_without_bank(dossier_id)
-        banks = odoo_call("res.bank", "search_read", [], fields=["name"], order="name") if journals else []
+        banks = odoo_call("res.bank", "search_read", [], fields=["name", "code"], order="name") if journals else []
     if not journals:
         return routine(f"Dossier `{dossier}` : chaque journal de banque a sa banque.")
     journal = journals[0]
-    found = bank_named(journal["name"], banks)
-    if found and not dry_run():  # « BMCE »: one bank only, set and told
-        return set_journal_bank(dossier_id, journal["id"], found["id"], from_name=True)
+    found, how = journal_bank(journal, banks)
+    if found and not dry_run():  # « BMCE », a RIB at 007: one bank only, set and told
+        return set_journal_bank(dossier_id, journal["id"], found["id"], read_from=how)
     listed = ", ".join(f"`{bank['name']}` (n° `{bank['id']}`)" for bank in banks)
     others = f" ({len(journals) - 1} autre(s) journal(aux) a renseigner ensuite.)" if len(journals) > 1 else ""
     return question(
@@ -537,13 +537,13 @@ def ask_banks(dossier_id: int) -> dict:
     )
 
 
-def set_journal_bank(dossier_id, journal_id, bank_id, from_name=False):
+def set_journal_bank(dossier_id, journal_id, bank_id, read_from=""):
     """Set the bank journal's Banque to ``bank_id``, as the journal form does, then ask about the next journal.
 
     When the journal has no tiers bancaire (partner_id), it also gets the dossier's tiers named after the bank,
-    if one exists. ``from_name``: Tarik read the bank from the journal's own name; the reply asks the client to
-    correct it if wrong. Returns the next journal's question result (ask_banks) with this change prefixed, or
-    an ok result when no journal is left.
+    if one exists. ``read_from``: what of the journal Tarik read the bank from ("son RIB", "son nom"); the reply
+    says it and asks the client to correct it if wrong. Returns the next journal's question result (ask_banks) with
+    this change prefixed, or an ok result when no journal is left.
 
     Raises:
         ToolError: the journal is not one of the dossier's.
@@ -558,7 +558,7 @@ def set_journal_bank(dossier_id, journal_id, bank_id, from_name=False):
         give_bank(dossier_id, {**journal, "id": journal_id}, {**bank, "id": bank_id}, context)
     done = test_mode_note()
     done += f"Dossier `{dossier}` : journal `{journal['name']}` a la banque `{bank['name']}`"
-    done += " (d'après son nom ; dites-le-moi si ce n'est pas la bonne)." if from_name else "."
+    done += f" (d'après {read_from} ; dites-le-moi si ce n'est pas la bonne)." if read_from else "."
     following = ask_banks(dossier_id)
     if following["status"] == "question":
         return {**following, "message": f"{done} {following['message']}"}
