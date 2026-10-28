@@ -1,0 +1,49 @@
+--- a/skills/reponse-question.md
++++ b/skills/reponse-question.md
+@@ -13,7 +13,7 @@
+ 
+ ÉTAPES :
+ 1. Experio_repondre, une seule fois. Le message du client part tel qu'il l'a écrit ; toi, tu remplis seulement decision, d'après la dernière question posée et ce que le client y répond :
+-   - La question finit par « oui / non » → decision = « oui » ou « non », exactement, si le client répond clairement l'un ou l'autre. Lis bien la question, et décide d'après le sens de la réponse, jamais d'après un mot : compare ce que le client affirme à ce que la question demande. « La TVA est-elle non récupérable ? » → « non récupérable », « pas récupérable », « elle n'est pas récupérable », « pas déductible », « c'est du carburant, pas récupérable » disent tous « oui » ; « elle est récupérable », « elle se récupère » disent « non ». Un « pas » ou un « non » dans sa phrase n'est jamais à lui seul un « non ».
++   - La question finit par « oui / non » → decision = « oui » ou « non », exactement, si le client répond clairement l'un ou l'autre. Lis bien la question, et décide d'après le sens de la réponse, jamais d'après un mot : compare ce que le client affirme à ce que la question demande. « La TVA est-elle non récupérable ? » → « non récupérable », « pas récupérable », « elle n'est pas récupérable », « pas déductible », « c'est du carburant, pas récupérable », « pas de TVA », « sans TVA » (il n'y a pas de TVA à récupérer) disent tous « oui » ; « elle est récupérable », « elle se récupère » disent « non ». Un « pas » ou un « non » dans sa phrase n'est jamais à lui seul un « non ».
+    - La question propose des tiers (« Tiers proches : NOM (id 123…) ») → decision = l'id du tiers que le client choisit, le nombre après « id », seulement s'il en désigne un seul sans doute possible : par sa place (« le premier »), son ICE, ou un nom qu'un seul des tiers proposés porte. Un nom que plusieurs tiers proposés partagent (« Atlas » quand trois s'appellent ATLAS…) ne choisit rien → decision vide. Un « oui » seul, « aucun », « aucun des trois », « je ne sais pas » ne choisissent aucun tiers non plus → decision vide ; ne prends jamais le premier de la liste par défaut. Il donne à la place le nom ou l'ICE d'un autre tiers → decision = ce nom ou cet ICE, recopié tel qu'il l'a écrit.
+    - La question porte sur l'exercice (« … ou je crée un nouvel exercice … (répondez « nouveau ») ? ») → decision = « nouveau » si le client veut un nouvel exercice, ou le nom de l'exercice ouvert qu'il choisit, recopié tel que la question l'écrit (« Exercice 2025 »). Un refus (« pas besoin de créer un exercice ») n'est pas « nouveau ». « La plus récente » est celui qui finit le plus tard, « la plus ancienne » celui qui commence le plus tôt. Quand la question liste plusieurs exercices ouverts, « dans l'exercice ouvert », « dans un des exercices » ou « comme facture antérieure » sans en nommer un ne désignent aucun exercice → decision vide ; ne prends jamais le premier de la liste par défaut.
+    - La question demande le compte bancaire d'un relevé (« … lequel ? NOM - BANQUE (n° 41), … ») → decision = le numéro du compte qu'il choisit, le nombre après « n° », seul. Il le désigne par son nom, sa banque (« Attijari », « AWB », « la Banque Populaire ») ou sa place ; un autre nombre dans sa phrase (« j'ai 7 relevés ») n'est pas ce numéro. Une banque qui n'est pas dans la liste, ou deux comptes possibles → decision vide.
+--- a/labels.json
++++ b/labels.json
+@@ -222,7 +222,7 @@
+         "apply_credit_note": "Après la comptabilisation d'un avoir, l'impute sur la facture qu'il annule, comme Experio le fait depuis « Crédits en attente » : la facture que cite l'avoir, sinon la seule facture du tiers restant due du même montant. Sinon, les factures possibles sont listées pour le cabinet. Annulable dans Experio.",
+         "create_import_folder": "Quand le client parle d'un dossier d'import, fait de ses fichiers un dossier d'import dans Experio, comme l'écran « Imports » : chaque page typée parmi les types d'Experio (transitaire, douane, DUM, fournisseur, pièce jointe...), chaque pièce un brouillon du dossier, la DUM lue par Experio ; un dossier par fichier s'il dit « plusieurs dossiers ». La facture du transitaire est traitée et comptabilisée en dernier.",
+         "pointage": "Attend la lecture d'Experio. Pour un relevé TPE : crée les opérations TPE manquantes comme Experio (sans leur compte, le relevé s'arrête), donne à chaque ligne son opération (vente, frais bancaires, taxe bancaire, solde net remise), demande à quel client rattacher les ventes par carte sans client, et donne total remise, commissions, TVA et net remise. Un relevé bancaire passe ensuite au pointage de ses opérations.",
+-        "comptabilisation_releve": "Quand le client le demande, comptabilise les opérations prêtes avec la validation d'Experio ; une confirmation qu'Experio demande (relevé en double, hors période, taux de change) reste au cabinet. Liste les opérations restées en suspens. Pour un relevé TPE, l'avertissement d'Experio sur un réseau ou journal différent du dernier relevé TPE est confirmé ; un relevé TPE en double s'arrête.",
++        "comptabilisation_releve": "Quand le client le demande, comptabilise les opérations prêtes avec la validation d'Experio ; si la date sort de tous les exercices, la fenêtre « Créer l'exercice fiscal » d'Experio est confirmée avec ses dates (le nouvel exercice est créé ouvert) ; une autre confirmation qu'Experio demande (relevé en double, hors période, taux de change) reste au cabinet. Liste les opérations restées en suspens. Pour un relevé TPE, l'avertissement d'Experio sur un réseau ou journal différent du dernier relevé TPE est confirmé ; un relevé TPE en double s'arrête.",
+         "dossier_import": "Quand le client parle d'un dossier d'import, fait de ses fichiers un dossier d'import dans Experio, comme son écran « Imports » : chaque page typée, chaque pièce un brouillon, la DUM lue par Experio ; un dossier par fichier si le client dit « plusieurs dossiers ». Un même fichier ne recrée pas le dossier. Les brouillons suivent ensuite le parcours d'une facture, celle du transitaire en dernier.",
+         "operations": "Pointe les opérations d'un relevé bancaire, étape par étape, comme sur son écran « Opérations » d'Experio."
+       },
+@@ -303,8 +303,8 @@
+         "comptabilisation": "Comptabilise les opérations prêtes de chaque relevé avec la validation d'Experio, et liste celles restées en suspens.",
+         "resume": "Rédige le résumé que le client lit.",
+         "detection": "Lance la détection automatique d'Experio (« Auto Point ») et confirme ce qu'elle trouve : opération, mode de paiement et tiers repris d'opérations passées au libellé semblable, et la facture ouverte de ce tiers et de ce montant.",
+-        "types": "Pour les lignes sans opération, et les achats sans mode de paiement : le modèle lit le libellé et choisit parmi les opérations du dossier, du sens de la ligne, deux fois ; seule une réponse identique les deux fois est écrite, avec le tiers que porte l'opération.",
+-        "tiers": "Donne à une ligne d'achat, de vente ou d'autre tiers le seul tiers que son libellé nomme (son ICE, ou son nom en mots entiers), parmi ceux qu'Experio accepte sur la ligne.",
++        "types": "Pour les lignes sans opération, et les achats sans mode de paiement : le modèle lit le libellé et choisit parmi les opérations du dossier, du sens de la ligne, deux fois ; seule une réponse identique les deux fois est écrite, avec le tiers que porte l'opération. Un achat sans mode de paiement prend celui que disent les mots du libellé (VIR, CHQ, PRLV...). Un dossier sans aucune opération bancaire à lui est signalé : le client peut nommer un dossier modèle dont reprendre le paramétrage.",
++        "tiers": "Donne à une ligne d'achat, de vente ou d'autre tiers le seul tiers que son libellé nomme (son ICE, ou son nom en mots entiers), parmi ceux qu'Experio accepte sur la ligne. Pour une ligne dont le libellé n'en nomme aucun (abréviation, marque), le modèle lit le tiers parmi ceux de la ligne, deux fois ; seule une réponse identique les deux fois est écrite.",
+         "factures_citees": "Rattache à une ligne la facture que le client cite par son numéro quand elle doit exactement son montant et que la ligne l'accepte ; dit pourquoi une facture citée ne l'est pas.",
+         "factures_ouvertes": "Rattache à une ligne qui a son tiers la seule facture ouverte de ce tiers qui doit exactement son montant, sur aucune autre ligne et acceptée par la ligne ; deux possibles : aucune.",
+         "tpe": "Rapproche les versements TPE du relevé de leur relevé TPE quand Experio est sûr ; dit ceux laissés au cabinet.",
+--- a/tools/point-line-tiers.md
++++ b/tools/point-line-tiers.md
+@@ -0,0 +1,13 @@
++---
++used_by: name_line_tiers (engine/tools/invoices/statement.py)
++---
++You find the tiers (supplier or customer) of the lines of a Moroccan company's bank statement, as its accounting cabinet does in Experio.
++
++You get the tiers each line may take (lists of id | name; each line says which list is its own) and the statement lines whose label names no tiers in whole words. For each line, choose the tiers its label clearly designates.
++
++Rules:
++- Read the label like a bookkeeper: bank labels abbreviate (« VIR MECA » is MECAERIC), keep a brand or a first part of the name, or add references (numbers, dates, « REF », « EMIS », « RECU »); the tiers is the name behind that.
++- Only a tiers of the line's own list, by its id. Never an id from another list.
++- The label names none of them, names two that fit equally, or is not a payment to or from a third party (bank fees, taxes, salaries, transfers between the company's own accounts): tiers null.
++- Never guess: a wrong tiers is worse than none, the cabinet completes it.
++- Answer every line, by its id, with ids from the lists only.

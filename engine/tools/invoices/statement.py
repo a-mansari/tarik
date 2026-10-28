@@ -35,9 +35,10 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.model import ask_model, tool_prompt
 from engine.tools.core.queries import Q
-from engine.tools.core.words import as_number, normalized, said, without_if
+from engine.tools.core.words import as_number, normalized, said, tiers_key
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
+from engine.tools.invoices.exercice import with_fiscal_year
 
 STATEMENT = "exp.bank.statement"
 LINE = "exp.bank.statement.line"
@@ -329,7 +330,6 @@ def typed_in(line, invoice_id, context):
 # for the cabinet with Experio's own reason (blocked_reasons).
 LINE_FIELDS = ["state", "operation_id", "operation_type", "partner_id", "partner_id_domain", "exp_payment_method_id"]
 LINE_FIELDS += ["payment_ref", "date", "debit", "credit", "invoice_ids", "invoice_ids_domain"]
-LEGAL_FORMS = {"ste", "societe", "sarl", "sarlau", "sa", "sas", "au", "ets", "etablissements", "cie"}
 
 
 def open_lines(statement, context):
@@ -375,12 +375,37 @@ def past_labels(dossier_id, context, each=3):
     return labels
 
 
+# The words of a label that say how it was paid, per payment method (normalized name): VIR, CHQ, PRLV...
+METHOD_WORDS = {
+    "virement": ("vir", "virement"),
+    "cheque": ("chq", "cheque"),
+    "prelevement": ("prlv", "prelevement"),
+    "effet": ("effet", "lcn"),
+    "espece": ("espece", "especes"),
+    "carte": ("carte", "cb"),
+}
+
+
+def method_in_label(label, methods):
+    """Return the id of the payment method (``methods``: {id: name}) the label's words say, None when it says none
+    or two: the model's null is not the end of it when the label reads « VIR » or « CHQ »."""
+    words = normalized(label)
+    found = {
+        i
+        for i, name in methods.items()
+        for kind, keys in METHOD_WORDS.items()
+        if kind in normalized(name) and any(said(key, words) for key in keys)
+    }
+    return found.pop() if len(found) == 1 else None
+
+
 def chosen_operations(statement, lines, context):
     """Give lines without an operation the dossier's operation the model reads in their label, and purchase lines
     without a payment method the method it reads (mandatory for a purchase, bank/models/bank_statement_line.py:
     4069-4075). The model picks among the dossier's operations (operations_of) of the line's way only, shown with
-    the labels they were used for (past_labels), and answers null when the label does not say. It is asked twice:
-    only a line it answers the same both times is written, a label it reads two ways stays for the cabinet.
+    the labels they were used for (past_labels), and answers null when the label does not say; a purchase line's
+    payment method is then read from the label's own words (method_in_label) when the model gave none. It is asked
+    twice: only a line it answers the same both times is written, a label it reads two ways stays for the cabinet.
 
     The operation is typed in the line's form first: its onchange (_onchange_operation_type, :2095-2116) gives the
     tiers the operation carries; an RPC write runs no onchange, so that tiers is written with it.
@@ -425,16 +450,17 @@ def chosen_operations(statement, lines, context):
         ]
     except ToolError as failure:  # no model now: the lines stay for the cabinet, the rest of the pointing goes on
         log(f"chosen_operations {statement['id']}: {failure}")
-        return 0
+        return methods_from_labels(asked, methods, context)
     given = 0
     by_id = {line["id"]: line for line in asked}
     first, second = (found if isinstance(found, list) else [] for found in answers)
     for choice in [choice for choice in first if choice in second]:  # the same answer twice
-        line = by_id.pop(choice.get("id"), None) if isinstance(choice, dict) else None
+        line = by_id.pop(choice["id"], None) if isinstance(choice, dict) and type(choice.get("id")) is int else None
         if not line:
             continue
         values = {}
-        operation = operations.get(choice.get("operation")) if not line["operation_id"] else None
+        asked_operation = choice.get("operation") if type(choice.get("operation")) is int else None
+        operation = operations.get(asked_operation) if not line["operation_id"] else None
         if operation and operation["payment_type"] in (side(line), False):
             form = {"operation_id": operation["id"]}
             type_in(LINE, line["id"], form, "operation_id", ("partner_id",), context)
@@ -443,32 +469,37 @@ def chosen_operations(statement, lines, context):
                 **({"partner_id": form["partner_id"]} if form.get("partner_id") else {}),
             }
         kind = operation["type"] if values else line["operation_type"]
-        if (
-            kind == "purchase"
-            and choice.get("payment_method") in methods
-            and (values or not line["exp_payment_method_id"])
-        ):
-            values["exp_payment_method_id"] = choice["payment_method"]
+        if kind == "purchase" and (values or not line["exp_payment_method_id"]):
+            method = choice.get("payment_method")
+            if not (type(method) is int and method in methods):
+                method = method_in_label(line["payment_ref"], methods)
+            if method:
+                values["exp_payment_method_id"] = method
         if values:
             if not dry_run():
                 odoo_call(LINE, "write", [line["id"]], values, context=context)
             given += 1
+    return given + methods_from_labels(by_id.values(), methods, context)
+
+
+def methods_from_labels(lines, methods, context):
+    """Give the purchase ``lines`` without a payment method the one their label's words say (method_in_label), the
+    model not having answered them; returns how many got one (counted also in test mode)."""
+    given = 0
+    for line in lines:
+        method = method_in_label(line["payment_ref"], methods)
+        if line["operation_type"] == "purchase" and method and not line["exp_payment_method_id"]:
+            if not dry_run():
+                odoo_call(LINE, "write", [line["id"]], {"exp_payment_method_id": method}, context=context)
+            given += 1
     return given
-
-
-def tiers_key(name):
-    """Return a tiers' name as looked for in a bank label: normalized, without the « - <IF> » Experio appends nor its
-    legal form (« STE ATLAS SARL » is « atlas »); "" when under 4 letters are left, too short to tell."""
-    words = [word for word in normalized(without_if(name)).split() if word not in LEGAL_FORMS]
-    key = " ".join(words)
-    return key if len(key.replace(" ", "")) >= 4 else ""
 
 
 def named_tiers(statement, lines, context):
     """Give lines of an operation needing a tiers (purchase, sale, other third party: :4184-4196) the one tiers their
     label names: its ICE (15 digits, as Experio keys tiers, exp_account/models/exp_partner.py:530-560) or its name
     as whole words (tiers_key), among those the line's tiers picker offers (its stored partner_id_domain, :46-76).
-    A label naming two tiers or none gets none.
+    A label naming two tiers or none gets none, unless the model reads one in it (read_tiers).
 
     Returns how many lines got one (counted also in test mode, where nothing is written).
     """
@@ -481,7 +512,7 @@ def named_tiers(statement, lines, context):
         and line["partner_id_domain"]
     ]
     offered = {}  # domain: the tiers it offers, searched once
-    given = 0
+    given, left = 0, []
     for line in needing:
         domain = line["partner_id_domain"]
         if domain not in offered:
@@ -489,16 +520,69 @@ def named_tiers(statement, lines, context):
                 "exp.partner", "search_read", ast.literal_eval(domain), fields=["name", "ice"], context=context
             )
             offered[domain] = [
-                (p["id"], tiers_key(p["name"]), (p["ice"] or "").replace(" ", "").zfill(15)) for p in found
+                (p["id"], tiers_key(p["name"]), (p["ice"] or "").replace(" ", "").zfill(15), p["name"]) for p in found
             ]
         words = normalized(line["payment_ref"])
         ices = set(re.findall(r"(?<!\d)\d{15}(?!\d)", line["payment_ref"].replace(" ", "")))
-        fits = {i for i, key, ice in offered[domain] if (ice.strip("0") and ice in ices) or (key and said(key, words))}
+        fits = {
+            i for i, key, ice, _ in offered[domain] if (ice.strip("0") and ice in ices) or (key and said(key, words))
+        }
         if len(fits) == 1:
             if not dry_run():
                 odoo_call(LINE, "write", [line["id"]], {"partner_id": fits.pop()}, context=context)
             given += 1
+        elif not fits:  # a label naming two tiers stays for the cabinet
+            left.append(line)
+    for line_id, partner_id in read_tiers(left, offered).items():
+        if not dry_run():
+            odoo_call(LINE, "write", [line_id], {"partner_id": partner_id}, context=context)
+        given += 1
     return given
+
+
+TIERS_LISTED = 400  # shortcut: a picker offering more tiers is not shown to the model, its lines stay for the cabinet
+
+
+def read_tiers(lines, offered):
+    """Return {line id: tiers id} for the ``lines`` whose label the model reads a tiers in, among the tiers the
+    line's picker offers (``offered``: {domain: [(id, key, ice, name)]}): the tiers a label names by an
+    abbreviation, a brand or a first name, which no whole-name match finds. Asked twice like chosen_operations: only
+    an answer identical both times counts, an id outside the line's own list never does."""
+    lines = [line for line in lines if 0 < len(offered[line["partner_id_domain"]]) <= TIERS_LISTED]
+    domains = sorted({line["partner_id_domain"] for line in lines})
+    if not lines:
+        return {}
+    lists = "\n\n".join(
+        f"List {n}:\n" + "\n".join(f"{i} | {name}" for i, _, _, name in offered[domain])
+        for n, domain in enumerate(domains)
+    )
+    shown = "\n".join(
+        f"{line['id']} | list {domains.index(line['partner_id_domain'])} | {line['date']} | "
+        f"{(line['credit'] or 0) - (line['debit'] or 0):.2f} | {line['payment_ref']}"
+        for line in lines
+    )
+    instruction = (
+        f"Tiers (id | name):\n{lists}\n\nLines (id | its tiers list | date | amount | label):\n{shown}\n\n"
+        'Answer with only a JSON object: {"lines": [{"id": <line id>, "tiers": <tiers id> or null}]}'
+    )
+    try:
+        answers = [
+            ask_model(tool_prompt("point-line-tiers"), [], instruction, "Tiers des lignes", keys=("lines",))["lines"]
+            for _ in range(2)
+        ]
+    except (ToolError, LookupError) as failure:  # no model now: the lines stay for the cabinet
+        log(f"read_tiers: {failure}")
+        return {}
+    first, second = (found if isinstance(found, list) else [] for found in answers)
+    by_id = {line["id"]: line for line in lines}
+    chosen = {}
+    ids = [choice.get("id") for choice in first if isinstance(choice, dict)]
+    for choice in [c for c in first if c in second and isinstance(c, dict) and ids.count(c.get("id")) == 1]:
+        tiers = choice.get("tiers")
+        line = by_id.get(choice.get("id")) if type(choice.get("id")) is int else None  # a list would not hash
+        if line and type(tiers) is int and tiers in {i for i, *_ in offered[line["partner_id_domain"]]}:
+            chosen[line["id"]] = tiers
+    return chosen
 
 
 def owed_invoices(statement, lines, context):
@@ -671,14 +755,22 @@ def choose_line_operations(statement_id: int) -> dict:
     """Give the statement's lines the operation and payment method the model reads in their label
     (chosen_operations)."""
     phrase = "reçoivent de Tarik leur type d'opération ou mode de paiement, lu dans le libellé"
-    return completing(
-        statement_id,
-        "choose_line_operations",
-        lambda statement, context: (
-            counted(chosen_operations(statement, open_lines(statement, context), context), phrase),
-            "",
-        ),
-    )
+
+    def work(statement, context):
+        given = chosen_operations(statement, open_lines(statement, context), context)
+        dossier_id = statement["company_id"][0]
+        note = ""
+        lacking = any(not line["operation_id"] for line in open_lines(statement, context))  # as left, shared ones used
+        domain = [("company_id", "=", dossier_id)]
+        own = lacking and odoo_call("bank.operation.type", "search_count", domain, context=context)
+        if lacking and not own:  # a dossier made without a model dossier
+            note = (
+                "Le dossier n'a aucune opération bancaire à lui : pour que je pointe ses relevés, dites-moi le "
+                "dossier modèle dont reprendre le paramétrage."
+            )
+        return counted(given, phrase), note
+
+    return completing(statement_id, "choose_line_operations", work)
 
 
 @step_tool
@@ -838,7 +930,7 @@ def posting(statement):
     if dry_run():
         return ok(f"{TEST_MODE}Relevé n° {statement_id} : ses opérations prêtes seraient comptabilisées.")
     try:
-        action = odoo_json(STATEMENT, "action_post", [statement_id], context=context)
+        action = with_fiscal_year(odoo_json(STATEMENT, "action_post", [statement_id], context=context), context)
     except Exception as error:  # Experio's refusal (complete validation required, exact duplicate): its own words
         return stop(f"Relevé n° {statement_id} : pas comptabilisé, Experio refuse : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):

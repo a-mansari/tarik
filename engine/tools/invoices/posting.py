@@ -23,6 +23,7 @@ from engine.tools.core.experio import (
     require_invoice,
 )
 from engine.tools.invoices.configuration import assets_text, assets_without_category
+from engine.tools.invoices.exercice import with_fiscal_year
 
 RETRIES, PAUSE = 3, 1.0  # the check can lag right after a refresh
 ACCOUNT = {
@@ -167,6 +168,7 @@ def post_invoice(invoice_id: int) -> dict:
         action = odoo_json(
             "exp.invoice", "action_post", [invoice_id], context={**context, "skip_due_date_detected_check": True}
         )
+        action = with_fiscal_year(action, {**context, "skip_due_date_detected_check": True})  # already confirmed above
         after = odoo_call("exp.invoice", "read", [invoice_id], fields=["state", "error_msg"], context=context)[0]
     except Exception as error:  # not refused(): a refusal here stops this invoice, with Experio's own reason
         log(f"post_invoice {invoice_id}: {error}")

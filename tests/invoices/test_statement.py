@@ -1,6 +1,7 @@
 """A bank statement after its import: Experio's reading checked, its operations pointed by Experio, posted on demand."""
 
 import io
+from datetime import date
 
 import openpyxl
 import pytest
@@ -823,3 +824,135 @@ def test_a_line_the_model_reads_two_ways_is_left_for_the_cabinet(experio):
     assert len(experio["asked"]) == 2
     written = [line for line, values in experio["written"] if "operation_id" in values]
     assert written == [[3]]
+
+
+@pytest.mark.functionality
+def test_a_purchase_line_gets_the_payment_method_its_label_says_when_the_model_says_none(experio):
+    unpointed(experio, payment_ref="CHQ 1234 STE ATLAS")
+    experio["answer"] = {"lines": [{"id": 2, "operation": 13136, "payment_method": None}]}
+    pointed()
+    assert ([2], {"operation_id": 13136, "exp_payment_method_id": 2}) in experio["written"]  # CHQ: Chèque
+
+
+@pytest.mark.functionality
+def test_a_purchase_line_with_no_agreed_answer_still_gets_the_method_its_label_says(experio):
+    experio["lines"][1].update(exp_payment_method_id=False, payment_ref="VIR EMIS ATLAS")
+    pointed()
+    assert ([2], {"exp_payment_method_id": 4}) in experio["written"]  # VIR: Virement Bancaire, from the label alone
+
+
+@pytest.mark.functionality
+def test_a_label_saying_two_ways_or_none_gives_no_payment_method():
+    methods = {2: "Chèque", 4: "Virement Bancaire"}
+    assert (
+        statement.method_in_label("CHQ 12 SUR VIR", methods) is None
+        and statement.method_in_label("AGIOS", methods) is None
+    )
+    assert statement.method_in_label("VIREMENT ATLAS", methods) == 4
+
+
+def partners_to_name(experio):
+    experio["partners"] = [
+        {"id": 51, "name": "MECAERIC SARL - 4471", "ice": False},
+        {"id": 52, "name": "ATLAS", "ice": False},
+    ]
+    experio["lines"][1]["payment_ref"] = "VIR MECA"  # an abbreviation: no whole name in it
+
+
+@pytest.mark.functionality
+def test_a_tiers_no_name_matches_is_read_by_the_model_when_it_says_the_same_twice(experio):
+    partners_to_name(experio)
+    experio["answer"] = {"lines": [{"id": 2, "tiers": 51}]}
+    pointed()
+    assert ([2], {"partner_id": 51}) in experio["written"]
+    assert "51 | MECAERIC SARL - 4471" in experio["asked"][0] and len(experio["asked"]) == 2
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("answer", [{"lines": [{"id": 2, "tiers": 99}]}, {"lines": [{"id": 2, "tiers": None}]}])
+def test_a_tiers_the_line_does_not_offer_is_never_written(experio, answer):
+    partners_to_name(experio)
+    experio["answer"] = answer
+    pointed()
+    assert not [w for w in experio["written"] if "partner_id" in w[1]]
+
+
+@pytest.mark.security
+def test_a_model_answer_with_a_list_for_an_id_is_ignored_not_a_crash(experio):
+    partners_to_name(experio)
+    experio["answer"] = {"lines": [{"id": [2], "tiers": 51}, {"id": 2, "tiers": [51]}]}
+    pointed()
+    assert not [w for w in experio["written"] if "partner_id" in w[1]]
+
+
+@pytest.mark.functionality
+def test_a_dossier_without_its_own_operations_is_told_to_name_a_model_dossier(experio):
+    unpointed(experio)
+    experio["operations"] = []
+    assert "dossier modèle" in pointed()["message"]
+
+
+@pytest.mark.security
+def test_a_posting_date_far_from_today_leaves_the_fiscal_year_to_the_cabinet(experio, monkeypatch):
+    from engine.tools.invoices import exercice
+
+    experio["post"] = {"res_model": exercice.FISCAL_YEAR, "res_id": 6, "name": "Créer l'exercice fiscal"}
+    monkeypatch.setattr(exercice, "odoo_json", lambda *a, **k: pytest.fail("no year opened for a misread date"))
+    monkeypatch.setattr(exercice, "odoo_call", lambda *a, **k: [{"move_date": "2062-03-01"}])
+    assert "« Créer l'exercice fiscal »" in statement.post_statement(8)["message"]
+
+
+@pytest.mark.functionality
+def test_a_new_fiscal_year_asked_at_posting_is_created_and_the_posting_goes_on(experio, monkeypatch):
+    from engine.tools.invoices import exercice
+
+    experio["post"] = {"res_model": exercice.FISCAL_YEAR, "res_id": 6, "name": "Créer l'exercice fiscal"}
+    confirmed = []
+
+    def confirm(model, method, ids, **kw):
+        confirmed.append((model, method, ids))
+        return True
+
+    monkeypatch.setattr(exercice, "odoo_json", confirm)
+    wizard = {"move_date": f"{date.today().year}-08-31", "date_start": "2026-01-01"}
+    monkeypatch.setattr(exercice, "odoo_call", lambda *a, **k: [wizard])
+    result = statement.post_statement(8)
+    assert confirmed == [(exercice.FISCAL_YEAR, "action_create_and_post", [6])]
+    assert result["status"] == "ok" and "écran" not in result["message"]
+
+
+@pytest.mark.functionality
+def test_a_dossier_with_no_exercice_gets_the_calendar_year_of_the_posting_date(experio, monkeypatch):
+    from engine.tools.invoices import exercice
+
+    experio["post"] = {"res_model": exercice.FISCAL_YEAR, "res_id": 6, "name": "Créer le premier exercice fiscal"}
+    written = []
+    year = date.today().year
+
+    def odoo_call(model, method, *args, **kw):
+        if method == "write":
+            written.append(args)
+        return [{"move_date": f"{year}-08-31", "date_start": False}]
+
+    monkeypatch.setattr(exercice, "odoo_call", odoo_call)
+    monkeypatch.setattr(exercice, "odoo_json", lambda *a, **k: True)
+    assert statement.post_statement(8)["status"] == "ok"
+    assert written == [([6], {"date_start": f"{year}-01-01", "date_end": f"{year}-12-31"})]
+
+
+@pytest.mark.functionality
+def test_a_line_the_model_gives_two_tiers_is_left_for_the_cabinet(experio):
+    partners_to_name(experio)
+    experio["answer"] = {"lines": [{"id": 2, "tiers": 51}, {"id": 2, "tiers": 52}]}
+    pointed()
+    assert not [w for w in experio["written"] if "partner_id" in w[1]]
+
+
+@pytest.mark.functionality
+def test_without_the_model_a_purchase_line_still_gets_the_method_its_label_says(experio):
+    experio["lines"][1].update(exp_payment_method_id=False, payment_ref="CHQ 1234 ATLAS")
+    unpointed_line = experio["lines"][0]
+    unpointed_line["operation_id"] = False  # something for the model to be asked: it is down
+    experio["answer"] = ToolError("Pointage du relevé : le modele n'est pas encore configure.")
+    pointed()
+    assert ([2], {"exp_payment_method_id": 2}) in experio["written"]

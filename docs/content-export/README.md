@@ -117,3 +117,9 @@ uses another one. A stack that edited one of these documents itself loses that e
   ouvertes », « Versements TPE » and « Bilan du relevé », the Relevés boxes « Relevés à pointer » and « Pointage du
   relevé », and Traitement's « Lecture du relevé » then « Pointage des opérations ». Import it after the pointage
   export, once the stack runs the commit with the pointing steps.
+- `tarik-contenu-pointage-tiers-20261028.json` (and its `.diff`): the new prompt `tools/point-line-tiers.md` (the tiers
+  read in a bank label that names none in whole words), the « pas de TVA » / « sans TVA » answers read as « oui » to
+  the non-recoverable TVA question (`skills/reponse-question.md`), and the descriptions of the steps « Types
+  d'opération », « Tiers des opérations » and « Comptabilisation du relevé » (`labels.json`). Import it after
+  the pointage-etapes export, once the stack runs the commit with the tiers reading: before, check.py and the
+  consistency test find no `tools/point-line-tiers.md`, and the tiers reading is skipped (the lines stay for the cabinet).

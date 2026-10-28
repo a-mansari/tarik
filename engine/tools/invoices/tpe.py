@@ -32,6 +32,7 @@ from engine.tools.core.conversation import own_words
 from engine.tools.core.experio import dry_run, experio_refusal, in_dossier, odoo_call, odoo_json, plain
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized
+from engine.tools.invoices.exercice import with_fiscal_year
 
 STATEMENT = "exp.monetary.statement"
 LINE = "exp.monetary.statement.line"
@@ -465,6 +466,7 @@ def post_tpe(statement_id):
                 " Experio signalait un journal ou un réseau différent du dernier relevé TPE comptabilisé : confirmé, "
                 f"le réseau {network_label(statement['type'])} étant celui du relevé."
             )
+        action = with_fiscal_year(action, context)
     except Exception as error:  # Experio's refusal (an exact duplicate statement): its own words
         return stop(f"Relevé TPE n° {statement_id} : pas comptabilisé, Experio refuse : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):
