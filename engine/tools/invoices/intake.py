@@ -386,7 +386,7 @@ def import_pdf(wizard, name, raw, dossier_id, **values):
 
 
 @step_tool
-def create_draft_invoice(file_id: int, dossier_id: int, invoice_type: str = "") -> dict:
+def create_draft_invoice(file_id: int, dossier_id: int, invoice_type: str = "", posting: str = "") -> dict:
     """Create a draft invoice in Experio from a file the client sent, in the client's dossier; an ok result gives its
     ``invoice_id``.
 
@@ -396,6 +396,9 @@ def create_draft_invoice(file_id: int, dossier_id: int, invoice_type: str = "") 
         invoice_type: the side the client gave (checked by split_invoices). "vente" is imported as a sale, since
             Experio's reading looks up the tiers (and its memorized account) on the side it is given; achat or mixte as
             a purchase, classify_invoice settling each one.
+        posting: "oui" or "non" when the client's message asked to post (comptabiliser) or not to: kept for the invoice
+            now, since a question on the way (TVA, tiers) ends this run before hold_posting reads it and the answer
+            that resumes it does not carry the request.
 
     Safe to call again for the same file: a stop result names the draft already made. A file whose very content already
     made an invoice of the dossier gives a stop result (duplicate) and nothing new.
@@ -404,7 +407,8 @@ def create_draft_invoice(file_id: int, dossier_id: int, invoice_type: str = "") 
         ToolError: the file is not an invoice, or was cut into parts (create their drafts instead)."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
-        name, mime, data, existing, kind = file_row(db, file_id, "file_name", "mime_type", "data", "invoice_id", "kind")
+        fields = ("file_name", "mime_type", "data", "invoice_id", "kind", "session_id")
+        name, mime, data, existing, kind, session_id = file_row(db, file_id, *fields)
         require_kind(name, kind, "invoice")
         if existing:  # another run made it and works on it: this one leaves it alone
             return stop(
@@ -431,6 +435,8 @@ def create_draft_invoice(file_id: int, dossier_id: int, invoice_type: str = "") 
             side = "sale" if invoice_type == "vente" else "purchase"
             invoice_id = import_pdf("exp.invoice.import", name, raw, dossier_id, type=side)
         db.execute(Q.set_file_invoice, (invoice_id, file_id))
+        if posting in ("oui", "non"):
+            db.execute(Q.upsert_held_choice, (invoice_id, session_id, posting == "oui"))
     created = f"`{name}` : facture brouillon n° {invoice_id} créée dans le dossier `{dossier}`."
     return routine(created, invoice_id=invoice_id)
 

@@ -17,6 +17,7 @@ services:
       VAULT_ADDR: http://vault:8200
       TARIK_DEFAULT_CABINET: experio_cabinet_8
       ODOO_URL: ${ODOO_URL}
+      TARIK_GRAPH_TOKEN: ${TARIK_GRAPH_TOKEN:-} # scripts' bearer token (run.py); empty: none accepted
       POSTGRES_HOST: db
       POSTGRES_DB: tarik
       POSTGRES_USER: tarik
