@@ -120,7 +120,7 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
           <textarea id="routine-prompt" v-model="form.prompt" rows="3" :maxlength="PROMPT_MOST" required
             placeholder="Écrivez ce que Tarik doit faire à chaque fois."></textarea>
           <span class="count">{{ form.prompt.length }} / {{ PROMPT_MOST }}</span>
-          <div class="examples">
+          <div v-if="!form.id" class="examples"><!-- a new routine's only: a routine changed keeps its own words -->
             <span class="muted">Exemples :</span>
             <button v-for="example in EXAMPLES" :key="example" type="button" class="example"
               @click="form.prompt = example">{{ example }}</button>
