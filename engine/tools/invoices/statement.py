@@ -444,23 +444,15 @@ def chosen_operations(statement, lines, context):
     )
     # shortcut: one model call per statement, every line in it; split it if statements of hundreds of lines come
     try:
-        answers = [
-            ask_model(tool_prompt("point-bank-lines"), [], instruction, "Pointage du relevé", keys=("lines",))["lines"]
-            for _ in range(2)
-        ]
-    except ToolError as failure:  # no model now: the lines stay for the cabinet, the rest of the pointing goes on
+        agreed = agreed_lines(tool_prompt("point-bank-lines"), instruction, "Pointage du relevé")
+    except (ToolError, LookupError) as failure:  # no model now: the lines stay for the cabinet, the pointing goes on
         log(f"chosen_operations {statement['id']}: {failure}")
-        return methods_from_labels(asked, methods, context)
+        agreed = {}
     given = 0
-    by_id = {line["id"]: line for line in asked}
-    first, second = (found if isinstance(found, list) else [] for found in answers)
-    for choice in [choice for choice in first if choice in second]:  # the same answer twice
-        line = by_id.pop(choice["id"], None) if isinstance(choice, dict) and type(choice.get("id")) is int else None
-        if not line:
-            continue
+    for line in asked:
+        choice = agreed.get(line["id"], {})  # none: the label's words alone can still give the payment method
         values = {}
-        asked_operation = choice.get("operation") if type(choice.get("operation")) is int else None
-        operation = operations.get(asked_operation) if not line["operation_id"] else None
+        operation = operations.get(choice.get("operation")) if choice and not line["operation_id"] else None
         if operation and operation["payment_type"] in (side(line), False):
             form = {"operation_id": operation["id"]}
             type_in(LINE, line["id"], form, "operation_id", ("partner_id",), context)
@@ -479,20 +471,24 @@ def chosen_operations(statement, lines, context):
             if not dry_run():
                 odoo_call(LINE, "write", [line["id"]], values, context=context)
             given += 1
-    return given + methods_from_labels(by_id.values(), methods, context)
-
-
-def methods_from_labels(lines, methods, context):
-    """Give the purchase ``lines`` without a payment method the one their label's words say (method_in_label), the
-    model not having answered them; returns how many got one (counted also in test mode)."""
-    given = 0
-    for line in lines:
-        method = method_in_label(line["payment_ref"], methods)
-        if line["operation_type"] == "purchase" and method and not line["exp_payment_method_id"]:
-            if not dry_run():
-                odoo_call(LINE, "write", [line["id"]], {"exp_payment_method_id": method}, context=context)
-            given += 1
     return given
+
+
+def agreed_lines(system, instruction, what):
+    """Ask the model ``instruction`` twice (with the ``system`` prompt) and return {line id: choice} for the
+    choices it gave identically both times, one per line: a line listed twice, or with an id that is not a number, is
+    a reading two ways and stays for the cabinet. Raises ToolError."""
+    answers = [ask_model(system, [], instruction, what, keys=("lines",))["lines"] for _ in range(2)]
+    first, second = (found if isinstance(found, list) else [] for found in answers)
+    ids = [choice.get("id") for choice in first if isinstance(choice, dict)]
+    return {
+        choice["id"]: choice
+        for choice in first
+        if isinstance(choice, dict)
+        and choice in second
+        and type(choice.get("id")) is int
+        and ids.count(choice["id"]) == 1
+    }
 
 
 def named_tiers(statement, lines, context):
@@ -540,48 +536,42 @@ def named_tiers(statement, lines, context):
     return given
 
 
+LINES_PER_ASK = 50  # lines read by the model at once, so a long statement fits one answer
 TIERS_LISTED = 400  # shortcut: a picker offering more tiers is not shown to the model, its lines stay for the cabinet
 
 
 def read_tiers(lines, offered):
     """Return {line id: tiers id} for the ``lines`` whose label the model reads a tiers in, among the tiers the
     line's picker offers (``offered``: {domain: [(id, key, ice, name)]}): the tiers a label names by an
-    abbreviation, a brand or a first name, which no whole-name match finds. Asked twice like chosen_operations: only
-    an answer identical both times counts, an id outside the line's own list never does."""
+    abbreviation, a brand or a first name, which no whole-name match finds. Asked twice like chosen_operations (see
+    agreed_lines), LINES_PER_ASK lines at a time; an id outside the line's own list never counts."""
     lines = [line for line in lines if 0 < len(offered[line["partner_id_domain"]]) <= TIERS_LISTED]
-    domains = sorted({line["partner_id_domain"] for line in lines})
-    if not lines:
-        return {}
-    lists = "\n\n".join(
-        f"List {n}:\n" + "\n".join(f"{i} | {name}" for i, _, _, name in offered[domain])
-        for n, domain in enumerate(domains)
-    )
-    shown = "\n".join(
-        f"{line['id']} | list {domains.index(line['partner_id_domain'])} | {line['date']} | "
-        f"{(line['credit'] or 0) - (line['debit'] or 0):.2f} | {line['payment_ref']}"
-        for line in lines
-    )
-    instruction = (
-        f"Tiers (id | name):\n{lists}\n\nLines (id | its tiers list | date | amount | label):\n{shown}\n\n"
-        'Answer with only a JSON object: {"lines": [{"id": <line id>, "tiers": <tiers id> or null}]}'
-    )
-    try:
-        answers = [
-            ask_model(tool_prompt("point-line-tiers"), [], instruction, "Tiers des lignes", keys=("lines",))["lines"]
-            for _ in range(2)
-        ]
-    except (ToolError, LookupError) as failure:  # no model now: the lines stay for the cabinet
-        log(f"read_tiers: {failure}")
-        return {}
-    first, second = (found if isinstance(found, list) else [] for found in answers)
-    by_id = {line["id"]: line for line in lines}
     chosen = {}
-    ids = [choice.get("id") for choice in first if isinstance(choice, dict)]
-    for choice in [c for c in first if c in second and isinstance(c, dict) and ids.count(c.get("id")) == 1]:
-        tiers = choice.get("tiers")
-        line = by_id.get(choice.get("id")) if type(choice.get("id")) is int else None  # a list would not hash
-        if line and type(tiers) is int and tiers in {i for i, *_ in offered[line["partner_id_domain"]]}:
-            chosen[line["id"]] = tiers
+    for start in range(0, len(lines), LINES_PER_ASK):
+        group = lines[start : start + LINES_PER_ASK]
+        domains = sorted({line["partner_id_domain"] for line in group})
+        lists = "\n\n".join(
+            f"List {n}:\n" + "\n".join(f"{i} | {name}" for i, _, _, name in offered[domain])
+            for n, domain in enumerate(domains)
+        )
+        shown = "\n".join(
+            f"{line['id']} | list {domains.index(line['partner_id_domain'])} | {line['date']} | "
+            f"{(line['credit'] or 0) - (line['debit'] or 0):.2f} | {line['payment_ref']}"
+            for line in group
+        )
+        instruction = (
+            f"Tiers (id | name):\n{lists}\n\nLines (id | its tiers list | date | amount | label):\n{shown}\n\n"
+            'Answer with only a JSON object: {"lines": [{"id": <line id>, "tiers": <tiers id> or null}]}'
+        )
+        try:
+            agreed = agreed_lines(tool_prompt("point-line-tiers"), instruction, "Tiers des lignes")
+        except (ToolError, LookupError) as failure:  # no model now: the lines stay for the cabinet
+            log(f"read_tiers: {failure}")
+            return chosen
+        for line in group:
+            tiers = agreed.get(line["id"], {}).get("tiers")
+            if type(tiers) is int and tiers in {i for i, *_ in offered[line["partner_id_domain"]]}:
+                chosen[line["id"]] = tiers
     return chosen
 
 
