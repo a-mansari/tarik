@@ -173,7 +173,7 @@ def test_a_period_runs_once_here_whatever_changes_meanwhile_and_each_minute_has_
 
     monkeypatch.setattr(clock, "ran", ran)
     due = datetime(2026, 10, 27, 8, 0, tzinfo=ZONE)
-    row = (3, "progress", "day", [], 8, 0, "chef@cabinet.ma", due, "")
+    row = (3, "progress", "day", [], 8, 0, "chef@cabinet.ma", due, "", "")
 
     async def twice():
         clock.started("c", row)
@@ -226,7 +226,7 @@ def test_a_routine_works_on_every_dossier_tarik_opens_and_its_report_goes_to_its
     routine_id = due_routine("tva")
     (row,) = clock.claimed()
     report = asyncio.run(clock.ran(db_cabinet, row))
-    assert f"Voici le rapport de la routine n° {routine_id} : " in report
+    assert f"Voici le rapport « Routine n° {routine_id} : préparer" in report
     assert "- **2** dossiers parcourus : **2** préparées" in report
     assert "**À voir**" not in report and "**En échec**" not in report  # only what happened is said
     assert [given["call"]["routine"] for _, given, _ in running["nested"]] == [True, True]  # made, never taken up
@@ -310,7 +310,7 @@ def test_a_dossier_s_own_refusal_is_its_line_and_no_dossier_is_nothing_to_say(ru
     plain = next(data for name, data in running["files"].items() if name.endswith(".txt")).decode()
     assert plain.startswith("Dossier `ALPHA` : Experio n'a pas pu donner son état.")  # its own words
     monkeypatch.setattr(flow, "opened_dossiers", lambda: [])
-    (row,) = [(*row[:7], row[7] - timedelta(days=1), row[8])]  # another period
+    (row,) = [(*row[:7], row[7] - timedelta(days=1), *row[8:])]  # another period
     assert asyncio.run(clock.ran(db_cabinet, row)) == flow.NOTHING
 
 
@@ -331,7 +331,7 @@ def test_an_instruction_too_long_is_cut_off_and_said(running, db_cabinet, monkey
 def test_the_dossiers_not_reached_before_the_next_period_are_left_to_it(running, db_cabinet):
     due_routine("progress")
     (row,) = clock.claimed()
-    late = (*row[:7], datetime.now(ZONE) - timedelta(days=2), row[8])  # a period whose next one already came
+    late = (*row[:7], datetime.now(ZONE) - timedelta(days=2), *row[8:])  # a period whose next one already came
     report = asyncio.run(clock.ran(db_cabinet, late))
     assert ": **2** non traités (la période suivante est arrivée avant)" in report
     assert not [tool for tool, _ in running["calls"] if tool == "dossier_progress_figures"]
@@ -496,3 +496,12 @@ def test_a_declaration_already_there_is_said_so_and_a_dossier_done_is_never_behi
     done = {"result": report_files.READ, "detail": "", "figures": {"progress": 100, "suspense": 0}}
     body = report_files.summary("progress", [{**done, "dossier": "A"}], "routine", "abc")
     assert "**100 %**" in body and "Les moins avancés" not in body
+
+
+@pytest.mark.communication
+def test_a_named_routine_s_email_bears_its_name(running, db_cabinet):
+    routine_id = due_routine("instruction", "Demande les priorités du jour.")
+    with cabinet_db() as db:
+        db.execute("update tarik_routines set name = 'Rappel Manager' where id = %s", (routine_id,))
+    (row,) = clock.claimed()
+    assert clock.given(db_cabinet, row)["call"]["subject"] == "Rappel Manager (chaque jour à 8 h)"

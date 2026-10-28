@@ -165,3 +165,13 @@ def test_a_routine_shows_when_it_last_ran_and_whether_it_still_runs_never_its_re
         db.execute("update tarik_routine_runs set report = 'fait'")
     _, data, _ = asked(api.routines.routines_page)
     assert data["routines"][0]["running"] is False
+
+
+@pytest.mark.functionality
+def test_a_routine_named_on_the_page_keeps_its_name_on_one_line_and_short(page):
+    cabinet, _ = page
+    _, data, _ = post(cabinet, "create", {**ROUTINE, "name": "  Rappel\n Manager "})
+    (made,) = data["routines"]
+    assert made["name"] == "Rappel Manager"
+    status, data, _ = post(cabinet, "save", {**ROUTINE, "id": made["id"], "name": "x" * 81})
+    assert status == 400 and "80 caractères" in data["error"]

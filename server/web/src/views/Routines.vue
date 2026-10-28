@@ -28,7 +28,7 @@ watch(() => data.value?.cabinet, async (cabinet) => {
 }, { immediate: true });
 
 const blank = () => ({
-  enabled: true, kind: "instruction", every: "week", days: [...data.value.presets.workdays], hour: 8, minute: 0, notify: "",
+  enabled: true, kind: "instruction", every: "week", days: [...data.value.presets.workdays], hour: 8, minute: 0, notify: "", name: "",
   prompt: "",
 });
 
@@ -102,7 +102,8 @@ function remove(routine) {
           <span :class="routine.enabled ? 'on' : 'muted'">{{ routine.enabled ? "Active" : "En pause" }}</span>
         </label>
         <div class="routine-what">
-          <b>{{ data.kinds[routine.kind] }}</b>
+          <b>{{ routine.name || data.kinds[routine.kind] }}</b>
+          <span v-if="routine.name" class="muted">{{ data.kinds[routine.kind] }}</span>
           <span v-if="routine.kind === 'instruction'" class="prompt">« {{ routine.prompt }} »</span>
           <span class="muted">{{ routine.schedule }} · rapport à {{ routine.notify }}</span>
         </div>

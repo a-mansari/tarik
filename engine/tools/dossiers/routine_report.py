@@ -115,7 +115,8 @@ def listed(parts, result):
 
 
 def summary(task, parts, title, files):
-    """Return the email's body in Tarik's Markdown (send_email renders it): ``title`` (the routine and its task),
+    """Return the email's body in Tarik's Markdown (send_email renders it): ``title`` (the email's subject: the
+    routine's name, else its number and task),
     then in short how many dossiers and how each ended; for the progress Experio's mean progress, the bank
     operations in suspense and the least advanced; the dossiers to see and those failed; the ``files`` joined, where
     every dossier is."""
@@ -132,7 +133,7 @@ def summary(task, parts, title, files):
     ended = ", ".join(f"**{n}** {words[r][n != 1]}" for r, n in counts.items() if n)
     if counts[LEFT]:
         ended += " (la période suivante est arrivée avant)"
-    lines = ["Bonjour,", "", f"Voici le rapport de la {title}.", "", "**En bref**", ""]
+    lines = ["Bonjour,", "", f"Voici le rapport « {title} ».", "", "**En bref**", ""]
     lines.append(f"- {plural(len(parts), 'dossier')} parcouru{'s' if len(parts) != 1 else ''} : {ended}")
     least = []
     if task == "progress":

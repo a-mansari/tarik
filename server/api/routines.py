@@ -31,7 +31,8 @@ from engine.tools.dossiers.routines import (
 from server import audit
 from server.api.runs import chosen, page
 
-FIELDS = ("enabled", "kind", "every", "days", "hour", "minute", "notify", "prompt")
+FIELDS = ("enabled", "kind", "every", "days", "hour", "minute", "notify", "prompt", "name")
+NAME_CHARACTERS = 80  # a routine's name: its email's subject
 
 
 def shown():
@@ -65,6 +66,7 @@ def cleaned(given):
         "minute": int(given.get("minute") or 0),
         "notify": str(given.get("notify") or "").strip(),
         "prompt": str(given.get("prompt") or "").strip(),
+        "name": " ".join(str(given.get("name") or "").split()),  # one line: a subject
     }
 
 
@@ -83,6 +85,8 @@ def changed(action, given, author):
     switched = before and all(values[key] == before[key] for key in FIELDS if key != "enabled") if values else False
     if values and not (switched and not values["enabled"]):  # pausing is always allowed, even a routine gone bad
         problem = routine_problem(*(values[key] for key in ("kind", *SCHEDULE, "prompt")))
+        if len(values["name"]) > NAME_CHARACTERS:
+            problem = problem or f"un nom de {NAME_CHARACTERS} caractères au plus"
         problem = problem or address_problem(values["notify"])
         if problem:
             return 0, problem
@@ -93,7 +97,8 @@ def changed(action, given, author):
         upcoming = next_run(*(values[key] for key in SCHEDULE), datetime.now(ZONE))
         if action == "create":
             made = (*(values[key] for key in ("kind", *SCHEDULE, "notify")), author, upcoming)
-            return db.execute(Q.routine_made, (*made, values["prompt"], values["enabled"])).fetchone()[0], ""
+            more = (values["prompt"], values["enabled"], values["name"])
+            return db.execute(Q.routine_made, (*made, *more)).fetchone()[0], ""
         moved = any(values[key] != before[key] for key in SCHEDULE) or (values["enabled"] and not before["enabled"])
         db.execute(
             Q.routine_changed,

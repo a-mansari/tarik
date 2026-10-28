@@ -27,13 +27,12 @@ PENDING = set()  # their tasks (a task nobody holds may be collected before it e
 
 def claimed():
     """Return the current cabinet's routines to run now, as (id, kind, every, days, hour, minute, notify, due_at,
-    prompt): the
-    periods started and never reported, then the due routines, each with its period taken and its next time set
-    (one whose period already ran is skipped, its next time set all the same)."""
+    prompt, name): the periods started and never reported, then the due routines, each with its period taken and its
+    next time set (one whose period already ran is skipped, its next time set all the same)."""
     with cabinet_db() as db, db.transaction():
         taken = db.execute(Q.routines_unfinished).fetchall()
         for row in db.execute(Q.routines_due).fetchall():
-            routine_id, _, every, days, hour, minute, _, due_at, _ = row
+            routine_id, _, every, days, hour, minute, _, due_at, *_ = row
             upcoming = next_run(every, days, hour, minute, max(due_at, datetime.now(ZONE)))
             db.execute(Q.routine_next, (upcoming, routine_id))
             if db.execute(Q.routine_period_taken, (routine_id, due_at)).fetchone():
@@ -43,14 +42,14 @@ def claimed():
 
 def given(cabinet, row):
     """Return the Routine run's input for claimed routine ``row``: its call, in the routine's own session."""
-    routine_id, kind, every, days, hour, minute, notify, due_at, prompt = row
+    routine_id, kind, every, days, hour, minute, notify, due_at, prompt, name = row
     schedule = (every, days, hour, minute)
     call = {
         "routine_id": routine_id,
         "task": kind,
         "prompt": prompt,
         "notify": notify,
-        "subject": f"Routine n° {routine_id} : {KINDS[kind]} ({when(*schedule)})",
+        "subject": f"{name or f'Routine n° {routine_id} : {KINDS[kind]}'} ({when(*schedule)})",
         "until": next_run(*schedule, due_at).isoformat(),  # its next period: the dossiers not reached are left to it
         "session_id": session_of(routine_id, due_at),
         "cabinet": cabinet,

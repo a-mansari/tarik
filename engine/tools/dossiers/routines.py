@@ -37,7 +37,20 @@ KINDS = {
 }
 PROMPT_CHARACTERS = 2000  # an instruction's longest
 # routines_listed's columns, in order: every reader takes a row as dict(zip(COLUMNS, row)).
-COLUMNS = ("id", "kind", "every", "days", "hour", "minute", "notify", "enabled", "next_run_at", "created_by", "prompt")
+COLUMNS = (
+    "id",
+    "kind",
+    "every",
+    "days",
+    "hour",
+    "minute",
+    "notify",
+    "enabled",
+    "next_run_at",
+    "created_by",
+    "prompt",
+    "name",
+)
 SCHEDULE = ("every", "days", "hour", "minute")  # a routine's time, in next_run's and when's order
 WEEKDAYS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 ACTIONS = ("create", "list", "pause", "resume", "delete")
@@ -110,7 +123,8 @@ def routines_of_cabinet():
 def listed(r):
     """Return one routine (routines_of_cabinet's) as « n° 3 : <described> (en pause) »."""
     shown = described(r["kind"], *(r[key] for key in SCHEDULE), r["notify"], r["next_run_at"], r["prompt"])
-    return f"n° {r['id']} : {shown}" + ("" if r["enabled"] else " (en pause)")
+    named = f" « {r['name']} »" if r["name"] else ""
+    return f"n° {r['id']}{named} : {shown}" + ("" if r["enabled"] else " (en pause)")
 
 
 def routine_problem(kind, every, days, hour, minute, prompt):
@@ -288,6 +302,6 @@ def created(kind, every, days, hour, email, prompt, sender, client_confirmed, wo
             "vous. Vous confirmez ?"
         )
     with cabinet_db() as db:
-        values = (kind, every, days, hour, minute, notify, sender, upcoming, prompt, True)
+        values = (kind, every, days, hour, minute, notify, sender, upcoming, prompt, True, "")  # named on the page
         (new_id,) = db.execute(Q.routine_made, values).fetchone()
     return ok(f"Routine n° {new_id} créée : {recap}.")
