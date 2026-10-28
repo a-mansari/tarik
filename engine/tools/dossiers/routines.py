@@ -109,6 +109,28 @@ def when(every, days, hour, minute):
     return f"chaque mois, le {days[0]} à {at}"
 
 
+def title_of(routine_id, kind, name):
+    """Return what a routine is called: its name, else « Routine n° 3 : préparer la TVA » (its email's subject begins
+    so, its schedule after: subject_of)."""
+    return name or f"Routine n° {routine_id} : {KINDS[kind]}"
+
+
+def subject_of(title, schedule):
+    """Return a routine's email subject: its title (title_of), then ``schedule`` (when) in parentheses."""
+    return f"{title} ({when(*schedule)})"
+
+
+def title_in(subject):
+    """Return the title a routine's email ``subject`` (subject_of) begins with: the subject without its last
+    parenthesized schedule (itself with parentheses: « en semaine (du lundi au vendredi) à 9 h »)."""
+    depth = 0
+    for at in range(len(subject) - 1, -1, -1):
+        depth += {")": 1, "(": -1}.get(subject[at], 0)
+        if depth == 0 and subject[at] == "(":
+            return subject[:at].rstrip()
+    return subject
+
+
 def session_of(routine_id, due_at):
     """Return the conversation id of a routine's run for period ``due_at``: its runs together on the Executions
     page. The period's runs are unattended (runs.UNATTENDED: only what prepares); a reply there later is not."""

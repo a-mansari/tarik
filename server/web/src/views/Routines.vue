@@ -4,6 +4,7 @@ Tarik's own routine tool does (server/api/routines.py) and keeps it in the Logs 
 was typed. -->
 <script setup>
 import { nextTick, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 
 import { read, send, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
@@ -41,6 +42,17 @@ async function open(routine) {
   document.querySelector(".routine-form input[name=kind]:checked")?.focus();
 }
 const close = () => { editing.value = null; form.value = null; };
+
+// ?modifier=<n°> (a conversation's « Lancée par la routine » link): that routine's form opens, once the admins are read
+// (its « Modifier » button waits for them too), its card brought into view.
+const route = useRoute();
+watch(managers, async (read) => {
+  const asked = Number(route.query.modifier);
+  const routine = read !== undefined && asked && data.value?.routines.find((found) => found.id === asked);
+  if (!routine || editing.value === routine.id) return;
+  await open(routine);
+  document.querySelector(".routine-form")?.closest("article")?.scrollIntoView({ block: "start" });
+}, { immediate: true });
 
 async function post(action, routine) {
   busy.value = true;
