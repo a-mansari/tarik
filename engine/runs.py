@@ -339,14 +339,6 @@ async def run(run_id):
     return shown
 
 
-async def talked(cabinet, sessions):
-    """Return the set of ``cabinet``'s ``sessions`` that are a conversation (sessions_talked): the others (the
-    mailbox's reading, a TVA, RAS or progress routine's period) have none to show; an instruction routine's has."""
-    async with pool.connection() as db:
-        found = await (await db.execute(Q.sessions_talked, (cabinet, list(sessions)))).fetchall()
-    return {row[0] for row in found}
-
-
 async def recent(cabinet=None, graph=None, limit=50):
     """Return the runs list: the latest ``limit`` top-level runs, newest first, each followed by the runs nested in
     it (recursively) with their "depth". With a ``graph`` filter, that graph's runs, nested ones included, without

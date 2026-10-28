@@ -59,12 +59,6 @@ where (%(graph)s::text is not null or parent_id is null)
     and (%(graph)s::text is null or graph = %(graph)s)
 order by started_at desc limit %(limit)s
 
--- name: sessions_talked
--- Those of this cabinet's sessions that are a conversation: a Discussion, an email thread or the agent ran in it
--- (runs_session's index).
-select distinct session_id from runs
-where cabinet = %s and session_id = any(%s) and graph in ('discussion', 'fil', 'agent')
-
 -- name: runs_under
 -- The runs started in the steps of these runs, oldest first.
 select id, graph, cabinet, session_id, status, error, started_at, ended_at, parent_id from runs
