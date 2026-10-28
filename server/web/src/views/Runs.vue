@@ -14,6 +14,7 @@ const router = useRouter();
 const { data, status, loading, reload } = usePage((at) =>
   at.query.graph ? `/executions?graph=${encodeURIComponent(at.query.graph)}` : "/executions");
 const cabinet = pickedCabinet();
+const TALKING = new Set(["agent", "routine"]); // the runs whose conversation the Discussion page shows
 if (cabinet) useLive(`cabinet=${encodeURIComponent(cabinet)}`, reload);
 
 const pick = (event) => router.push({ query: event.target.value ? { graph: event.target.value } : {} });
@@ -49,10 +50,10 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
               <RouterLink :to="`/ui/executions/${run.run_id}`">{{ graphName(run.graph) }}</RouterLink>
             </td>
             <td>
-              <!-- Only Tarik's own turn (« Discussion avec Tarik ») holds the conversation the Discussion page shows. -->
-              <RouterLink v-if="run.graph === 'agent'" class="mono"
+              <!-- Linked where a conversation is shown on the Discussion page: Tarik's own turn (« Discussion avec
+              Tarik ») and a routine's period (its report, a reply to it); nothing elsewhere. -->
+              <RouterLink v-if="TALKING.has(run.graph)" class="mono"
                 :to="`/ui/discussion/${encodeURIComponent(run.session_id)}`">{{ run.session_id }}</RouterLink>
-              <span v-else class="mono muted">{{ run.session_id }}</span>
             </td>
             <td><span :class="`chip ${run.status}`">{{ statusName(run.status) }}</span></td>
             <td class="num">{{ run.seconds }} s<template v-if="!run.ended"> …</template></td>
