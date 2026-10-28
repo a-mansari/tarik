@@ -35,6 +35,17 @@ def without_if(name):
     return re.sub(r"\s+-\s+\d+\s*$", "", name or "")  # " - " then digits, at the very end
 
 
+LEGAL_FORMS = {"ste", "societe", "sarl", "sarlau", "sa", "sas", "au", "ets", "etablissements", "cie"}
+
+
+def tiers_key(name):
+    """Return a tiers' name as looked for in a bank label: normalized, without the « - <IF> » Experio appends nor its
+    legal form (« STE ATLAS SARL » is « atlas »); "" when under 4 letters are left, too short to tell."""
+    words = [word for word in normalized(without_if(name)).split() if word not in LEGAL_FORMS]
+    key = " ".join(words)
+    return key if len(key.replace(" ", "")) >= 4 else ""
+
+
 def similarity(query, name):
     """Return how much ``name`` looks like ``query``, 0..1: misspelled, reordered or partial still score high."""
     query, name = normalized(query), normalized(name)

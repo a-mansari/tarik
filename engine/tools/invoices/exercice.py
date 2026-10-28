@@ -8,6 +8,7 @@ the question when no open exercice covers the date: late invoice in an open one,
 """
 
 import re
+from datetime import date
 
 from engine.tools.core.app import log, ok, question, routine, step_tool
 from engine.tools.core.experio import (
@@ -24,6 +25,31 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.words import normalized
 from engine.tools.invoices.check import resolve_date
+
+FISCAL_YEAR = "exp.fiscal.year.creation.wizard"
+
+
+def with_fiscal_year(action, context):
+    """Return ``action`` (what an action_post answered) once Experio's « Créer l'exercice fiscal » window is answered.
+
+    A posting dated outside every exercice opens that window (check_fiscal_year_creation) instead of posting; its
+    confirmation creates the exercice(s) it proposes, open, then posts again (action_create_and_post): the client
+    asked for the posting, so Tarik confirms it with Experio's own dates, unless the posting date is more than two years
+    from today (a misread scan would open years nobody asked for). Any other answer is returned as it is.
+    """
+    for _ in range(3):  # Experio's own re-post ends it (a bool or another window); never an endless loop
+        if not (isinstance(action, dict) and action.get("res_model") == FISCAL_YEAR and action.get("res_id")):
+            break
+        wizard_id, fields = action["res_id"], ["move_date", "date_start"]
+        wizard = odoo_call(FISCAL_YEAR, "read", [wizard_id], fields=fields, context=context)[0]
+        if not wizard["move_date"] or abs(int(wizard["move_date"][:4]) - date.today().year) > 2:
+            break  # a date far from today (a misread scan) would open years nobody asked for: the cabinet decides
+        if not wizard["date_start"]:  # a dossier with no exercice at all: Experio proposes no dates, the calendar year
+            year = wizard["move_date"][:4]
+            years = {"date_start": f"{year}-01-01", "date_end": f"{year}-12-31"}
+            odoo_call(FISCAL_YEAR, "write", [wizard_id], years, context=context)
+        action = odoo_json(FISCAL_YEAR, "action_create_and_post", [action["res_id"]], context=context)
+    return action
 
 
 def exercice_choice(decision, opens):
