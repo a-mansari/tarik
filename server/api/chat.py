@@ -128,8 +128,9 @@ async def waiting_for_client(cabinet, sessions):
 async def conversations(cabinet):
     """Return the cabinet's conversations (Discussion page and email), newest first.
 
-    Each is its latest run {session_id, started, status, graph, ...} plus medium ("chat" or "email"), state (see
-    state), and first, subject and sender (see openings)."""
+    Each is its latest run {session_id, started, status, graph, ...} plus medium ("chat" or "email": how its messages
+    travel; a routine's conversation by email, its report sent and its reply received so), state (see state), and
+    first, subject, sender and routine (see openings)."""
     latest = []
     for graph in MEDIUMS:
         latest += await runs.recent(cabinet, graph, 200)
@@ -141,6 +142,8 @@ async def conversations(cabinet):
         run["state"] = state(run["status"], session in waiting)
     for session, opening in (await openings(cabinet, list(found))).items():
         found[session].update(opening)
+        if opening["routine"]:  # its first run is the routine's own Discussion run, but it travels by email
+            found[session]["medium"] = "email"
     return list(found.values())
 
 
@@ -211,7 +214,9 @@ async def talk(cabinet, session):
     shown = await messages(session)
     latest = next((run for run in await conversations(cabinet) if run["session_id"] == session), None)
     going = bool(latest and latest["status"] in ("queued", "running"))
-    if going and latest["medium"] == "chat":  # an email thread's message is in Tarik's memory once its run asks
+    # A Discussion run's message (a client's here, a routine's instruction): shown at once; an email thread's is in
+    # Tarik's memory once its run asks.
+    if going and latest["graph"] == "discussion":
         pending = await on_its_way(latest, shown)
         if pending:
             shown.append(pending)

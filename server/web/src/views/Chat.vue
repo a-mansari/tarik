@@ -88,14 +88,16 @@ watch(() => data.value?.going, async (going, was) => {
           <tr v-for="item in data.conversations" :key="item.session_id">
             <td class="num">{{ item.started }}</td>
             <td>
-              <span v-if="item.routine" class="chip"><Icon name="clock" :size="13" /> Routine</span>
-              <span v-else-if="item.medium === 'email'" class="chip"><Icon name="mail" :size="13" /> Email</span>
+              <span v-if="item.medium === 'email'" class="chip"><Icon name="mail" :size="13" /> Email</span>
               <span v-else class="chip ok"><Icon name="chat" :size="13" /> Chat</span>
             </td>
             <td>
               <RouterLink :to="talkLink(item)"><template v-if="item.subject"><b>{{ item.subject }}</b> · </template>{{
                 item.first || "(sans texte)" }}</RouterLink>
               <template v-if="item.sender"><br><span class="muted">{{ item.sender }}</span></template>
+              <!-- What began it, when not a person: a routine (the channel stays the column before's). -->
+              <template v-if="item.routine"><br><span class="muted"><Icon name="clock" :size="12" /> Lancée par la routine
+                « {{ item.routine }} »</span></template>
             </td>
             <td><span class="chip" :class="chips[item.state]">{{ stateName(item.state) }}</span></td>
             <td><ModelUsage :usage="item.usage" /></td>
