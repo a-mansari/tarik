@@ -142,15 +142,27 @@ function styles() {
       "target-arrow-shape": "triangle", "target-arrow-color": css("--edge"), "arrow-scale": 0.9,
     } },
     { selector: "edge.conditional", style: { "line-style": "dashed" } },
+    // A way into or out of a sub-workflow (to or from its start or end port): its own colour, apart from the ways inside.
+    { selector: "edge.crossing", style: { "line-color": css("--edge-cross"), "target-arrow-color": css("--edge-cross") } },
     // A run over the drawing: what did not run fades, what ran takes its outcome's colour.
-    { selector: ".dim", style: { "opacity": 0.65 } }, // faded, yet its label still readable (4.5:1) in both themes
+    { selector: ".dim", style: { "opacity": 0.75 } },
+    { selector: "edge.dim", style: { "opacity": 0.5, "width": 1.2 } }, // a way not taken: thinner and fainter than the ones taken // faded, yet its label still readable (4.5:1) in both themes
     { selector: "node.ran", style: { "border-width": 2.5, "border-color": css("--good"), "background-color": css("--good-bg") } },
-    { selector: "node.ran.wait, node.ran.question", style: { "border-color": css("--wait"), "background-color": css("--wait-bg") } },
-    { selector: "node.ran.stop, node.ran.error", style: { "border-color": css("--bad"), "background-color": css("--bad-bg") } },
-    { selector: "node[kind = 'group'].ran", style: { "border-color": css("--accent"), "background-color": css("--accent-soft"), "background-opacity": 0.6 } },
+    { selector: "node.ran.wait, node.ran.question", style: { "border-color": css("--wait"), "background-color": css("--wait-bg"), "border-width": 3.5 } },
+    { selector: "node.ran.stop, node.ran.error", style: { "border-color": css("--bad"), "background-color": css("--bad-bg"), "border-width": 3.5 } },
+    { selector: "node[kind = 'group'].ran", style: { "background-opacity": 0.6, "border-width": 2 } },
+    // An open sub-workflow's frame: one colour per depth, so nested frames tell apart.
+    { selector: "node[kind = 'group'].depth0", style: { "border-color": css("--frame-0"), "background-color": css("--frame-0-bg") } },
+    { selector: "node[kind = 'group'].depth1", style: { "border-color": css("--frame-1"), "background-color": css("--frame-1-bg") } },
+    { selector: "node[kind = 'group'].depth2", style: { "border-color": css("--frame-2"), "background-color": css("--frame-2-bg") } },
     { selector: "node[kind = 'end'].ran", style: { "background-color": css("--accent") } },
     { selector: "edge.ran", style: { "width": 2.5, "line-color": css("--accent"), "target-arrow-color": css("--accent") } },
     { selector: "node.now", style: { "border-width": 4, "border-color": css("--accent"), "underlay-color": css("--accent"), "underlay-opacity": 0.18, "underlay-padding": 8 } },
+    // A way taken takes its outcome's colour, from the step it enters (from the one it leaves, into a port).
+    { selector: "edge.ran.ok", style: { "line-color": css("--good"), "target-arrow-color": css("--good") } },
+    { selector: "edge.ran.wait, edge.ran.question", style: { "line-color": css("--wait"), "target-arrow-color": css("--wait") } },
+    { selector: "edge.ran.stop, edge.ran.error", style: { "line-color": css("--bad"), "target-arrow-color": css("--bad") } },
+    { selector: "edge.ran.resumed", style: { "line-style": "dotted", "line-color": css("--edge-resume"), "target-arrow-color": css("--edge-resume") } },
     { selector: "edge.now", style: { "width": 4 } },
     // A way in or out a part rarely takes (an invoice resumed at a later step, a step ending it): shown when a run took it.
     { selector: "edge.hidden", style: { "display": "none" } },
@@ -302,7 +314,8 @@ function shownEdges() {
   return [...seen.values()];
 }
 
-const edgeClasses = (e) => [e.conditional && "conditional", e.hidden && "hidden"].filter(Boolean).join(" ");
+const isEnd = (id) => /:__(start|end)__$/.test(id);
+const edgeClasses = (e) => [e.conditional && "conditional", e.hidden && "hidden", (isEnd(e.source) || isEnd(e.target)) && "crossing"].filter(Boolean).join(" ");
 
 // The open groups on screen, outermost first.
 function openFrames() {
@@ -312,7 +325,7 @@ function openFrames() {
 
 function frameElement(id) {
   const group = groups.get(id);
-  return { data: { ...group, parent: undefined, display: group.label, kind: "group" } };
+  return { data: { ...group, parent: undefined, display: group.label, kind: "group" }, classes: `depth${(id.split(":").length - 1) % 3}` };
 }
 
 // Each frame and node on screen put in the open frame around it, if any.
@@ -464,12 +477,14 @@ function paint() {
   if (!props.run) return;
   const { list, now, ended } = replayed();
   collectSteps(list);
-  cy.elements().not("[kind = 'handle'], [kind = 'ghost'], [kind = 'anchor']").addClass("dim").removeClass("ran ok question wait stop error now");
+  cy.elements().not("[kind = 'handle'], [kind = 'ghost'], [kind = 'anchor']").addClass("dim").removeClass("ran ok question wait stop error resumed now");
   for (const [shownId, entries] of stepsByShown()) markRan(shownId, entries);
   const went = taken(list, ended);
   if (!went) markEndsNear();
   cy.edges().forEach((edge) => {
-    if (wentAlong(edge, went)) edge.removeClass("dim").addClass("ran");
+    if (!wentAlong(edge, went)) return;
+    edge.removeClass("dim").addClass(`ran ${outcomeOf(edge)}`.trim());
+    if (edge.hasClass("hidden") && edge.source().data("kind") === "end") edge.addClass("resumed"); // a part resumed past its first steps
   });
   // With lanes: a start or an end is reached when the run went along an edge to or from it.
   if (went) cy.nodes("[kind = 'end']").filter((end) => end.id() === "__start__" || end.connectedEdges(".ran").length).forEach(reached);
@@ -494,6 +509,15 @@ function stepsByShown() {
   return byShown;
 }
 
+// The outcome a way taken shows: that of the step it enters, or of the one it leaves when it enters a port.
+const BADGES = { stop: "✖", error: "✖", wait: "⏸", question: "?" };
+const OUTCOMES = ["stop", "error", "wait", "question", "ok"];
+function outcomeOf(edge) {
+  const into = edge.target();
+  const node = into.data("kind") === "end" ? edge.source() : into;
+  return OUTCOMES.find((outcome) => node.hasClass(outcome)) || "";
+}
+
 // A node that ran: coloured by its outcome, and labelled with how many times it ran.
 function markRan(shownId, entries) {
   const node = cy.getElementById(shownId);
@@ -504,7 +528,8 @@ function markRan(shownId, entries) {
   node.removeClass("dim").addClass(`ran ${status}`);
   // How many times it ran: a step's own count; a collapsed group's, the most any of its first-level steps ran.
   const times = folded ? mostRunsInside(shownId, entries) : all.length;
-  const base = folded ? foldedDisplay(node.data("label"), shownId) : node.data("label");
+  const mark = BADGES[status] ? `${BADGES[status]} ` : ""; // a stop or a wait seen at a glance, beyond its colour
+  const base = mark + (folded ? foldedDisplay(node.data("label"), shownId) : node.data("label"));
   node.data("display", times > 1 ? `${base}\n×${times}` : base);
   node.ancestors().removeClass("dim").addClass("ran");
 }
@@ -1224,7 +1249,10 @@ cytoscape.use(cytoscapeDagre); // once, whatever number of canvases
       <!-- What the lines, colours and gestures mean, each shown as it looks on the canvas. -->
       <div class="legend">
         <template v-if="run">
-          <span><i class="l-ok"></i>Exécutée</span><span><i class="l-wait"></i>Attend quelqu'un</span><span><i class="l-bad"></i>Arrêtée ou en erreur</span><span><i class="l-none"></i>Pas exécutée</span>
+          <span><i class="l-ok"></i>Exécutée</span><span><i class="l-wait"></i>⏸ Attend quelqu'un</span><span><i class="l-bad"></i>✖ Arrêtée ou en erreur</span><span><i class="l-none"></i>Pas exécutée</span>
+          <span><svg class="line ok" width="28" height="10" aria-hidden="true"><line x1="1" y1="5" x2="27" y2="5"/></svg>Voie suivie, de la couleur de l'étape où elle arrive</span>
+          <span><svg class="line none" width="28" height="10" aria-hidden="true"><line x1="1" y1="5" x2="27" y2="5"/></svg>Voie non suivie</span>
+          <span><svg class="line resume" width="28" height="10" aria-hidden="true"><line x1="1" y1="5" x2="27" y2="5"/></svg>Reprise en cours de route (étapes d'avant sautées)</span>
         </template>
         <template v-else>
           <span><svg class="line" width="28" height="10" aria-hidden="true"><line x1="1" y1="5" x2="27" y2="5"/></svg>Toujours suivi</span>
@@ -1232,6 +1260,8 @@ cytoscape.use(cytoscapeDagre); // once, whatever number of canvases
           <span><svg v-bind="ICON" class="stop"><path d="M8 3h8l5 5v8l-5 5H8l-5-5V8z"/><path d="M8 12h8"/></svg>Une étape pas OK arrête sa facture ou son fichier</span>
           <span><svg v-bind="ICON"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>Après une réponse, la facture reprend à l'étape concernée</span>
         </template>
+        <span><svg class="line cross" width="28" height="10" aria-hidden="true"><line x1="1" y1="5" x2="27" y2="5"/></svg>Entrée ou sortie d'un sous-workflow</span>
+        <span><i class="l-f0"></i><i class="l-f1"></i><i class="l-f2"></i>Sous-workflows imbriqués, un ton par niveau</span>
         <span class="gestures">
           <span><svg v-bind="ICON"><path d="M9 9l6 12 2-5 5-2z"/><path d="M5 3v3M3 5h3M9 2v2M2 9h2"/></svg>Clic : voir</span>
           <span><b class="key">▸</b>Double-clic : replier ou déplier</span>
