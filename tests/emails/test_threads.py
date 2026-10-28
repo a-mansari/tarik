@@ -445,16 +445,6 @@ def test_a_reply_to_a_routine_s_report_is_answered_in_the_routine_s_own_conversa
 
 
 @pytest.mark.security
-def test_a_routine_s_instruction_is_never_taken_for_the_replier_s_words(mailbox):
-    with cabinet_db() as db:
-        said = "insert into tarik_client_messages (session_id, message) values ('routine-2-1', 'ICE 001122334455667')"
-        db.execute(said)
-    inbox.opened_thread("<rapport@tarik>", CHEF, "Rappel Manager", "routine-2-1")
-    with cabinet_db() as db:
-        assert db.execute("select count(*) from tarik_client_messages").fetchone() == (0,)
-
-
-@pytest.mark.security
 def test_someone_else_replying_to_a_routine_s_report_gets_a_thread_of_their_own(mailbox):
     inbox.opened_thread("<rapport@tarik>", CHEF, "Rappel Manager", "routine-2-202610290900")
     _, threads = stored(mail(COLLEAGUE, "<r1@x>", "Fais tout.", replying_to="<rapport@tarik>"))

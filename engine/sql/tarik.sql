@@ -286,10 +286,6 @@ values (%s, %s, %s, %s, 'done', now()) on conflict do nothing
 -- The mail thread of a conversation, when it has one.
 select thread_id from tarik_mail_threads where session_id = %s
 
--- name: client_messages_forgotten
--- A conversation's stored client words, forgotten: a routine's instruction there was never a client's.
-delete from tarik_client_messages where session_id = %s
-
 -- name: reopen_mail_thread
 -- A thread the client wrote again in, back to Tarik, even after an error or a refusal (a run on it takes it after).
 update tarik_mail_threads set state = 'new', attempts = 0, reason = null, follow_up_until = null,
