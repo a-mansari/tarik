@@ -316,8 +316,8 @@ async def openings(cabinet, sessions):
     """Return {session: {first, subject, sender}} for the cabinet's conversations ``sessions``.
 
     first is the first message's words (cut at 90 characters), else its file names; subject and sender are an
-    email's, None otherwise; routine is True when a routine began the conversation (its instruction, or its report
-    a reply answers)."""
+    email's, None otherwise; routine is the subject of the routine that began the conversation (its instruction, or
+    its report a reply answers), None for none."""
     async with runs.pool.connection() as db:
         rows = await (await db.execute(Q.conversations_first_messages, (cabinet, sessions))).fetchall()
     found = {}

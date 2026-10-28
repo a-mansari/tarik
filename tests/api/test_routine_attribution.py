@@ -48,17 +48,18 @@ def test_a_run_s_conversation_shows_what_a_routine_sent_as_the_routine_s():
 @pytest.mark.communication
 def test_the_conversations_list_marks_a_conversation_a_routine_began(monkeypatch):
     async def check():
-        period = await runs.created("routine", {}, "c", SESSION)
+        period = await runs.created("routine", {"call": {"subject": "Rappel Manager (à 9 h)"}}, "c", SESSION)
         instruction = {"message": "Demande ses priorités au manager."}
         await runs.created("discussion", instruction, "c", SESSION, None, period, "consigne")
         await runs.created("discussion", {"message": "Bonjour"}, "c", "chat-" + "0" * 32)
         report = "routine-1-202610281809"  # a progress routine's report, the manager replying by email
-        await runs.created("routine", {}, "c", report)
+        await runs.created("routine", {"call": {"subject": "Avancement"}}, "c", report)
         await runs.created("fil", {"thread": {"message": "Merci", "subject": "Re: Avancement"}}, "c", report)
         found = await runs_page.openings("c", [SESSION, "chat-" + "0" * 32, report])
-        assert found[SESSION]["routine"] is True and found[SESSION]["first"] == "Demande ses priorités au manager."
-        assert found[report]["routine"] is True  # its report began it, the reply came after
-        assert found["chat-" + "0" * 32]["routine"] is False  # a client's own conversation
+        assert found[SESSION]["routine"] == "Rappel Manager (à 9 h)"
+        assert found[SESSION]["first"] == "Demande ses priorités au manager."
+        assert found[report]["routine"] == "Avancement"  # its report began it, the reply came after
+        assert found["chat-" + "0" * 32]["routine"] is None  # a client's own conversation
 
     monkeypatch.setattr(runs.live, "touched", lambda *args: None)
     against_the_test_store(check, monkeypatch)
@@ -77,3 +78,34 @@ def test_a_routine_s_instruction_on_its_way_shows_as_the_routine_s_never_twice(m
     assert asyncio.run(chat.on_its_way(latest, kept)) is None  # in Tarik's memory already: shown once
     client = asyncio.run(chat.on_its_way({"run_id": "r", "session_id": "chat-" + "0" * 32}, []))
     assert client["who"] == "Client"
+
+
+@pytest.mark.communication
+def test_a_routine_s_conversation_travels_by_email_and_its_instruction_shows_while_it_runs(monkeypatch):
+    latest = {"run_id": "r", "session_id": SESSION, "graph": "discussion", "status": "running", "started": "t"}
+
+    async def recent(cabinet, graph, limit):
+        return [latest] if graph == "discussion" else []
+
+    async def nothing_waits(cabinet, sessions):
+        return set()
+
+    async def opened(cabinet, sessions):
+        return {SESSION: {"first": "Demande ses priorités.", "subject": None, "sender": None, "routine": "Rappel"}}
+
+    async def no_memory(session):
+        return []
+
+    async def run(run_id):
+        return {"input": {"message": "Demande ses priorités."}}
+
+    async def no_files(*args):
+        return []
+
+    monkeypatch.setattr(chat.runs, "recent", recent)
+    monkeypatch.setattr(chat.runs, "run", run)
+    monkeypatch.setattr(chat, "waiting_for_client", nothing_waits)
+    monkeypatch.setattr(chat, "openings", opened)
+    monkeypatch.setattr(chat, "messages", no_memory)
+    (listed,) = asyncio.run(chat.conversations("c"))
+    assert listed["medium"] == "email" and listed["routine"] == "Rappel"  # its channel, then what began it
