@@ -52,15 +52,21 @@ async def answered(cabinet, session, message, files, node, skipped=()):
 
     The agent is asked again, at most ASK_TRIES times in all and only within QUICK seconds, with REMINDER while
     ``files`` stay untaken, or once with ANSWER_REMINDER when it called no tool while a question waits on the client.
-    The last reply is returned."""
+    The last reply is returned.
+
+    In an unattended run (a routine's period: runs.UNATTENDED) ``message`` is the routine's instruction, not a
+    client's: sent with ROUTINE_NAME and never kept as their words."""
     from engine import runs  # runs imports the graphs, this one among them
+    from engine.agent import ROUTINE_NAME
 
     text = handed(message, files, skipped)
     started = time.monotonic()
-    await within(cabinet, remember_client_message, session, message)
+    by_routine = runs.UNATTENDED.get()
+    if not by_routine:
+        await within(cabinet, remember_client_message, session, message)
     reminder, answer_reminded = "", False
     for _ in range(ASK_TRIES):
-        asked = {"messages": [HumanMessage(text + reminder)]}
+        asked = {"messages": [HumanMessage(text + reminder, name=ROUTINE_NAME if by_routine else None)]}
         result = await runs.nested("agent", asked, cabinet, session, thread=session, node=node)
         reply = for_client(result["messages"][-1].text)
         if time.monotonic() - started > QUICK:

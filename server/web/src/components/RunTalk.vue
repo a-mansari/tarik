@@ -6,6 +6,7 @@ import RunAvatar from "./RunAvatar.vue";
 defineProps({ entries: { type: Array, required: true } });
 function kind(entry) {
   if (entry.who === "Client") return "client";
+  if (entry.who === "Routine") return "routine"; // what a routine sent: its operator's words, never a client's
   return entry.tool ? "tool" : "tarik";
 }
 </script>

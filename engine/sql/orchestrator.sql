@@ -249,10 +249,14 @@ select hash, content from {parts} where hash = any(%s)
 
 -- name: conversations_first_messages
 -- Each conversation's first message: as sent from the Discussions page, or an email thread's (with its subject and
--- sender).
-select distinct on (session_id) session_id, coalesce(input ->> 'message', input -> 'thread' ->> 'message'),
-    coalesce(input -> 'files', input -> 'thread' -> 'files'), input -> 'thread' ->> 'subject', input -> 'thread' ->> 'to'
-from runs where graph in ('discussion', 'fil') and cabinet = %s and session_id = any(%s) order by session_id, started_at
+-- sender), and whether a routine began the conversation (a Routine run in it: its instruction, or its report a reply
+-- answers; runs_session's index).
+select distinct on (r.session_id) r.session_id, coalesce(r.input ->> 'message', r.input -> 'thread' ->> 'message'),
+    coalesce(r.input -> 'files', r.input -> 'thread' -> 'files'), r.input -> 'thread' ->> 'subject',
+    r.input -> 'thread' ->> 'to',
+    exists (select 1 from runs x where x.cabinet = r.cabinet and x.session_id = r.session_id and x.graph = 'routine')
+from runs r
+where r.graph in ('discussion', 'fil') and r.cabinet = %s and r.session_id = any(%s) order by r.session_id, r.started_at
 
 -- name: sessions_waiting_for_client
 -- The conversations whose client Tarik waits for, in a cabinet's schema: a question asked, or verified drafts to post

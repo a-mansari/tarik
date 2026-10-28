@@ -82,11 +82,18 @@ def skills():
     return found
 
 
+# The name of a user-side message a routine sent (its instruction, the line its report opens on): the operator's
+# words, kept in Tarik's memory with that name (never sent to the model: the Messages format has no name), never a
+# client's: no tool reads it as theirs, the pages show it as the routine's.
+ROUTINE_NAME = "routine"
+
+
 def client_message(runtime):
-    """Return the text of the last HumanMessage in the agent's state, word for word; "" when there is none."""
+    """Return the text of the client's last message in the agent's state, word for word: the last HumanMessage a
+    routine did not send (ROUTINE_NAME); "" when there is none."""
     for message in reversed(runtime.state["messages"]):
         if isinstance(message, HumanMessage):
-            return text_of(message.content)
+            return "" if message.name == ROUTINE_NAME else text_of(message.content)
     return ""
 
 
@@ -635,10 +642,9 @@ def described():
     return [found.model_copy(update={"description": latest.get(found.name, found.description)}) for found in TOOLS]
 
 
-# The client-side line a turn Tarik began himself opens on (the model reads a conversation from a client's line): its
-# schedule, never the client's words; tagged BEGAN_NAME, the Discussion page hides it.
+# The line a turn Tarik began himself opens on: the Messages format opens a conversation on the user's side, as a
+# scheduled run is started by a user-side message (its operator's, never a client's: ROUTINE_NAME).
 BEGAN = "[Routine : {}]"
-BEGAN_NAME = "routine"
 
 
 async def began(cabinet, session, subject, said):
@@ -651,7 +657,7 @@ async def began(cabinet, session, subject, said):
     memory = make_agent(config, chat=ChatAnthropic(model="unused", api_key="unused"))  # its model never called here
     # His own email, but holding Experio's data (dossier names, a tool's words): kept as untrusted data, never as
     # instructions of his own (the Discussion page shows it without the tags).
-    turn = [HumanMessage(BEGAN.format(subject), name=BEGAN_NAME), AIMessage(untrusted(said, "rapport_envoye"))]
+    turn = [HumanMessage(BEGAN.format(subject), name=ROUTINE_NAME), AIMessage(untrusted(said, "rapport_envoye"))]
     await memory.aupdate_state(config, {"messages": turn}, as_node="model")
 
 

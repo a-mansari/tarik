@@ -14,7 +14,7 @@ from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 
 from engine import graphs, prompts, runs
-from engine.agent import text_of
+from engine.agent import ROUTINE_NAME, text_of
 from engine.content import LABELS
 from engine.tools.core.cabinets import CABINETS, using
 from engine.tools.core.queries import Q
@@ -148,9 +148,10 @@ def conversation(messages):
     shown = []
     for message in messages or []:
         kind = message.get("type")
-        if kind == "human":
+        if kind == "human":  # a client's, or what a routine sent (ROUTINE_NAME)
             text = text_of(message.get("content"))
-            shown.append({"who": "Client", "text": text, "text_html": str(markdown(text))})
+            who = "Routine" if message.get("name") == ROUTINE_NAME else "Client"
+            shown.append({"who": who, "text": text, "text_html": str(markdown(text))})
         elif kind == "ai":
             content = message.get("content")
             thinking = thinking_of(content)
@@ -315,16 +316,17 @@ async def openings(cabinet, sessions):
     """Return {session: {first, subject, sender}} for the cabinet's conversations ``sessions``.
 
     first is the first message's words (cut at 90 characters), else its file names; subject and sender are an
-    email's, None otherwise."""
+    email's, None otherwise; routine is True when a routine began the conversation (its instruction, or its report
+    a reply answers)."""
     async with runs.pool.connection() as db:
         rows = await (await db.execute(Q.conversations_first_messages, (cabinet, sessions))).fetchall()
     found = {}
-    for session, message, files, subject, sender in rows:
+    for session, message, files, subject, sender, routine in rows:
         words = " ".join((message or "").split())
         if len(words) > 90:
             words = words[:90] + "…"
         first = words or ", ".join(files or [])
-        found[session] = {"first": first, "subject": subject, "sender": sender}
+        found[session] = {"first": first, "subject": subject, "sender": sender, "routine": routine}
     return found
 
 

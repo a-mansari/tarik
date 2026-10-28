@@ -24,6 +24,7 @@ from engine.tools.core.cabinets import CABINETS
 from engine.tools.core.config import FILE_TYPES, MAX_PAGES
 from engine.tools.core.conversation import SKIPPED_NOTE, files_of, own_words
 from engine.tools.core.queries import Q
+from engine.tools.dossiers.people import ROUTINE_SESSION
 from server.api.runs import chosen, cost_shown, markdown, openings, page, spending, usage_shown
 
 SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations: the only ones written to from here
@@ -144,14 +145,14 @@ async def conversations(cabinet):
 
 
 def said(message):
-    """Return a client's message as written: {who, text, files, skipped}; None for a reminder sent to Tarik or the
-    line a turn he began opens on."""
+    """Return a user-side message as written: {who, text, files, skipped}, who "Client", or "Routine" for what a
+    routine sent (agent.ROUTINE_NAME: its instruction, the line its report opens on); None for a reminder."""
     text = agent.text_of(message.content)
-    if text.endswith(REMINDER) or getattr(message, "name", None) == agent.BEGAN_NAME:
-        return None  # a reminder, or the line a turn Tarik began opens on (agent.began): nobody wrote it
+    if text.endswith(REMINDER):
+        return None
     left = text.partition(SKIPPED_NOTE)[2]
     return {
-        "who": "Client",
+        "who": "Routine" if message.name == agent.ROUTINE_NAME else "Client",
         "text": own_words(text),
         "files": files_of(text),
         "skipped": left.split(" ; ") if left else [],
@@ -185,16 +186,17 @@ async def messages(session):
 
 
 async def on_its_way(latest, shown):
-    """Return the client's message of the run still going (``latest``), as sent, while Tarik's memory does not have it
-    yet.
+    """Return the message of the run still going (``latest``), as sent, while Tarik's memory does not have it yet: a
+    client's, or a routine's instruction in a routine's conversation (where the Discussion page never writes: only a
+    routine sends there).
 
-    None when it is already the last client message in ``shown``."""
+    None when it is already the last user-side message in ``shown``."""
     given = (await runs.run(latest["run_id"]))["input"] or {}
-    clients = [entry for entry in shown if entry["who"] == "Client"]
-    if clients and clients[-1]["text"].strip() == (given.get("message") or "").strip():
+    said_before = [entry for entry in shown if entry["who"] in ("Client", "Routine")]
+    if said_before and said_before[-1]["text"].strip() == (given.get("message") or "").strip():
         return None
     return {
-        "who": "Client",
+        "who": "Routine" if latest["session_id"].startswith(ROUTINE_SESSION) else "Client",
         "text": given.get("message", ""),
         "files": given.get("files", []),
         "skipped": given.get("skipped", []),

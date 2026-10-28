@@ -21,9 +21,12 @@ def asking(monkeypatch):
 
     async def nested(name, given, cabinet, session, thread=None, node=None):
         state["asked"].append(given["messages"][0].content)
+        state["sent"] = given["messages"][0]
         return state["turns"].pop(0) if len(state["turns"]) > 1 else state["turns"][0]
 
     async def within(cabinet, function, *args):
+        if function is chat.remember_client_message:
+            state["remembered"] = args
         if function is chat.untaken:
             return state["untaken"].pop(0) if state["untaken"] else False
         if function is chat.waiting_on:
@@ -67,3 +70,18 @@ def test_untaken_files_are_reminded_until_taken(asking):
     asking["untaken"] = [True, False]
     assert reply(asking, files=["f.pdf"]) == "traite"
     assert "ces fichiers n'ont pas ete traites" in asking["asked"][1]
+
+
+@pytest.mark.security
+def test_a_routine_s_instruction_is_sent_as_the_routine_s_never_kept_as_a_client_s_words(asking):
+    from engine import agent
+
+    asking["turns"] = [turn("ai", text="fait")]
+    marked = runs.UNATTENDED.set(True)  # a routine's period
+    try:
+        asyncio.run(chat.answered("c", "routine-2-1", "Demande ses priorités au manager.", [], "consigne"))
+    finally:
+        runs.UNATTENDED.reset(marked)
+    assert asking["sent"].name == agent.ROUTINE_NAME and "remembered" not in asking
+    asyncio.run(chat.answered("c", "chat-1", "oui", [], "tarik"))  # a client, attended
+    assert asking["sent"].name is None and asking["remembered"] == ("chat-1", "oui")

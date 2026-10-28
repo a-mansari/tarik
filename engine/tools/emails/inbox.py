@@ -243,7 +243,8 @@ def opened_thread(message_id, to, subject, session_id):
     with cabinet_db() as db, db.transaction():
         db.execute(Q.insert_opened_thread, (message_id, session_id, to.lower(), subject[:300]))
         db.execute(Q.insert_mail_sent, (message_id, message_id))
-        # The routine's instruction was never their words: what they write alone confirms or names something.
+        # shortcut: since routine messages are never stored as client words (chat.answered), this only clears what a
+        # routine's conversation begun before that stored; drop it with client_messages_forgotten once none is left.
         db.execute(Q.client_messages_forgotten, (session_id,))
 
 

@@ -110,6 +110,7 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .talk li.client { background: var(--accent-soft); }
 .talk li.tarik { background: var(--surface); }
 .talk li.tool { background: var(--bg); font-size: .9rem; }
+.talk li.routine { background: var(--bg); border: 1px dashed var(--line); color: var(--muted); font-size: .9rem; }
 .talk .who { display: block; font-size: .75rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .talk .calls { margin: .3rem 0 0; padding-left: 1.1rem; }
 .talk details summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
@@ -326,6 +327,7 @@ table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 
 .avatar-tarik { background: var(--good-bg, #e3f1e7); color: var(--good); }
 .avatar-tool { background: var(--wait-bg, #f6ecd5); color: var(--wait, #9a6b00); }
 .avatar-system { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+.avatar-routine { background: var(--neutral-bg); color: var(--muted); }
 
 /* The Discussion page: the conversation, then the message to send with its files. */
 a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none; border-radius: 6px; padding: 0 .9rem; background: var(--accent); color: var(--on-accent); }
@@ -402,6 +404,7 @@ button.primary:has(.icon) { display: inline-flex; align-items: center; gap: .4re
 .talk.bubbles { display: flex; flex-direction: column; gap: .6rem; }
 .talk.bubbles > li { max-width: 80%; width: fit-content; min-width: 12rem; box-sizing: border-box; border-radius: 14px; }
 .talk.bubbles > li.client { align-self: flex-start; border-bottom-left-radius: 4px; }
+.talk.bubbles > li.routine { align-self: center; }
 .talk.bubbles > li:is(.tarik, .tool) { align-self: flex-end; border-bottom-right-radius: 4px; }
 .talk.bubbles > li.tool { min-width: 16rem; }
 .talk.bubbles pre { white-space: pre-wrap; overflow-wrap: anywhere; }
