@@ -139,9 +139,12 @@ def experio(monkeypatch):
 
     def ask_model(system, pages, instruction, what, **kw):
         state["asked"].append(instruction)
-        if isinstance(state["answer"], Exception):
-            raise state["answer"]
-        return state["answer"] or {"lines": []}
+        answer = state["answer"]
+        if isinstance(answer, tuple):  # one answer per call
+            answer = answer[len(state["asked"]) - 1]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer or {"lines": []}
 
     monkeypatch.setattr(statement, "ask_model", ask_model)
     monkeypatch.setattr(statement, "tool_prompt", lambda name: name)
@@ -797,3 +800,25 @@ def test_a_statement_experio_refuses_is_said_and_the_others_still_pointed(experi
     monkeypatch.setattr(statement, "settled", settled)
     result = statement.settle_dossier_statements(857)
     assert len(calls) == 2 and "n'a pas pu le pointer" in result["message"] and "pointé." in result["message"]
+
+
+@pytest.mark.functionality
+def test_a_line_the_model_reads_two_ways_is_left_for_the_cabinet(experio):
+    unpointed(experio)
+    experio["lines"][2].update(operation_id=False, operation_type=False, exp_payment_method_id=False)
+    same = {"id": 3, "operation": 13136, "payment_method": 2}
+    experio["answer"] = (
+        {"lines": [{"id": 2, "operation": 13136, "payment_method": 2}, same]},
+        {"lines": [{"id": 2, "operation": 13156, "payment_method": None}, same]},
+    )
+    statement.settle_statement(8)
+    assert len(experio["asked"]) == 2
+    written = [line for line, values in experio["written"] if "operation_id" in values]
+    assert written == [[3]]
+
+
+@pytest.mark.communication
+def test_each_statement_of_a_dossier_is_its_own_line_of_the_summary(experio):
+    experio["open"] = [40, 41]
+    message = statement.settle_dossier_statements(857)["message"]
+    assert "\n- Relevé n° 41 :" in message

@@ -379,7 +379,8 @@ def chosen_operations(statement, lines, context):
     """Give lines without an operation the dossier's operation the model reads in their label, and purchase lines
     without a payment method the method it reads (mandatory for a purchase, bank/models/bank_statement_line.py:
     4069-4075). The model picks among the dossier's operations (operations_of) of the line's way only, shown with
-    the labels they were used for (past_labels), and answers null when the label does not say.
+    the labels they were used for (past_labels), and answers null when the label does not say. It is asked twice:
+    only a line it answers the same both times is written, a label it reads two ways stays for the cabinet.
 
     The operation is typed in the line's form first: its onchange (_onchange_operation_type, :2095-2116) gives the
     tiers the operation carries; an RPC write runs no onchange, so that tiers is written with it.
@@ -418,13 +419,17 @@ def chosen_operations(statement, lines, context):
     )
     # shortcut: one model call per statement, every line in it; split it if statements of hundreds of lines come
     try:
-        answer = ask_model(tool_prompt("point-bank-lines"), [], instruction, "Pointage du relevé", keys=("lines",))
+        answers = [
+            ask_model(tool_prompt("point-bank-lines"), [], instruction, "Pointage du relevé", keys=("lines",))["lines"]
+            for _ in range(2)
+        ]
     except ToolError as failure:  # no model now: the lines stay for the cabinet, the rest of the pointing goes on
         log(f"chosen_operations {statement['id']}: {failure}")
         return 0
     given = 0
     by_id = {line["id"]: line for line in asked}
-    for choice in answer["lines"] if isinstance(answer["lines"], list) else []:
+    first, second = (found if isinstance(found, list) else [] for found in answers)
+    for choice in [choice for choice in first if choice in second]:  # the same answer twice
         line = by_id.pop(choice.get("id"), None) if isinstance(choice, dict) else None
         if not line:
             continue
@@ -810,7 +815,7 @@ def each_statement(dossier_id, step):
             results.append(step(statement))
         except ToolError as failure:  # one statement Experio refuses: said, the others still done
             results.append({"message": str(failure)})
-    text = "\n".join(result["message"] for result in results)
+    text = "\n- ".join(result["message"] for result in results)  # one bullet each in the summary's « - » list
     return ok(text, statement_ids=[statement["id"] for statement in statements])
 
 
