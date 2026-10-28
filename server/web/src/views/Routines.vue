@@ -97,9 +97,9 @@ function remove(routine) {
 
     <article v-for="routine in data.routines" :key="`${routine.id}-${shown}`" class="panel routine">
       <div class="routine-head">
-        <label class="switch" :title="routine.enabled ? 'Mettre en pause' : 'Activer'">
-          <input type="checkbox" :checked="routine.enabled" :disabled="busy" @change="toggle(routine)">
-          <span class="chip" :class="routine.enabled ? 'ok' : ''">{{ routine.enabled ? "Active" : "En pause" }}</span>
+        <label class="switch state" :title="routine.enabled ? 'Mettre en pause' : 'Activer'">
+          <input type="checkbox" role="switch" :checked="routine.enabled" :disabled="busy" @change="toggle(routine)">
+          <span :class="routine.enabled ? 'on' : 'muted'">{{ routine.enabled ? "Active" : "En pause" }}</span>
         </label>
         <div class="routine-what">
           <b>{{ data.kinds[routine.kind] }}</b>
@@ -115,8 +115,7 @@ function remove(routine) {
       </div>
       <p class="muted when">n° {{ routine.id }} · prochaine le <span class="num">{{ routine.next_run_at }}</span> · créée
         par {{ routine.created_by }}<template v-if="routine.last_due"> · dernière le
-          <span class="num">{{ routine.last_due }}</span>{{ routine.last_report === null ? " (en cours)" : "" }}</template></p>
-      <details v-if="routine.last_report && editing !== routine.id" class="last"><summary>Dernier rapport</summary><pre>{{ routine.last_report }}</pre></details>
+          <span class="num">{{ routine.last_due }}</span>{{ routine.running ? " (en cours)" : "" }}</template></p>
       <RoutineForm v-if="editing === routine.id" :form="form" :kinds="data.kinds" :weekdays="data.weekdays"
         :presets="data.presets" :managers="managers" :busy="busy" @submit="submit" @cancel="close" />
     </article>
@@ -138,7 +137,8 @@ function remove(routine) {
 .routine-tools { display: flex; gap: .4rem; }
 .when { margin: 0; font-size: .85rem; }
 .routine > .routine-form { border-top: 1px solid var(--line); margin-top: .4rem; padding-top: .8rem; }
-.last pre { white-space: pre-wrap; max-height: 16rem; overflow: auto; font-size: .8rem; }
+.state { min-width: 6.5rem; }
+.state .on { color: var(--good); font-weight: 600; }
 .empty { display: grid; gap: .4rem; justify-items: start; }
 .empty p { margin: 0; }
 section h2 { margin: 0 0 .8rem; font-size: 1.05rem; }

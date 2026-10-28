@@ -28,7 +28,6 @@ from engine.tools.dossiers.routines import (
     routines_of_cabinet,
     when,
 )
-from engine.tools.emails.sending import plain
 from server import audit
 from server.api.runs import chosen, page
 
@@ -37,19 +36,19 @@ FIELDS = ("enabled", "kind", "every", "days", "hour", "minute", "notify", "promp
 
 def shown():
     """Return the current cabinet's routines for the page, each with its schedule in words and its last run (when it
-    was due, the start of its report)."""
+    was due, and whether it still runs)."""
     with cabinet_db() as db:
         last = {row[0]: row[1:] for row in db.execute(Q.routine_last_runs).fetchall()}
     found = []
     for routine in routines_of_cabinet():
-        due, report = last.get(routine["id"], (None, None))
+        due, running = last.get(routine["id"], (None, False))
         found.append(
             {
                 **routine,
                 "schedule": when(*(routine[key] for key in SCHEDULE)),
                 "next_run_at": routine["next_run_at"].astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
                 "last_due": due and due.astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
-                "last_report": report and plain(report),  # as its email reads, never its Markdown
+                "running": running,  # its last period not reported yet
             }
         )
     return found
