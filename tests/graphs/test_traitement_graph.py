@@ -95,10 +95,11 @@ def test_an_invoice_goes_through_every_step_of_its_chain_in_order(steps):
     )
     steps.run(graph, mode="files")
     assert steps.names == [*FRONT, "identify_document", "split_invoices", *INVOICE_CHAIN, "run_summary"]
-    assert steps.args("create_draft_invoice")[0] | {"invoice_type": ""} == {
+    assert steps.args("create_draft_invoice")[0] | {"invoice_type": "", "posting": ""} == {
         "file_id": 21,
         "dossier_id": 5,
         "invoice_type": "",
+        "posting": "",
     }
     assert set(invoice_ids(steps, "post_invoice") + invoice_ids(steps, "check_duplicate")) == {40}
 

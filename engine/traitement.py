@@ -90,7 +90,10 @@ def extra(tool, call, run_id):
     instructions) and ``run_id``; {} for a tool that takes none."""
     words = {"client_message": call.get("client_message") or ""}
     return {
-        "create_draft_invoice": {"invoice_type": call.get("invoice_type") or call.get("scan_side") or ""},
+        "create_draft_invoice": {
+            "invoice_type": call.get("invoice_type") or call.get("scan_side") or "",
+            "posting": call.get("comptabiliser") or "",
+        },
         "wait_until_read": {"run_id": run_id},
         "correct_invoice": {"payment_method": call.get("mode_paiement") or "", **words},
         "classify_invoice": {"invoice_type": call.get("invoice_type") or ""},
