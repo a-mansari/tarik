@@ -200,6 +200,8 @@ def running(db_cabinet, monkeypatch):
             dossier_id = arguments["dossier_id"]
             figures = {"progress": 10 * dossier_id, "suspense": dossier_id - 5, "pieces": 4, "exercice": "2026"}
             return {"status": "ok", "message": f"Dossier n° {dossier_id}\nAvancement", "figures": figures}
+        if tool == "send_email":
+            return {"status": "ok", "message_id": f"<rapport-{len(state['calls'])}@tarik>"}
         return {"status": "ok"}
 
     async def nested(name, given, cabinet, session, node=None):
@@ -233,6 +235,9 @@ def test_a_routine_works_on_every_dossier_tarik_opens_and_its_report_goes_to_its
     (sent,) = [arguments for tool, arguments in running["calls"] if tool == "send_email"]
     assert sent["to"] == "chef@cabinet.ma" and sent["body"] == report
     assert sent["attach_session"].startswith(f"routine-{routine_id}-")  # the XML the runs made, and the report's
+    with cabinet_db() as db:  # its reply is answered in a thread of its own, Tarik's report its first email
+        thread = db.execute("select client_address, state, opened_with from tarik_mail_threads").fetchone()
+    assert thread == ("chef@cabinet.ma", "done", report)
     sheet = openpyxl.load_workbook(io.BytesIO(next(d for n, d in running["files"].items() if n.endswith(".xlsx"))))
     rows = list(sheet.active.values)
     assert rows == [

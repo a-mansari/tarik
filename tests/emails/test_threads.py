@@ -431,3 +431,30 @@ def test_without_a_manager_the_alert_fails_loudly(mailbox, db_cabinet, monkeypat
     monkeypatch.setattr(inbox, "send_email", lambda *a: pytest.fail("nobody to tell"))
     with pytest.raises(inbox.ToolError, match="Manager non prevenu"):
         inbox.notify_manager(OUTSIDER, "s", "r")
+
+
+@pytest.mark.functionality
+def test_a_reply_to_a_routine_s_report_is_answered_in_its_thread_tarik_knowing_what_it_answers(mailbox):
+    inbox.opened_thread(
+        "<rapport@tarik>", "Chef@cabinet.ma", "Rappel Manager (en semaine à 9 h)", "Par quoi commencer ?"
+    )
+    _, threads = stored(mail(CHEF, "<r1@x>", "Commence par les factures de ALPHA.", replying_to="<rapport@tarik>"))
+    assert threads == [("<rapport@tarik>", CHEF, "new")]  # its own thread, back to Tarik: no thread of its own
+    with cabinet_db() as db:
+        (item,) = inbox.claim(db)
+        assert item["earlier"] == "Par quoi commencer ?" and item["message"] == "Commence par les factures de ALPHA."
+        assert item["in_reply_to"] == "<r1@x>"
+        db.execute("update tarik_mail_messages set handled = true")  # Tarik answered their first reply
+        db.execute("update tarik_mail_threads set state = 'new'")
+        (again,) = inbox.claim(db)
+    assert again["earlier"] == ""  # once their first reply is answered, the conversation remembers it
+
+
+@pytest.mark.security
+def test_someone_else_replying_to_a_routine_s_report_gets_a_thread_of_their_own(mailbox):
+    inbox.opened_thread("<rapport@tarik>", CHEF, "Rappel Manager", "Par quoi commencer ?")
+    _, threads = stored(mail(COLLEAGUE, "<r1@x>", "Fais tout.", replying_to="<rapport@tarik>"))
+    assert ("<r1@x>", COLLEAGUE, "new") in threads and ("<rapport@tarik>", CHEF, "done") in threads
+    with cabinet_db() as db:
+        (item,) = inbox.claim(db)
+    assert item["earlier"] == ""  # never handed Tarik's email to someone it was not sent to

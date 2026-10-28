@@ -276,6 +276,17 @@ insert into tarik_mail_sent (message_id, thread_id) values (%s, %s) on conflict 
 insert into tarik_mail_threads (thread_id, session_id, client_address, subject, state, reason)
 values (%s, %s, %s, %s, %s, %s)
 
+-- name: insert_opened_thread
+-- A thread Tarik began with his own email (a routine's report), answered already: a reply reopens it, never an
+-- acknowledgement (they answer Tarik).
+insert into tarik_mail_threads (thread_id, session_id, client_address, subject, state, acknowledged_at, opened_with)
+values (%s, %s, %s, %s, 'done', now(), %s) on conflict do nothing
+
+-- name: opening_of_thread
+-- Tarik's own first email of a thread he began, until a reply of theirs was answered (then it is in the history).
+select t.opened_with from tarik_mail_threads t where t.thread_id = %s and t.opened_with is not null
+and not exists (select 1 from tarik_mail_messages m where m.thread_id = t.thread_id and m.handled)
+
 -- name: reopen_mail_thread
 -- A thread the client wrote again in, back to Tarik, even after an error or a refusal (a run on it takes it after).
 update tarik_mail_threads set state = 'new', attempts = 0, reason = null, follow_up_until = null,

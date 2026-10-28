@@ -230,6 +230,22 @@ def refusal(sender, auto):
     return None, None
 
 
+def mail_session(message_id):
+    """Return the conversation of the email thread begun by ``message_id``, the cabinet's own: conversation ids are
+    shared by every cabinet, and one email may reach two cabinets' mailboxes."""
+    return "mail-" + hashlib.sha256(f"{current()}\n{message_id}".encode()).hexdigest()[:20]
+
+
+def opened_thread(message_id, to, subject, body):
+    """Record Tarik's own email ``message_id`` to ``to`` (a routine's report) as the first of a thread with them: their
+    reply finds it (thread_of: In-Reply-To, References), and Tarik is handed ``body`` with it (thread_item)."""
+    # shortcut: the reply has a conversation of its own, not the routine's (whose runs may only prepare), so the
+    # report's files and a question a routine run left are not in it; join them if clients ask for those.
+    with cabinet_db() as db, db.transaction():
+        db.execute(Q.insert_opened_thread, (message_id, mail_session(message_id), to.lower(), subject[:300], body))
+        db.execute(Q.insert_mail_sent, (message_id, message_id))
+
+
 def thread_of(db, linked, sender, subject, reason, message_id):
     """Return the id of the sender's thread this email belongs to, creating the thread when needed.
 
@@ -242,9 +258,7 @@ def thread_of(db, linked, sender, subject, reason, message_id):
         {"linked": linked, "sender": sender},
     ).fetchone()
     if not row:
-        # The thread's conversation, the cabinet's own: conversation ids are shared by every cabinet, and one
-        # email may reach two cabinets' mailboxes.
-        session_id = "mail-" + hashlib.sha256(f"{current()}\n{message_id}".encode()).hexdigest()[:20]
+        session_id = mail_session(message_id)
         db.execute(
             Q.insert_mail_thread,
             (message_id, session_id, sender, subject[:300], "ignored" if reason else "new", reason),
@@ -328,7 +342,8 @@ def thread_item(db, thread_id, session_id, address, subject):
     message (the client's unanswered emails as one text); files (names of the conversation's files not taken yet);
     skipped (what the zips left out); message_ids (the unanswered emails); follow_up (True when there is no
     unanswered email: Tarik takes up the drafts Experio was reading); in_reply_to and references (from the thread's
-    last email, for the reply's headers)."""
+    last email, for the reply's headers); earlier (Tarik's own first email of a thread he began, until a reply of
+    theirs is answered: what they answer; "" otherwise)."""
     messages = db.execute(
         Q.unhandled_messages_of_thread,
         (thread_id,),
@@ -359,6 +374,7 @@ def thread_item(db, thread_id, session_id, address, subject):
         "follow_up": not messages,
         "in_reply_to": last_id,
         "references": last_references,
+        "earlier": (db.execute(Q.opening_of_thread, (thread_id,)).fetchone() or [""])[0],
     }
 
 

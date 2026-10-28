@@ -27,6 +27,7 @@ from engine.tools.core.queries import Q
 from engine.tools.dossiers import routine_report as report_files
 from engine.tools.dossiers.routines import ZONE, address_problem
 from engine.tools.dossiers.search import opened_dossiers
+from engine.tools.emails.inbox import opened_thread
 from engine.tools.invoices.pipeline import NOTHING
 
 INPUTS = ["routine_id", "task", "prompt", "notify", "subject", "until", "session_id", "cabinet"]
@@ -200,10 +201,18 @@ async def report(state: Run):
 
 
 async def sent(state: Run):
-    """Graph node: email the report, with the files the runs made, to the routine's ``notify`` (send_email)."""
+    """Graph node: email the report, with the files the runs made, to the routine's ``notify`` (send_email), as the
+    first email of a thread with them (opened_thread): their reply is answered there, in the usual Emails workflow,
+    Tarik knowing what they answer."""
     given = state["call"]
     email = {"to": given["notify"], "subject": given["subject"], "body": state["report"]}
     result = await run_step(state, "send_email", **email, attach_session=given["session_id"])
+    if result.get("status") == "ok" and result.get("message_id"):
+        try:
+            opening = (result["message_id"], email["to"], email["subject"], email["body"])
+            await within(given["cabinet"], opened_thread, *opening)
+        except Exception as error:  # sent all the same: a reply then starts a thread of its own, as before
+            log(f"{given['cabinet']} routine {given['routine_id']} thread: {type(error).__name__}: {error}")
     return {"outcomes": [result]}
 
 

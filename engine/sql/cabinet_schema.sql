@@ -145,6 +145,8 @@ create table if not exists tarik_mail_threads (
 alter table tarik_mail_threads add column if not exists follow_up_until timestamptz;
 -- When Tarik told the client their new thread was received (acknowledge_thread): once per thread.
 alter table tarik_mail_threads add column if not exists acknowledged_at timestamptz;
+-- A thread Tarik began himself (a routine's report): his email, given to him with the first reply as context.
+alter table tarik_mail_threads add column if not exists opened_with text;
 -- The states a thread may be in: dropped and added again at each start, so a new state applies to old schemas too.
 alter table tarik_mail_threads drop constraint if exists tarik_mail_threads_state_check;
 alter table tarik_mail_threads add constraint tarik_mail_threads_state_check

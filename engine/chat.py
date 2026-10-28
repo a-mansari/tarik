@@ -39,7 +39,12 @@ def called_a_tool(messages):
     return False
 
 
-async def answered(cabinet, session, message, files, node, skipped=()):
+# Tarik's own earlier email the client answers (a routine's report), handed before their words: what « oui » means.
+# Its text holds Experio's data (dossier names): wrapped as untrusted, never read as the client's words.
+EARLIER = "Votre email précédent dans ce fil, auquel le client répond :\n{}\n\n"
+
+
+async def answered(cabinet, session, message, files, node, skipped=(), earlier=""):
     """Ask the agent about the client's ``message`` and return its reply, cleaned for the client (for_client).
 
     Args:
@@ -49,18 +54,23 @@ async def answered(cabinet, session, message, files, node, skipped=()):
         files: the names of the files saved with the message.
         node: the graph node each agent run is nested under (runs.nested).
         skipped: what a zip held that Tarik does not take, and why; added to the agent's message (handed).
+        earlier: Tarik's own email the client answers, handed once before their words (EARLIER, as untrusted
+            data), never theirs: the tools read past it (agent.client_message), what they wrote alone confirms or
+            names something (remember_client_message).
 
     The agent is asked again, at most ASK_TRIES times in all and only within QUICK seconds, with REMINDER while
     ``files`` stay untaken, or once with ANSWER_REMINDER when it called no tool while a question waits on the client.
     The last reply is returned."""
     from engine import runs  # runs imports the graphs, this one among them
+    from engine.agent import EARLIER_LABEL, untrusted
 
     text = handed(message, files, skipped)
+    first = (EARLIER.format(untrusted(earlier, EARLIER_LABEL)) if earlier else "") + text  # once: then it is history
     started = time.monotonic()
     await within(cabinet, remember_client_message, session, message)
     reminder, answer_reminded = "", False
     for _ in range(ASK_TRIES):
-        asked = {"messages": [HumanMessage(text + reminder)]}
+        asked = {"messages": [HumanMessage((text if reminder else first) + reminder)]}
         result = await runs.nested("agent", asked, cabinet, session, thread=session, node=node)
         reply = for_client(result["messages"][-1].text)
         if time.monotonic() - started > QUICK:
