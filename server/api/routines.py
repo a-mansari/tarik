@@ -3,11 +3,10 @@ on or off, rescheduled, their instruction and report address changed, made or de
 journal (audit).
 
 A routine works on every dossier Tarik's Experio account may open (search.opened_dossiers). Its checks are the
-tool's own (engine/tools/dossiers/routines.py routine_problem and address_problem)."""
+tool's own (engine/tools/dossiers/routines.py problem_of), and so is the saving (next_of, saved)."""
 
 import asyncio
 import time
-from datetime import datetime
 
 from starlette.requests import Request
 
@@ -15,24 +14,22 @@ from engine.calls import within
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.queries import Q
 from engine.tools.dossiers.routines import (
+    FIELDS,
     KINDS,
     SCHEDULE,
     WEEKDAYS,
     WEEKEND,
     WORKDAYS,
     ZONE,
-    address_problem,
     admins,
-    name_problem,
-    next_run,
-    routine_problem,
+    next_of,
+    problem_of,
     routines_of_cabinet,
+    saved,
     when,
 )
 from server import audit
 from server.api.runs import chosen, page
-
-FIELDS = ("enabled", "kind", "every", "days", "hour", "minute", "notify", "prompt", "name")
 
 
 def shown():
@@ -72,8 +69,8 @@ def cleaned(given):
 
 def changed(action, given, author):
     """Check, then make, change or delete one routine of the current cabinet as the page asks (``action`` create,
-    save, delete). Returns (its id, the problem in French or ""). A routine keeps its next run unless its schedule
-    changed or it is turned back on."""
+    save, delete), with the chat's own checks and saving (problem_of, next_of, saved). Returns (its id, the problem
+    in French or ""). Pausing is always allowed, even a routine gone bad."""
     try:
         routine_id = int(given.get("id") or 0)
         values = cleaned(given) if action != "delete" else None
@@ -82,28 +79,15 @@ def changed(action, given, author):
     before = next((r for r in routines_of_cabinet() if r["id"] == routine_id), None)
     if action != "create" and not before:
         return 0, "cette routine n'existe plus : rechargez la page"
-    switched = before and all(values[key] == before[key] for key in FIELDS if key != "enabled") if values else False
-    if values and not (switched and not values["enabled"]):  # pausing is always allowed, even a routine gone bad
-        problem = routine_problem(*(values[key] for key in ("kind", *SCHEDULE, "prompt")))
-        problem = problem or name_problem(values["name"])
-        problem = problem or address_problem(values["notify"])
-        if problem:
-            return 0, problem
-    with cabinet_db() as db:
-        if action == "delete":
+    if action == "delete":
+        with cabinet_db() as db:
             db.execute(Q.routine_removed, (routine_id,))
-            return routine_id, ""
-        upcoming = next_run(*(values[key] for key in SCHEDULE), datetime.now(ZONE))
-        if action == "create":
-            made = (*(values[key] for key in ("kind", *SCHEDULE, "notify")), author, upcoming)
-            more = (values["prompt"], values["enabled"], values["name"])
-            return db.execute(Q.routine_made, (*made, *more)).fetchone()[0], ""
-        moved = any(values[key] != before[key] for key in SCHEDULE) or (values["enabled"] and not before["enabled"])
-        db.execute(
-            Q.routine_changed,
-            (*(values[key] for key in FIELDS), upcoming if moved else before["next_run_at"], routine_id),
-        )
-    return routine_id, ""
+        return routine_id, ""
+    pausing = before and not values["enabled"] and all(values[k] == before[k] for k in FIELDS if k != "enabled")
+    problem = "" if pausing else problem_of(values)
+    if problem:
+        return 0, problem
+    return saved(values, next_of(values, before), before, author), ""
 
 
 MANAGERS_SECONDS = 300  # the cabinet's admins, read from Experio again after this

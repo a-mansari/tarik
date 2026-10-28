@@ -52,6 +52,8 @@ COLUMNS = (
     "name",
 )
 SCHEDULE = ("every", "days", "hour", "minute")  # a routine's time, in next_run's and when's order
+# What may change in a routine, in routine_changed's order (the page's form, the chat's update).
+FIELDS = ("enabled", "kind", "every", "days", "hour", "minute", "notify", "prompt", "name")
 WEEKDAYS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 ACTIONS = ("create", "update", "list", "pause", "resume", "delete")
 DEFAULT_HOUR = 8  # a routine made without an hour
@@ -291,11 +293,17 @@ def manage_routine(
         return updated(row, asked, sender, client_confirmed, words, session_id)
     if action == "delete" and not confirmed(session_id, client_confirmed, "je la supprime", f"n° {routine_id}"):
         return question(f"Routine {listed(row)}. Je la supprime ? oui / non")
+    if action == "resume":  # turned back on: checked as the page checks it (problem_of)
+        with refused("manage_routine resume", "Experio n'a pas pu vérifier cette routine."):
+            problem = problem_of(row)
+        if problem:
+            return question(f"Pour reprendre la routine n° {routine_id} : {problem}")
     with cabinet_db() as db:
         if action == "delete":
             db.execute(Q.routine_removed, (routine_id,))
             return ok(f"Routine n° {routine_id} supprimée.")
-        upcoming = next_run(*(row[key] for key in SCHEDULE), datetime.now(ZONE))
+        # resumed: its next time from now (next_of); paused: its own kept, moved again when resumed
+        upcoming = next_of({**row, "enabled": action == "resume"}, {**row, "enabled": False})
         db.execute(Q.routine_enabled, (action == "resume", upcoming, routine_id))
     if action == "pause":
         return ok(f"Routine n° {routine_id} en pause.")
@@ -310,36 +318,68 @@ def reported_to(sender, email, words):
     return email if email and client_wrote("email", email, words) else ""
 
 
+# --- One routine checked and saved: the Routines page and the chat alike ---
+
+
+def problem_of(values):
+    """Return what is wrong with routine ``values`` ({FIELDS}) in French, "" when nothing: its task, schedule and
+    instruction (routine_problem), its name (name_problem), its report's address (address_problem: Experio read)."""
+    problem = routine_problem(*(values[key] for key in ("kind", *SCHEDULE, "prompt"))) or name_problem(values["name"])
+    return problem or address_problem(values["notify"])
+
+
+def next_of(values, before=None):
+    """Return the next run of routine ``values``: its own time from now when new, when its schedule changed or when
+    it is turned back on; else ``before``'s (a period already due is never skipped by an unrelated change)."""
+    moved = before is None or any(values[key] != before[key] for key in SCHEDULE)
+    if moved or (values["enabled"] and not before["enabled"]):
+        return next_run(*(values[key] for key in SCHEDULE), datetime.now(ZONE))
+    return before["next_run_at"]
+
+
+def saved(values, upcoming, before=None, author=""):
+    """Save routine ``values`` ({FIELDS}) with its next run ``upcoming``: a new one made by ``author``, or ``before``
+    changed. Return its id."""
+    with cabinet_db() as db:
+        if before is None:
+            made = (*(values[key] for key in ("kind", *SCHEDULE, "notify")), author, upcoming)
+            more = (values["prompt"], values["enabled"], values["name"])
+            return db.execute(Q.routine_made, (*made, *more)).fetchone()[0]
+        db.execute(Q.routine_changed, (*(values[key] for key in FIELDS), upcoming, before["id"]))
+    return before["id"]
+
+
+def recap_of(values, upcoming):
+    """Return routine ``values`` as read back to the client: « « Rappel Manager », <described> »."""
+    shown = described(values["kind"], *(values[key] for key in SCHEDULE), values["notify"], upcoming, values["prompt"])
+    return (f"« {values['name']} », " if values["name"] else "") + shown
+
+
 def created(kind, every, days, hour, minute, email, prompt, name, sender, client_confirmed, words, session_id):
     """manage_routine's create: check, read back, then save the routine (see manage_routine)."""
-    problem = routine_problem(kind, every, days, hour, minute, prompt) or name_problem(name)
+    values = {"enabled": True, "kind": kind, "every": every, "days": days, "hour": hour, "minute": minute}
+    values |= {"notify": reported_to(sender, email, words), "prompt": prompt, "name": name}
+    if not values["notify"]:
+        return question("À quelle adresse e-mail envoyer ses rapports ?")
+    with refused("manage_routine create", "Experio n'a pas pu vérifier cette routine."):
+        problem = problem_of(values)
     if problem:
         return question(f"Pour cette routine : {problem}")
-    notify = reported_to(sender, email, words)
-    if not notify:
-        return question("À quelle adresse e-mail envoyer ses rapports ?")
-    with refused("manage_routine create", "Experio n'a pas pu verifier cette adresse."):
-        problem = address_problem(notify)
-    if problem:
-        return question(f"{problem} : à quelle adresse envoyer ?")
-    upcoming = next_run(every, days, hour, minute, datetime.now(ZONE))
-    recap = (f"« {name} », " if name else "") + described(kind, every, days, hour, minute, notify, upcoming, prompt)
+    upcoming = next_of(values)
+    recap = recap_of(values, upcoming)
     read_back = (
         f"Routine : {recap}, sur tous les dossiers du cabinet.\nRien n'est jamais déclaré ni comptabilisé sans vous. "
         "Vous confirmez ?"
     )
     if not confirmed(session_id, client_confirmed, read_back):  # this very read-back, whole: never another's yes
         return question(read_back)
-    with cabinet_db() as db:
-        values = (kind, every, days, hour, minute, notify, sender, upcoming, prompt, True, name)
-        (new_id,) = db.execute(Q.routine_made, values).fetchone()
-    return ok(f"Routine n° {new_id} créée : {recap}.")
+    return ok(f"Routine n° {saved(values, upcoming, author=sender)} créée : {recap}.")
 
 
 def updated(row, asked, sender, client_confirmed, words, session_id):
     """manage_routine's update: routine ``row`` with what ``asked`` changes (an empty text, no days, -1 keep its
-    own), checked as a new one, read back, saved once the client said yes. Its next time moves only when its
-    schedule changes."""
+    own), checked as a new one (problem_of), read back, saved once the client said yes (saved). Its next time moves
+    only when its schedule changes (next_of)."""
     new = dict(row)
     for key in ("kind", "every", "prompt", "name"):
         if str(asked[key] or "").strip():
@@ -365,21 +405,15 @@ def updated(row, asked, sender, client_confirmed, words, session_id):
             return question("À quelle adresse e-mail envoyer ses rapports ? Écrivez-la telle quelle.")
     if new == row:
         return question(f"Que changer dans la routine n° {row['id']} ? Rien de nouveau n'a été donné.")
-    problem = routine_problem(*(new[key] for key in ("kind", *SCHEDULE, "prompt"))) or name_problem(new["name"])
-    if not problem and new["notify"] != row["notify"]:
-        with refused("manage_routine update", "Experio n'a pas pu verifier cette adresse."):
-            problem = address_problem(new["notify"])
+    with refused("manage_routine update", "Experio n'a pas pu vérifier cette routine."):
+        problem = problem_of(new)
     if problem:
         return question(f"Pour la routine n° {row['id']} : {problem}")
-    moved = any(new[key] != row[key] for key in SCHEDULE)
-    upcoming = next_run(*(new[key] for key in SCHEDULE), datetime.now(ZONE)) if moved else row["next_run_at"]
-    shown = described(new["kind"], *(new[key] for key in SCHEDULE), new["notify"], upcoming, new["prompt"])
-    recap = (f"« {new['name']} », " if new["name"] else "") + shown
+    upcoming = next_of(new, row)
+    recap = recap_of(new, upcoming)
     # The yes must answer this very read-back, whole: its task, time, words, name and address as read to the client.
     read_back = f"Routine n° {row['id']}, après modification : {recap}. Je la modifie ?"
     if not confirmed(session_id, client_confirmed, read_back):
         return question(read_back)
-    with cabinet_db() as db:
-        changed = (new["enabled"], *(new[key] for key in ("kind", *SCHEDULE, "notify", "prompt", "name")))
-        db.execute(Q.routine_changed, (*changed, upcoming, row["id"]))
+    saved(new, upcoming, row)
     return ok(f"Routine n° {row['id']} modifiée : {recap}.")
