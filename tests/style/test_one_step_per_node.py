@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-GRAPHS = ("traitement", "dossier", "declarations", "exports", "emails", "chat", "routine")
+GRAPHS = ("traitement", "dossier", "declarations", "exports", "releves", "emails", "chat", "routine")
 
 
 def steps_of(function):

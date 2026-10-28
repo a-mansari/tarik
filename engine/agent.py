@@ -545,6 +545,11 @@ async def exporter(
     return await run_workflow("export", runtime, inputs)
 
 
+@tool("Experio_pointer_releves", description=DESCRIBED_LATER)
+async def pointer_releves(dossier_id: int, runtime: ToolRuntime, comptabiliser: str = "") -> str:
+    return await run_workflow("releves", runtime, {"dossier_id": dossier_id, "comptabiliser": comptabiliser})
+
+
 @tool("Experio_importer_dossiers", description=DESCRIBED_LATER)
 async def importer_dossiers(runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
@@ -627,6 +632,7 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     declaration_ras,
     declaration_delais,
     exporter,
+    pointer_releves,
     importer_dossiers,
     load_skill,
 ]

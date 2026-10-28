@@ -7,9 +7,15 @@ from types import SimpleNamespace
 import pytest
 
 from check import sample_arguments
-from engine import agent, declarations, dossier, exports, graphs, traitement
+from engine import agent, declarations, dossier, exports, graphs, releves, traitement
 
-WORKFLOWS = {"traitement": traitement, "dossier": dossier, "declarations": declarations, "export": exports}
+WORKFLOWS = {
+    "traitement": traitement,
+    "dossier": dossier,
+    "declarations": declarations,
+    "export": exports,
+    "releves": releves,
+}
 
 
 @pytest.mark.communication
@@ -32,6 +38,7 @@ def test_each_step_of_a_workflow_is_drawn_named_and_described(name):
         ("dossier", {"creation", "configuration", "fichiers", "ecritures", "banques", "finalisation", "etat"}),
         ("declarations", {"expediteur", "tva", "ras", "delais"}),
         ("export", {"expediteur", "export"}),
+        ("releves", {"expediteur", "pointage", "comptabilisation"}),
         ("traitement", {"fichiers", "dossier_import", "brouillons", "reponse"}),
         ("fil", {"suite_documents", "suite_dossiers", "reponse", "fin"}),
     ],
@@ -87,6 +94,7 @@ def test_each_workflow_tool_runs_its_own_workflow_with_its_inputs(monkeypatch):
         "declaration_ras": "declarations",
         "declaration_delais": "declarations",
         "exporter": "export",
+        "pointer_releves": "releves",
         "traiter_fichiers": "traitement",
         "repondre": "traitement",
     }

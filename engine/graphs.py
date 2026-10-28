@@ -11,7 +11,7 @@ from langchain_anthropic import ChatAnthropic
 from langgraph.graph import END
 from langgraph.graph.state import CompiledStateGraph
 
-from engine import agent, chat, declarations, dossier, emails, exports, routine, traitement
+from engine import agent, chat, declarations, dossier, emails, exports, releves, routine, traitement
 from engine.content import LABELS
 
 COMPILED = {
@@ -19,6 +19,7 @@ COMPILED = {
     "dossier": dossier.graph,
     "declarations": declarations.graph,
     "export": exports.graph,
+    "releves": releves.graph,
     "emails": emails.graph,
     "fil": emails.FIL,
     "discussion": chat.graph,
