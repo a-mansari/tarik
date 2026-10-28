@@ -195,8 +195,7 @@ async def report(state: Run):
     }
     for name, data in files.items():
         await within(cabinet, keep_file, session, name, data)
-    title = given["subject"].replace("Routine", "routine", 1)  # « routine n° 3 : préparer la TVA (chaque mois…) »
-    text = report_files.summary(given["task"], parts, title, list(files))
+    text = report_files.summary(given["task"], parts, given["subject"], list(files))
     return {"report": text, "outcomes": [{"status": "ok", "message": text}]}
 
 

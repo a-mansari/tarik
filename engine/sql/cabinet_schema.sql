@@ -281,6 +281,8 @@ do $$ begin
 end $$;
 -- A routine's minute past its hour (0 at first: on the hour).
 alter table tarik_routines add column if not exists minute integer not null default 0 check (minute between 0 and 59);
+-- A routine's own name (« Rappel Manager »), its email's subject; '' for none.
+alter table tarik_routines add column if not exists name text not null default '';
 alter table tarik_routines drop constraint if exists tarik_routines_kind_check;
 alter table tarik_routines add constraint tarik_routines_kind_check
     check (kind in ('tva', 'ras', 'progress', 'instruction'));

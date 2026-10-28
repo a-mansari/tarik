@@ -104,6 +104,10 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
     <fieldset class="step-row">
       <legend><span class="step">1</span> Que doit faire Tarik&nbsp;?</legend>
       <div class="controls">
+        <label class="field">
+          <span>Nom (facultatif) : l'objet de son e-mail</span>
+          <input v-model="form.name" type="text" maxlength="80" autocomplete="off" placeholder="Rappel Manager">
+        </label>
         <div class="tasks">
           <label v-for="(task, key) in TASKS" :key="key" class="task" :class="{ chosen: form.kind === key }">
             <input v-model="form.kind" type="radio" name="kind" :value="key">
