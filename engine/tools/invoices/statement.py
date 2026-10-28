@@ -349,7 +349,7 @@ def operations_of(dossier_id, context):
     check_company, bank/models/bank_statement_line.py:177-181), without an error of their own (a line on one stays
     draft, :4031-4035; validate_operation_fields, bank/models/bank_operation_type.py:176-216)."""
     domain = ["|", ("company_id", "=", dossier_id), ("company_id", "=", False)]
-    fields = ["name", "type", "payment_type", "account_id", "error_msg"]
+    fields = ["name", "type", "payment_type", "account_id", "error_msg", "bank_type"]
     found = odoo_call("bank.operation.type", "search_read", domain, fields=fields, context=context)
     return {o["id"]: o for o in found if not o["error_msg"]}
 
@@ -377,7 +377,7 @@ def past_labels(dossier_id, context, each=3):
 
 # The words of a label that say how it was paid, per payment method (normalized name): VIR, CHQ, PRLV...
 METHOD_WORDS = {
-    "virement": ("vir", "virement"),
+    "virement": ("vir", "virement", "hb"),  # HB: the bank's home banking, a transfer
     "cheque": ("chq", "cheque"),
     "prelevement": ("prlv", "prelevement"),
     "effet": ("effet", "lcn"),
@@ -399,6 +399,45 @@ def method_in_label(label, methods):
     return found.pop() if len(found) == 1 else None
 
 
+def operation_on(operations, account, **where):
+    """Return the first of ``operations`` ({id: operation}) whose account code starts with ``account`` and whose fields
+    are ``where``, None when none."""
+    for operation in operations.values():
+        code = operation["account_id"][1] if operation["account_id"] else ""
+        if code.startswith(account) and all(operation[key] == value for key, value in where.items()):
+            return operation
+    return None
+
+
+def label_operation(line, operations, context):
+    """Return the operation the line's label settles by its account, None when the label settles none.
+
+    « SECURICARTE » is the bank's card insurance: bank charges (61473), without TVA, as insurance is exempt. « DGI »
+    on money paid is the TVA due when a TVA declaration of the dossier owes exactly that amount (its tva_due_unsigned,
+    exp.deduction.table), to the TVA due account (4456); any other tax payment is for the cabinet.
+    """
+    if side(line) != "outbound":
+        return None
+    words = normalized(line["payment_ref"])
+    if said("securicarte", words):
+        return operation_on(operations, "61473", type="bank_fee", bank_type="frais_without_tax")
+    amount = round(abs((line["credit"] or 0) - (line["debit"] or 0)), 2)
+    if said("dgi", words):
+        company = [("company_id", "=", context["allowed_company_ids"][0])]
+        owed = [("tva_due_unsigned", ">=", amount - 0.005), ("tva_due_unsigned", "<=", amount + 0.005)]
+        if odoo_call("exp.deduction.table", "search_count", [*company, *owed], context=context):
+            return operation_on(operations, "4456")
+    return None
+
+
+def suspense_operation(operations, line):
+    """Return the dossier's « compte transitoire ou d'attente » operation for the line's way: débiteurs (3497) for money
+    paid, créditeurs (4497) for money received; None when the dossier has none."""
+    way = side(line)
+    found = operation_on(operations, "3497" if way == "outbound" else "4497", type=False)
+    return found if found and found["payment_type"] in (way, False) else None
+
+
 def chosen_operations(statement, lines, context):
     """Give lines without an operation the dossier's operation the model reads in their label, and purchase lines
     without a payment method the method it reads (mandatory for a purchase, bank/models/bank_statement_line.py:
@@ -410,8 +449,12 @@ def chosen_operations(statement, lines, context):
     The operation is typed in the line's form first: its onchange (_onchange_operation_type, :2095-2116) gives the
     tiers the operation carries; an RPC write runs no onchange, so that tiers is written with it.
 
-    Returns how many lines got an operation or a payment method (counted also in test mode, where nothing is
-    written).
+    A line the model leaves is read by the label rules (label_operation); one still without an operation, the model
+    having answered, goes to the dossier's suspense operation for its way (suspense_operation): the cabinet reclassifies
+    it, and the client is told.
+
+    Returns (how many lines got an operation or a payment method, how many went to suspense), counted also in test
+    mode, where nothing is written.
     """
     asked = [
         line
@@ -420,7 +463,7 @@ def chosen_operations(statement, lines, context):
         and (not line["operation_id"] or line["operation_type"] == "purchase" and not line["exp_payment_method_id"])
     ]
     if not asked:
-        return 0
+        return 0, 0
     dossier_id = statement["company_id"][0]
     operations = operations_of(dossier_id, context)
     methods = {m["id"]: m["name"] for m in odoo_call("exp.payment.method", "search_read", [("payment_id", "!=", 1)])}
@@ -443,16 +486,23 @@ def chosen_operations(statement, lines, context):
         '"payment_method": <payment method id> or null}]}'
     )
     # shortcut: one model call per statement, every line in it; split it if statements of hundreds of lines come
+    answered = True
     try:
         agreed = agreed_lines(tool_prompt("point-bank-lines"), instruction, "Pointage du relevé")
     except (ToolError, LookupError) as failure:  # no model now: the lines stay for the cabinet, the pointing goes on
         log(f"chosen_operations {statement['id']}: {failure}")
-        agreed = {}
-    given = 0
+        agreed, answered = {}, False
+    given = parked = 0
     for line in asked:
         choice = agreed.get(line["id"], {})  # none: the label's words alone can still give the payment method
         values = {}
         operation = operations.get(choice.get("operation")) if choice and not line["operation_id"] else None
+        if not operation and not line["operation_id"]:
+            operation = label_operation(line, operations, context)
+        suspended = False
+        if not operation and not line["operation_id"] and answered:  # nothing says what it is: suspense, told
+            operation = suspense_operation(operations, line)
+            suspended = operation is not None
         if operation and operation["payment_type"] in (side(line), False):
             form = {"operation_id": operation["id"]}
             type_in(LINE, line["id"], form, "operation_id", ("partner_id",), context)
@@ -470,8 +520,8 @@ def chosen_operations(statement, lines, context):
         if values:
             if not dry_run():
                 odoo_call(LINE, "write", [line["id"]], values, context=context)
-            given += 1
-    return given
+            parked, given = (parked + 1, given) if suspended else (parked, given + 1)
+    return given, parked
 
 
 def agreed_lines(system, instruction, what):
@@ -576,17 +626,19 @@ def read_tiers(lines, offered):
 
 
 def owed_invoices(statement, lines, context):
-    """Give purchase and sale lines with a tiers and no invoice the one open invoice owing exactly their amount among
-    those their invoice picker offers (picked's domain), on no statement line yet: Experio's detection's own rule
-    (bank/models/bank_statement_line.py:2440-2475), for the lines its detection did not fill. Two such invoices: none
-    (the detection takes the first; Tarik leaves it to the cabinet). The line's form must accept it (typed_in).
+    """Give purchase and sale lines with no invoice the one open invoice owing exactly their amount among those their
+    invoice picker offers (picked's domain), on no statement line yet: Experio's detection's own rule
+    (bank/models/bank_statement_line.py:2440-2475), for the lines its detection did not fill. A line with no tiers yet
+    is searched among every tiers' invoices, and the invoice gives it its tiers (a cheque line names none). Two such
+    invoices: none (the detection takes the first; Tarik leaves it to the cabinet). The line's form must accept it
+    (typed_in).
 
     Returns how many lines got one (counted also in test mode, where nothing is written).
     """
     given, taken = 0, set()
     for line in lines:
         amount = amount_of(line)
-        if not amount or not line["partner_id"]:
+        if not amount:
             continue
         domain = ast.literal_eval(line["invoice_ids_domain"]) + [("amount_residual", "=", amount)]
         found = set(odoo_call("exp.invoice", "search", domain, context=context)) - taken
@@ -747,7 +799,7 @@ def choose_line_operations(statement_id: int) -> dict:
     phrase = "reçoivent de Tarik leur type d'opération ou mode de paiement, lu dans le libellé"
 
     def work(statement, context):
-        given = chosen_operations(statement, open_lines(statement, context), context)
+        given, parked = chosen_operations(statement, open_lines(statement, context), context)
         dossier_id = statement["company_id"][0]
         note = ""
         lacking = any(not line["operation_id"] for line in open_lines(statement, context))  # as left, shared ones used
@@ -758,7 +810,12 @@ def choose_line_operations(statement_id: int) -> dict:
                 "Le dossier n'a aucune opération bancaire à lui : pour que je pointe ses relevés, dites-moi le "
                 "dossier modèle dont reprendre le paramétrage."
             )
-        return counted(given, phrase), note
+        if parked:
+            note += (
+                f" {parked} ligne(s) sans indice dans le libellé mise(s) en compte d'attente (3497 ou 4497) : "
+                "à reclasser par le cabinet."
+            )
+        return counted(given, phrase), note.strip()
 
     return completing(statement_id, "choose_line_operations", work)
 

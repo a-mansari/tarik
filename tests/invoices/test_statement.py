@@ -65,7 +65,9 @@ def experio(monkeypatch):
         "written": [],
         "post": None,
     }
-    state.update(history=[], open=[40], owed=[], owing=[], partners=[], operations=[], answer=None, asked=[])
+    state.update(
+        history=[], open=[40], owed=[], owing=[], partners=[], operations=[], answer=None, asked=[], declared=0
+    )
     for line in state["lines"]:
         line.setdefault("partner_id", False)
         line.setdefault("operation_id", [1, "Achat Local"])
@@ -108,6 +110,8 @@ def experio(monkeypatch):
             return [dict(operation) for operation in state["operations"]]
         if model == "exp.payment.method":
             return [{"id": 2, "name": "Chèque"}, {"id": 4, "name": "Virement Bancaire"}]
+        if model == "exp.deduction.table":  # the TVA declarations owing exactly a line's amount
+            return state["declared"]
         if method == "search_count":
             return 1  # not the journal's first statement
         return []
@@ -956,3 +960,86 @@ def test_without_the_model_a_purchase_line_still_gets_the_method_its_label_says(
     experio["answer"] = ToolError("Pointage du relevé : le modele n'est pas encore configure.")
     pointed()
     assert ([2], {"exp_payment_method_id": 2}) in experio["written"]
+
+
+SUSPENSE = [  # the dossier's « comptes transitoires ou d'attente »: débiteurs (3497), créditeurs (4497)
+    {"id": 13326, "name": "Transitoire - débiteurs", "type": False, "payment_type": False, "bank_type": False},
+    {"id": 13355, "name": "Transitoire - créditeurs", "type": False, "payment_type": False, "bank_type": False},
+]
+SUSPENSE[0]["account_id"], SUSPENSE[1]["account_id"] = [8, "349700000 CPTS TRA"], [9, "449700000 CPTS TRA"]
+
+
+def with_suspense(experio, **line):
+    unpointed(experio, **line)
+    for operation in SUSPENSE:
+        operation["error_msg"] = False
+    experio["operations"] += [dict(operation) for operation in SUSPENSE]
+    experio["answer"] = {"lines": [{"id": 2, "operation": None, "payment_method": None}]}
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(("debit", "credit", "operation"), [(200.0, 0.0, 13326), (0.0, 150.0, 13355)])
+def test_a_line_nothing_says_goes_to_the_suspense_of_its_way_and_the_client_is_told(experio, debit, credit, operation):
+    with_suspense(experio, payment_ref="CD AP 000155 030826", debit=debit, credit=credit)
+    message = pointed()["message"]
+    assert ([2], {"operation_id": operation}) in experio["written"]
+    assert "1 ligne(s) sans indice dans le libellé mise(s) en compte d'attente (3497 ou 4497)" in message
+
+
+@pytest.mark.security
+def test_without_the_model_nothing_goes_to_suspense(experio):
+    with_suspense(experio, payment_ref="CD AP 000155 030826")
+    experio["answer"] = ToolError("Pointage du relevé : le modele n'est pas encore configure.")
+    pointed()
+    assert not [w for w in experio["written"] if "operation_id" in w[1]]
+
+
+@pytest.mark.functionality
+def test_the_card_insurance_is_a_bank_charge_without_tva(experio):
+    with_suspense(experio, payment_ref="ASSURANCE SECURICARTE")
+    experio["operations"] += [
+        {
+            "id": 5001,
+            "name": "Frais (TTC)",
+            "type": "bank_fee",
+            "payment_type": "outbound",
+            "bank_type": "frais_with_tax",
+        },
+        {
+            "id": 5002,
+            "name": "Frais (HT)",
+            "type": "bank_fee",
+            "payment_type": "outbound",
+            "bank_type": "frais_without_tax",
+        },
+    ]
+    for operation in experio["operations"][-2:]:
+        operation.update(account_id=[6, "614730000 FRAIS ET COMMIS"], error_msg=False)
+    pointed()
+    assert ([2], {"operation_id": 5002}) in experio["written"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(("declared", "operation"), [(1, 5003), (0, 13326)])
+def test_a_dgi_payment_is_the_tva_due_only_when_a_declaration_owes_that_amount(experio, declared, operation):
+    with_suspense(experio, payment_ref="PRELEVEMENT EN FAV. DGI")
+    experio["operations"].append(
+        {"id": 5003, "name": "TVA Due", "type": False, "payment_type": "outbound", "bank_type": False}
+        | {"account_id": [7, "445600000 ETAT TVA DUE"], "error_msg": False}
+    )
+    experio["declared"] = declared
+    pointed()
+    assert ([2], {"operation_id": operation}) in experio["written"]  # else: suspense, the tax is the cabinet's
+
+
+@pytest.mark.functionality
+def test_a_cheque_line_without_tiers_gets_the_invoice_owing_its_amount_and_through_it_its_tiers(experio):
+    experio["lines"][0]["partner_id"] = False
+    experio["owed"] = [70]
+    pointed()
+    assert ([1], {"invoice_ids": [(4, 70)], "partner_id": 9}) in experio["written"]
+
+
+@pytest.mark.functionality
+def test_home_banking_in_a_label_is_a_transfer():
+    assert statement.method_in_label("PAIEMENT LYDEC HB 06/08/2026", {2: "Chèque", 4: "Virement Bancaire"}) == 4
