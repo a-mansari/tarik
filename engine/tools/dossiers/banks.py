@@ -1,11 +1,11 @@
 """Banks as a client or a journal names them (Experio's res.bank list), and the bank journal Tarik makes in a dossier
 that has none at the bank of a statement.
 
-Experio has no matching of its own: it never reads a bank from a journal's name, and its statement import only lists
-the bank journals (bank/wizard/exp_bank_statement_import.py:24-53). A journal is made as its form does
-(exp_account/models/exp_journal.py create): name, a code unique in the dossier archived ones included
-(ensure_unique_codes), type bank, the bank (required by the statement import, exp_bank_statement_import.py:142) and a
-treasury account (ensure_journal_account_id: Experio makes none)."""
+Experio never reads a bank from a journal's name or RIB: its statement import only lists the bank journals
+(bank/wizard/exp_bank_statement_import.py:24-53); its RIB codes serve tiers bank accounts only (RIB_BANKS). A journal
+is made as its form does (exp_account/models/exp_journal.py create): name, a code unique in the dossier archived ones
+included (ensure_unique_codes), type bank, the bank (required by the statement import, exp_bank_statement_import.py:142)
+and a treasury account (ensure_journal_account_id: Experio makes none)."""
 
 import re
 
@@ -30,6 +30,54 @@ BANK_ALIASES = {  # the names clients use -> words of the bank's name in Experio
     "wafa": "attijariwafa",
     "bnp": "bmci",
 }
+
+
+# A Moroccan RIB's first 3 digits (of 24) are its bank's code -> that bank's code in Experio's list (res.bank.code,
+# bank/models/res_bank.py:19). Experio's own table, entreprise_bank/data/res_bank_code_data.xml (entreprise.bank.code,
+# read by exp_partner.py:104 for tiers bank accounts), copied: its module is not installed in every cabinet. Every code
+# from 101 to 197 is a Banque Populaire.
+RIB_BANKS = {
+    "007": "attijari",
+    "311": "attijari",
+    "350": "al_barid",
+    "011": "bmce",
+    "013": "bmci",
+    "080": "bmci",
+    "090": "bmci",
+    "024": "agricol",
+    "225": "agricol",
+    "050": "cfg",
+    "230": "cih",
+    "021": "credit_maroc",
+    "022": "sgeneral",  # SAHAM BANK, ex-Société Générale
+    "360": "umnia",
+    "310": "tgr",
+}
+RIB = re.compile(r"(?<![0-9A-Za-z])\d(?:[ .-]?\d){23}(?!\d)")  # 24 digits, maybe grouped: « 007 780 00 0008… 21 »
+IBAN_START = re.compile(r"\bMA\s?\d\d", re.IGNORECASE)  # « MA64 »: a Moroccan IBAN is MA, 2 check digits, the RIB
+
+
+def bank_of_rib(text, banks):
+    """Return the bank of ``banks`` (Experio's res.bank list, [{id, name, code}]) whose code the RIB written in
+    ``text`` starts with (RIB_BANKS), None when ``text`` holds no RIB or its bank code is not listed. An IBAN is read
+    as its RIB, never its check digits as a bank code."""
+    found = RIB.search(IBAN_START.sub(" ", text or ""))
+    if not found:
+        return None
+    code = re.sub(r"\D", "", found.group())[:3]
+    wanted = "bp" if "101" <= code <= "197" else RIB_BANKS.get(code)
+    return next((bank for bank in banks if wanted and bank.get("code") == wanted), None)
+
+
+def journal_bank(journal, banks):
+    """Return (bank, how) for bank journal ``journal`` ({name, rib}): the bank its RIB says (bank_of_rib, its rib
+    field, else a RIB in its name), else the one its name names (bank_named); how is "son RIB" or "son nom". (None, "")
+    when neither says one. The RIB is the account itself: it wins over the name."""
+    rib_bank = bank_of_rib(journal.get("rib"), banks) or bank_of_rib(journal["name"], banks)
+    if rib_bank:
+        return rib_bank, "son RIB"
+    named = bank_named(journal["name"], banks)
+    return (named, "son nom") if named else (None, "")
 
 
 def read_as(text):

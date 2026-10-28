@@ -171,7 +171,7 @@ def test_a_journal_without_bank_has_no_bank_code(monkeypatch):
     assert intake.bank_code({"bank_id": False}) == "" and intake.bank_code({"bank_id": [1, "X"]}) == ""
 
 
-BANKS = [{"id": 1, "name": "BANK OF AFRICA (BMCE)"}, {"id": 2, "name": "CIH"}]
+BANKS = [{"id": 1, "name": "BANK OF AFRICA (BMCE)", "code": "bmce"}, {"id": 2, "name": "CIH", "code": "cih"}]
 
 
 def fake_experio(journals, written):
@@ -222,6 +222,20 @@ def test_a_journal_named_after_its_bank_gets_it_and_takes_the_statement(monkeypa
     journal, done = intake.statement_journal("r.pdf", "ATLAS", 857, 0)
     assert journal["id"] == 5 and written == [("exp.journal", "write", [5], {"bank_id": 1})]
     assert "journal `BQ BMCE` mis à la banque `BANK OF AFRICA (BMCE)` (d'après son nom)" in done
+
+
+@pytest.mark.functionality
+def test_a_journal_s_rib_gives_it_its_bank_and_takes_the_statement(monkeypatch):
+    written = []
+    rib = {"id": 5, "name": "BQ1", "rib": "230 780 0000012345678901 23", "bank_id": False, "partner_id": False}
+    fake = fake_experio([rib], written)
+    monkeypatch.setattr(intake, "odoo_call", fake)
+    monkeypatch.setattr(banks, "odoo_call", fake)
+    monkeypatch.setattr(intake, "dry_run", lambda: False)
+    monkeypatch.setattr(banks, "dry_run", lambda: False)
+    journal, done = intake.statement_journal("r.pdf", "ATLAS", 857, 0)
+    assert journal["id"] == 5 and written == [("exp.journal", "write", [5], {"bank_id": 2})]
+    assert "journal `BQ1` mis à la banque `CIH` (d'après son RIB)" in done
 
 
 @pytest.mark.functionality

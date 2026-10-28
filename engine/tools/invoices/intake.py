@@ -17,7 +17,7 @@ from engine.tools.core.experio import dossier_lock, dry_run, in_dossier, odoo_ca
 from engine.tools.core.model import pdf_pages, to_pdf
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
-from engine.tools.dossiers.banks import BANK_ALIASES, bank_named, give_bank, make_bank_journal, one_bank_named
+from engine.tools.dossiers.banks import BANK_ALIASES, give_bank, journal_bank, make_bank_journal, one_bank_named
 from engine.tools.invoices import tpe
 from engine.tools.invoices.classify import classify_pages, client_side
 from engine.tools.invoices.statement import import_canvas, is_canvas
@@ -485,8 +485,8 @@ def merged_pdf(raws):
 
 def bank_journals(dossier_id):
     """Return (journals, usable): the dossier's bank journals, and those of them that have a bank, each {id, name,
-    bank_id}. Experio refuses to import a statement into a journal without a bank (exp.bank.statement.import
-    action_create_bank_statements, exp_bank_statement_import.py:142)."""
+    bank_id, partner_id, rib}. Experio refuses to import a statement into a journal without a bank
+    (exp.bank.statement.import action_create_bank_statements, exp_bank_statement_import.py:142)."""
     with refused(
         f"bank_journals {dossier_id}", "Experio est injoignable : les journaux de banque n'ont pas pu être lus."
     ):
@@ -494,7 +494,7 @@ def bank_journals(dossier_id):
             "exp.journal",
             "search_read",
             [("company_id", "=", dossier_id), ("type", "=", "bank")],
-            fields=["id", "name", "bank_id", "partner_id"],
+            fields=["id", "name", "bank_id", "partner_id", "rib"],
             order="name",
         )
     return journals, [journal for journal in journals if journal["bank_id"]]
@@ -551,7 +551,7 @@ def chosen_journal(name, dossier, dossier_id, words):
     ``words`` name (« relevé BMCE »), made when the dossier has none there (make_bank_journal); else its only usable
     one, else the one the client names by its own name.
 
-    First, a bank journal without its bank whose own name names one bank (« BQ AWB ») gets it, as ask_banks does
+    First, a bank journal without its bank whose RIB or own name says one bank (« BQ AWB ») gets it, as ask_banks does
     (give_bank). A bank named when the dossier has one journal still without its bank goes to that journal: no
     second treasury journal.
 
@@ -559,15 +559,15 @@ def chosen_journal(name, dossier, dossier_id, words):
     nothing names one (``choices`` {bank_id: name}), or listing the usable journals (``choices``) when several fit."""
     context = in_dossier(dossier_id)
     journals, usable = bank_journals(dossier_id)
-    banks = odoo_call("res.bank", "search_read", [], fields=["name"], order="name", context=context)
+    banks = odoo_call("res.bank", "search_read", [], fields=["name", "code"], order="name", context=context)
     done = []
     for journal in journals:
-        found = not journal["bank_id"] and bank_named(journal["name"], banks)
+        found, how = (None, "") if journal["bank_id"] else journal_bank(journal, banks)
         if found:
             give_bank(dossier_id, journal, found, context)
             journal["bank_id"] = [found["id"], found["name"]]
             usable.append(journal)
-            done.append(f"journal `{journal['name']}` {would('mis')} à la banque `{found['name']}` (d'après son nom)")
+            done.append(f"journal `{journal['name']}` {would('mis')} à la banque `{found['name']}` (d'après {how})")
     bank = one_bank_named(f"{name.rsplit('.', 1)[0]} {words}", banks)  # « relevés BMCE et SGMB »: none taken
     bankless = [j for j in journals if not j["bank_id"]]
     if bank:
