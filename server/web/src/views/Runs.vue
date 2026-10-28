@@ -51,9 +51,10 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
             </td>
             <td>
               <!-- Linked where a conversation is shown on the Discussion page: Tarik's own turn (« Discussion avec
-              Tarik ») and a routine's period (its report, a reply to it); nothing elsewhere. -->
+              Tarik ») and a routine's period (its report, a reply to it); a dash elsewhere. -->
               <RouterLink v-if="TALKING.has(run.graph)" class="mono"
                 :to="`/ui/discussion/${encodeURIComponent(run.session_id)}`">{{ run.session_id }}</RouterLink>
+              <span v-else class="muted" aria-label="Aucune discussion">—</span>
             </td>
             <td><span :class="`chip ${run.status}`">{{ statusName(run.status) }}</span></td>
             <td class="num">{{ run.seconds }} s<template v-if="!run.ended"> …</template></td>
