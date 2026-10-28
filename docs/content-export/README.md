@@ -112,3 +112,8 @@ uses another one. A stack that edited one of these documents itself loses that e
   `tools/point-bank-lines.md` (the operation and payment method read in a bank label). Import it after the
   routine-outil export, once the stack runs the pointage commit: before, the import is refused (it names a tool the
   stack lacks).
+- `tarik-contenu-pointage-etapes-20261028.json` (and its `.diff`): a statement's pointing in steps (`labels.json`):
+  the boxes « Détection d'Experio », « Types d'opération », « Tiers des opérations », « Factures citées », « Factures
+  ouvertes », « Versements TPE » and « Bilan du relevé », the Relevés boxes « Relevés à pointer » and « Pointage du
+  relevé », and Traitement's « Lecture du relevé » then « Pointage des opérations ». Import it after the pointage
+  export, once the stack runs the commit with the pointing steps.

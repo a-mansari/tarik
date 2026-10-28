@@ -3,6 +3,7 @@ again and where an answer resumes the sequence."""
 
 import pytest
 
+from engine.pointage import STEPS
 from engine.tools.invoices.pipeline import INVOICE_CHAIN
 from engine.traitement import graph
 
@@ -185,6 +186,36 @@ def test_a_statement_is_imported_pointed_then_posted_only_when_asked(steps, impo
     routed(steps, files=[11], identify_document={"status": "ok", "kind": "statement"}, import_bank_statement=imported)
     steps.run(graph, mode="files", comptabiliser=comptabiliser)
     assert steps.names == [*FRONT, "identify_document", "import_bank_statement", *following, "run_summary"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("comptabiliser, posted", [("oui", ["post_statement"]), ("", [])])
+def test_a_bank_statements_lines_are_pointed_step_by_step_then_posted_when_asked(steps, comptabiliser, posted):
+    routed(
+        steps,
+        files=[11],
+        identify_document={"status": "ok", "kind": "statement"},
+        import_bank_statement={"status": "ok", "statement_id": 8},
+        settle_statement={"status": "ok", "routine": True, "statement_id": 8, "bank": True},
+    )
+    steps.run(graph, mode="files", comptabiliser=comptabiliser, client_message="la FA-12")
+    pointing = [*STEPS.values(), "report_statement"]
+    assert steps.names[-len(pointing) - len(posted) - 2 :] == ["settle_statement", *pointing, *posted, "run_summary"]
+    assert steps.args("tie_cited_invoices")[0] == {"statement_id": 8, "client_message": "la FA-12"}
+
+
+@pytest.mark.functionality
+def test_a_bank_statement_whose_pointing_stops_is_not_posted(steps):
+    routed(
+        steps,
+        files=[11],
+        identify_document={"status": "ok", "kind": "statement"},
+        import_bank_statement={"status": "ok", "statement_id": 8},
+        settle_statement={"status": "ok", "routine": True, "statement_id": 8, "bank": True},
+        choose_line_operations={"status": "error"},
+    )
+    steps.run(graph, mode="files", comptabiliser="oui")
+    assert steps.names[-3:] == ["detect_statement_lines", "choose_line_operations", "run_summary"]
 
 
 @pytest.mark.functionality

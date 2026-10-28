@@ -1,0 +1,68 @@
+--- a/labels.json
++++ b/labels.json
+@@ -55,9 +55,10 @@
+       "settle_warnings": "Avertissements d'Experio",
+       "apply_credit_note": "Imputation de l'avoir",
+       "create_import_folder": "Dossier d'import",
+-      "pointage": "Pointage du relevé",
++      "pointage": "Lecture du relevé",
+       "comptabilisation_releve": "Comptabilisation du relevé",
+-      "dossier_import": "Dossier d'import"
++      "dossier_import": "Dossier d'import",
++      "operations": "Pointage des opérations"
+     },
+     "dossier": {
+       "debut": "Pièces jointes et choix du travail",
+@@ -132,9 +133,17 @@
+     "releves": {
+       "debut": "Pièces jointes",
+       "expediteur": "Accès de l'expéditeur",
+-      "pointage": "Pointage des relevés",
++      "pointage": "Pointage du relevé",
+       "comptabilisation": "Comptabilisation des relevés",
+-      "resume": "Résumé envoyé"
++      "resume": "Résumé envoyé",
++      "detection": "Détection d'Experio",
++      "types": "Types d'opération",
++      "tiers": "Tiers des opérations",
++      "factures_citees": "Factures citées",
++      "factures_ouvertes": "Factures ouvertes",
++      "tpe": "Versements TPE",
++      "bilan": "Bilan du relevé",
++      "releves": "Relevés à pointer"
+     }
+   },
+   "statuses": {
+@@ -212,9 +221,10 @@
+         "settle_warnings": "Règle chaque avertissement d'Experio avant la comptabilisation : corrigé quand Experio ou Tarik le peut (taux de RAS TVA selon les règles d'Experio, prorata du dossier, exercice), attendu quand le temps le règle (taux de change pas encore publié), levé quand il ne peut pas s'appliquer, demandé au client seulement pour un vrai choix (ICE de l'acheteur différent de celui du dossier, compte, taux IS/IR). Ce qui reste (DUM du dossier d'import, montant manquant, émetteur au nom du dossier, avertissement qui persiste) arrête la facture.",
+         "apply_credit_note": "Après la comptabilisation d'un avoir, l'impute sur la facture qu'il annule, comme Experio le fait depuis « Crédits en attente » : la facture que cite l'avoir, sinon la seule facture du tiers restant due du même montant. Sinon, les factures possibles sont listées pour le cabinet. Annulable dans Experio.",
+         "create_import_folder": "Quand le client parle d'un dossier d'import, fait de ses fichiers un dossier d'import dans Experio, comme l'écran « Imports » : chaque page typée parmi les types d'Experio (transitaire, douane, DUM, fournisseur, pièce jointe...), chaque pièce un brouillon du dossier, la DUM lue par Experio ; un dossier par fichier s'il dit « plusieurs dossiers ». La facture du transitaire est traitée et comptabilisée en dernier.",
+-        "pointage": "Attend la lecture d'Experio, vérifie ses soldes (solde final calculé, suite du relevé précédent, à-nouveau pour le premier relevé du journal), pointe les opérations avec la détection automatique d'Experio, puis complète ce qu'elle laisse : le type d'opération et, pour un achat, le mode de paiement, lus dans le libellé parmi les opérations du dossier (le modèle répond « rien » quand le libellé ne le dit pas) ; le tiers que le libellé nomme (son ICE ou son nom), un seul ; la seule facture ouverte de ce tiers qui doit exactement le montant de l'opération, acceptée par la ligne, rattache la facture que le client cite, et dit ce qui reste à compléter. Pour un relevé TPE : crée les opérations TPE manquantes comme Experio (sans leur compte, le relevé s'arrête), donne à chaque ligne son opération (vente, frais bancaires, taxe bancaire, solde net remise), demande à quel client rattacher les ventes par carte sans client, et donne total remise, commissions, TVA et net remise. Sur un relevé bancaire, rapproche les versements TPE de leur relevé TPE quand Experio est sûr.",
++        "pointage": "Attend la lecture d'Experio. Pour un relevé TPE : crée les opérations TPE manquantes comme Experio (sans leur compte, le relevé s'arrête), donne à chaque ligne son opération (vente, frais bancaires, taxe bancaire, solde net remise), demande à quel client rattacher les ventes par carte sans client, et donne total remise, commissions, TVA et net remise. Un relevé bancaire passe ensuite au pointage de ses opérations.",
+         "comptabilisation_releve": "Quand le client le demande, comptabilise les opérations prêtes avec la validation d'Experio ; une confirmation qu'Experio demande (relevé en double, hors période, taux de change) reste au cabinet. Liste les opérations restées en suspens. Pour un relevé TPE, l'avertissement d'Experio sur un réseau ou journal différent du dernier relevé TPE est confirmé ; un relevé TPE en double s'arrête.",
+-        "dossier_import": "Quand le client parle d'un dossier d'import, fait de ses fichiers un dossier d'import dans Experio, comme son écran « Imports » : chaque page typée, chaque pièce un brouillon, la DUM lue par Experio ; un dossier par fichier si le client dit « plusieurs dossiers ». Un même fichier ne recrée pas le dossier. Les brouillons suivent ensuite le parcours d'une facture, celle du transitaire en dernier."
++        "dossier_import": "Quand le client parle d'un dossier d'import, fait de ses fichiers un dossier d'import dans Experio, comme son écran « Imports » : chaque page typée, chaque pièce un brouillon, la DUM lue par Experio ; un dossier par fichier si le client dit « plusieurs dossiers ». Un même fichier ne recrée pas le dossier. Les brouillons suivent ensuite le parcours d'une facture, celle du transitaire en dernier.",
++        "operations": "Pointe les opérations d'un relevé bancaire, étape par étape, comme sur son écran « Opérations » d'Experio."
+       },
+       "dossier": {
+         "debut": "Enregistre les fichiers joints au message et choisit le travail à faire : création, modification, accès, archivage, écart de paiement, création de dossiers depuis un tableur, import d'écritures ou reprise.",
+@@ -289,9 +299,17 @@
+       "releves": {
+         "debut": "Enregistre les fichiers joints au message.",
+         "expediteur": "Vérifie que l'expéditeur a accès au dossier.",
+-        "pointage": "Pour chaque relevé bancaire du dossier pas encore comptabilisé, déjà lu par Experio : vérifie ses soldes, pointe les opérations avec la détection automatique d'Experio, puis complète ce qu'elle laisse : le type d'opération et, pour un achat, le mode de paiement, lus dans le libellé parmi les opérations du dossier (le modèle répond « rien » quand le libellé ne le dit pas) ; le tiers que le libellé nomme (son ICE ou son nom), un seul ; la seule facture ouverte de ce tiers qui doit exactement le montant de l'opération, acceptée par la ligne ; rattache la facture que le client cite, et dit ce qui reste à compléter dans Experio.",
++        "pointage": "Pointe un relevé, étape par étape, comme sur son écran « Opérations » d'Experio.",
+         "comptabilisation": "Comptabilise les opérations prêtes de chaque relevé avec la validation d'Experio, et liste celles restées en suspens.",
+-        "resume": "Rédige le résumé que le client lit."
++        "resume": "Rédige le résumé que le client lit.",
++        "detection": "Lance la détection automatique d'Experio (« Auto Point ») et confirme ce qu'elle trouve : opération, mode de paiement et tiers repris d'opérations passées au libellé semblable, et la facture ouverte de ce tiers et de ce montant.",
++        "types": "Pour les lignes sans opération, et les achats sans mode de paiement : le modèle lit le libellé et choisit parmi les opérations du dossier, du sens de la ligne, deux fois ; seule une réponse identique les deux fois est écrite, avec le tiers que porte l'opération.",
++        "tiers": "Donne à une ligne d'achat, de vente ou d'autre tiers le seul tiers que son libellé nomme (son ICE, ou son nom en mots entiers), parmi ceux qu'Experio accepte sur la ligne.",
++        "factures_citees": "Rattache à une ligne la facture que le client cite par son numéro quand elle doit exactement son montant et que la ligne l'accepte ; dit pourquoi une facture citée ne l'est pas.",
++        "factures_ouvertes": "Rattache à une ligne qui a son tiers la seule facture ouverte de ce tiers qui doit exactement son montant, sur aucune autre ligne et acceptée par la ligne ; deux possibles : aucune.",
++        "tpe": "Rapproche les versements TPE du relevé de leur relevé TPE quand Experio est sûr ; dit ceux laissés au cabinet.",
++        "bilan": "Dit où en est le relevé : opérations lues, ce que les étapes ont fait, prêtes et comptabilisées, ses soldes (calculé, suite du relevé précédent, à-nouveau pour le premier du journal) et ce qu'Experio dit encore manquer.",
++        "releves": "Liste les relevés bancaires du dossier déjà dans Experio et pas encore comptabilisés."
+       }
+     }
+   },
