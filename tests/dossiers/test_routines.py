@@ -210,7 +210,8 @@ def running(db_cabinet, monkeypatch):
             return {"reply": f"fait : {given['message']}"}
         return {"message": f"TVA du dossier {given['call']['dossier_id']} préparée.", "outcomes": [{"status": "ok"}]}
 
-    async def start(name, payload, slots=None):  # the trigger's run, its graph run as is (no run store here)
+    async def start(name, payload, slots=None, unattended=False):  # the trigger's run, as is (no run store here)
+        state["unattended"] = unattended
         output = await graphs.COMPILED[name].ainvoke(payload["input"], {"run_id": "run"})
         done = asyncio.get_running_loop().create_future()
         done.set_result((output, None))
@@ -235,9 +236,9 @@ def test_a_routine_works_on_every_dossier_tarik_opens_and_its_report_goes_to_its
     (sent,) = [arguments for tool, arguments in running["calls"] if tool == "send_email"]
     assert sent["to"] == "chef@cabinet.ma" and sent["body"] == report
     assert sent["attach_session"].startswith(f"routine-{routine_id}-")  # the XML the runs made, and the report's
-    with cabinet_db() as db:  # its reply is answered in a thread of its own, Tarik's report its first email
-        thread = db.execute("select client_address, state, opened_with from tarik_mail_threads").fetchone()
-    assert thread == ("chef@cabinet.ma", "done", report)
+    with cabinet_db() as db:  # a reply is answered in the routine's own conversation, the report its first email
+        thread = db.execute("select client_address, state, session_id from tarik_mail_threads").fetchone()
+    assert thread == ("chef@cabinet.ma", "done", sent["attach_session"])
     sheet = openpyxl.load_workbook(io.BytesIO(next(d for n, d in running["files"].items() if n.endswith(".xlsx"))))
     rows = list(sheet.active.values)
     assert rows == [
@@ -258,6 +259,7 @@ def test_an_instruction_is_handed_to_the_agent_once_in_the_routines_own_session(
     assert asyncio.run(clock.ran(db_cabinet, row)) == "fait : Liste les brouillons."
     ((name, _, session),) = running["nested"]
     assert name == "discussion" and session.startswith(f"routine-{routine_id}-")
+    assert running["unattended"] is True  # its period runs unattended, and so does everything nested in it
 
 
 @pytest.mark.security
@@ -381,8 +383,15 @@ def test_the_cabinets_admins_offered_are_the_same_rule_among_allowed_addresses(e
 
 
 @pytest.mark.security
-@pytest.mark.parametrize(("session", "kept"), [("routine-3-2026102708", False), ("chat-" + "0" * 32, True)])
-def test_a_routines_run_never_confirms_declares_nor_posts(monkeypatch, session, kept):
+@pytest.mark.parametrize(
+    ("configurable", "kept"),
+    [
+        ({"unattended": True}, False),  # a routine's period: nobody there to say yes
+        ({}, True),  # a client in the chat
+        ({"session_id": "routine-3-202610270800"}, True),  # a client's reply in a routine's conversation: attended
+    ],
+)
+def test_a_routines_run_never_confirms_declares_nor_posts(monkeypatch, configurable, kept):
     from types import SimpleNamespace
 
     from engine import agent, runs
@@ -394,7 +403,8 @@ def test_a_routines_run_never_confirms_declares_nor_posts(monkeypatch, session, 
         return {"message": "fait"}
 
     monkeypatch.setattr(runs, "nested", nested)
-    runtime = SimpleNamespace(state={"messages": []}, config={"configurable": {"session_id": session, "cabinet": "c"}})
+    given = {"session_id": "chat-" + "0" * 32, "cabinet": "c"} | configurable
+    runtime = SimpleNamespace(state={"messages": []}, config={"configurable": given})
     asked = {"client_confirmed": True, "declarer": True, "comptabiliser": "oui"}
     asyncio.run(agent.run_workflow("declarations", runtime, asked))
     (call,) = handed
@@ -413,7 +423,7 @@ def test_a_routines_run_starts_only_what_prepares(monkeypatch, workflow, runs_it
         return {"message": f"{name} fait"}
 
     monkeypatch.setattr(runs, "nested", nested)
-    session = {"session_id": "routine-3-2026102708", "cabinet": "c"}
+    session = {"session_id": "routine-3-202610270800", "cabinet": "c", "unattended": True}
     runtime = SimpleNamespace(state={"messages": []}, config={"configurable": session})
     answer = asyncio.run(agent.run_workflow(workflow, runtime, {}))
     assert (answer == f"{workflow} fait") is runs_it and (answer == agent.NOT_IN_ROUTINE) is not runs_it
@@ -566,3 +576,85 @@ def test_the_chat_and_the_page_refuse_a_routine_whose_address_left_alike(chat, m
         db.execute("update tarik_routines set enabled = false")
     resumed = routines.manage_routine("resume", routine_id=row["id"], session_id="s")
     assert resumed["status"] == "question" and "Pour reprendre" in resumed["message"]  # resumed only once fixed
+
+
+@pytest.mark.security
+def test_an_unattended_run_marks_every_run_nested_in_it_and_nothing_else():
+    from engine import runs
+
+    assert "unattended" not in runs.configurable_of("c", "s", None)
+    marked = runs.UNATTENDED.set(True)  # inside a routine's period, as execute sets it for its nested runs
+    try:
+        assert runs.configurable_of("c", "s", "s")["unattended"] is True
+    finally:
+        runs.UNATTENDED.reset(marked)
+    assert "unattended" not in runs.configurable_of("c", "routine-3-202610270800", None)  # never from its id
+
+
+@pytest.mark.functionality
+def test_a_routine_s_report_is_tarik_s_own_turn_in_its_conversation(monkeypatch):
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from engine import agent
+
+    monkeypatch.setattr(agent, "CHECKPOINTER", InMemorySaver())
+    asyncio.run(agent.began("c", "routine-2-202610290900", "Rappel Manager", "Par quoi\u200b commencer ?"))
+    config = {"configurable": {"thread_id": "routine-2-202610290900", "checkpoint_ns": ""}}
+    saved = asyncio.run(agent.CHECKPOINTER.aget(config))["channel_values"]["messages"]
+    assert [(message.type, message.text) for message in saved] == [
+        ("human", "[Routine : Rappel Manager]"),  # the line the conversation opens on, nobody's words
+        # Tarik's: a reply reads as its answer; Experio's data in it stays data
+        ("ai", '<untrusted_data source="Experio" label="rapport_envoye">\nPar quoi commencer ?\n</untrusted_data>'),
+    ]
+    assert saved[0].name == agent.BEGAN_NAME  # the Discussion page hides that line by its tag, never by its text
+
+
+@pytest.mark.security
+def test_a_run_nested_in_an_unattended_one_is_built_unattended(monkeypatch):
+    from engine import runs
+
+    built = []
+
+    class Graph:
+        async def ainvoke(self, given, config):
+            return config["configurable"]
+
+    monkeypatch.setattr(runs, "pool", None)
+    monkeypatch.setattr(runs, "graph_of", lambda name, configurable: built.append(configurable) or Graph())
+
+    async def inside_a_period():
+        marked = runs.UNATTENDED.set(True)
+        try:
+            return await runs.nested("agent", {}, "c", "routine-2-202610290900", thread="routine-2-202610290900")
+        finally:
+            runs.UNATTENDED.reset(marked)
+
+    assert asyncio.run(inside_a_period())["unattended"] is True  # what the agent's tools read (run_workflow)
+    assert "unattended" not in asyncio.run(runs.nested("agent", {}, "c", "routine-2-202610290900"))  # a reply's
+
+
+@pytest.mark.functionality
+def test_a_period_run_again_after_its_report_went_never_sends_it_twice(running, db_cabinet):
+    due_routine("tva")
+    (row,) = clock.claimed()
+    asyncio.run(clock.ran(db_cabinet, row))
+    with cabinet_db() as db:
+        db.execute("update tarik_routine_runs set report = null")  # the server stopped before its report was kept
+    (again,) = clock.claimed()
+    asyncio.run(clock.ran(db_cabinet, again))
+    assert len([tool for tool, _ in running["calls"] if tool == "send_email"]) == 1
+
+
+@pytest.mark.security
+def test_an_instruction_cut_off_never_joins_its_conversation_to_a_reply(running, db_cabinet, monkeypatch):
+    due_routine("instruction", "Liste tout.")
+    (row,) = clock.claimed()
+
+    async def slow(name, given, cabinet, session, node=None):
+        await asyncio.sleep(1)
+
+    monkeypatch.setattr(clock.runs, "nested", slow)
+    monkeypatch.setattr(flow, "INSTRUCTION_SECONDS", 0.01)
+    asyncio.run(clock.ran(db_cabinet, row))
+    with cabinet_db() as db:
+        assert db.execute("select count(*) from tarik_mail_threads").fetchone() == (0,)  # a tool call left open there

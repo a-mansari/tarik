@@ -4,6 +4,7 @@ them (the LangGraph checkpointer's tables, same schema)."""
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import re
 import time
@@ -149,6 +150,9 @@ async def end_cut_off():
 
 RUNNING = usage.RUNNING  # the run whose steps are going on: a run started in one of them is its child, and the model
 # calls made in them are its (the context reaches every task the graph starts for its steps, and their tools' threads)
+# True in an unattended run (a routine's period) and every run nested in it, the same way: nobody there to say yes.
+# Its runs read it in their configurable ("unattended"), never from their conversation's id.
+UNATTENDED = contextvars.ContextVar("unattended", default=False)
 
 
 async def created(name, given, cabinet, session, thread=None, parent=None, parent_node=None):
@@ -170,9 +174,10 @@ async def created(name, given, cabinet, session, thread=None, parent=None, paren
     return run_id
 
 
-async def start(name, payload, slots=SLOTS):
+async def start(name, payload, slots=SLOTS, unattended=False):
     """Record a new run of graph ``name`` and start it in the background; return (run_id, task). ``slots``: the
     semaphore it runs under (execute), None for a run whose work is limited otherwise (a routine's period).
+    ``unattended``: a run nobody watches (a routine's period), it and every run nested in it (UNATTENDED).
 
     ``payload`` is the POST /runs body: {input, session_id?, thread_id?, cabinet?}. The session and cabinet default
     to the input's call, then to a new id and DEFAULT_CABINET; only the agent gets a thread (thread_id, else the
@@ -183,7 +188,8 @@ async def start(name, payload, slots=SLOTS):
     cabinet = payload.get("cabinet") or call.get("cabinet") or given.get("cabinet") or DEFAULT_CABINET
     thread = (payload.get("thread_id") or session) if name == "agent" else None
     run_id = await created(name, given, cabinet, session, thread)
-    task = asyncio.create_task(execute(run_id, name, cabinet, session, thread, given, slots=slots))
+    running = execute(run_id, name, cabinet, session, thread, given, slots=slots, unattended=unattended)
+    task = asyncio.create_task(running)
     return run_id, task
 
 
@@ -210,8 +216,11 @@ async def nested(name, given, cabinet, session, thread=None, node=None):
 
 
 def configurable_of(cabinet, session, thread):
-    """Return a run's configurable: {cabinet, session_id}, plus thread_id when ``thread`` is set."""
+    """Return a run's configurable: {cabinet, session_id}, plus thread_id when ``thread`` is set and unattended
+    (True) in an unattended run (UNATTENDED)."""
     configurable = {"cabinet": cabinet, "session_id": session}
+    if UNATTENDED.get():
+        configurable["unattended"] = True
     if thread:
         configurable["thread_id"] = thread
     return configurable
@@ -222,16 +231,18 @@ def graph_of(name, configurable):
     return agent.make_agent({"configurable": configurable}) if name == "agent" else graphs.COMPILED[name]
 
 
-async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
+async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS, unattended=False):
     """Run the recorded run ``run_id`` of graph ``name`` on ``given``, recording each step as it ends and the run's
     end; return (output, failure): output is the final state (None if none), failure the exception or None.
 
     ``slots`` is the semaphore limiting runs at once (SLOTS). A nested run passes None: its parent already holds
-    a slot, and waiting for another could wait for itself. A failure never propagates: it ends the run in error.
+    a slot, and waiting for another could wait for itself. ``unattended`` marks it and the runs nested in it
+    (UNATTENDED); a nested run inherits its parent's. A failure never propagates: it ends the run in error.
 
     Two maps are kept while streaming, for recorded(): ``inner`` maps a nested part's path ("facture",
     "fichier|facture") to the status of the last step that ran inside it, so the part's own step reads as that
     status; ``rounds`` maps (namespace, node) to the LangGraph step (superstep) its latest task started in."""
+    marked = UNATTENDED.set(True) if unattended else None
     configurable = configurable_of(cabinet, session, thread)
     status, error, output, failure = "done", None, None, None
     inner = {}  # a part's path ("facture", "fichier|facture") -> the status of the last step that ran inside it
@@ -271,6 +282,8 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS):
                 )
     finally:
         RUNNING.reset(running)
+        if marked:
+            UNATTENDED.reset(marked)
     live.touched(run_id, cabinet, session)
     return output, failure
 

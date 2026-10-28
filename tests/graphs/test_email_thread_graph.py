@@ -30,7 +30,7 @@ def thread(steps, monkeypatch):
     """The thread's tools faked (steps), the agent replying, the resumed workflows saying what ``resumed`` holds."""
     asked, resumed = [], {"traitement": "Factures traitees.", "dossier": "Dossier termine."}
 
-    async def answered(cabinet, session, message, files, agent, skipped, earlier=""):
+    async def answered(cabinet, session, message, files, agent, skipped):
         asked.append(message)
         if isinstance(resumed.get("agent"), Exception):
             raise resumed["agent"]

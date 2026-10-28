@@ -144,10 +144,11 @@ async def conversations(cabinet):
 
 
 def said(message):
-    """Return a client's message as written: {who, text, files, skipped}; None for a reminder sent to Tarik."""
+    """Return a client's message as written: {who, text, files, skipped}; None for a reminder sent to Tarik or the
+    line a turn he began opens on."""
     text = agent.text_of(message.content)
-    if text.endswith(REMINDER):
-        return None
+    if text.endswith(REMINDER) or getattr(message, "name", None) == agent.BEGAN_NAME:
+        return None  # a reminder, or the line a turn Tarik began opens on (agent.began): nobody wrote it
     left = text.partition(SKIPPED_NOTE)[2]
     return {
         "who": "Client",
@@ -176,8 +177,8 @@ async def messages(session):
             for tool_call in message.tool_calls:
                 called[tool_call["id"]] = {"name": tool_call["name"], "state": "running"}
                 turn["tools"].append(called[tool_call["id"]])
-            if message.text.strip():
-                turn["text"] = message.text  # its last words in the turn: the reply
+            if message.text.strip():  # its last words in the turn: the reply (a routine's report: its tags off)
+                turn["text"] = runs.UNTRUSTED_TAGS.sub("", message.text).strip()
         elif message.type == "tool" and message.tool_call_id in called:
             called[message.tool_call_id]["state"] = "failed" if message.status == "error" else "done"
     return shown

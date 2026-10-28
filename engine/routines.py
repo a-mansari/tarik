@@ -64,7 +64,7 @@ async def ran(cabinet, row):
     async with ONE_PER_CABINET.setdefault(cabinet, asyncio.Semaphore(1)):
         try:
             # No run slot held for hours: its dossiers take turns in routine.EVERYWHERE, the clients' runs never wait
-            _, task = await runs.start("routine", {"input": given(cabinet, row)}, slots=None)
+            _, task = await runs.start("routine", {"input": given(cabinet, row)}, slots=None, unattended=True)
             output, failure = await task
             report = CRASHED if failure else (output or {}).get("message") or CRASHED
         except Exception as error:

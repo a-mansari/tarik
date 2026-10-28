@@ -18,7 +18,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import wrap_model_call
 from langchain.tools import ToolRuntime, tool
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.config import get_config
 
 from engine import content, prompts
@@ -29,7 +29,6 @@ from engine.settings import cabinet_of, session_of
 from engine.tools.core import usage
 from engine.tools.core.cabinets import setting, using
 from engine.tools.core.model import MODEL_URL, adapter
-from engine.tools.dossiers.people import ROUTINE_SESSION
 
 
 def model(cabinet):
@@ -83,18 +82,11 @@ def skills():
     return found
 
 
-EARLIER_LABEL = "email_precedent"  # Tarik's own earlier email, handed before a reply to it (chat.answered)
-# That email's block at the head of the client's message, after its one line of introduction: its closing tag inside
-# is escaped (untrusted), so the first closing tag is its own end.
-EARLIER_BLOCK = re.compile(rf'^[^\n]*\n<untrusted_data [^>]*label="{EARLIER_LABEL}">.*?</untrusted_data>\s*', re.DOTALL)
-
-
 def client_message(runtime):
-    """Return the text of the last HumanMessage in the agent's state, word for word, without Tarik's own earlier
-    email handed before it (EARLIER_BLOCK: never the client's words); "" when there is none."""
+    """Return the text of the last HumanMessage in the agent's state, word for word; "" when there is none."""
     for message in reversed(runtime.state["messages"]):
         if isinstance(message, HumanMessage):
-            return EARLIER_BLOCK.sub("", text_of(message.content), count=1)
+            return text_of(message.content)
     return ""
 
 
@@ -223,13 +215,14 @@ async def run_workflow(name, runtime, call_inputs):
     """Run the workflow graph ``name`` and return its summary, word for word, as the tool's answer.
 
     ``call_inputs`` are the model's arguments; fixed() adds the conversation's inputs. The workflow is a run of its
-    own, nested under the agent's tool step (runs.nested), never a turn of the conversation. In a routine's run
-    (ROUTINE_SESSION) only ROUTINE_WORKFLOWS run, nothing is confirmed, declared nor posted, and a declaration is only
-    made, never taken up: the routine's instruction is not a client's yes."""
+    own, nested under the agent's tool step (runs.nested), never a turn of the conversation. In an unattended run
+    (a routine's period: runs.UNATTENDED, its configurable's "unattended") only ROUTINE_WORKFLOWS run, nothing is
+    confirmed, declared nor posted, and a declaration is only made, never taken up: the routine's instruction is not a
+    client's yes. The run decides, never its conversation: a client's reply there is attended."""
     from engine import runs  # runs imports this module
 
     call = {**call_inputs, **fixed(runtime)}
-    if call["session_id"].startswith(ROUTINE_SESSION):  # a routine's run: nobody there to say yes
+    if runtime.config.get("configurable", {}).get("unattended") is True:  # nobody there to say yes
         if name not in ROUTINE_WORKFLOWS or call.get("mode") == "delais":  # delais takes its declaration up
             return NOT_IN_ROUTINE
         call.update(client_confirmed=False, declarer=False, routine=True)
@@ -640,6 +633,26 @@ def described():
     read = {f"Experio_{name}": text for name, text in AGENT["read_tools"].items()}
     latest = {**read, **AGENT["tools"]}
     return [found.model_copy(update={"description": latest.get(found.name, found.description)}) for found in TOOLS]
+
+
+# The client-side line a turn Tarik began himself opens on (the model reads a conversation from a client's line): its
+# schedule, never the client's words; tagged BEGAN_NAME, the Discussion page hides it.
+BEGAN = "[Routine : {}]"
+BEGAN_NAME = "routine"
+
+
+async def began(cabinet, session, subject, said):
+    """Record in conversation ``session``'s memory a turn Tarik began himself (a routine's report, ``subject``): the
+    BEGAN line, then ``said``, his own words. A reply in the conversation then reads as an answer to it. Nothing
+    without a memory (CHECKPOINTER: outside the server)."""
+    if CHECKPOINTER is None:
+        return
+    config = {"configurable": {"cabinet": cabinet, "session_id": session, "thread_id": session}}
+    memory = make_agent(config, chat=ChatAnthropic(model="unused", api_key="unused"))  # its model never called here
+    # His own email, but holding Experio's data (dossier names, a tool's words): kept as untrusted data, never as
+    # instructions of his own (the Discussion page shows it without the tags).
+    turn = [HumanMessage(BEGAN.format(subject), name=BEGAN_NAME), AIMessage(untrusted(said, "rapport_envoye"))]
+    await memory.aupdate_state(config, {"messages": turn}, as_node="model")
 
 
 def make_agent(config=None, chat=None):
