@@ -16,7 +16,7 @@ const signed = computed(() => Boolean(session.user) && !route.meta.open);
 const general = computed(() => {
   const links = [
     { href: "/ui/workflows", icon: "workflows", words: "Workflows" },
-    { href: "/ui/tarik-prompts", icon: "content", words: "Tarik prompts" },
+    { href: "/ui/tarik-prompts", icon: "content", words: "Tarik capabilities" },
   ];
   if (session.admin) {
     links.push(

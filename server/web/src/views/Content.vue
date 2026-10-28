@@ -121,7 +121,7 @@ async function restore() {
   <PageState v-if="!data?.sections" :status="status" :loading="loading" />
   <template v-else>
     <nav class="crumbs" aria-label="Fil d'Ariane">
-      <RouterLink to="/ui/tarik-prompts"><Icon name="content" :size="14" />Tarik prompts</RouterLink>
+      <RouterLink to="/ui/tarik-prompts"><Icon name="content" :size="14" />Tarik capabilities</RouterLink>
       <Icon name="next" :size="14" />
       <span aria-current="page">{{ data.title }}</span>
     </nav>

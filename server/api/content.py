@@ -15,12 +15,27 @@ from engine import content, runs
 from server.api.runs import graph_name, page
 
 SEP = "|"  # a JSON field's path in a form: keys joined
+# A part of a document shown as a page of its own: its path -> (the document, the key its fields are under). Tarik's
+# tools live in agent.json with his instructions; each family has its page, saved, restored and imported alone.
+PARTS = {
+    "outils/traitement": ("agent.json", "tools"),
+    "outils/lecture": ("agent.json", "read_tools"),
+    "agent.json": ("agent.json", "instructions"),  # Tarik's page: his instructions alone, his tools on theirs
+}
+PART_NAMES = {"outils/traitement": "Outils de traitement", "outils/lecture": "Outils de lecture d'Experio"}
+
+
+def document_of(path):
+    """Return the document a page shows (a part's, else the page's own)."""
+    return PARTS[path][0] if path in PARTS else path
 
 
 def title(path):
-    """Return a document's name as the team reads it."""
+    """Return a page's name as the team reads it."""
+    if path in PART_NAMES:
+        return PART_NAMES[path]
     if path == "agent.json":
-        return "Instructions de Tarik et ses outils"
+        return "Instructions de Tarik"
     if path == "labels.json":
         return "Noms et descriptions des pages"
     meta, _ = content.front_matter(content.text(path))
@@ -30,9 +45,13 @@ def title(path):
 
 
 def what(path):
-    """Return what a document is for, in one sentence."""
+    """Return what a page is for, in one sentence."""
+    if path == "outils/traitement":
+        return "Comment chaque outil qui agit dans Experio est présenté à Tarik."
+    if path == "outils/lecture":
+        return "Comment chaque outil qui lit Experio est présenté à Tarik."
     if path == "agent.json":
-        return "Ce que Tarik sait de son rôle, et comment chaque outil lui est présenté. Lu à chaque message."
+        return "Ce que Tarik sait de son rôle. Lu à chaque message."
     if path == "labels.json":
         return "Les mots des pages : le nom et l'explication de chaque workflow, de chaque étape et de chaque état."
     if path.startswith("skills/"):
@@ -41,8 +60,9 @@ def what(path):
     return f"Ce que le modèle reçoit quand l'outil {meta.get('used_by', '').split(' ')[0]} lit un document."
 
 
-GROUPS = {  # key: (name, which documents)
+GROUPS = {  # key: (name, which documents: exported with the group)
     "tarik": ("Tarik", lambda p: p == "agent.json"),
+    "outils": ("Outils", lambda p: p == "agent.json"),  # their descriptions live in agent.json
     "competences": ("Compétences", lambda p: p.startswith("skills/")),
     "consignes": ("Consignes de lecture des documents", lambda p: p.startswith("tools/")),
     "pages": ("Pages", lambda p: p == "labels.json"),
@@ -50,9 +70,15 @@ GROUPS = {  # key: (name, which documents)
 
 
 def groups():
-    """Return the documents by kind, for the list page: [(key, name, paths)]."""
+    """Return the pages by kind, for the list page: [(key, name, paths)]; the tools by family (PARTS)."""
     paths = content.documents()
-    return [(key, name, [p for p in paths if belongs(p)]) for key, (name, belongs) in GROUPS.items()]
+    found = []
+    for key, (name, belongs) in GROUPS.items():
+        if key == "outils":  # a family of tools each, all in agent.json
+            found.append((key, name, [p for p in PART_NAMES if "agent.json" in paths]))
+        else:
+            found.append((key, name, [p for p in paths if belongs(p)]))
+    return found
 
 
 def field(key, label, value, long=True, hint=""):
@@ -94,6 +120,16 @@ def labels_sections(data):
     statuses = [field(["statuses", key], key, value, long=False) for key, value in data["statuses"].items()]
     found.append({"title": "États", "fields": statuses})
     return found
+
+
+def page_sections(path, text):
+    """Return a page's form sections: its document's (sections, ``text`` its text), only its part's for a part
+    (PARTS)."""
+    found = sections(document_of(path), text)
+    if path not in PARTS:
+        return found
+    under = PARTS[path][1]
+    return [s for s in found if all(f["key"].split(SEP)[0] == under for f in s["fields"])]
 
 
 def sections(path, text):
@@ -142,6 +178,16 @@ def rebuilt(path, form):
     end = "\n" if old.endswith("\n") else ""  # as the document was: a prompt may be followed by more text
     header = "\n".join(f"{key}: {value}" for key, value in meta.items())
     return "---\n" + header + "\n---\n" + body + end
+
+
+def page_fields(path, form):
+    """Return the posted ``form`` ({key: text}) of page ``path``, refused (ValueError) when it names a field the page
+    does not show: a part's page never changes the rest of its document."""
+    if path in PARTS and isinstance(form, dict):
+        under = PARTS[path][1]
+        if any(key.split(SEP)[0] != under for key in form):
+            raise ValueError("un champ inconnu")
+    return form
 
 
 CONTEXT = 40  # words kept around each change
@@ -269,20 +315,24 @@ def author_of(request):
 
 
 async def import_section(request, path, data):
-    """Save one card's fields from its export (``data``) over the document's latest version.
+    """Save one card's fields from its export (``data``) over the latest version of page ``path``'s document, only
+    fields of that page (its part's, PARTS).
 
-    Returns {saved: whether a version was made}, or {error} with 400 when the file is not this document's section
-    export or names unknown fields."""
+    Returns {saved: whether a version was made}, or {error} with 400 when the file is not this page's (or its
+    document's) section export or names fields this page does not show."""
+    document = document_of(path)
     try:
-        if data.get("format") != SECTION or data.get("document") != path or not isinstance(data.get("fields"), dict):
+        ours = data.get("document") in (path, document)
+        if data.get("format") != SECTION or not ours or not isinstance(data.get("fields"), dict):
             raise ValueError("ce fichier n'est pas l'export d'une section de ce document")
-        form = {f["key"]: f["value"] for section in sections(path, content.text(path)) for f in section["fields"]}
+        shown = page_sections(path, content.text(document))
+        form = {f["key"]: f["value"] for section in shown for f in section["fields"]}
         unknown = [key for key in data["fields"] if key not in form]
         if unknown:
             raise ValueError(f"champs inconnus : {', '.join(unknown)}")
         form |= {key: str(value) for key, value in data["fields"].items()}
         note = f"Importé : {data.get('section') or 'une section'} ({str(data.get('file') or 'un export')[:80]})"
-        made = await content.save(runs.pool, path, rebuilt(path, form), author_of(request), note)
+        made = await content.save(runs.pool, document, rebuilt(document, form), author_of(request), note)
     except (ValueError, KeyError, TypeError) as refusal:
         return JSONResponse({"error": str(refusal)}, status_code=400)
     return JSONResponse({"saved": made})
@@ -293,7 +343,12 @@ async def contents_page(request: Request):
     last = await content.last_changes(runs.pool)
     listed = []
     for key, name, paths in groups():
-        documents = [{"path": path, "title": title(path), "change": shown(last.get(path))} for path in paths]
+        documents = []
+        for path in paths:
+            fields = sum(len(s["fields"]) for s in page_sections(path, content.text(document_of(path))))
+            documents.append(
+                {"path": path, "title": title(path), "fields": fields, "change": shown(last.get(document_of(path)))}
+            )
         listed.append({"key": key, "name": name, "documents": documents})
     return page({"groups": listed, "empty": not content.documents(), "tips": TIPS})
 
@@ -306,8 +361,9 @@ def shown(change):
 
 
 def card_download(path, text, index):
-    """Return card ``index`` of the document (its fields) as a JSON file download; None when it has no such card."""
-    cards = sections(path, text)
+    """Return card ``index`` of page ``path`` (its fields; ``text`` its document's) as a JSON file download; None when
+    it has no such card."""
+    cards = page_sections(path, text)
     if index >= len(cards):
         return None
     card = cards[index]
@@ -318,14 +374,17 @@ def card_download(path, text, index):
 
 
 async def compared(path, shown):
-    """Return what version ``shown`` (its id, as text) changed, as {id, first, fields}; None when there is no such
-    version."""
+    """Return what version ``shown`` (its id, as text) of page ``path``'s document changed on that page, as {id,
+    first, fields}; None when there is no such version."""
     if not shown or not shown.isdigit():
         return None
-    after, before = await content.version(runs.pool, path, int(shown))
+    document = document_of(path)
+    after, before = await content.version(runs.pool, document, int(shown))
     if after is None:
         return None
-    return {"id": int(shown), "first": before is None, "fields": changes(path, before, after)}
+    keys = {f["key"] for section in page_sections(path, after) for f in section["fields"]}
+    found = {key: change for key, change in changes(document, before, after).items() if key in keys}
+    return {"id": int(shown), "first": before is None, "fields": found}
 
 
 async def content_page(request: Request):
@@ -336,9 +395,9 @@ async def content_page(request: Request):
     takes {fields, note} to save, {action: "restore", version, note} to restore a version, or a card's export to
     import it (see saved). 404 for an unknown document."""
     path = request.path_params["path"]
-    if path not in content.documents():
+    if document_of(path) not in content.documents():
         return page({"error": "document inconnu"}, 404)
-    text = content.text(path)
+    text = content.text(document_of(path))
     exported = request.query_params.get("export")
     if exported is not None and exported.isdigit():  # one card's fields, as a file
         card = card_download(path, text, int(exported))
@@ -346,24 +405,26 @@ async def content_page(request: Request):
             return card
     if request.method == "POST":
         return await saved(request, path)
-    versions = [shown(v) for v in await content.history(runs.pool, path)]
+    versions = [shown(v) for v in await content.history(runs.pool, document_of(path))]
     context = {
         "path": path,
         "title": title(path),
         "what": what(path),
-        "sections": sections(path, text),
+        "sections": page_sections(path, text),
         "versions": versions,
         "compare": await compared(path, request.query_params.get("version")),
-        "model": json.loads(text)["model"] if path == "agent.json" else None,
+        "model": json.loads(text)["model"] if path == "agent.json" else None,  # Tarik's own page
         "tips": TIPS,
     }
     return page(context)
 
 
 async def saved(request, path):
-    """Save the posted form as a new version, restore an old version, or import a card's export.
+    """Save the posted form as a new version of page ``path``'s document, restore an old version (for a part, only
+    its fields: the rest stays as it is now), or import a card's export.
 
     Returns {saved: whether a version was made}, or {error} with 400."""
+    document = document_of(path)
     try:
         data = await request.json()
         if not isinstance(data, dict):
@@ -375,14 +436,16 @@ async def saved(request, path):
     note = str(data.get("note") or "")
     try:
         if data.get("action") == "restore":
-            old, _ = await content.version(runs.pool, path, int(data["version"]))
+            old, _ = await content.version(runs.pool, document, int(data["version"]))
             if old is None:
                 raise ValueError("version inconnue")
             note = note or f"Retour à la version {data['version']}"
             new = old
+            if path in PARTS:  # this page's fields as they were, over the document as it is now
+                new = rebuilt(document, {f["key"]: f["value"] for s in page_sections(path, old) for f in s["fields"]})
         else:
-            new = rebuilt(path, data.get("fields"))
-        changed = await content.save(runs.pool, path, new, author_of(request), note)
+            new = rebuilt(document, page_fields(path, data.get("fields")))
+        changed = await content.save(runs.pool, document, new, author_of(request), note)
     except (ValueError, KeyError, TypeError) as refusal:
         return JSONResponse({"error": str(refusal)}, status_code=400)
     return JSONResponse({"saved": changed})
