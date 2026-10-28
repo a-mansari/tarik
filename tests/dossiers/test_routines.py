@@ -520,6 +520,7 @@ def test_a_named_routine_s_email_bears_its_name(running, db_cabinet):
         db.execute("update tarik_routines set name = 'Rappel Manager' where id = %s", (routine_id,))
     (row,) = clock.claimed()
     assert clock.given(db_cabinet, row)["call"]["subject"] == "Rappel Manager (chaque jour à 8 h)"
+    assert clock.given(db_cabinet, row)["call"]["routine_name"] == "Rappel Manager"  # kept with its period
 
 
 @pytest.mark.functionality
@@ -677,3 +678,13 @@ def test_a_routine_s_message_is_never_the_client_s_and_its_mark_never_reaches_th
     _, sent = _format_messages(history, model=None)
     assert [message["role"] for message in sent] == ["user", "assistant", "user"]  # the Messages format, user first
     assert all("name" not in message for message in sent)  # the mark stays in Tarik's memory
+
+
+@pytest.mark.communication
+def test_a_routine_s_title_is_its_subject_without_its_schedule():
+    named = routines.subject_of("Rappel Manager", ("week", [0, 1, 2, 3, 4], 9, 0))
+    assert named == "Rappel Manager (en semaine (du lundi au vendredi) à 9 h)"
+    assert routines.title_in(named) == "Rappel Manager"  # the schedule's own parentheses kept apart
+    unnamed = routines.subject_of(routines.title_of(3, "tva", ""), ("month", [5], 8, 0))
+    assert routines.title_in(unnamed) == "Routine n° 3 : préparer la déclaration de TVA de la dernière période"
+    assert routines.title_in("Sans horaire") == "Sans horaire"

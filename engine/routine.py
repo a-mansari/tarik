@@ -31,7 +31,7 @@ from engine.tools.dossiers.search import opened_dossiers
 from engine.tools.emails.inbox import opened_thread, thread_of_session
 from engine.tools.invoices.pipeline import NOTHING
 
-INPUTS = ["routine_id", "task", "prompt", "notify", "subject", "until", "session_id", "cabinet"]
+INPUTS = ["routine_id", "routine_name", "task", "prompt", "notify", "subject", "until", "session_id", "cabinet"]
 RUNNING_AT_ONCE = 2  # dossiers or instructions running at once, all cabinets together (runs.SLOTS holds 20 runs)
 INSTRUCTION_SECONDS = 30 * 60  # an instruction's agent run is cut off after this: the other routines wait for it
 BODY_CHARACTERS = 20_000  # an instruction's reply longer than this goes as a text file, its start in the email

@@ -249,12 +249,12 @@ select hash, content from {parts} where hash = any(%s)
 
 -- name: conversations_first_messages
 -- Each conversation's first message: as sent from the Discussions page, or an email thread's (with its subject and
--- sender), and the routine that began it, by its email's subject (a Routine run in it: its instruction, or its report
--- a reply answers; runs_session's index), null for none.
+-- sender), and the call of the routine that began it (a Routine run in it: its instruction, or its report a reply
+-- answers; runs_session's index), null for none.
 select distinct on (r.session_id) r.session_id, coalesce(r.input ->> 'message', r.input -> 'thread' ->> 'message'),
     coalesce(r.input -> 'files', r.input -> 'thread' -> 'files'), r.input -> 'thread' ->> 'subject',
     r.input -> 'thread' ->> 'to',
-    (select x.input -> 'call' ->> 'subject' from runs x
+    (select x.input -> 'call' from runs x
      where x.cabinet = r.cabinet and x.session_id = r.session_id and x.graph = 'routine' order by x.started_at limit 1)
 from runs r
 where r.graph in ('discussion', 'fil') and r.cabinet = %s and r.session_id = any(%s) order by r.session_id, r.started_at

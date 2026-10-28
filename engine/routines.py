@@ -17,7 +17,7 @@ from engine.calls import within
 from engine.tools.core.app import CRASHED, log
 from engine.tools.core.cabinets import CABINETS, cabinet_db
 from engine.tools.core.queries import Q
-from engine.tools.dossiers.routines import KINDS, ZONE, next_run, session_of, when
+from engine.tools.dossiers.routines import ZONE, next_run, session_of, subject_of, title_of
 
 TICK_SECONDS = 60
 ONE_PER_CABINET = {}  # cabinet -> its semaphore of 1
@@ -43,13 +43,14 @@ def claimed():
 def given(cabinet, row):
     """Return the Routine run's input for claimed routine ``row``: its call, in the routine's own session."""
     routine_id, kind, every, days, hour, minute, notify, due_at, prompt, name = row
-    schedule = (every, days, hour, minute)
+    schedule, title = (every, days, hour, minute), title_of(routine_id, kind, name)
     call = {
         "routine_id": routine_id,
+        "routine_name": title,  # what it was called then: shown after it is renamed or deleted
         "task": kind,
         "prompt": prompt,
         "notify": notify,
-        "subject": f"{name or f'Routine n° {routine_id} : {KINDS[kind]}'} ({when(*schedule)})",
+        "subject": subject_of(title, schedule),
         "until": next_run(*schedule, due_at).isoformat(),  # its next period: the dossiers not reached are left to it
         "session_id": session_of(routine_id, due_at),
         "cabinet": cabinet,

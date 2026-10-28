@@ -95,9 +95,13 @@ watch(() => data.value?.going, async (going, was) => {
               <RouterLink :to="talkLink(item)"><template v-if="item.subject"><b>{{ item.subject }}</b> · </template>{{
                 item.first || "(sans texte)" }}</RouterLink>
               <template v-if="item.sender"><br><span class="muted">{{ item.sender }}</span></template>
-              <!-- What began it, when not a person: a routine (the channel stays the column before's). -->
-              <template v-if="item.routine"><br><span class="muted"><Icon name="clock" :size="12" /> Lancée par la routine
-                « {{ item.routine }} »</span></template>
+              <!-- What began it, when not a person: a routine, its page a click away (the channel stays the column
+              before's); a routine deleted since, by what it was called then. -->
+              <template v-if="item.routine"><br><span class="muted"><Icon name="clock" :size="12" />
+                <template v-if="item.routine.deleted"> Lancée par la routine supprimée « {{ item.routine.name }} »</template>
+                <template v-else> Lancée par la routine « <RouterLink
+                  :to="{ path: '/ui/routines', query: { modifier: item.routine.id } }">{{ item.routine.name }}</RouterLink>
+                  »</template></span></template>
             </td>
             <td><span class="chip" :class="chips[item.state]">{{ stateName(item.state) }}</span></td>
             <td><ModelUsage :usage="item.usage" /></td>

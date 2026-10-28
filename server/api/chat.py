@@ -16,7 +16,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from engine import agent, live, prompts, runs
-from engine.calls import call
+from engine.calls import call, within
 from engine.chat import REMINDER
 from engine.tools.core import archives
 from engine.tools.core.archives import unpacked
@@ -25,6 +25,7 @@ from engine.tools.core.config import FILE_TYPES, MAX_PAGES
 from engine.tools.core.conversation import SKIPPED_NOTE, files_of, own_words
 from engine.tools.core.queries import Q
 from engine.tools.dossiers.people import ROUTINE_SESSION
+from engine.tools.dossiers.routines import routines_of_cabinet, title_of
 from server.api.runs import chosen, cost_shown, markdown, openings, page, spending, usage_shown
 
 SESSION = re.compile(r"chat-[0-9a-f]{32}")  # the page's own conversations: the only ones written to from here
@@ -140,10 +141,17 @@ async def conversations(cabinet):
     waiting = await waiting_for_client(cabinet, list(found))
     for session, run in found.items():
         run["state"] = state(run["status"], session in waiting)
-    for session, opening in (await openings(cabinet, list(found))).items():
+    opened = await openings(cabinet, list(found))
+    kept = {}  # the cabinet's routines now, read only when a routine began one of its conversations
+    if any(opening["routine"] for opening in opened.values()):
+        kept = {r["id"]: title_of(r["id"], r["kind"], r["name"]) for r in await within(cabinet, routines_of_cabinet)}
+    for session, opening in opened.items():
         found[session].update(opening)
-        if opening["routine"]:  # its first run is the routine's own Discussion run, but it travels by email
+        began = opening["routine"]
+        if began:  # its first run is the routine's own Discussion run, but it travels by email
             found[session]["medium"] = "email"
+            # still there: its name now, its page a click away; deleted: what it was called then
+            began.update(deleted=began["id"] not in kept, name=kept.get(began["id"], began["name"]))
     return list(found.values())
 
 

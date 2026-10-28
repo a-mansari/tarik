@@ -18,6 +18,7 @@ from engine.agent import ROUTINE_NAME, text_of
 from engine.content import LABELS
 from engine.tools.core.cabinets import CABINETS, using
 from engine.tools.core.queries import Q
+from engine.tools.dossiers.routines import title_in
 from engine.tools.emails.sending import cabinet_name
 
 HERE = Path(__file__).parent
@@ -316,8 +317,9 @@ async def openings(cabinet, sessions):
     """Return {session: {first, subject, sender}} for the cabinet's conversations ``sessions``.
 
     first is the first message's words (cut at 90 characters), else its file names; subject and sender are an
-    email's, None otherwise; routine is the subject of the routine that began the conversation (its instruction, or
-    its report a reply answers), None for none."""
+    email's, None otherwise; routine is {id, name} of the routine that began the conversation (its instruction, or
+    its report a reply answers): name what it was called then (its run's routine_name, else its email's subject
+    without its schedule: before routine_name was kept), None for none."""
     async with runs.pool.connection() as db:
         rows = await (await db.execute(Q.conversations_first_messages, (cabinet, sessions))).fetchall()
     found = {}
@@ -326,7 +328,11 @@ async def openings(cabinet, sessions):
         if len(words) > 90:
             words = words[:90] + "…"
         first = words or ", ".join(files or [])
-        found[session] = {"first": first, "subject": subject, "sender": sender, "routine": routine}
+        began = routine and {
+            "id": routine.get("routine_id"),
+            "name": routine.get("routine_name") or title_in(routine.get("subject") or ""),
+        }
+        found[session] = {"first": first, "subject": subject, "sender": sender, "routine": began or None}
     return found
 
 
