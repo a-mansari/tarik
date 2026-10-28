@@ -18,7 +18,7 @@ import time
 
 import openpyxl
 
-from engine.tools.core.app import ok, routine, step_tool, stop, wait
+from engine.tools.core.app import ToolError, log, ok, routine, step_tool, stop, wait
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import (
@@ -33,8 +33,9 @@ from engine.tools.core.experio import (
     refused,
     type_in,
 )
+from engine.tools.core.model import ask_model, tool_prompt
 from engine.tools.core.queries import Q
-from engine.tools.core.words import as_number, normalized
+from engine.tools.core.words import as_number, normalized, said, without_if
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
 
@@ -323,6 +324,209 @@ def typed_in(line, invoice_id, context):
     return values, ""
 
 
+# What Auto Point leaves, given as the cabinet gives it on the statement's « Operations » list
+# (button_open_statement_lines, bank/views/bank_statement_views.xml:713): only sure values are written, the rest stay
+# for the cabinet with Experio's own reason (blocked_reasons).
+LINE_FIELDS = ["state", "operation_id", "operation_type", "partner_id", "partner_id_domain", "exp_payment_method_id"]
+LINE_FIELDS += ["payment_ref", "date", "debit", "credit", "invoice_ids", "invoice_ids_domain"]
+LEGAL_FORMS = {"ste", "societe", "sarl", "sarlau", "sa", "sas", "au", "ets", "etablissements", "cie"}
+
+
+def open_lines(statement, context):
+    """Return the statement's lines not posted yet, read with LINE_FIELDS."""
+    lines = odoo_call(LINE, "read", statement["line_ids"], fields=LINE_FIELDS, context=context)
+    return [line for line in lines if line["state"] not in POSTED]
+
+
+def side(line):
+    """Return the operations' payment_type statement ``line`` (dict) takes: inbound for money received, outbound for
+    money paid, as the line's operation picker (bank/views/bank_statement_views.xml:339, amount = credit - debit)."""
+    return "inbound" if (line["credit"] or 0) - (line["debit"] or 0) > 0 else "outbound"
+
+
+def operations_of(dossier_id, context):
+    """Return the operations a line of dossier ``dossier_id`` may get: its own and the shared ones (operation_id's
+    check_company, bank/models/bank_statement_line.py:177-181), without an error of their own (a line on one stays
+    draft, :4031-4035; validate_operation_fields, bank/models/bank_operation_type.py:176-216)."""
+    domain = ["|", ("company_id", "=", dossier_id), ("company_id", "=", False)]
+    fields = ["name", "type", "payment_type", "account_id", "error_msg"]
+    found = odoo_call("bank.operation.type", "search_read", domain, fields=fields, context=context)
+    return {o["id"]: o for o in found if not o["error_msg"]}
+
+
+def past_labels(dossier_id, context, each=3):
+    """Return {operation id: up to ``each`` labels of the dossier's latest posted lines on it}: how the dossier was
+    pointed before."""
+    domain = [("company_id", "=", dossier_id), ("state", "in", list(POSTED)), ("operation_id", "!=", False)]
+    rows = odoo_call(
+        LINE,
+        "search_read",
+        domain,
+        fields=["payment_ref", "operation_id"],
+        order="date desc",
+        limit=500,
+        context=context,
+    )
+    labels = {}
+    for row in rows:
+        kept = labels.setdefault(row["operation_id"][0], [])
+        if row["payment_ref"] and len(kept) < each and row["payment_ref"] not in kept:
+            kept.append(row["payment_ref"])
+    return labels
+
+
+def chosen_operations(statement, lines, context):
+    """Give lines without an operation the dossier's operation the model reads in their label, and purchase lines
+    without a payment method the method it reads (mandatory for a purchase, bank/models/bank_statement_line.py:
+    4069-4075). The model picks among the dossier's operations (operations_of) of the line's way only, shown with
+    the labels they were used for (past_labels), and answers null when the label does not say.
+
+    The operation is typed in the line's form first: its onchange (_onchange_operation_type, :2095-2116) gives the
+    tiers the operation carries; an RPC write runs no onchange, so that tiers is written with it.
+
+    Returns how many lines got an operation or a payment method (counted also in test mode, where nothing is
+    written).
+    """
+    asked = [
+        line
+        for line in lines
+        if line["payment_ref"]
+        and (not line["operation_id"] or line["operation_type"] == "purchase" and not line["exp_payment_method_id"])
+    ]
+    if not asked:
+        return 0
+    dossier_id = statement["company_id"][0]
+    operations = operations_of(dossier_id, context)
+    methods = {m["id"]: m["name"] for m in odoo_call("exp.payment.method", "search_read", [("payment_id", "!=", 1)])}
+    used = past_labels(dossier_id, context)
+    listed = "\n".join(
+        f"{i} | {o['name']} | {o['type'] or 'autre'} | {o['payment_type'] or 'both'} | "
+        f"{o['account_id'][1] if o['account_id'] else ''} | {' ; '.join(used.get(i, []))}"
+        for i, o in operations.items()
+    )
+    shown = "\n".join(
+        f"{line['id']} | {line['date']} | {(line['credit'] or 0) - (line['debit'] or 0):.2f} | {side(line)} | "
+        f"{line['operation_id'][1] if line['operation_id'] else '?'} | {line['payment_ref']}"
+        for line in asked
+    )
+    instruction = (
+        "Operations (id | name | type | way | account | labels it was used for):\n"
+        f"{listed}\n\nPayment methods: {', '.join(f'{i} {name}' for i, name in methods.items())}\n\n"
+        f"Lines (id | date | amount | way | operation, ? when none | label):\n{shown}\n\n"
+        'Answer with only a JSON object: {"lines": [{"id": <line id>, "operation": <operation id> or null, '
+        '"payment_method": <payment method id> or null}]}'
+    )
+    # shortcut: one model call per statement, every line in it; split it if statements of hundreds of lines come
+    try:
+        answer = ask_model(tool_prompt("point-bank-lines"), [], instruction, "Pointage du relevé", keys=("lines",))
+    except ToolError as failure:  # no model now: the lines stay for the cabinet, the rest of the pointing goes on
+        log(f"chosen_operations {statement['id']}: {failure}")
+        return 0
+    given = 0
+    by_id = {line["id"]: line for line in asked}
+    for choice in answer["lines"] if isinstance(answer["lines"], list) else []:
+        line = by_id.pop(choice.get("id"), None) if isinstance(choice, dict) else None
+        if not line:
+            continue
+        values = {}
+        operation = operations.get(choice.get("operation")) if not line["operation_id"] else None
+        if operation and operation["payment_type"] in (side(line), False):
+            form = {"operation_id": operation["id"]}
+            type_in(LINE, line["id"], form, "operation_id", ("partner_id",), context)
+            values = {
+                "operation_id": operation["id"],
+                **({"partner_id": form["partner_id"]} if form.get("partner_id") else {}),
+            }
+        kind = operation["type"] if values else line["operation_type"]
+        if (
+            kind == "purchase"
+            and choice.get("payment_method") in methods
+            and (values or not line["exp_payment_method_id"])
+        ):
+            values["exp_payment_method_id"] = choice["payment_method"]
+        if values:
+            if not dry_run():
+                odoo_call(LINE, "write", [line["id"]], values, context=context)
+            given += 1
+    return given
+
+
+def tiers_key(name):
+    """Return a tiers' name as looked for in a bank label: normalized, without the « - <IF> » Experio appends nor its
+    legal form (« STE ATLAS SARL » is « atlas »); "" when under 4 letters are left, too short to tell."""
+    words = [word for word in normalized(without_if(name)).split() if word not in LEGAL_FORMS]
+    key = " ".join(words)
+    return key if len(key.replace(" ", "")) >= 4 else ""
+
+
+def named_tiers(statement, lines, context):
+    """Give lines of an operation needing a tiers (purchase, sale, other third party: :4184-4196) the one tiers their
+    label names: its ICE (15 digits, as Experio keys tiers, exp_account/models/exp_partner.py:530-560) or its name
+    as whole words (tiers_key), among those the line's tiers picker offers (its stored partner_id_domain, :46-76).
+    A label naming two tiers or none gets none.
+
+    Returns how many lines got one (counted also in test mode, where nothing is written).
+    """
+    needing = [
+        line
+        for line in lines
+        if line["payment_ref"]
+        and not line["partner_id"]
+        and line["operation_type"] in ("purchase", "sale", "other_third_party")
+        and line["partner_id_domain"]
+    ]
+    offered = {}  # domain: the tiers it offers, searched once
+    given = 0
+    for line in needing:
+        domain = line["partner_id_domain"]
+        if domain not in offered:
+            found = odoo_call(
+                "exp.partner", "search_read", ast.literal_eval(domain), fields=["name", "ice"], context=context
+            )
+            offered[domain] = [
+                (p["id"], tiers_key(p["name"]), (p["ice"] or "").replace(" ", "").zfill(15)) for p in found
+            ]
+        words = normalized(line["payment_ref"])
+        ices = set(re.findall(r"(?<!\d)\d{15}(?!\d)", line["payment_ref"].replace(" ", "")))
+        fits = {i for i, key, ice in offered[domain] if (ice.strip("0") and ice in ices) or (key and said(key, words))}
+        if len(fits) == 1:
+            if not dry_run():
+                odoo_call(LINE, "write", [line["id"]], {"partner_id": fits.pop()}, context=context)
+            given += 1
+    return given
+
+
+def owed_invoices(statement, lines, context):
+    """Give purchase and sale lines with a tiers and no invoice the one open invoice owing exactly their amount among
+    those their invoice picker offers (picked's domain), on no statement line yet: Experio's detection's own rule
+    (bank/models/bank_statement_line.py:2440-2475), for the lines its detection did not fill. Two such invoices: none
+    (the detection takes the first; Tarik leaves it to the cabinet). The line's form must accept it (typed_in).
+
+    Returns how many lines got one (counted also in test mode, where nothing is written).
+    """
+    given, taken = 0, set()
+    for line in lines:
+        amount = amount_of(line)
+        if not amount or not line["partner_id"]:
+            continue
+        domain = ast.literal_eval(line["invoice_ids_domain"]) + [("amount_residual", "=", amount)]
+        found = set(odoo_call("exp.invoice", "search", domain, context=context)) - taken
+        used = odoo_call(
+            LINE, "search_read", [("invoice_ids", "in", list(found))], fields=["invoice_ids"], context=context
+        )
+        found -= {i for row in used for i in row["invoice_ids"]}
+        if len(found) != 1:
+            continue
+        invoice_id = found.pop()
+        values, _ = typed_in(line, invoice_id, context)
+        if values:
+            if not dry_run():
+                odoo_call(LINE, "write", [line["id"]], values, context=context)
+            taken.add(invoice_id)
+            given += 1
+    return given
+
+
 def blocked_reasons(statement, context):
     """Return (reasons, ready, posted) for the statement's lines.
 
@@ -398,10 +602,8 @@ def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -
         run_id: the current run; its wait for Experio's reading is capped at 10 minutes across calls.
         client_message: the client's words, where they may tie lines to invoices by number.
 
-    Waits for Experio's reading (a wait result past the deadline). A TPE statement goes to tpe.settle_tpe. A bank
-    statement gets Experio's own « Auto Point » (confirmed), the invoices the client named, its TPE remittances tied to
-    their TPE statements, then an ok result with the counts (pointed, ready, posted), the balance checks and what
-    Experio says still blocks lines.
+    Waits for Experio's reading (a wait result past the deadline). A TPE statement goes to tpe.settle_tpe, a bank
+    statement to settled().
     """
     statement_id, network = statement_of(file_id)
     if not statement_id:
@@ -419,17 +621,39 @@ def settle_statement(file_id: int, run_id: str = "", client_message: str = "") -
             f"settle_statement {statement_id}", f"Relevé TPE n° {statement_id} : Experio a refusé ({{reason}})."
         ):
             return tpe.settle_tpe(statement_id)
+    return settled(statement, client_message)
+
+
+def settled(statement, client_message=""):
+    """Point bank ``statement`` (read with FIELDS, read by Experio) and return an ok result saying where it stands.
+
+    Experio's own « Auto Point » (confirmed), then what it leaves: operations and payment methods the model reads in
+    the labels (chosen_operations), the tiers labels name (named_tiers), the invoices the client named
+    (named_invoices), the one open invoice owing a line's amount (owed_invoices), TPE remittances tied to their TPE
+    statements. The result has the counts (pointed, ready, posted), the balance checks and what Experio says still
+    blocks lines."""
+    statement_id = statement["id"]
     context = in_dossier(statement["company_id"][0])
     with refused(f"settle_statement {statement_id}", f"Relevé n° {statement_id} : Experio n'a pas pu le pointer."):
-        pointed = auto_point(statement, context) if statement["state"] not in POSTED else 0
+        is_open = statement["state"] not in POSTED
+        pointed = auto_point(statement, context) if is_open else 0
+        operated = chosen_operations(statement, open_lines(statement, context), context) if is_open else 0
+        partnered = named_tiers(statement, open_lines(statement, context), context) if is_open else 0
         tied, unnamed = named_invoices(statement, client_message, context)
-        to_tpe = tie_tpe(statement, context) if statement["state"] not in POSTED else None
+        owed = owed_invoices(statement, open_lines(statement, context), context) if is_open else 0
+        to_tpe = tie_tpe(statement, context) if is_open else None
         statement = read_statement(statement_id)
         reasons, ready, posted = blocked_reasons(statement, context)
         opening = opening_note(statement, context)
     parts = [f"Relevé n° {statement_id} : {len(statement['line_ids'])} opération(s) lue(s)"]
     if pointed:
         parts.append(f"{pointed} pointée(s) par la détection d'Experio")
+    if operated:
+        parts.append(f"{operated} reçoivent de Tarik leur type d'opération ou mode de paiement, lu dans le libellé")
+    if partnered:
+        parts.append(f"{partnered} leur tiers, nommé dans le libellé")
+    if owed:
+        parts.append(f"{owed} la seule facture ouverte de leur tiers et de leur montant")
     if tied:
         parts.append(f"{tied} rattachée(s) à la facture que vous avez citée")
     if to_tpe and to_tpe[0]:
@@ -512,7 +736,12 @@ def post_statement(file_id: int) -> dict:
             f"post_statement {statement_id}", f"Relevé TPE n° {statement_id} : Experio a refusé ({{reason}})."
         ):
             return tpe.post_tpe(statement_id)
-    statement = read_statement(statement_id)
+    return posting(read_statement(statement_id))
+
+
+def posting(statement):
+    """Post bank ``statement`` (read with FIELDS): post_statement's result."""
+    statement_id = statement["id"]
     if statement["state"] in POSTED:
         return routine(f"Relevé n° {statement_id} : déjà comptabilisé.")
     context = in_dossier(statement["company_id"][0])
@@ -555,3 +784,50 @@ def suspense(statement, context):
         and not line.get("is_reconciled")
     ]
     return ", ".join(left[:10]) + (f" et {len(left) - 10} autre(s)" if len(left) > 10 else "")
+
+
+# A dossier's statements already in Experio (imported by the cabinet, or by Tarik earlier): those not posted yet, read
+# by Experio (pending is a statement still read, or a line's exchange rate still fetched: left for later).
+OPEN_STATEMENTS = ("draft", "partial")
+
+
+def open_statements(dossier_id):
+    """Return dossier ``dossier_id``'s bank statements not posted yet, read with FIELDS, oldest first."""
+    domain = [("company_id", "=", dossier_id), ("state", "in", list(OPEN_STATEMENTS))]
+    found = odoo_call(STATEMENT, "search", domain, order="date asc, id asc", context=in_dossier(dossier_id))
+    return odoo_call(STATEMENT, "read", found, fields=FIELDS, context=in_dossier(dossier_id)) if found else []
+
+
+def each_statement(dossier_id, step):
+    """Run ``step`` (a statement read with FIELDS -> a step result) on each of the dossier's open statements and return
+    one ok result joining their messages, with their ids (statement_ids); a routine result when there is none."""
+    statements = open_statements(dossier_id)
+    if not statements:
+        return routine(f"Dossier n° {dossier_id} : aucun relevé bancaire à pointer ou comptabiliser.")
+    results = []
+    for statement in statements:
+        try:
+            results.append(step(statement))
+        except ToolError as failure:  # one statement Experio refuses: said, the others still done
+            results.append({"message": str(failure)})
+    text = "\n".join(result["message"] for result in results)
+    return ok(text, statement_ids=[statement["id"] for statement in statements])
+
+
+@step_tool
+def settle_dossier_statements(dossier_id: int, client_message: str = "") -> dict:
+    """Point every bank statement of dossier ``dossier_id`` already in Experio and not posted yet, as settle_statement
+    points one imported from a file (settled), and report where each stands.
+
+    Args:
+        dossier_id: the dossier.
+        client_message: the client's words, where they may tie lines to invoices by number.
+    """
+    return each_statement(dossier_id, lambda statement: settled(statement, client_message))
+
+
+@step_tool
+def post_dossier_statements(dossier_id: int) -> dict:
+    """Post the ready operations of every bank statement of dossier ``dossier_id`` not posted yet, with Experio's own
+    validation, as post_statement posts one (posting); each statement's outcome said."""
+    return each_statement(dossier_id, posting)

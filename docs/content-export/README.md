@@ -106,3 +106,9 @@ uses another one. A stack that edited one of these documents itself loses that e
   `update`: only what the client changes) and takes `minute` and `routine_name` (`agent.json`), when to use it
   (`skills/gestion-dossiers.md`), the inputs « Minute » and « Nom de la routine » and the action « Modifier »
   (`labels.json`). Import it after the routine-fichiers export, once the stack runs the commit with the update action.
+- `tarik-contenu-pointage-20261028.json` (and its `.diff`): pointing a dossier's statements already in Experio: the
+  tool `Experio_pointer_releves` and when to use it (D octies, `agent.json`), the workflow « Relevés » and its steps,
+  and the pointing step's new completions in Traitement (`labels.json`), and the new prompt
+  `tools/point-bank-lines.md` (the operation and payment method read in a bank label). Import it after the
+  routine-outil export, once the stack runs the pointage commit: before, the import is refused (it names a tool the
+  stack lacks).

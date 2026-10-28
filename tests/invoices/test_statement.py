@@ -63,16 +63,22 @@ def experio(monkeypatch):
         "written": [],
         "post": None,
     }
+    state.update(history=[], open=[40], owed=[], owing=[], partners=[], operations=[], answer=None, asked=[])
     for line in state["lines"]:
         line.setdefault("partner_id", False)
+        line.setdefault("operation_id", [1, "Achat Local"])
+        line.setdefault("exp_payment_method_id", [4, "Virement Bancaire"])
+        line.setdefault("partner_id_domain", "[('company_id', '=', 857), ('is_supplier', '=', True)]")
         line.update(
             operation_type="purchase", debit=200.0, credit=0.0, payment_ref=f"VIR {line['id']}", date="2026-03-15"
         )
         line.update(payment_state="unpaid", is_reconciled=False, invoice_ids_domain="[('company_id', '=', 857)]")
 
     def odoo_call(model, method, *args, **kw):
+        if model == statement.STATEMENT and method == "search":
+            return list(state["open"])
         if model == statement.STATEMENT and method == "read":
-            return [dict(state["statement"])]
+            return [dict(state["statement"], id=i) for i in args[0]]
         if model == statement.LINE and method == "read":
             return [dict(line) for line in state["lines"]]
         if model == statement.LINE and method == "write":
@@ -80,15 +86,26 @@ def experio(monkeypatch):
             return True
         if model == "bank.statement.line.detect.wizard":
             return [{"line_ids": state["detected"]}]
+        if model == statement.LINE and method == "search_read" and kw.get("order"):  # the dossier's past lines
+            return [dict(row) for row in state["history"]]
         if model == statement.LINE and method == "search_read":
             return [{"id": state["in_use_line"], "invoice_ids": state["in_use"]}]
         if model == "exp.invoice":
-            state["searched"].append((method, args[0]))
             terms = {term[0]: term[2] for term in args[0]}
+            if method == "search" and "id" not in terms:  # the invoices owing a line's amount (owed_invoices)
+                state["owing"].append(args[0])
+                return list(state["owed"])
+            state["searched"].append((method, args[0]))
             if method == "search":
                 allowed = state["picker"] if state["picker"] is not None else terms["id"]
                 return [i for i in terms["id"] if i in allowed]
             return [invoice for invoice in state["invoices"] if invoice["amount_residual"] in terms["amount_residual"]]
+        if model == "exp.partner":
+            return [dict(partner) for partner in state["partners"]]
+        if model == "bank.operation.type":
+            return [dict(operation) for operation in state["operations"]]
+        if model == "exp.payment.method":
+            return [{"id": 2, "name": "Chèque"}, {"id": 4, "name": "Virement Bancaire"}]
         if method == "search_count":
             return 1  # not the journal's first statement
         return []
@@ -96,6 +113,8 @@ def experio(monkeypatch):
     def odoo_json(model, method, ids, *args, **kw):
         if method == "onchange":
             state["typed"].append((ids, (dict(args[0]), *args[1:])))
+            if "operation_id" in args[0]:  # the operation's own tiers, filled by its onchange
+                return {"value": state.get("operation_partner", {})}
             invoice_id = args[0]["invoice_ids"][0][2][0]
             filled = state["form"].get((ids[0], invoice_id), state["form"].get(invoice_id, {}))  # by line or invoice
             if isinstance(filled, Exception):
@@ -117,6 +136,15 @@ def experio(monkeypatch):
     monkeypatch.setattr(statement, "odoo_json", odoo_json)
     monkeypatch.setattr(core, "odoo_json", odoo_json)  # the line's form, typed in by core.type_in
     monkeypatch.setattr(statement, "dry_run", lambda: False)
+
+    def ask_model(system, pages, instruction, what, **kw):
+        state["asked"].append(instruction)
+        if isinstance(state["answer"], Exception):
+            raise state["answer"]
+        return state["answer"] or {"lines": []}
+
+    monkeypatch.setattr(statement, "ask_model", ask_model)
+    monkeypatch.setattr(statement, "tool_prompt", lambda name: name)
     monkeypatch.setattr(statement, "statement_of", lambda file_id: (40, None))
     return state
 
@@ -609,3 +637,163 @@ def test_an_empty_template_makes_no_statement(monkeypatch):
     monkeypatch.setattr(statement, "canvas_rows", lambda data: [])
     with pytest.raises(RuntimeError, match="aucune ligne"):
         statement.import_canvas("r.xlsx", b"", 857, 2922)
+
+
+def unpointed(experio, **line):
+    """Line 2 left by Auto Point: no operation (unless given), no tiers, no payment method."""
+    experio["lines"][1].update(operation_id=False, operation_type=False, exp_payment_method_id=False, **line)
+    experio["operations"] = [
+        {"id": 13136, "name": "Achat Local", "type": "purchase", "payment_type": "outbound", "account_id": [1, "4411"]},
+        {"id": 13131, "name": "Vente Local", "type": "sale", "payment_type": "inbound", "account_id": [2, "3421"]},
+        {"id": 13156, "name": "Frais bancaires", "type": "bank_fee", "payment_type": False, "account_id": [3, "6147"]},
+    ]
+    for operation in experio["operations"]:
+        operation["error_msg"] = False
+    return experio["lines"][1]
+
+
+@pytest.mark.functionality
+def test_a_line_without_operation_gets_the_one_the_model_reads_in_its_label_with_its_tiers(experio):
+    unpointed(experio, payment_ref="PRLV FRAIS PACK GLOBAL BUSINESS")
+    experio["operation_partner"] = {"partner_id": {"id": 31, "display_name": "BANQUE"}}
+    experio["answer"] = {"lines": [{"id": 2, "operation": 13156, "payment_method": 3}]}
+    message = statement.settle_statement(8)["message"]
+    assert ([2], {"operation_id": 13156, "partner_id": 31}) in experio["written"]  # no payment method: not a purchase
+    assert "1 reçoivent de Tarik leur type d'opération" in message
+    asked = experio["asked"][0]
+    assert "13136 | Achat Local | purchase | outbound" in asked and "2 | 2026-03-15 | -200.00 | outbound | ? |" in asked
+
+
+@pytest.mark.functionality
+def test_a_purchase_line_gets_its_payment_method_with_its_operation(experio):
+    unpointed(experio)
+    experio["answer"] = {"lines": [{"id": 2, "operation": 13136, "payment_method": 2}]}
+    statement.settle_statement(8)
+    assert ([2], {"operation_id": 13136, "exp_payment_method_id": 2}) in experio["written"]
+
+
+@pytest.mark.functionality
+def test_a_purchase_line_with_its_operation_gets_only_the_payment_method_it_lacks(experio):
+    experio["lines"][1]["exp_payment_method_id"] = False
+    experio["answer"] = {"lines": [{"id": 2, "operation": 13131, "payment_method": 2}]}
+    statement.settle_statement(8)
+    assert ([2], {"exp_payment_method_id": 2}) in experio["written"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "choice",
+    [
+        {"id": 2, "operation": 13131, "payment_method": None},  # a sale's way, for money paid
+        {"id": 2, "operation": 99999, "payment_method": None},  # not the dossier's
+        {"id": 2, "operation": None, "payment_method": None},  # the label does not say
+        {"id": 77, "operation": 13136, "payment_method": 2},  # no such line
+        "13136",
+    ],
+)
+def test_an_operation_the_line_cannot_take_is_never_written(experio, choice):
+    unpointed(experio)
+    experio["answer"] = {"lines": [choice]}
+    statement.settle_statement(8)
+    assert not [w for w in experio["written"] if "operation_id" in w[1] or "exp_payment_method_id" in w[1]]
+
+
+@pytest.mark.functionality
+def test_without_the_model_the_lines_stay_for_the_cabinet_and_the_pointing_goes_on(experio):
+    unpointed(experio)
+    experio["answer"] = ToolError("Pointage du relevé : le modele n'est pas encore configure.")
+    message = statement.settle_statement(8)["message"]
+    assert "2 pointée(s) par la détection d'Experio" in message and "type d'opération" not in message
+
+
+@pytest.mark.functionality
+def test_nothing_is_asked_of_the_model_when_every_line_has_its_operation(experio):
+    statement.settle_statement(8)
+    assert experio["asked"] == []
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("label", "given"),
+    [
+        ("VIREMENT EMIS STE MECAERIC SARLAU", 51),  # its name, legal forms aside
+        ("VIR 001234567000089 REGLEMENT", 52),  # its ICE
+        ("VIR MECAERIC ET ATLAS NEGOCE", None),  # two named: none
+        ("VIR INST RECU PAR AUTRE BANQUE", None),  # none named
+        ("VIR MECAERICA", None),  # not a whole word
+    ],
+)
+def test_a_line_gets_the_one_tiers_its_label_names(experio, label, given):
+    experio["lines"][1]["payment_ref"] = label
+    experio["partners"] = [
+        {"id": 51, "name": "MECAERIC SARL - 4471", "ice": False},
+        {"id": 52, "name": "ATLAS NEGOCE", "ice": "001234567000089"},
+        {"id": 53, "name": "SA", "ice": "000000000000000"},  # too short to tell, and no ICE
+    ]
+    statement.settle_statement(8)
+    written = [values["partner_id"] for line, values in experio["written"] if line == [2] and "partner_id" in values]
+    assert written == ([given] if given else [])
+
+
+@pytest.mark.functionality
+def test_a_tiers_key_leaves_out_legal_forms_and_too_short_names():
+    assert statement.tiers_key("STE ATLAS SARL - 12345") == "atlas"
+    assert statement.tiers_key("SA") == "" and statement.tiers_key("Sté ABC") == ""
+
+
+@pytest.mark.functionality
+def test_a_line_with_its_tiers_gets_the_one_open_invoice_of_its_amount(experio):
+    experio["owed"] = [70]
+    message = statement.settle_statement(8)["message"]
+    assert ([1], {"invoice_ids": [(4, 70)]}) in experio["written"]
+    assert experio["owing"][0][-1] == ("amount_residual", "=", 200.0)  # in the line's own picker
+    assert "1 la seule facture ouverte de leur tiers et de leur montant" in message
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("case", ["two", "in_use", "refused"])
+def test_no_invoice_is_given_when_two_fit_one_is_used_or_the_form_refuses_it(experio, case):
+    experio["owed"] = [70, 71] if case == "two" else [70]
+    if case == "in_use":
+        experio["in_use"] = [70]
+    if case == "refused":
+        experio["form"][70] = ExperioRefusal(SAME_ACCOUNT, "odoo.exceptions.UserError")
+    statement.settle_statement(8)
+    assert not [w for w in experio["written"] if w[0] == [1]]
+
+
+@pytest.mark.functionality
+def test_a_dossiers_open_statements_are_each_pointed_and_posted(experio):
+    experio["open"] = [40, 41]
+    result = statement.settle_dossier_statements(857)
+    assert result["status"] == "ok" and result["statement_ids"] == [40, 41] and result["dossier_id"] == 857
+    assert (
+        experio["applied"] == [[5], [5]]
+        and "Relevé n° 40 :" in result["message"]
+        and "Relevé n° 41 :" in result["message"]
+    )
+    posted = statement.post_dossier_statements(857)
+    assert posted["message"].count("opération(s) comptabilisée(s)") == 2
+
+
+@pytest.mark.functionality
+def test_a_dossier_without_open_statement_says_so(experio):
+    experio["open"] = []
+    result = statement.settle_dossier_statements(857)
+    assert result.get("routine") and "aucun relevé bancaire" in result["message"]
+
+
+@pytest.mark.technical
+def test_a_statement_experio_refuses_is_said_and_the_others_still_pointed(experio, monkeypatch):
+    experio["open"] = [40, 41]
+    calls = []
+
+    def settled(found, words=""):
+        calls.append(found["id"])
+        if len(calls) == 1:
+            raise ToolError("Relevé n° 40 : Experio n'a pas pu le pointer.")
+        return {"status": "ok", "message": "Relevé n° 41 : pointé."}
+
+    monkeypatch.setattr(statement, "settled", settled)
+    result = statement.settle_dossier_statements(857)
+    assert len(calls) == 2 and "n'a pas pu le pointer" in result["message"] and "pointé." in result["message"]
