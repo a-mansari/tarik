@@ -19,6 +19,7 @@ from typing import Annotated, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
+from engine import agent
 from engine.calls import ToolFailure, call, failed, run_step, started, stops_at, within
 from engine.tools.core.app import CRASHED, log
 from engine.tools.core.cabinets import cabinet_db
@@ -27,7 +28,7 @@ from engine.tools.core.queries import Q
 from engine.tools.dossiers import routine_report as report_files
 from engine.tools.dossiers.routines import ZONE, address_problem
 from engine.tools.dossiers.search import opened_dossiers
-from engine.tools.emails.inbox import opened_thread
+from engine.tools.emails.inbox import opened_thread, thread_of_session
 from engine.tools.invoices.pipeline import NOTHING
 
 INPUTS = ["routine_id", "task", "prompt", "notify", "subject", "until", "session_id", "cabinet"]
@@ -45,6 +46,7 @@ class Run(TypedDict, total=False):
     dossier: dict  # one of them, in its own step
     parts: Annotated[list, operator.add]  # the instruction's reply, or each dossier's {dossier, result, detail, ...}
     report: str
+    instructed: bool  # an instruction's agent replied (its conversation ends on that reply, nothing left open)
     message: str
 
 
@@ -96,10 +98,12 @@ async def instruction(state: Run):
         )
         async with EVERYWHERE:
             output = await asyncio.wait_for(talk, INSTRUCTION_SECONDS)
-        reply = (output or {}).get("reply") or (output or {}).get("error") or "Tarik n'a rien répondu."
+        reply = (output or {}).get("reply")
+        if not reply:
+            status, reply = "error", (output or {}).get("error") or "Tarik n'a rien répondu."
     except TimeoutError:
         status, reply = "error", f"Consigne interrompue après {INSTRUCTION_SECONDS // 60} minutes : à reprendre."
-    return {"parts": [reply], "outcomes": [{"status": status, "message": reply}]}
+    return {"parts": [reply], "instructed": status == "ok", "outcomes": [{"status": status, "message": reply}]}
 
 
 async def listed(state: Run):
@@ -201,18 +205,28 @@ async def report(state: Run):
 
 
 async def sent(state: Run):
-    """Graph node: email the report, with the files the runs made, to the routine's ``notify`` (send_email), as the
-    first email of a thread with them (opened_thread): their reply is answered there, in the usual Emails workflow,
-    Tarik knowing what they answer."""
+    """Graph node: email the report, with the files the runs made, to the routine's ``notify`` (send_email). It is
+    Tarik's own turn in the routine's conversation (agent.began; an instruction's reply already is) and the first
+    email of a thread with them there (opened_thread): their reply is answered in that conversation by the usual
+    Emails workflow, attended (the period's runs alone are unattended), with the report and its files before it."""
     given = state["call"]
+    cabinet, session = given["cabinet"], given["session_id"]
+    if await within(cabinet, thread_of_session, session):  # a period run again after its report went: never twice
+        return {"outcomes": [{"status": "ok", "message": "Rapport déjà envoyé pour cette période."}]}
     email = {"to": given["notify"], "subject": given["subject"], "body": state["report"]}
-    result = await run_step(state, "send_email", **email, attach_session=given["session_id"])
-    if result.get("status") == "ok" and result.get("message_id"):
+    result = await run_step(state, "send_email", **email, attach_session=session)
+    # An instruction's conversation is the reply's only when its agent replied: cut off, a tool call is left open there.
+    joined = given["task"] != "instruction" or state.get("instructed") is True
+    if result.get("status") == "ok" and result.get("message_id") and joined:
+        try:  # first: without it a reply starts a thread of its own
+            await within(cabinet, opened_thread, result["message_id"], email["to"], email["subject"], session)
+        except Exception as error:
+            log(f"{cabinet} routine {given['routine_id']} thread: {type(error).__name__}: {error}")
         try:
-            opening = (result["message_id"], email["to"], email["subject"], email["body"])
-            await within(given["cabinet"], opened_thread, *opening)
-        except Exception as error:  # sent all the same: a reply then starts a thread of its own, as before
-            log(f"{given['cabinet']} routine {given['routine_id']} thread: {type(error).__name__}: {error}")
+            if given["task"] != "instruction":
+                await agent.began(cabinet, session, email["subject"], email["body"])
+        except Exception as error:  # the reply is answered all the same, the report's files at hand
+            log(f"{cabinet} routine {given['routine_id']} memory: {type(error).__name__}: {error}")
     return {"outcomes": [result]}
 
 

@@ -277,15 +277,18 @@ insert into tarik_mail_threads (thread_id, session_id, client_address, subject, 
 values (%s, %s, %s, %s, %s, %s)
 
 -- name: insert_opened_thread
--- A thread Tarik began with his own email (a routine's report), answered already: a reply reopens it, never an
--- acknowledgement (they answer Tarik).
-insert into tarik_mail_threads (thread_id, session_id, client_address, subject, state, acknowledged_at, opened_with)
-values (%s, %s, %s, %s, 'done', now(), %s) on conflict do nothing
+-- A thread Tarik began with his own email (a routine's report), in the conversation he sent it from, answered
+-- already: a reply reopens it, never an acknowledgement (they answer Tarik).
+insert into tarik_mail_threads (thread_id, session_id, client_address, subject, state, acknowledged_at)
+values (%s, %s, %s, %s, 'done', now()) on conflict do nothing
 
--- name: opening_of_thread
--- Tarik's own first email of a thread he began, until a reply of theirs was answered (then it is in the history).
-select t.opened_with from tarik_mail_threads t where t.thread_id = %s and t.opened_with is not null
-and not exists (select 1 from tarik_mail_messages m where m.thread_id = t.thread_id and m.handled)
+-- name: thread_of_session
+-- The mail thread of a conversation, when it has one.
+select thread_id from tarik_mail_threads where session_id = %s
+
+-- name: client_messages_forgotten
+-- A conversation's stored client words, forgotten: a routine's instruction there was never a client's.
+delete from tarik_client_messages where session_id = %s
 
 -- name: reopen_mail_thread
 -- A thread the client wrote again in, back to Tarik, even after an error or a refusal (a run on it takes it after).

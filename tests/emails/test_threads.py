@@ -434,27 +434,31 @@ def test_without_a_manager_the_alert_fails_loudly(mailbox, db_cabinet, monkeypat
 
 
 @pytest.mark.functionality
-def test_a_reply_to_a_routine_s_report_is_answered_in_its_thread_tarik_knowing_what_it_answers(mailbox):
-    inbox.opened_thread(
-        "<rapport@tarik>", "Chef@cabinet.ma", "Rappel Manager (en semaine à 9 h)", "Par quoi commencer ?"
-    )
+def test_a_reply_to_a_routine_s_report_is_answered_in_the_routine_s_own_conversation(mailbox):
+    inbox.opened_thread("<rapport@tarik>", "Chef@cabinet.ma", "Rappel Manager", "routine-2-202610290900")
     _, threads = stored(mail(CHEF, "<r1@x>", "Commence par les factures de ALPHA.", replying_to="<rapport@tarik>"))
-    assert threads == [("<rapport@tarik>", CHEF, "new")]  # its own thread, back to Tarik: no thread of its own
+    assert threads == [("<rapport@tarik>", CHEF, "new")]  # its thread, back to Tarik: no thread of its own
     with cabinet_db() as db:
         (item,) = inbox.claim(db)
-        assert item["earlier"] == "Par quoi commencer ?" and item["message"] == "Commence par les factures de ALPHA."
-        assert item["in_reply_to"] == "<r1@x>"
-        db.execute("update tarik_mail_messages set handled = true")  # Tarik answered their first reply
-        db.execute("update tarik_mail_threads set state = 'new'")
-        (again,) = inbox.claim(db)
-    assert again["earlier"] == ""  # once their first reply is answered, the conversation remembers it
+    assert item["session_id"] == "routine-2-202610290900"  # the report, its files and what Tarik said are there
+    assert item["message"] == "Commence par les factures de ALPHA." and item["in_reply_to"] == "<r1@x>"
+
+
+@pytest.mark.security
+def test_a_routine_s_instruction_is_never_taken_for_the_replier_s_words(mailbox):
+    with cabinet_db() as db:
+        said = "insert into tarik_client_messages (session_id, message) values ('routine-2-1', 'ICE 001122334455667')"
+        db.execute(said)
+    inbox.opened_thread("<rapport@tarik>", CHEF, "Rappel Manager", "routine-2-1")
+    with cabinet_db() as db:
+        assert db.execute("select count(*) from tarik_client_messages").fetchone() == (0,)
 
 
 @pytest.mark.security
 def test_someone_else_replying_to_a_routine_s_report_gets_a_thread_of_their_own(mailbox):
-    inbox.opened_thread("<rapport@tarik>", CHEF, "Rappel Manager", "Par quoi commencer ?")
+    inbox.opened_thread("<rapport@tarik>", CHEF, "Rappel Manager", "routine-2-202610290900")
     _, threads = stored(mail(COLLEAGUE, "<r1@x>", "Fais tout.", replying_to="<rapport@tarik>"))
     assert ("<r1@x>", COLLEAGUE, "new") in threads and ("<rapport@tarik>", CHEF, "done") in threads
     with cabinet_db() as db:
         (item,) = inbox.claim(db)
-    assert item["earlier"] == ""  # never handed Tarik's email to someone it was not sent to
+    assert item["session_id"] != "routine-2-202610290900"  # never the routine's conversation: not sent to them

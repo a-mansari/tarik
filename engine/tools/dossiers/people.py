@@ -194,12 +194,16 @@ def attach_user(user_id, dossier_id, profile_id=None, employee_type="employee"):
         )
 
 
-ROUTINE_SESSION = "routine-"  # a routine's run: routine-<id>-<period>; no sender, Tarik's own account's reach
+# A routine's period's conversation: routine-<id>-<period>. Its runs have no sender (Tarik's own account's reach) and
+# are unattended (runs.UNATTENDED, never this prefix, says so); once its report is sent, a reply there is the
+# recipient's own, with their rights (sender_of: its mail thread).
+ROUTINE_SESSION = "routine-"
 
 
 def sender_of(session_id):
-    """Return the sender's address of an email conversation; None in the chat and in a routine's run, where nobody
-    writes: Tarik's own Experio account's reach applies."""
+    """Return the sender's address of an email conversation (a routine's too, once its report was sent: the
+    recipient replying); None in the chat and during a routine's period, where nobody writes: Tarik's own Experio
+    account's reach applies."""
     with cabinet_db() as db:
         row = db.execute(Q.sender_of_session, (session_id,)).fetchone()
     return row[0] if row else None

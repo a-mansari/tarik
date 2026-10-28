@@ -111,7 +111,7 @@ def when(every, days, hour, minute):
 
 def session_of(routine_id, due_at):
     """Return the conversation id of a routine's run for period ``due_at``: its runs together on the Executions
-    page; the agent's tools refuse there what does not only prepare (agent.ROUTINE_WORKFLOWS)."""
+    page. The period's runs are unattended (runs.UNATTENDED: only what prepares); a reply there later is not."""
     return f"{ROUTINE_SESSION}{routine_id}-{due_at.astimezone(ZONE):%Y%m%d%H%M}"
 
 

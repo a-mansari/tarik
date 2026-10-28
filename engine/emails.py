@@ -107,7 +107,7 @@ async def ask(state: Thread):
     try:
         message = with_subject(thread.get("subject"), thread["message"])
         given = state["cabinet"], thread["session_id"], message, thread["files"]
-        reply = await answered(*given, "tarik", thread.get("skipped", ()), thread.get("earlier", ""))
+        reply = await answered(*given, "tarik", thread.get("skipped", ()))
         return {"reply": reply}
     except Exception:  # no reply (the model failing): set aside, with why, never asked twice
         return {"error": "Tarik n'a pas pu repondre pour le moment."}
