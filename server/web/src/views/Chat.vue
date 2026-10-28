@@ -88,7 +88,8 @@ watch(() => data.value?.going, async (going, was) => {
           <tr v-for="item in data.conversations" :key="item.session_id">
             <td class="num">{{ item.started }}</td>
             <td>
-              <span v-if="item.medium === 'email'" class="chip"><Icon name="mail" :size="13" /> Email</span>
+              <span v-if="item.routine" class="chip"><Icon name="clock" :size="13" /> Routine</span>
+              <span v-else-if="item.medium === 'email'" class="chip"><Icon name="mail" :size="13" /> Email</span>
               <span v-else class="chip ok"><Icon name="chat" :size="13" /> Chat</span>
             </td>
             <td>

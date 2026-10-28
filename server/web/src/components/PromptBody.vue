@@ -7,7 +7,7 @@ defineProps({ prompt: { type: Object, required: true } });
 
 const WHO = { system: "Instructions", user: "Client", human: "Client", assistant: "Tarik", ai: "Tarik", tool: "Outil" };
 // The same small avatars as a run's conversation, by who speaks.
-const KIND = { Client: "client", Tarik: "tarik", Outil: "tool" };
+const KIND = { Client: "client", Routine: "routine", Tarik: "tarik", Outil: "tool" };
 const json = (value) => (typeof value === "string" ? value : JSON.stringify(value, null, 2));
 
 // A part as shown: a text ("said"), a line ("line"), or folded under a title ("folded", "thinking" for its reflection).
@@ -37,13 +37,15 @@ function partsOf(content) {
 // The bubble's class: a tool's answer, the client's words, or Tarik's.
 function bubbleClass(role, who) {
   if (role === "tool") return "tool";
+  if (who === "Routine") return "routine";
   return who === "Client" ? "client" : "tarik";
 }
 
 function message(m) {
   if (typeof m === "string") return { plain: m }; // a part removed since
   const role = m.role || "?";
-  const who = WHO[role] || role;
+  // A routine's user-side message (its name: engine/agent.py ROUTINE_NAME, the same word): never a client's.
+  const who = m.name === "routine" ? "Routine" : WHO[role] || role;
   const parts = partsOf(m.content);
   let shown;
   if (role === "tool") {

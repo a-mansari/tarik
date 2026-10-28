@@ -1,4 +1,5 @@
-<!-- A conversation as n8n's chat shows one: the client's messages with their files, each of Tarik's turns with the
+<!-- A conversation as n8n's chat shows one: the client's messages with their files, what a routine sent (its
+instruction, the line its report opens on: never the client's), each of Tarik's turns with the
 tools it called (done, failed, or still going) before its reply, and Tarik typing while its run goes on; the files Tarik
 made for it (an export) after. Words only as
 the server's markdown (*_html). Patched in place at each refresh: a tools list left open stays open. -->
@@ -19,9 +20,9 @@ const fileLink = (name) =>
   `/ui/api/discussion/${encodeURIComponent(props.session)}/fichier?nom=${encodeURIComponent(name)}`;
 const running = (entry) => entry.tools.filter((tool) => tool.state === "running");
 const runLink = () => `/ui/executions/${props.latest.run_id}`;
-// Tarik typing: under its last turn, or alone once the client has spoken (or nothing is said yet).
+// Tarik typing: under its last turn, or alone once the client (or a routine) has spoken, or nothing is said yet.
 const typingAfter = (index) => props.going && index === props.messages.length - 1;
-const typingAlone = () => props.going && (!props.messages.length || props.messages.at(-1).who === "Client");
+const typingAlone = () => props.going && (!props.messages.length || ["Client", "Routine"].includes(props.messages.at(-1).who));
 const mark = { done: "✓", failed: "✕" };
 const stateWords = { done: "terminé", failed: "en échec" };
 </script>
@@ -41,6 +42,10 @@ const stateWords = { done: "terminé", failed: "en échec" };
           <ul v-if="entry.skipped?.length" class="files skipped" aria-label="Fichiers laissés de côté">
             <li v-for="why in entry.skipped" :key="why"><Icon name="file" :size="14" /><span>{{ why }}</span></li>
           </ul>
+        </li>
+        <li v-else-if="entry.who === 'Routine'" class="routine">
+          <span class="who"><ChatAvatar kind="routine" />Routine</span>
+          <div v-if="entry.text_html" class="reply" v-html="entry.text_html" />
         </li>
         <li v-else class="tarik">
           <span class="who"><ChatAvatar kind="tarik" />Tarik</span>

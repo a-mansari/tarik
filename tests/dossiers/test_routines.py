@@ -606,7 +606,7 @@ def test_a_routine_s_report_is_tarik_s_own_turn_in_its_conversation(monkeypatch)
         # Tarik's: a reply reads as its answer; Experio's data in it stays data
         ("ai", '<untrusted_data source="Experio" label="rapport_envoye">\nPar quoi commencer ?\n</untrusted_data>'),
     ]
-    assert saved[0].name == agent.BEGAN_NAME  # the Discussion page hides that line by its tag, never by its text
+    assert saved[0].name == agent.ROUTINE_NAME  # the routine's line, never the client's
 
 
 @pytest.mark.security
@@ -658,3 +658,22 @@ def test_an_instruction_cut_off_never_joins_its_conversation_to_a_reply(running,
     asyncio.run(clock.ran(db_cabinet, row))
     with cabinet_db() as db:
         assert db.execute("select count(*) from tarik_mail_threads").fetchone() == (0,)  # a tool call left open there
+
+
+@pytest.mark.security
+def test_a_routine_s_message_is_never_the_client_s_and_its_mark_never_reaches_the_model():
+    from types import SimpleNamespace
+
+    from langchain_anthropic.chat_models import _format_messages
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    from engine import agent
+
+    began = HumanMessage("[Routine : Rappel Manager]", name=agent.ROUTINE_NAME)
+    history = [began, AIMessage("Par quoi commencer ?")]
+    assert agent.client_message(SimpleNamespace(state={"messages": history})) == ""  # nobody wrote yet
+    history.append(HumanMessage("Commence par ALPHA."))
+    assert agent.client_message(SimpleNamespace(state={"messages": history})) == "Commence par ALPHA."
+    _, sent = _format_messages(history, model=None)
+    assert [message["role"] for message in sent] == ["user", "assistant", "user"]  # the Messages format, user first
+    assert all("name" not in message for message in sent)  # the mark stays in Tarik's memory
