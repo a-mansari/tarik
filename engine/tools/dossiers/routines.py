@@ -53,7 +53,16 @@ COLUMNS = (
 )
 SCHEDULE = ("every", "days", "hour", "minute")  # a routine's time, in next_run's and when's order
 WEEKDAYS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
-ACTIONS = ("create", "list", "pause", "resume", "delete")
+ACTIONS = ("create", "update", "list", "pause", "resume", "delete")
+DEFAULT_HOUR = 8  # a routine made without an hour
+NAME_CHARACTERS = 80  # a routine's name: its email's subject
+
+
+def name_problem(name):
+    """Return what is wrong with a routine's name (French), "" when nothing: one line (cleaned before), short."""
+    return f"un nom de {NAME_CHARACTERS} caractères au plus" if len(name) > NAME_CHARACTERS else ""
+
+
 CHAT = "chat"  # created_by of a routine made in the chat, where nobody can tell who writes
 
 
@@ -224,22 +233,27 @@ def manage_routine(
     kind: str = "",
     every: str = "",
     days: list | None = None,
-    hour: int = 8,
+    hour: int = -1,
+    minute: int = -1,
     routine_id: int = 0,
     email: str = "",
     prompt: str = "",
+    name: str = "",
     client_confirmed: bool = False,
     client_message: str = "",
     session_id: str = "",
 ) -> dict:
-    """Make, list, pause, resume or delete the cabinet's routines (``action`` create, list, pause, resume, delete).
+    """Make, change, list, pause, resume or delete the cabinet's routines (``action`` create, update, list, pause,
+    resume, delete).
 
     create: ``kind`` (tva, ras, progress, instruction with its ``prompt``), ``every`` (day, week, month), ``days``
-    (weekdays 0-6 from Monday each week, or the one day 1-28 each month) and ``hour`` (0-23, Casablanca time); it
-    works on every dossier Tarik's Experio account sees, so only Experio's staff and the cabinet's admins make or
-    resume one (in the chat, the team). Its reports go to the email's sender, or in the chat to the ``email`` the
-    client wrote (address_problem). Read back, made once the client said yes (``client_confirmed``). pause, resume,
-    delete: ``routine_id``; delete is read back first. A sender sees and manages only the routines they made (mine).
+    (weekdays 0-6 from Monday each week, or the one day 1-28 each month), ``hour`` (0-23, Casablanca time; -1: 8 h)
+    and ``minute`` (-1: 0), its optional ``name`` (its email's subject); it works on every dossier Tarik's Experio
+    account sees, so only Experio's staff and the cabinet's admins make, change or resume one (in the chat, the team).
+    Its reports go to the email's sender, or in the chat to the ``email`` the client wrote (address_problem). Read
+    back, made once the client said yes (``client_confirmed``). update: ``routine_id`` and only what changes (an
+    empty text, no days, -1 keep the routine's own), read back the same way. pause, resume, delete: ``routine_id``;
+    delete is read back first. A sender sees and manages only the routines they made (mine).
 
     Returns an ok result once done, a routine result for an empty list, a question result for what is missing or to
     confirm, a stop result for a sender who may not make one.
@@ -251,14 +265,16 @@ def manage_routine(
     with refused(f"manage_routine {action}", "Experio n'a pas pu verifier vos droits."):
         reach = sender_reach(session_id)
     sender = sender_of(session_id) or CHAT
-    if action in ("create", "resume") and reach is not None and reach.get("rank", 0) < RANK["admin"]:
+    if action in ("create", "update", "resume") and reach is not None and reach.get("rank", 0) < RANK["admin"]:
         return stop(
             "Une routine travaille sur tous les dossiers du cabinet : seuls ses administrateurs Experio et "
-            "l'équipe Experio en créent ou en reprennent une (ou la page Routines). Rien n'est changé."
+            "l'équipe Experio en créent, en modifient ou en reprennent une (ou la page Routines). Rien n'est changé."
         )
     if action == "create":
         words = normalized("\n".join(client_messages(session_id, own_words(client_message))))
-        given = (kind, every, sorted(set(days or [])), hour, email.strip(), prompt.strip())
+        hour, minute = DEFAULT_HOUR if hour < 0 else hour, max(minute, 0)
+        name = " ".join(name.split())  # one line: a subject
+        given = (kind, every, sorted(set(days or [])), hour, minute, email.strip(), prompt.strip(), name)
         return created(*given, sender, client_confirmed, words, session_id)
     rows = [r for r in routines_of_cabinet() if mine(r, reach, sender)]
     if action == "list":
@@ -268,6 +284,11 @@ def manage_routine(
     row = next((r for r in rows if r["id"] == routine_id), None)
     if not row:
         return question(f"Quelle routine ? Aucune n° {routine_id} parmi les vôtres (demandez la liste).")
+    if action == "update":
+        words = normalized("\n".join(client_messages(session_id, own_words(client_message))))
+        asked = {"kind": kind, "every": every, "days": days, "hour": hour, "minute": minute, "prompt": prompt}
+        asked |= {"name": name, "email": email}
+        return updated(row, asked, sender, client_confirmed, words, session_id)
     if action == "delete" and not confirmed(session_id, client_confirmed, "je la supprime", f"n° {routine_id}"):
         return question(f"Routine {listed(row)}. Je la supprime ? oui / non")
     with cabinet_db() as db:
@@ -281,13 +302,20 @@ def manage_routine(
     return ok(f"Routine n° {routine_id} reprise : prochaine le {upcoming:%Y-%m-%d %H:%M}.")
 
 
-def created(kind, every, days, hour, email, prompt, sender, client_confirmed, words, session_id):
+def reported_to(sender, email, words):
+    """Return the address a routine's reports go to: the email's sender, or in the chat the ``email`` the client wrote
+    themselves (never one a model chose); "" when there is none."""
+    if sender != CHAT:
+        return sender
+    return email if email and client_wrote("email", email, words) else ""
+
+
+def created(kind, every, days, hour, minute, email, prompt, name, sender, client_confirmed, words, session_id):
     """manage_routine's create: check, read back, then save the routine (see manage_routine)."""
-    minute = 0  # the chat's routines start on the hour; the Routines page sets the minutes
-    problem = routine_problem(kind, every, days, hour, minute, prompt)
+    problem = routine_problem(kind, every, days, hour, minute, prompt) or name_problem(name)
     if problem:
         return question(f"Pour cette routine : {problem}")
-    notify = sender if sender != CHAT else (email if email and client_wrote("email", email, words) else "")
+    notify = reported_to(sender, email, words)
     if not notify:
         return question("À quelle adresse e-mail envoyer ses rapports ?")
     with refused("manage_routine create", "Experio n'a pas pu verifier cette adresse."):
@@ -295,13 +323,63 @@ def created(kind, every, days, hour, email, prompt, sender, client_confirmed, wo
     if problem:
         return question(f"{problem} : à quelle adresse envoyer ?")
     upcoming = next_run(every, days, hour, minute, datetime.now(ZONE))
-    recap = described(kind, every, days, hour, minute, notify, upcoming, prompt)
-    if not confirmed(session_id, client_confirmed, "vous confirmez", KINDS[kind], when(every, days, hour, minute)):
-        return question(
-            f"Routine : {recap}, sur tous les dossiers du cabinet.\nRien n'est jamais déclaré ni comptabilisé sans "
-            "vous. Vous confirmez ?"
-        )
+    recap = (f"« {name} », " if name else "") + described(kind, every, days, hour, minute, notify, upcoming, prompt)
+    read_back = (
+        f"Routine : {recap}, sur tous les dossiers du cabinet.\nRien n'est jamais déclaré ni comptabilisé sans vous. "
+        "Vous confirmez ?"
+    )
+    if not confirmed(session_id, client_confirmed, read_back):  # this very read-back, whole: never another's yes
+        return question(read_back)
     with cabinet_db() as db:
-        values = (kind, every, days, hour, minute, notify, sender, upcoming, prompt, True, "")  # named on the page
+        values = (kind, every, days, hour, minute, notify, sender, upcoming, prompt, True, name)
         (new_id,) = db.execute(Q.routine_made, values).fetchone()
     return ok(f"Routine n° {new_id} créée : {recap}.")
+
+
+def updated(row, asked, sender, client_confirmed, words, session_id):
+    """manage_routine's update: routine ``row`` with what ``asked`` changes (an empty text, no days, -1 keep its
+    own), checked as a new one, read back, saved once the client said yes. Its next time moves only when its
+    schedule changes."""
+    new = dict(row)
+    for key in ("kind", "every", "prompt", "name"):
+        if str(asked[key] or "").strip():
+            new[key] = str(asked[key]).strip()
+    new["name"] = " ".join(new["name"].split())  # one line: a subject
+    if new["kind"] != "instruction":  # only an instruction has words of its own: another kind's would stay unseen
+        new["prompt"] = row["prompt"]
+    for key in ("hour", "minute"):
+        if asked[key] is not None and asked[key] >= 0:
+            new[key] = asked[key]
+    if asked["days"]:
+        new["days"] = sorted(set(asked["days"]))
+    elif new["every"] != row["every"]:  # another rhythm: its old days mean something else (a 5th is no Saturday)
+        new["days"] = []
+    if asked["email"].strip() and sender != CHAT and asked["email"].strip().lower() != sender.lower():
+        return stop(
+            "Par e-mail, les rapports d'une routine vont à son expéditeur : pour une autre adresse, passez par "
+            "la page Routines. Rien n'est changé."
+        )
+    if asked["email"].strip():
+        new["notify"] = reported_to(sender, asked["email"].strip(), words)
+        if not new["notify"]:  # an address the client did not write: never one a model chose
+            return question("À quelle adresse e-mail envoyer ses rapports ? Écrivez-la telle quelle.")
+    if new == row:
+        return question(f"Que changer dans la routine n° {row['id']} ? Rien de nouveau n'a été donné.")
+    problem = routine_problem(*(new[key] for key in ("kind", *SCHEDULE, "prompt"))) or name_problem(new["name"])
+    if not problem and new["notify"] != row["notify"]:
+        with refused("manage_routine update", "Experio n'a pas pu verifier cette adresse."):
+            problem = address_problem(new["notify"])
+    if problem:
+        return question(f"Pour la routine n° {row['id']} : {problem}")
+    moved = any(new[key] != row[key] for key in SCHEDULE)
+    upcoming = next_run(*(new[key] for key in SCHEDULE), datetime.now(ZONE)) if moved else row["next_run_at"]
+    shown = described(new["kind"], *(new[key] for key in SCHEDULE), new["notify"], upcoming, new["prompt"])
+    recap = (f"« {new['name']} », " if new["name"] else "") + shown
+    # The yes must answer this very read-back, whole: its task, time, words, name and address as read to the client.
+    read_back = f"Routine n° {row['id']}, après modification : {recap}. Je la modifie ?"
+    if not confirmed(session_id, client_confirmed, read_back):
+        return question(read_back)
+    with cabinet_db() as db:
+        changed = (new["enabled"], *(new[key] for key in ("kind", *SCHEDULE, "notify", "prompt", "name")))
+        db.execute(Q.routine_changed, (*changed, upcoming, row["id"]))
+    return ok(f"Routine n° {row['id']} modifiée : {recap}.")

@@ -126,10 +126,15 @@ def test_the_runs_list_gives_each_run_its_time_as_read(monkeypatch):
     from server import api
 
     async def recent(cabinet, graph, limit):
-        return [{"run_id": "r1", "graph": "agent", "started": "2026-10-20T09:33:22+00:00", "depth": 0}]
+        run = {"run_id": "r1", "graph": "agent", "session_id": "chat-1", "started": "2026-10-20T09:33:22+00:00"}
+        return [{**run, "depth": 0}, {**run, "run_id": "r2", "graph": "emails", "session_id": "boite"}]
+
+    async def talked(cabinet, sessions):
+        return {session for session in sessions if session.startswith("chat-")}
 
     monkeypatch.setattr(api.runs, "CABINETS", {"cab_a"})
     monkeypatch.setattr(api.runs.runs, "recent", recent)
+    monkeypatch.setattr(api.runs.runs, "talked", talked)
 
     async def spending(cabinet, statement, keys):
         return {"r1": {"tokens": "15", "detail": "", "cost": "< 0,01 $"}}
@@ -141,6 +146,7 @@ def test_the_runs_list_gives_each_run_its_time_as_read(monkeypatch):
         and shown["cabinet"] == "cab_a"
         and shown["runs"][0]["when"] == api.runs.runs.when("2026-10-20T09:33:22+00:00")
         and shown["usage"]["r1"]["tokens"] == "15"
+        and shown["talked"] == ["chat-1"]  # the mailbox's reading has no conversation: not linked
     )
 
 

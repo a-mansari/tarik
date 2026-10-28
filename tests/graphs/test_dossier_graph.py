@@ -166,7 +166,7 @@ def test_a_routine_is_managed_after_the_manager_check(steps):
     assert steps.names == ["save_files", "check_manager", "manage_routine", "run_summary"]
     (given,) = steps.args("manage_routine")
     assert given["kind"] == "tva" and given["every"] == "month"
-    assert given["days"] == [5] and given["hour"] == 8  # no hour given: 8 h
+    assert given["days"] == [5] and given["hour"] == -1 and given["minute"] == -1  # none given: the tool's 8 h
 
 
 @pytest.mark.security

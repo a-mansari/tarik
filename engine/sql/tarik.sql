@@ -546,8 +546,8 @@ select id, kind, every, days, hour, minute, notify, enabled, next_run_at, create
 from tarik_routines order by id
 
 -- name: routine_changed
--- === server/api/routines.py ===
--- A routine as the Routines page saved it, with its next run.
+-- === server/api/routines.py, engine/tools/dossiers/routines.py ===
+-- A routine as the Routines page or the chat changed it, with its next run.
 update tarik_routines set enabled = %s, kind = %s, every = %s, days = %s, hour = %s, minute = %s, notify = %s,
 prompt = %s, name = %s, next_run_at = %s where id = %s
 

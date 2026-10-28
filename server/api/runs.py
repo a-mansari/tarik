@@ -274,12 +274,15 @@ async def runs_page(request: Request):
     ?graph=), newest first.
 
     Each run is followed by the runs started in its steps; ``usage`` holds each run's model calls (usage_shown), its
-    nested runs' included."""
+    nested runs' included; ``talked`` the sessions that are a conversation, the only ones linked to the Discussion
+    page."""
     query = request.query_params
     cabinet, graph = chosen(request), query.get("graph") or None
     found = await runs.recent(cabinet, graph, 100) if cabinet else []
     spent = await spending(cabinet, Q.usage_of_runs, [run["run_id"] for run in found])
-    return page({"runs": dated(found), "usage": spent, "cabinet": cabinet, "graph": graph, "graphs": runs.NAMES})
+    talked = sorted(await runs.talked(cabinet, {run["session_id"] for run in found})) if found else []
+    shown = {"runs": dated(found), "usage": spent, "talked": talked}
+    return page({**shown, "cabinet": cabinet, "graph": graph, "graphs": runs.NAMES})
 
 
 async def run_page(request: Request):

@@ -1,6 +1,7 @@
 <!-- The runs of the cabinet picked in the sidebar, latest first, each with the runs it started under it and its model calls' tokens and cost (theirs included); read again at
 each change of the cabinet's runs. A type picked shows one workflow's. -->
 <script setup>
+import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { graphName, pickedCabinet, statusName, usePage } from "../api.js";
@@ -14,6 +15,9 @@ const router = useRouter();
 const { data, status, loading, reload } = usePage((at) =>
   at.query.graph ? `/executions?graph=${encodeURIComponent(at.query.graph)}` : "/executions");
 const cabinet = pickedCabinet();
+// The sessions that are a conversation (the server says which): their rows link to it; another run's session (the
+// mailbox's reading, a TVA, RAS or progress routine's period) has no conversation to show.
+const talked = computed(() => new Set(data.value?.talked || []));
 if (cabinet) useLive(`cabinet=${encodeURIComponent(cabinet)}`, reload);
 
 const pick = (event) => router.push({ query: event.target.value ? { graph: event.target.value } : {} });
@@ -48,7 +52,11 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
               </template>
               <RouterLink :to="`/ui/executions/${run.run_id}`">{{ graphName(run.graph) }}</RouterLink>
             </td>
-            <td><RouterLink class="mono" :to="`/ui/discussion/${encodeURIComponent(run.session_id)}`">{{ run.session_id }}</RouterLink></td>
+            <td>
+              <RouterLink v-if="talked.has(run.session_id)" class="mono"
+                :to="`/ui/discussion/${encodeURIComponent(run.session_id)}`">{{ run.session_id }}</RouterLink>
+              <span v-else class="mono muted">{{ run.session_id }}</span>
+            </td>
             <td><span :class="`chip ${run.status}`">{{ statusName(run.status) }}</span></td>
             <td class="num">{{ run.seconds }} s<template v-if="!run.ended"> …</template></td>
             <td><ModelUsage :usage="data.usage[run.run_id]" /></td>

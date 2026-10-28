@@ -505,3 +505,44 @@ def test_a_named_routine_s_email_bears_its_name(running, db_cabinet):
         db.execute("update tarik_routines set name = 'Rappel Manager' where id = %s", (routine_id,))
     (row,) = clock.claimed()
     assert clock.given(db_cabinet, row)["call"]["subject"] == "Rappel Manager (chaque jour à 8 h)"
+
+
+@pytest.mark.functionality
+def test_a_routine_is_changed_in_the_chat_only_in_what_the_client_asked_once_they_said_yes(chat):
+    make(True)
+    with cabinet_db() as db:
+        (routine_id, before) = db.execute("select id, next_run_at from tarik_routines").fetchone()
+    asked = routines.manage_routine("update", routine_id=routine_id, name="Rappel TVA", session_id="s")
+    assert asked["status"] == "question" and "« Rappel TVA »" in asked["message"]
+    with cabinet_db() as db:  # read back only: nothing changed yet
+        assert db.execute("select name from tarik_routines").fetchone() == ("",)
+    changes = {"name": "Rappel TVA", "hour": 9, "minute": 30}
+    done = routines.manage_routine("update", routine_id=routine_id, **changes, client_confirmed=True, session_id="s")
+    assert done["status"] == "ok"
+    with cabinet_db() as db:
+        row = db.execute("select name, kind, every, days, hour, minute, next_run_at from tarik_routines").fetchone()
+    assert row[:6] == ("Rappel TVA", "tva", "month", [5], 9, 30)  # the rest kept as it was
+    assert row[6] != before and row[6].astimezone(ZONE).minute == 30  # a new time: its next run moves
+
+
+@pytest.mark.functionality
+def test_a_change_with_nothing_new_or_wrong_is_asked_again(chat):
+    make(True)
+    with cabinet_db() as db:
+        (routine_id,) = db.execute("select id from tarik_routines").fetchone()
+    assert "Rien de nouveau" in routines.manage_routine("update", routine_id=routine_id, session_id="s")["message"]
+    weekly = {"routine_id": routine_id, "every": "week", "client_confirmed": True, "session_id": "s"}
+    wrong = routines.manage_routine("update", **weekly)
+    assert wrong["status"] == "question" and "quels jours" in wrong["message"]  # a month's 5 is no weekday list
+
+
+@pytest.mark.security
+def test_by_email_a_routine_s_reports_never_move_to_another_address(chat, monkeypatch):
+    make(True)
+    with cabinet_db() as db:
+        db.execute("update tarik_routines set created_by = 'chef@cabinet.ma'")
+        (routine_id,) = db.execute("select id from tarik_routines").fetchone()
+    monkeypatch.setattr(routines, "sender_reach", lambda session_id: {"id": 7, "company_ids": [], "rank": 4})
+    monkeypatch.setattr(routines, "sender_of", lambda session_id: "chef@cabinet.ma")
+    moved = routines.manage_routine("update", routine_id=routine_id, email="autre@cabinet.ma", session_id="s")
+    assert moved["status"] == "stop" and "page Routines" in moved["message"]
