@@ -180,7 +180,7 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
       <p class="recap" aria-live="polite">Tarik va <b>{{ what }}</b>, {{ when }}, et envoyer le rapport à
         <b>{{ form.notify || "…" }}</b>.</p>
       <div class="foot-actions">
-        <label class="switch"><input v-model="form.enabled" type="checkbox"> Active dès maintenant</label>
+        <label class="switch"><input v-model="form.enabled" type="checkbox" role="switch"> Active dès maintenant</label>
         <button type="button" class="panel-button" @click="$emit('cancel')">Annuler</button>
         <button type="submit" class="primary" :disabled="busy || midnight || noDay">{{ busy ? "Enregistrement…" : submitWords }}</button>
       </div>
