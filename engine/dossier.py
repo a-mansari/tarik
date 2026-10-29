@@ -50,6 +50,7 @@ INPUTS = [
     "prompt",
     "setting",
     "value",
+    "writer",
     "rc",
     "patente",
     "tsc",
@@ -222,7 +223,8 @@ async def behaviour(state: Run):
         session_id=call["session_id"],
         action=call.get("action") or "list",
         key=call.get("setting") or "",
-        value=str(call.get("value") or ""),
+        value=call.get("value") or "",
+        writer_of_chat=call.get("writer"),
     )
     return {"outcomes": [result]}
 

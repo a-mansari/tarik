@@ -16,8 +16,9 @@ from server import api
 SESSION = "chat-" + "0" * 32
 
 
-def sent(payload, cabinet="cabinet_a", session=SESSION, shown=None):
-    """``payload`` posted by the page of ``shown`` (default: ``cabinet``), ``cabinet`` picked in the sidebar."""
+def sent(payload, cabinet="cabinet_a", session=SESSION, shown=None, user=None):
+    """``payload`` posted by the page of ``shown`` (default: ``cabinet``), ``cabinet`` picked in the sidebar, by the
+    account ``user`` (default: a member)."""
     body = json.dumps({"cabinet": shown or cabinet, **payload}).encode()
 
     async def receive():
@@ -28,6 +29,7 @@ def sent(payload, cabinet="cabinet_a", session=SESSION, shown=None):
         "method": "POST",
         "headers": [(b"content-length", str(len(body)).encode()), (b"cookie", f"tarik_cabinet={cabinet}".encode())],
         "path_params": {"session_id": session},
+        "state": {"user": user or {"email": "membre@cabinet.ma", "role": "member"}},
     }
     answer = asyncio.run(api.chat.send(Request(scope, receive)))
     return answer.status_code, json.loads(answer.body).get("error", "")
@@ -41,6 +43,22 @@ def pdf(name="facture.pdf", data=b"%PDF-1.4"):
 def one_cabinet(monkeypatch):
     monkeypatch.setattr(api.chat, "CABINETS", frozenset({"cabinet_a"}))
     monkeypatch.setattr(api.runs, "CABINETS", frozenset({"cabinet_a"}))
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(("role", "admin"), [("admin", True), ("member", False)])
+def test_a_discussion_run_carries_who_wrote_its_message(monkeypatch, role, admin):
+    """Its own writer, never the conversation's latest: what it may change for the whole cabinet depends on it."""
+    carried = []
+
+    async def start(name, payload):
+        carried.append(api.chat.runs.WRITER.get())
+        return "run-1", None
+
+    monkeypatch.setattr(api.chat.runs, "start", start)
+    status, _ = sent({"message": "Bonjour"}, user={"email": "x@cabinet.ma", "role": role})
+    assert status == 202 and carried == [{"email": "x@cabinet.ma", "admin": admin}]
+    assert api.chat.runs.WRITER.get() is None  # set for that run only
 
 
 def test_a_message_from_a_page_of_another_cabinet_than_the_one_picked_is_refused(monkeypatch):

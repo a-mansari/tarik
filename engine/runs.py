@@ -160,6 +160,9 @@ RUNNING = usage.RUNNING  # the run whose steps are going on: a run started in on
 # True in an unattended run (a routine's period) and every run nested in it, the same way: nobody there to say yes.
 # Its runs read it in their configurable ("unattended"), never from their conversation's id.
 UNATTENDED = contextvars.ContextVar("unattended", default=False)
+# Who wrote the Discussion message a run answers ({email, admin}: an account of the pages), the same way: set by the
+# page for the run it starts, read in the configurable ("writer"). The chat has no sender to check; its writer does.
+WRITER = contextvars.ContextVar("writer", default=None)
 
 
 async def created(name, given, cabinet, session, thread=None, parent=None, parent_node=None):
@@ -223,11 +226,13 @@ async def nested(name, given, cabinet, session, thread=None, node=None):
 
 
 def configurable_of(cabinet, session, thread):
-    """Return a run's configurable: {cabinet, session_id}, plus thread_id when ``thread`` is set and unattended
-    (True) in an unattended run (UNATTENDED)."""
+    """Return a run's configurable: {cabinet, session_id}, plus thread_id when ``thread`` is set, unattended (True)
+    in an unattended run (UNATTENDED) and writer in a run answering a Discussion message (WRITER)."""
     configurable = {"cabinet": cabinet, "session_id": session}
     if UNATTENDED.get():
         configurable["unattended"] = True
+    if WRITER.get():
+        configurable["writer"] = WRITER.get()
     if thread:
         configurable["thread_id"] = thread
     return configurable

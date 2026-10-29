@@ -370,7 +370,12 @@ async def send(request: Request):
         "files": [f["file_name"] for f in files],
         "skipped": skipped,
     }
-    run_id, _ = await runs.start("discussion", {"input": given, "cabinet": cabinet, "session_id": session})
+    user = request.state.user  # who may change what the whole cabinet gets (engine/tools/dossiers/behaviour.py)
+    writer = runs.WRITER.set({"email": user["email"], "admin": user["role"] == "admin"})
+    try:  # the run started here, and those nested in it, carry it
+        run_id, _ = await runs.start("discussion", {"input": given, "cabinet": cabinet, "session_id": session})
+    finally:
+        runs.WRITER.reset(writer)
     return JSONResponse({"run_id": run_id, "skipped": skipped}, status_code=202)
 
 

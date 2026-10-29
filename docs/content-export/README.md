@@ -146,3 +146,7 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-timbre-20261029.json` (and its `.diff`): `tools/point-bank-lines.md` no longer says a stamp duty (TIMBRE)
   or the TVA on a commission is a « bank tax »: TIMBRE is the dossier's stamp-duty operation (6167), the TVA on a
   commission the bank-fee operation with TVA. Import it with the commit that settles TIMBRE by rule.
+- `tarik-contenu-comportement-suite-20261029.json` (and its `.diff`): `Experio_reglages` says Tarik's admins change a
+  setting in the discussion too, and a progress email's delay goes from 0 to 25 minutes (`agent.json`). Built on the
+  live content of 2026-10-29 15:10 (after rapports-lisibles): import it once the stack runs the commit with the
+  behaviour follow-ups.
