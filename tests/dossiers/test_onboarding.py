@@ -324,5 +324,5 @@ def test_experio_refusing_a_new_dossier_gives_its_reason(creating, monkeypatch):
     monkeypatch.setattr(
         identity, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "ICE invalide"))
     )
-    with pytest.raises(ToolError, match="Experio refuse de créer le dossier `DELTA` : ICE invalide"):
+    with pytest.raises(ToolError, match=r"^Dossier `DELTA` : Experio refuse de le créer \(ICE invalide\)\.$"):
         identity.create_dossier(name="DELTA", client_message="Créez DELTA", session_id="s")

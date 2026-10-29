@@ -1,0 +1,10 @@
+--- a/labels.json
++++ b/labels.json
+@@ -524,6 +524,7 @@
+     "layout_saved": "Disposition enregistrée",
+     "layout_reset": "Disposition automatique",
+     "run_started": "Exécution lancée à la main",
++    "run_stopped": "Exécution arrêtée à la main",
+     "cabinet_created": "Cabinet créé (Experio)",
+     "cabinet_reactivated": "Cabinet réactivé (Experio)",
+     "cabinet_closed": "Cabinet désactivé (Experio)",

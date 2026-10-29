@@ -204,6 +204,12 @@ def problems_of(rows):
     return problems
 
 
+def capped(lines):
+    """Return « - » items ``lines`` one per line, MAX_SHOWN at most, then « - ... et N autres »."""
+    others = counted(len(lines) - MAX_SHOWN, "{} autre", "{} autres")
+    return "\n".join(lines[:MAX_SHOWN]) + (f"\n- ... et {others}" if len(lines) > MAX_SHOWN else "")
+
+
 def row_recap(row):
     """Return one dossier of the file as a French line the client reads back."""
     parts = [
@@ -267,22 +273,16 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
     with refused(f"import_dossiers {file_id}", "Experio n'a pas pu vérifier la liste des dossiers."):
         problems = problems_of(rows)
     if problems:
-        shown = "\n".join(f"- {p}" for p in problems[:MAX_SHOWN])
-        others = counted(len(problems) - MAX_SHOWN, "{} autre", "{} autres")
-        more = f"\n- ... et {others}" if len(problems) > MAX_SHOWN else ""
         return stop(
             f"`{name}` : je n'ai créé aucun dossier, car le fichier a "
-            f"{counted(len(problems), '{} problème', '{} problèmes')} :\n{shown}{more}\n\n"
+            f"{counted(len(problems), '{} problème', '{} problèmes')} :\n{capped([f'- {p}' for p in problems])}\n\n"
             "Corrigez-le (ou supprimez les lignes en double) et renvoyez-le."
         )
     ask = counted(len(rows), "Je le crée", "Je les crée")
     if not confirmed(session_id, client_confirmed, ask, name):
-        listed = "\n".join(row_recap(r) for r in rows[:MAX_SHOWN])
-        others = counted(len(rows) - MAX_SHOWN, "{} autre", "{} autres")
-        more = f"\n- ... et {others}" if len(rows) > MAX_SHOWN else ""
         return question(
             f"`{name}` contient {counted(len(rows), '{} dossier, correct', '{} dossiers, tous corrects')} :\n"
-            f"{listed}{more}\n\n{ask} ? oui / non"
+            f"{capped([row_recap(r) for r in rows])}\n\n{ask} ? oui / non"
         )
     if dry_run():
         would = counted(len(rows), "{} dossier serait créé", "{} dossiers seraient créés")
@@ -305,11 +305,11 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
     if refused_rows:
         message += (
             "\nExperio a refusé ces lignes :\n"
-            + "\n".join(refused_rows)
+            + "\n".join(refused_rows)  # every one: the client corrects and sends them again
             + "\n\nCorrigez ces lignes et renvoyez-les seules."
         )
     if crashed_rows:
-        message += f"\nCes lignes n'ont pas été créées : {CRASHED}\n" + "\n".join(crashed_rows)
+        message += f"\n\nCes lignes n'ont pas été créées : {CRASHED}\n" + "\n".join(crashed_rows)
     return ok(message)
 
 
@@ -626,7 +626,7 @@ def archive_dossier(dossier_id: int, client_confirmed: bool = False, session_id:
         )
     if dry_run():
         return ok(f"{TEST_MODE}Le dossier `{dossier}` serait archivé.")
-    with refused(f"archive_dossier {dossier_id}", f"Experio refuse d'archiver le dossier `{dossier}` : {{reason}}"):
+    with refused(f"archive_dossier {dossier_id}", f"Dossier `{dossier}` : Experio refuse de l'archiver ({{reason}})."):
         odoo_json("res.company", "action_archive_folder", [dossier_id])
     return ok(
         f"Dossier `{dossier}` archivé. Il peut être restauré depuis Experio (filtre Archivé, bouton Désarchiver)."

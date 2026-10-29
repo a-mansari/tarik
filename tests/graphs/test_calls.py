@@ -17,6 +17,37 @@ def crash(dossier_id: int):
     raise ValueError("secret detail")
 
 
+@pytest.mark.functionality
+def test_a_step_whose_run_is_stopped_ends_its_tool_and_is_recorded_before_it_stops(monkeypatch):
+    """What it did in Experio is never left unrecorded, and its slot stays taken until its thread ends."""
+    import threading
+
+    monkeypatch.setattr(cabinets, "CABINETS", frozenset({"c1"}))
+    monkeypatch.setattr(calls, "SLOTS", {})
+    started, done, recorded = threading.Event(), [], []
+
+    def slow(dossier_id: int):
+        started.set()
+        threading.Event().wait(0.3)
+        done.append(dossier_id)
+        return {"status": "ok", "message": "fait"}
+
+    monkeypatch.setitem(calls.TOOLS, "fake_slow", slow)
+    monkeypatch.setitem(calls.TOOLS, "record_step", lambda **given: recorded.append(given["result"]))
+
+    async def check():
+        task = asyncio.create_task(calls.step("c1", "r1", "s1", "fake_slow", dossier_id=7))
+        await asyncio.to_thread(started.wait)
+        task.cancel()
+        assert calls.SLOTS["c1"]._value == calls.PER_CABINET - 1  # its thread still works
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert done == [7] and recorded == [{"status": "ok", "message": "fait"}]
+        assert calls.SLOTS["c1"]._value == calls.PER_CABINET
+
+    asyncio.run(check())
+
+
 @pytest.fixture
 def tools(monkeypatch):
     monkeypatch.setattr(cabinets, "CABINETS", frozenset({"c1"}))

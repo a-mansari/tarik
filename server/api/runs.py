@@ -20,6 +20,7 @@ from engine.tools.core.cabinets import CABINETS, using
 from engine.tools.core.queries import Q
 from engine.tools.dossiers.routines import title_in
 from engine.tools.emails.sending import cabinet_name
+from server import audit
 
 HERE = Path(__file__).parent
 WEB = HERE.parent / "web" / "dist"  # the pages, built (server/web/: npm run build)
@@ -311,6 +312,22 @@ async def run_page(request: Request):
         "call_usage": call_usage,
     }
     return page(context)
+
+
+async def stop_page(request: Request):
+    """POST /ui/api/executions/{run_id}/stop (admins): stop the run with its whole tree (runs.stop), in the Journal.
+
+    Returns {stopped: the id of the run stopped}; 404 for an unknown run, 409 when it no longer goes on."""
+    asked = request.path_params["run_id"]
+    found = await runs.run(asked) if runs.is_id(asked) else None
+    if not found:
+        return page({"error": "Exécution introuvable."}, 404)
+    author = request.state.user["email"]
+    stopped = await runs.stop(asked, author)
+    if stopped is None:
+        return page({"error": "Cette exécution n'est plus en cours."}, 409)
+    await audit.record(author, "run_stopped", stopped, asked=asked, cabinet=found["cabinet"])
+    return page({"stopped": stopped})
 
 
 async def openings(cabinet, sessions):

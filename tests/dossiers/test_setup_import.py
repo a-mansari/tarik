@@ -3,6 +3,7 @@ tested by Experio first, imported only when its test finds nothing, every refusa
 
 import xmlrpc.client
 
+import httpx
 import pytest
 
 from engine.tools.core.app import ToolError
@@ -62,7 +63,9 @@ def test_experio_refusing_the_copy_gives_its_reason(copying, monkeypatch):
     monkeypatch.setattr(
         setup, "odoo_json", lambda *a: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "compte 4421 manquant"))
     )
-    with pytest.raises(ToolError, match="Experio n'a pas pu copier la configuration : compte 4421 manquant"):
+    with pytest.raises(
+        ToolError, match=r"^Dossier `.+` : Experio n'a pas pu copier la configuration \(compte 4421 manquant\)\.$"
+    ):
         setup.copy_configuration(557, 890)
 
 
@@ -185,6 +188,39 @@ def test_experio_failing_a_call_of_the_import_is_a_stop_with_its_reason(importin
     file_id = sent("fec.csv", FEC)
     answer = setup.import_entries(557, file_id)
     assert answer["status"] == "stop" and answer["message"] == said and kind_of(file_id) == "entries"
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "failure, said, waits",
+    [
+        (  # no answer: Experio may still commit it, a resend would import its lines twice
+            httpx.ReadTimeout("timed out"),
+            "FEC `fec.csv` : Experio n'a pas répondu à temps, l'import a pu aboutir quand même. Vérifiez dans "
+            "Experio ce qu'il a importé avant de renvoyer le fichier.",
+            True,
+        ),
+        (  # Experio answered its crash: rolled back, nothing imported
+            xmlrpc.client.Fault(1, "Traceback\nKeyError: 'x'"),
+            "FEC `fec.csv` : échec technique, réessayez plus tard.",
+            False,
+        ),
+    ],
+)
+def test_an_import_without_answer_says_to_check_experio_first(importing, monkeypatch, failure, said, waits):
+    real = setup.odoo_json
+
+    def failing_import(model, method, *args, context=None):
+        if method == "execute_import" and not args[-1]:  # the test went through, the import itself fails
+            raise failure
+        return real(model, method, *args, context=context)
+
+    cleared = []
+    monkeypatch.setattr(setup, "odoo_json", failing_import)
+    monkeypatch.setattr(setup, "setup_waits", lambda dossier_id, file_id=None: cleared.append(dossier_id))
+    answer = setup.import_entries(557, sent("fec.csv", FEC))
+    assert answer["status"] == "stop" and answer["message"] == said
+    assert cleared == ([] if waits else [557])
 
 
 @pytest.mark.communication

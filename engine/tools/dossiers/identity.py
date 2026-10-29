@@ -320,7 +320,7 @@ def create_dossier(
             values[field] = value.strip()
     if dry_run():
         return ok(f"{TEST_MODE}Le dossier `{name}` serait créé.{not_taken}")
-    with refused(f"create_dossier {name}", f"Experio refuse de créer le dossier `{name}` : {{reason}}"):
+    with refused(f"create_dossier {name}", f"Dossier `{name}` : Experio refuse de le créer ({{reason}})."):
         dossier_id = odoo_json("res.company", "create", values, context=main_dossier_context())
         attach_user(None, dossier_id)  # Tarik works in it from here on
     unchecked = " ICE et IF non vérifiés : la vérification a été ignorée, à la demande du client."
@@ -475,6 +475,6 @@ def update_dossier(
     shown = " ; ".join(each)
     if dry_run():
         return ok(f"{TEST_MODE}Le dossier `{dossier}` serait modifié : {shown}.{unchanged}")
-    with refused(f"update_dossier {dossier_id}", f"Experio refuse de modifier le dossier `{dossier}` : {{reason}}"):
+    with refused(f"update_dossier {dossier_id}", f"Dossier `{dossier}` : Experio refuse de le modifier ({{reason}})."):
         odoo_json("res.company", "write", [dossier_id], changes)
     return ok(f"Dossier `{dossier}` modifié : {shown}.{unchanged}")

@@ -179,3 +179,6 @@ uses another one. A stack that edited one of these documents itself loses that e
   test_decisions, test_corrections, test_boundaries, test_requests (with « Quels sont vos réglages ? », an
   administrator's setting, an invitation, « CABINET DENTAIRE ALAMI ») and test_cgnc_answers with no wrong answer.
   Import both, in either order.
+- `tarik-contenu-arret-20261029.json` (and its `.diff`): the Journal's words for a run stopped by hand (« Exécution
+  arrêtée à la main », `labels.json`). Built on the live content of 2026-10-29: import it with the commit that adds
+  the Arrêter button; before, check.py finds no words for the journal action `run_stopped`.
