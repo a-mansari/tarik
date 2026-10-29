@@ -148,6 +148,7 @@ Covers the CGNC Tarik looks up (engine/knowledge/): its files, its load, its sea
 - `test_words_find_their_piece_accents_aside` [functionality]: "charges constatees d'avance" finds the term, then its account 349.
 - `test_words_rank_the_pieces_of_a_code` [functionality]: with 6125, the words put the piece that holds them first.
 - `test_tva_is_found_however_the_pdf_spaced_it` [functionality]: "TVA récupérable" finds 345, written « T V A . » in the PDF.
+- `test_the_tool_cites_each_piece_and_refuses_an_empty_call` [communication]: `consult_cgnc` (the agent's `Experio_consult_cgnc`) gives the account, each piece with its place and pages, the accounts cited; says when the CGNC says nothing; refuses a call with neither code nor words.
 
 ## 3. isolation (all security or technical)
 

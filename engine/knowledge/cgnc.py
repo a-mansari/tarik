@@ -10,6 +10,8 @@ from pathlib import Path
 
 import psycopg
 
+from engine.tools.core.app import ToolError, tool
+from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized
 
@@ -89,3 +91,26 @@ def search(db, code="", words="", limit=5):
         ],
         "linked": [{"code": one, "label": labels[one]} for one in named if one in labels][:LINKED],
     }
+
+
+@tool
+def consult_cgnc(code: str = "", words: str = "") -> str:
+    """What the CGNC says about an account and/or words, as text to answer from: the account and the accounts it is
+    part of, the pieces most to the point (each with its place and its PDF pages, word for word), then the accounts
+    of other rubrics they name. ``code``: an account (6125, or a dossier's own 61251001); ``words``: the question's
+    words (« charges constatées d'avance »). Either or both; neither raises ToolError."""
+    if not (str(code).strip() or str(words).strip()):
+        raise ToolError("Donnez un compte (6125) ou des mots (charges constatées d'avance) à chercher dans le CGNC.")
+    with cabinet_db() as db:
+        found = search(db, code, words)
+    asked = " ".join(part for part in (str(code).strip(), str(words).strip()) if part)
+    if not found["pieces"]:
+        return f"Le CGNC ne dit rien sur « {asked} »."
+    lines = []
+    if found["account"]:
+        lines.append("Compte : " + " › ".join(f"{one['code']} {one['label']}" for one in found["account"]))
+    for piece in found["pieces"]:
+        lines += ["", f"--- CGNC, {piece['place']} (p. {piece['pages']} du PDF)", piece["body"]]
+    if found["linked"]:
+        lines += ["", "Comptes cités : " + " ; ".join(f"{one['code']} {one['label']}" for one in found["linked"])]
+    return "\n".join(lines)

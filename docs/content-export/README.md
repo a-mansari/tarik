@@ -138,3 +138,8 @@ uses another one. A stack that edited one of these documents itself loses that e
   (`agent.json`), the dossier step « Réglages de Tarik », the inputs « Réglage » and « Valeur » and the mode « Régler le
   comportement de Tarik » (`labels.json`). Built on the points-dossier export: import it after that one, once the stack
   runs the commit with the Comportement page: before, the import is refused (it names a tool the stack lacks).
+- `tarik-contenu-cgnc-20261029.json` (and its `.diff`): the read tool `Experio_consult_cgnc` (what the CGNC says about
+  an account or words, word for word, with its place and pages) and the instruction to call it before answering which
+  account to use or how to record an operation, citing its pieces and asking when they do not settle it, never for
+  tax rules (`agent.json`). Built on the comportement export: import it after that one, once the stack runs the commit
+  that adds the tool: before, the import is refused (it names a tool the stack lacks).

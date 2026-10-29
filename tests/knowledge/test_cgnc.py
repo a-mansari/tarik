@@ -9,6 +9,7 @@ from psycopg.conninfo import make_conninfo
 
 from engine.knowledge import cgnc
 from engine.tools.core import cabinets
+from engine.tools.core.app import ToolError
 from tests import testdb
 
 
@@ -91,3 +92,14 @@ def test_words_rank_the_pieces_of_a_code(db):
 @pytest.mark.functionality
 def test_tva_is_found_however_the_pdf_spaced_it(db):
     assert any("345" in piece["place"] for piece in cgnc.search(db, words="TVA récupérable")["pieces"])
+
+
+@pytest.mark.communication
+@pytest.mark.usefixtures("db", "db_cabinet")  # loaded, and a cabinet to run in, as the agent's tool calls run
+def test_the_tool_cites_each_piece_and_refuses_an_empty_call():
+    told = cgnc.consult_cgnc(code="6125")
+    assert told.startswith("Compte : 61 CHARGES D’EXPLOITATION › 612 ") and "--- CGNC, TITRE IV" in told
+    assert "du PDF)" in told and "Comptes cités : " in told and "3491 " in told
+    assert cgnc.consult_cgnc(words="xyzzy") == "Le CGNC ne dit rien sur « xyzzy »."
+    with pytest.raises(ToolError):
+        cgnc.consult_cgnc()
