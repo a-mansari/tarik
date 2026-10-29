@@ -146,6 +146,8 @@ def ask_claude_code(system, pages, instruction, what, keys):
     blocks = [*images_of(pages), {"type": "text", "text": instruction}]
     try:
         return claude_code.ask(system, blocks, {"type": "object", "required": list(keys)})
+    except claude_code.ClaudeCodeStopped:
+        raise ToolError(f"{what} : arrêté avec son exécution.") from None
     except claude_code.ClaudeCodeError as error:
         log(f"{what}: {error}")
         unreadable = isinstance(error, claude_code.ClaudeCodeUnreadable)

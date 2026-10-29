@@ -20,7 +20,11 @@ class Slow:
     async def astream(self, given, config, **options):
         if self.nested:
             await runs.nested("dedans", {}, "c", "s")
-        await asyncio.sleep(60)
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:  # a moment to unwind, as a real step does: a second cancel would cut it short
+            await asyncio.sleep(0.1)
+            raise
         yield ()
 
 
@@ -52,6 +56,11 @@ async def child_of(run_id):
 
 @pytest.mark.functionality
 def test_a_running_run_stopped_ends_saying_who_stopped_it(monkeypatch):
+    from engine.tools.core import claude_code
+
+    killed, forgotten = [], []
+    monkeypatch.setattr(claude_code, "kill", killed.append)
+    monkeypatch.setattr(claude_code, "forget", forgotten.append)
     freed = []
 
     async def within(cabinet, function, *args):
@@ -62,13 +71,13 @@ def test_a_running_run_stopped_ends_saying_who_stopped_it(monkeypatch):
     async def check():
         run_id, task = await runs.start("seul", {"input": {}, "cabinet": "c"})
         await until(lambda: state_is(run_id, "running"))
-        stopped = await asyncio.gather(runs.stop(run_id, "admin@cabinet.ma"), runs.stop(run_id, "autre@cabinet.ma"))
-        assert stopped == [run_id, run_id]  # the second while it stops: not cancelled twice
+        assert await runs.stop(run_id, "admin@cabinet.ma") == run_id
+        assert await runs.stop(run_id, "autre@cabinet.ma") == run_id  # while it stops: not cancelled twice
         with pytest.raises(asyncio.CancelledError):
             await task
-        status, why = await state(run_id)  # the words of whichever came first
-        assert status == "error" and why in ("Arrêté par admin@cabinet.ma", "Arrêté par autre@cabinet.ma")
+        assert await state(run_id) == ("error", "Arrêté par admin@cabinet.ma")  # the first one's words
         assert freed == [("c", "released", run_id)]  # the invoices it claimed, free for another run
+        assert killed == [run_id] and forgotten == [run_id]  # its CLI calls killed, the CLI open again once it ended
         assert run_id not in runs.TASKS and run_id not in runs.STOPPED
         assert await runs.stop(run_id, "admin@cabinet.ma") is None  # no longer going on
         assert await runs.stop("00000000-0000-0000-0000-000000000000", "admin@cabinet.ma") is None  # no such run

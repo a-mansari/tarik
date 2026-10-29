@@ -15,6 +15,8 @@ PRICES = {"MiniMax-M3": (0.30, 1.20, 0.06)}
 LONG_PROMPT = 512_000  # MiniMax doubles every price for a call reading more input tokens than this
 
 RUNNING = contextvars.ContextVar("running", default=None)  # the run whose steps are going on (engine/runs.py)
+# The run its tree started from, the same way (runs.stop stops a whole tree, claude_code kills its CLI processes).
+ROOT = contextvars.ContextVar("root", default=None)
 PROMPT_CALL = contextvars.ContextVar("prompt_call", default=None)  # the agent's call being made (engine/prompts.py)
 
 

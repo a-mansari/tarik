@@ -311,3 +311,5 @@ create table if not exists tarik_behaviour (
 );
 -- A thread's emails, read by thread at every claim and progress email.
 create index if not exists tarik_mail_messages_thread on tarik_mail_messages (thread_id);
+-- A sender's latest emails (emails_of_sender, their signature), read at every claim.
+create index if not exists tarik_mail_messages_sender on tarik_mail_messages (from_address, received_at desc);
