@@ -413,24 +413,32 @@ def operation_on(operations, account, **where):
 
 
 def label_operation(line, operations, context):
-    """Return the operation the line's label settles by its account, None when the label settles none.
+    """Return (operation, tiers id or None) the line's label settles, (None, None) when it settles none.
+
+    « CD AP » credits (the bank's card remittances) are sales on the dossier's generic customer « CLIENTS DIVERS »
+    (3421): Vente Local, 79 of the 101 such lines in the cabinets' 159 dossiers, the others in suspense; only when the
+    dossier has that one customer tiers.
 
     « SECURICARTE » is the bank's card insurance: bank charges (61473), without TVA, as insurance is exempt. « DGI »
     on money paid is the TVA due when a TVA declaration of the dossier owes exactly that amount (its tva_due_unsigned,
     exp.deduction.table), to the TVA due account (4456); any other tax payment is for the cabinet.
     """
-    if side(line) != "outbound":
-        return None
     words = normalized(line["payment_ref"])
+    company = [("company_id", "=", context["allowed_company_ids"][0])]
+    if side(line) == "inbound":
+        if not words.startswith("cd ap "):
+            return None, None
+        generic = [*company, ("is_customer", "=", True), ("name", "=ilike", "CLIENTS DIVERS%")]
+        found = odoo_call("exp.partner", "search", generic, context=context)
+        return (operation_on(operations, "3421", type="sale"), found[0]) if len(found) == 1 else (None, None)
     if said("securicarte", words):
-        return operation_on(operations, "61473", type="bank_fee", bank_type="frais_without_tax")
+        return operation_on(operations, "61473", type="bank_fee", bank_type="frais_without_tax"), None
     amount = round(abs((line["credit"] or 0) - (line["debit"] or 0)), 2)
     if said("dgi", words):
-        company = [("company_id", "=", context["allowed_company_ids"][0])]
         owed = [("tva_due_unsigned", ">=", amount - 0.005), ("tva_due_unsigned", "<=", amount + 0.005)]
         if odoo_call("exp.deduction.table", "search_count", [*company, *owed], context=context):
-            return operation_on(operations, "4456")
-    return None
+            return operation_on(operations, "4456"), None
+    return None, None
 
 
 def suspense_operation(operations, line):
@@ -500,8 +508,9 @@ def chosen_operations(statement, lines, context):
         choice = agreed.get(line["id"], {})  # none: the label's words alone can still give the payment method
         values = {}
         operation = operations.get(choice.get("operation")) if choice and not line["operation_id"] else None
+        label_tiers = None
         if not operation and not line["operation_id"]:
-            operation = label_operation(line, operations, context)
+            operation, label_tiers = label_operation(line, operations, context)
         suspended = False
         if not operation and not line["operation_id"] and answered:  # nothing says what it is: suspense, told
             operation = suspense_operation(operations, line)
@@ -513,6 +522,8 @@ def chosen_operations(statement, lines, context):
                 "operation_id": operation["id"],
                 **({"partner_id": form["partner_id"]} if form.get("partner_id") else {}),
             }
+            if label_tiers and "partner_id" not in values:
+                values["partner_id"] = label_tiers
         kind = operation["type"] if values else line["operation_type"]
         if kind == "purchase" and (values or not line["exp_payment_method_id"]):
             method = choice.get("payment_method")
@@ -633,12 +644,14 @@ def owed_invoices(statement, lines, context):
     invoice picker offers (picked's domain), on no statement line yet: Experio's detection's own rule
     (bank/models/bank_statement_line.py:2440-2475), for the lines its detection did not fill. A line with no tiers yet
     is searched among every tiers' invoices, and the invoice gives it its tiers (a cheque line names none). Two such
-    invoices: none (the detection takes the first; Tarik leaves it to the cabinet). The line's form must accept it
-    (typed_in).
+    invoices: none (the detection takes the first; Tarik leaves it to the cabinet), except that a line with no tiers
+    yet still gets the tiers when all those invoices are one tiers' (a cheque paying one of three equal invoices of
+    the same supplier names the supplier). The line's form must accept it (typed_in).
 
-    Returns how many lines got one (counted also in test mode, where nothing is written).
+    Returns (how many lines got an invoice, how many only a tiers), counted also in test mode, where nothing is
+    written.
     """
-    given, taken = 0, set()
+    given, only_tiers, taken = 0, 0, set()
     for line in lines:
         amount = amount_of(line)
         if not amount:
@@ -649,6 +662,13 @@ def owed_invoices(statement, lines, context):
             LINE, "search_read", [("invoice_ids", "in", list(found))], fields=["invoice_ids"], context=context
         )
         found -= {i for row in used for i in row["invoice_ids"]}
+        if len(found) > 1 and not line["partner_id"]:
+            read = odoo_call("exp.invoice", "read", list(found), fields=["partner_id"])
+            owners = {row["partner_id"] and row["partner_id"][0] for row in read}
+            if len(owners) == 1 and False not in owners:
+                if not dry_run():
+                    odoo_call(LINE, "write", [line["id"]], {"partner_id": owners.pop()}, context=context)
+                only_tiers += 1
         if len(found) != 1:
             continue
         invoice_id = found.pop()
@@ -658,7 +678,7 @@ def owed_invoices(statement, lines, context):
                 odoo_call(LINE, "write", [line["id"]], values, context=context)
             taken.add(invoice_id)
             given += 1
-    return given
+    return given, only_tiers
 
 
 def blocked_reasons(statement, context):
@@ -851,16 +871,15 @@ def tie_cited_invoices(statement_id: int, client_message: str = "") -> dict:
 
 @step_tool
 def tie_owed_invoices(statement_id: int) -> dict:
-    """Give the statement's lines with a tiers the one open invoice owing their amount (owed_invoices)."""
-    phrase = "la seule facture ouverte de leur tiers et de leur montant"
-    return completing(
-        statement_id,
-        "tie_owed_invoices",
-        lambda statement, context: (
-            counted(owed_invoices(statement, open_lines(statement, context), context), phrase),
-            "",
-        ),
-    )
+    """Give the statement's lines the one open invoice owing their amount, or only its tiers (owed_invoices)."""
+
+    def work(statement, context):
+        tied, only_tiers = owed_invoices(statement, open_lines(statement, context), context)
+        said = counted(tied, "la seule facture ouverte de leur tiers et de leur montant")
+        also = counted(only_tiers, "le tiers des factures ouvertes de leur montant, qui sont toutes de lui")
+        return (", ".join(filter(None, [said, also])), "")
+
+    return completing(statement_id, "tie_owed_invoices", work)
 
 
 @step_tool
