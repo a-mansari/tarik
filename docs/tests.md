@@ -287,7 +287,7 @@ Covers setup from separate files, bank naming, and bank journals.
 - `test_what_a_file_is_from_the_clients_word_else_its_headers` [functionality]: the file type comes from the client's word, else its headers.
 - `test_the_bank_a_client_names` [functionality]: bank names written by the client map to the right bank.
 - `test_each_bank_journal_is_asked_its_bank_in_turn` [communication]: the client is asked each bank journal's bank, one by one.
-- `test_without_entries_the_onboarding_waits_for_the_clients_files` [functionality]: onboarding waits until the client says all files are sent.
+- `test_without_entries_the_onboarding_waits_for_the_clients_files` [functionality]: without entries the onboarding waits while accounts or journals are missing, until the client says all files are sent.
 - `test_a_journal_of_another_dossier_is_never_given_a_bank` [security]: a journal of another dossier is refused, nothing written.
 - `test_the_last_journals_bank_ends_the_questions` [functionality]: the last journal's bank ends with an ok, no more question.
 - `test_a_journal_with_its_tiers_keeps_it` [functionality]: a journal with a tiers bancaire keeps it, only the bank is written.
@@ -332,6 +332,7 @@ Covers an onboarding waiting on Experio (db_cabinet).
 - `test_experio_refusing_to_finish_the_onboarding_gives_its_reason` [communication]: a refused stepper is an error with Experio's reason.
 - `test_in_test_mode_the_onboarding_is_only_said_finished` [security]: test mode never walks the stepper.
 - `test_the_current_exercice_is_opened_only_when_the_dossier_has_none` [functionality]: an exercice is opened only when none is open, never in test mode.
+- `test_a_dossier_finished_without_entries_gets_no_exercice` [functionality]: finished with no entries, no exercice is opened (the first FEC sets its dates).
 - `test_experio_refusing_the_exercice_gives_its_reason` [communication]: a refused exercice is an error with Experio's reason.
 - `test_the_lines_are_ready_a_minute_after_the_newest_was_imported` [functionality, param]: the wait until the newest waiting line is over a minute old (UTC), 0 without one.
 - `test_the_setup_facts_are_read_in_the_dossier` [functionality]: settings, lines by state, error reasons, exercices and counts, read in the dossier.
@@ -1041,8 +1042,7 @@ Covers the canvases the UI draws: every step drawn, named and described; each ag
 ### tests/graphs/test_dossier_graph.py
 Covers the Dossier graph's routing: creation (model configuration, files, banks, finish, state), each change mode, mode resume and mode dossiers, for every outcome status.
 - `test_a_new_dossier_takes_its_models_configuration_then_its_files_then_is_onboarded` [functionality]: create, copy_configuration, files, each import, ask_banks, finish_setup (no time limit), setup_status, summary.
-- `test_a_copied_configuration_finishes_the_onboarding_without_files` [functionality]: a copied model finishes the onboarding with no file (finish true).
-- `test_without_a_model_or_with_a_reused_dossier_no_configuration_is_copied` [functionality, param]: no copy_configuration; finish_setup waits for the files (finish false).
+- `test_without_a_model_or_with_a_reused_dossier_no_configuration_is_copied` [functionality, param]: no copy_configuration; finish_setup gets finish false.
 - `test_a_refused_configuration_copy_goes_no_further` [functionality]: a refused copy_configuration goes straight to the summary.
 - `test_a_sender_who_may_not_create_dossiers_gets_only_the_summary` [security, param]: check_creator not ok ends the run.
 - `test_a_dossier_not_created_goes_no_further` [functionality, param]: create_dossier not ok ends the run.

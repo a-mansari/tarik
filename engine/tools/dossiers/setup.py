@@ -682,13 +682,13 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
 
     Args:
         seconds_left: the run's time left (0: no limit).
-        finish: the client said every setup file was sent, or a model's configuration was copied in this run;
-            without it, a dossier with no entries imported keeps waiting for its files.
+        finish: the client said every setup file was sent; without it, a dossier with no entries imported
+            keeps waiting for its files while it lacks its accounts or its journals.
 
     Returns:
         - a routine result when the onboarding was already finished;
-        - an ok result asking for the missing setup files when no entries were imported and ``finish`` is
-          False (the tarik_setups wait is cleared);
+        - an ok result asking for the missing setup files when no entries were imported, the dossier lacks
+          its accounts or its journals and ``finish`` is False (the tarik_setups wait is cleared);
         - a wait result when the minute Experio needs before handing the lines over (plus STEPPER_SECONDS)
           would outlast ``seconds_left``: the dossier stays in tarik_setups for a later run;
         - an ok result once finished, with the lines handed over and any journal setting still pointing to
@@ -703,10 +703,12 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
             f"Dossier `{dossier}` : integration deja terminee, Experio traite les ecritures des leur import."
         )
     entries = entries_count(dossier_id, context)
-    if not finish and not entries:
+    missing = [] if finish or entries else setup_missing(dossier_id, context)
+    # Its accounts and journals there (a model's copy, or their files): tiers and a FEC are imported after the
+    # onboarding too, processed at once (exp_account experio_history.py create).
+    if {"plan comptable", "journaux"} & set(missing):
         setup_waits(dossier_id)  # nothing to wait for: the client's next files, or their word
-        missing = setup_missing(dossier_id, context)
-        lacking = f" Il manque : {', '.join(missing)}." if missing else ""
+        lacking = f" Il manque : {', '.join(missing)}."
         return ok(
             f"Dossier `{dossier}` : integration en attente de vos fichiers.{lacking} Envoyez-les (plan comptable, "
             "journaux, fournisseurs, clients), ou dites que tout est envoye pour terminer l'integration."
