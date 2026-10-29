@@ -2,6 +2,7 @@
 many dossiers read at once as each alone."""
 
 import operator
+import xmlrpc.client
 
 import pytest
 
@@ -115,7 +116,7 @@ def experio(monkeypatch):
     def odoo_call(model, method, domain, *args, context, **kw):
         made.append((model, method, context))
         if model == "exp.payment.delay":
-            raise RuntimeError("Object exp.payment.delay doesn't exist")  # not installed: left out
+            raise xmlrpc.client.Fault(2, "Object exp.payment.delay doesn't exist")  # not installed: left out
         assert {r["company_id"] for r in data.get(model, []) if matches(r, domain)} <= set(
             context["allowed_company_ids"]
         )
@@ -182,6 +183,16 @@ def test_many_dossiers_read_at_once_say_what_each_says_alone(experio):
     assert "Relevés TPE : 1, dont 1 prêt" in gamma and "Déclarations" not in delta
     assert "Exercice : aucun dans Experio" in delta and "- Factures d'achat : 4, dont 4 exportées" in delta
     assert all(context["allowed_company_ids"] == [5, 6, 7] for *_, context in experio)  # one context, all three
+
+
+@pytest.mark.functionality
+def test_a_declaration_read_cut_fails_the_whole_read_never_says_none(experio, monkeypatch):
+    def cut(model, method, *args, **kw):
+        raise ConnectionError("read cut twice")  # not a refusal: no « aucune déclaration » for 100 dossiers
+
+    monkeypatch.setattr(progress, "odoo_call", lambda model, *a, **kw: cut(model, *a) if "table" in model else 0)
+    with pytest.raises(ConnectionError):
+        progress.declarations_of({5: 2026, 6: 2025}, {})
 
 
 @pytest.mark.functionality

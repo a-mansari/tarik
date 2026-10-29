@@ -14,7 +14,7 @@ dashboard_manager does, and limits each dossier's dates itself.
 """
 
 from engine.tools.core.app import ToolError, log, tool
-from engine.tools.core.experio import odoo_call, refused, require_dossier
+from engine.tools.core.experio import is_refusal, odoo_call, refused, require_dossier
 from engine.tools.core.words import counted as numbered  # counted() here counts Experio's records
 
 # Experio's states of invoices, statements and their lines, as its fr.po names them, in their order: the masculine
@@ -226,8 +226,10 @@ def declarations_of(years, context):
                 order="company_id, start_date",
                 context=context,
             )
-        except Exception as error:  # the dossiers' Experio has no such declaration (module not installed)
-            log(f"dossier_progress {model}: {error}")
+        except Exception as error:
+            if not is_refusal(error):  # a crash or a cut: the whole read fails, the routine reads each dossier alone
+                raise
+            log(f"dossier_progress {model}: {error}")  # « Object … doesn't exist »: the module is not installed
             continue
         periods = {}
         for row in rows:

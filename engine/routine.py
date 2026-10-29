@@ -137,7 +137,12 @@ async def progressed(given, dossier_id):
     """Return a « progress » routine's part for one dossier: where it stands, its text and its figures
     (dossier_progress_figures)."""
     result = await call(given["cabinet"], "dossier_progress_figures", dossier_id=dossier_id)
-    return {"result": report_files.READ, "detail": result["message"], "figures": result["figures"]}
+    return read_part(result["message"], result["figures"])
+
+
+def read_part(text, figures):
+    """Return a dossier's part of a « progress » report, read alone or with its chunk: one row either way."""
+    return {"result": report_files.READ, "detail": text, "figures": figures}
 
 
 async def declared(given, dossier_id):
@@ -176,33 +181,42 @@ async def one_dossier(state: Run):
     }
     if datetime.now(ZONE) >= datetime.fromisoformat(given["until"]):  # the next period: the rest is left to it
         return late
-    parts, outcomes = [], []
+    read = {}
     async with EVERYWHERE:
         if datetime.now(ZONE) >= datetime.fromisoformat(given["until"]):  # it came while waiting for a turn
             return late
-        read = {}
         if given["task"] == "progress":
             try:
                 read = await within(given["cabinet"], progress_of_many, chunk)
             except Exception as error:  # a dossier Experio refuses fails them all: each is then read alone
                 log(f"{given['cabinet']} routine {given['routine_id']} dossiers: {type(error).__name__}: {error}")
-        for dossier in chunk:
-            try:
-                if dossier["id"] in read:
-                    text, figures = read[dossier["id"]]
-                    part = {"result": report_files.READ, "detail": text, "figures": figures}
-                else:
-                    part = await PARTS[given["task"]](given, dossier["id"])
-                status = "ok"
-            except Exception as error:
-                where = f"{given['cabinet']} routine {given['routine_id']} dossier {dossier['id']}"
-                log(f"{where}: {type(error).__name__}: {error}")
-                words = str(error) if isinstance(error, ToolFailure) else CRASHED
-                part, status = {"result": report_files.FAILED, "detail": words}, "error"
-            part["dossier"] = dossier["name"]
-            parts.append(part)
-            outcomes.append({"status": status, "message": f"{dossier['name']} : {part['detail']}"})
+    parts, outcomes = [], []
+    for at, dossier in enumerate(chunk):
+        if dossier["id"] in read:
+            text, figures = read[dossier["id"]]
+            part, status = read_part(text, figures), "ok"
+        else:  # read alone, a turn each as before the chunks: other cabinets' routines go in between
+            if datetime.now(ZONE) >= datetime.fromisoformat(given["until"]):
+                parts += late["parts"][at:]
+                outcomes += late["outcomes"][at:]
+                break
+            async with EVERYWHERE:
+                part, status = await alone(given, dossier)
+        part["dossier"] = dossier["name"]
+        parts.append(part)
+        outcomes.append({"status": status, "message": f"{dossier['name']} : {part['detail']}"})
     return {"parts": parts, "outcomes": outcomes}
+
+
+async def alone(given, dossier):
+    """Return (part, status): one dossier's part of the report (PARTS), its failure being its line of the report."""
+    try:
+        return await PARTS[given["task"]](given, dossier["id"]), "ok"
+    except Exception as error:
+        where = f"{given['cabinet']} routine {given['routine_id']} dossier {dossier['id']}"
+        log(f"{where}: {type(error).__name__}: {error}")
+        words = str(error) if isinstance(error, ToolFailure) else CRASHED
+        return {"result": report_files.FAILED, "detail": words}, "error"
 
 
 async def report(state: Run):

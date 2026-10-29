@@ -496,6 +496,28 @@ def test_a_progress_routine_reads_its_dossiers_chunk_by_chunk(running, db_cabine
     assert running["read"] == [[5], [6]]
 
 
+@pytest.mark.functionality
+def test_dossiers_read_alone_after_a_failed_chunk_stop_at_the_next_period(running, db_cabinet, monkeypatch):
+    due_routine("progress")
+    (row,) = clock.claimed()
+    read = []
+
+    async def progressed(given, dossier_id):  # the next period comes while the first dossier is read
+        read.append(dossier_id)
+        given["until"] = "2000-01-01T00:00:00+00:00"
+        figures = dict.fromkeys(["progress", "pieces_booked", "pieces", "operations_booked", "operations"], 1)
+        figures.update(dossier="ALPHA", suspense=0, exercice="")
+        return {"result": report_files.READ, "detail": "Dossier lu.", "figures": figures}
+
+    def refused(dossiers):
+        raise ConnectionError("Access to unauthorized or invalid companies")
+
+    monkeypatch.setattr(flow, "progress_of_many", refused)
+    monkeypatch.setitem(flow.PARTS, "progress", progressed)
+    report = asyncio.run(clock.ran(db_cabinet, row))
+    assert read == [5] and "**1** lu" in report  # the second one left to the next period, not read
+
+
 @pytest.mark.communication
 def test_many_dossiers_to_see_are_named_five_then_counted():
     parts = [{"dossier": f"D{i}", "result": report_files.TO_SEE, "detail": "?"} for i in range(8)]
