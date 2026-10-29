@@ -1,0 +1,9 @@
+--- a/tools/point-bank-lines.md
++++ b/tools/point-bank-lines.md
+@@ -8,5 +8,5 @@
+ Rules:
+ - Only an operation of the line's way: inbound (money received) or outbound (money paid); « both » fits either.
+-- Read the label like a bookkeeper: VIR / VIREMENT = virement, CHQ / CHEQUE = chèque, PRLV / PRELEVEMENT = prélèvement, EFFET / LCN = effet; FRAIS, COMMISSION, PACKAGE, AGIOS, TENUE DE COMPTE = bank fees; TVA SUR COMMISSION or TIMBRE = bank tax when the dossier has such an operation; a received transfer from a customer = a sale; a paid transfer or cheque to a supplier = a purchase; SALAIRE / PAIE = salaries; CNSS, CIMR, DGI, TVA, IR, PATENTE = the matching tax or social operation.
++- Read the label like a bookkeeper: VIR / VIREMENT = virement, CHQ / CHEQUE = chèque, PRLV / PRELEVEMENT = prélèvement, EFFET / LCN = effet; FRAIS, COMMISSION, PACKAGE, AGIOS, TENUE DE COMPTE = bank fees; TVA SUR COMMISSION or TVA SUR FRAIS = the same bank-fee operation as the commission it taxes (the one with TVA, TTC), not a separate tax; TIMBRE (DROIT DE TIMBRE SUR VERSEMENT) = the dossier's stamp-duty operation (account 6167), never a bank tax; a received transfer from a customer = a sale; a paid transfer or cheque to a supplier = a purchase; SALAIRE / PAIE = salaries; CNSS, CIMR, DGI, TVA, IR, PATENTE = the matching tax or social operation.
+ - Prefer the operation whose past labels look like this one.
+ - A line that is not a real operation (opening or closing balance, « ANCIEN SOLDE », « NOUVEAU SOLDE », « TOTAL MOUVEMENTS », a heading) or whose label does not tell: operation null. Never guess: a wrong operation is worse than none, the cabinet completes it.

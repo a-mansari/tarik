@@ -143,3 +143,6 @@ uses another one. A stack that edited one of these documents itself loses that e
   account to use or how to record an operation, citing its pieces and asking when they do not settle it, never for
   tax rules (`agent.json`). Built on the comportement export: import it after that one, once the stack runs the commit
   that adds the tool: before, the import is refused (it names a tool the stack lacks).
+- `tarik-contenu-timbre-20261029.json` (and its `.diff`): `tools/point-bank-lines.md` no longer says a stamp duty (TIMBRE)
+  or the TVA on a commission is a « bank tax »: TIMBRE is the dossier's stamp-duty operation (6167), the TVA on a
+  commission the bank-fee operation with TVA. Import it with the commit that settles TIMBRE by rule.
