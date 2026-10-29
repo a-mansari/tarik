@@ -207,7 +207,7 @@ def progress_of(dossier_id, year=0):
         "{} opération bancaire ou de caisse comptabilisée",
         "{} opérations bancaires et de caisse comptabilisées",
     )
-    # One block per subject, a blank line between them: single line breaks run together in the chat and the email
+    # One block per subject, a blank line between them: in the chat a line right after a « - » item joins it
     blocks = [
         f"Dossier `{dossier}`, avancement selon Experio (tous exercices) : {progress_words}\n"
         f"- {booked} sur {pieces}\n- {operations_said} sur {operations}",
