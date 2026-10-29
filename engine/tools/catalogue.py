@@ -2,6 +2,7 @@
 
 # ruff: noqa: F401 -- imported for their tools only
 
+from engine.knowledge import cgnc
 from engine.tools.core import experio
 from engine.tools.declarations import payment_delay, ras
 from engine.tools.declarations import tva as tva_declaration
