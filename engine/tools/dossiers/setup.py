@@ -29,9 +29,10 @@ from datetime import UTC, date, datetime, timedelta
 import openpyxl
 
 from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop, tool, wait
-from engine.tools.core.cabinets import cabinet_db
+from engine.tools.core.cabinets import cabinet_db, current
 from engine.tools.core.config import ENTRY_FILES, TEST_MODE
 from engine.tools.core.experio import (
+    dossier_lock,
     dry_run,
     in_dossier,
     misplaced_journals,
@@ -46,6 +47,7 @@ from engine.tools.core.words import normalized, said
 from engine.tools.dossiers.banks import bank_named, give_bank, journal_bank
 from engine.tools.invoices.exercice import open_exercice
 from engine.tools.invoices.intake import file_row
+from engine.tools.invoices.journal import SET, set_journal
 
 # The import screen's options; the separator is left empty for Experio to detect it.
 IMPORT_OPTIONS = {
@@ -727,12 +729,6 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     notes.append(
         f"{waiting} ligne(s) d'ecritures transmises au traitement d'Experio" if waiting else "aucune ecriture importee"
     )
-    foreign = other_dossiers_journals(dossier_id)
-    if foreign:
-        notes.append(
-            f"a regler : {foreign} sont ceux d'un autre dossier, creer ou importer les journaux du dossier "
-            "(Configuration > Comptabilite > Journaux)"
-        )
     return ok(f"Dossier `{dossier}` : integration terminee ({', '.join(notes)}).")
 
 
@@ -749,6 +745,9 @@ POSTING_SETTINGS = {
     "foreign_customer_account_id": "compte clients étrangers",
     "foreign_sale_journal_id": "journal de ventes étrangères",
 }
+# The tiers account a posting setting falls back to (res_company.py _default_local_customer_account_id,
+# _default_foreign_customer_account_id...: foreign takes the local one when no 34212 / 44112): CGNC code, name.
+TIERS_ACCOUNTS = {"customer": ("3421", "Clients"), "supplier": ("4411", "Fournisseurs")}
 HISTORY_STATES = {
     "new": "en attente",
     "pending": "en cours de traitement",
@@ -883,16 +882,57 @@ def setup_status(dossier_id: int) -> dict:
     return ok(f"Dossier `{dossier}` : " + " ; ".join(parts) + ".")
 
 
+def fill_posting_settings(dossier_id, context):
+    """Fill the posting settings (POSTING_SETTINGS) the dossier lacks, as the Configuration screen does: Experio's
+    « Détection automatique » (res.company auto_detect_settings, which also moves another dossier's journal to the
+    dossier's own of the same code), then the CGNC tiers account (TIERS_ACCOUNTS) when the chart has none, whose
+    creation reruns the detection (exp_account.py detect_accounts_chart_length), then the purchase or sale journal
+    when the dossier has none (set_journal). Returns what was done (French): what was made, then the settings that
+    changed. [] in test mode, where nothing is written."""
+    if dry_run():
+        return []
+    done = []
+    with dossier_lock(dossier_id):
+        before = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
+        odoo_json("res.company", "auto_detect_settings", [dossier_id], context=context)
+        fields = [*POSTING_SETTINGS, "accounts_chart_length"]
+        company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
+        for side, (prefix, name) in TIERS_ACCOUNTS.items():
+            unset = [key for key in POSTING_SETTINGS if f"{side}_account" in key and not company[key]]
+            in_chart = [("company_id", "=", dossier_id), ("code", "=like", prefix + "%")]
+            if unset and not odoo_call("exp.account", "search_count", in_chart, context=context):
+                code = prefix.ljust(company["accounts_chart_length"] or 0, "0")  # padded as banks.py does
+                values = {"code": code, "name": name, "company_id": dossier_id}
+                odoo_call("exp.account", "create", values, context=context)
+                done.append(f"compte `{code} {name}` créé")
+        for kind in ("purchase", "sale"):
+            # after the detection, a journal setting is either the dossier's own or unset (no journal of the kind)
+            if not all(company[key] for key in POSTING_SETTINGS if f"{kind}_journal" in key):
+                done.append(set_journal(dossier_id, kind))
+                SET.pop((current(), dossier_id), None)  # told here, not again on the first invoice
+        after = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
+    changed = [label for key, label in POSTING_SETTINGS.items() if after[key] and after[key] != before[key]]
+    if changed:
+        done.append("réglé(s) dans la configuration du dossier : " + ", ".join(changed))
+    return done
+
+
 @step_tool
 def setup_problems(dossier_id: int) -> dict:
     """Report what the client must fix or set in a dossier, as a stop result (ok when nothing): the lines Experio put
     in error with its reasons (error_reasons), the settings an invoice needs before it can be posted, and journal
-    settings on another dossier. Run after setup_status, which has waited for the lines being processed."""
+    settings on another dossier. Those settings are first filled where Experio's own defaults allow
+    (fill_posting_settings), and what was done is told; not while imported lines are still processed, which may bring
+    the dossier's own journals and accounts. Run after setup_status, which has waited for the lines being processed."""
     dossier = require_dossier(dossier_id)
     with refused(
         f"setup_problems {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner l'état du paramétrage."
     ):
         context = in_dossier(dossier_id)
+        still = [("company_id", "=", dossier_id), ("state", "in", ["new", "pending"])]
+        # lines still processed may bring the dossier's own journals and accounts: settings are left to them then
+        processing = odoo_call("experio.history", "search_count", still, context=context)
+        made = [] if processing else fill_posting_settings(dossier_id, context)
         company = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
         reasons = odoo_call(
             "experio.history",
@@ -902,6 +942,7 @@ def setup_problems(dossier_id: int) -> dict:
             ["error_type"],
             context=context,
         )
+    done = f"fait par Tarik : {', '.join(made)}" if made else ""
     lines = []
     if reasons:
         failed = sum(reason["error_type_count"] for reason in reasons)
@@ -910,11 +951,12 @@ def setup_problems(dossier_id: int) -> dict:
             + "".join(f"\n    - {line}" for line in error_reasons(reasons))
         )
     missing = [label for key, label in POSTING_SETTINGS.items() if not company[key]]
-    if missing:
+    if missing and not processing:
         lines.append("à paramétrer avant de comptabiliser : " + ", ".join(missing))
     foreign = other_dossiers_journals(dossier_id)
     if foreign:
         lines.append(f"réglages sur les journaux d'un autre dossier (à créer ou importer) : {foreign}")
     if not lines:
-        return ok(f"Dossier `{dossier}` : rien à corriger.")
-    return stop(f"Dossier `{dossier}` :" + "".join(f"\n  - {line}" for line in lines))
+        # tell: an ok of setup_problems is otherwise not recorded (QUIET_WHEN_OK)
+        return ok(f"Dossier `{dossier}` : rien à corriger" + (f" ({done})." if done else "."), tell=bool(made))
+    return stop(f"Dossier `{dossier}` :" + "".join(f"\n  - {line}" for line in [done, *lines] if line))
