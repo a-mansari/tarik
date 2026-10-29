@@ -308,3 +308,12 @@ order by id desc limit %(limit)s
 
 -- name: audit_actors
 select distinct actor from audit order by actor
+
+-- name: run_root
+-- The run a run's tree started from (itself when started on its own), as text.
+with recursive up (id, parent_id) as (
+    select id, parent_id from runs where id = %s
+    union all
+    select r.id, r.parent_id from runs r join up on r.id = up.parent_id
+)
+select id::text from up where parent_id is null

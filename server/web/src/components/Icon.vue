@@ -24,6 +24,7 @@ const PATHS = {
   top: `<path d="M12 19V5M5 12l7-7 7 7"/>`,
   plus: `<path d="M12 5v14M5 12h14"/>`,
   clock: `<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>`,
+  stop: `<rect x="6" y="6" width="12" height="12" rx="2"/>`,
   toggle: `<rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="3"/>`,
 };
 </script>

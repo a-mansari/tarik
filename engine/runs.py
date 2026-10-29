@@ -18,12 +18,14 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import AsyncConnectionPool
 
 from engine import agent, graphs, live
+from engine.calls import within
 from engine.content import LABELS
 from engine.knowledge import cgnc
 from engine.settings import DEFAULT_CABINET
 from engine.tools.core import usage
 from engine.tools.core.app import log
 from engine.tools.core.queries import Q
+from engine.tools.invoices.pipeline import released
 
 SCHEMA = "orchestrator"
 NAMES = sorted([*graphs.COMPILED, "agent"])  # the agent: made per run
@@ -163,6 +165,10 @@ UNATTENDED = contextvars.ContextVar("unattended", default=False)
 # Who wrote the Discussion message a run answers ({email, admin}: an account of the pages), the same way: set by the
 # page for the run it starts, read in the configurable ("writer"). The chat has no sender to check; its writer does.
 WRITER = contextvars.ContextVar("writer", default=None)
+# The run a run's tree started from (itself for a run started on its own), the same way: stopping a run stops its tree.
+ROOT = contextvars.ContextVar("root", default=None)
+TASKS = {}  # run_id -> the task of a run started on its own (start), while it goes on: the one stop() cancels
+STOPPED = {}  # run_id of a tree's root -> why its runs end ("Arrêté par <who>"), while they end
 
 
 async def created(name, given, cabinet, session, thread=None, parent=None, parent_node=None):
@@ -200,7 +206,37 @@ async def start(name, payload, slots=SLOTS, unattended=False):
     run_id = await created(name, given, cabinet, session, thread)
     running = execute(run_id, name, cabinet, session, thread, given, slots=slots, unattended=unattended)
     task = asyncio.create_task(running)
+    TASKS[run_id] = task
+    task.add_done_callback(lambda _: (TASKS.pop(run_id, None), STOPPED.pop(run_id, None)))
     return run_id, task
+
+
+def is_id(text):
+    """True when ``text`` can be a run's id (a uuid): anything else is no run, never a query."""
+    try:
+        uuid.UUID(text)
+    except ValueError:
+        return False
+    return True
+
+
+async def stop(run_id, by):
+    """Stop run ``run_id`` with its whole tree: the run it was started from, up to the one started on its own, and
+    every run nested in that one, each ended in error "Arrêté par ``by``". A run nested in another goes on inside its
+    parent's step, so only the whole tree can be stopped. A tool already working in a thread (an Experio call) ends
+    its call; nothing after it runs. Return the id of the run stopped (the tree's root), None when it no longer goes
+    on in this server. The run's current step ends first, and is recorded (calls.step): its run ends after it."""
+    async with pool.connection() as db:
+        row = await (await db.execute(Q.run_root, (run_id,))).fetchone()
+    root = row and row[0]
+    task = TASKS.get(root)
+    if task is None or task.done():
+        return None
+    if root in STOPPED:  # already stopping: cancelled once, its runs end
+        return root
+    STOPPED[root] = f"Arrêté par {by}"
+    task.cancel()
+    return root
 
 
 async def nested(name, given, cabinet, session, thread=None, node=None):
@@ -255,6 +291,8 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS, un
     "fichier|facture") to the status of the last step that ran inside it, so the part's own step reads as that
     status; ``rounds`` maps (namespace, node) to the LangGraph step (superstep) its latest task started in."""
     marked = UNATTENDED.set(True) if unattended else None
+    root = ROOT.get() or run_id
+    rooted = ROOT.set(root)
     configurable = configurable_of(cabinet, session, thread)
     status, error, output, failure = "done", None, None, None
     inner = {}  # a part's path ("facture", "fichier|facture") -> the status of the last step that ran inside it
@@ -283,21 +321,31 @@ async def execute(run_id, name, cabinet, session, thread, given, slots=SLOTS, un
                         live.touched(run_id, cabinet, session)
             except Exception as caught:  # the run's own failure: kept for whoever looks, the server goes on
                 status, error, failure = "error", f"{type(caught).__name__}: {caught}", caught
-            except asyncio.CancelledError:  # cut off by its caller (a routine's instruction too long): ended anyway
-                async with pool.connection() as db:
-                    await asyncio.shield(db.execute(Q.run_ended, ("error", None, "Interrompu", run_id)))
-                raise
             async with pool.connection() as db:
                 await db.execute(
                     Q.run_ended,
                     (status, capped(output) if output is not None else None, error, run_id),
                 )
+    except asyncio.CancelledError:  # stopped (stop()), or cut off by its caller (a routine's instruction too long)
+        why = STOPPED.get(root, "Interrompu")  # a run still waiting for its slot ends too
+        await asyncio.shield(ended(run_id, why))
+        with contextlib.suppress(Exception):  # its invoices freed: its run_summary never comes
+            await asyncio.shield(within(cabinet, released, run_id))
+        live.touched(run_id, cabinet, session)
+        raise
     finally:
+        ROOT.reset(rooted)
         RUNNING.reset(running)
         if marked:
             UNATTENDED.reset(marked)
     live.touched(run_id, cabinet, session)
     return output, failure
+
+
+async def ended(run_id, why):
+    """Record that run ``run_id`` ended in error for ``why`` (its connection taken in it too: shielded whole)."""
+    async with pool.connection() as db:
+        await db.execute(Q.run_ended, ("error", None, why, run_id))
 
 
 async def recorded(run_id, namespace, data, rounds, inner):
