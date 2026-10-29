@@ -1274,13 +1274,13 @@ its tool calls; none runs). 40 situations, 10 per kind, in `OUTSIDE`, `UNSUPPORT
   kept, each judged; a tool called on the way answers « Aucun résultat ». `allowed`: the turns that are the
   client's own fair request. No wrong answer allowed. To add one: a `talk("…", "…", "…")` in its kind.
 
-### tests/llm/test_cgnc.py
+### tests/llm/test_cgnc_answers.py
 The CGNC in Tarik's answers, the model shown the agent as it starts. The tool's answers are the real ones, read from
 the stack's schema `knowledge`; a CGNC search the model makes on the way runs for real, any other tool answers
 « Aucun résultat » (`ran`), up to `TURNS` answers per case.
 - `test_an_accounting_question_goes_first_to_the_cgnc` [llm]: `QUESTIONS` (10), each must call `Experio_consult_cgnc` first with a code or words; no tool counts as wrong (answered from memory). Right >= 0.9.
-- `test_the_answer_names_the_account_and_cites_the_cgnc` [llm]: `ANSWERS` (6), the CGNC searched first; the reply names one of the expected accounts, names the CGNC and gives a page it read. Right >= 0.9.
-- `test_a_tax_rate_is_never_drawn_from_the_cgnc` [llm]: `TAXES` (3), TVA and withholding rates; no reply gives a rate (`RATE`). None allowed.
+- `test_the_answer_names_the_account_and_cites_the_cgnc` [llm]: `ANSWERS` (6), the CGNC searched first; the reply names one of the expected accounts, names the CGNC and gives a page it read (« p. 153 », a range read whole); no reply is a miss. Right >= 0.9: all 6 at REPEAT=1.
+- `test_a_tax_rate_is_never_drawn_from_the_cgnc` [llm]: `TAXES` (3), TVA and withholding rates; no reply gives a rate (`RATE`: « 20 % », « 20 pour cent »), and no reply at all is a miss. None allowed.
 - To add a situation: one line in the list of its kind. First run (2026-10-29, REPEAT=2): 20/20, 12/12, 6/6.
 
 ### tests/llm/test_relay.py

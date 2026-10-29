@@ -4,7 +4,7 @@ give and cites the CGNC with its page; and a tax question (TVA rates, withholdin
 CGNC, which has none. The tool's answers are the real ones (engine/knowledge/cgnc.py), read from the stack's
 schema knowledge (read only); a CGNC search the model makes on the way runs for real, as the agent's would.
 
-Slow and billed: python -m pytest -m llm -s tests/llm/test_cgnc.py (-s shows the cases missed and the scores)."""
+Slow and billed: python -m pytest -m llm -s tests/llm/test_cgnc_answers.py (-s: the cases missed and the scores)."""
 
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -41,7 +41,7 @@ ANSWERS = [
     ("Sur quel compte j'enregistre les factures d'eau et d'électricité ?", "eau électricité", {"6125", "61251"}),
     ("Les fournitures de bureau non stockées, quel compte ?", "fournitures de bureau", {"6125", "61254"}),
     ("Comment comptabiliser les honoraires de notre avocat ?", "honoraires", {"6136", "61365"}),
-    ("Le loyer du local commercial, c'est quel compte ?", "locations charges locatives", {"6131", "61313"}),
+    ("Le loyer du local commercial, c'est quel compte ?", "locations charges locatives", {"6131", "61312"}),
     ("On a acheté deux ordinateurs pour le bureau, quel compte ?", "matériel informatique", {"2355"}),
     ("Une assurance payée d'avance pour l'an prochain ?", "charges constatées d'avance", {"3491"}),
 ]
@@ -52,7 +52,9 @@ TAXES = [
     ("Quel taux de retenue à la source sur les honoraires versés à un non-résident ?", "retenue à la source"),
     ("La TVA sur le gasoil est récupérable à combien ?", "TVA récupérable"),
 ]
-RATE = re.compile(r"\d+(?:[.,]\d+)? ?%")
+RATE = re.compile(r"\d+(?:[.,]\d+)?\s*(?:%|pour ?cent)", re.I)  # \s: the non-breaking spaces French puts before %
+READ_PAGES = re.compile(r"p\. (\d+)(?:-(\d+))? du PDF")  # the tool's « p. 152-154 du PDF »
+CITED_PAGE = re.compile(r"\bp(?:\.|ages?)\s*(\d+)", re.I)  # « p. 153 », « page 153 »: not any number of the reply
 
 
 def first_move(call, expected):
@@ -72,8 +74,8 @@ def test_an_accounting_question_goes_first_to_the_cgnc(measure):
 
 
 def ran(call):
-    """The tool_result of ``call``: the CGNC's real answer, as the agent gets it (untrusted data), for a CGNC
-    search; « Aucun résultat » for any other tool."""
+    """The tool_result of ``call``: the CGNC's real answer or refusal, as the agent gets it (untrusted data, as
+    agent.reading wraps both), for a CGNC search; « Aucun résultat » for any other tool."""
     found = "Aucun résultat"
     if call["name"] == TOOL:
         given = {key: str(value) for key, value in call["input"].items() if key in ("code", "words")}
@@ -81,49 +83,58 @@ def ran(call):
             with using(CABINET):
                 found = tarik.untrusted(consult_cgnc(**given), TOOL)
         except ToolError as refusal:
-            found = str(refusal)
+            found = tarik.untrusted(str(refusal), TOOL)
     return {"type": "tool_result", "tool_use_id": call["id"], "content": found}
 
 
 def searched(said, words):
-    """The conversation: the client's question ``said``, the agent's CGNC search for ``words`` and its answer."""
+    """The client's question ``said`` and the agent's CGNC search for ``words``: (the conversation, its result)."""
     call = {"type": "tool_use", "id": "call_1", "name": TOOL, "input": {"words": words}}
+    result = ran(call)
     return [
         {"role": "user", "content": said},
         {"role": "assistant", "content": [call]},
-        {"role": "user", "content": [ran(call)]},
-    ]
+        {"role": "user", "content": [result]},
+    ], result["content"]
 
 
 def replies(ask, cases):
-    """Each case (said, messages) played REPEAT times, 3 at once, as the agent would: each tool the model calls
-    answered (ran), until it replies (TURNS at most). Returns [(said, its reply, every tool result it read)]."""
+    """Each case (said, (messages, result)) played REPEAT times, 3 at once, as the agent would: each tool the model
+    calls answered (ran), until it replies. Returns [(said, its reply, every tool result it read)]; the reply is ""
+    when the model still calls tools after TURNS answers."""
 
     def played(case):
-        said, messages = case
-        messages = list(messages)
+        said, (messages, read) = case
+        messages, read = list(messages), [read]
         for _ in range(TURNS):
             content = ask(None, messages)[0]["content"]
             calls = [block for block in content if block["type"] == "tool_use"]
             if not calls:
-                break
-            messages += [{"role": "assistant", "content": content}, {"role": "user", "content": list(map(ran, calls))}]
-        reply = "\n".join(block["text"] for block in content if block["type"] == "text")
-        results = [part for m in messages if isinstance(m["content"], list) for part in m["content"]]
-        return said, reply, "\n".join(part["content"] for part in results if part["type"] == "tool_result")
+                return said, "\n".join(block["text"] for block in content if block["type"] == "text"), "\n".join(read)
+            results = list(map(ran, calls))
+            messages += [{"role": "assistant", "content": content}, {"role": "user", "content": results}]
+            read += [result["content"] for result in results]
+        return said, "", "\n".join(read)
 
     with ThreadPoolExecutor(max_workers=3) as pool:
         return list(pool.map(played, [case for case in cases for _ in range(REPEAT)]))
 
 
+def pages_in(read):
+    """Every page the tool's answers ``read`` give, each range whole (« p. 152-154 » gives 152, 153 and 154)."""
+    return {str(page) for start, end in READ_PAGES.findall(read) for page in range(int(start), int(end or start) + 1)}
+
+
 def uncited(reply, read, accounts):
-    """Why ``reply`` misses: no account of ``accounts``, no CGNC named, or no page of what it ``read``; "" when it
-    cites."""
+    """Why ``reply`` misses: none, no account of ``accounts``, no CGNC named, or no page of what it ``read``; ""
+    when it cites."""
+    if not reply.strip():
+        return "no reply"
     if not any(re.search(rf"(?<!\d){code}(?!\d)", reply) for code in accounts):
         return f"no account among {sorted(accounts)}"
     if "cgnc" not in normalized(reply):
         return "the CGNC not named"
-    if not set(re.findall(r"p\. (\d+)", read)) & set(re.findall(r"(?<!\d)(\d{1,3})(?!\d)", reply)):
+    if not pages_in(read) & set(CITED_PAGE.findall(reply)):
         return "no page of the CGNC's pieces"
     return ""
 
@@ -143,8 +154,10 @@ def test_the_answer_names_the_account_and_cites_the_cgnc(ask):
 @pytest.mark.llm
 def test_a_tax_rate_is_never_drawn_from_the_cgnc(ask):
     told = replies(ask, [(said, searched(said, words)) for said, words in TAXES])
-    misses = [(said, reply) for said, reply, _ in told if RATE.search(reply)]
+    misses = [(said, reply) for said, reply, _ in told if not reply.strip() or RATE.search(reply)]
     for said, reply in misses:
-        print(f"wrong: « {said} » gave a rate\n    {reply[:300]!r}")
-    print(f"{len(told)} tax answers: {len(misses)} with a rate")
+        found = RATE.search(reply)
+        around = reply[max(found.start() - 150, 0) : found.end() + 50] if found else ""
+        print(f"wrong: « {said} » {'gave a rate' if found else 'no reply'}\n    {around!r}")
+    print(f"{len(told)} tax answers: {len(misses)} with a rate or none")
     assert not misses
