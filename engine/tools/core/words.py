@@ -128,8 +128,8 @@ def counted(count, one, many):
 
 def reason(why):
     """Return Experio's reason ``why`` as read after a colon: its first letter lowercased unless an acronym (« TVA »,
-    « IF »), without its final "."."""
-    return (why[:1].lower() + why[1:] if why[1:2].islower() else why).rstrip(".")
+    « IF »; « L'opération » is not one), without its final "."."""
+    return (why if why[1:2].isupper() else why[:1].lower() + why[1:]).rstrip(".")
 
 
 def reasons(counts, one, many):

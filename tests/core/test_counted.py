@@ -14,3 +14,8 @@ def test_reason_lowercases_a_word_not_an_acronym():
         "2 lignes : taux absent.",
         "1 ligne : TVA manquante.",
     ]
+
+
+def test_a_reason_starting_with_an_apostrophe_is_lowercased_an_acronym_kept():
+    assert reason("L'opération doit être définie.") == "l'opération doit être définie"
+    assert reason("IF manquant") == "IF manquant"

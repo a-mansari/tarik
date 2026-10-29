@@ -1170,6 +1170,14 @@ def test_the_number_decides_before_the_amount(experio):
 
 
 @pytest.mark.functionality
+def test_an_undated_line_is_looked_up_by_its_number_only(experio):
+    cheque(experio, "VIR EMIS WEB 123456789")["by_number"] = [{"partner_id": [9, "ATLAS"], "debit": 0, "credit": 5.0}]
+    experio["lines"][1]["date"] = False  # Experio: « la date est obligatoire »; no window before it for the amount
+    pointed()
+    assert ([2], {"partner_id": 9}) in experio["written"]
+
+
+@pytest.mark.functionality
 @pytest.mark.parametrize("case", ["two suppliers", "refused by the picker", "nothing"])
 def test_the_ledger_gives_no_tiers_when_it_names_two_or_the_line_refuses_it(experio, case):
     cheque(experio)
@@ -1309,6 +1317,43 @@ def test_a_sale_line_gets_a_customer_and_one_tiers_serves_every_line_naming_it(e
     pointed()
     assert len(experio["created"]) == 1 and experio["created"][0]["is_customer"] is True
     assert ([2], {"partner_id": 77}) in experio["written"] and ([3], {"partner_id": 77}) in experio["written"]
+
+
+@pytest.mark.functionality
+def test_the_bank_s_cut_is_the_length_three_names_ending_their_label_share():
+    def line(i, ref):
+        return {"id": i, "payment_ref": ref}
+
+    cheque = "PAIEMENT D'UN CHEQUE N° 72513{} EN FAVEUR DE {}"
+    lines = [line(1, cheque.format(54, "GLOBELINK-TMB-M")), line(2, cheque.format(59, "ITISSALAT AL MA"))]
+    lines += [line(3, cheque.format(60, "CIEL INFORMATIC")), line(4, "VIRT STE EURO NEGOCE INGENIERIE")]
+    names = {1: "GLOBELINK-TMB-M", 2: "ITISSALAT AL MA", 3: "CIEL INFORMATIC", 4: "STE EURO NEGOCE INGENIERIE"}
+    assert statement.cut_width(lines, names) == 60
+    names[3] = "ITISSALAT AL MA"  # a name repeated counts once: two names are not a cut
+    assert statement.cut_width(lines, names) is None
+
+
+@pytest.mark.security
+def test_a_name_the_bank_cut_creates_no_tiers(experio, monkeypatch):
+    named_in_label(experio, monkeypatch, "18 06 25 SOLAR-CLIM-", "SOLAR-CLIM-")
+    pointed()
+    assert experio["created"] == [] and not [w for w in experio["written"] if w[0] == [2] and "partner_id" in w[1]]
+
+
+@pytest.mark.functionality
+def test_a_cut_name_gets_the_one_tiers_it_starts(experio, monkeypatch):
+    named_in_label(experio, monkeypatch, "18 06 25 VIRT TOP-TRANSMI-", "TOP-TRANSMI-")
+    experio["partners"] = [{"id": 61, "name": "TOP-TRANSMISSION", "ice": False}]
+    pointed()
+    assert experio["created"] == [] and ([2], {"partner_id": 61}) in experio["written"]
+
+
+@pytest.mark.functionality
+def test_a_misread_name_gets_the_tiers_one_letter_away(experio, monkeypatch):
+    named_in_label(experio, monkeypatch, "PAIEMENT CHEQUE N 4850656 EN EAVEUR DE AIS INEC", "AIS INEC")
+    experio["partners"] = [{"id": 62, "name": "AIS INFC", "ice": False}]
+    pointed()
+    assert experio["created"] == [] and ([2], {"partner_id": 62}) in experio["written"]
 
 
 @pytest.mark.security

@@ -776,19 +776,58 @@ def named_tiers(statement, lines, context):
         if not dry_run():
             odoo_call(LINE, "write", [line_id], {"partner_id": partner_id}, context=context)
         given += 1
-    created, by_name = [], {}
+    created, by_name, width = [], {}, cut_width(left, names)
     for line in left:  # a counterparty the dossier does not know yet: created, once per name, and told
         name = names.get(line["id"])
         if not name or line["operation_type"] not in ("purchase", "sale"):
             continue
+        cut = name.rstrip().endswith("-") or (  # « SOLAR-CLIM- », or the bank cut the label and the name with it
+            width
+            and len(line["payment_ref"].strip()) == width
+            and normalized(line["payment_ref"]).endswith(normalized(name))
+        )
+        made = {tiers_key(k[1]) or k[1]: i for k, i in by_name.items() if k[0] == line["operation_type"]}
+        known = {tiers_key(n): i for i, _, _, n in offered[line["partner_id_domain"]]} | made
+        partner_id = twin(tiers_key(name) or normalized(name), known, cut)  # « STE X SARL » is « x », as tiers keys
         key = (line["operation_type"], normalized(name))
-        if key not in by_name:
+        if partner_id is None and key not in by_name:
+            if cut:  # a cut name is not a tiers' whole name: the line stays for the cabinet
+                continue
             by_name[key] = None if dry_run() else created_tiers(line, name, context)
             created.append(name)
         if not dry_run():
-            odoo_call(LINE, "write", [line["id"]], {"partner_id": by_name[key]}, context=context)
+            odoo_call(LINE, "write", [line["id"]], {"partner_id": partner_id or by_name[key]}, context=context)
         given += 1
     return given, created
+
+
+def cut_width(lines, names):
+    """Return the length at which the bank cut its labels, None when it cut none: the length (50 or more) at least 3
+    different names share exactly, each ending its label (« …EN FAVEUR DE PAPETERIE-BENMI », 60 characters); natural
+    labels ending with a name vary in length. A name repeated, or misread (« AIS INEC », « AIS INFC »), counts once."""
+    ending = {}
+    for line in lines:
+        name = normalized(names.get(line["id"]) or "")
+        if name and normalized(line["payment_ref"]).endswith(name):
+            ending.setdefault(len(line["payment_ref"].strip()), set()).add(name[:6])
+    return max((length for length, found in ending.items() if len(found) >= 3 and length >= 50), default=None)
+
+
+def twin(name, known, cut):
+    """Return the id of the one tiers in ``known`` ({key: id}, keys normalized) that ``name`` (normalized) is a
+    misreading of (same length, one character apart: « ais inec » for « ais infc ») or, when ``cut``, the start of;
+    None when there is none or more than one."""
+    found = {
+        i
+        for key, i in known.items()
+        if key
+        and len(name) >= 6
+        and (
+            (len(key) == len(name) and sum(a != b for a, b in zip(key, name, strict=True)) <= 1)
+            or (cut and key.startswith(name) and key != name)
+        )
+    }
+    return found.pop() if len(found) == 1 else None
 
 
 LINES_PER_ASK = 50  # lines read by the model at once, so a long statement fits one answer
@@ -936,17 +975,18 @@ def ledger_tiers(statement, lines, context):
         wanted = [
             [*base, ("name", "ilike", number)] for number in re.findall(r"\d{6,}", line["payment_ref"])[:1]
         ]  # (1) then (2)
-        since = (date.fromisoformat(line["date"]) - timedelta(days=LEDGER_DAYS)).isoformat()
-        wanted.append(
-            [
-                *base,
-                ("account_id.code", "=like", "4411%"),
-                ("credit", "=", amount),
-                ("reconciled", "=", False),
-                ("date", "<=", line["date"]),
-                ("date", ">=", since),
-            ]
-        )
+        if line["date"]:  # undated (Experio asks for one): no window before it, so no evidence (2)
+            since = (date.fromisoformat(line["date"]) - timedelta(days=LEDGER_DAYS)).isoformat()
+            wanted.append(
+                [
+                    *base,
+                    ("account_id.code", "=like", "4411%"),
+                    ("credit", "=", amount),
+                    ("reconciled", "=", False),
+                    ("date", "<=", line["date"]),
+                    ("date", ">=", since),
+                ]
+            )
         for n, domain in enumerate(wanted):
             fields = ["partner_id", "debit", "credit"]
             found = odoo_call("exp.move.line", "search_read", domain, fields=fields, limit=20, context=context)
