@@ -134,3 +134,17 @@ def test_every_drawn_step_lies_on_a_drawn_way_from_the_start_to_the_end(name):
     from_start, to_end = reachable(forward, "__start__"), reachable(backward, "__end__")
     assert not steps - from_start, f"{name}: drawn with no way in {sorted(steps - from_start)}"
     assert not steps - to_end, f"{name}: drawn with no way out to the end {sorted(steps - to_end)}"
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize("name", [*graphs.COMPILED, "agent"])
+def test_every_drawn_part_has_a_start_its_ways_in_end_at(name):
+    shape = graphs.shape(name)
+    ids = {node["id"] for node in shape["nodes"]}
+    for group in (node["id"] for node in shape["nodes"] if node["kind"] == "group"):
+        start = f"{group}:__start__"
+        assert start in ids, f"{name}: part {group} drawn with no start"
+        outside = [
+            e for e in shape["edges"] if e["target"].startswith(f"{group}:") and not e["source"].startswith(f"{group}:")
+        ]
+        assert {e["target"] for e in outside} <= {start}, f"{name}: {group} entered past its start"

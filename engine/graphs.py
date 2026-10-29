@@ -103,6 +103,27 @@ def hidden(edge, failures, arriving):
     return (edge.source, edge.target) in failures or from_start
 
 
+def give_start(name, group, nodes, edges):
+    """Draw a start for part ``group`` when LangGraph left it out (a part whose START has one plain edge is drawn
+    without it): the edges that entered the part's first steps from outside enter this start instead, which leads on
+    to those steps."""
+    start = f"{group}:__start__"
+    if any(node["id"] == start for node in nodes):
+        return
+    entering = [e for e in edges if e["target"].startswith(f"{group}:") and not e["source"].startswith(f"{group}:")]
+    if not entering:
+        return
+    nodes.append(drawn_node(name, start, group, "end"))
+    firsts = {e["target"] for e in entering}
+    for edge in entering:
+        edge["target"] = start
+        edge["id"] = f"{edge['source']}->{start}"
+    edges.extend(
+        {"id": f"{start}->{first}", "source": start, "target": first, "conditional": False, "hidden": False}
+        for first in sorted(firsts)
+    )
+
+
 @functools.cache
 def shape(name):
     """Return the canvas shape of graph ``name`` (a COMPILED key, or "agent"); cached until labels.json changes.
@@ -140,6 +161,8 @@ def shape(name):
         }
         for edge in drawn.edges
     ]
+    for group in groups:
+        give_start(name, group, nodes, edges)
     return {
         "graph": name,
         "label": LABELS["graphs"].get(name, name),
