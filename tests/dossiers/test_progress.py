@@ -50,10 +50,9 @@ def experio(monkeypatch):
 @pytest.mark.communication
 def test_a_dossiers_progress_by_experios_own_statuses(experio):
     text = progress.dossier_progress(5)
-    assert text.splitlines()[:5] == [
-        "Dossier `BETA`",
-        "Avancement selon Experio, tous exercices confondus : 50 %",
-        "- 8 pièces comptabilisées sur 16",
+    assert text.split("\n\n")[:2] == [  # a blank line between blocks: the chat and the email keep them apart
+        "Dossier `BETA`, avancement selon Experio (tous exercices) : 50 %\n"
+        "- 8 pièces comptabilisées sur 16\n"
         "- 8 opérations bancaires et de caisse comptabilisées sur 16",
         "Exercice : Exercice 2026, du 01/01/2026 au 31/12/2026",
     ]
