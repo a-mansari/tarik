@@ -35,7 +35,7 @@ from engine.tools.core.experio import (
     require_dossier,
 )
 from engine.tools.core.outbox import keep_record_file
-from engine.tools.core.words import as_number, counted, normalized
+from engine.tools.core.words import as_number, counted, normalized, reasons
 
 TABLE = "exp.deduction.table"
 LINE = "exp.deduction.table.line"
@@ -365,9 +365,7 @@ def prepare_tva_declaration(
             )
         if errors:
             text += "\n- Lignes en erreur :"
-            for why, n in errors.items():  # Experio's words, lowercased after the colon unless an acronym (« IF »)
-                why = (why[:1].lower() + why[1:] if why[1:2].islower() else why).rstrip(".")
-                text += f"\n  - {counted(n, '{} ligne', '{} lignes')} : {why}."
+            text += "".join(f"\n  - {line}" for line in reasons(errors, "{} ligne", "{} lignes"))
         if table["warning_msg"]:
             text += f"\n- Experio signale : {plain(table['warning_msg'])}"
         if refusal:
@@ -413,9 +411,10 @@ def declare(table, label, text, client_confirmed, context):
     except ExperioRefusal as error:
         return stop(f"Experio refuse de déclarer la TVA {label} : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):
+        window = f"la fenêtre « {action['name']} »" if action.get("name") else "une fenêtre de confirmation"
         return stop(
-            f"Je n'ai pas déclaré la TVA {label} : Experio demande une confirmation à l'écran "
-            f"(« {action.get('name') or action['res_model']} »), que le cabinet doit valider dans Experio.",
+            f"Je n'ai pas déclaré la TVA {label} : Experio ouvre à l'écran {window}, que le cabinet doit valider "
+            "dans Experio.",
             declaration_id=table["id"],
         )
     done = read_table(table["id"], context)

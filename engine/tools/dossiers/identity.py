@@ -459,7 +459,7 @@ def update_dossier(
     unchanged = f" Non modifié, car le client ne l'a pas écrit : {', '.join(not_written)}." if not_written else ""
     current, changes = changes_to(dossier_id, written)
     if not changes:
-        return stop(f"Dossier `{dossier}`  : rien à modifier.{unchanged}")
+        return stop(f"Dossier `{dossier}` : rien à modifier.{unchanged}")
     refusal = conflict(dossier_id, dossier, changes)
     if refusal:
         return refusal

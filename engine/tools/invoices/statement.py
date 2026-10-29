@@ -38,6 +38,7 @@ from engine.tools.core.experio import (
 from engine.tools.core.model import ask_model, tool_prompt
 from engine.tools.core.queries import Q
 from engine.tools.core.words import as_number, counted, normalized, said, tiers_key
+from engine.tools.core.words import reasons as reason_lines
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
 from engine.tools.invoices.exercice import with_fiscal_year
@@ -1285,7 +1286,7 @@ def report_statement(statement_id: int, said: list[str] | None = None, notes: li
     if not statement["is_valid"]:
         points.append("Le solde initial du relevé ne suit pas le solde final du relevé précédent de ce journal.")
     points += [line for note in [opening, *(notes or [])] for line in note.splitlines()]
-    points += [f"{counted(n, '{} opération', '{} opérations')} {tpe.to_complete(why)}" for why, n in reasons.items()]
+    points += reason_lines(reasons, "{} opération à compléter dans Experio", "{} opérations à compléter dans Experio")
     text += "." + "".join(f"\n- {point}" for point in points)
     return ok(f"{TEST_MODE if dry_run() else ''}{text}", statement_id=statement_id)
 
@@ -1363,9 +1364,10 @@ def posting(statement):
     except Exception as error:  # Experio's refusal (complete validation required, exact duplicate): its own words
         return stop(f"Relevé n° {statement_id} : pas comptabilisé, Experio refuse : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):
+        window = f"la fenêtre « {action['name']} »" if action.get("name") else "une fenêtre de confirmation"
         return stop(
-            f"Relevé n° {statement_id} : pas comptabilisé, Experio demande une confirmation à l'écran "
-            f"(« {action.get('name') or action['res_model']} ») : à valider par le cabinet dans Experio."
+            f"Relevé n° {statement_id} : pas comptabilisé, Experio ouvre à l'écran {window} : à valider par le "
+            "cabinet dans Experio."
         )
     statement = read_statement(statement_id)
     reasons, ready, posted = blocked_reasons(statement, context)
@@ -1451,7 +1453,8 @@ def each_statement(dossier_id, step):
             results.append(step(statement))
         except ToolError as failure:  # one statement Experio refuses: said, the others still done
             results.append({"message": str(failure)})
-    text = f"Dossier n° {dossier_id} : " + counted(len(results), "{} relevé traité.", "{} relevés traités.")
+    dossier = statements[0]["company_id"][1]  # read with FIELDS: the dossier's name, no Experio read for it
+    text = f"Dossier `{dossier}`, " + counted(len(results), "{} relevé :", "{} relevés :")
     text += "".join("\n- " + result["message"].replace("\n", "\n  ") for result in results)
     return ok(text, statement_ids=[statement["id"] for statement in statements])
 

@@ -32,6 +32,7 @@ from engine.tools.core.conversation import own_words
 from engine.tools.core.experio import dry_run, experio_refusal, in_dossier, odoo_call, odoo_json, plain
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, normalized
+from engine.tools.core.words import reasons as reason_lines
 from engine.tools.invoices.exercice import with_fiscal_year
 
 STATEMENT = "exp.monetary.statement"
@@ -386,11 +387,6 @@ def totals(lines):
 NO_REASON = "motif non donné par Experio"  # a line Experio blocks without error_msg: never its raw state
 
 
-def to_complete(why):
-    """Return « à compléter dans Experio : <why>. », Experio's reason ``why`` lowercased at its start."""
-    return f"à compléter dans Experio : {why[:1].lower()}{why[1:].rstrip('.')}."
-
-
 def blocked(lines):
     """Return (reasons, ready, posted): {Experio's reason: how many lines} for draft and pending lines (NO_REASON
     when Experio gives none), then counts."""
@@ -452,7 +448,8 @@ def settle_tpe(statement_id, client_words=""):
         )
     if unknown:
         return client_question(statement_id, unknown, found)
-    text += "".join(f"\n- {counted(n, '{} ligne', '{} lignes')} {to_complete(why)}" for why, n in reasons.items())
+    lines = reason_lines(reasons, "{} ligne à compléter dans Experio", "{} lignes à compléter dans Experio")
+    text += "".join(f"\n- {line}" for line in lines)
     return ok(f"{TEST_MODE if dry_run() else ''}{text}", statement_id=statement_id)
 
 
@@ -486,9 +483,10 @@ def post_tpe(statement_id):
     except Exception as error:  # Experio's refusal (an exact duplicate statement): its own words
         return stop(f"Relevé TPE n° {statement_id} : pas comptabilisé, Experio refuse : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):
+        window = f"la fenêtre « {action['name']} »" if action.get("name") else "une fenêtre de confirmation"
         return stop(
-            f"Relevé TPE n° {statement_id} : pas comptabilisé, Experio demande une confirmation à l'écran "
-            f"(« {action.get('name') or action['res_model']} ») : à valider par le cabinet dans Experio."
+            f"Relevé TPE n° {statement_id} : pas comptabilisé, Experio ouvre à l'écran {window} : à valider par le "
+            "cabinet dans Experio."
         )
     lines = odoo_call(LINE, "read", read_tpe(statement_id)["line_ids"], fields=LINE_FIELDS, context=context)
     reasons, _, posted = blocked(lines)

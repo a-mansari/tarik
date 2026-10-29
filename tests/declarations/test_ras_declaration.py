@@ -199,6 +199,13 @@ def test_test_mode_creates_no_ras_declaration(experio, monkeypatch):
 
 
 @pytest.mark.security
+def test_test_mode_is_said_once_at_the_front_of_several_ras(experio, monkeypatch):
+    monkeypatch.setattr(ras, "dry_run", lambda: True)
+    message = ras.prepare_ras_declaration(857, "RAS TVA et IS")["message"]
+    assert message.startswith("MODE TEST") and message.count("MODE TEST") == 1 and "\n- " in message
+
+
+@pytest.mark.security
 def test_test_mode_refreshes_nothing_makes_no_xml_and_declares_nothing(experio, monkeypatch):
     monkeypatch.setattr(ras, "dry_run", lambda: True)
     experio["tables"] = {"exp.withholding.table": [{"id": 70, "state": "draft"}]}

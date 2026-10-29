@@ -46,6 +46,7 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, normalized, said
+from engine.tools.core.words import reasons as reason_lines
 from engine.tools.dossiers.banks import bank_named, give_bank, journal_bank, padded
 from engine.tools.invoices.exercice import open_exercice
 from engine.tools.invoices.intake import file_row
@@ -828,8 +829,8 @@ def error_reasons(reasons):
         text = (reason["error_type"] or "sans motif").strip()
         text = AMOUNT.sub(lambda amount: f"{float(amount[1]):,.2f}".replace(",", " ").replace(".", ","), text)
         merged[re.sub(r"^\d+\s+", "", text)] += reason["error_type_count"]  # without the leading count and spaces
-    found = [(text[:1].lower() + text[1:].rstrip("."), n) for text, n in merged.most_common()]
-    lines = [f"{counted(n, '{} ligne', '{} lignes')} : {text}." for text, n in found[:ERROR_LINES]]
+    found = merged.most_common()
+    lines = reason_lines(dict(found[:ERROR_LINES]), "{} ligne", "{} lignes")
     if len(found) > ERROR_LINES:
         rest = sum(n for _, n in found[ERROR_LINES:])
         others = counted(len(found) - ERROR_LINES, "{} autre motif", "{} autres motifs")

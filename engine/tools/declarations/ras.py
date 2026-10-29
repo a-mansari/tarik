@@ -427,7 +427,11 @@ def prepare_ras_declaration(
     ]
     # Several: one « - » item each, its own sub-points nested under it
     texts = [t for _, t, _ in results]
-    text = texts[0] if len(texts) == 1 else "\n".join("- " + t.replace("\n", "\n  ") for t in texts)
+    if len(texts) == 1:
+        text = texts[0]
+    else:  # TEST_MODE once, at the front, where run_summary looks for it
+        test = TEST_MODE if any(t.startswith(TEST_MODE) for t in texts) else ""
+        text = test + "\n".join("- " + t.removeprefix(TEST_MODE).replace("\n", "\n  ") for t in texts)
     text += "\n\n" + " ".join(notes) if notes else ""
     ids = [i for _, _, i in results if i]
     statuses = {s for s, _, _ in results}

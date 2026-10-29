@@ -270,7 +270,8 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
     ask = counted(len(rows), "Je le crée", "Je les crée")
     if not confirmed(session_id, client_confirmed, ask, name):
         listed = "\n".join(row_recap(r) for r in rows[:MAX_SHOWN])
-        more = f"\n- ... et {len(rows) - MAX_SHOWN} autres" if len(rows) > MAX_SHOWN else ""
+        others = counted(len(rows) - MAX_SHOWN, "{} autre", "{} autres")
+        more = f"\n- ... et {others}" if len(rows) > MAX_SHOWN else ""
         return question(
             f"`{name}` contient {counted(len(rows), '{} dossier, correct', '{} dossiers, tous corrects')} :\n"
             f"{listed}{more}\n{ask} ? oui / non"
@@ -595,7 +596,7 @@ def change_access(
 @step_tool
 def archive_dossier(dossier_id: int, client_confirmed: bool = False, session_id: str = "") -> dict:
     """Archive a dossier, as its form's Archiver does (res.company action_archive_folder: active False): hidden
-    from the lists, nothing deleted, restorable from Experio (filtre Archives, Desarchiver).
+    from the lists, nothing deleted, restorable from Experio (filtre Archivé, Désarchiver).
 
     Returns a question result with the dossier's invoice counts until the client said yes (``client_confirmed``);
     then an ok result (in test mode, without archiving)."""
@@ -616,5 +617,5 @@ def archive_dossier(dossier_id: int, client_confirmed: bool = False, session_id:
     with refused(f"archive_dossier {dossier_id}", f"Experio refuse d'archiver le dossier `{dossier}` : {{reason}}"):
         odoo_json("res.company", "action_archive_folder", [dossier_id])
     return ok(
-        f"Dossier `{dossier}` archivé. Il peut être restauré depuis Experio (filtre Archives, bouton Désarchiver)."
+        f"Dossier `{dossier}` archivé. Il peut être restauré depuis Experio (filtre Archivé, bouton Désarchiver)."
     )

@@ -35,7 +35,7 @@ from engine.tools.core.experio import (
     require_dossier,
 )
 from engine.tools.core.outbox import keep_record_file
-from engine.tools.core.words import as_number, counted, normalized
+from engine.tools.core.words import as_number, counted, normalized, reason
 from engine.tools.declarations.tva import find_period, last_ended, period_named
 
 TABLE = "exp.payment.delay"
@@ -232,9 +232,7 @@ def prepare_payment_delay_declaration(
                     counted(len(bare), "{} fournisseur n'a pas d'IF", "{} fournisseurs n'ont pas d'IF") + " : " + names
                 )
         if refusals:
-            text += "\n- Experio ne la laissera pas déclarer :" + "".join(
-                f"\n  - {why.rstrip('.')}." for why in refusals
-            )
+            text += "\n- Experio ne la laissera pas déclarer :" + "".join(f"\n  - {reason(why)}." for why in refusals)
             return stop(text, declaration_id=table_id)
         if lines and not dry_run():
             try:  # Experio's own checks of its XML (the dossier's IF, its period)
