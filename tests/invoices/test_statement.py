@@ -1186,3 +1186,57 @@ def test_two_invoices_with_the_labels_number_tie_none(experio):
     experio["labelled"].append({"id": 71, "invoice_number": "0029457"})  # the same number once zeros are dropped
     pointed()
     assert not [w for w in experio["written"] if w[0] == [2] and "invoice_ids" in w[1]]
+
+
+def past(label, operation=None, partner=None, method=None):
+    """A line the dossier's cabinet posted before."""
+    return {
+        "payment_ref": label,
+        "operation_id": operation and [operation, "op"],
+        "partner_id": partner and [partner, "tiers"],
+        "exp_payment_method_id": method and [method, "méthode"],
+    }
+
+
+@pytest.mark.functionality
+def test_a_label_the_dossier_always_pointed_one_way_gets_that_operation_without_asking_the_model(experio):
+    unpointed(experio, payment_ref="PRLV FRAIS PACK GLOBAL BUSINESS 0456")
+    experio["history"] = [
+        past("PRLV FRAIS PACK GLOBAL BUSINESS 0123", 13156),
+        past("PRLV frais pack global business", 13156),
+    ]
+    pointed()
+    assert any(w[0] == [2] and w[1].get("operation_id") == 13156 for w in experio["written"])
+    assert experio["asked"] == []  # the memory settled it
+
+
+@pytest.mark.functionality
+def test_a_label_the_dossier_pointed_two_ways_is_left_to_the_model(experio):
+    unpointed(experio, payment_ref="PRLV FRAIS PACK GLOBAL BUSINESS 0456")
+    experio["history"] = [
+        past("PRLV FRAIS PACK GLOBAL BUSINESS", 13156),
+        past("PRLV FRAIS PACK GLOBAL BUSINESS", 13131),
+    ]
+    experio["answer"] = {"lines": []}
+    pointed()
+    assert not [w for w in experio["written"] if w[0] == [2] and "operation_id" in w[1]]
+    assert experio["asked"]  # not unanimous: the model is asked
+
+
+@pytest.mark.functionality
+def test_a_purchase_label_the_dossier_always_paid_one_way_gets_that_payment_method(experio):
+    experio["lines"][1].update(exp_payment_method_id=False, payment_ref="PAIEMENT DE VOTRE FACTURE 0912")
+    experio["history"] = [past("PAIEMENT DE VOTRE FACTURE 0001", 13136, method=2)]
+    pointed()
+    assert ([2], {"exp_payment_method_id": 2}) in experio["written"]
+    assert experio["asked"] == []
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(("seen", "written"), [(2, True), (1, False)])
+def test_a_tiers_the_dossier_always_gave_a_label_is_given_only_when_seen_twice(experio, seen, written):
+    experio["partners"] = [{"id": 51, "name": "MECAERIC SARL - 4471", "ice": False}]
+    experio["lines"][1]["payment_ref"] = "VIR EMIS WEB 0912"  # no name: only the memory knows
+    experio["history"] = [past(f"VIR EMIS WEB {n}", 13136, partner=51) for n in range(seen)]
+    pointed()
+    assert (([2], {"partner_id": 51}) in experio["written"]) is written
