@@ -319,6 +319,7 @@ Covers a model's configuration copied and files through Experio's Importation sc
 ### tests/dossiers/test_setup_wait.py
 Covers an onboarding waiting on Experio (db_cabinet).
 - `test_a_dossier_waits_when_the_run_has_no_time_left_for_experio` [functionality]: with no time left, the dossier is left waiting.
+- `test_a_file_imported_after_the_onboarding_waits_only_for_lines_processed` [functionality, param]: once the onboarding is finished, the dossier stays waiting only while lines are new or pending.
 - `test_a_follow_up_finishes_it_whatever_the_time` [functionality]: a follow-up run completes the waiting dossier setup.
 - `test_a_refused_import_never_leaves_the_dossier_waiting` [functionality]: a refused import ends the wait instead of hanging.
 - `test_a_setup_ends_telling_the_journals_still_to_create` [communication]: the setup message lists the journals still to create.

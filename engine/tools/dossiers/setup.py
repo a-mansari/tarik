@@ -699,6 +699,9 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     fields = ["show_onboarding", *STEPPER_JOURNALS, *STEPPER_PREFIXES]
     company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
     if not company["show_onboarding"]:  # its lines still in Experio's processing keep it waiting (setup_status)
+        still = [("company_id", "=", dossier_id), ("state", "in", ["new", "pending"])]
+        if not odoo_call("experio.history", "search_count", still, context=context):
+            setup_waits(dossier_id)  # a file imported after the onboarding (tiers): nothing left to follow
         return routine(
             f"Dossier `{dossier}` : integration deja terminee, Experio traite les ecritures des leur import."
         )
