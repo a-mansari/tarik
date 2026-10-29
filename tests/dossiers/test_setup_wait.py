@@ -1,6 +1,7 @@
 """A dossier whose onboarding waits on Experio (on the real Postgres, db_cabinet): finished in the run when its
 time allows, else left waiting for a follow-up; a refused import never leaves it waiting."""
 
+import xmlrpc.client
 from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 
@@ -458,16 +459,25 @@ def test_a_3421_account_experio_does_not_take_is_told(monkeypatch):
 
 @pytest.mark.communication
 def test_a_refused_write_keeps_what_was_done(monkeypatch):
-    done, problems, _ = filling(monkeypatch, refused_journal=ExperioRefusal("Ce code est déjà pris."))
-    assert done[0] == "compte `34210000 Clients` créé"
-    assert problems == ["Je n'ai pas pu finir le paramétrage : Experio l'a refusé (Ce code est déjà pris.)."]
+    for refusal in (
+        ExperioRefusal("Ce code est déjà pris.", "odoo.exceptions.ValidationError"),
+        xmlrpc.client.Fault(2, "Ce code est déjà pris."),
+    ):
+        done, problems, _ = filling(monkeypatch, refused_journal=refusal)
+        assert done[0] == "compte `34210000 Clients` créé"
+        assert problems == ["Je n'ai pas pu finir le paramétrage : Experio l'a refusé (Ce code est déjà pris.)."]
 
 
 @pytest.mark.security
 def test_a_failure_of_ours_is_not_blamed_on_experio_nor_shown(monkeypatch):
-    done, problems, _ = filling(monkeypatch, refused_journal=KeyError("foreign_sale_journal_id"))
-    assert done[0] == "compte `34210000 Clients` créé"
-    assert problems == ["Je n'ai pas pu finir le paramétrage : échec technique, réessayez plus tard."]
+    for crash in (
+        KeyError("foreign_sale_journal_id"),  # ours
+        xmlrpc.client.Fault(1, "Traceback (most recent call last):\n  File \"/opt/odoo/models.py\"\nKeyError: 'x'"),
+        ExperioRefusal("'foreign_sale_journal_id'", "builtins.KeyError"),  # Experio's, over JSON-RPC
+    ):
+        done, problems, _ = filling(monkeypatch, refused_journal=crash)
+        assert done[0] == "compte `34210000 Clients` créé"
+        assert problems == ["Je n'ai pas pu finir le paramétrage : échec technique, réessayez plus tard."]
 
 
 @pytest.mark.functionality

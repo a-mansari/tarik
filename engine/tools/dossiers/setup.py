@@ -23,7 +23,6 @@ import io
 import itertools
 import re
 import time
-import xmlrpc.client
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 
@@ -33,11 +32,11 @@ from engine.tools.core.app import CRASHED, ToolError, log, ok, question, routine
 from engine.tools.core.cabinets import cabinet_db, current
 from engine.tools.core.config import ENTRY_FILES, TEST_MODE
 from engine.tools.core.experio import (
-    ExperioRefusal,
     dossier_lock,
     dry_run,
     experio_refusal,
     in_dossier,
+    is_refusal,
     misplaced_journals,
     odoo_call,
     odoo_json,
@@ -999,11 +998,11 @@ def fill_posting_settings(dossier_id, company, context):
             problems.append(f"Je n'ai pas pu finir le paramétrage : {failure}")
         except Exception as failure:  # what was done before is still told
             log(f"fill_posting_settings {dossier_id}: {failure}")
-            if isinstance(failure, (ExperioRefusal, xmlrpc.client.Fault)):  # Experio's own answer
+            if is_refusal(failure):
                 problems.append(
                     f"Je n'ai pas pu finir le paramétrage : Experio l'a refusé ({experio_refusal(failure)})."
                 )
-            else:  # ours: its text (a field name, a key) stays in the log
+            else:  # a crash, ours or Experio's: its text (a field name, a traceback) stays in the log
                 problems.append(f"Je n'ai pas pu finir le paramétrage : {CRASHED}")
         if dry_run():
             return done, problems, company
