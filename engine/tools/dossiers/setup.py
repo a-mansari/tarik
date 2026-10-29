@@ -921,7 +921,7 @@ def fill_posting_settings(dossier_id, company, context):
     wrong = misplaced_journals(dossier_id, journals)
     if all(company[key] for key in POSTING_SETTINGS) and not wrong:
         return [], [], company
-    done, problems, before = [], [], company
+    done, problems, before, told = [], [], company, []
     with dossier_lock(dossier_id):
         try:
             if not dry_run():
@@ -934,6 +934,7 @@ def fill_posting_settings(dossier_id, company, context):
             for kind in ("purchase", "sale"):
                 if any(f"{kind}_journal" in key for key in wrong):
                     done.append(set_journal(dossier_id, kind).removeprefix(TEST_MODE))
+                    told += [key for key in journals if f"{kind}_journal" in key]  # it says it set them
                     SET.pop((current(), dossier_id), None)  # told here, not again on the first invoice
         except ToolError as failure:
             problems.append(f"Tarik n'a pas pu finir le paramétrage : {failure}")
@@ -943,7 +944,9 @@ def fill_posting_settings(dossier_id, company, context):
         if dry_run():
             return done, problems, company
         after = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
-    changed = [label for key, label in POSTING_SETTINGS.items() if after[key] and after[key] != before[key]]
+    changed = [
+        label for key, label in POSTING_SETTINGS.items() if after[key] and after[key] != before[key] and key not in told
+    ]
     if changed:
         done.append("réglé(s) dans la configuration du dossier : " + ", ".join(changed))
     return done, problems, after
