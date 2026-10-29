@@ -1041,9 +1041,9 @@ Covers the canvases the UI draws: every step drawn, named and described; each ag
 ### tests/graphs/test_dossier_graph.py
 Covers the Dossier graph's routing: creation (model configuration, files, banks, finish, state), each change mode, mode resume and mode dossiers, for every outcome status.
 - `test_a_new_dossier_takes_its_models_configuration_then_its_files_then_is_onboarded` [functionality]: create, copy_configuration, files, each import, ask_banks, finish_setup (no time limit), setup_status, summary.
-- `test_a_copied_configuration_finishes_the_onboarding_without_files` [functionality, param]: a copied model finishes the onboarding with no file (finish true); without a model it waits for the files.
-- `test_without_a_model_or_with_a_reused_dossier_no_configuration_is_copied` [functionality, param]: no copy_configuration; no files still onboards.
-- `test_a_refused_configuration_copy_goes_no_further` [functionality, xfail strict]: a refused copy_configuration still imports and finishes the dossier (suspected bug).
+- `test_a_copied_configuration_finishes_the_onboarding_without_files` [functionality]: a copied model finishes the onboarding with no file (finish true).
+- `test_without_a_model_or_with_a_reused_dossier_no_configuration_is_copied` [functionality, param]: no copy_configuration; finish_setup waits for the files (finish false).
+- `test_a_refused_configuration_copy_goes_no_further` [functionality]: a refused copy_configuration goes straight to the summary.
 - `test_a_sender_who_may_not_create_dossiers_gets_only_the_summary` [security, param]: check_creator not ok ends the run.
 - `test_a_dossier_not_created_goes_no_further` [functionality, param]: create_dossier not ok ends the run.
 - `test_a_failed_save_of_the_attachments_goes_straight_to_the_summary` [technical, param]: in every mode.
