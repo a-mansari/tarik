@@ -251,6 +251,16 @@ def setup_waits(dossier_id, file_id=None):
             db.execute(Q.delete_setup_wait, (dossier_id,))
 
 
+def setups_settled(dossiers):
+    """True when a follow-up has something new to tell of ``dossiers`` (ids): one's onboarding is still to finish,
+    or none has lines Experio is still processing (experio.history state new or pending). Raises Experio's error."""
+    context = {"allowed_company_ids": list(dossiers)}
+    if odoo_call("res.company", "search_count", [("id", "in", dossiers), ("show_onboarding", "=", True)]):
+        return True
+    still = [("company_id", "in", dossiers), ("state", "in", ["new", "pending"])]
+    return not odoo_call("experio.history", "search_count", still, context=context)
+
+
 @tool
 def waiting_setups(session_id: str) -> dict:
     """Return an ok result listing (``dossiers``: ids) the dossiers waiting in tarik_setups for this
@@ -737,27 +747,33 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
             "journaux, fournisseurs, clients), ou dites-moi que tout est envoyé pour que je termine l'intégration."
         )
     notes = []
-    # Without entries the exercice would be a calendar guess, and Experio dates every exercice a later FEC brings
-    # from the earliest one (exp_account experio_history.py create_missing_exercices_fiscal): the FEC sets it.
-    exercice = exercice_note(dossier_id, dossier) if entries else None
-    if exercice:
-        notes.append(exercice)
-    # Only tiers can be missing here: still welcome, imported at any time after the onboarding.
-    welcome = f"\n\nVous pouvez encore envoyer vos fichiers {' et '.join(missing)}." if missing else ""
-    if dry_run():
-        listed = "".join(f"\n- {n}" for n in notes)
-        return ok(f"{TEST_MODE}Dossier `{dossier}` : l'intégration serait terminée.{listed}{welcome}")
-    pause = lines_ready_in(dossier_id, context)
-    if seconds_left and pause > seconds_left - STEPPER_SECONDS:
-        return wait(
-            f"Dossier `{dossier}` : Experio enregistre encore les écritures importées. Je terminerai son intégration "
-            "et vous donnerai l'état du dossier dans quelques minutes."
-        )
-    time.sleep(pause)
-    with refused(
-        f"finish_setup {dossier_id}", f"Dossier `{dossier}` : Experio refuse de terminer l'intégration ({{reason}})."
-    ):
-        complete_stepper(company, context)
+    try:  # Experio refusing clears the wait: the client acts on it, no follow-up sends it again every tick
+        # Without entries the exercice would be a calendar guess, and Experio dates every exercice a later FEC brings
+        # from the earliest one (exp_account experio_history.py create_missing_exercices_fiscal): the FEC sets it.
+        exercice = exercice_note(dossier_id, dossier) if entries else None
+        if exercice:
+            notes.append(exercice)
+        # Only tiers can be missing here: still welcome, imported at any time after the onboarding.
+        welcome = f"\n\nVous pouvez encore envoyer vos fichiers {' et '.join(missing)}." if missing else ""
+        if dry_run():
+            listed = "".join(f"\n- {n}" for n in notes)
+            return ok(f"{TEST_MODE}Dossier `{dossier}` : l'intégration serait terminée.{listed}{welcome}")
+        pause = lines_ready_in(dossier_id, context)
+        if seconds_left and pause > seconds_left - STEPPER_SECONDS:
+            return wait(
+                f"Dossier `{dossier}` : Experio enregistre encore les écritures importées. Je terminerai son "
+                "intégration et vous donnerai l'état du dossier dans quelques minutes."
+            )
+        time.sleep(pause)
+        with refused(
+            f"finish_setup {dossier_id}",
+            f"Dossier `{dossier}` : Experio refuse de terminer l'intégration ({{reason}}).",
+        ):
+            complete_stepper(company, context)
+    except ToolError as error:
+        if is_refusal(error.__context__):  # refused() keeps the failure as context; a crash keeps the wait, retried
+            setup_waits(dossier_id)
+        raise
     waiting = entries_count(dossier_id, context)
     notes.append(
         counted(
@@ -932,11 +948,14 @@ def setup_status(dossier_id: int) -> dict:
     if onboarding:
         parts.append("L'intégration n'est pas encore terminée.")
     elif still:
+        # No result promised: the follow-up ends after FOLLOW_UP_MINUTES, and Experio processes the lines with no
+        # time bound, a stuck one re-sent only by « Re-send » (exp_account experio_history.py action_resend), as
+        # resend_stale does at a later status, past STALE_MINUTES
         parts.append(
             counted(
                 still,
-                "{} ligne est encore en traitement chez Experio : son résultat suivra.",
-                "{} lignes sont encore en traitement chez Experio : leur résultat suivra.",
+                "{} ligne est encore en traitement chez Experio : demandez-moi l'état du dossier plus tard.",
+                "{} lignes sont encore en traitement chez Experio : demandez-moi l'état du dossier plus tard.",
             )
         )
     return ok(f"Dossier `{dossier}` : état du paramétrage." + "".join(f"\n- {part}" for part in parts))

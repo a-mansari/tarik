@@ -291,7 +291,7 @@ def test_the_rows_experio_refuses_are_listed_and_the_others_created(listing, exp
     assert answer["message"] == (
         "`dossiers.csv` : 1 dossier créé sur 3.\nExperio a refusé ces lignes :\n"
         "- Ligne 3 (`DELTA`) : IF inconnu du registre"
-        "\nCorrigez ces lignes et renvoyez-les seules."
+        "\n\nCorrigez ces lignes et renvoyez-les seules."  # its own paragraph: the chat would fold it into the bullet
         "\nCes lignes n'ont pas été créées : échec technique, réessayez plus tard.\n- Ligne 4 (`GAMMA`)"
     )
     assert attached == [9]

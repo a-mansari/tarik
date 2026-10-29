@@ -97,7 +97,7 @@ def plain(parts):
     for part in parts:
         named_already = part["detail"].startswith("Dossier")  # the progress's text, a declaration's own summary
         texts.append(part["detail"] if named_already else f"Dossier `{part['dossier']}` : {part['detail']}")
-    return "\n\n".join(texts)
+    return "\n\n----------\n\n".join(texts)  # a dossier's own text has blank lines between its blocks
 
 
 def plural(count, one, many=None):

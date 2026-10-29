@@ -234,12 +234,21 @@ def test_a_follow_up_ends_when_its_time_is_up_its_drafts_are_settled_or_the_clie
 
 
 @pytest.mark.functionality
-def test_a_dossier_left_waiting_is_followed_up_at_the_next_tick(experio, monkeypatch):
-    dossiers = [557]
+def test_a_dossier_left_waiting_is_followed_up_once_its_lines_are_processed(experio, monkeypatch):
+    dossiers, settled = [557], []
     monkeypatch.setattr(inbox, "waiting_setups", lambda session_id: {"dossiers": dossiers})
+    monkeypatch.setattr(inbox, "setups_settled", lambda ids: bool(settled))
     stored(mail(CHEF, "<m1@x>", "Voici le FEC du nouveau dossier."))
     answered("<m1@x>")
-    assert state_of("<m1@x>") == "follow_up" and inbox.threads_waiting()
+    assert state_of("<m1@x>") == "follow_up" and not inbox.threads_waiting()  # Experio still processing its lines
+    with cabinet_db() as db:
+        assert inbox.claim(db) == []
+    experio[9] = "done"  # a draft of the same email, read by Experio: told without waiting for the dossier
+    assert inbox.threads_waiting()
+    experio.clear()
+    assert not inbox.threads_waiting()
+    settled.append(True)
+    assert inbox.threads_waiting()
     with cabinet_db() as db:
         [item] = inbox.claim(db)
     assert item["follow_up"]
@@ -264,6 +273,33 @@ def test_a_new_thread_is_acknowledged_once_and_a_reply_in_it_is_not(mailbox, mon
         db.execute("update tarik_mail_threads set acknowledged_at = null")  # a thread from before acknowledgements
         inbox.claim(db)
     assert not inbox.acknowledge_thread("<m1@x>")["sent"] and len(sent) == 1  # Tarik already answered in it
+
+
+@pytest.mark.communication
+def test_a_progress_email_goes_in_the_thread_but_never_to_a_sender_already_refused(mailbox, monkeypatch):
+    sent = []
+
+    def send_email(to, subject, body, *thread):
+        sent.append((to, subject, body, thread))
+        return {"message_id": f"<p{len(sent)}@tarik>"}
+
+    monkeypatch.setattr(inbox, "send_email", send_email)
+    stored(mail(CHEF, "<m1@x>"))
+    with cabinet_db() as db:
+        [item] = inbox.claim(db)
+    assert inbox.send_progress("<m1@x>")["sent"]
+    assert sent == [(CHEF, "Re: Factures", inbox.PROGRESS, ("<m1@x>", ""))]
+    with cabinet_db() as db:  # the client's reply to it joins this thread
+        assert db.execute("select thread_id from tarik_mail_sent where message_id = '<p1@tarik>'").fetchone() == (
+            "<m1@x>",
+        )
+        db.execute(
+            "insert into tarik_results (run_id, session_id, step, status, message) values ('r', %s, 'check_sender', "
+            "'stop', 'pas son dossier')",
+            (item["session_id"],),
+        )
+    assert inbox.send_progress("<m1@x>")["sent"] is False and len(sent) == 1
+    assert inbox.send_progress("<inconnu@x>")["sent"] is False
 
 
 class CutBox(Box):

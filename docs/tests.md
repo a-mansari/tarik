@@ -320,6 +320,7 @@ Covers a model's configuration copied and files through Experio's Importation sc
 Covers an onboarding waiting on Experio (db_cabinet).
 - `test_a_dossier_waits_when_the_run_has_no_time_left_for_experio` [functionality]: with no time left, the dossier is left waiting.
 - `test_a_file_imported_after_the_onboarding_waits_only_for_lines_processed` [functionality, param]: once the onboarding is finished, the dossier stays waiting only while lines are new or pending.
+- `test_a_follow_up_is_settled_once_the_onboarding_is_to_finish_or_the_lines_processed` [functionality, param]: a follow-up is ready when the onboarding is still to finish or no line is new or pending.
 - `test_a_follow_up_finishes_it_whatever_the_time` [functionality]: a follow-up run completes the waiting dossier setup.
 - `test_a_refused_import_never_leaves_the_dossier_waiting` [functionality]: a refused import ends the wait instead of hanging.
 - `test_a_setup_ends_telling_the_journals_still_to_create` [communication]: the setup message lists the journals still to create.
@@ -402,7 +403,7 @@ Covers email threads on db_cabinet: senders, reply-to, broken mails, concurrency
 - `test_a_refused_sender_given_access_is_answered_in_their_thread` [functionality]: a sender granted access later is answered in their thread.
 - `test_drafts_experio_was_reading_are_followed_up_once_read` [functionality]: drafts still being read by Experio are followed up later.
 - `test_a_follow_up_ends_when_its_time_is_up_its_drafts_are_settled_or_the_client_writes` [functionality]: a follow-up ends on timeout, on settled drafts, or on a new client message.
-- `test_a_dossier_left_waiting_is_followed_up_at_the_next_tick` [functionality]: a waiting dossier is resumed at the next scheduler tick.
+- `test_a_dossier_left_waiting_is_followed_up_once_its_lines_are_processed` [functionality]: a waiting dossier is followed up once Experio has processed its lines, not at every tick before.
 - `test_a_new_thread_is_acknowledged_once_and_a_reply_in_it_is_not` [communication]: a new thread gets one acknowledgement, replies in it get none.
 - `test_a_refused_sender_is_still_told_when_the_connection_drops_after` [functionality]: a refused sender is still notified despite a later connection drop.
 - `test_experio_out_keeps_a_follow_up_for_the_next_tick` [technical]: Experio out keeps the follow-up for the next tick.

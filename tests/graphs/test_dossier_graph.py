@@ -183,7 +183,7 @@ def test_a_behaviour_setting_is_changed_after_the_manager_check(steps):
     steps.run(graph, mode="behaviour", action="update", setting="acknowledge", value="non")
     assert steps.names == ["save_files", "check_manager", "manage_behaviour", "run_summary"]
     assert steps.args("manage_behaviour") == [
-        {"session_id": "s1", "action": "update", "key": "acknowledge", "value": "non"}
+        {"session_id": "s1", "action": "update", "key": "acknowledge", "value": "non", "writer_of_chat": None}
     ]
 
 

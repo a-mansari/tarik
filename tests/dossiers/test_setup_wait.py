@@ -73,6 +73,25 @@ def test_a_follow_up_finishes_it_whatever_the_time(experio):
 
 
 @pytest.mark.functionality
+@pytest.mark.parametrize("failing", ["complete_stepper", "exercice_note"])
+@pytest.mark.parametrize(
+    ("failure", "waiting"),
+    [(xmlrpc.client.Fault(2, "journal requis"), []), (xmlrpc.client.Fault(1, "Traceback"), [557])],
+)
+def test_only_experio_refusing_the_onboarding_ends_its_wait(experio, monkeypatch, failing, failure, waiting):
+    """Refused: the client acts on it, no follow-up repeats it. A crash: the wait stays, the follow-up retries."""
+
+    def fail(*args):
+        with setup.refused("finish_setup 557", "Experio refuse ({reason})."):
+            raise failure
+
+    monkeypatch.setattr(setup, failing, fail)
+    with pytest.raises(ToolError):
+        setup.finish_setup(557)
+    assert setup.waiting_setups("s")["dossiers"] == waiting
+
+
+@pytest.mark.functionality
 def test_a_refused_import_never_leaves_the_dossier_waiting(experio, monkeypatch):
     monkeypatch.setattr(setup, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Experio refuse")))
     with cabinet_db() as db:
@@ -138,7 +157,11 @@ def statused(monkeypatch, states, onboarding=False, stale=()):
 @pytest.mark.functionality
 def test_a_dossier_waits_until_experio_processed_its_lines(experio, monkeypatch):
     _, answer = statused(monkeypatch, {"done": 90, "pending": 10})
-    assert "10 lignes sont encore en traitement" in answer["message"] and setup.waiting_setups("s")["dossiers"] == [557]
+    assert (
+        "10 lignes sont encore en traitement chez Experio : demandez-moi l'état du dossier plus tard."
+        in answer["message"]
+    )
+    assert setup.waiting_setups("s")["dossiers"] == [557]
     statused(monkeypatch, {"done": 100})
     assert setup.waiting_setups("s")["dossiers"] == []  # every line processed: the follow-up has said it all
 
@@ -237,8 +260,11 @@ def test_experio_refusing_to_finish_the_onboarding_gives_its_reason(stepper, mon
     monkeypatch.setattr(
         setup, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "journal requis"))
     )
+    cleared = []
+    monkeypatch.setattr(setup, "setup_waits", cleared.append)
     with pytest.raises(ToolError, match=r"`Gecafisc` : Experio refuse de terminer l'intégration \(journal requis\)"):
         setup.finish_setup(557)
+    assert cleared == [557]  # a refusal: no follow-up waits on it
 
 
 @pytest.mark.security
@@ -540,3 +566,13 @@ def test_a_dossier_finished_without_entries_gets_no_exercice(stepper, monkeypatc
     monkeypatch.setattr(setup, "odoo_call", odoo_call)
     assert setup.finish_setup(557, finish=True)["status"] == "ok"
     assert not [call for call in stepper if call[0] == "open_exercice"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(("onboarding", "still", "settled"), [(1, 5, True), (0, 5, False), (0, 0, True)])
+def test_a_follow_up_is_settled_once_the_onboarding_is_to_finish_or_the_lines_processed(
+    monkeypatch, onboarding, still, settled
+):
+    counts = {"res.company": onboarding, "experio.history": still}
+    monkeypatch.setattr(setup, "odoo_call", lambda model, method, *args, **kw: counts[model])
+    assert setup.setups_settled([557]) is settled

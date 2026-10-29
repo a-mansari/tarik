@@ -207,19 +207,16 @@ def progress_of(dossier_id, year=0):
         "{} opération bancaire ou de caisse comptabilisée",
         "{} opérations bancaires et de caisse comptabilisées",
     )
-    parts = [
-        f"Dossier `{dossier}`",
-        f"Avancement selon Experio, tous exercices confondus : {progress_words}",
-        f"- {booked} sur {pieces}",
-        f"- {operations_said} sur {operations}",
+    # One block per subject, a blank line between them: in the chat a line right after a « - » item joins it
+    blocks = [
+        f"Dossier `{dossier}`, avancement selon Experio (tous exercices) : {progress_words}\n"
+        f"- {booked} sur {pieces}\n- {operations_said} sur {operations}",
         f"Exercice : {period}",
-        "Pièces :",
-        *invoices,
-        "Banque :",
-        *statements,
+        "\n".join(["Pièces :", *invoices]),
+        "\n".join(["Banque :", *statements]),
     ]
     if declarations:
-        parts += [f"Déclarations {shown_year} :", *declarations]
+        blocks.append("\n".join([f"Déclarations {shown_year} :", *declarations]))
     figures = {
         "dossier": dossier,
         "progress": progress,
@@ -230,7 +227,7 @@ def progress_of(dossier_id, year=0):
         "suspense": suspense,
         "exercice": exercice["name"] if exercice else "",
     }
-    return "\n".join(parts), figures
+    return "\n\n".join(blocks), figures
 
 
 @tool

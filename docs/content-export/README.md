@@ -151,3 +151,7 @@ uses another one. A stack that edited one of these documents itself loses that e
   sentence around any tool report it copies; `skills/traitement-documents.md` and `skills/reponse-question.md` open
   every summary with a sentence saying what was done (not only past five invoices) and end with what comes next. Built
   on the comportement and cgnc exports: import it after them, with the readable-reports commit.
+- `tarik-contenu-comportement-suite-20261029.json` (and its `.diff`): `Experio_reglages` says Tarik's admins change a
+  setting in the discussion too, and a progress email's delay goes from 0 to 25 minutes (`agent.json`). Built on the
+  live content of 2026-10-29 15:10 (after rapports-lisibles): import it once the stack runs the commit with the
+  behaviour follow-ups.

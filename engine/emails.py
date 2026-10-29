@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import operator
 import re
+import time
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -19,7 +20,7 @@ from engine.calls import ToolFailure, call, stops_at, within
 from engine.chat import answered
 from engine.tools.core.conversation import for_client, left_out
 from engine.tools.dossiers.behaviour import behaviour
-from engine.tools.emails.inbox import send_progress
+from engine.tools.emails.inbox import LEASE_MINUTES, send_progress
 from engine.tools.invoices.pipeline import NOTHING
 
 
@@ -54,7 +55,8 @@ class Thread(Steps, total=False):
 async def claim(state: Run):
     """Graph node: claim the cabinet's threads waiting for an answer (claim_threads) into "threads"."""
     result = await call(state["cabinet"], "claim_threads")
-    return {"threads": result.get("threads", [])}
+    claimed = time.time()  # their lease starts now (inbox.LEASE_MINUTES)
+    return {"threads": [{**thread, "claimed": claimed} for thread in result.get("threads", [])]}
 
 
 async def each_thread(state: Run):
@@ -104,20 +106,24 @@ def with_subject(subject, message):
     return f"Objet : {subject}\n\n{message}" if subject else message
 
 
-async def kept_informed(cabinet, thread_id, work):
-    """Await ``work`` and return its result, emailing the client in the thread (send_progress) each time the
+async def kept_informed(cabinet, thread, work):
+    """Await ``work`` and return its result, emailing the client in ``thread`` (send_progress) each time the
     cabinet's progress minutes pass without it done; never when they are 0, nor when the setting cannot be read. A
     progress email not sent is skipped. It is sent outside the cabinet's tool slots (within): the agents' own calls
-    never wait behind it."""
+    never wait behind it. None is sent once LEASE_MINUTES have passed since the thread was claimed ("claimed", for
+    every step of its run): it is then taken up again, by a run that keeps its own client informed."""
+    deadline = thread.get("claimed", time.time()) + LEASE_MINUTES * 60
     task = asyncio.ensure_future(work)
     try:
         try:
             minutes = await within(cabinet, behaviour, "progress")
         except Exception:  # an optional email: the answer goes on without it
             minutes = 0
-        while minutes and not (await asyncio.wait({task}, timeout=minutes * 60))[0]:
+        while minutes and time.time() + minutes * 60 < deadline:
+            if (await asyncio.wait({task}, timeout=minutes * 60))[0]:
+                break
             with contextlib.suppress(Exception):  # not sent (whitelist, SMTP): the reply still comes
-                await within(cabinet, send_progress, thread_id)
+                await within(cabinet, send_progress, thread["thread_id"])
         return await task
     finally:
         task.cancel()  # the thread's run cancelled: its agent too
@@ -132,7 +138,7 @@ async def ask(state: Thread):
         message = with_subject(thread.get("subject"), thread["message"])
         given = state["cabinet"], thread["session_id"], message, thread["files"]
         work = answered(*given, "tarik", thread.get("skipped", ()))
-        reply = await kept_informed(state["cabinet"], thread["thread_id"], work)
+        reply = await kept_informed(state["cabinet"], thread, work)
         return {"reply": reply}
     except Exception:  # no reply (the model failing): set aside, with why, never asked twice
         return {"error": "Je n'ai pas pu répondre pour le moment. J'ai mis ce fil de côté, sans réponse au client."}
@@ -195,7 +201,8 @@ async def resumed(state, name, node):
 
     thread = state["thread"]
     fixed = {"mode": "resume", "session_id": thread["session_id"], "cabinet": state["cabinet"]}
-    result = await runs.nested(name, {"call": fixed, "outcomes": []}, state["cabinet"], thread["session_id"], node=node)
+    work = runs.nested(name, {"call": fixed, "outcomes": []}, state["cabinet"], thread["session_id"], node=node)
+    result = await kept_informed(state["cabinet"], thread, work)
     return "" if result["message"] == NOTHING else result["message"]
 
 
