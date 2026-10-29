@@ -1,14 +1,13 @@
 """Serve the Comportement page: how Tarik behaves for the cabinet chosen in the sidebar (its own schema, never
-another's), each switch or delay changed by the team as a manager can ask Tarik in a conversation
-(engine/tools/dossiers/behaviour.py); each change in the journal."""
+another's), each switch or delay changed by the team as an admin can ask Tarik in a conversation
+(engine/tools/dossiers/behaviour.py, which writes each change in the Journal)."""
 
 from starlette.requests import Request
 
 from engine import runs
 from engine.calls import within
 from engine.tools.core.app import ToolError
-from engine.tools.dossiers.behaviour import SETTINGS, change, settings
-from server import audit
+from engine.tools.dossiers.behaviour import change, settings
 from server.api.accounts import form_of
 from server.api.runs import chosen, page
 
@@ -29,10 +28,7 @@ async def behaviour_page(request: Request):
         try:
             if form.get("cabinet") != cabinet:
                 raise ToolError("un autre cabinet a été choisi depuis l'ouverture de la page : rechargez-la")
-            if key not in SETTINGS:
-                raise ToolError("réglage inconnu")
             await within(cabinet, change, key, form.get("value"), author)
-            await audit.record(author, "settings_saved", cabinet, keys=[key])
         except ToolError as refused:
             error = str(refused)
     found = [

@@ -309,3 +309,5 @@ create table if not exists tarik_behaviour (
     changed_by text not null,
     changed_at timestamptz not null default now()
 );
+-- A thread's emails, read by thread at every claim and progress email.
+create index if not exists tarik_mail_messages_thread on tarik_mail_messages (thread_id);

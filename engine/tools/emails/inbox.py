@@ -25,13 +25,14 @@ from engine.tools.core.config import FILE_TYPES, READING
 from engine.tools.core.experio import main_company_id, odoo_call
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, strip_tags
-from engine.tools.dossiers.behaviour import behaviour
+from engine.tools.dossiers.behaviour import MAX_MINUTES, behaviour
 from engine.tools.dossiers.people import collaborator
 from engine.tools.dossiers.setup import setups_settled, waiting_setups
 from engine.tools.emails.sending import imap_session, recipient_allowed, send_email
 from engine.tools.invoices.pipeline import waiting_drafts
 
 LEASE_MINUTES = 30  # a run longer than this is taken as dead: the thread is picked up again
+assert MAX_MINUTES < LEASE_MINUTES  # a thread's run sends a progress email before it is taken as dead
 MAX_ATTEMPTS = 3
 FOLLOW_UP_MINUTES = 30  # how long after Tarik's reply the drafts Experio was reading are still followed up
 # The acknowledgement of a new thread, sent before the agent works on it (vouvoiement, no civility, as Tarik writes).
@@ -357,15 +358,10 @@ def thread_item(db, thread_id, session_id, address, subject):
         Q.unhandled_messages_of_thread,
         (thread_id,),
     ).fetchall()
-    last = db.execute(
-        Q.last_message_of_thread,
-        (thread_id,),
-    ).fetchone()
     files = db.execute(
         Q.untaken_file_names,
         (session_id,),
     )
-    last_id, last_references, reply_to = last or ("", "", None)
     # Their other emails, signature included: the body is kept whole, the signature cut where Tarik reads it.
     theirs = db.execute(Q.emails_of_sender, (address,)).fetchall()
     skipped = []
@@ -374,16 +370,35 @@ def thread_item(db, thread_id, session_id, address, subject):
     return {
         "thread_id": thread_id,
         "session_id": session_id,
-        "to": reply_to if reply_to and recipient_allowed(reply_to) else address,
-        "subject": subject if subject.lower().startswith(("re:", "re :")) else f"Re: {subject}",
         "message": unanswered_text(messages, theirs),
         "files": [name for (name,) in files],
         "skipped": skipped,
         "message_ids": [message_id for message_id, _, _ in messages],
         "follow_up": not messages,
+        **addressed(db, thread_id, address, subject),
+    }
+
+
+def addressed(db, thread_id, address, subject):
+    """Return how a reply in the thread is addressed: {to, subject, in_reply_to, references}. to is the Reply-To of its
+    last email when whitelisted, else ``address``; the subject gets « Re: »; the headers come from its last email."""
+    last = db.execute(Q.last_message_of_thread, (thread_id,)).fetchone()
+    last_id, last_references, reply_to = last or ("", "", None)
+    return {
+        "to": reply_to if reply_to and recipient_allowed(reply_to) else address,
+        "subject": subject if subject.lower().startswith(("re:", "re :")) else f"Re: {subject}",
         "in_reply_to": last_id,
         "references": last_references,
     }
+
+
+def sent_in_thread(thread_id, reply, text):
+    """Email ``text`` as the reply ``reply`` (addressed) and record its Message-ID, so the client's answer to it lands
+    in the same thread."""
+    result = send_email(reply["to"], reply["subject"], text, reply["in_reply_to"], reply["references"])
+    if (result or {}).get("message_id"):
+        with cabinet_db() as db:
+            db.execute(Q.insert_mail_sent, (result["message_id"], thread_id))
 
 
 def claim(db):
@@ -552,27 +567,27 @@ def acknowledge_thread(thread_id: str) -> dict:
         session_id, address, subject, to_acknowledge = row
         if not to_acknowledge:
             return ok("Pas d'accusé de réception : le fil est déjà suivi.", sent=False)
-        item = thread_item(db, thread_id, session_id, address, subject)
-    result = send_email(item["to"], item["subject"], ACKNOWLEDGEMENT, item["in_reply_to"], item["references"])
+        reply = addressed(db, thread_id, address, subject)
+    sent_in_thread(thread_id, reply, ACKNOWLEDGEMENT)
     with cabinet_db() as db:
         db.execute(Q.set_thread_acknowledged, (thread_id,))
-        if (result or {}).get("message_id"):
-            db.execute(Q.insert_mail_sent, (result["message_id"], thread_id))
     return ok("Accusé de réception envoyé.", sent=True)
 
 
 @tool
 def send_progress(thread_id: str) -> dict:
     """Tell the client, in their thread, that Tarik still works on it (PROGRESS): the Emails graph sends it every
-    « progress » minutes the cabinet chose while the agent has not answered. Returns an ok result."""
+    « progress » minutes the cabinet chose while Tarik has not answered. A sender already refused in this run
+    (check_sender, as thread_refusal reads it) gets none: a refused sender gets nothing. Returns an ok result with
+    sent=True when sent, sent=False otherwise."""
     with cabinet_db() as db:
-        session_id, address, subject, _ = db.execute(Q.thread_to_acknowledge, (thread_id,)).fetchone()
-        item = thread_item(db, thread_id, session_id, address, subject)
-    result = send_email(item["to"], item["subject"], PROGRESS, item["in_reply_to"], item["references"])
-    if (result or {}).get("message_id"):  # the client's reply to it lands in the same thread
-        with cabinet_db() as db:
-            db.execute(Q.insert_mail_sent, (result["message_id"], thread_id))
-    return ok("Point d'avancement envoyé.")
+        thread, refused = refusal_of(db, thread_id)
+        if not thread or refused:
+            return ok("Pas de point d'avancement : fil inconnu ou expéditeur refusé.", sent=False)
+        _, address, subject, _ = thread
+        reply = addressed(db, thread_id, address, subject)
+    sent_in_thread(thread_id, reply, PROGRESS)
+    return ok("Point d'avancement envoyé.", sent=True)
 
 
 @tool
@@ -584,6 +599,13 @@ def claim_threads() -> dict:
     return ok(counted(len(threads), "{} fil à traiter.", "{} fils à traiter."), threads=threads)
 
 
+def refusal_of(db, thread_id):
+    """Return the thread (session_id, client_address, subject, claimed_at) and its sender's latest refusal by
+    check_sender since this run claimed it (a row, else None); (None, None) for an unknown thread."""
+    thread = db.execute(Q.thread_of_refusal, (thread_id,)).fetchone()
+    return thread, thread and db.execute(Q.sender_refused_since, (thread[0], thread[3])).fetchone()
+
+
 @tool
 def thread_refusal(thread_id: str) -> dict:
     """Check, after Tarik's run on a thread, whether the work was refused because the sender lacks the dossier
@@ -593,17 +615,10 @@ def thread_refusal(thread_id: str) -> dict:
     ignored, and the ok result has refused=True with sender, subject and reason for the manager alert. Otherwise
     refused=False."""
     with cabinet_db() as db:
-        thread = db.execute(
-            Q.thread_of_refusal,
-            (thread_id,),
-        ).fetchone()
+        thread, refused = refusal_of(db, thread_id)
         if not thread:
             return ok("Fil inconnu.", refused=False)
-        session_id, sender, subject, claimed_at = thread
-        refused = db.execute(
-            Q.sender_refused_since,
-            (session_id, claimed_at),
-        ).fetchone()
+        _, sender, subject, _ = thread
         if not refused:
             return ok("Pas de refus.", refused=False)
         db.execute(Q.handle_thread_messages, (thread_id,))

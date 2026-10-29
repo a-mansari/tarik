@@ -185,7 +185,7 @@ def ran_here(shown):
 
 
 # Shown elsewhere, too long to read, inner, or an admin's own (a routine's report address: its Routines page)
-HIDDEN = {"attachments", "cabinet", "session_id", "call", "done", "notify"}
+HIDDEN = {"attachments", "cabinet", "session_id", "call", "done", "notify", "writer"}
 
 
 def asked(run):

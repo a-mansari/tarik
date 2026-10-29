@@ -448,9 +448,9 @@ async def routine(
 
 @tool("Experio_reglages", description=DESCRIBED_LATER)
 async def reglages(runtime: ToolRuntime, action: str = "list", setting: str = "", value: str = "") -> str:
-    return await run_workflow(
-        "dossier", runtime, {"mode": "behaviour", "action": action, "setting": setting, "value": value}
-    )
+    writer = runtime.config.get("configurable", {}).get("writer")  # the run's, never the model's (runs.WRITER)
+    inputs = {"mode": "behaviour", "action": action, "setting": setting, "value": value, "writer": writer}
+    return await run_workflow("dossier", runtime, inputs)
 
 
 @tool("Experio_archiver_dossier", description=DESCRIBED_LATER)

@@ -2,6 +2,7 @@
 the refused sender's manager told, the reply sent, the thread finished; a follow-up resumes Traitement then Dossier."""
 
 import asyncio
+import time
 
 import pytest
 
@@ -41,6 +42,7 @@ def thread(steps, monkeypatch):
         steps.calls.append((f"{name} resume", given))
         if name == "fil":
             return await emails.FIL.ainvoke(given)
+        await asyncio.sleep(resumed.get("seconds", 0))
         if isinstance(resumed[name], Exception):
             raise resumed[name]
         assert given["call"]["mode"] == "resume" and node == NODES[name]
@@ -93,6 +95,29 @@ def test_a_long_answer_tells_the_client_it_is_still_going_every_few_minutes(thre
     out = fil(thread)
     assert thread.names.count("send_progress") >= 2 and thread.args("send_progress")[0] == {"thread_id": "<m1@x>"}
     assert thread.names[-3:] == ["thread_refusal", "send_email", "finish_thread"] and out["sent"]
+
+
+@pytest.mark.communication
+def test_a_long_follow_up_tells_the_client_it_is_still_going_too(thread):
+    thread.resumed.update(progress=0.001, seconds=0.15)
+    out = fil(thread, follow_up=True)
+    assert thread.names.count("send_progress") >= 2 and out["done"][0]["sent"] is True
+
+
+@pytest.mark.communication
+def test_no_progress_email_once_the_thread_would_be_taken_up_again(thread, monkeypatch):
+    monkeypatch.setattr(emails, "LEASE_MINUTES", 0.0025)  # room for two progress emails of 0.001 minute
+    thread.resumed.update(progress=0.001, seconds=0.3)
+    thread.answer("thread_refusal", {"refused": False})
+    assert fil(thread)["sent"] and thread.names.count("send_progress") == 2
+
+
+@pytest.mark.communication
+def test_a_follow_up_counts_its_lease_from_the_claim_across_both_workflows(thread, monkeypatch):
+    monkeypatch.setattr(emails, "LEASE_MINUTES", 0.0025)  # room for two progress emails of 0.001 minute in all
+    thread.resumed.update(progress=0.001, seconds=0.15)  # each workflow alone would send two
+    fil(thread, follow_up=True, claimed=time.time())
+    assert thread.names.count("send_progress") == 2
 
 
 @pytest.mark.communication
