@@ -442,6 +442,13 @@ async def routine(
     return await run_workflow("dossier", runtime, inputs)
 
 
+@tool("Experio_reglages", description=DESCRIBED_LATER)
+async def reglages(runtime: ToolRuntime, action: str = "list", setting: str = "", value: str = "") -> str:
+    return await run_workflow(
+        "dossier", runtime, {"mode": "behaviour", "action": action, "setting": setting, "value": value}
+    )
+
+
 @tool("Experio_archiver_dossier", description=DESCRIBED_LATER)
 async def archiver_dossier(dossier_id: int, runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
@@ -626,6 +633,7 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     creer_acces,
     gerer_acces,
     routine,
+    reglages,
     archiver_dossier,
     solder_ecart,
     declaration_tva,

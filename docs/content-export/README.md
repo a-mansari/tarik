@@ -133,3 +133,8 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-tiers-crees-20261029.json` (and its `.diff`): `tools/point-line-tiers.md` also gives the counterparty's name
   written in a bank label when no tiers of the dossier fits (the tiers is then created). Import it with the commit that
   creates tiers from bank labels; before, the model gives no name and no tiers is created.
+- `tarik-contenu-comportement-20261029.json` (and its `.diff`): the tool `Experio_reglages` (list or change how Tarik
+  behaves for the cabinet: the acknowledgement of a new email, a progress email every N minutes during a long answer)
+  (`agent.json`), the dossier step « Réglages de Tarik », the inputs « Réglage » and « Valeur » and the mode « Régler le
+  comportement de Tarik » (`labels.json`). Built on the points-dossier export: import it after that one, once the stack
+  runs the commit with the Comportement page: before, the import is refused (it names a tool the stack lacks).

@@ -25,6 +25,7 @@ from engine.tools.core.config import FILE_TYPES, READING
 from engine.tools.core.experio import main_company_id, odoo_call
 from engine.tools.core.queries import Q
 from engine.tools.core.words import strip_tags
+from engine.tools.dossiers.behaviour import behaviour
 from engine.tools.dossiers.people import collaborator
 from engine.tools.dossiers.setup import waiting_setups
 from engine.tools.emails.sending import imap_session, recipient_allowed, send_email
@@ -37,6 +38,8 @@ FOLLOW_UP_MINUTES = 30  # how long after Tarik's reply the drafts Experio was re
 ACKNOWLEDGEMENT = (
     "Votre message est bien reçu. Je le traite et vous réponds dans ce fil, en général d'ici quelques minutes."
 )
+# Sent every « progress » minutes the cabinet chose (engine/tools/dossiers/behaviour.py) while Tarik still works on it.
+PROGRESS = "Je travaille toujours sur votre demande. Je vous réponds dans ce fil dès que c'est terminé."
 
 # Where the client's own text stops and the quoted history begins: a line starting with "Le ... a écrit :",
 # "On ... wrote:", "-- Message d'origine" / "-- Original message", a quoted header ("De :", "From:", "Envoyé :"), or
@@ -531,8 +534,11 @@ def set_aside(db, thread_id, state, reason):
 def acknowledge_thread(thread_id: str) -> dict:
     """Send the client an acknowledgement of their new thread, in that thread, before Tarik works on it.
 
-    Sent once per thread, and only for a thread Tarik never answered: a reply in an existing thread or a follow-up
-    gets none. Returns an ok result with sent=True when sent, sent=False otherwise."""
+    Sent once per thread, and only for a thread Tarik never answered and while the cabinet keeps it on (its
+    behaviour « acknowledge »): a reply in an existing thread or a follow-up gets none. Returns an ok result with
+    sent=True when sent, sent=False otherwise."""
+    if not behaviour("acknowledge"):
+        return ok("Pas d'accuse de reception : desactive pour ce cabinet.", sent=False)
     with cabinet_db() as db:
         row = db.execute(
             Q.thread_to_acknowledge,
@@ -550,6 +556,20 @@ def acknowledge_thread(thread_id: str) -> dict:
         if (result or {}).get("message_id"):
             db.execute(Q.insert_mail_sent, (result["message_id"], thread_id))
     return ok("Accuse de reception envoye.", sent=True)
+
+
+@tool
+def send_progress(thread_id: str) -> dict:
+    """Tell the client, in their thread, that Tarik still works on it (PROGRESS): the Emails graph sends it every
+    « progress » minutes the cabinet chose while the agent has not answered. Returns an ok result."""
+    with cabinet_db() as db:
+        session_id, address, subject, _ = db.execute(Q.thread_to_acknowledge, (thread_id,)).fetchone()
+        item = thread_item(db, thread_id, session_id, address, subject)
+    result = send_email(item["to"], item["subject"], PROGRESS, item["in_reply_to"], item["references"])
+    if (result or {}).get("message_id"):  # the client's reply to it lands in the same thread
+        with cabinet_db() as db:
+            db.execute(Q.insert_mail_sent, (result["message_id"], thread_id))
+    return ok("Point d'avancement envoye.")
 
 
 @tool

@@ -1,0 +1,65 @@
+--- a/agent.json
++++ b/agent.json
+@@ -26,6 +26,7 @@
+     "Experio_exporter": "Exporte avec l'export d'Experio les écritures par journal, les tiers ou le FEC d'un dossier, et joint le fichier à la réponse (avec le nombre d'écritures et les totaux débit et crédit). Paramètres : dossier_id (l'id donné par Experio_find_dossier), quoi (« écritures », « tiers » ou « FEC » ; vide pour les écritures), periode (« T3 2026 », « septembre 2026 », « 2026 », « du 01/07/2026 au 30/09/2026 » ; vide pour l'exercice ouvert), date_import (true s'il parle de dates d'import plutôt que comptables), modele (le modèle d'export qu'il nomme : « Sage 100 » ; vide pour celui d'Experio), format_fichier (« excel », ou « texte » avec son séparateur : « texte avec ; » ; vide pour Excel), lettrage (true s'il demande le lettrage), integration (true seulement s'il demande l'intégration, qui verrouille les pièces dans Experio), client_confirmed (true seulement si son message répond clairement oui à la question « Je le fais ? » posée juste avant ; false sinon).",
+     "Experio_gerer_acces": "Change l'accès d'un collaborateur ou d'un client qui existe déjà dans Experio, trouvé par son e-mail. Il lit le changement au client avant d'écrire. Réservé aux managers du cabinet dont le profil Experio gère les utilisateurs et à l'équipe Experio : l'outil le vérifie. Paramètres : action (assign pour lui donner un dossier, unassign pour le lui retirer, role pour changer son profil, invite pour lui renvoyer l'invitation Experio avec un nouveau mot de passe), email (son e-mail, recopié), dossier_id (l'id donné par Experio_find_dossier ; 0 pour role sur tous ses dossiers et pour invite), profile (le profil que le client nomme, recopié ; vide sinon : l'outil liste ceux qui existent), client_confirmed (true seulement si le message du client répond clairement oui à la question « Vous confirmez ? » posée juste avant ; false sinon).",
+     "Experio_routine": "Crée, modifie, liste, met en pause, reprend ou supprime une routine : une tâche que Tarik refait à date fixe et dont il envoie le rapport par e-mail. Une routine prépare ou rapporte, elle ne déclare et ne comptabilise jamais. Une routine travaille sur tous les dossiers que voit le compte Experio de Tarik : seuls les administrateurs du cabinet dans Experio et l'équipe Experio en créent, en modifient ou en reprennent une, chacun gère les siennes ; l'outil le vérifie. Paramètres : action (create, update, list, pause, resume, delete) ; pour create : routine_kind (tva pour préparer la déclaration de TVA de la dernière période, ras pour les déclarations RAS, progress pour envoyer l'avancement des dossiers, instruction pour une consigne que Tarik suivra à chaque fois), prompt (pour instruction : la consigne, recopiée telle que le client l'a écrite ; vide sinon), every (day, week ou month), days (pour week : les jours voulus, 0 lundi à 6 dimanche, plusieurs possibles, [0, 1, 2, 3, 4] en semaine, [5, 6] le week-end ; pour month : un seul jour, de 1 à 28 ; vide pour day), hour (0 à 23 ; -1 s'il ne dit rien : 8 h), minute (0 à 59 ; -1 s'il ne dit rien : 0), routine_name (le nom qu'il donne à la routine, recopié, l'objet de son e-mail ; vide sinon ; pour l'enlever : la page Routines), email (vide sauf dans le chat : l'adresse des rapports, recopiée telle que le client l'a écrite ; celle d'un administrateur du cabinet dans Experio ou de l'équipe Experio, car le rapport couvre tous les dossiers) ; pour update : routine_id (son n°, d'après la liste) et seulement ce que le client change, le reste vide, days vide et hour, minute à -1 (l'outil garde ce que la routine a déjà) ; pour pause, resume, delete : routine_id ; client_confirmed (true seulement si le message du client répond clairement oui à la question posée juste avant ; false sinon).",
+-    "Experio_pointer_releves": "Pointe les relevés bancaires d'un dossier déjà dans Experio et pas encore comptabilisés (importés par le cabinet, ou par Tarik auparavant), comme sur l'écran « Opérations » de chaque relevé : la détection automatique d'Experio, puis, pour ce qu'elle laisse, le type d'opération et le mode de paiement lus dans le libellé parmi les opérations du dossier, le tiers que le libellé nomme, et la seule facture ouverte de ce tiers et de ce montant ; dit ce qui reste à compléter dans Experio. Comptabilise seulement à la demande du client. Paramètres : dossier_id (l'id donné par Experio_find_dossier), comptabiliser (« oui » s'il demande aussi de comptabiliser les relevés ; vide sinon)."
++    "Experio_pointer_releves": "Pointe les relevés bancaires d'un dossier déjà dans Experio et pas encore comptabilisés (importés par le cabinet, ou par Tarik auparavant), comme sur l'écran « Opérations » de chaque relevé : la détection automatique d'Experio, puis, pour ce qu'elle laisse, le type d'opération et le mode de paiement lus dans le libellé parmi les opérations du dossier, le tiers que le libellé nomme, et la seule facture ouverte de ce tiers et de ce montant ; dit ce qui reste à compléter dans Experio. Comptabilise seulement à la demande du client. Paramètres : dossier_id (l'id donné par Experio_find_dossier), comptabiliser (« oui » s'il demande aussi de comptabiliser les relevés ; vide sinon).",
++    "Experio_reglages": "Liste ou change le comportement de Tarik pour le cabinet : action list (les réglages et leur valeur) ou update (en change un). Un réglage vaut pour tous les clients du cabinet : seuls ses administrateurs dans Experio et l'équipe Experio le changent ; l'outil le vérifie. Paramètres : action (list ou update) ; setting (pour update : acknowledge pour l'accusé de réception envoyé dès qu'un nouvel email arrive, progress pour le message « je travaille toujours sur votre demande » envoyé toutes les N minutes pendant un long traitement) ; value (pour acknowledge : oui ou non ; pour progress : un nombre de minutes de 0 à 120, 0 pour ne jamais en envoyer). Le client dit « n'envoie plus d'accusé de réception » → update, acknowledge, non. Le même réglage se change sur la page Comportement."
+   }
+ }
+--- a/labels.json
++++ b/labels.json
+@@ -81,7 +81,8 @@
+       "gestionnaire": "Droit de gérer les accès",
+       "droits": "Accès modifié",
+       "routine": "Routine",
+-      "points": "Points à corriger"
++      "points": "Points à corriger",
++      "reglages": "Réglages de Tarik"
+     },
+     "emails": {
+       "fils": "Emails à traiter",
+@@ -248,7 +249,8 @@
+         "gestionnaire": "Pour un email, vérifie que l'expéditeur est un membre de l'équipe Experio, ou un collaborateur du cabinet dont le profil Experio gère les utilisateurs (approbateur ou administrateur). Sinon, aucun accès n'est créé ni changé. Dans le chat, rien à vérifier.",
+         "droits": "Change l'accès d'une personne trouvée par son e-mail, après confirmation du client : lui donne ou lui retire un dossier, change son profil (sur un dossier ou partout) ou lui renvoie l'invitation d'Experio avec un nouveau mot de passe.",
+         "routine": "Crée, liste, met en pause, reprend ou supprime une routine du cabinet (préparer la TVA ou les RAS de la dernière période, envoyer l'avancement), sur les seuls dossiers de l'expéditeur. Une création ou une suppression est lue au client avant d'être faite.",
+-        "points": "Dit à part ce que le client doit corriger dans chaque dossier : les lignes refusées par Experio avec leurs motifs (à corriger dans le fichier puis à renvoyer), les réglages qui manquent pour comptabiliser et les journaux d'un autre dossier. Rien n'est dit si tout est en ordre."
++        "points": "Dit à part ce que le client doit corriger dans chaque dossier : les lignes refusées par Experio avec leurs motifs (à corriger dans le fichier puis à renvoyer), les réglages qui manquent pour comptabiliser et les journaux d'un autre dossier. Rien n'est dit si tout est en ordre.",
++        "reglages": "Liste ou change un réglage de comportement de Tarik pour le cabinet (accusé de réception, point d'avancement pendant un long traitement), après la vérification du droit de gérer. Le même réglage se change sur la page Comportement."
+       },
+       "emails": {
+         "fils": "Prend les fils d'emails qui attendent une réponse de Tarik, et les relances prêtes (Experio a fini de lire les brouillons, ou un dossier est à terminer), et les réserve pour cette exécution. Un fil en échec trois fois est mis de côté.",
+@@ -435,7 +437,9 @@
+     "task": "Tâche de la routine",
+     "until": "Période suivante",
+     "minute": "Minute",
+-    "routine_name": "Nom de la routine"
++    "routine_name": "Nom de la routine",
++    "setting": "Réglage",
++    "value": "Valeur"
+   },
+   "_inputs": "Le nom de chaque information donnée à un workflow, dans « Ce qui a été demandé ».",
+   "input_values": {
+@@ -449,7 +453,8 @@
+       "archive": "Archiver un dossier",
+       "dossiers": "Créer des dossiers depuis une liste",
+       "access": "Changer un accès",
+-      "routine": "Gérer une routine"
++      "routine": "Gérer une routine",
++      "behaviour": "Régler le comportement de Tarik"
+     },
+     "folder_type": {
+       "company": "Société",
+@@ -497,6 +502,10 @@
+       "progress": "Envoyer l'avancement",
+       "tva": "Préparer la TVA",
+       "ras": "Préparer les RAS"
++    },
++    "setting": {
++      "acknowledge": "Accusé de réception",
++      "progress": "Point d'avancement"
+     }
+   },
+   "_input_values": "Les mots affichés pour les valeurs codées de certaines de ces informations.",

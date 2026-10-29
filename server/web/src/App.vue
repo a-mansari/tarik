@@ -36,6 +36,7 @@ const cabinetPages = computed(() => {
   if (session.admin) {
     links.push(
       { href: "/ui/routines", icon: "clock", words: "Routines" },
+      { href: "/ui/comportement", icon: "toggle", words: "Comportement" },
       { href: "/ui/settings", icon: "settings", words: "Réglages" },
     );
   }

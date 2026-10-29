@@ -621,3 +621,12 @@ update tarik_routines set next_run_at = %s where id = %s
 -- name: routine_reported
 -- What a routine's run sent.
 update tarik_routine_runs set report = %s where routine_id = %s and due_at = %s
+
+-- name: behaviour_listed
+-- The cabinet's behaviour settings changed from their defaults: key, value, who changed it, when.
+select key, value, changed_by, changed_at from tarik_behaviour
+
+-- name: behaviour_set
+-- One behaviour setting, as the page or a conversation sets it.
+insert into tarik_behaviour (key, value, changed_by) values (%s, %s, %s)
+on conflict (key) do update set value = excluded.value, changed_by = excluded.changed_by, changed_at = now()

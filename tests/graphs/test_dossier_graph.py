@@ -178,6 +178,23 @@ def test_a_sender_who_may_not_manage_makes_no_routine(steps, status):
 
 
 @pytest.mark.functionality
+def test_a_behaviour_setting_is_changed_after_the_manager_check(steps):
+    steps.run(graph, mode="behaviour", action="update", setting="acknowledge", value="non")
+    assert steps.names == ["save_files", "check_manager", "manage_behaviour", "run_summary"]
+    assert steps.args("manage_behaviour") == [
+        {"session_id": "s1", "action": "update", "key": "acknowledge", "value": "non"}
+    ]
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("status", NOT_OK)
+def test_a_sender_who_may_not_manage_changes_no_behaviour(steps, status):
+    steps.answer("check_manager", {"status": status})
+    steps.run(graph, mode="behaviour", action="update", setting="acknowledge", value="non")
+    assert "manage_behaviour" not in steps.names
+
+
+@pytest.mark.functionality
 def test_resume_finishes_the_waiting_dossiers_and_says_the_state_of_those_finished(steps):
     steps.answer("waiting_setups", {"status": "ok", "dossiers": [3, 4, 5]})
     steps.answer("finish_setup", lambda dossier_id: {"status": "wait" if dossier_id == 4 else "ok"})

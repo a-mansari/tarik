@@ -5,7 +5,7 @@
 from engine.tools.core import experio
 from engine.tools.declarations import payment_delay, ras
 from engine.tools.declarations import tva as tva_declaration
-from engine.tools.dossiers import export, identity, management, people, progress, routines, search, setup
+from engine.tools.dossiers import behaviour, export, identity, management, people, progress, routines, search, setup
 from engine.tools.emails import inbox, sending
 from engine.tools.invoices import (
     accounts,

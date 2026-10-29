@@ -1,21 +1,25 @@
 """The Emails graph: claim the cabinet's email threads waiting for an answer and answer each one.
 
 Each claimed thread is a run of its own (FIL, "Fil d'emails"), all side by side: acknowledge it, ask the cabinet's
-agent in the thread's own conversation (engine.chat.answered, which reminds it of files still untaken), check the
-sender (thread_refusal) and send the reply (send_email only sends to whitelisted addresses). A refused sender gets
-nothing: the manager is notified and the thread stays set aside. A follow-up thread skips the agent: it runs
-Traitement then Dossier in mode resume and sends their summaries."""
+agent in the thread's own conversation (engine.chat.answered, which reminds it of files still untaken), the client
+told every few minutes it still works when the cabinet chose so (kept_informed), check the sender (thread_refusal)
+and send the reply (send_email only sends to whitelisted addresses). A refused sender gets nothing: the manager is
+notified and the thread stays set aside. A follow-up thread skips the agent: it runs Traitement then Dossier in mode
+resume and sends their summaries."""
 
 import asyncio
+import contextlib
 import operator
 import re
 from typing import Annotated, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from engine.calls import ToolFailure, call, stops_at
+from engine.calls import ToolFailure, call, stops_at, within
 from engine.chat import answered
 from engine.tools.core.conversation import for_client, left_out
+from engine.tools.dossiers.behaviour import behaviour
+from engine.tools.emails.inbox import send_progress
 from engine.tools.invoices.pipeline import NOTHING
 
 
@@ -100,14 +104,35 @@ def with_subject(subject, message):
     return f"Objet : {subject}\n\n{message}" if subject else message
 
 
+async def kept_informed(cabinet, thread_id, work):
+    """Await ``work`` and return its result, emailing the client in the thread (send_progress) each time the
+    cabinet's progress minutes pass without it done; never when they are 0, nor when the setting cannot be read. A
+    progress email not sent is skipped. It is sent outside the cabinet's tool slots (within): the agents' own calls
+    never wait behind it."""
+    task = asyncio.ensure_future(work)
+    try:
+        try:
+            minutes = await within(cabinet, behaviour, "progress")
+        except Exception:  # an optional email: the answer goes on without it
+            minutes = 0
+        while minutes and not (await asyncio.wait({task}, timeout=minutes * 60))[0]:
+            with contextlib.suppress(Exception):  # not sent (whitelist, SMTP): the reply still comes
+                await within(cabinet, send_progress, thread_id)
+        return await task
+    finally:
+        task.cancel()  # the thread's run cancelled: its agent too
+
+
 async def ask(state: Thread):
     """Graph node: set "reply" to the cabinet's agent's answer in the thread's own conversation (engine.chat.answered),
-    or "error" when the agent failed (the thread is set aside, never asked twice)."""
+    the client kept informed meanwhile (kept_informed), or "error" when the agent failed (the thread is set aside,
+    never asked twice)."""
     thread = state["thread"]
     try:
         message = with_subject(thread.get("subject"), thread["message"])
         given = state["cabinet"], thread["session_id"], message, thread["files"]
-        reply = await answered(*given, "tarik", thread.get("skipped", ()))
+        work = answered(*given, "tarik", thread.get("skipped", ()))
+        reply = await kept_informed(state["cabinet"], thread["thread_id"], work)
         return {"reply": reply}
     except Exception:  # no reply (the model failing): set aside, with why, never asked twice
         return {"error": "Tarik n'a pas pu repondre pour le moment."}
