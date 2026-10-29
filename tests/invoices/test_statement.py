@@ -78,6 +78,7 @@ def experio(monkeypatch):
         owner={},
         generic=[],
         by_number=[],
+        labelled=[],
         by_amount=[],
         accepts=True,
     )
@@ -107,6 +108,10 @@ def experio(monkeypatch):
             return [dict(row) for row in state["history"]]
         if model == statement.LINE and method == "search_read":
             return [{"id": state["in_use_line"], "invoice_ids": state["in_use"]}]
+        by_label = ("invoice_number", "invoice_ref")
+        named = [t for t in args[0] if isinstance(t, tuple) and t[0] in by_label and t[1] == "ilike"]
+        if model == "exp.invoice" and method == "search_read" and named:  # the invoices a label's number names
+            return [{**row, named[0][0]: row["invoice_number"]} for row in state["labelled"]]
         if model == "exp.invoice" and method == "read":  # an invoice's tiers
             return [{"id": i, "partner_id": state["owner"].get(i, [9, "ATLAS"])} for i in args[0]]
         if model == "exp.invoice":
@@ -1101,11 +1106,21 @@ def cheque(experio, ref="PAIEMENT CHEQUE N 0373244"):
 
 
 @pytest.mark.functionality
-def test_a_cheque_number_quoted_in_another_entry_names_the_supplier_and_the_cabinet_is_told(experio):
-    cheque(experio)["by_number"] = [{"partner_id": [9, "ATLAS"]}]
+def test_a_transfer_number_quoted_in_another_entry_names_the_supplier_and_the_cabinet_is_told(experio):
+    cheque(experio, "VIR EMIS WEB 123456789")["by_number"] = [{"partner_id": [9, "ATLAS"], "debit": 0, "credit": 5.0}]
     message = pointed()["message"]
-    assert ([2], {"partner_id": 9}) in experio["written"]
+    assert ([2], {"partner_id": 9}) in experio["written"]  # a transfer's number alone: 62 of 65 right
     assert "leur tiers retrouvé dans le grand livre" in message and "à vérifier par le cabinet" in message
+
+
+@pytest.mark.functionality
+def test_a_cheque_number_counts_only_on_an_entry_of_the_lines_own_amount(experio):
+    cheque(experio)["by_number"] = [{"partner_id": [9, "ATLAS"], "debit": 0, "credit": 999.0}]  # not the 200.00
+    pointed()
+    assert not [w for w in experio["written"] if w[0] == [2] and "partner_id" in w[1]]
+    experio["by_number"] = [{"partner_id": [9, "ATLAS"], "debit": 200.0, "credit": 0}]
+    pointed()
+    assert ([2], {"partner_id": 9}) in experio["written"]
 
 
 @pytest.mark.functionality
@@ -1117,7 +1132,7 @@ def test_an_unpaid_supplier_entry_of_the_exact_amount_names_the_supplier(experio
 
 @pytest.mark.functionality
 def test_the_number_decides_before_the_amount(experio):
-    cheque(experio)
+    cheque(experio, "VIR EMIS WEB 123456789")
     experio["by_number"], experio["by_amount"] = [{"partner_id": [9, "ATLAS"]}], [{"partner_id": [10, "BETA"]}]
     pointed()
     assert ([2], {"partner_id": 9}) in experio["written"] and ([2], {"partner_id": 10}) not in experio["written"]
@@ -1133,3 +1148,41 @@ def test_the_ledger_gives_no_tiers_when_it_names_two_or_the_line_refuses_it(expe
         experio["by_amount"], experio["accepts"] = [{"partner_id": [9, "ATLAS"]}], False
     pointed()
     assert not [w for w in experio["written"] if w[0] == [2] and "partner_id" in w[1]]
+
+
+def labelled(experio, ref, *numbers):
+    experio["lines"][1]["payment_ref"] = ref
+    experio["labelled"] = [{"id": 70, "invoice_number": n} for n in numbers]
+    return experio
+
+
+@pytest.mark.functionality
+def test_an_invoice_number_in_the_label_ties_the_invoice_and_gives_the_tiers(experio):
+    labelled(experio, "CHQ N° 0902108_PAP BAT_F25-111001", "F25-111001")
+    experio["lines"][1]["partner_id"] = False
+    message = pointed()["message"]
+    assert ([2], {"invoice_ids": [(4, 70)], "partner_id": 9}) in experio["written"]
+    assert "rattachée(s) à la facture dont le numéro est dans le libellé" in message
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("ref", "numbers"),
+    [
+        ("PAIEMENT CHEQUE N 0373244", ("0373244999",)),  # a longer number holding the label's: not the same
+        ("VIR 13/02/2025 SANS NUMERO", ("2025",)),  # a date is no number
+        ("CHQ N° 0902108", ("F25-111001",)),  # another invoice
+    ],
+)
+def test_only_an_invoice_whose_number_is_exactly_the_labels_is_tied(experio, ref, numbers):
+    labelled(experio, ref, *numbers)
+    pointed()
+    assert not [w for w in experio["written"] if w[0] == [2] and "invoice_ids" in w[1]]
+
+
+@pytest.mark.functionality
+def test_two_invoices_with_the_labels_number_tie_none(experio):
+    labelled(experio, "VIREMENT_MEFELEC_29457", "29457")
+    experio["labelled"].append({"id": 71, "invoice_number": "0029457"})  # the same number once zeros are dropped
+    pointed()
+    assert not [w for w in experio["written"] if w[0] == [2] and "invoice_ids" in w[1]]

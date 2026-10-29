@@ -240,6 +240,72 @@ def named_invoices(statement, words, context):
     return len(given), left and f" Facture(s) citée(s) non rattachée(s) : {left}."
 
 
+# A number a bank label carries (cheque, invoice...): 4 digits or more, dates (« 13/02/25 », « 13 02 25 ») left out.
+DATES = re.compile(r"\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b|\b\d{1,2}\s\d{2}\s\d{2,4}\b")
+NUMBER = re.compile(r"[A-Za-z]*\d[\dA-Za-z\-/]*")
+LABEL_TOKENS = 3  # numbers of a label looked up: more is a reference list, not an invoice
+
+
+def label_numbers(label):
+    """Return the numbers ``label`` carries, as written (« F25-111001 », « 0902108 »), at most LABEL_TOKENS."""
+    found = [n for n in NUMBER.findall(DATES.sub(" ", label or "")) if len(re.sub(r"\D", "", n)) >= 4]
+    return found[:LABEL_TOKENS]
+
+
+def number_key(text):
+    """Return ``text`` as invoice numbers compare: letters and digits only, lower case, no leading zeros."""
+    return re.sub(r"[^a-z0-9]", "", normalized(text or "")).lstrip("0")
+
+
+def label_invoices(statement, lines, context):
+    """Give purchase and sale lines without an invoice the one open invoice whose number their label carries.
+
+    Many labels end with the invoice they pay (« CHQ N° 0902108_PAP BAT_F25-111001 », « VIREMENT_MEFELEC_29457 »): the
+    cabinets' own dossiers show it on 28% of their invoiced lines, 60 to 90% in some. A number counts only when it is
+    the invoice's number or reference exactly (invoice_number, invoice_ref; case, signs and leading zeros aside), the
+    invoice is among those the line's picker offers (a partner already on the line narrows it), on no statement line
+    yet, and the only one: on 250 such lines of the cabinets' dossiers the one invoice found was always the right one;
+    a number that is not an invoice's found one by mistake on 1% of invoiced lines. The amount is not asked: 14% of
+    them are paid less or more than the total. The line's form must accept it (typed_in), which also gives its tiers.
+
+    Returns how many lines got one (counted also in test mode, where nothing is written).
+    """
+    given, taken = 0, set()
+    for line in lines:
+        numbers = label_numbers(line["payment_ref"]) if amount_of(line) else []
+        if not numbers:
+            continue
+        base, found = ast.literal_eval(line["invoice_ids_domain"]), set()
+        for number in numbers:
+            for field in ("invoice_number", "invoice_ref"):
+                offered = odoo_call(
+                    "exp.invoice",
+                    "search_read",
+                    [*base, (field, "ilike", number)],
+                    fields=[field],
+                    limit=10,
+                    context=context,
+                )
+                found |= {row["id"] for row in offered if number_key(row[field]) == number_key(number)}
+        found -= taken
+        if not found:
+            continue
+        used = odoo_call(
+            LINE, "search_read", [("invoice_ids", "in", list(found))], fields=["invoice_ids"], context=context
+        )
+        found -= {i for row in used for i in row["invoice_ids"]}
+        if len(found) != 1:
+            continue
+        invoice_id = found.pop()
+        values, _ = typed_in(line, invoice_id, context)
+        if values:
+            if not dry_run():
+                odoo_call(LINE, "write", [line["id"]], values, context=context)
+            taken.add(invoice_id)
+            given += 1
+    return given
+
+
 def amount_of(line):
     """Return the amount statement ``line`` (dict) may get an invoice for, 0 when it may get none.
 
@@ -688,12 +754,13 @@ LEDGER_DAYS = 400  # how far back a supplier entry still explains a payment
 def ledger_tiers(statement, lines, context):
     """Give purchase lines paid out with no tiers and no invoice the one supplier the dossier's ledger names for them.
 
-    Two pieces of evidence, the first that answers: (1) another entry quoting the cheque or transfer number in its
+    Two pieces of evidence, the first that answers: (1) another entry quoting the transfer or effet number in its
     label (the cabinet booked the payment when it issued it); (2) one unpaid supplier entry (credit on a 4411 account,
     not reconciled) of exactly the line's amount in the LEDGER_DAYS before its date. Only a single supplier, and one
-    the line's tiers picker accepts. Measured on the 97 cheque lines the cabinets' 159 dossiers pointed with a tiers
-    and no invoice (their own entries left out): (1) found 13 and was right 10 times, (2) found 32 and was right 27
-    times: a tiers Tarik infers, said as such in the report for the cabinet to check.
+    the line's tiers picker accepts. Measured on the cabinets' 159 dossiers (their own entries left out): (1) was right
+    for 62 of 65 transfers and 13 of 17 effets, but 15 of 35 cheques: a cheque number counts only on an entry of the
+    line's own amount; (2) found 32 and was right 27 times on cheque lines with no invoice. A tiers Tarik infers, said
+    as such in the report for the cabinet to check.
 
     Returns how many lines got one (counted also in test mode, where nothing is written).
     """
@@ -710,6 +777,7 @@ def ledger_tiers(statement, lines, context):
             continue
         own = ("move_id.bank_statement_line_id", "!=", line["id"])
         base = [("company_id", "=", company), ("partner_id", "!=", False), own]
+        cheque = any(word in normalized(line["payment_ref"]) for word in ("cheque", "cheoue", "chq"))
         wanted = [
             [*base, ("name", "ilike", number)] for number in re.findall(r"\d{6,}", line["payment_ref"])[:1]
         ]  # (1) then (2)
@@ -724,8 +792,11 @@ def ledger_tiers(statement, lines, context):
                 ("date", ">=", since),
             ]
         )
-        for domain in wanted:
-            found = odoo_call("exp.move.line", "search_read", domain, fields=["partner_id"], limit=20, context=context)
+        for n, domain in enumerate(wanted):
+            fields = ["partner_id", "debit", "credit"]
+            found = odoo_call("exp.move.line", "search_read", domain, fields=fields, limit=20, context=context)
+            if n == 0 and len(wanted) > 1 and cheque:  # a cheque's number alone is weak: its own amount too
+                found = [e for e in found if round(abs((e["debit"] or 0) - (e["credit"] or 0)), 2) == amount]
             suppliers = {entry["partner_id"][0] for entry in found}
             if not suppliers:
                 continue
@@ -922,11 +993,15 @@ def name_line_tiers(statement_id: int) -> dict:
 
 @step_tool
 def tie_cited_invoices(statement_id: int, client_message: str = "") -> dict:
-    """Give the statement's lines the invoice the client names by its number in ``client_message`` (named_invoices)."""
+    """Give the statement's lines the invoice the client names by its number in ``client_message`` (named_invoices),
+    then the one whose number their own label carries (label_invoices)."""
 
     def work(statement, context):
         tied, unnamed = named_invoices(statement, client_message, context)
-        return counted(tied, "rattachée(s) à la facture que vous avez citée"), unnamed.strip()
+        labelled = label_invoices(statement, open_lines(statement, context), context)  # tied above: no longer open
+        said = counted(tied, "rattachée(s) à la facture que vous avez citée")
+        also = counted(labelled, "rattachée(s) à la facture dont le numéro est dans le libellé")
+        return ", ".join(filter(None, [said, also])), unnamed.strip()
 
     return completing(statement_id, "tie_cited_invoices", work)
 
