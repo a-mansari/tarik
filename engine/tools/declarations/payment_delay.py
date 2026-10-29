@@ -35,7 +35,7 @@ from engine.tools.core.experio import (
     require_dossier,
 )
 from engine.tools.core.outbox import keep_record_file
-from engine.tools.core.words import as_number, normalized
+from engine.tools.core.words import as_number, counted, normalized, reason
 from engine.tools.declarations.tva import find_period, last_ended, period_named
 
 TABLE = "exp.payment.delay"
@@ -92,26 +92,41 @@ def left_out(dossier_id, table, context):
     )
     if untracked:
         said.append(
-            f"{untracked} facture(s) d'achat de la période sans suivi de délai dans Experio (fournisseur sans "
-            "RC valide, montant sous le seuil, ou avant la date de début)"
+            counted(
+                untracked,
+                "{} facture d'achat de la période n'a pas de suivi de délai dans Experio",
+                "{} factures d'achat de la période n'ont pas de suivi de délai dans Experio",
+            )
+            + " : fournisseur sans RC valide, montant sous le seuil, ou facture d'avant la date de début"
         )
     blocked = odoo_call("exp.invoice", "search_count", [*period, ("do_not_declare_ddp", "=", True)], context=context)
     if blocked:
-        said.append(f"{blocked} facture(s) bloquée(s) pour cette déclaration dans Experio")
+        said.append(
+            counted(
+                blocked,
+                "{} facture est bloquée pour cette déclaration dans Experio",
+                "{} factures sont bloquées pour cette déclaration dans Experio",
+            )
+        )
     return said
 
 
 def totals(table, lines):
-    """Return the French summary of the declaration's ``lines``: count, suppliers, amounts, fine and BAM rate."""
+    """Return the French summary of the declaration's ``lines``, one indented « - » line each: count, suppliers,
+    amounts, fine and BAM rate."""
     if not lines:
-        return "aucune facture en retard sur la période (déclaration à néant)."
+        return "- Aucune facture en retard sur la période : déclaration à néant."
     owed = sum(line["montant_non_encore_paye"] or 0 for line in lines)
     late = sum(line["montant_paye_hors_delai"] or 0 for line in lines)
     suppliers = len({line["partner_id"][0] for line in lines if line["partner_id"]})
-    return (
-        f"{len(lines)} ligne(s), {suppliers} fournisseur(s) ; "
-        f"non encore payé {owed:.2f}, payé hors délai {late:.2f}, amende {table['amount_penalty'] or 0:.2f} "
-        f"(taux BAM {table['bam_rate'] or 0:.2f} %)."
+    count = counted(len(lines), "{} ligne", "{} lignes")
+    return "\n".join(
+        [
+            f"- {count} pour {counted(suppliers, '{} fournisseur', '{} fournisseurs')}",
+            f"- Non encore payé : {owed:.2f}",
+            f"- Payé hors délai : {late:.2f}",
+            f"- Amende : {table['amount_penalty'] or 0:.2f}, au taux BAM de {table['bam_rate'] or 0:.2f} %",
+        ]
     )
 
 
@@ -148,8 +163,8 @@ def prepare_payment_delay_declaration(
         company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
         if not company["use_payment_delay"]:
             return stop(
-                f"Le dossier `{dossier}` n'est pas soumis aux délais de paiement dans Experio (réglage « Délais de "
-                "paiement » non activé) : pas de déclaration à faire."
+                f"Le dossier `{dossier}` n'est pas soumis aux délais de paiement dans Experio : son réglage « Délais "
+                "de paiement » n'est pas activé. Il n'y a pas de déclaration à faire."
             )
         mode = company["payment_delay_declaration_mode"] or "quarterly"
         today = date.today()
@@ -164,7 +179,7 @@ def prepare_payment_delay_declaration(
         if table["state"] == "done":
             lines = odoo_call(LINE, "read", table["line_ids"], fields=LINE_FIELDS, context=context)
             return ok(
-                f"Déclaration des {label} (n° `{table_id}`) : déjà déclarée dans Experio. {totals(table, lines)}",
+                f"Déclaration des {label} (n° `{table_id}`), déjà déclarée dans Experio :\n{totals(table, lines)}",
                 declaration_id=table_id,
             )
         if turnover and not dry_run():
@@ -173,7 +188,11 @@ def prepare_payment_delay_declaration(
         manual = sum(bool(line["added_manually"]) for line in lines)
         kept = ""
         if manual:  # Experio's refresh deletes them
-            kept = f" Non actualisée : {manual} ligne(s) ajoutée(s) à la main, qu'« Actualiser » effacerait."
+            kept = "\n- Je ne l'ai pas actualisée : " + counted(
+                manual,
+                "{} ligne y a été ajoutée à la main, qu'« Actualiser » effacerait.",
+                "{} lignes y ont été ajoutées à la main, qu'« Actualiser » effacerait.",
+            )
         elif not dry_run():
             odoo_json(TABLE, "action_refresh", [table_id], context=context)
         table = odoo_call(TABLE, "read", [table_id], fields=FIELDS, context=context)[0]
@@ -185,10 +204,10 @@ def prepare_payment_delay_declaration(
                 "d'affaires du dossier pour savoir quelle déclaration la loi 69-21 demande. Quel est-il ?",
                 declaration_id=table_id,
             )
-        text = f"Déclaration des {label} (n° `{table_id}`{', créée' if made else ''}) : {totals(table, lines)}{kept}"
+        text = f"Déclaration des {label} (n° `{table_id}`{', créée' if made else ''}) :\n{totals(table, lines)}{kept}"
         missing = left_out(dossier_id, table, context)
         if missing:
-            text += " Pas dans la déclaration : " + " ; ".join(missing) + "."
+            text += "\n- Pas dans la déclaration :" + "".join(f"\n  - {why}." for why in missing)
         refusals = []
         if table["error_msg"]:
             refusals.append(plain(table["error_msg"]))
@@ -208,29 +227,35 @@ def prepare_payment_delay_declaration(
                 context=context,
             )
             if bare:
-                refusals.append("fournisseur(s) sans IF : " + ", ".join(p["name"] for p in bare))
+                names = ", ".join(p["name"] for p in bare)
+                refusals.append(
+                    counted(len(bare), "{} fournisseur n'a pas d'IF", "{} fournisseurs n'ont pas d'IF") + " : " + names
+                )
         if refusals:
-            return stop(
-                f"{text} Experio ne la laissera pas déclarer : " + " ; ".join(refusals) + ".", declaration_id=table_id
-            )
+            text += "\n- Experio ne la laissera pas déclarer :" + "".join(f"\n  - {reason(why)}." for why in refusals)
+            return stop(text, declaration_id=table_id)
         if lines and not dry_run():
             try:  # Experio's own checks of its XML (the dossier's IF, its period)
                 odoo_json(TABLE, "print_xml_deduction_report", [table_id], context=context)
             except ExperioRefusal as error:
                 return stop(
-                    f"{text} Experio refuse son fichier XML : {experio_refusal(error)}", declaration_id=table_id
+                    f"{text}\n- Experio refuse son fichier XML : {experio_refusal(error)}", declaration_id=table_id
                 )
             name = keep_record_file(session_id, TABLE, table_id, "datas", "datas_fname", context)
-            text += f" Fichier XML `{name}` joint à cette réponse." if name else " Fichier XML prêt sur la déclaration."
+            text += (
+                f"\n- Fichier XML `{name}` joint à cette réponse."
+                if name
+                else "\n- Fichier XML prêt sur la déclaration."
+            )
         if not declarer:
             return ok(
-                text + " Écrivez « déclarez les délais de paiement » pour la déclarer dans Experio.",
+                text + "\n\nÉcrivez « déclarez les délais de paiement » pour que je la déclare dans Experio.",
                 declaration_id=table_id,
             )
         if not client_confirmed:
             return question(
-                f"{text} Je la déclare dans Experio ? Le dépôt sur le portail de la DGI restera à faire par "
-                "le cabinet. Je le fais ?",
+                f"{text}\n\nLe dépôt sur le portail de la DGI restera à faire par le cabinet. Je la déclare dans "
+                "Experio ?",
                 declaration_id=table_id,
             )
         if dry_run():
@@ -239,11 +264,11 @@ def prepare_payment_delay_declaration(
             odoo_json(TABLE, "action_post", [table_id], context=context)
         except ExperioRefusal as error:
             return stop(
-                f"Déclaration des {label} : pas déclarée, Experio refuse : {experio_refusal(error)}",
+                f"Experio refuse de déclarer les {label} : {experio_refusal(error)}",
                 declaration_id=table_id,
             )
         return ok(
-            f"Déclaration des {label} déclarée dans Experio. Reste au cabinet : le dépôt sur le portail de la "
-            "DGI (délais de paiement).",
+            f"J'ai déclaré les {label} dans Experio. Il reste au cabinet à déposer la déclaration sur le portail "
+            "de la DGI.",
             declaration_id=table_id,
         )

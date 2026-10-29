@@ -11,6 +11,7 @@ from engine.tools.core.app import ToolError, ok, question, routine, step_tool, s
 from engine.tools.core.config import POSTED, TEST_MODE
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused, require_dossier
 from engine.tools.core.words import normalized
+from engine.tools.dossiers.progress import PAYMENT_STATES
 
 WIZARD = "exp.invoice.difference.change"
 FIELDS = ["invoice_number", "partner_id", "state", "amount_residual", "payment_state", "company_id"]
@@ -83,7 +84,8 @@ def settle_difference(dossier_id: int, facture: str, client_confirmed: bool = Fa
     with refused(f"settle_difference {invoice_id}", f"{label} : Experio a refusé l'écriture d'écart."):
         odoo_json(WIZARD, "action_apply", [wizard_id], context=context)
         after = odoo_call("exp.invoice", "read", [invoice_id], fields=["payment_state"], context=context)[0]
-    state = "soldée" if after["payment_state"] == "paid" else f"état de paiement : {after['payment_state']}"
+    paid = after["payment_state"]
+    state = "soldée" if paid == "paid" else PAYMENT_STATES.get(paid, (f"état de paiement : {paid}",) * 2)[1]
     return ok(
         f"{label} : écart de {amount:.2f} DH passé en compte `{account}`, facture {state}.", invoice_id=invoice_id
     )

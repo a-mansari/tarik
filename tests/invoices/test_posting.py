@@ -159,7 +159,9 @@ def test_an_immobilisation_without_its_category_is_not_posted(experio):
 def test_an_invoice_neither_draft_nor_posted_is_not_posted(experio):
     experio["state"] = "pending"
     result = posting.post_invoice(3)
-    assert result["status"] == "stop" and "en état pending" in result["message"] and experio["calls"] == []
+    assert (
+        result["status"] == "stop" and "elle est en cours dans Experio" in result["message"] and experio["calls"] == []
+    )
 
 
 @pytest.mark.security

@@ -118,3 +118,21 @@ def written_numbers(text):
     for number in WRITTEN.findall(text or ""):
         values += readings(number)
     return values
+
+
+def counted(count, one, many):
+    """Return the phrase that agrees with ``count`` (French: 0 and 1 singular), its "{}" the count: counted(3,
+    "{} opération lue", "{} opérations lues") -> "3 opérations lues"; never "opération(s)"."""
+    return (one if count <= 1 else many).format(count)
+
+
+def reason(why):
+    """Return Experio's reason ``why`` as read after a colon: its first letter lowercased unless an acronym (« TVA »,
+    « IF »), without its final "."."""
+    return (why[:1].lower() + why[1:] if why[1:2].islower() else why).rstrip(".")
+
+
+def reasons(counts, one, many):
+    """Return a line "<count> : <reason>." per {Experio's reason: count} in ``counts``, in its order, the count said
+    with counted(n, ``one``, ``many``): "2 lignes : taux absent."."""
+    return [f"{counted(n, one, many)} : {reason(why)}." for why, n in counts.items()]

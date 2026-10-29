@@ -22,6 +22,7 @@ from engine.tools.core.experio import (
     refused,
     require_invoice,
 )
+from engine.tools.dossiers.progress import STATES
 from engine.tools.invoices.classify import side_of
 from engine.tools.invoices.configuration import assets_text, assets_without_category
 from engine.tools.invoices.exercice import with_fiscal_year
@@ -137,7 +138,8 @@ def post_invoice(invoice_id: int) -> dict:
     if invoice["state"] in POSTED:
         return routine(f"Facture {invoice_id} : déjà comptabilisée.")
     if invoice["state"] != "draft":
-        return stop(f"Facture {invoice_id} : en état {invoice['state']}, elle ne peut pas être comptabilisée.")
+        state = STATES.get(invoice["state"], (invoice["state"],) * 2)[1]  # the feminine word, for a facture
+        return stop(f"Facture {invoice_id} : elle est {state} dans Experio, elle ne peut donc pas être comptabilisée.")
     merged = auto_merge(invoice)
     if merged:
         return merged
@@ -188,8 +190,13 @@ def post_invoice(invoice_id: int) -> dict:
     # A window instead of the posting (a closed earlier exercice, a move's confirmation): over RPC nobody answers.
     if isinstance(action, dict) and action.get("res_model"):
         log(f"post_invoice {invoice_id}: action_post opened {action.get('res_model')}")
+        window = f"la fenêtre « {action['name']} »" if action.get("name") else "une fenêtre de confirmation"
         return stop(
-            f"Facture {invoice_id} : pas comptabilisée, Experio demande une confirmation à l'écran "
-            f"(« {action.get('name') or action['res_model']} ») : à valider par le cabinet dans Experio."
+            f"Facture {invoice_id} : pas comptabilisée, Experio ouvre à l'écran {window} : à valider par le cabinet "
+            "dans Experio."
         )
-    return stop(f"Facture {invoice_id} : pas comptabilisée ({plain(after['error_msg']) or 'état ' + after['state']}).")
+    why = (
+        plain(after["error_msg"])
+        or "elle est " + STATES.get(after["state"], (after["state"],) * 2)[1] + " dans Experio"
+    )
+    return stop(f"Facture {invoice_id} : pas comptabilisée ({why}).")

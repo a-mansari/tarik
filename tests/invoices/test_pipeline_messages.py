@@ -35,7 +35,7 @@ def test_missing_or_unknown_arguments_are_told_plainly(tool):
 
     for arguments in ({}, {"name": "x", "other": 1}):
         with pytest.raises(
-            calls.ToolFailure, match=r"^des informations manquent ou sont invalides pour cette etape\.$"
+            calls.ToolFailure, match=r"^des informations manquent ou sont invalides pour cette étape\.$"
         ):
             tool(needs)(**arguments)
 
@@ -45,7 +45,7 @@ def test_a_crash_is_told_plainly_and_its_details_stay_in_the_log(tool, capsys):
     def crash():
         raise KeyError("ODOO_PASSWORD secret-value")
 
-    with pytest.raises(calls.ToolFailure, match=r"^echec technique, reessayez plus tard\.$"):
+    with pytest.raises(calls.ToolFailure, match=r"^échec technique, réessayez plus tard\.$"):
         tool(crash)()
     assert "secret-value" in capsys.readouterr().out  # logged for the team, never shown
 
@@ -55,7 +55,7 @@ def test_a_quiet_step_s_ok_reaches_the_summary_only_when_the_client_must_read_it
     from engine.tools.invoices.pipeline import NO_FILE, run_summary
 
     told = {"status": "ok", "message": NO_FILE, "files": [], "tell": True}
-    for result in (told, {"status": "ok", "message": "2 fichier(s) a traiter.", "files": [1, 2]}):
+    for result in (told, {"status": "ok", "message": "2 fichiers à traiter.", "files": [1, 2]}):
         monkeypatch.setitem(TOOLS, "files_to_process", lambda session_id, asked=False, result=result: result)
         asyncio.run(calls.step(db_cabinet, "r", "s", "files_to_process", session_id="s", asked=True))
     assert run_summary("r")["message"] == f"**Fait**\n- {NO_FILE}"

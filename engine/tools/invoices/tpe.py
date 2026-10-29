@@ -31,7 +31,8 @@ from engine.tools.core.config import TEST_MODE
 from engine.tools.core.conversation import own_words
 from engine.tools.core.experio import dry_run, experio_refusal, in_dossier, odoo_call, odoo_json, plain
 from engine.tools.core.queries import Q
-from engine.tools.core.words import normalized
+from engine.tools.core.words import counted, normalized
+from engine.tools.core.words import reasons as reason_lines
 from engine.tools.invoices.exercice import with_fiscal_year
 
 STATEMENT = "exp.monetary.statement"
@@ -343,9 +344,11 @@ def client_question(statement_id, unknown, found=(), named=""):
     listed = f" Plusieurs tiers possibles : {listed}." if found else ""
     if named and not found:
         listed = f" Aucun client « {named} » dans le dossier."
+    sales = counted(unknown, "{} vente par carte n'a pas de client", "{} ventes par carte n'ont pas de client")
+    them = counted(unknown, "la", "les")
     return question(
-        f"Relevé TPE n° {statement_id} : {unknown} vente(s) par carte sans client. À quel client de "
-        f"votre dossier les rattacher (par exemple « clients divers ») ?{listed}"
+        f"Relevé TPE n° {statement_id} : {sales}. À quel client de votre dossier {them} rattacher (par exemple "
+        f"« clients divers ») ?{listed}"
     )
 
 
@@ -381,12 +384,16 @@ def totals(lines):
     return sums
 
 
+NO_REASON = "motif non donné par Experio"  # a line Experio blocks without error_msg: never its raw state
+
+
 def blocked(lines):
-    """Return (reasons, ready, posted): {Experio's reason: how many lines} for draft and pending lines, then counts."""
+    """Return (reasons, ready, posted): {Experio's reason: how many lines} for draft and pending lines (NO_REASON
+    when Experio gives none), then counts."""
     reasons = {}
     for line in lines:
         if line["state"] in ("draft", "pending"):
-            reason = plain(line["error_msg"] or "") or line["state"]
+            reason = plain(line["error_msg"] or "") or NO_REASON
             reasons[reason] = reasons.get(reason, 0) + 1
     return reasons, sum(line["state"] == "ready" for line in lines), sum(line["state"] in POSTED for line in lines)
 
@@ -414,30 +421,35 @@ def settle_tpe(statement_id, client_words=""):
     lines = odoo_call(LINE, "read", statement["line_ids"], fields=LINE_FIELDS, context=context)
     sums = totals(lines)
     reasons, ready, posted = blocked(lines)
-    text = (
-        f"Relevé TPE n° {statement_id} ({network_label(statement['type'])}) : "
-        f"{len(lines)} ligne(s) lue(s), total remise {sums['VENTE']:.2f}, commissions HT "
-        f"{sums['FRAIS BANCAIRES']:.2f}, TVA sur commissions {sums['TAXE BANCAIRE']:.2f}, net remise "
-        f"{sums['SOLDE NET REMISE']:.2f}"
+    read = counted(len(lines), "{} ligne", "{} lignes")
+    text = f"Relevé TPE n° {statement_id} ({network_label(statement['type'])}) : j'ai lu {read}, " + (
+        counted(ready, "{} est prête à comptabiliser", "{} sont prêtes à comptabiliser")
+        if ready
+        else "aucune n'est prête à comptabiliser"
+    )
+    text += counted(posted, " et {} est déjà comptabilisée", " et {} sont déjà comptabilisées") if posted else ""
+    text += (
+        f".\n- Montants du relevé : total remise {sums['VENTE']:.2f}, commissions HT {sums['FRAIS BANCAIRES']:.2f}, "
+        f"TVA sur commissions {sums['TAXE BANCAIRE']:.2f}, net remise {sums['SOLDE NET REMISE']:.2f}."
     )
     if given:
-        text += f" ; {given} opération(s) affectée(s)"
+        text += counted(given, "\n- {} ligne a reçu son opération.", "\n- {} lignes ont reçu leur opération.")
     if client:
-        text += f" ; ventes rattachées au client `{client['name']}`"
-    text += f" ; {ready} prête(s) à comptabiliser" + (f", {posted} déjà comptabilisée(s)" if posted else "") + "."
+        text += f"\n- Les ventes par carte sont rattachées au client `{client['name']}`."
     if made:
         names = ", ".join(f"`{name}`" for name in made)
-        text += f" Opération(s) TPE créée(s) dans le dossier, comme Experio le fait : {names}."
+        made_text = counted(len(made), "l'opération TPE", "les opérations TPE")
+        text += f"\n- J'ai créé dans le dossier {made_text} {names}, comme Experio le fait."
     company = odoo_call("res.company", "read", [dossier_id], fields=["monetary_operations_ignore_remise"])[0]
     if company["monetary_operations_ignore_remise"]:
         text += (
-            " Le dossier a « Ignorer la ligne de solde remise » coché : pas de ligne de net remise, ce relevé ne "
-            "pourra pas être rapproché du versement sur le relevé bancaire."
+            "\n- Le dossier a « Ignorer la ligne de solde remise » coché : le relevé n'a pas de ligne de net remise "
+            "et ne pourra pas être rapproché du versement sur le relevé bancaire."
         )
     if unknown:
         return client_question(statement_id, unknown, found)
-    if reasons:
-        text += " À compléter dans Experio : " + " ; ".join(f"{why} ({n})" for why, n in reasons.items()) + "."
+    lines = reason_lines(reasons, "{} ligne à compléter dans Experio", "{} lignes à compléter dans Experio")
+    text += "".join(f"\n- {line}" for line in lines)
     return ok(f"{TEST_MODE if dry_run() else ''}{text}", statement_id=statement_id)
 
 
@@ -448,7 +460,8 @@ def post_tpe(statement_id):
     (exp.monetary.statement.journal.warning.wizard action_confirm_anyway), since Tarik took the network from the
     statement or the client; that confirmation runs action_post again, so a window it opens then (a duplicate)
     stops too. Any other window or Experio's refusal returns a stop result for the cabinet. Otherwise
-    an ok result with how many lines were posted and how many are left to complete.
+    an ok result with how many lines were posted, then how many are left to complete and the warning confirmed, one
+    « - » line each.
     """
     statement = read_tpe(statement_id)
     if statement["state"] in POSTED:
@@ -463,19 +476,24 @@ def post_tpe(statement_id):
             # its action_post again: another window it opens (a duplicate) still stops below
             action = odoo_json(JOURNAL_WARNING, "action_confirm_anyway", [action["res_id"]], context=context)
             confirmed = (
-                " Experio signalait un journal ou un réseau différent du dernier relevé TPE comptabilisé : confirmé, "
-                f"le réseau {network_label(statement['type'])} étant celui du relevé."
+                "\n- Experio signalait un journal ou un réseau différent du dernier relevé TPE comptabilisé : je l'ai "
+                f"confirmé, car le réseau {network_label(statement['type'])} est celui du relevé."
             )
         action = with_fiscal_year(action, context)
     except Exception as error:  # Experio's refusal (an exact duplicate statement): its own words
         return stop(f"Relevé TPE n° {statement_id} : pas comptabilisé, Experio refuse : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):
+        window = f"la fenêtre « {action['name']} »" if action.get("name") else "une fenêtre de confirmation"
         return stop(
-            f"Relevé TPE n° {statement_id} : pas comptabilisé, Experio demande une confirmation à l'écran "
-            f"(« {action.get('name') or action['res_model']} ») : à valider par le cabinet dans Experio."
+            f"Relevé TPE n° {statement_id} : pas comptabilisé, Experio ouvre à l'écran {window} : à valider par le "
+            "cabinet dans Experio."
         )
     lines = odoo_call(LINE, "read", read_tpe(statement_id)["line_ids"], fields=LINE_FIELDS, context=context)
     reasons, _, posted = blocked(lines)
-    text = f"Relevé TPE n° {statement_id} : {posted} ligne(s) comptabilisée(s)"
-    text += f", {sum(reasons.values())} restent à compléter" if reasons else ""
-    return ok(text + "." + confirmed, statement_id=statement_id)
+    text = f"Relevé TPE n° {statement_id} : j'ai comptabilisé {counted(posted, '{} ligne', '{} lignes')}."
+    left = sum(reasons.values())
+    if left:
+        text += counted(
+            left, "\n- {} ligne reste à compléter dans Experio.", "\n- {} lignes restent à compléter dans Experio."
+        )
+    return ok(text + confirmed, statement_id=statement_id)

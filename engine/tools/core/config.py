@@ -28,7 +28,7 @@ POSTED: Final = ("post", "export")  # state of a posted invoice
 # Experio's own definition of a client dossier (tax calendar, notifications, bank...):
 # enabled, not company 1 (the cabinet itself), not deleted. Archived ones are inactive, hence hidden.
 DOSSIER_DOMAIN: Final = (("enabled", "=", True), ("id", "!=", 1), ("is_deleted", "=", False))
-TEST_MODE: Final = "MODE TEST : aucune modification enregistree dans Experio. "  # run_summary spots test runs by it
+TEST_MODE: Final = "MODE TEST : aucune modification enregistrée dans Experio. "  # run_summary spots test runs by it
 
 # Name matching (words.similarity, 0..1).
 MIN_SIMILARITY: Final = 0.7  # dossiers: right matches score 0.9+, unrelated ones stay under 0.6

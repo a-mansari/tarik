@@ -457,9 +457,9 @@ def connection(monkeypatch, version, count):
 @pytest.mark.parametrize(
     ("version", "count", "said"),
     [
-        ("17.0", 3, "Connecte au systeme Experio."),
+        ("17.0", 3, "Connecté au système Experio."),
         (ConnectionRefusedError("no route"), 3, "Experio est injoignable pour le moment."),
-        ("17.0", PermissionError("refused"), "Experio repond, mais ma connexion y est refusee."),
+        ("17.0", PermissionError("refused"), "Experio répond, mais ma connexion y est refusée."),
     ],
 )
 def test_the_connection_check_says_reached_unreachable_or_refused_never_odoo(monkeypatch, version, count, said):

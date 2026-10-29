@@ -84,7 +84,7 @@ def find_dossier(name: str) -> str:
     if close is None:
         return UNAVAILABLE
     if not close:
-        return f"Aucun dossier ne ressemble a « {name} »."
+        return f"Aucun dossier ne ressemble à « {name} »."
     return "\n".join(f"- {c['name']} (id {c['id']}) : ressemblance {round(score * 100)} %" for score, c in close)
 
 
@@ -110,7 +110,7 @@ def resolve_dossier(name: str) -> dict:
     if close is None:
         raise ToolError(UNAVAILABLE)
     if not close:
-        return stop(f"Aucun dossier ne ressemble a « {name} » : quel est le nom du dossier ? Rien n'a été traité.")
+        return stop(f"Aucun dossier ne ressemble à « {name} » : quel est le nom du dossier ? Rien n'a été traité.")
     exact = [dossier for score, dossier in close if round(score * 100) == 100]
     if len(exact) == 1:
         return routine(f"Dossier `{exact[0]['name']}`.", dossier_id=exact[0]["id"])

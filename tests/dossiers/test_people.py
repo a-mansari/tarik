@@ -97,13 +97,13 @@ def test_the_collaborators_are_listed_with_their_role_and_dossiers(monkeypatch):
 
     monkeypatch.setattr(people, "odoo_call", odoo_call)
     assert people.list_collaborators().splitlines() == [
-        "2 collaborateur(s) :",
-        "- Chef (chef@cabinet.ma) : Manager (gestion : administrateur), manager, super manager, 2 dossier(s)",
-        "- Sam (sam@cabinet.ma) : sans profil, non manager, 0 dossier(s), compte inactif",
+        "2 collaborateurs :",
+        "- Chef (chef@cabinet.ma) : Manager (gestion : administrateur), manager, super manager, 2 dossiers",
+        "- Sam (sam@cabinet.ma) : sans profil, non manager, 0 dossier, compte inactif",
     ]
     assert ("exp.user.profile", "read", [2]) in calls
     monkeypatch.setattr(people, "odoo_call", lambda model, method, arg, **kw: [] if method == "search_read" else 1 / 0)
-    assert people.list_collaborators() == "0 collaborateur(s) :\n"  # no profile to read
+    assert people.list_collaborators() == "0 collaborateur :\n"  # no profile to read
 
 
 @pytest.mark.communication
@@ -194,7 +194,7 @@ def test_work_on_an_invoice_is_checked_against_its_dossier(monkeypatch):
         people, "collaborator", lambda address: {"name": "Sam", "employee_type": "employee", "company_ids": [7]}
     )
     answer = people.check_sender("s", invoice_id=31)
-    assert answer["status"] == "stop" and "Le dossier `BETA` n'est pas attribue a `Sam`" in answer["message"]
+    assert answer["status"] == "stop" and "Le dossier `BETA` n'est pas attribué à `Sam`" in answer["message"]
     monkeypatch.setattr(people, "sender_of", lambda session_id: None)
     assert people.check_sender("s", invoice_id=31)["routine"]  # the chat: no sender to check
 

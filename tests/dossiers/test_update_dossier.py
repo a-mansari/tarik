@@ -61,7 +61,7 @@ def test_the_fields_the_client_wrote_are_changed(experio):
 def test_a_value_the_client_did_not_write_is_left_alone(experio):
     result = onboarding.update_dossier(557, rc="331245", city="Marrakech", client_message="Changez le RC en 331245.")
     assert experio["write"] == [{"rc": "331245"}]
-    assert "Non modifie, le client ne l'a pas ecrit : ville" in result["message"]
+    assert "Non modifié, car le client ne l'a pas écrit : ville" in result["message"]
 
 
 @pytest.mark.functionality
@@ -104,7 +104,7 @@ def test_skipping_the_registry_check_is_the_clients_confirmed_request_only(exper
     result = onboarding.update_dossier(
         557, ice="008123456000011", skip_ice_if_check=True, client_message="ICE 008123456000011, sans verification svp"
     )
-    assert result["status"] == "question" and "sans cette verification" in result["message"] and experio["write"] == []
+    assert result["status"] == "question" and "sans cette vérification" in result["message"] and experio["write"] == []
     monkeypatch.setattr(onboarding, "confirmed", lambda session_id, message, *parts: "Gecafisc" in parts)
     onboarding.update_dossier(557, ice="008123456000011", skip_ice_if_check=True, client_message="ICE 008123456000011")
     assert experio["write"] == [{"ice": "008123456000011", "ignore_ice_if_verification": True}]
@@ -114,7 +114,7 @@ def test_skipping_the_registry_check_is_the_clients_confirmed_request_only(exper
 def test_nothing_is_written_in_test_mode(experio, monkeypatch):
     monkeypatch.setattr(onboarding, "dry_run", lambda: True)
     result = onboarding.update_dossier(557, rc="331245", client_message="RC 331245")
-    assert experio["write"] == [] and "serait modifie : RC : 229139 -> 331245" in result["message"]
+    assert experio["write"] == [] and "serait modifié : RC : 229139 -> 331245" in result["message"]
 
 
 @pytest.mark.communication
@@ -139,7 +139,7 @@ def test_an_identifier_without_a_label_is_any_number_the_client_wrote(experio):
 def test_another_dossiers_if_is_refused(experio):
     experio["others"] = [{"id": 25, "name": "CAFE EPSOM"}]
     result = onboarding.update_dossier(557, if_number="0712345", client_message="Le nouvel IF est 0712345.")
-    assert result["message"] == "Dossier `Gecafisc` non modifie : le dossier `CAFE EPSOM` a deja cet IF (0712345)."
+    assert result["message"] == "Dossier `Gecafisc` non modifié : le dossier `CAFE EPSOM` a déjà cet IF (0712345)."
 
 
 @pytest.mark.functionality

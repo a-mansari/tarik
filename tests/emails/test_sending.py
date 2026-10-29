@@ -33,7 +33,7 @@ def test_an_email_outside_the_whitelist_is_refused_before_smtp(monkeypatch):
     monkeypatch.setattr(
         sending, "allowed_recipients", lambda: ["test@example.com"]
     )  # whatever the container's own list
-    with pytest.raises(ToolError, match="hors de la liste autorisee"):
+    with pytest.raises(ToolError, match="hors de la liste autorisée"):
         send_email("client@other.example", "s", "b")
 
 
@@ -240,7 +240,7 @@ def test_an_email_the_server_refuses_keeps_its_files_for_the_next(db_cabinet, mo
 
     mailer(monkeypatch, refusal=OSError("550 refused"))
     outbox.keep_file("s1", "export.xlsx", b"xlsx")
-    with pytest.raises(ToolError, match="le serveur d'envoi a refuse"):
+    with pytest.raises(ToolError, match="le serveur d'envoi a refusé"):
         send_email("chef@cabinet.ma", "Re: Export", "Voici l'export.", attach_session="s1")
     assert unsent("s1") == ["export.xlsx"]
 
@@ -250,7 +250,7 @@ def test_an_email_the_server_refuses_keeps_its_files_for_the_next(db_cabinet, mo
     ("to", "settings", "said"),
     [
         ("", SMTP, "Aucun destinataire"),
-        ("chef@cabinet.ma", {"MAIL_ALLOWED_RECIPIENTS": "@cabinet.ma"}, "SMTP non configure"),
+        ("chef@cabinet.ma", {"MAIL_ALLOWED_RECIPIENTS": "@cabinet.ma"}, "SMTP non configuré"),
     ],
 )
 def test_an_email_without_recipient_or_smtp_is_refused(monkeypatch, to, settings, said):

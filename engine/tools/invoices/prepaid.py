@@ -66,7 +66,7 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
     asked = (
         f"Facture {invoice['invoice_number'] or invoice_id} : elle couvre {values['prepaid_months']} mois "
         f"({values['prepaid_start_date']} au {values['prepaid_end_date']}). "
-        f"La répartir en {kind} constates d'avance ? oui / non"
+        f"La répartir en {kind} constatés d'avance ? oui / non"
     )
     # Asked before: its answer, not the question again.
     answer, spread = kept_yes_no(invoice_id, "settle_prepaid", answer)
@@ -86,7 +86,7 @@ def settle_prepaid(invoice_id: int, answer: str = "") -> dict:
         # Ticked first, as on screen (its onchange fills defaults), then the period read on the scan.
         fill_invoice(invoice_id, {"has_prepaid_expenses": True, **values}, context)
     return ok(
-        f"{test_mode_note()}Facture {invoice_id} : {kind} constates d'avance sur {values['prepaid_months']} mois "
+        f"{test_mode_note()}Facture {invoice_id} : {kind} constatés d'avance sur {values['prepaid_months']} mois "
         f"à partir du {values['prepaid_start_date']} (écritures générées à la comptabilisation){journal}."
     )
 

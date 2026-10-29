@@ -21,7 +21,7 @@ from engine.tools.invoices.pipeline import waiting_on
 # that called no tool while a question waits on the client (once: the client may only be thanking): a model replied
 # « l'outil n'est pas disponible » to a plain « sans vérification » (2026-10-26).
 ASK_TRIES, QUICK = 3, 200
-REMINDER = "\n\nRappel : ces fichiers n'ont pas ete traites. Traitez-les maintenant si rien ne manque."
+REMINDER = "\n\nRappel : ces fichiers n'ont pas été traités. Traitez-les maintenant si rien ne manque."
 ANSWER_REMINDER = (
     "\n\nRappel : une question attend la réponse du client. Si son message y répond, transmets-la avec "
     "Experio_repondre (l'outil est disponible) ; sinon réponds-lui simplement."
@@ -102,7 +102,7 @@ async def ask(state: Chat):
         reply = await answered(*given, "tarik", state.get("skipped", ()))
         return {"reply": reply}
     except Exception:  # no reply (the model failing): told plainly, the message can be sent again
-        return {"error": "Tarik n'a pas pu repondre pour le moment. Renvoyez votre message dans un instant."}
+        return {"error": "Tarik n'a pas pu répondre pour le moment. Renvoyez votre message dans un instant."}
 
 
 chat = StateGraph(Chat, output_schema=Steps)

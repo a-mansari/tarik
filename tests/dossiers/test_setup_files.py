@@ -98,7 +98,8 @@ def experio(monkeypatch):
 def test_each_bank_journal_is_asked_its_bank_in_turn(experio):
     asked = setup.ask_banks(557)
     assert asked["status"] == "question" and asked["journal_id"] == 11 and asked["choices"][3].startswith("CREDIT")
-    assert "journal `BQ1` est a quelle banque" in asked["message"] and "1 autre(s)" in asked["message"]
+    assert "à quelle banque est le journal `BQ1`" in asked["message"]
+    assert "Il reste ensuite 1 autre journal à renseigner." in asked["message"]
     following = setup.set_journal_bank(557, 11, 3)
     assert experio["written"] == [{"bank_id": 3, "partner_id": 99}]  # the bank, and the tiers named after it
     assert following["status"] == "question" and following["journal_id"] == 12  # the next one, in the same reply
@@ -142,15 +143,15 @@ def test_without_entries_the_onboarding_waits_for_the_clients_files(monkeypatch)
     monkeypatch.setattr(banks, "dry_run", lambda: setup.dry_run())  # as the test sets it, now or later
     waiting = setup.finish_setup(557)
     assert "Il manque : journaux, fournisseurs, clients." in waiting["message"]
-    assert "integration terminee" in setup.finish_setup(557, finish=True)["message"]  # the client said all was sent
+    assert "l'intégration serait terminée" in setup.finish_setup(557, finish=True)["message"]  # all sent
     counts["exp.journal"] = 9
     finished = setup.finish_setup(557)["message"]  # its accounts and journals (a model's copy)
-    assert "integration terminee" in finished
-    assert finished.endswith("Vous pouvez encore envoyer vos fichiers fournisseurs et clients.")
+    assert "l'intégration serait terminée" in finished
+    assert finished.endswith("\n\nVous pouvez encore envoyer vos fichiers fournisseurs et clients.")
     assert "Vous pouvez" not in setup.finish_setup(557, finish=True)["message"]  # the client said all was sent
     counts["exp.journal"] = 0
     counts["experio.history"] = 40
-    assert "integration terminee" in setup.finish_setup(557)["message"]  # a FEC: finished as before
+    assert "l'intégration serait terminée" in setup.finish_setup(557)["message"]  # a FEC: finished as before
 
 
 @pytest.mark.security
@@ -211,5 +212,5 @@ def test_experio_not_giving_the_bank_journals_is_said(experio, monkeypatch):
     monkeypatch.setattr(setup, "odoo_call", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("timeout")))
     with pytest.raises(ToolError, match="`Gecafisc` : Experio n'a pas pu lire les journaux de banque"):
         setup.ask_banks(557)
-    with pytest.raises(ToolError, match="`Gecafisc` : Experio a refuse la banque du journal"):
+    with pytest.raises(ToolError, match="`Gecafisc` : Experio a refusé la banque du journal"):
         setup.set_journal_bank(557, 11, 3)

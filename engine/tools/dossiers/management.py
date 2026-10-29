@@ -14,7 +14,7 @@ from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import POSTED, TEST_MODE
 from engine.tools.core.conversation import client_messages, own_words
 from engine.tools.core.experio import dry_run, experio_refusal, odoo_call, odoo_json, refused, require_dossier
-from engine.tools.core.words import ICE_WRITTEN, normalized, said
+from engine.tools.core.words import ICE_WRITTEN, counted, normalized, said
 from engine.tools.dossiers.identity import FOLDER_TYPES, PLACEHOLDER_IDS, confirmed, having, real_ids
 from engine.tools.dossiers.people import RANK, attach_user, level_of, sender_reach, users_by_email
 from engine.tools.dossiers.search import dossiers
@@ -80,8 +80,8 @@ def header_columns(name, header):
     missing = [LABELS[key] for key in REQUIRED if key not in columns.values()]
     if missing:
         raise ToolError(
-            f"`{name}` : il manque des colonnes dans la premiere ligne : {', '.join(missing)}. "
-            "Les colonnes attendues sont : Nom, Type, ICE, IF, Mode de declaration (puis Pays, Ville, Code postal, "
+            f"`{name}` : il manque des colonnes dans la première ligne : {', '.join(missing)}. "
+            "Les colonnes attendues sont : Nom, Type, ICE, IF, Mode de déclaration (puis Pays, Ville, Code postal, "
             "RAS TVA, facultatives)."
         )
     return columns
@@ -123,7 +123,7 @@ def read_rows(name, mime, data):
     columns = header_columns(name, header)
     rows = [read_row(line, cells, columns) for line, cells in enumerate(body, start=2)]  # line 1 is the header
     if not rows:
-        raise ToolError(f"`{name}` : aucune ligne de dossier sous l'en-tete.")
+        raise ToolError(f"`{name}` : aucune ligne de dossier sous l'en-tête.")
     return rows
 
 
@@ -153,7 +153,7 @@ def field_problems(row, where):
         problems.append(f"{where} : IF « {row['vat']} » incorrect (chiffres uniquement)")
     if not row["declaration_mode"]:
         problems.append(
-            f"{where} : mode de declaration « {row['declaration_mode_given']} » inconnu "
+            f"{where} : mode de déclaration « {row['declaration_mode_given']} » inconnu "
             f"({', '.join(DECLARATION_MODES.values())})"
         )
     if row["country"]:
@@ -184,15 +184,15 @@ def problems_of(rows):
             problems.append(f"{where} : en double avec la ligne {seen_names[key]}")
         seen_names.setdefault(key, row["line"])
         if key in existing:
-            problems.append(f"{where} : le dossier `{existing[key]}` existe deja")
+            problems.append(f"{where} : le dossier `{existing[key]}` existe déjà")
         if row["ice"] and row["ice"] not in PLACEHOLDER_IDS:
             if row["ice"] in seen_ices:
-                problems.append(f"{where} : meme ICE que la ligne {seen_ices[row['ice']]}")
+                problems.append(f"{where} : même ICE que la ligne {seen_ices[row['ice']]}")
             seen_ices.setdefault(row["ice"], row["line"])
         ids = real_ids((("ice", row["ice"]), ("vat", row["vat"])))
         same = having(ids) if ids else []
         if same:
-            problems.append(f"{where} : l'ICE ou l'IF est deja celui du dossier `{same[0]['name']}`")
+            problems.append(f"{where} : l'ICE ou l'IF est déjà celui du dossier `{same[0]['name']}`")
     return problems
 
 
@@ -200,8 +200,8 @@ def row_recap(row):
     """Return one dossier of the file as a French line the client reads back."""
     parts = [
         FOLDER_TYPES[row["folder_type"]],
-        f"ICE {row['ice'] or 'non renseigne'}",
-        f"IF {row['vat'] or 'non renseigne'}",
+        f"ICE {row['ice'] or 'non renseigné'}",
+        f"IF {row['vat'] or 'non renseigné'}",
         DECLARATION_MODES[row["declaration_mode"]],
     ]
     town = " ".join(x for x in (row["zip"], row["city"]) if x)
@@ -256,23 +256,29 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
     with cabinet_db() as db:
         name, mime, data = file_row(db, file_id, "file_name", "mime_type", "data")
     rows = read_rows(name, mime, data)
-    with refused(f"import_dossiers {file_id}", "Experio n'a pas pu verifier la liste des dossiers."):
+    with refused(f"import_dossiers {file_id}", "Experio n'a pas pu vérifier la liste des dossiers."):
         problems = problems_of(rows)
     if problems:
         shown = "\n".join(f"- {p}" for p in problems[:MAX_SHOWN])
-        more = f"\n- ... et {len(problems) - MAX_SHOWN} autre(s)" if len(problems) > MAX_SHOWN else ""
+        others = counted(len(problems) - MAX_SHOWN, "{} autre", "{} autres")
+        more = f"\n- ... et {others}" if len(problems) > MAX_SHOWN else ""
         return stop(
-            f"`{name}` : aucun dossier cree, le fichier a {len(problems)} probleme(s).\n{shown}{more}\n"
+            f"`{name}` : je n'ai créé aucun dossier, car le fichier a "
+            f"{counted(len(problems), '{} problème', '{} problèmes')} :\n{shown}{more}\n"
             "Corrigez-le (ou supprimez les lignes en double) et renvoyez-le."
         )
-    if not confirmed(session_id, client_confirmed, "je les cree", name):
+    ask = counted(len(rows), "Je le crée", "Je les crée")
+    if not confirmed(session_id, client_confirmed, ask, name):
         listed = "\n".join(row_recap(r) for r in rows[:MAX_SHOWN])
-        more = f"\n- ... et {len(rows) - MAX_SHOWN} autres" if len(rows) > MAX_SHOWN else ""
+        others = counted(len(rows) - MAX_SHOWN, "{} autre", "{} autres")
+        more = f"\n- ... et {others}" if len(rows) > MAX_SHOWN else ""
         return question(
-            f"`{name}` contient {len(rows)} dossier(s), tous corrects :\n{listed}{more}\nJe les cree ? oui / non"
+            f"`{name}` contient {counted(len(rows), '{} dossier, correct', '{} dossiers, tous corrects')} :\n"
+            f"{listed}{more}\n{ask} ? oui / non"
         )
     if dry_run():
-        return ok(f"{TEST_MODE}`{name}` : {len(rows)} dossier(s) seraient crees.")
+        would = counted(len(rows), "{} dossier serait créé", "{} dossiers seraient créés")
+        return ok(f"{TEST_MODE}`{name}` : {would}.")
     created, refused_rows = [], []
     for r in rows:
         try:
@@ -283,10 +289,12 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
         attach_user(None, dossier_id)
         created.append(r["name"])
     taken(file_id)
-    message = f"`{name}` : {len(created)} dossier(s) cree(s) sur {len(rows)}."
+    message = f"`{name}` : {counted(len(created), '{} dossier créé', '{} dossiers créés')} sur {len(rows)}."
     if refused_rows:
         message += (
-            "\nRefuses par Experio :\n" + "\n".join(refused_rows) + "\nCorrigez ces lignes et renvoyez-les seules."
+            "\nExperio a refusé ces lignes :\n"
+            + "\n".join(refused_rows)
+            + "\nCorrigez ces lignes et renvoyez-les seules."
         )
     return ok(message)
 
@@ -313,12 +321,12 @@ def person_recap(label, dossier, given, chosen, existing):
     user found by email) is given, before that user is attached to the dossier."""
     if existing:
         return (
-            f"Le {label} `{existing['name']}` existe deja (`{existing['login']}`). Avant de le rattacher, verifiez :\n"
+            f"Le {label} `{existing['name']}` existe déjà (`{existing['login']}`). Avant de le rattacher, vérifiez :\n"
             f"- Dossier : `{dossier}`\n- Profil : `{chosen}`"
         )
-    tel = f"- Telephone : {given['phone']}\n" if given.get("phone") else ""
+    tel = f"- Téléphone : {given['phone']}\n" if given.get("phone") else ""
     return (
-        f"Avant de creer ce {label}, verifiez ces informations :\n- Nom : `{given['name']}`\n"
+        f"Avant de créer ce {label}, vérifiez ces informations :\n- Nom : `{given['name']}`\n"
         f"- E-mail : `{given['email']}`\n{tel}- Profil : `{chosen}`\n- Dossier : `{dossier}`"
     )
 
@@ -338,8 +346,11 @@ def invited(user_id, email):
         odoo_json("res.users", "action_invite_user", [user_id])
     except Exception as error:  # the user stays made and on the dossier: only the invitation is to send again
         why = experio_refusal(error)
-        return f" Invitation non envoyee, Experio refuse : {why} (a renvoyer depuis Experio, Inviter)."
-    return f" Invitation Experio envoyee a `{email}` (identifiant et mot de passe)."
+        return (
+            f" Je n'ai pas pu envoyer l'invitation, car Experio refuse : {why}. "
+            "Le cabinet peut la renvoyer depuis Experio (bouton Inviter)."
+        )
+    return f" J'ai envoyé l'invitation Experio à `{email}`, avec son identifiant et son mot de passe."
 
 
 @step_tool
@@ -386,23 +397,23 @@ def create_person(
     if not chosen:
         missing.append(f"son profil ({', '.join(f'`{p}`' for p in known)})")
     if missing:
-        unread = f" ({', '.join(not_written)} : pas ecrit par le client)" if not_written else ""
-        return question(f"Pour creer ce {label} sur le dossier `{dossier}`, il me faut {' et '.join(missing)}.{unread}")
-    with refused(f"create_person {given['email']}", "Experio n'a pas pu verifier cet utilisateur."):
+        unread = f" ({', '.join(not_written)} : pas écrit par le client)" if not_written else ""
+        return question(f"Pour créer ce {label} sur le dossier `{dossier}`, il me faut {' et '.join(missing)}.{unread}")
+    with refused(f"create_person {given['email']}", "Experio n'a pas pu vérifier cet utilisateur."):
         existing = user_by_email(given["email"], employee_type)
-    with refused(f"create_person {given['email']}", "Experio n'a pas pu verifier vos droits."):
+    with refused(f"create_person {given['email']}", "Experio n'a pas pu vérifier vos droits."):
         reach = sender_reach(session_id)
         why = beyond_reach(reach, dossier_id, dossier, known[chosen])
         if not why and existing and reach and RANK[level_of(existing["exp_profile_id"])] > reach["rank"]:
             why = f"`{existing['name']}` a plus de droits que `{reach['name']}`"
     if why:
-        return stop(f"Pas d'acces cree pour `{given['email']}` : {why}. Rien n'est change.")
+        return stop(f"Pas d'accès créé pour `{given['email']}` : {why}. Rien n'est changé.")
     recap = person_recap(label, dossier, given, chosen, existing)
     if not confirmed(session_id, client_confirmed, "vous confirmez", given["email"]):
         return question(f"{recap}\nVous confirmez ? oui / non")
     if dry_run():
         return ok(
-            f"{TEST_MODE}{label.capitalize()} `{given['name']}` (`{given['email']}`) serait rattache au dossier "
+            f"{TEST_MODE}{label.capitalize()} `{given['name']}` (`{given['email']}`) serait rattaché au dossier "
             f"`{dossier}`."
         )
     with refused(f"create_person {given['email']}", f"Experio refuse ce {label} : {{reason}}"):
@@ -424,7 +435,7 @@ def create_person(
         # sender, the person has their profile everywhere (exp_profile_id) and none of their own on the dossier.
         on_dossier = known[chosen] if reach is None or reach["rank"] >= RANK["admin"] else None
         attach_user(user_id, dossier_id, on_dossier, employee_type)
-    made = "rattache" if existing else "cree et rattache"
+    made = "rattaché" if existing else "créé et rattaché"
     sent = invited(user_id, given["email"]) if not existing or existing["employee_state"] == "new" else ""
     return ok(
         f"{label.capitalize()} `{given['name']}` (`{given['email']}`) {made} au dossier `{dossier}`, "
@@ -439,7 +450,7 @@ def beyond_reach(reach, dossier_id, dossier, profile_id=False, user=None):
     if reach is None:
         return ""
     if dossier_id and dossier_id not in reach["company_ids"]:
-        return f"le dossier `{dossier}` n'est pas attribue a `{reach['name']}` dans Experio"
+        return f"le dossier `{dossier}` n'est pas attribué à `{reach['name']}` dans Experio"
     if profile_id and RANK[level_of(profile_id)] > reach["rank"]:
         return f"ce profil donne plus de droits que celui de `{reach['name']}`"
     if user and RANK[level_of(user["exp_profile_id"])] > reach["rank"]:
@@ -494,18 +505,18 @@ def access_change(action, user, dossier_id, profile_id):
         attach_user(user["id"], dossier_id, None, user["employee_type"])
         if profile_id:
             dossier_profile(user["id"], dossier_id, profile_id)
-        return "dossier donne"
+        return "dossier donné"
     if action == "unassign":
         odoo_call("res.company", "write", [dossier_id], {members: [(3, user["id"])]})
-        return "dossier retire"
+        return "dossier retiré"
     if action == "invite":
         odoo_json("res.users", "action_invite_or_reinvite_user", [user["id"]])
-        return "invitation Experio envoyee"
+        return "invitation Experio envoyée"
     if dossier_id:
         dossier_profile(user["id"], dossier_id, profile_id)
-        return "profil change sur ce dossier"
+        return "profil changé sur ce dossier"
     odoo_call("res.users", "write", [user["id"]], {"exp_profile_id": profile_id})
-    return "profil change"
+    return "profil changé"
 
 
 @step_tool
@@ -553,18 +564,18 @@ def change_access(
         if not chosen:
             return question(f"Quel profil pour `{user['name']}` ? {', '.join(f'`{p}`' for p in known)}")
         profile_id = known[chosen]
-    with refused(f"change_access {email}", "Experio n'a pas pu verifier vos droits."):
+    with refused(f"change_access {email}", "Experio n'a pas pu vérifier vos droits."):
         why = beyond_reach(sender_reach(session_id), dossier_id, dossier, profile_id, user)
     if why:
-        return stop(f"Pas de changement d'acces pour `{user['name']}` : {why}. Rien n'est change.")
+        return stop(f"Pas de changement d'accès pour `{user['name']}` : {why}. Rien n'est changé.")
     on = dossier_id in user["company_ids"]
     if action == "role" and dossier and not on:
         return question(
             f"`{user['name']}` n'a pas le dossier `{dossier}` : je le lui donne avec le profil `{chosen}` ?"
         )
     if (action == "assign" and on and not chosen) or (action == "unassign" and not on):
-        state = "a deja" if on else "n'a pas"
-        return routine(f"Le {label} `{user['name']}` {state} le dossier `{dossier}` : rien a changer.")
+        state = "a déjà" if on else "n'a pas"
+        return routine(f"Le {label} `{user['name']}` {state} le dossier `{dossier}` : rien à changer.")
     recap = f"Pour le {label} `{user['name']}` (`{user['login']}`) : {ACCESS[action]}"
     recap += f"\n- Dossier : `{dossier}`" if dossier else ""
     recap += f"\n- Profil : `{chosen}`" if chosen else ""
@@ -585,7 +596,7 @@ def change_access(
 @step_tool
 def archive_dossier(dossier_id: int, client_confirmed: bool = False, session_id: str = "") -> dict:
     """Archive a dossier, as its form's Archiver does (res.company action_archive_folder: active False): hidden
-    from the lists, nothing deleted, restorable from Experio (filtre Archives, Desarchiver).
+    from the lists, nothing deleted, restorable from Experio (filtre Archivé, Désarchiver).
 
     Returns a question result with the dossier's invoice counts until the client said yes (``client_confirmed``);
     then an ok result (in test mode, without archiving)."""
@@ -597,13 +608,14 @@ def archive_dossier(dossier_id: int, client_confirmed: bool = False, session_id:
         )
     if not confirmed(session_id, client_confirmed, "je l'archive", dossier):
         return question(
-            f"Je vais archiver le dossier `{dossier}` ({total} facture(s), dont {posted} comptabilisee(s)). "
-            "Il disparaitra des listes, rien n'est supprime et il pourra etre restaure. Je l'archive ? oui / non"
+            f"Je vais archiver le dossier `{dossier}`, qui a {counted(total, '{} facture', '{} factures')}, "
+            f"dont {counted(posted, '{} comptabilisée', '{} comptabilisées')}. "
+            "Il disparaîtra des listes, mais rien n'est supprimé et il pourra être restauré. Je l'archive ? oui / non"
         )
     if dry_run():
-        return ok(f"{TEST_MODE}Le dossier `{dossier}` serait archive.")
+        return ok(f"{TEST_MODE}Le dossier `{dossier}` serait archivé.")
     with refused(f"archive_dossier {dossier_id}", f"Experio refuse d'archiver le dossier `{dossier}` : {{reason}}"):
         odoo_json("res.company", "action_archive_folder", [dossier_id])
     return ok(
-        f"Dossier `{dossier}` archive. Il peut etre restaure depuis Experio (filtre Archives, bouton Desarchiver)."
+        f"Dossier `{dossier}` archivé. Il peut être restauré depuis Experio (filtre Archivé, bouton Désarchiver)."
     )

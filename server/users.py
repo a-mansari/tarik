@@ -18,11 +18,11 @@ def asked_password():
     """Ask for the new password twice in the terminal and return it.
 
     Raises SystemExit (nothing changed) when it is shorter than 12 characters or the two entries differ."""
-    password = getpass.getpass("Mot de passe (12 caracteres au moins) : ")
+    password = getpass.getpass("Mot de passe (12 caractères au moins) : ")
     if len(password) < 12:
-        raise SystemExit(f"Mot de passe trop court : {len(password)} caracteres, 12 au moins. Rien n'a change.")
+        raise SystemExit(f"Mot de passe trop court : {len(password)} caractères, 12 au moins. Rien n'a changé.")
     if password != getpass.getpass("Encore : "):
-        raise SystemExit("Les deux mots de passe different. Rien n'a change.")
+        raise SystemExit("Les deux mots de passe diffèrent. Rien n'a changé.")
     return password
 
 
@@ -30,7 +30,7 @@ async def main(command, email, name=""):
     """Run one users.py ``command`` ("add", "role" or "disable") on account ``email`` and record it in the Journal.
 
     ``name`` is the account's name for "add" and the role (admin or member) for "role". Exits with the usage text for
-    an unknown command, and with « Rien n'a change » when the account change is refused (ValueError, LookupError)."""
+    an unknown command, and with « Rien n'a changé » when the account change is refused (ValueError, LookupError)."""
     if command not in ("add", "role", "disable"):
         raise SystemExit(__doc__)
     password = asked_password() if command == "add" else None
@@ -46,7 +46,7 @@ async def main(command, email, name=""):
             await accounts.disable(email)
             await audit.record("terminal", "account_closed", email.strip().lower())
     except (ValueError, LookupError) as refused:
-        raise SystemExit(f"Rien n'a change : {refused}") from None
+        raise SystemExit(f"Rien n'a changé : {refused}") from None
     finally:
         await runs.pool.close()
     print("ok")

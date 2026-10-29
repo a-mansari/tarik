@@ -22,7 +22,7 @@ def test_a_phone_photo_reaches_the_model_at_a_readable_size():
 @pytest.mark.communication
 @pytest.mark.parametrize(
     "status, says",
-    [(400, "a refuse de lire ce fichier"), (413, "a refuse de lire ce fichier"), (529, "indisponible")],
+    [(400, "a refusé de lire ce fichier"), (413, "a refusé de lire ce fichier"), (529, "indisponible")],
 )
 def test_a_failed_reading_says_it_is_tarik_s_reader_not_experio(monkeypatch, status, says):
     def post(url, **kw):

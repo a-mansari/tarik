@@ -97,7 +97,7 @@ def test_a_draft_experio_still_reads_or_without_a_scan_is_not_classified(asked, 
     assert classify.classify_invoice(5)["status"] == "wait"
     monkeypatch.setattr(classify, "still_reading", lambda invoice: None)
     monkeypatch.setattr(classify, "has_scan", lambda invoice: False)
-    assert classify.classify_invoice(5)["message"] == "Facture 5 : pas de scan PDF a classer."
+    assert classify.classify_invoice(5)["message"] == "Facture 5 : pas de scan PDF à classer."
     assert asked["model"] == 0 and asked["filled"] == []
 
 
@@ -133,14 +133,14 @@ def test_the_type_is_changed_through_experios_form_in_the_invoices_dossier(asked
         "fill_invoice",
         lambda invoice_id, values, context: asked["filled"].append((invoice_id, values, context)),
     )
-    assert classify.classify_invoice(5)["message"] == "Facture 5 : vente (why), type change en sale."
+    assert classify.classify_invoice(5)["message"] == "Facture 5 : vente (why) ; j'ai changé son type en vente."
     assert asked["filled"] == [(5, {"type": "sale"}, {"c": 1})] and contexts == [5]
 
 
 @pytest.mark.security
 def test_test_mode_says_the_type_would_change(asked, monkeypatch):
     monkeypatch.setattr(classify, "test_mode_note", lambda: "MODE TEST. ")
-    assert classify.classify_invoice(5)["message"] == "MODE TEST. Facture 5 : vente (why), le type passerait a sale."
+    assert classify.classify_invoice(5)["message"] == "MODE TEST. Facture 5 : vente (why) ; son type passerait à vente."
 
 
 @pytest.mark.communication

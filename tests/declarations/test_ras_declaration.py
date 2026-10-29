@@ -116,7 +116,7 @@ def test_ras_tva_lines_are_written_as_experios_form_computes_them(experio):
     result = ras.prepare_ras_declaration(857, "RAS TVA")
     write = next(call for call in experio["calls"] if call[0] == "write")
     assert write[2][0] == {"tax_withholding_ids": [(5, 0, 0), (0, 0, experio["computed"][0])]}
-    assert "1 ligne(s), HT 1000.00, TVA 200.00, retenue 150.00" in result["message"]
+    assert "- 1 ligne\n- Montant HT : 1000.00\n- TVA : 200.00\n- Retenue : 150.00" in result["message"]
     assert "action_print_xml_ras_report" in methods(experio) and "action_post" not in methods(experio)
 
 
@@ -126,7 +126,7 @@ def test_a_declaration_with_lines_added_by_hand_is_not_refreshed(experio):
     experio["lines"] = [line(added_manually=True, withholding_percentage="10")]
     result = ras.prepare_ras_declaration(857, "IS")
     assert "action_refresh" not in methods(experio)
-    assert "ajoutée(s) à la main" in result["message"]
+    assert "1 ligne y a été ajoutée à la main" in result["message"]
 
 
 @pytest.mark.functionality
@@ -138,7 +138,7 @@ def test_what_experios_declare_would_refuse_is_said_first(experio):
     assert result["status"] == "stop"
     message = result["message"]
     assert "la période n'est pas terminée" in message and "tiers sans ICE ou IF : ATLAS" in message
-    assert "sans type d'activité" in message
+    assert "1 ligne n'a pas le type d'activité de son tiers" in message
     assert "action_print_xml_ras_report" not in methods(experio)
 
 
@@ -154,7 +154,7 @@ def test_withholdings_experio_leaves_out_are_told(experio):
     experio["bank_ras"] = 2
     experio["odd_tiers"] = 1
     message = ras.prepare_ras_declaration(857, "IS")["message"]
-    assert "2 retenue(s) passée(s) sur un relevé bancaire" in message
+    assert "2 retenues ont été passées sur un relevé bancaire" in message
     assert "ni société ni personne" in message
 
 
@@ -173,7 +173,7 @@ def test_declaring_asks_first_and_warns_that_is_blocks_ir(experio):
     assert asked["status"] == "question" and "refusera la RAS IR" in asked["message"]
     assert "action_post" not in methods(experio)
     done = ras.prepare_ras_declaration(857, "IS", declarer=True, client_confirmed=True)
-    assert "action_post" in methods(experio) and "déclarée dans Experio" in done["message"]
+    assert "action_post" in methods(experio) and "J'ai déclaré la RAS IS Septembre 2026 dans Experio" in done["message"]
 
 
 @pytest.mark.functionality
@@ -195,7 +195,14 @@ def test_test_mode_creates_no_ras_declaration(experio, monkeypatch):
     monkeypatch.setattr(ras, "dry_run", lambda: True)
     result = ras.prepare_ras_declaration(857, "IS")
     assert result["status"] == "ok" and result["message"].startswith("MODE TEST")
-    assert "RAS IS Septembre 2026 : serait créée et préparée" in result["message"] and experio["calls"] == []
+    assert "La RAS IS Septembre 2026 serait créée et préparée" in result["message"] and experio["calls"] == []
+
+
+@pytest.mark.security
+def test_test_mode_is_said_once_at_the_front_of_several_ras(experio, monkeypatch):
+    monkeypatch.setattr(ras, "dry_run", lambda: True)
+    message = ras.prepare_ras_declaration(857, "RAS TVA et IS")["message"]
+    assert message.startswith("MODE TEST") and message.count("MODE TEST") == 1 and "\n- " in message
 
 
 @pytest.mark.security
@@ -213,7 +220,7 @@ def test_a_ras_declaration_already_declared_is_only_reported(experio):
     experio["tables"] = {"exp.withholding.table": [{"id": 70, "state": "done"}]}
     experio["table"]["state"] = "done"
     result = ras.prepare_ras_declaration(857, "IS", declarer=True, client_confirmed=True)
-    assert "(n° `70`) : déjà déclarée dans Experio. aucune retenue sur la période" in result["message"]
+    assert "(n° `70`), déjà déclarée dans Experio :\n- Aucune retenue sur la période" in result["message"]
     assert experio["calls"] == []
 
 
@@ -243,7 +250,10 @@ def test_ras_tva_before_july_2024_is_refused_as_experio_refuses_it(experio, monk
 def test_ras_tva_without_rate_or_at_100_percent_is_told(experio):
     experio["lines"] = [line(withholding_percentage=False), line(withholding_percentage="100")]
     message = ras.prepare_ras_declaration(857, "RAS TVA")["message"]
-    assert "1 retenue(s) à 100 % : tiers sans attestation" in message and "ligne(s) sans taux de retenue" in message
+    assert (
+        "1 retenue est à 100 % : son tiers n'avait pas d'attestation" in message
+        and "1 ligne n'a pas de taux de retenue" in message
+    )
 
 
 @pytest.mark.communication
@@ -258,7 +268,7 @@ def test_a_ras_declaration_experio_refuses_is_said_not_declared(experio, monkeyp
 
     monkeypatch.setattr(ras, "odoo_json", odoo_json)
     result = ras.prepare_ras_declaration(857, "IS et IR", declarer=True, client_confirmed=True)
-    assert result["status"] == "stop" and "RAS IS Septembre 2026 : pas déclarée, Experio refuse" in result["message"]
+    assert result["status"] == "stop" and "Experio refuse de déclarer la RAS IS Septembre 2026" in result["message"]
 
 
 @pytest.mark.communication
@@ -290,5 +300,5 @@ def test_a_routine_reports_a_draft_already_there_without_touching_it(experio):
     experio["tables"] = {"exp.withholding.table": [{"id": 70, "state": "draft"}]}
     experio["lines"] = [line()]
     result = ras.prepare_ras_declaration(857, "IS", new_only=True)
-    assert "déjà préparée, non actualisée" in result["message"]
+    assert "déjà préparée et laissée telle quelle" in result["message"]
     assert methods(experio) == []  # no « Actualiser », no XML

@@ -127,7 +127,7 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     if reading:
         return reading
     if not has_scan(invoice):
-        return routine(f"Facture {invoice_id} : pas de scan PDF a classer.")
+        return routine(f"Facture {invoice_id} : pas de scan PDF à classer.")
     company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["name", "ice", "vat"])[0]
     proven = side_by_ice(invoice, company)
     kept = _kept_classification(invoice_id, invoice_type)
@@ -168,5 +168,6 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     with refused(f"classify_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé le changement de type."):
         # Experio's onchange on type runs, as on screen.
         fill_invoice(invoice_id, {"type": wanted}, invoice_context(invoice))
-    changed = "le type passerait a" if test_mode_note() else "type change en"
-    return ok(f"{test_mode_note()}Facture {invoice_id} : {category} ({reason}), {changed} {wanted}.", category=category)
+    changed = "son type passerait à" if test_mode_note() else "j'ai changé son type en"
+    told = f"{test_mode_note()}Facture {invoice_id} : {category} ({reason}) ; {changed} {category}."
+    return ok(told, category=category)

@@ -28,6 +28,7 @@ from engine.tools.core.experio import (
     refused,
     require_invoice,
 )
+from engine.tools.core.words import counted
 
 TVA_ACCOUNTS = ["|", ("code", "=like", "3455%"), ("code", "=like", "4455%")]
 # Per amount of the invoice: its name, then per side (purchase, sale) the dossier's switch (None: none), its
@@ -238,7 +239,7 @@ def configure_cabinet(invoice_id: int) -> dict:
     if not before and numbered:
         return ok(f"Facture {invoice_id} : {numbered}.")
     if not before:
-        return routine(f"Facture {invoice_id} : le dossier a les parametres necessaires.")
+        return routine(f"Facture {invoice_id} : le dossier a les paramètres nécessaires.")
     if dry_run():
         return ok(
             f"{TEST_MODE}Facture {invoice_id} : Experio signale {' ; '.join(before)} La détection automatique des "
@@ -256,21 +257,21 @@ def configure_cabinet(invoice_id: int) -> dict:
         if values and not save_settings(company_id, values, context):
             cabinet, names = [*names, *cabinet], []
         after = checked(invoice_id, context)
-    done = f"Facture {invoice_id} : détection automatique des paramètres du dossier lancée"
+    done = f"Facture {invoice_id} : j'ai lancé la détection automatique des paramètres du dossier"
     if made:
-        done += f", {made} taxe(s) créée(s)"
+        done += f". {counted(made, 'Elle a créé {} taxe', 'Elle a créé {} taxes')}"
     if names:
-        done += f", {', '.join(names)} active(s) dans le dossier"
+        done += f". J'ai activé dans le dossier : {', '.join(names)}"
     settings = [text for level, text in after if level == "cgnc"]
     settings += [f"{name} : compte à choisir" for name in cabinet]
     if assets_without_category(invoice_id, context):
         settings.append(assets_text(assets_without_category(invoice_id, context)))
     refused_here = [text for level, text in after if level == "error"]  # warnings: settle_warnings' own
     if not (settings or refused_here):
-        return ok(f"{done} : plus rien ne bloque la comptabilisation.")
+        return ok(f"{done}. Plus rien ne bloque la comptabilisation.")
     told = []
     if settings:
         told.append("À régler par le cabinet dans la Configuration du dossier : " + listed(settings))
     if refused_here:
         told.append("Sur la facture elle-même, Experio signale : " + listed(refused_here))
-    return stop(f"{done}. Pas comptabilisable en l'état. " + " ".join(told))
+    return stop(f"{done}. La facture n'est pas comptabilisable en l'état. " + " ".join(told))

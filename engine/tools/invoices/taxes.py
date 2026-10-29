@@ -231,7 +231,7 @@ def add_missing_taxes(invoice_id, context):
             continue
         state = listed(company_id, field, found[0], context)
         if state == "added":
-            notes.append(f"taxe {rate} % ajoutee aux taxes du dossier (Configuration > General)")
+            notes.append(f"taxe {rate} % ajoutée aux taxes du dossier (Configuration > Général)")
         elif state == "refused":
-            notes.append(f"taxe {rate} % a ajouter par le cabinet dans Configuration > General (autres taxes)")
+            notes.append(f"taxe {rate} % à ajouter par le cabinet dans Configuration > Général (autres taxes)")
     return notes

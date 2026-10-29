@@ -283,7 +283,7 @@ def test_the_differences_found_are_listed_and_replace_the_earlier_check(checking
     read = {"invoice_date_language": "fr", "amount_untaxed": 120, "amount_total": 120}
     checking["answers"] = [{**WHOLE, "extracted": read, "bad_fields": [flag("amount_total", 100, 120)]}]
     result = check.check_invoice(3)
-    assert result["message"].startswith("Facture 3 : 1 ecart(s) entre Experio et le scan :\n- amount_total : x")
+    assert result["message"].startswith("Facture 3 : 1 écart entre Experio et le scan :\n- amount_total : x")
     assert [b["field"] for b in check.stored_check(3)[2]] == ["amount_total"]
 
 

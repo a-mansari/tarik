@@ -90,7 +90,7 @@ def test_another_dossiers_journal_is_replaced_by_experios_auto_detection(experio
     result = journal.journal_stop(3, INVOICE)
     assert result["status"] == "stop"
     assert "journal d'achats local du dossier (`ACHAT`) est celui d'un autre dossier" in result["message"]
-    assert "Configuration > Comptabilite > Journaux" in result["message"] and "carte Achat local" in result["message"]
+    assert "Configuration > Comptabilité > Journaux" in result["message"] and "carte Achat local" in result["message"]
     experio["misplaced"] = {}
     assert journal.journal_stop(3, INVOICE) is None
     experio["misplaced"] = {"local_purchase_journal_id": "ACHAT"}
@@ -172,5 +172,5 @@ def test_experio_refusing_its_refresh_or_leaving_no_journal_is_a_tool_error(expe
         raise RuntimeError("Traceback\nUserError: Journal introuvable")
 
     monkeypatch.setattr(journal, "refresh", refresh)
-    with pytest.raises(ToolError, match="Experio n'a pas pu mettre a jour le journal"):
+    with pytest.raises(ToolError, match="Experio n'a pas pu mettre à jour le journal"):
         journal.check_journal(3)

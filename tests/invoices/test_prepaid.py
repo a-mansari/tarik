@@ -85,12 +85,12 @@ def test_a_period_over_several_months_is_asked_and_an_unclear_answer_asked_again
     asked = prepaid.settle_prepaid(3)
     assert asked["status"] == "question" and asked["message"] == (
         "Facture F-12 : elle couvre 12 mois (2026-01-01 au 2026-12-31). "
-        "La répartir en charges constates d'avance ? oui / non"
+        "La répartir en charges constatés d'avance ? oui / non"
     )
     again = prepaid.settle_prepaid(3, "peut-être")
     assert again["status"] == "question" and again["message"].startswith("Réponse non comprise. Facture F-12")
     experio["invoice"]["type"] = "sale"
-    assert "produits constates d'avance" in prepaid.settle_prepaid(3)["message"]
+    assert "produits constatés d'avance" in prepaid.settle_prepaid(3)["message"]
     assert experio["written"] == []
 
 
@@ -108,7 +108,7 @@ def test_oui_ticks_the_spreading_then_the_period_in_experios_form(experio):
     context = {"allowed_company_ids": [5], "cron_fiscal_entry_id": 9}
     assert experio["written"] == [({"has_prepaid_expenses": True, **period}, context)]
     assert result["status"] == "ok" and result["message"].startswith(
-        "Facture 3 : charges constates d'avance sur 12 mois à partir du 2026-01-01"
+        "Facture 3 : charges constatés d'avance sur 12 mois à partir du 2026-01-01"
     )
 
 

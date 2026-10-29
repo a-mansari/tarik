@@ -124,8 +124,8 @@ def book_late(invoice_id, company_id, exercice):
     warning = ""
     if not company["old_invoice_account_id"]:
         warning = (
-            " Aucun compte de factures anterieures dans le dossier (Configuration > Achat > "
-            "General Achat) : le compte actuel est garde."
+            " Aucun compte de factures antérieures dans le dossier (Configuration > Général > Achat, bloc Géneral "
+            "Achat, Factures antérieures) : le compte actuel est gardé."
         )
     if not dry_run():
         with refused(
