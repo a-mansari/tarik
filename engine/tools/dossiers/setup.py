@@ -146,7 +146,7 @@ def copy_configuration(dossier_id: int, model_dossier_id: int) -> dict:
     }
     with refused(
         f"copy_configuration {model_dossier_id} -> {dossier_id}",
-        "Experio n'a pas pu copier la configuration : {reason}",
+        f"Dossier `{dossier}` : Experio n'a pas pu copier la configuration ({{reason}}).",
     ):
         make_advance_accounts_reconcilable(model_dossier_id)
         wizard_id = odoo_json("company.config.wizard", "create", wizard)

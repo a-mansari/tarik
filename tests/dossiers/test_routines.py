@@ -188,18 +188,25 @@ def test_a_period_runs_once_here_whatever_changes_meanwhile_and_each_minute_has_
 @pytest.fixture
 def running(db_cabinet, monkeypatch):
     """A routine's period run as its Routine workflow on the test cabinet: dossiers 5 and 6 opened by Tarik, its
-    address live; the tools called and the workflows run nested."""
-    state = {"calls": [], "nested": [], "files": {}}
+    address live; the tools called, the progress' steps (their dossiers read at once) and the workflows run nested."""
+    state = {"calls": [], "nested": [], "files": {}, "read": []}
     monkeypatch.setattr(flow, "opened_dossiers", lambda: [{"id": 5, "name": "ALPHA"}, {"id": 6, "name": "BETA"}])
     monkeypatch.setattr(flow, "address_problem", lambda notify: "")
     monkeypatch.setattr(flow, "keep_file", lambda session, name, data: state["files"].update({name: data}))
 
+    def progress_of(dossier_id):
+        figures = {"progress": 10 * dossier_id, "suspense": dossier_id - 5, "pieces": 4, "exercice": "2026"}
+        return f"Dossier n° {dossier_id}\nAvancement", figures
+
+    def progress_of_many(dossiers):
+        state["read"].append([dossier["id"] for dossier in dossiers])
+        return {dossier["id"]: progress_of(dossier["id"]) for dossier in dossiers}
+
     async def call(cabinet, tool, **arguments):
         state["calls"].append((tool, arguments))
         if tool == "dossier_progress_figures":
-            dossier_id = arguments["dossier_id"]
-            figures = {"progress": 10 * dossier_id, "suspense": dossier_id - 5, "pieces": 4, "exercice": "2026"}
-            return {"status": "ok", "message": f"Dossier n° {dossier_id}\nAvancement", "figures": figures}
+            text, figures = progress_of(arguments["dossier_id"])
+            return {"status": "ok", "message": text, "figures": figures}
         if tool == "send_email":
             return {"status": "ok", "message_id": f"<rapport-{len(state['calls'])}@tarik>"}
         return {"status": "ok"}
@@ -218,6 +225,7 @@ def running(db_cabinet, monkeypatch):
         return "run", done
 
     monkeypatch.setattr(flow, "call", call)
+    monkeypatch.setattr(flow, "progress_of_many", progress_of_many)
     monkeypatch.setattr(calls, "call", call)
     monkeypatch.setattr(clock.runs, "nested", nested)
     monkeypatch.setattr(clock.runs, "start", start)
@@ -312,7 +320,11 @@ def test_a_dossier_s_own_refusal_is_its_line_and_no_dossier_is_nothing_to_say(ru
             raise calls.ToolFailure("Dossier `ALPHA` : Experio n'a pas pu donner son état.")
         return {"status": "ok"}
 
+    def refused(dossiers):  # one dossier refused fails them all: each is read alone
+        raise ConnectionError("Access to unauthorized or invalid companies")
+
     monkeypatch.setattr(flow, "call", call)
+    monkeypatch.setattr(flow, "progress_of_many", refused)
     assert "**2** en échec" in asyncio.run(clock.ran(db_cabinet, row))
     plain = next(data for name, data in running["files"].items() if name.endswith(".txt")).decode()
     assert plain.startswith("Dossier `ALPHA` : Experio n'a pas pu donner son état.")  # its own words
@@ -472,6 +484,38 @@ def test_a_progress_report_is_a_few_lines_and_every_dossier_s_figures_are_in_the
     assert header[:3] == ("Dossier", "Résultat", "Avancement (%)") and alpha[:3] == ("ALPHA", "Lu", 50)
     shown, page = render(report)  # as the client reads it: headings bold, lists, never a raw mark
     assert "<strong>En bref</strong>" in page and "<ol" in page and "**" not in shown and "**" not in plain(report)
+    assert running["read"] == [[5, 6]] and "dossier_progress_figures" not in dict(running["calls"])  # read at once
+
+
+@pytest.mark.functionality
+def test_a_progress_routine_reads_its_dossiers_chunk_by_chunk(running, db_cabinet, monkeypatch):
+    monkeypatch.setattr(flow, "CHUNK", 1)
+    due_routine("progress")
+    (row,) = clock.claimed()
+    assert "- **2** dossiers parcourus : **2** lus" in asyncio.run(clock.ran(db_cabinet, row))
+    assert running["read"] == [[5], [6]]
+
+
+@pytest.mark.functionality
+def test_dossiers_read_alone_after_a_failed_chunk_stop_at_the_next_period(running, db_cabinet, monkeypatch):
+    due_routine("progress")
+    (row,) = clock.claimed()
+    read = []
+
+    async def progressed(given, dossier_id):  # the next period comes while the first dossier is read
+        read.append(dossier_id)
+        given["until"] = "2000-01-01T00:00:00+00:00"
+        figures = dict.fromkeys(["progress", "pieces_booked", "pieces", "operations_booked", "operations"], 1)
+        figures.update(dossier="ALPHA", suspense=0, exercice="")
+        return {"result": report_files.READ, "detail": "Dossier lu.", "figures": figures}
+
+    def refused(dossiers):
+        raise ConnectionError("Access to unauthorized or invalid companies")
+
+    monkeypatch.setattr(flow, "progress_of_many", refused)
+    monkeypatch.setitem(flow.PARTS, "progress", progressed)
+    report = asyncio.run(clock.ran(db_cabinet, row))
+    assert read == [5] and "**1** lu" in report  # the second one left to the next period, not read
 
 
 @pytest.mark.communication

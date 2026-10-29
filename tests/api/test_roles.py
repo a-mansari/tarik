@@ -20,6 +20,7 @@ from server import server
         ("PUT", "/graphs/traitement/layout"),
         ("DELETE", "/graphs/traitement/layout"),
         ("POST", "/runs/traitement"),
+        ("POST", "/ui/api/executions/r1/stop"),
         ("GET", "/ui/api/comptes"),
         ("GET", "/ui/api/logs-serveur"),
     ],

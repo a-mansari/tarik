@@ -73,13 +73,13 @@ def admin_only(method, path):
     """True when the call (``method``, ``path``) needs an admin.
 
     Admin-only: the cabinets' settings (reading too: they show logins, mailboxes, the whitelist), behaviour and
-    routines, the accounts, the Journal, a change to the content, a change to a canvas's layout, and a run started by
-    hand. Discussion stays open to every member."""
+    routines, the accounts, the Journal, a change to the content, a change to a canvas's layout, and a run started or
+    stopped by hand. Discussion stays open to every member."""
     return (
         path.startswith(
             ("/ui/api/settings", "/ui/api/comportement", "/ui/api/routines", "/ui/api/comptes", "/ui/api/logs-serveur")
         )
-        or (method == "POST" and path.startswith(("/ui/api/tarik-prompts", "/runs/")))
+        or (method == "POST" and path.startswith(("/ui/api/tarik-prompts", "/runs/", "/ui/api/executions/")))
         or (method in ("PUT", "DELETE") and path.startswith("/graphs/"))
     )
 
@@ -222,7 +222,7 @@ async def start(request: Request):
     run_id, task = await runs.start(name, payload)
     await audit.record(request.state.user["email"], "run_started", name, run_id=run_id)
     if payload.get("wait", True):
-        await task
+        await asyncio.wait({task})  # stopped meanwhile (runs.stop): its run says so
         return JSONResponse(await runs.run(run_id))
     return JSONResponse({"run_id": run_id, "status": "queued"}, status_code=202)
 
@@ -410,6 +410,7 @@ app = Starlette(
         Route("/ui/api/harnais", api.harness.harness_page),
         Route("/ui/api/executions", api.runs.runs_page),
         Route("/ui/api/executions/{run_id}", api.runs.run_page),
+        Route("/ui/api/executions/{run_id}/stop", api.runs.stop_page, methods=["POST"]),
         Mount("/ui/assets", StaticFiles(directory=api.runs.WEB / "assets", check_dir=False), name="assets"),
         Route("/", api.runs.home),
         Route("/login", api.runs.shell),

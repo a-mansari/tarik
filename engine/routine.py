@@ -5,11 +5,11 @@ Its report's address is checked again first (live: someone gone pauses the routi
 routine hands its words to the agent once (a Discussion run in the routine's session: Tarik's reach, nothing confirmed,
 only the workflows that prepare). The other kinds run on each dossier Tarik's Experio account may open, one step per
 dossier: « tva » and « ras » a Déclarations run in its routine mode (a declaration made, none taken up nor declared),
-« progress » the dossier's progress. A dossier's failure is a line of the report, never the end of the others; the
-dossiers not reached when the next period comes (``until``) are counted, left to it. The report goes by email to
-the routine's ``notify``: a few lines in its body, every dossier in the Excel, CSV and text files joined, with the
-files the runs made (the XML). At most RUNNING_AT_ONCE dossiers or instructions run
-at once across cabinets: a cabinet's routines never take the slots its clients' own runs need."""
+« progress » the dossier's progress, CHUNK dossiers a step read at once. A dossier's failure is a line of the report,
+never the end of the others; the dossiers not reached when the next period comes (``until``) are counted, left to it.
+The report goes by email to the routine's ``notify``: a few lines in its body, every dossier in the Excel, CSV and
+text files joined, with the files the runs made (the XML). At most RUNNING_AT_ONCE steps or instructions run at once
+across cabinets: a cabinet's routines never take the slots its clients' own runs need."""
 
 import asyncio
 import operator
@@ -27,6 +27,7 @@ from engine.tools.core.outbox import keep_file
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted
 from engine.tools.dossiers import routine_report as report_files
+from engine.tools.dossiers.progress import progress_of_many
 from engine.tools.dossiers.routines import ZONE, address_problem
 from engine.tools.dossiers.search import opened_dossiers
 from engine.tools.emails.inbox import opened_thread, thread_of_session
@@ -37,14 +38,14 @@ RUNNING_AT_ONCE = 2  # dossiers or instructions running at once, all cabinets to
 INSTRUCTION_SECONDS = 30 * 60  # an instruction's agent run is cut off after this: the other routines wait for it
 BODY_CHARACTERS = 20_000  # an instruction's reply longer than this goes as a text file, its start in the email
 EVERYWHERE = asyncio.Semaphore(RUNNING_AT_ONCE)
+CHUNK = 100  # a « progress » routine's dossiers read in one step: Experio's calls cover them all (progress_of_many)
 
 
 class Run(TypedDict, total=False):
     call: dict
     run_id: str
     outcomes: Annotated[list, operator.add]
-    dossiers: list  # [{id, name}] the routine goes through
-    dossier: dict  # one of them, in its own step
+    dossiers: list  # [{id, name}] the routine goes through, then those of one step
     parts: Annotated[list, operator.add]  # the instruction's reply, or each dossier's {dossier, result, detail, ...}
     report: str
     instructed: bool  # an instruction's agent replied (its conversation ends on that reply, nothing left open)
@@ -122,18 +123,26 @@ async def listed(state: Run):
 
 
 def each_dossier(state: Run):
-    """Route each dossier to its own "dossier" step; straight to the report when there is none."""
-    if not state.get("dossiers"):
+    """Route each dossier to its own "dossier" step (« progress »: CHUNK dossiers a step); straight to the report when
+    there is none."""
+    found = state.get("dossiers")
+    if not found:
         return "rapport"
     given = {"call": state["call"], "run_id": state["run_id"]}
-    return [Send("dossier", {**given, "dossier": dossier}) for dossier in state["dossiers"]]
+    size = CHUNK if state["call"]["task"] == "progress" else 1
+    return [Send("dossier", {**given, "dossiers": found[i : i + size]}) for i in range(0, len(found), size)]
 
 
 async def progressed(given, dossier_id):
     """Return a « progress » routine's part for one dossier: where it stands, its text and its figures
     (dossier_progress_figures)."""
     result = await call(given["cabinet"], "dossier_progress_figures", dossier_id=dossier_id)
-    return {"result": report_files.READ, "detail": result["message"], "figures": result["figures"]}
+    return read_part(result["message"], result["figures"])
+
+
+def read_part(text, figures):
+    """Return a dossier's part of a « progress » report, read alone or with its chunk: one row either way."""
+    return {"result": report_files.READ, "detail": text, "figures": figures}
 
 
 async def declared(given, dossier_id):
@@ -161,25 +170,53 @@ PARTS = {"progress": progressed, "tva": declared, "ras": declared}  # a kind: it
 
 
 async def one_dossier(state: Run):
-    """Graph node, once per dossier: its part of the report (PARTS), unless the next period came first (``until``).
-    A failure is its line of the report: the cause is logged, the client reads Tarik's usual words."""
-    given, dossier = state["call"], state["dossier"]
-    left = {"dossier": dossier["name"], "result": report_files.LEFT, "detail": "La période suivante est arrivée avant."}
-    late = {"parts": [left], "outcomes": [{"status": "stop", "message": f"{dossier['name']} : laissé."}]}
+    """Graph node, once per step's dossiers: each one's part of the report (PARTS; « progress » reads them all at
+    once, progress_of_many, else each alone), unless the next period came first (``until``). A failure is its line
+    of the report: the cause is logged, the client reads Tarik's usual words."""
+    given, chunk = state["call"], state["dossiers"]
+    left = {"result": report_files.LEFT, "detail": "La période suivante est arrivée avant."}
+    late = {
+        "parts": [{**left, "dossier": dossier["name"]} for dossier in chunk],
+        "outcomes": [{"status": "stop", "message": f"{dossier['name']} : laissé."} for dossier in chunk],
+    }
     if datetime.now(ZONE) >= datetime.fromisoformat(given["until"]):  # the next period: the rest is left to it
         return late
+    read = {}
     async with EVERYWHERE:
         if datetime.now(ZONE) >= datetime.fromisoformat(given["until"]):  # it came while waiting for a turn
             return late
-        try:
-            part, status = await PARTS[given["task"]](given, dossier["id"]), "ok"
-        except Exception as error:
-            where = f"{given['cabinet']} routine {given['routine_id']} dossier {dossier['id']}"
-            log(f"{where}: {type(error).__name__}: {error}")
-            words = str(error) if isinstance(error, ToolFailure) else CRASHED
-            part, status = {"result": report_files.FAILED, "detail": words}, "error"
-    part["dossier"] = dossier["name"]
-    return {"parts": [part], "outcomes": [{"status": status, "message": f"{dossier['name']} : {part['detail']}"}]}
+        if given["task"] == "progress":
+            try:
+                read = await within(given["cabinet"], progress_of_many, chunk)
+            except Exception as error:  # a dossier Experio refuses fails them all: each is then read alone
+                log(f"{given['cabinet']} routine {given['routine_id']} dossiers: {type(error).__name__}: {error}")
+    parts, outcomes = [], []
+    for at, dossier in enumerate(chunk):
+        if dossier["id"] in read:
+            text, figures = read[dossier["id"]]
+            part, status = read_part(text, figures), "ok"
+        else:  # read alone, a turn each as before the chunks: other cabinets' routines go in between
+            if datetime.now(ZONE) >= datetime.fromisoformat(given["until"]):
+                parts += late["parts"][at:]
+                outcomes += late["outcomes"][at:]
+                break
+            async with EVERYWHERE:
+                part, status = await alone(given, dossier)
+        part["dossier"] = dossier["name"]
+        parts.append(part)
+        outcomes.append({"status": status, "message": f"{dossier['name']} : {part['detail']}"})
+    return {"parts": parts, "outcomes": outcomes}
+
+
+async def alone(given, dossier):
+    """Return (part, status): one dossier's part of the report (PARTS), its failure being its line of the report."""
+    try:
+        return await PARTS[given["task"]](given, dossier["id"]), "ok"
+    except Exception as error:
+        where = f"{given['cabinet']} routine {given['routine_id']} dossier {dossier['id']}"
+        log(f"{where}: {type(error).__name__}: {error}")
+        words = str(error) if isinstance(error, ToolFailure) else CRASHED
+        return {"result": report_files.FAILED, "detail": words}, "error"
 
 
 async def report(state: Run):
@@ -262,5 +299,5 @@ run.add_edge("dossier", "rapport")
 run.add_edge("rapport", "envoi")
 run.add_edge("envoi", "fin")
 run.add_edge("fin", END)
-# One dossier at a time per routine: each routine waits for EVERYWHERE with one dossier, so cabinets take turns
+# One step at a time per routine: each routine waits for EVERYWHERE with one step's dossiers, so cabinets take turns
 graph = run.compile(name="Tarik - Routine").with_config(max_concurrency=1)

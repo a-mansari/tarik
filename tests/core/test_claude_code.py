@@ -5,6 +5,7 @@ import json
 import os
 import stat
 import threading
+import time
 
 import pytest
 from langchain_anthropic.chat_models import convert_to_anthropic_tool
@@ -80,6 +81,44 @@ def test_a_call_waits_for_a_free_cli_process_and_gives_up_at_its_timeout(tmp_pat
     with cabinets.using("cabinet_a"), pytest.raises(claude_code.ClaudeCodeError, match="free"):
         claude_code.ask("sys", [], {"type": "object"}, timeout=0.05)
     assert not (tmp_path / "args").exists()  # no CLI started
+
+
+@pytest.mark.technical
+def test_a_stopped_run_s_cli_process_is_killed_at_once_and_it_starts_no_other(tmp_path, monkeypatch):
+    fake_cli(tmp_path, monkeypatch, {})
+    (tmp_path / "claude").write_text("#!/bin/sh\nexec sleep 30\n")  # a CLI that would answer only after its timeout
+    monkeypatch.setattr(claude_code, "PROCESSES", threading.BoundedSemaphore(1))
+    failed = []
+
+    def asking():
+        usage.ROOT.set("r1")
+        with cabinets.using("cabinet_a"):
+            try:
+                claude_code.ask("sys", [], {"type": "object"}, timeout=30)
+            except claude_code.ClaudeCodeError as error:
+                failed.append(error)
+
+    asked = threading.Thread(target=asking)
+    asked.start()
+    for _ in range(200):  # until its process runs
+        if claude_code.RUNNING:
+            break
+        time.sleep(0.01)
+    started = time.monotonic()
+    claude_code.kill("r1")
+    try:
+        asked.join(5)
+        assert not asked.is_alive() and time.monotonic() - started < 5
+        assert isinstance(failed[0], claude_code.ClaudeCodeStopped)
+        assert not claude_code.RUNNING and claude_code.PROCESSES.acquire(timeout=0)  # its slot back
+        claude_code.PROCESSES.release()
+        asked = threading.Thread(target=asking)  # a retry of the stopped tree: refused, no process started
+        asked.start()
+        asked.join(5)
+        assert isinstance(failed[1], claude_code.ClaudeCodeStopped) and not claude_code.RUNNING
+    finally:
+        claude_code.forget("r1")
+    assert "r1" not in claude_code.KILLED
 
 
 @pytest.mark.technical

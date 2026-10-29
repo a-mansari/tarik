@@ -18,7 +18,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import wrap_model_call
 from langchain.tools import ToolRuntime, tool
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.config import get_config
 
 from engine import content, prompts
@@ -601,6 +601,29 @@ async def skills_now(request, handler):
     return await handler(request.override(messages=current_skills(request.messages)))
 
 
+# What a tool call left unanswered tells the model: its run was stopped (runs.stop) or cut off while the tool worked.
+UNANSWERED = "Pas de réponse : l'exécution a été arrêtée pendant cet outil. Rien n'est sûr de ce qu'il a fait."
+
+
+def answered(messages):
+    """Return ``messages`` with an UNANSWERED tool message right after each AI message for each of its tool calls that
+    has no answer in them: the model's provider refuses a conversation with a tool call left unanswered."""
+    known = {message.tool_call_id for message in messages if isinstance(message, ToolMessage)}
+    found = []
+    for message in messages:
+        found.append(message)
+        for asked in getattr(message, "tool_calls", None) or []:
+            if asked["id"] not in known:
+                found.append(ToolMessage(UNANSWERED, tool_call_id=asked["id"], name=asked["name"]))
+    return found
+
+
+@wrap_model_call
+async def tool_calls_answered(request, handler):
+    """Middleware: show the model every tool call of the conversation answered (answered)."""
+    return await handler(request.override(messages=answered(request.messages)))
+
+
 @wrap_model_call
 async def usage_counted(request, handler):
     """Middleware: keep each MiniMax call's tokens and cost in the run's cabinet (usage.counted). ChatClaudeCode's
@@ -689,5 +712,5 @@ def make_agent(config=None, chat=None):
         name=f"Tarik - {cabinet_of(config)}",
         checkpointer=CHECKPOINTER,
         # each model call's prompt saved (Prompts page), as the model saw it, and its tokens and cost (dashboard)
-        middleware=[skills_now, prompts.logged, usage_counted],
+        middleware=[skills_now, tool_calls_answered, prompts.logged, usage_counted],
     )

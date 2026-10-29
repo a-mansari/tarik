@@ -1,8 +1,10 @@
 """Experio calls for the current cabinet: login, XML-RPC and JSON-RPC calls, test mode (DRY_RUN), the guards every
 tool goes through, and the invoice form helpers."""
 
+import ast
 import contextlib
 import http.client
+import re
 import threading
 import time
 import xmlrpc.client
@@ -224,7 +226,10 @@ def odoo_json(model, method, *args, **kw):
     answer = once_more_if_cut(method in READS, f"odoo_json {model}.{method}", post)
     if "error" in answer:
         data = answer["error"].get("data", {})
-        raise ExperioRefusal(data.get("message") or answer["error"].get("message"), data.get("name"))
+        message = data.get("message") or answer["error"].get("message")
+        if data.get("name") == "odoo.exceptions.RedirectWarning" and data.get("arguments"):
+            message = data["arguments"][0]  # the others: its action, button and context (odoo/exceptions.py:42)
+        raise ExperioRefusal(message, data.get("name"))
     return answer.get("result")
 
 
@@ -423,19 +428,38 @@ def warns(invoice_id, check, context):
     return None
 
 
+# A MissingError's last line, the record's model and ids and Tarik's user id: « (Record: exp.invoice(812,), User: 7) »
+# (odoo/fields.py __get__), « (Document type: exp.invoice, Operation: write, Records: [812], User: 7) »
+# (odoo/models.py check_access_rule, Odoo 15), in English or French (« Utilisateur : 7 »).
+RECORD_LINE = re.compile(r"\(.*\b(User|Utilisateur) ?: \d+\)")
+# _check_company's UserError lists the records of the other dossier, by name (odoo/models.py _check_company).
+OTHER_DOSSIER = re.compile(r"(Incompatible companies on records|Sociétés incompatibles sur les enregistrements)")
+
+
 def experio_refusal(error):
     """Return Experio's own message in ``error`` on one line, 300 characters at most: an ExperioRefusal's whole
     message (it may hold several lines: « ...for the company: \n: DOSSIER »), else the last line of the error's
-    text (an XML-RPC fault's traceback)."""
-    if isinstance(error, ExperioRefusal):
-        return " ".join(str(error).split())[:300]
+    text (an XML-RPC fault's traceback). A MissingError's record line is left out, an incompatible-companies list
+    (another dossier's names) told in one sentence; an XML-RPC RedirectWarning (its arguments' repr: message, action,
+    button, context) gives its message."""
     text = error.faultString if isinstance(error, xmlrpc.client.Fault) else str(error)  # a Fault's str is its repr
-    return text.strip().splitlines()[-1][:300]
+    if OTHER_DOSSIER.match(text.strip()):
+        return "un enregistrement utilisé appartient à un autre dossier"
+    lines = [line for line in text.strip().splitlines() if line.strip() and not RECORD_LINE.fullmatch(line.strip())]
+    if isinstance(error, ExperioRefusal):
+        return " ".join(" ".join(lines).split())[:300]
+    last = lines[-1] if lines else ""
+    if isinstance(error, xmlrpc.client.Fault) and last.startswith("(") and len(last) < 20_000:  # parsed in memory
+        with contextlib.suppress(ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
+            value = ast.literal_eval(last)  # literals only, nothing run
+            last = " ".join(str(value[0]).split()) if isinstance(value, tuple) and value else last
+    return last[:300]
 
 
-# Experio refusing, over JSON-RPC: its checks (CHECK_REFUSALS) and RedirectWarning, not a UserError (odoo/exceptions.py
-# :30) but sent with faultCode 2 over XML-RPC. Not an AccessError: its text names the dossier the record belongs to.
-REFUSALS = (*CHECK_REFUSALS, "odoo.exceptions.RedirectWarning")
+# Experio refusing, over JSON-RPC: what it sends with faultCode 2 over XML-RPC: its checks (CHECK_REFUSALS),
+# RedirectWarning (not a UserError: odoo/exceptions.py:30) and MissingError (a record gone; experio_refusal leaves
+# out its record line). Not an AccessError: its text names the dossier the record belongs to.
+REFUSALS = (*CHECK_REFUSALS, "odoo.exceptions.RedirectWarning", "odoo.exceptions.MissingError")
 
 
 def is_refusal(error):

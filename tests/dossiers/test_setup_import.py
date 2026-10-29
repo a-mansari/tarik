@@ -62,7 +62,9 @@ def test_experio_refusing_the_copy_gives_its_reason(copying, monkeypatch):
     monkeypatch.setattr(
         setup, "odoo_json", lambda *a: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "compte 4421 manquant"))
     )
-    with pytest.raises(ToolError, match="Experio n'a pas pu copier la configuration : compte 4421 manquant"):
+    with pytest.raises(
+        ToolError, match=r"^Dossier `.+` : Experio n'a pas pu copier la configuration \(compte 4421 manquant\)\.$"
+    ):
         setup.copy_configuration(557, 890)
 
 

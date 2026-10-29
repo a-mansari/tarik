@@ -155,5 +155,5 @@ def test_experio_refusing_the_change_gives_its_reason(experio, monkeypatch):
     monkeypatch.setattr(
         onboarding, "odoo_json", lambda *a: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "RC deja pris"))
     )
-    with pytest.raises(ToolError, match="Experio refuse de modifier le dossier `Gecafisc` : RC deja pris"):
+    with pytest.raises(ToolError, match=r"^Dossier `Gecafisc` : Experio refuse de le modifier \(RC deja pris\)\.$"):
         onboarding.update_dossier(557, rc="331245", client_message="RC 331245")

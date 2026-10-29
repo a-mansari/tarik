@@ -418,7 +418,9 @@ def test_an_excel_template_refused_says_experio_reason(experio, monkeypatch):
 
     monkeypatch.setattr(intake, "import_canvas", refused)
     file_id = saved("releve.xlsx", canvas(), "statement")
-    with pytest.raises(ToolError, match=r"relevé releve.xlsx \(aucune ligne dans le canevas\)"):
+    with pytest.raises(
+        ToolError, match=r"^`releve.xlsx` : Experio n'a pas pu importer le relevé \(aucune ligne dans le canevas\)\.$"
+    ):
         intake.import_bank_statement(file_id, 857)
     assert row(file_id, "statement_id") == (None,)
 

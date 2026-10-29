@@ -73,11 +73,31 @@ async def each_thread(state: Run):
         )
         for thread in state["threads"]
     ]
+    try:
+        results = await asyncio.gather(*thread_runs, return_exceptions=True)
+    except asyncio.CancelledError:
+        why = runs.STOPPED.get(runs.ROOT.get())
+        if why:  # stopped by hand: each thread set aside with why, never taken up again once its lease is over
+            asides = [aside(cabinet, thread, why) for thread in state["threads"]]
+            await asyncio.shield(asyncio.gather(*asides, return_exceptions=True))
+        raise
     done = []
-    for result in await asyncio.gather(*thread_runs, return_exceptions=True):
+    for result in results:
         if isinstance(result, dict):  # a failed thread: its exception, nothing done
             done += result.get("done", [])
     return {"done": done}
+
+
+async def aside(cabinet, thread, why):
+    """Set ``thread`` aside unanswered for ``why`` (finish_thread, sent False)."""
+    await call(
+        cabinet,
+        "finish_thread",
+        thread_id=thread["thread_id"],
+        message_ids=thread["message_ids"],
+        sent=False,
+        reason=why,
+    )
 
 
 def kind(state: Thread):
@@ -126,7 +146,8 @@ async def kept_informed(cabinet, thread, work):
                 await within(cabinet, send_progress, thread["thread_id"])
         return await task
     finally:
-        task.cancel()  # the thread's run cancelled: its agent too
+        task.cancel()  # the thread's run cancelled: its agent too, waited for, so it ends as part of its tree
+        await asyncio.wait({task})
 
 
 async def ask(state: Thread):
