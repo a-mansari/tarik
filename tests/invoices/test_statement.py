@@ -1300,3 +1300,23 @@ def test_a_name_the_label_does_not_carry_creates_no_tiers(experio, monkeypatch, 
     named_in_label(experio, monkeypatch, "VIR EMIS WEB SOCIETE ATLAS NEGOCE 0912", name)
     pointed()
     assert experio["created"] == []
+
+
+@pytest.mark.security
+def test_a_model_that_never_agrees_with_itself_parks_nothing_in_suspense(experio):
+    """Two asks, twice: four different answers. That is a failed model, not « nothing says what these lines are »."""
+    with_suspense(experio, payment_ref="PRLV FRAIS PACK GLOBAL BUSINESS")
+    ways = [{"lines": [{"id": 2, "operation": op, "payment_method": None}]} for op in (13136, 13131, 13156, 13326)]
+    experio["answer"] = tuple(ways)
+    message = pointed()["message"]
+    assert not [w for w in experio["written"] if w[0] == [2] and "operation_id" in w[1]]
+    assert "compte d'attente" not in message
+
+
+@pytest.mark.functionality
+def test_tarik_s_own_suspense_is_never_remembered_as_the_dossier_s_habit(experio):
+    with_suspense(experio, payment_ref="CD AP 000155 030826")
+    experio["history"] = [past("CD AP 000001 010126", 13326), past("CD AP 000002 020126", 13326)]  # parked before
+    experio["answer"] = {"lines": [{"id": 2, "operation": 13136, "payment_method": None}]}
+    pointed()
+    assert experio["asked"]  # the memory gave no operation: the model was asked, not the suspense repeated

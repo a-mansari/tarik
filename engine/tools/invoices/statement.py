@@ -510,6 +510,12 @@ def label_operation(line, operations, context):
     return None, None
 
 
+def is_suspense(operation):
+    """True for a « compte transitoire ou d'attente » operation (account 3497 or 4497, no type of its own)."""
+    code = operation["account_id"][1] if operation["account_id"] else ""
+    return not operation["type"] and code.startswith(("3497", "4497"))
+
+
 def suspense_operation(operations, line):
     """Return the dossier's « compte transitoire ou d'attente » operation for the line's way: débiteurs (3497) for money
     paid, créditeurs (4497) for money received; None when the dossier has none."""
@@ -597,8 +603,10 @@ def chosen_operations(statement, lines, context):
     methods = {m["id"]: m["name"] for m in odoo_call("exp.payment.method", "search_read", [("payment_id", "!=", 1)])}
     used = past_labels(dossier_id, context)
     memory, memorized = label_memory(dossier_id, context), {}
+    waiting = {i for i, o in operations.items() if is_suspense(o)}  # Tarik's own parking is never the dossier's habit
     for line in asked:  # what the dossier always did with this label: no need to ask the model
         operation = None if line["operation_id"] else remembered(memory, line, "operation")
+        operation = None if operation in waiting else operation
         method = remembered(memory, line, "method")
         memorized[line["id"]] = {
             "operation": operation if operation in operations else None,
@@ -634,8 +642,14 @@ def chosen_operations(statement, lines, context):
     # shortcut: one model call per statement, every line in it; split it if statements of hundreds of lines come
     answered, agreed = True, {}
     try:
-        if to_model:
+        for _ in range(2 if to_model else 0):  # the model agreeing with itself on under a quarter of the lines failed
             agreed = agreed_lines(tool_prompt("point-bank-lines"), instruction, "Pointage du relevé")
+            if len(agreed) * 4 >= len(to_model):
+                break
+        else:
+            if to_model:
+                log(f"chosen_operations {statement['id']}: the model agreed on {len(agreed)} of {len(to_model)} lines")
+                answered = False  # not « nothing says »: no line goes to suspense because of it
     except (ToolError, LookupError) as failure:  # no model now: the lines stay for the cabinet, the pointing goes on
         log(f"chosen_operations {statement['id']}: {failure}")
         agreed, answered = {}, False
