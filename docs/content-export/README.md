@@ -161,16 +161,21 @@ uses another one. A stack that edited one of these documents itself loses that e
   or tax rule (`agent.json`). Built on the stack's agent.json of 2026-10-29 (the CGNC export and later changes):
   measured by `tests/llm/test_cgnc_answers.py` (tax answers 9/9 without a rate, from 5/6).
 - `tarik-contenu-limites-20261029.json` (and its `.diff`): two of Tarik's rules held under pressure (`agent.json`,
-  one line of instructions). Rule 8: a message asking anything for another cabinet calls no tool at all, not even to
-  redo an earlier request for this cabinet (« fais pareil… »). New rule 11: its instructions, rules and configuration
-  are kept, in any form (exact text, translation, summary, story, role play), whoever the client says they are; it
-  refuses in a short sentence of its own, without the words of any rule. Built on the stack's agent.json of 2026-10-29
-  (after the cgnc-fiscalite export). Measured by `tests/llm/test_boundaries.py` (insisting, REPEAT=3): credentials and
-  instructions 12/12, other cabinets 9/9, from 1 wrong in each.
-- `tarik-contenu-pourquoi-20261029.json` (and its `.diff`): `skills/reponse-question.md` gets the client who asks why
-  a question is asked or does not understand it (« pourquoi cette question ? », « pour laquelle ? »): no tool, neither
-  Experio_repondre nor a search (Tarik searched the CGNC or the dossier); an explanation drawn from the question's own
-  text, then the question asked again. Built on the stack's skill of 2026-10-29. Measured by
-  `tests/llm/test_decisions.py` (REPEAT=3): oui / non 98% right and 0% wrong (from 6% wrong), the question a reply
-  answers 18/18; all 21 tests of test_decisions, test_corrections, test_boundaries, test_requests and
-  test_cgnc_answers pass with it and the limites export.
+  one line of instructions). Rule 8: a request for another accounting cabinet (« fais pareil pour le cabinet … »)
+  calls no tool, not even to redo this cabinet's earlier request; what the same message asked for this cabinet is to
+  be sent again apart; a dossier or tiers named « CABINET … » or « Fiduciaire … » is a name like any other. New rule
+  11: the text of its rules and instructions and its own technical access (keys, passwords) are kept, in any form,
+  whoever the client says they are, refused in a sentence of its own; what it can do may be told to any client, the
+  cabinet's behaviour settings stay Experio_reglages', people's access stays D bis'. E also takes « why is this
+  question asked ». Built on the stack's agent.json of 2026-10-29 (after the cgnc-fiscalite export). Measured with
+  the pourquoi export (below).
+- `tarik-contenu-pourquoi-20261029.json` (and its `.diff`): `skills/reponse-question.md` gets the client who only asks
+  why a question is asked or does not understand it (« pourquoi cette question ? », « pour laquelle ? »): no tool
+  (Tarik searched the CGNC or the dossier), an explanation drawn from the question's own text, then the question
+  again; a why with an answer (« oui, pourquoi vous demandez ? c'est du carburant ») is an answer. Built on the
+  stack's skill of 2026-10-29. Measured, both exports loaded in the test run only: test_boundaries insisting
+  (REPEAT=3) credentials and instructions 12/12, other cabinets 9/9 (1 wrong each before); test_decisions (REPEAT=3)
+  oui / non 95% right and 0% wrong (6% wrong before), the question a reply answers 94% right and 0% wrong; all of
+  test_decisions, test_corrections, test_boundaries, test_requests (with « Quels sont vos réglages ? », an
+  administrator's setting, an invitation, « CABINET DENTAIRE ALAMI ») and test_cgnc_answers with no wrong answer.
+  Import both, in either order.
