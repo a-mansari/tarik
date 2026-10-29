@@ -28,12 +28,13 @@ from datetime import UTC, date, datetime, timedelta
 
 import openpyxl
 
-from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop, tool, wait
+from engine.tools.core.app import ToolError, log, ok, question, routine, step_tool, stop, tool, wait
 from engine.tools.core.cabinets import cabinet_db, current
 from engine.tools.core.config import ENTRY_FILES, TEST_MODE
 from engine.tools.core.experio import (
     dossier_lock,
     dry_run,
+    experio_refusal,
     in_dossier,
     misplaced_journals,
     odoo_call,
@@ -41,10 +42,11 @@ from engine.tools.core.experio import (
     refused,
     require_dossier,
     test_mode_note,
+    would,
 )
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
-from engine.tools.dossiers.banks import bank_named, give_bank, journal_bank
+from engine.tools.dossiers.banks import bank_named, give_bank, journal_bank, padded
 from engine.tools.invoices.exercice import open_exercice
 from engine.tools.invoices.intake import file_row
 from engine.tools.invoices.journal import SET, set_journal
@@ -882,39 +884,69 @@ def setup_status(dossier_id: int) -> dict:
     return ok(f"Dossier `{dossier}` : " + " ; ".join(parts) + ".")
 
 
-def fill_posting_settings(dossier_id, context):
+def tiers_account(dossier_id, side, company, context, done, problems):
+    """Make the dossier's CGNC ``side`` ("customer" or "supplier") account (TIERS_ACCOUNTS) when one of its settings
+    is unset in ``company`` and the chart has none, adding what was made, or would be in test mode, to ``done``. When
+    the chart has one, the detection did not take it: its type is not receivable / payable (invoice res_company.py:102),
+    added to ``problems`` for the cabinet."""
+    prefix, name = TIERS_ACCOUNTS[side]
+    unset = [label for key, label in POSTING_SETTINGS.items() if f"{side}_account" in key and not company[key]]
+    if not unset:
+        return
+    in_chart = [("company_id", "=", dossier_id), ("code", "=like", prefix + "%")]
+    found = odoo_call("exp.account", "search_read", in_chart, fields=["code"], limit=1, context=context)
+    if not found:
+        code = padded(dossier_id, prefix)
+        if not dry_run():
+            odoo_call("exp.account", "create", {"code": code, "name": name, "company_id": dossier_id}, context=context)
+        done.append(f"compte `{code} {name}` {would('créé')}")
+    elif not dry_run():  # in test mode the detection has not run yet
+        problems.append(
+            f"le compte `{found[0]['code']}` n'est pas du type tiers {name.lower()} qu'Experio demande "
+            f"pour le {' et le '.join(unset)} : son type est à corriger dans le plan comptable"
+        )
+
+
+def fill_posting_settings(dossier_id, company, context):
     """Fill the posting settings (POSTING_SETTINGS) the dossier lacks, as the Configuration screen does: Experio's
     « Détection automatique » (res.company auto_detect_settings, which also moves another dossier's journal to the
     dossier's own of the same code), then the CGNC tiers account (TIERS_ACCOUNTS) when the chart has none, whose
     creation reruns the detection (exp_account.py detect_accounts_chart_length), then the purchase or sale journal
-    when the dossier has none (set_journal). Returns what was done (French): what was made, then the settings that
-    changed. [] in test mode, where nothing is written."""
-    if dry_run():
-        return []
-    done = []
+    when the dossier has none (set_journal). ``company``: the dossier's POSTING_SETTINGS as read.
+
+    Returns (done, problems, company): what was done, or would be in test mode (French), the made items then the
+    settings that changed; what Tarik could not do (a write Experio refused, a 3421 / 4411 account Experio does not
+    take); the settings as they are now. Nothing is called when no setting is unset or another dossier's."""
+    journals = [key for key in POSTING_SETTINGS if "journal" in key]
+    wrong = misplaced_journals(dossier_id, journals)
+    if all(company[key] for key in POSTING_SETTINGS) and not wrong:
+        return [], [], company
+    done, problems, before = [], [], company
     with dossier_lock(dossier_id):
-        before = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
-        odoo_json("res.company", "auto_detect_settings", [dossier_id], context=context)
-        fields = [*POSTING_SETTINGS, "accounts_chart_length"]
-        company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
-        for side, (prefix, name) in TIERS_ACCOUNTS.items():
-            unset = [key for key in POSTING_SETTINGS if f"{side}_account" in key and not company[key]]
-            in_chart = [("company_id", "=", dossier_id), ("code", "=like", prefix + "%")]
-            if unset and not odoo_call("exp.account", "search_count", in_chart, context=context):
-                code = prefix.ljust(company["accounts_chart_length"] or 0, "0")  # padded as banks.py does
-                values = {"code": code, "name": name, "company_id": dossier_id}
-                odoo_call("exp.account", "create", values, context=context)
-                done.append(f"compte `{code} {name}` créé")
-        for kind in ("purchase", "sale"):
-            # after the detection, a journal setting is either the dossier's own or unset (no journal of the kind)
-            if not all(company[key] for key in POSTING_SETTINGS if f"{kind}_journal" in key):
-                done.append(set_journal(dossier_id, kind))
-                SET.pop((current(), dossier_id), None)  # told here, not again on the first invoice
+        try:
+            if not dry_run():
+                odoo_json("res.company", "auto_detect_settings", [dossier_id], context=context)
+                company = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
+                # after the detection, a journal setting is either the dossier's own or unset (none of its kind)
+                wrong = {key: False for key in journals if not company[key]}
+            for side in TIERS_ACCOUNTS:
+                tiers_account(dossier_id, side, company, context, done, problems)
+            for kind in ("purchase", "sale"):
+                if any(f"{kind}_journal" in key for key in wrong):
+                    done.append(set_journal(dossier_id, kind).removeprefix(TEST_MODE))
+                    SET.pop((current(), dossier_id), None)  # told here, not again on the first invoice
+        except ToolError as failure:
+            problems.append(f"Tarik n'a pas pu finir le paramétrage : {failure}")
+        except Exception as failure:  # what was done before is still told
+            log(f"fill_posting_settings {dossier_id}: {failure}")
+            problems.append(f"Experio a refusé le paramétrage de Tarik ({experio_refusal(failure)})")
+        if dry_run():
+            return done, problems, company
         after = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
     changed = [label for key, label in POSTING_SETTINGS.items() if after[key] and after[key] != before[key]]
     if changed:
         done.append("réglé(s) dans la configuration du dossier : " + ", ".join(changed))
-    return done
+    return done, problems, after
 
 
 @step_tool
@@ -929,11 +961,13 @@ def setup_problems(dossier_id: int) -> dict:
         f"setup_problems {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner l'état du paramétrage."
     ):
         context = in_dossier(dossier_id)
+        company = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
         still = [("company_id", "=", dossier_id), ("state", "in", ["new", "pending"])]
         # lines still processed may bring the dossier's own journals and accounts: settings are left to them then
         processing = odoo_call("experio.history", "search_count", still, context=context)
-        made = [] if processing else fill_posting_settings(dossier_id, context)
-        company = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
+        made, unfilled = [], []
+        if not processing:
+            made, unfilled, company = fill_posting_settings(dossier_id, company, context)
         reasons = odoo_call(
             "experio.history",
             "read_group",
@@ -942,8 +976,8 @@ def setup_problems(dossier_id: int) -> dict:
             ["error_type"],
             context=context,
         )
-    done = f"fait par Tarik : {', '.join(made)}" if made else ""
-    lines = []
+    done = f"{TEST_MODE + 'Tarik' if dry_run() else 'fait par Tarik'} : {', '.join(made)}" if made else ""
+    lines = [*unfilled]
     if reasons:
         failed = sum(reason["error_type_count"] for reason in reasons)
         lines.append(
