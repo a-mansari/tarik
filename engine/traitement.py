@@ -193,6 +193,7 @@ class File(Given, Outcomes, total=False):
 
     last: dict
     statement_id: int  # the bank statement imported from the file, pointed by POINTING
+    post_asked: bool  # the client asked to post it when sending the file (kept across a question)
 
 
 async def identify(state: File):
@@ -211,6 +212,7 @@ async def import_statement(state: File):
         file_id=state["file_id"],
         dossier_id=call["dossier_id"],
         client_message=call.get("client_message") or "",
+        posting=call.get("comptabiliser") or "",
     )
     return {"last": result, "outcomes": [result]}
 
@@ -279,7 +281,12 @@ async def point_statement(state: File):
     """Graph node: take the statement up once Experio has read it (settle_statement): a TPE statement is settled
     there, a bank statement's lines are pointed next (POINTING)."""
     result = await run_step(state, "settle_statement", file_id=state["file_id"], run_id=state["run_id"])
-    return {"last": result, "outcomes": [result], "statement_id": result.get("statement_id")}
+    return {
+        "last": result,
+        "outcomes": [result],
+        "statement_id": result.get("statement_id"),
+        "post_asked": bool(result.get("post_asked")),
+    }
 
 
 async def post_statement(state: File):
@@ -304,9 +311,9 @@ def after_reading(state: File):  # its end is also an ordinary one: a TPE statem
 
 
 def after_pointing(state: File):
-    """Route to "comptabilisation_releve" only after an ok pointing when the client asked to post (comptabiliser
-    "oui", « comptabilisez »), else END."""
-    asked = state["call"].get("comptabiliser") == "oui"
+    """Route to "comptabilisation_releve" only after an ok pointing when the client asked to post: in this message
+    (comptabiliser "oui") or when sending the statement (post_asked, kept across a question), else END."""
+    asked = state["call"].get("comptabiliser") == "oui" or state.get("post_asked") is True
     return "comptabilisation_releve" if state["outcomes"][-1].get("status") == "ok" and asked else END
 
 

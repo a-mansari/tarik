@@ -41,6 +41,7 @@ from engine.tools.core.words import as_number, normalized, said, tiers_key
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
 from engine.tools.invoices.exercice import with_fiscal_year
+from engine.tools.invoices.tiers import SIDE, series_account
 
 STATEMENT = "exp.bank.statement"
 LINE = "exp.bank.statement.line"
@@ -737,11 +738,24 @@ def named_tiers(statement, lines, context):
                 odoo_call(LINE, "write", [line["id"]], {"partner_id": partner_id}, context=context)
             given += 1
             left.remove(line)
-    for line_id, partner_id in read_tiers(left, offered).items():
+    chosen, names = read_tiers(left, offered)
+    for line_id, partner_id in chosen.items():
         if not dry_run():
             odoo_call(LINE, "write", [line_id], {"partner_id": partner_id}, context=context)
         given += 1
-    return given
+    created, by_name = [], {}
+    for line in left:  # a counterparty the dossier does not know yet: created, once per name, and told
+        name = names.get(line["id"])
+        if not name or line["operation_type"] not in ("purchase", "sale"):
+            continue
+        key = (line["operation_type"], normalized(name))
+        if key not in by_name:
+            by_name[key] = None if dry_run() else created_tiers(line, name, context)
+            created.append(name)
+        if not dry_run():
+            odoo_call(LINE, "write", [line["id"]], {"partner_id": by_name[key]}, context=context)
+        given += 1
+    return given, created
 
 
 LINES_PER_ASK = 50  # lines read by the model at once, so a long statement fits one answer
@@ -753,8 +767,8 @@ def read_tiers(lines, offered):
     line's picker offers (``offered``: {domain: [(id, key, ice, name)]}): the tiers a label names by an
     abbreviation, a brand or a first name, which no whole-name match finds. Asked twice like chosen_operations (see
     agreed_lines), LINES_PER_ASK lines at a time; an id outside the line's own list never counts."""
-    lines = [line for line in lines if 0 < len(offered[line["partner_id_domain"]]) <= TIERS_LISTED]
-    chosen = {}
+    lines = [line for line in lines if len(offered[line["partner_id_domain"]]) <= TIERS_LISTED]
+    chosen, names = {}, {}
     for start in range(0, len(lines), LINES_PER_ASK):
         group = lines[start : start + LINES_PER_ASK]
         domains = sorted({line["partner_id_domain"] for line in group})
@@ -769,18 +783,49 @@ def read_tiers(lines, offered):
         )
         instruction = (
             f"Tiers (id | name):\n{lists}\n\nLines (id | its tiers list | date | amount | label):\n{shown}\n\n"
-            'Answer with only a JSON object: {"lines": [{"id": <line id>, "tiers": <tiers id> or null}]}'
+            'Answer with only a JSON object: {"lines": [{"id": <line id>, "tiers": <tiers id> or null, '
+            '"name": <the counterparty\'s name as written in the label> or null}]}'
         )
         try:
             agreed = agreed_lines(tool_prompt("point-line-tiers"), instruction, "Tiers des lignes")
         except (ToolError, LookupError) as failure:  # no model now: the lines stay for the cabinet
             log(f"read_tiers: {failure}")
-            return chosen
+            return chosen, names
         for line in group:
-            tiers = agreed.get(line["id"], {}).get("tiers")
+            choice = agreed.get(line["id"], {})
+            tiers = choice.get("tiers")
             if type(tiers) is int and tiers in {i for i, *_ in offered[line["partner_id_domain"]]}:
                 chosen[line["id"]] = tiers
-    return chosen
+            elif tiers is None and written_name(choice.get("name"), line["payment_ref"]):
+                names[line["id"]] = " ".join(choice["name"].split())
+    return chosen, names
+
+
+def written_name(name, label):
+    """True when ``name`` is a counterparty's name the label really carries: 4 to 60 characters, letters in it, every
+    word of it in the label (a name the model made up or completed is not one)."""
+    if not isinstance(name, str) or not 4 <= len(name.strip()) <= 60 or not re.search(r"[A-Za-z]{3}", name):
+        return False
+    return all(said(word, normalized(label)) for word in normalized(name).split())
+
+
+def created_tiers(line, name, context):
+    """Create the tiers ``name`` for ``line`` (a customer for a sale, a supplier for a purchase) in its dossier, with
+    the Compte Tiers its dossier's series gives when Experio's own numbering is off; returns its id.
+
+    Experio's partner create runs its own checks and numbering (exp.partner, autofill); a name only, as Tarik creates a
+    tiers for an invoice when the scan prints no ICE."""
+    kind = "sale" if line["operation_type"] == "sale" else "purchase"
+    side = SIDE[kind]
+    company_id = context["allowed_company_ids"][0]
+    values = {"name": name, "type": "company", "company_id": company_id, side["side"]: True}
+    partner_id = odoo_call("exp.partner", "create", values, context=context)
+    made = odoo_call("exp.partner", "read", [partner_id], fields=[side["account"]], context=context)[0]
+    if not made[side["account"]]:  # numbering off: the next code of the dossier's own series, told with the tiers
+        code = series_account({"ice": False, "vat": False}, kind, context)
+        if code:
+            odoo_call("exp.partner", "write", [partner_id], {side["account"]: code}, context=context)
+    return partner_id
 
 
 def owed_invoices(statement, lines, context):
@@ -985,7 +1030,11 @@ def settle_statement(file_id: int, run_id: str = "") -> dict:
             f"settle_statement {statement_id}", f"Relevé TPE n° {statement_id} : Experio a refusé ({{reason}})."
         ):
             return tpe.settle_tpe(statement_id)
-    return routine(f"Relevé n° {statement_id} : lu par Experio.", statement_id=statement_id, bank=True)
+    with cabinet_db() as db:
+        asked = bool(db.execute(Q.file_post_asked, (file_id,)).fetchone()[0])
+    return routine(
+        f"Relevé n° {statement_id} : lu par Experio.", statement_id=statement_id, bank=True, post_asked=asked
+    )
 
 
 # A bank statement's pointing, one step each, as the cabinet works the statement's « Operations » list: Experio's own
@@ -1055,16 +1104,18 @@ def choose_line_operations(statement_id: int) -> dict:
 
 @step_tool
 def name_line_tiers(statement_id: int) -> dict:
-    """Give the statement's lines the one tiers their label names (named_tiers)."""
+    """Give the statement's lines the one tiers their label names, or one created from the name the label carries
+    (named_tiers)."""
+
+    def work(statement, context):
+        given, created = named_tiers(statement, open_lines(statement, context), context)
+        note = f"Tiers créé(s) d'après le libellé : {', '.join(f'`{name}`' for name in created)}." if created else ""
+        return counted(given, "leur tiers, nommé dans le libellé"), note
+
     return completing(
         statement_id,
         "name_line_tiers",
-        lambda statement, context: (
-            counted(
-                named_tiers(statement, open_lines(statement, context), context), "leur tiers, nommé dans le libellé"
-            ),
-            "",
-        ),
+        work,
     )
 
 

@@ -1,0 +1,9 @@
+--- a/tools/point-line-tiers.md
++++ b/tools/point-line-tiers.md
+@@ -10,4 +10,5 @@
+ - Only a tiers of the line's own list, by its id. Never an id from another list.
+ - The label names none of them, names two that fit equally, or is not a payment to or from a third party (bank fees, taxes, salaries, transfers between the company's own accounts): tiers null.
+ - Never guess: a wrong tiers is worse than none, the cabinet completes it.
+-- Answer every line, by its id, with ids from the lists only.
++- The label names a company or a person that is in none of the lists: tiers null and "name" = that name, copied as the label writes it, without the words around it (VIR, RECU, EMIS, DE, REF, SOCIETE, dates, numbers). Never a bank, an administration (CNSS, DGI, TVA, TGR), a bank charge, or a name you complete, correct or translate: only words that are in the label. No clear name: "name" null.
++- Answer every line, by its id, with ids from the lists only; "name" is null whenever tiers is not.

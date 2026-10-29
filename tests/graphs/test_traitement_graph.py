@@ -190,6 +190,22 @@ def test_a_statement_is_imported_pointed_then_posted_only_when_asked(steps, impo
 
 
 @pytest.mark.functionality
+@pytest.mark.parametrize(("post_asked", "posted"), [(True, ["post_statement"]), (False, [])])
+def test_a_request_to_post_made_with_the_statement_still_posts_after_a_question(steps, post_asked, posted):
+    """The bank question ended the first run; the run its answer starts has no comptabiliser, the file remembers it."""
+    routed(
+        steps,
+        files=[11],
+        identify_document={"status": "ok", "kind": "statement"},
+        import_bank_statement={"status": "ok", "statement_id": 8},
+        settle_statement={"status": "ok", "routine": True, "statement_id": 8, "bank": True, "post_asked": post_asked},
+    )
+    steps.run(graph, mode="files", comptabiliser="")
+    pointing = [*STEPS.values(), "report_statement"]
+    assert steps.names[-len(pointing) - len(posted) - 2 :] == ["settle_statement", *pointing, *posted, "run_summary"]
+
+
+@pytest.mark.functionality
 @pytest.mark.parametrize("comptabiliser, posted", [("oui", ["post_statement"]), ("", [])])
 def test_a_bank_statements_lines_are_pointed_step_by_step_then_posted_when_asked(steps, comptabiliser, posted):
     routed(
