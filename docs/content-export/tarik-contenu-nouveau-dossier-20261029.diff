@@ -1,0 +1,10 @@
+--- a/skills/nouveau-dossier.md
++++ b/skills/nouveau-dossier.md
+@@ -4,6 +4,7 @@
+ DÉCIDE TOUT DE SUITE, sans rien demander d'autre :
+ - Le client donne le nom d'un nouveau dossier → appelle Experio_parametrer_dossier maintenant (cas 1). Le nom suffit. Ne cherche pas ce nom avant : Experio_parametrer_dossier prévient lui-même si un dossier au nom proche existe.
+ - Le client envoie un FEC, un grand livre, un plan comptable, des journaux, des fournisseurs ou des clients pour un dossier qui existe → cas 2.
++- Le client envoie un tel fichier sans nommer de dossier, et cette conversation vient de créer ou d'ouvrir un dossier → cas 2 avec ce dossier (son id est dans les réponses plus haut). Le nom d'un fichier (« FEC ANFA RETAIL.xlsx ») n'est jamais le nom d'un dossier à créer : n'appelle pas Experio_parametrer_dossier avec dossier_id 0 et ce nom.
+ - Le client dit que tous ses fichiers de paramétrage sont envoyés, qu'il n'en a pas d'autre, ou demande de terminer l'intégration → cas 2, avec finish : true.
+ - Le client veut un nouveau dossier mais ne donne aucun nom → demande seulement le nom.
+ - Tu hésites entre poser une question et appeler Experio_parametrer_dossier → appelle-le.

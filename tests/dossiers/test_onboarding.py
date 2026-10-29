@@ -225,6 +225,44 @@ def test_a_dossier_this_conversation_created_is_reused_not_created_again(creatin
     assert other["dossier_id"] == 78 and creating[0]["name"] == "DELTA"  # another name: a new dossier
 
 
+def sent_fec(session="s"):
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data) "
+            "values (%s, 'FEC ANFA RETAIL.xlsx', 'application/vnd.ms-excel', 'x')",
+            (session,),
+        )
+
+
+@pytest.mark.functionality
+def test_a_name_that_is_only_a_files_name_reuses_the_dossier_the_conversation_created(creating):
+    """The client said « charge ce FEC »: « ANFA RETAIL » is the file's, not a dossier to create."""
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_results (run_id, session_id, step, status, message, dossier_id) "
+            "values ('r', 's', 'create_dossier', 'ok', 'cree', 77)"
+        )
+    sent_fec()
+    answer = identity.create_dossier(name="ANFA RETAIL", client_message="Merci de charger ce FEC", session_id="s")
+    assert answer["reused"] is True and answer["dossier_id"] == 77 and creating == []
+
+
+@pytest.mark.functionality
+def test_a_name_that_is_only_a_files_name_asks_for_the_dossiers_name_when_none_was_created(creating):
+    sent_fec()
+    answer = identity.create_dossier(name="ANFA RETAIL", client_message="Merci de charger ce FEC", session_id="s")
+    assert answer["status"] == "question" and "nom d'un fichier" in answer["message"] and creating == []
+
+
+@pytest.mark.functionality
+def test_a_name_the_client_wrote_is_created_even_when_their_file_carries_it(creating):
+    sent_fec()
+    answer = identity.create_dossier(
+        name="ANFA RETAIL", client_message="Créez le dossier ANFA RETAIL, voici son FEC", session_id="s"
+    )
+    assert answer["dossier_id"] == 78 and creating[0]["name"] == "ANFA RETAIL"
+
+
 @pytest.mark.security
 def test_no_dossier_is_created_with_another_dossiers_ice(creating):
     answer = identity.create_dossier(

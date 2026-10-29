@@ -123,3 +123,6 @@ uses another one. A stack that edited one of these documents itself loses that e
   d'opération », « Tiers des opérations » and « Comptabilisation du relevé » (`labels.json`). Import it after
   the pointage-etapes export, once the stack runs the commit with the tiers reading: before, check.py and the
   consistency test find no `tools/point-line-tiers.md`, and the tiers reading is skipped (the lines stay for the cabinet).
+- `tarik-contenu-nouveau-dossier-20261029.json` (and its `.diff`): `skills/nouveau-dossier.md` says a file sent without a
+  dossier's name goes to the dossier this conversation just created or opened (case 2), and that a file's name is never
+  a dossier to create. Import it with the commit that refuses a dossier named after a file (`create_dossier`).
