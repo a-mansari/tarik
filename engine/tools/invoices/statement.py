@@ -377,12 +377,15 @@ def past_labels(dossier_id, context, each=3):
 
 # The words of a label that say how it was paid, per payment method (normalized name): VIR, CHQ, PRLV...
 METHOD_WORDS = {
-    "virement": ("vir", "virement", "hb"),  # HB: the bank's home banking, a transfer
+    "virement": ("vir", "virement"),
     "cheque": ("chq", "cheque"),
     "prelevement": ("prlv", "prelevement"),
     "effet": ("effet", "lcn"),
     "espece": ("espece", "especes"),
     "carte": ("carte", "cb"),
+    # HB: the bank's home banking, which the cabinets pointed « Autres » on 240 of 404 purchase lines (Prélèvement 78,
+    # Chèque 47, Virement 39) in 11 dossiers: no method of its own
+    "autres": ("hb",),
 }
 
 

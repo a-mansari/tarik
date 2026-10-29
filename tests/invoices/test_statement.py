@@ -1041,5 +1041,6 @@ def test_a_cheque_line_without_tiers_gets_the_invoice_owing_its_amount_and_throu
 
 
 @pytest.mark.functionality
-def test_home_banking_in_a_label_is_a_transfer():
-    assert statement.method_in_label("PAIEMENT LYDEC HB 06/08/2026", {2: "Chèque", 4: "Virement Bancaire"}) == 4
+def test_home_banking_in_a_label_is_pointed_autres_as_the_cabinets_do():
+    methods = {2: "Chèque", 4: "Virement Bancaire", 6: "Autres"}
+    assert statement.method_in_label("PAIEMENT LYDEC HB 06/08/2026", methods) == 6
