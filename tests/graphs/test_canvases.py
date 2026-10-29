@@ -35,7 +35,10 @@ def test_each_step_of_a_workflow_is_drawn_named_and_described(name):
 @pytest.mark.parametrize(
     ("name", "expected"),
     [
-        ("dossier", {"creation", "configuration", "fichiers", "ecritures", "banques", "finalisation", "etat"}),
+        (
+            "dossier",
+            {"creation", "configuration", "fichiers", "ecritures", "banques", "finalisation", "etat", "points"},
+        ),
         ("declarations", {"expediteur", "tva", "ras", "delais"}),
         ("export", {"expediteur", "export"}),
         ("releves", {"expediteur", "pointage", "comptabilisation"}),

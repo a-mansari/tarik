@@ -126,3 +126,7 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-nouveau-dossier-20261029.json` (and its `.diff`): `skills/nouveau-dossier.md` says a file sent without a
   dossier's name goes to the dossier this conversation just created or opened (case 2), and that a file's name is never
   a dossier to create. Import it with the commit that refuses a dossier named after a file (`create_dossier`).
+
+- `tarik-contenu-points-dossier-20261029.json`: `labels.json` gets the dossier step « Points à corriger » (what the
+  client must fix, told apart from « État du dossier », whose description is shortened). Import it once the stack runs
+  the commit that splits `setup_status` and `setup_problems`: before, check.py finds no description for the node `points`.

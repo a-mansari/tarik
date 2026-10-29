@@ -744,17 +744,17 @@ POSTING_SETTINGS = {
     "local_purchase_journal_id": "journal d'achats",
     "local_customer_account_id": "compte clients",
     "local_sale_journal_id": "journal de ventes",
-    "foreign_supplier_account_id": "compte fournisseurs etrangers",
-    "foreign_purchase_journal_id": "journal d'achats etrangers",
-    "foreign_customer_account_id": "compte clients etrangers",
-    "foreign_sale_journal_id": "journal de ventes etrangeres",
+    "foreign_supplier_account_id": "compte fournisseurs étrangers",
+    "foreign_purchase_journal_id": "journal d'achats étrangers",
+    "foreign_customer_account_id": "compte clients étrangers",
+    "foreign_sale_journal_id": "journal de ventes étrangères",
 }
 HISTORY_STATES = {
     "new": "en attente",
     "pending": "en cours de traitement",
-    "done": "traitees",
-    "reconciliation": "a lettrer",
-    "exists": "deja presentes",
+    "done": "traitées",
+    "reconciliation": "à lettrer",
+    "exists": "déjà présentes",
     "error": "en erreur",
 }
 
@@ -762,26 +762,17 @@ HISTORY_STATES = {
 def setup_facts(dossier_id, context):
     """Read the dossier's setup from Experio.
 
-    Returns (company, states, reasons, exercices, counts):
-        company: res.company values of show_onboarding and POSTING_SETTINGS;
+    Returns (onboarding, states, exercices, counts):
+        onboarding: True while the dossier's onboarding is open (res.company show_onboarding);
         states: {experio.history state: line count};
-        reasons: read_group rows of the lines in error by error_type;
         exercices: [{name, state, selected}] by start date;
         counts: {model: count} of accounts, journals, taxes and tiers.
     """
     in_it = [("company_id", "=", dossier_id)]
-    company = odoo_call("res.company", "read", [dossier_id], fields=["show_onboarding", *POSTING_SETTINGS])[0]
+    onboarding = odoo_call("res.company", "read", [dossier_id], fields=["show_onboarding"])[0]["show_onboarding"]
     # One query, so the counts add up while Experio processes the lines.
     groups = odoo_call("experio.history", "read_group", in_it, ["state"], ["state"], context=context)
     states = {group["state"]: group["state_count"] for group in groups}
-    reasons = odoo_call(
-        "experio.history",
-        "read_group",
-        [*in_it, ("state", "=", "error")],
-        ["error_type"],
-        ["error_type"],
-        context=context,
-    )
     exercices = odoo_call(
         "exp.fiscal.entries",
         "search_read",
@@ -794,18 +785,27 @@ def setup_facts(dossier_id, context):
         model: odoo_call(model, "search_count", in_it, context=context)
         for model in ("exp.account", "exp.journal", "exp.tax", "exp.partner")
     }
-    return company, states, reasons, exercices, counts
+    return onboarding, states, exercices, counts
+
+
+ERROR_LINES = 8  # reasons told one by one; the rest are counted
+AMOUNT = re.compile(r"'(-?\d+(?:\.\d+)?)'")  # an amount in Experio's text ('846.0'): read as a number
 
 
 def error_reasons(reasons):
-    """Return Experio's 3 commonest error reasons (error_type) from the read_group rows ``reasons``, each with its
-    line count, joined by " | ". A leading count is ignored, so "3 comptes tiers ..." and "4 comptes tiers ..."
-    are one reason."""
+    """Return Experio's error reasons (error_type) from the read_group rows ``reasons`` as lines "<n> lignes : <text>",
+    the commonest first, ERROR_LINES at most and the others counted in a last line. A leading count is ignored, so
+    "3 comptes tiers ..." and "4 comptes tiers ..." are one reason; an amount ('846.0') reads « 846,00 »."""
     merged = Counter()
     for reason in reasons:
         text = (reason["error_type"] or "sans motif").strip()
+        text = AMOUNT.sub(lambda amount: f"{float(amount[1]):,.2f}".replace(",", " ").replace(".", ","), text)
         merged[re.sub(r"^\d+\s+", "", text)] += reason["error_type_count"]  # without the leading count and spaces
-    return " | ".join(f"{text} ({n} lignes)" for text, n in merged.most_common(3))
+    found = merged.most_common()
+    lines = [f"{n} ligne{'s' if n > 1 else ''} : {text}" for text, n in found[:ERROR_LINES]]
+    if len(found) > ERROR_LINES:
+        lines.append(f"{len(found) - ERROR_LINES} autre(s) motif(s), {sum(n for _, n in found[ERROR_LINES:])} ligne(s)")
+    return lines
 
 
 def processed(dossier_id, context):
@@ -843,46 +843,78 @@ def other_dossiers_journals(dossier_id):
     return ", ".join(POSTING_SETTINGS[key] for key, name in wrong.items() if name)
 
 
+def number(count):
+    """Return ``count`` with a space between thousands (33 882)."""
+    return f"{count:,}".replace(",", " ")
+
+
 @step_tool
 def setup_status(dossier_id: int) -> dict:
-    """Report where a dossier's setup stands, as an ok result: account, journal, tax and tiers counts, imported
-    entries by state with Experio's error reasons, open exercices, the settings Experio needs before an invoice
-    can be posted, journal settings on another dossier, and whether the onboarding is finished.
+    """Report where a dossier's setup stands, as an ok result: imported lines by state, open exercices, account,
+    journal, tax and tiers counts, and whether the onboarding is finished or lines are still being processed. What
+    the client must fix is setup_problems'.
 
     First re-sends stale lines (resend_stale) and waits for lines being processed (processed). Clears the
     tarik_setups wait once the onboarding is finished and no line is left to process."""
     dossier = require_dossier(dossier_id)
     with refused(
-        f"setup_status {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner l'etat du parametrage."
+        f"setup_status {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner l'état du paramétrage."
     ):
         resent = resend_stale(dossier_id, in_dossier(dossier_id))
         processed(dossier_id, in_dossier(dossier_id))
-        company, states, reasons, exercices, counts = setup_facts(dossier_id, in_dossier(dossier_id))
+        onboarding, states, exercices, counts = setup_facts(dossier_id, in_dossier(dossier_id))
     still = states.get("new", 0) + states.get("pending", 0)
-    if not company["show_onboarding"] and not still:
+    if not onboarding and not still:
         setup_waits(dossier_id)  # every line processed: nothing more to tell of it
-    parts = [
-        f"{counts['exp.account']} comptes, {counts['exp.journal']} journaux, {counts['exp.tax']} taxes, "
-        f"{counts['exp.partner']} tiers"
-    ]
-    entries = [f"{states[state]} {label}" for state, label in HISTORY_STATES.items() if states.get(state)]
-    parts.append("ecritures importees : " + (", ".join(entries) if entries else "aucune"))
-    if reasons:
-        parts.append(
-            "erreurs signalees par Experio, a corriger dans le fichier puis a renvoyer : " + error_reasons(reasons)
-        )
+    entries = [f"{number(states[state])} {label}" for state, label in HISTORY_STATES.items() if states.get(state)]
+    parts = ["écritures importées : " + (", ".join(entries) if entries else "aucune")]
     opened = [f"`{e['name']}`" + (" (en cours)" if e["selected"] else "") for e in exercices if e["state"] == "open"]
     parts.append("exercices ouverts : " + (", ".join(opened) if opened else "aucun"))
+    parts.append(
+        f"{counts['exp.account']} comptes, {counts['exp.journal']} journaux, {counts['exp.tax']} taxes, "
+        f"{counts['exp.partner']} tiers dans le dossier"
+    )
+    if resent:
+        parts.append(f"{resent} ligne(s) bloquée(s) renvoyée(s) au traitement d'Experio (« Renvoyer »)")
+    if onboarding:
+        parts.append("intégration pas encore terminée")
+    elif still:
+        parts.append(f"{still} ligne(s) encore en traitement chez Experio : leur résultat suivra")
+    return ok(f"Dossier `{dossier}` : " + " ; ".join(parts) + ".")
+
+
+@step_tool
+def setup_problems(dossier_id: int) -> dict:
+    """Report what the client must fix or set in a dossier, as a stop result (ok when nothing): the lines Experio put
+    in error with its reasons (error_reasons), the settings an invoice needs before it can be posted, and journal
+    settings on another dossier. Run after setup_status, which has waited for the lines being processed."""
+    dossier = require_dossier(dossier_id)
+    with refused(
+        f"setup_problems {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner l'état du paramétrage."
+    ):
+        context = in_dossier(dossier_id)
+        company = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
+        reasons = odoo_call(
+            "experio.history",
+            "read_group",
+            [("company_id", "=", dossier_id), ("state", "=", "error")],
+            ["error_type"],
+            ["error_type"],
+            context=context,
+        )
+    lines = []
+    if reasons:
+        failed = sum(reason["error_type_count"] for reason in reasons)
+        lines.append(
+            f"{number(failed)} ligne(s) refusée(s) par Experio, à corriger dans votre fichier puis à renvoyer :"
+            + "".join(f"\n    - {line}" for line in error_reasons(reasons))
+        )
     missing = [label for key, label in POSTING_SETTINGS.items() if not company[key]]
     if missing:
-        parts.append("a parametrer avant de comptabiliser : " + ", ".join(missing))
+        lines.append("à paramétrer avant de comptabiliser : " + ", ".join(missing))
     foreign = other_dossiers_journals(dossier_id)
     if foreign:
-        parts.append(f"reglages sur les journaux d'un autre dossier (a creer ou importer) : {foreign}")
-    if resent:
-        parts.append(f"{resent} ligne(s) bloquee(s) renvoyee(s) au traitement d'Experio (« Renvoyer »)")
-    if company["show_onboarding"]:
-        parts.append("integration pas encore terminee")
-    elif still:
-        parts.append(f"{still} ligne(s) encore en traitement chez Experio : leur resultat suivra")
-    return ok(f"Dossier `{dossier}` : " + " ; ".join(parts) + ".")
+        lines.append(f"réglages sur les journaux d'un autre dossier (à créer ou importer) : {foreign}")
+    if not lines:
+        return ok(f"Dossier `{dossier}` : rien à corriger.")
+    return stop(f"Dossier `{dossier}` :" + "".join(f"\n  - {line}" for line in lines))

@@ -380,6 +380,12 @@ async def status(state: Run):
     return {"outcomes": outcomes}
 
 
+async def problems(state: Run):
+    """Graph node: report what the client must fix in each finished dossier (setup_problems)."""
+    outcomes = [await run_step(state, "setup_problems", dossier_id=d) for d in state.get("finished", [])]
+    return {"outcomes": outcomes}
+
+
 run = StateGraph(Run)
 for name, node in {
     "debut": start,
@@ -401,6 +407,7 @@ for name, node in {
     "reprise": resume_setups,
     "finalisation": finish,
     "etat": status,
+    "points": problems,
     "resume": summary,
 }.items():
     run.add_node(name, node)
@@ -416,7 +423,8 @@ run.add_conditional_edges("ecritures", after_entries, ["banques", "resume"])
 run.add_edge("banques", "finalisation")
 run.add_edge("reprise", "finalisation")
 run.add_conditional_edges("finalisation", after_finish, ["etat", "resume"])
-for name in ("modification", "acces", "droits", "routine", "archivage", "ecart", "listes", "etat"):
+run.add_edge("etat", "points")
+for name in ("modification", "acces", "droits", "routine", "archivage", "ecart", "listes", "points"):
     run.add_edge(name, "resume")
 run.add_edge("resume", END)
 graph = run.compile(name="Tarik - Dossier")

@@ -319,8 +319,10 @@ Covers an onboarding waiting on Experio (db_cabinet).
 - `test_experio_refusing_the_exercice_gives_its_reason` [communication]: a refused exercice is an error with Experio's reason.
 - `test_the_lines_are_ready_a_minute_after_the_newest_was_imported` [functionality, param]: the wait until the newest waiting line is over a minute old (UTC), 0 without one.
 - `test_the_setup_facts_are_read_in_the_dossier` [functionality]: settings, lines by state, error reasons, exercices and counts, read in the dossier.
-- `test_experios_error_reasons_are_merged_and_the_commonest_told` [communication]: reasons differing by their leading count are one, the 3 commonest told.
-- `test_the_state_tells_experios_errors_the_missing_settings_and_another_dossiers_journals` [communication]: the state names errors, open exercices, missing settings, foreign journals.
+- `test_experios_error_reasons_are_merged_amounts_read_and_the_rest_counted` [communication]: reasons differing by their leading count are one, amounts read « 846,00 », one line per reason (8 at most, the rest counted).
+- `test_the_state_tells_the_lines_the_exercices_and_the_counts` [communication]: the state names the imported lines, open exercices and counts, no problem.
+- `test_the_problems_tell_experios_errors_the_missing_settings_and_another_dossiers_journals` [communication]: setup_problems is a stop naming the refused lines with reasons, missing settings, foreign journals.
+- `test_nothing_to_fix_is_ok` [functionality]: setup_problems is ok when there is nothing to fix.
 - `test_experio_not_giving_the_state_is_said` [communication]: an Experio failure on the state is an error.
 - `test_stuck_lines_are_not_sent_again_in_test_mode_nor_when_none_is_stuck` [security]: no « Re-send » in test mode or without stuck lines.
 
@@ -1034,7 +1036,7 @@ Covers the Dossier graph's routing: creation (model configuration, files, banks,
 - `test_a_dossier_given_has_its_sender_checked_then_its_files_imported` [functionality]: check_sender, imports into that dossier, onboarding.
 - `test_a_refused_sender_changes_nothing` [security, param]: check_sender not ok, in every change mode.
 - `test_each_change_runs_its_one_step_after_the_sender_check` [functionality, param]: update, person, archive, difference, whatever their outcome.
-- `test_resume_finishes_the_waiting_dossiers_and_says_the_state_of_those_finished` [functionality]: mode resume beats a dossier id; setup_status only for the finished.
+- `test_resume_finishes_the_waiting_dossiers_and_says_the_state_of_those_finished` [functionality]: mode resume beats a dossier id; setup_status and setup_problems only for the finished.
 - `test_resume_with_nothing_finished_goes_to_the_summary` [functionality, param]: nothing waiting, waiting_setups failed, or none finished.
 - `test_a_spreadsheet_of_dossiers_imports_each_file_after_the_creator_check` [functionality]: mode dossiers, one import_dossiers per file, even after a question.
 - `test_a_spreadsheet_not_found_imports_nothing` [functionality, param]: no file or files not listed.

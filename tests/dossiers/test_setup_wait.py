@@ -108,9 +108,8 @@ def statused(monkeypatch, states, onboarding=False, stale=()):
         setup,
         "setup_facts",
         lambda dossier_id, context: (
-            {"show_onboarding": onboarding, **dict.fromkeys(setup.POSTING_SETTINGS, [1, "x"])},
+            onboarding,
             states,
-            [],
             [],
             dict.fromkeys(("exp.account", "exp.journal", "exp.tax", "exp.partner"), 1),
         ),
@@ -138,7 +137,7 @@ def test_a_dossier_waits_until_experio_processed_its_lines(experio, monkeypatch)
 def test_lines_stuck_after_the_onboarding_are_sent_again(experio, monkeypatch):
     resent, answer = statused(monkeypatch, {"new": 3}, stale=[11, 12, 13])
     assert resent == [("action_resend", [11, 12, 13])]  # Experio's own « Re-send »
-    assert "3 ligne(s) bloquee(s) renvoyee(s)" in answer["message"]
+    assert "3 ligne(s) bloquée(s) renvoyée(s)" in answer["message"]
     resent, _ = statused(monkeypatch, {"new": 3}, onboarding=True, stale=[11])
     assert resent == []  # still onboarding: its lines wait on purpose
 
@@ -278,14 +277,14 @@ def test_the_setup_facts_are_read_in_the_dossier(monkeypatch):
         if method == "read":
             return [{"show_onboarding": False}]
         if method == "read_group":
-            return [{"state": "done", "state_count": 9}] if args[0] == ["state"] else [{"error_type": "x"}]
+            return [{"state": "done", "state_count": 9}]
         if method == "search_read":
             return [{"name": "2025", "state": "open", "selected": True}]
         return {"exp.account": 50, "exp.journal": 6, "exp.tax": 12, "exp.partner": 3}[model]
 
     monkeypatch.setattr(setup, "odoo_call", odoo_call)
-    company, states, reasons, exercices, counts = setup.setup_facts(557, {"allowed_company_ids": [557]})
-    assert company == {"show_onboarding": False} and states == {"done": 9} and reasons == [{"error_type": "x"}]
+    onboarding, states, exercices, counts = setup.setup_facts(557, {"allowed_company_ids": [557]})
+    assert onboarding is False and states == {"done": 9}
     assert exercices[0]["name"] == "2025" and counts == {
         "exp.account": 50,
         "exp.journal": 6,
@@ -296,30 +295,27 @@ def test_the_setup_facts_are_read_in_the_dossier(monkeypatch):
 
 
 @pytest.mark.communication
-def test_experios_error_reasons_are_merged_and_the_commonest_told():
+def test_experios_error_reasons_are_merged_amounts_read_and_the_rest_counted():
     reasons = [
         {"error_type": "3 comptes tiers introuvables", "error_type_count": 3},
         {"error_type": "4 comptes tiers introuvables", "error_type_count": 4},
         {"error_type": None, "error_type_count": 1},
-        {"error_type": "Journal inconnu", "error_type_count": 2},
-        {"error_type": "Date hors exercice", "error_type_count": 1},
+        {"error_type": "Débits '846.0' et crédits '1705.5'", "error_type_count": 2},
     ]
-    assert setup.error_reasons(reasons) == (
-        "comptes tiers introuvables (7 lignes) | Journal inconnu (2 lignes) | sans motif (1 lignes)"
-    )
+    assert setup.error_reasons(reasons) == [
+        "7 lignes : comptes tiers introuvables",
+        "2 lignes : Débits 846,00 et crédits 1 705,50",
+        "1 ligne : sans motif",
+    ]
+    many = [{"error_type": f"motif {n}", "error_type_count": 1} for n in range(setup.ERROR_LINES + 2)]
+    assert setup.error_reasons(many)[-1] == "2 autre(s) motif(s), 2 ligne(s)"
 
 
 @pytest.mark.communication
-def test_the_state_tells_experios_errors_the_missing_settings_and_another_dossiers_journals(monkeypatch):
-    company = {
-        "show_onboarding": True,
-        **dict.fromkeys(setup.POSTING_SETTINGS, [1, "x"]),
-        "local_sale_journal_id": False,
-    }
+def test_the_state_tells_the_lines_the_exercices_and_the_counts(monkeypatch):
     facts = (
-        company,
-        {"done": 5, "error": 2},
-        [{"error_type": "Compte inconnu", "error_type_count": 2}],
+        True,
+        {"done": 33882, "reconciliation": 594, "error": 2},
         [{"name": "2024", "state": "closed", "selected": False}, {"name": "2025", "state": "open", "selected": True}],
         dict.fromkeys(("exp.account", "exp.journal", "exp.tax", "exp.partner"), 4),
     )
@@ -328,15 +324,39 @@ def test_the_state_tells_experios_errors_the_missing_settings_and_another_dossie
     monkeypatch.setattr(setup, "resend_stale", lambda dossier_id, context: 0)
     monkeypatch.setattr(setup, "processed", lambda dossier_id, context: None)
     monkeypatch.setattr(setup, "setup_facts", lambda dossier_id, context: facts)
-    monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {"local_purchase_journal_id": "ACH"})
     assert setup.setup_status(557)["message"] == (
-        "Dossier `Gecafisc` : 4 comptes, 4 journaux, 4 taxes, 4 tiers ; "
-        "ecritures importees : 5 traitees, 2 en erreur ; "
-        "erreurs signalees par Experio, a corriger dans le fichier puis a renvoyer : Compte inconnu (2 lignes) ; "
-        "exercices ouverts : `2025` (en cours) ; a parametrer avant de comptabiliser : journal de ventes ; "
-        "reglages sur les journaux d'un autre dossier (a creer ou importer) : journal d'achats ; "
-        "integration pas encore terminee."
+        "Dossier `Gecafisc` : écritures importées : 33 882 traitées, 594 à lettrer, 2 en erreur ; "
+        "exercices ouverts : `2025` (en cours) ; 4 comptes, 4 journaux, 4 taxes, 4 tiers dans le dossier ; "
+        "intégration pas encore terminée."
     )
+
+
+@pytest.mark.communication
+def test_the_problems_tell_experios_errors_the_missing_settings_and_another_dossiers_journals(monkeypatch):
+    company = {**dict.fromkeys(setup.POSTING_SETTINGS, [1, "x"]), "local_sale_journal_id": False}
+    reasons = [{"error_type": "Compte inconnu", "error_type_count": 2}]
+    monkeypatch.setattr(setup, "require_dossier", lambda dossier_id: "Gecafisc")
+    monkeypatch.setattr(setup, "in_dossier", lambda dossier_id: {})
+    monkeypatch.setattr(setup, "odoo_call", lambda model, method, *a, **k: [company] if method == "read" else reasons)
+    monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {"local_purchase_journal_id": "ACH"})
+    answer = setup.setup_problems(557)
+    assert answer["status"] == "stop" and answer["message"] == (
+        "Dossier `Gecafisc` :\n"
+        "  - 2 ligne(s) refusée(s) par Experio, à corriger dans votre fichier puis à renvoyer :\n"
+        "    - 2 lignes : Compte inconnu\n"
+        "  - à paramétrer avant de comptabiliser : journal de ventes\n"
+        "  - réglages sur les journaux d'un autre dossier (à créer ou importer) : journal d'achats"
+    )
+
+
+@pytest.mark.functionality
+def test_nothing_to_fix_is_ok(monkeypatch):
+    company = dict.fromkeys(setup.POSTING_SETTINGS, [1, "x"])
+    monkeypatch.setattr(setup, "require_dossier", lambda dossier_id: "Gecafisc")
+    monkeypatch.setattr(setup, "in_dossier", lambda dossier_id: {})
+    monkeypatch.setattr(setup, "odoo_call", lambda model, method, *a, **k: [company] if method == "read" else [])
+    monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {})
+    assert setup.setup_problems(557)["status"] == "ok"
 
 
 @pytest.mark.communication
@@ -344,7 +364,7 @@ def test_experio_not_giving_the_state_is_said(monkeypatch):
     monkeypatch.setattr(setup, "require_dossier", lambda dossier_id: "Gecafisc")
     monkeypatch.setattr(setup, "in_dossier", lambda dossier_id: {})
     monkeypatch.setattr(setup, "odoo_call", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("timeout")))
-    with pytest.raises(ToolError, match="`Gecafisc` : Experio n'a pas pu donner l'etat du parametrage"):
+    with pytest.raises(ToolError, match="`Gecafisc` : Experio n'a pas pu donner l'état du paramétrage"):
         setup.setup_status(557)
 
 
