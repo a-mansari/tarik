@@ -155,6 +155,11 @@ uses another one. A stack that edited one of these documents itself loses that e
   setting in the discussion too, and a progress email's delay goes from 0 to 25 minutes (`agent.json`). Built on the
   live content of 2026-10-29 15:10 (after rapports-lisibles): import it once the stack runs the commit with the
   behaviour follow-ups.
+- `tarik-contenu-cgnc-fiscalite-20261029.json` (and its `.diff`): a tax question (TVA rate, withholding, deductibility,
+  recoverable share) is never answered from what the model knows either: Tarik says the CGNC does not settle it, that
+  it is a question of the Code général des impôts, and offers a collaborator's confirmation, with no rate, percentage
+  or tax rule (`agent.json`). Built on the stack's agent.json of 2026-10-29 (the CGNC export and later changes):
+  measured by `tests/llm/test_cgnc_answers.py` (tax answers 9/9 without a rate, from 5/6).
 - `tarik-contenu-arret-20261029.json` (and its `.diff`): the Journal's words for a run stopped by hand (« Exécution
   arrêtée à la main », `labels.json`). Built on the live content of 2026-10-29: import it with the commit that adds
   the Arrêter button; before, check.py finds no words for the journal action `run_stopped`.
