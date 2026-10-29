@@ -699,6 +699,9 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     fields = ["show_onboarding", *STEPPER_JOURNALS, *STEPPER_PREFIXES]
     company = odoo_call("res.company", "read", [dossier_id], fields=fields)[0]
     if not company["show_onboarding"]:  # its lines still in Experio's processing keep it waiting (setup_status)
+        still = [("company_id", "=", dossier_id), ("state", "in", ["new", "pending"])]
+        if not odoo_call("experio.history", "search_count", still, context=context):
+            setup_waits(dossier_id)  # a file imported after the onboarding (tiers): nothing left to follow
         return routine(
             f"Dossier `{dossier}` : integration deja terminee, Experio traite les ecritures des leur import."
         )
@@ -719,8 +722,11 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     exercice = exercice_note(dossier_id, dossier) if entries else None
     if exercice:
         notes.append(exercice)
+    # Only tiers can be missing here: still welcome, imported at any time after the onboarding.
+    welcome = f" Vous pouvez encore envoyer vos fichiers {' et '.join(missing)}." if missing else ""
     if dry_run():
-        return ok(f"{TEST_MODE}Dossier `{dossier}` : integration terminee ({', '.join(notes + ['stepper termine'])}).")
+        steps = ", ".join(notes + ["stepper termine"])
+        return ok(f"{TEST_MODE}Dossier `{dossier}` : integration terminee ({steps}).{welcome}")
     pause = lines_ready_in(dossier_id, context)
     if seconds_left and pause > seconds_left - STEPPER_SECONDS:
         return wait(
@@ -736,7 +742,7 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
     notes.append(
         f"{waiting} ligne(s) d'ecritures transmises au traitement d'Experio" if waiting else "aucune ecriture importee"
     )
-    return ok(f"Dossier `{dossier}` : integration terminee ({', '.join(notes)}).")
+    return ok(f"Dossier `{dossier}` : integration terminee ({', '.join(notes)}).{welcome}")
 
 
 # --- Where the setup stands ---

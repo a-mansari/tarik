@@ -50,6 +50,20 @@ def test_a_dossier_waits_when_the_run_has_no_time_left_for_experio(experio):
 
 
 @pytest.mark.functionality
+@pytest.mark.parametrize(("still", "waiting"), [(0, []), (7, [557])])
+def test_a_file_imported_after_the_onboarding_waits_only_for_lines_processed(experio, monkeypatch, still, waiting):
+    experio.append("stepper")  # the onboarding already finished
+    read = setup.odoo_call
+
+    def odoo_call(model, method, *args, **kw):
+        return still if method == "search_count" else read(model, method, *args, **kw)
+
+    monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    assert setup.finish_setup(557).get("routine")
+    assert setup.waiting_setups("s")["dossiers"] == waiting  # no follow-up left looping on a tiers file
+
+
+@pytest.mark.functionality
 def test_a_follow_up_finishes_it_whatever_the_time(experio):
     assert setup.finish_setup(557)["status"] == "ok"
     again = setup.finish_setup(557)
