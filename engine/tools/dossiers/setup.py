@@ -26,12 +26,14 @@ import time
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 
+import httpx
 import openpyxl
 
 from engine.tools.core.app import CRASHED, ToolError, log, ok, question, routine, step_tool, stop, tool, wait
 from engine.tools.core.cabinets import cabinet_db, current
 from engine.tools.core.config import ENTRY_FILES, TEST_MODE
 from engine.tools.core.experio import (
+    GatewayError,
     dossier_lock,
     dry_run,
     experio_refusal,
@@ -278,6 +280,13 @@ class Refused(Exception):
     taken."""
 
 
+class Unanswered(Refused):
+    """An import whose answer never came: it may have gone through, so the dossier's wait is kept as it is."""
+
+
+UNANSWERED = (httpx.TimeoutException, httpx.RemoteProtocolError, httpx.ReadError, GatewayError)  # sent, no answer
+
+
 def entries_text(file_id, name, mime, data):
     """Return the file's text (CSV, TXT, or an Excel sheet as CSV); raise Refused for another kind of file or
     an unreadable Excel file."""
@@ -411,19 +420,21 @@ def tested(file_id, name, label, arguments, context):
 
 def imported(file_id, name, label, arguments, context):
     """Run the import itself (execute_import, same ``arguments`` as tested) and return Experio's answer.
-    Raises Refused when it reports errors, refuses or fails."""
+    Raises Refused when it reports errors, refuses or fails; Unanswered when Experio's answer never came."""
     try:
-        result = odoo_json("base_import.import", "execute_import", *arguments, False, context=context)
-    except Exception as failure:
-        log(f"import_entries {file_id}: {failure}")
-        if is_refusal(failure):
-            raise Refused(f"{label} `{name}` : Experio a refusé l'import ({experio_refusal(failure)}).") from None
-        # A timeout or a crash may come once Experio has saved the lines (one transaction, committed after the
-        # answer was given up): « réessayez » would have them imported twice.
-        raise Refused(
-            f"{label} `{name}` : échec technique pendant l'import, qui a pu aboutir quand même dans Experio. "
-            "Vérifiez les écritures du dossier dans Experio avant de renvoyer le fichier."
-        ) from None
+        with refused(
+            f"import_entries {file_id}", f"{label} `{name}` : Experio a refusé l'import ({{reason}}).", Refused
+        ):
+            result = odoo_json("base_import.import", "execute_import", *arguments, False, context=context)
+    except Refused as refusal:
+        # No answer: Experio may still commit the import (one transaction, odoo/service/model.py), « réessayez »
+        # would have its lines imported twice. An error Experio answered was rolled back: retrying is safe.
+        if isinstance(refusal.__context__, UNANSWERED):
+            raise Unanswered(
+                f"{label} `{name}` : Experio n'a pas répondu à temps, l'import a pu aboutir quand même. Vérifiez "
+                "dans Experio ce qu'il a importé avant de renvoyer le fichier."
+            ) from None
+        raise
     errors = errors_of(result)
     if errors:
         raise Refused(
@@ -497,7 +508,8 @@ def import_entries(dossier_id: int, file_id: int, kind: str = "") -> dict:
         made = created_note(before, setup_counts(dossier_id, context)) if before else ""
     except Refused as refusal:
         taken(file_id)
-        setup_waits(dossier_id)
+        if not isinstance(refusal, Unanswered):
+            setup_waits(dossier_id)
         return stop(str(refusal), file_id=file_id)
     taken(file_id)
     setup_waits(dossier_id, file_id)

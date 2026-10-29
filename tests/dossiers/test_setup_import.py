@@ -189,21 +189,36 @@ def test_experio_failing_a_call_of_the_import_is_a_stop_with_its_reason(importin
 
 
 @pytest.mark.security
-@pytest.mark.parametrize("crash", [httpx.ReadTimeout("timed out"), xmlrpc.client.Fault(1, "Traceback\nKeyError: 'x'")])
-def test_a_crash_of_the_import_itself_says_to_check_experio_before_sending_again(importing, monkeypatch, crash):
+@pytest.mark.parametrize(
+    "failure, said, waits",
+    [
+        (  # no answer: Experio may still commit it, a resend would import its lines twice
+            httpx.ReadTimeout("timed out"),
+            "FEC `fec.csv` : Experio n'a pas répondu à temps, l'import a pu aboutir quand même. Vérifiez dans "
+            "Experio ce qu'il a importé avant de renvoyer le fichier.",
+            True,
+        ),
+        (  # Experio answered its crash: rolled back, nothing imported
+            xmlrpc.client.Fault(1, "Traceback\nKeyError: 'x'"),
+            "FEC `fec.csv` : échec technique, réessayez plus tard.",
+            False,
+        ),
+    ],
+)
+def test_an_import_without_answer_says_to_check_experio_first(importing, monkeypatch, failure, said, waits):
     real = setup.odoo_json
 
-    def crashing_import(model, method, *args, context=None):
+    def failing_import(model, method, *args, context=None):
         if method == "execute_import" and not args[-1]:  # the test went through, the import itself fails
-            raise crash
+            raise failure
         return real(model, method, *args, context=context)
 
-    monkeypatch.setattr(setup, "odoo_json", crashing_import)
+    cleared = []
+    monkeypatch.setattr(setup, "odoo_json", failing_import)
+    monkeypatch.setattr(setup, "setup_waits", lambda dossier_id, file_id=None: cleared.append(dossier_id))
     answer = setup.import_entries(557, sent("fec.csv", FEC))
-    assert answer["status"] == "stop" and answer["message"] == (
-        "FEC `fec.csv` : échec technique pendant l'import, qui a pu aboutir quand même dans Experio. "
-        "Vérifiez les écritures du dossier dans Experio avant de renvoyer le fichier."
-    )
+    assert answer["status"] == "stop" and answer["message"] == said
+    assert cleared == ([] if waits else [557])
 
 
 @pytest.mark.communication
