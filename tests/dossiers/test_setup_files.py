@@ -143,9 +143,10 @@ def test_without_entries_the_onboarding_waits_for_the_clients_files(monkeypatch)
     monkeypatch.setattr(banks, "dry_run", lambda: setup.dry_run())  # as the test sets it, now or later
     waiting = setup.finish_setup(557)
     assert "Il manque : journaux, fournisseurs, clients." in waiting["message"]
-    assert (
-        "l'intégration serait terminée" in setup.finish_setup(557, finish=True)["message"]
-    )  # the client said all was sent
+    assert "l'intégration serait terminée" in setup.finish_setup(557, finish=True)["message"]  # all sent
+    counts["exp.journal"] = 9
+    assert "l'intégration serait terminée" in setup.finish_setup(557)["message"]  # a model's copy
+    counts["exp.journal"] = 0
     counts["experio.history"] = 40
     assert "l'intégration serait terminée" in setup.finish_setup(557)["message"]  # a FEC: finished as before
 

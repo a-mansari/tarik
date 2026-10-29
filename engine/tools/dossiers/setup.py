@@ -697,17 +697,17 @@ def setup_missing(dossier_id, context):
 def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -> dict:
     """Finish a new dossier's onboarding as its stepper does (Suivant to the last step, then « Enregistrer et
     terminer »), so Experio processes the imported entries. Opens the current year's exercice first when the
-    dossier has none open.
+    dossier has entries but no open exercice.
 
     Args:
         seconds_left: the run's time left (0: no limit).
         finish: the client said every setup file was sent; without it, a dossier with no entries imported
-            keeps waiting for its files.
+            keeps waiting for its files while it lacks its accounts or its journals.
 
     Returns:
         - a routine result when the onboarding was already finished;
-        - an ok result asking for the missing setup files when no entries were imported and ``finish`` is
-          False (the tarik_setups wait is cleared);
+        - an ok result asking for the missing setup files when no entries were imported, the dossier lacks
+          its accounts or its journals and ``finish`` is False (the tarik_setups wait is cleared);
         - a wait result when the minute Experio needs before handing the lines over (plus STEPPER_SECONDS)
           would outlast ``seconds_left``: the dossier stays in tarik_setups for a later run;
         - an ok result once finished, with the lines handed over and any journal setting still pointing to
@@ -721,16 +721,21 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
         return routine(
             f"Dossier `{dossier}` : l'intégration est déjà terminée. Experio traite les écritures dès leur import."
         )
-    if not finish and not entries_count(dossier_id, context):
+    entries = entries_count(dossier_id, context)
+    missing = [] if finish or entries else setup_missing(dossier_id, context)
+    # Its accounts and journals there (a model's copy, or their files): tiers and a FEC are imported after the
+    # onboarding too, processed at once (exp_account experio_history.py create).
+    if {"plan comptable", "journaux"} & set(missing):
         setup_waits(dossier_id)  # nothing to wait for: the client's next files, or their word
-        missing = setup_missing(dossier_id, context)
-        lacking = f" Il manque : {', '.join(missing)}." if missing else ""
+        lacking = f" Il manque : {', '.join(missing)}."
         return ok(
             f"Dossier `{dossier}` : l'intégration attend vos fichiers.{lacking} Envoyez-les (plan comptable, "
             "journaux, fournisseurs, clients), ou dites-moi que tout est envoyé pour que je termine l'intégration."
         )
     notes = []
-    exercice = exercice_note(dossier_id, dossier)
+    # Without entries the exercice would be a calendar guess, and Experio dates every exercice a later FEC brings
+    # from the earliest one (exp_account experio_history.py create_missing_exercices_fiscal): the FEC sets it.
+    exercice = exercice_note(dossier_id, dossier) if entries else None
     if exercice:
         notes.append(exercice)
     if dry_run():
@@ -968,7 +973,7 @@ def fill_posting_settings(dossier_id, company, context):
     wrong = misplaced_journals(dossier_id, journals)
     if all(company[key] for key in POSTING_SETTINGS) and not wrong:
         return [], [], company
-    done, problems, before = [], [], company
+    done, problems, before, told = [], [], company, []
     with dossier_lock(dossier_id):
         try:
             if not dry_run():
@@ -981,6 +986,7 @@ def fill_posting_settings(dossier_id, company, context):
             for kind in ("purchase", "sale"):
                 if any(f"{kind}_journal" in key for key in wrong):
                     done.append(set_journal(dossier_id, kind).removeprefix(TEST_MODE))
+                    told += [key for key in journals if f"{kind}_journal" in key]  # it says it set them
                     SET.pop((current(), dossier_id), None)  # told here, not again on the first invoice
         except ToolError as failure:
             problems.append(f"Je n'ai pas pu finir le paramétrage : {failure}")
@@ -990,7 +996,9 @@ def fill_posting_settings(dossier_id, company, context):
         if dry_run():
             return done, problems, company
         after = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]
-    changed = [label for key, label in POSTING_SETTINGS.items() if after[key] and after[key] != before[key]]
+    changed = [
+        label for key, label in POSTING_SETTINGS.items() if after[key] and after[key] != before[key] and key not in told
+    ]
     if changed:
         done.append("configuration du dossier complétée : " + ", ".join(changed))
     return done, problems, after

@@ -417,8 +417,7 @@ def test_missing_posting_settings_are_filled_as_experio_does(monkeypatch):
     assert done == [
         "compte `34210000 Clients` créé",
         "journal `Ventes` créé",
-        "configuration du dossier complétée : compte clients, journal de ventes, compte clients étrangers, "
-        "journal de ventes étrangères",
+        "configuration du dossier complétée : compte clients, compte clients étrangers",  # the journal: told
     ]
     assert problems == [] and calls[0] == ("res.company", "auto_detect_settings")
     assert ("exp.account", "create", {"code": "34210000", "name": "Clients", "company_id": 557}) in calls
@@ -492,3 +491,16 @@ def test_settings_are_left_to_lines_still_processed(monkeypatch):
     monkeypatch.setattr(setup, "odoo_call", experio_answers(company, [], processing=3))
     monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {})
     assert setup.setup_problems(557)["message"] == "Dossier `Gecafisc` : rien à corriger."
+
+
+@pytest.mark.functionality
+def test_a_dossier_finished_without_entries_gets_no_exercice(stepper, monkeypatch):
+    read = setup.odoo_call
+    counts = {"experio.history": 0, "exp.fiscal.entries": 0}
+
+    def odoo_call(model, method, *args, **kw):
+        return counts[model] if method == "search_count" else read(model, method, *args, **kw)
+
+    monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    assert setup.finish_setup(557, finish=True)["status"] == "ok"
+    assert not [call for call in stepper if call[0] == "open_exercice"]

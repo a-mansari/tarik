@@ -36,6 +36,7 @@ def test_without_a_model_or_with_a_reused_dossier_no_configuration_is_copied(ste
     steps.answer("create_dossier", {"status": "ok", "dossier_id": 7, "reused": given.get("reused", False)})
     steps.run(graph, model_dossier_id=given.get("model_dossier_id", 0))
     assert steps.names == ["save_files", "check_creator", "create_dossier", "files_to_process", *ONBOARDING]
+    assert steps.args("finish_setup") == [{"dossier_id": 7, "seconds_left": 0, "finish": False}]
 
 
 @pytest.mark.functionality
