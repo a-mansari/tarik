@@ -488,6 +488,10 @@ def label_operation(line, operations, context):
     (3421): Vente Local, 79 of the 101 such lines in the cabinets' 159 dossiers, the others in suspense; only when the
     dossier has that one customer tiers.
 
+    « TIMBRE » (« DROIT DE TIMBRE SUR VERSEMENT », 1 MAD on each cash deposit) is stamp duty: the dossier's
+    stamp-duty operation (account 6167). The cabinets' dossiers do it on 90% of such lines (a pharmacy's 233 of 233);
+    a model reading it as a bank tax was the commonest error of a test copy.
+
     « SECURICARTE » is the bank's card insurance: bank charges (61473), without TVA, as insurance is exempt. « DGI »
     on money paid is the TVA due when a TVA declaration of the dossier owes exactly that amount (its tva_due_unsigned,
     exp.deduction.table), to the TVA due account (4456); any other tax payment is for the cabinet.
@@ -500,6 +504,8 @@ def label_operation(line, operations, context):
         generic = [*company, ("is_customer", "=", True), ("name", "=ilike", "CLIENTS DIVERS%")]
         found = odoo_call("exp.partner", "search", generic, context=context)
         return (operation_on(operations, "3421", type="sale"), found[0]) if len(found) == 1 else (None, None)
+    if said("timbre", words):  # the stamp duty on a deposit: the stamp-duty operation (6167), not a bank tax
+        return operation_on(operations, "6167", type=False), None
     if said("securicarte", words):
         return operation_on(operations, "61473", type="bank_fee", bank_type="frais_without_tax"), None
     amount = round(abs((line["credit"] or 0) - (line["debit"] or 0)), 2)
@@ -612,10 +618,17 @@ def chosen_operations(statement, lines, context):
             "operation": operation if operation in operations else None,
             "payment_method": method if method in methods else None,
         }
+    ruled = {}  # what the label's own words settle (label_operation), before the model is asked
+    for line in asked:
+        if not line["operation_id"] and not memorized[line["id"]]["operation"]:
+            found, tiers = label_operation(line, operations, context)
+            if found:
+                ruled[line["id"]] = (found, tiers)
     to_model = [
         line
         for line in asked
-        if (not line["operation_id"] and not memorized[line["id"]]["operation"])
+        if line["id"] not in ruled
+        and (not line["operation_id"] and not memorized[line["id"]]["operation"])
         or (
             line["operation_type"] == "purchase"
             and not line["exp_payment_method_id"]
@@ -661,7 +674,7 @@ def chosen_operations(statement, lines, context):
         operation = operations.get(choice.get("operation")) if choice and not line["operation_id"] else None
         label_tiers = None
         if not operation and not line["operation_id"]:
-            operation, label_tiers = label_operation(line, operations, context)
+            operation, label_tiers = ruled.get(line["id"], (None, None))
         suspended = False
         if not operation and not line["operation_id"] and answered:  # nothing says what it is: suspense, told
             operation = suspense_operation(operations, line)

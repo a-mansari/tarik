@@ -1320,3 +1320,19 @@ def test_tarik_s_own_suspense_is_never_remembered_as_the_dossier_s_habit(experio
     experio["answer"] = {"lines": [{"id": 2, "operation": 13136, "payment_method": None}]}
     pointed()
     assert experio["asked"]  # the memory gave no operation: the model was asked, not the suspense repeated
+
+
+@pytest.mark.functionality
+def test_a_stamp_duty_is_the_stamp_duty_operation_not_a_bank_tax_whatever_the_model_says(experio):
+    """A pharmacy's 233 « DROIT DE TIMBRE SUR VERSEMENT » lines: all stamp duty (6167) for the cabinet."""
+    with_suspense(experio, payment_ref="DROIT DE TIMBRE SUR VERSEMENT")
+    experio["operations"] += [
+        {"id": 5010, "name": "Droits d'enregistrement et timbre", "type": False, "payment_type": "outbound"}
+        | {"bank_type": False, "account_id": [9, "616710000 DR D'ENREG"], "error_msg": False},
+        {"id": 5011, "name": "Taxe Bancaire", "type": "bank_fee", "payment_type": "outbound"}
+        | {"bank_type": "tax", "account_id": False, "error_msg": False},
+    ]
+    experio["answer"] = {"lines": [{"id": 2, "operation": 5011, "payment_method": None}]}  # the model: a bank tax
+    pointed()
+    assert ([2], {"operation_id": 5010}) in experio["written"]
+    assert not any(w[1].get("operation_id") == 5011 for w in experio["written"])
