@@ -497,3 +497,49 @@ def test_the_connection_check_says_reached_unreachable_or_refused_never_odoo(mon
 def test_the_cabinets_own_company_is_found_by_its_xmlid(monkeypatch):
     monkeypatch.setattr(experio, "odoo_call", lambda model, method, domain, **kw: [{"res_id": 1}])
     assert experio.main_company_id() == 1
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        xmlrpc.client.Fault(2, "Record does not exist or has been deleted.\n(Record: exp.invoice(812,), User: 7)"),
+        experio.ExperioRefusal(
+            "Enregistrement inexistant ou supprimé.\n(Enregistrement : exp.invoice(812,), Utilisateur : 7)",
+            "odoo.exceptions.MissingError",
+        ),
+    ],
+)
+def test_a_record_gone_is_a_refusal_without_its_model_id_nor_tarik_user(refusal):
+    assert experio.is_refusal(refusal)
+    assert experio.experio_refusal(refusal) in (
+        "Record does not exist or has been deleted.",
+        "Enregistrement inexistant ou supprimé.",
+    )
+
+
+@pytest.mark.communication
+def test_a_redirect_warning_gives_its_message_only(monkeypatch):
+    action = {"type": "ir.actions.act_window", "res_model": "exp.partner", "res_id": 9}
+    fault = xmlrpc.client.Fault(2, str(("Le compte 44110001 est déjà pris.", action, "Voir le tiers", None)))
+    assert experio.experio_refusal(fault) == "Le compte 44110001 est déjà pris."
+    assert experio.experio_refusal(xmlrpc.client.Fault(2, "(montant nul)")) == "(montant nul)"  # not a tuple
+    answer = {
+        "error": {
+            "data": {
+                "name": "odoo.exceptions.RedirectWarning",
+                "message": "...",
+                "arguments": ["Factures sans total : FA-12.", action, "Voir les factures", None],
+            }
+        }
+    }
+    monkeypatch.setattr(experio, "account", lambda: ("db", 2, "tarik", "key"))
+    monkeypatch.setattr(experio, "login", lambda: 2)
+    monkeypatch.setattr(
+        experio.HTTP, "post", lambda *a, **k: type("R", (), {"status_code": 200, "json": lambda self: answer})()
+    )
+    with pytest.raises(experio.ExperioRefusal) as refused:
+        experio.odoo_json("exp.deduction.table", "action_refresh", [3])
+    assert (
+        experio.is_refusal(refused.value) and experio.experio_refusal(refused.value) == "Factures sans total : FA-12."
+    )
