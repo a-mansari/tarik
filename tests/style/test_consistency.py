@@ -40,7 +40,8 @@ def test_skills_and_instructions_name_only_the_agents_tools():
 
     known = {name for tool in agent.TOOLS for name in (tool.name, *tool.args)}
     texts = {path: content.text(path) for path in content.documents() if path.startswith("skills/")}
-    texts["instructions"] = agent.AGENT["instructions"] + " " + " ".join(agent.AGENT["tools"].values())
+    tools = {**agent.AGENT["tools"], **agent.AGENT.get("own_tools", {})}
+    texts["instructions"] = agent.AGENT["instructions"] + " " + " ".join(tools.values())
     names = r"\b[A-Za-z]+(?:_[a-z]+)+\b"
     wrong = {name: sorted(set(re.findall(names, text)) - known) for name, text in texts.items()}
     assert not {name: found for name, found in wrong.items() if found}

@@ -20,7 +20,8 @@ def keys_of(path):
 @pytest.mark.functionality
 def test_the_tools_are_a_group_of_their_own_and_tarik_s_page_holds_his_instructions_alone():
     groups = {key: paths for key, _, paths in PAGES.groups()}
-    assert groups["outils"] == ["outils/traitement", "outils/lecture"] and groups["tarik"] == ["agent.json"]
+    assert groups["outils"] == ["outils/traitement", "outils/lecture", "outils/base"]
+    assert groups["tarik"] == ["agent.json"]
     assert keys_of("agent.json") == {"instructions"}
     assert keys_of("outils/traitement") == {"tools"} and keys_of("outils/lecture") == {"read_tools"}
     assert PAGES.document_of("outils/lecture") == "agent.json" and PAGES.document_of("skills/x.md") == "skills/x.md"

@@ -182,3 +182,10 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-arret-20261029.json` (and its `.diff`): the Journal's words for a run stopped by hand (« Exécution
   arrêtée à la main », `labels.json`). Built on the live content of 2026-10-29: import it with the commit that adds
   the Arrêter button; before, check.py finds no words for the journal action `run_stopped`.
+- `tarik-contenu-base-tarik-20261029.json` (and its `.diff`): `Experio_routine` and `Experio_reglages` become
+  `Tarik_routine` and `Tarik_reglages`: they change Tarik's own base (his routines, his behaviour), never Experio, and
+  the test mode does not hold them. Their descriptions move from `tools` to the new section `own_tools` (the page
+  « Outils de la base de Tarik »), and the instructions and `skills/gestion-dossiers.md` call them by their new names.
+  Built on the live content of 2026-10-29 18:00: import it once the stack runs the harness-map commit; before, the
+  import is refused (it names tools the stack lacks), and after the commit until the import, check.py finds no
+  description for the two tools.

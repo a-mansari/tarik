@@ -52,7 +52,7 @@ def missing_content():
         if f"tools/{name}.md" not in content.LATEST
     ]
     described = {f"Experio_{name}": text for name, text in AGENT.get("read_tools", {}).items()}
-    described.update(AGENT.get("tools", {}))
+    described.update(AGENT.get("tools", {}), **AGENT.get("own_tools", {}))
     gaps += [
         f"agent.json describes no {tool.name}"
         for tool in agent.TOOLS

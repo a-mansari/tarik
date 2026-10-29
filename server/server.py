@@ -407,6 +407,7 @@ app = Starlette(
         Route("/ui/api/workflows", api.runs.workflows_page),
         Route("/ui/api/workflows/{graph}", api.runs.workflow_page),
         Route("/ui/api/accueil", api.chat.dashboard_page),
+        Route("/ui/api/harnais", api.harness.harness_page),
         Route("/ui/api/executions", api.runs.runs_page),
         Route("/ui/api/executions/{run_id}", api.runs.run_page),
         Route("/ui/api/executions/{run_id}/stop", api.runs.stop_page, methods=["POST"]),

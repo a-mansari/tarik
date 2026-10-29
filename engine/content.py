@@ -202,7 +202,8 @@ def checked_json(path, old, new, reshape):
     elif path == "agent.json" and not {"model", "instructions", "tools", "read_tools"} <= set(parsed):
         raise ValueError("il manque des rubriques (model, instructions, tools, read_tools)")
     if path == "agent.json":
-        names_known(parsed["instructions"] + " " + " ".join(parsed["tools"].values()))
+        tools = {**parsed["tools"], **parsed.get("own_tools", {})}
+        names_known(parsed["instructions"] + " " + " ".join(tools.values()))
 
 
 def checked_markdown(path, old, new):

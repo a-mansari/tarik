@@ -413,7 +413,7 @@ async def gerer_acces(
     return await run_workflow("dossier", runtime, inputs)
 
 
-@tool("Experio_routine", description=DESCRIBED_LATER)
+@tool("Tarik_routine", description=DESCRIBED_LATER)
 async def routine(
     action: str,
     runtime: ToolRuntime,
@@ -446,7 +446,7 @@ async def routine(
     return await run_workflow("dossier", runtime, inputs)
 
 
-@tool("Experio_reglages", description=DESCRIBED_LATER)
+@tool("Tarik_reglages", description=DESCRIBED_LATER)
 async def reglages(runtime: ToolRuntime, action: str = "list", setting: str = "", value: str = "") -> str:
     writer = runtime.config.get("configurable", {}).get("writer")  # the run's, never the model's (runs.WRITER)
     inputs = {"mode": "behaviour", "action": action, "setting": setting, "value": value, "writer": writer}
@@ -677,9 +677,10 @@ CHECKPOINTER = None  # the conversations' memory, set by server.py (Postgres); N
 
 
 def described():
-    """Return TOOLS, each with its latest description from content/agent.json (read_tools and tools)."""
+    """Return TOOLS, each with its latest description from content/agent.json (read_tools, tools and own_tools: the
+    Tarik_ tools, which change Tarik's own base, never Experio)."""
     read = {f"Experio_{name}": text for name, text in AGENT["read_tools"].items()}
-    latest = {**read, **AGENT["tools"]}
+    latest = {**read, **AGENT["tools"], **AGENT.get("own_tools", {})}
     return [found.model_copy(update={"description": latest.get(found.name, found.description)}) for found in TOOLS]
 
 

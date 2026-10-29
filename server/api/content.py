@@ -20,9 +20,14 @@ SEP = "|"  # a JSON field's path in a form: keys joined
 PARTS = {
     "outils/traitement": ("agent.json", "tools"),
     "outils/lecture": ("agent.json", "read_tools"),
+    "outils/base": ("agent.json", "own_tools"),
     "agent.json": ("agent.json", "instructions"),  # Tarik's page: his instructions alone, his tools on theirs
 }
-PART_NAMES = {"outils/traitement": "Outils de traitement", "outils/lecture": "Outils de lecture d'Experio"}
+PART_NAMES = {
+    "outils/traitement": "Outils de traitement",
+    "outils/lecture": "Outils de lecture d'Experio",
+    "outils/base": "Outils de la base de Tarik",
+}
 
 
 def document_of(path):
@@ -50,6 +55,8 @@ def what(path):
         return "Comment chaque outil qui agit dans Experio est présenté à Tarik."
     if path == "outils/lecture":
         return "Comment chaque outil qui lit Experio est présenté à Tarik."
+    if path == "outils/base":
+        return "Comment chaque outil qui change la base de Tarik (ses routines, son comportement) lui est présenté."
     if path == "agent.json":
         return "Ce que Tarik sait de son rôle. Lu à chaque message."
     if path == "labels.json":
@@ -90,10 +97,12 @@ def agent_sections(data):
     """Return agent.json's form sections: Tarik's instructions, then how each tool is presented to it."""
     tools = [field(["tools", name], name, value) for name, value in data["tools"].items()]
     read_tools = [field(["read_tools", name], f"Experio_{name}", value) for name, value in data["read_tools"].items()]
+    own_tools = [field(["own_tools", name], name, value) for name, value in data.get("own_tools", {}).items()]
     return [
         {"title": "Instructions", "fields": [field(["instructions"], "Instructions de Tarik", data["instructions"])]},
-        {"title": "Outils de traitement", "fields": tools},
-        {"title": "Outils de lecture d'Experio", "fields": read_tools},
+        {"title": PART_NAMES["outils/traitement"], "fields": tools},
+        {"title": PART_NAMES["outils/lecture"], "fields": read_tools},
+        *([{"title": PART_NAMES["outils/base"], "fields": own_tools}] if own_tools else []),
     ]
 
 
@@ -145,7 +154,8 @@ def sections(path, text):
     return [{"title": "", "fields": fields}]
 
 
-ROOTS = ("instructions", "tools", "read_tools", "graphs", "steps", "statuses", "descriptions")  # a JSON form's fields
+# A JSON form's fields.
+ROOTS = ("instructions", "tools", "read_tools", "own_tools", "graphs", "steps", "statuses", "descriptions")
 MAX_FIELDS = 500
 
 
