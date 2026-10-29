@@ -243,6 +243,10 @@ def test_a_dossier_left_waiting_is_followed_up_once_its_lines_are_processed(expe
     assert state_of("<m1@x>") == "follow_up" and not inbox.threads_waiting()  # Experio still processing its lines
     with cabinet_db() as db:
         assert inbox.claim(db) == []
+    experio[9] = "done"  # a draft of the same email, read by Experio: told without waiting for the dossier
+    assert inbox.threads_waiting()
+    experio.clear()
+    assert not inbox.threads_waiting()
     settled.append(True)
     assert inbox.threads_waiting()
     with cabinet_db() as db:

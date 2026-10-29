@@ -424,26 +424,22 @@ def follow_ups_ready(db):
     ready = []
     for thread_id, session_id, over in db.execute(Q.follow_up_threads).fetchall():
         dossiers = waiting_setups(session_id)["dossiers"]
-        if dossiers:  # told once their lines are processed, not at every tick while Experio works
-            try:
-                if over or setups_settled(dossiers):
-                    ready.append(thread_id)
-            except Exception as error:  # Experio out: asked again at the next tick
-                log(f"follow_ups_ready {thread_id}: {type(error).__name__}: {error}")
-            continue
         drafts = drafts_to_resume(session_id)
-        if not drafts:
+        if not (dossiers or drafts):
             db.execute(
                 Q.finish_follow_up,
                 (thread_id,),
             )
             continue
         try:
-            read = odoo_call("exp.invoice", "read", drafts, fields=["bluejay_state"])
+            # dossiers told once their lines are processed, not at every tick while Experio works
+            settled = bool(dossiers) and setups_settled(dossiers)
+            read = odoo_call("exp.invoice", "read", drafts, fields=["bluejay_state"]) if drafts else []
         except Exception as error:  # Experio out: asked again at the next tick
             log(f"follow_ups_ready {thread_id}: {type(error).__name__}: {error}")
             continue
-        if over or all(draft["bluejay_state"] not in READING for draft in read):
+        drafts_read = bool(read) and all(draft["bluejay_state"] not in READING for draft in read)
+        if over or settled or drafts_read:
             ready.append(thread_id)
     return ready
 
