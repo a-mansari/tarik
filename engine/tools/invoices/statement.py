@@ -488,6 +488,10 @@ def label_operation(line, operations, context):
     (3421): Vente Local, 79 of the 101 such lines in the cabinets' 159 dossiers, the others in suspense; only when the
     dossier has that one customer tiers.
 
+    « TIMBRE » (« DROIT DE TIMBRE SUR VERSEMENT », 1 MAD on each cash deposit) is stamp duty: the dossier's
+    stamp-duty operation (account 6167). The cabinets' dossiers do it on 90% of such lines (a pharmacy's 233 of 233);
+    a model reading it as a bank tax was the commonest error of a test copy.
+
     « SECURICARTE » is the bank's card insurance: bank charges (61473), without TVA, as insurance is exempt. « DGI »
     on money paid is the TVA due when a TVA declaration of the dossier owes exactly that amount (its tva_due_unsigned,
     exp.deduction.table), to the TVA due account (4456); any other tax payment is for the cabinet.
@@ -500,6 +504,8 @@ def label_operation(line, operations, context):
         generic = [*company, ("is_customer", "=", True), ("name", "=ilike", "CLIENTS DIVERS%")]
         found = odoo_call("exp.partner", "search", generic, context=context)
         return (operation_on(operations, "3421", type="sale"), found[0]) if len(found) == 1 else (None, None)
+    if said("timbre", words):  # the stamp duty on a deposit: the stamp-duty operation (6167), not a bank tax
+        return operation_on(operations, "6167", type=False), None
     if said("securicarte", words):
         return operation_on(operations, "61473", type="bank_fee", bank_type="frais_without_tax"), None
     amount = round(abs((line["credit"] or 0) - (line["debit"] or 0)), 2)
@@ -508,6 +514,12 @@ def label_operation(line, operations, context):
         if odoo_call("exp.deduction.table", "search_count", [*company, *owed], context=context):
             return operation_on(operations, "4456"), None
     return None, None
+
+
+def is_suspense(operation):
+    """True for a « compte transitoire ou d'attente » operation (account 3497 or 4497, no type of its own)."""
+    code = operation["account_id"][1] if operation["account_id"] else ""
+    return not operation["type"] and code.startswith(("3497", "4497"))
 
 
 def suspense_operation(operations, line):
@@ -597,17 +609,26 @@ def chosen_operations(statement, lines, context):
     methods = {m["id"]: m["name"] for m in odoo_call("exp.payment.method", "search_read", [("payment_id", "!=", 1)])}
     used = past_labels(dossier_id, context)
     memory, memorized = label_memory(dossier_id, context), {}
+    waiting = {i for i, o in operations.items() if is_suspense(o)}  # Tarik's own parking is never the dossier's habit
     for line in asked:  # what the dossier always did with this label: no need to ask the model
         operation = None if line["operation_id"] else remembered(memory, line, "operation")
+        operation = None if operation in waiting else operation
         method = remembered(memory, line, "method")
         memorized[line["id"]] = {
             "operation": operation if operation in operations else None,
             "payment_method": method if method in methods else None,
         }
+    ruled = {}  # what the label's own words settle (label_operation), before the model is asked
+    for line in asked:
+        if not line["operation_id"] and not memorized[line["id"]]["operation"]:
+            found, tiers = label_operation(line, operations, context)
+            if found:
+                ruled[line["id"]] = (found, tiers)
     to_model = [
         line
         for line in asked
-        if (not line["operation_id"] and not memorized[line["id"]]["operation"])
+        if line["id"] not in ruled
+        and (not line["operation_id"] and not memorized[line["id"]]["operation"])
         or (
             line["operation_type"] == "purchase"
             and not line["exp_payment_method_id"]
@@ -634,8 +655,14 @@ def chosen_operations(statement, lines, context):
     # shortcut: one model call per statement, every line in it; split it if statements of hundreds of lines come
     answered, agreed = True, {}
     try:
-        if to_model:
+        for _ in range(2 if to_model else 0):  # the model agreeing with itself on under a quarter of the lines failed
             agreed = agreed_lines(tool_prompt("point-bank-lines"), instruction, "Pointage du relevé")
+            if len(agreed) * 4 >= len(to_model):
+                break
+        else:
+            if to_model:
+                log(f"chosen_operations {statement['id']}: the model agreed on {len(agreed)} of {len(to_model)} lines")
+                answered = False  # not « nothing says »: no line goes to suspense because of it
     except (ToolError, LookupError) as failure:  # no model now: the lines stay for the cabinet, the pointing goes on
         log(f"chosen_operations {statement['id']}: {failure}")
         agreed, answered = {}, False
@@ -647,7 +674,7 @@ def chosen_operations(statement, lines, context):
         operation = operations.get(choice.get("operation")) if choice and not line["operation_id"] else None
         label_tiers = None
         if not operation and not line["operation_id"]:
-            operation, label_tiers = label_operation(line, operations, context)
+            operation, label_tiers = ruled.get(line["id"], (None, None))
         suspended = False
         if not operation and not line["operation_id"] and answered:  # nothing says what it is: suspense, told
             operation = suspense_operation(operations, line)
