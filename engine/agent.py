@@ -69,6 +69,7 @@ READ_TOOLS = (
     "list_collaborators",
     "list_accounts",
     "dossier_progress",
+    "consult_cgnc",
 )
 
 
@@ -171,6 +172,9 @@ def read_tool(tool_name):
 
     async def dossier_progress(dossier_id: int, runtime: ToolRuntime, year: int = 0) -> str:
         return await reading(runtime, tool_name, dossier_id=dossier_id, year=year)
+
+    async def consult_cgnc(runtime: ToolRuntime, code: str = "", words: str = "") -> str:
+        return await reading(runtime, tool_name, code=code, words=words)
 
     function = locals()[tool_name]
     # Described by the tool's own docstring (engine/tools/), kept in content/agent.json to be edited.

@@ -51,6 +51,7 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 | `engine/runs.py` | Every run and each of its steps, in Postgres (schema `orchestrator`); the agent's conversations next to them. |
 | `engine/agent.py` | The agent: instructions and tools' descriptions from the content's `agent.json`, its skills (`skills/*.md`), tool output from Experio tagged as untrusted data; its model (MiniMax-M3, a 1024-token thinking budget, this stack's own key). |
 | `engine/prompts.py` | Each model call's prompt saved in its cabinet's schema, read on the LLM Calls page (each call, its conversation and its run). |
+| `engine/knowledge/` | What Tarik may look up in the texts accountants follow, the same for every cabinet: the CGNC split word for word into pieces and its chart of accounts (`split_cgnc.py`, run once per edition of the PDF; its output `cgnc/*.jsonl` in git), loaded into schema `knowledge` at each start when they changed (a failed load is logged, Tarik works on without it), searched by account code and by words (`cgnc.search`), the agent's read tool `Experio_consult_cgnc`. |
 | `engine/content.py` | What the team edits: every version of each content document (who, when, why), Postgres its only home, the latest in use at the next run; a change that would break its reader is refused. |
 | `server/experio_api.py` | The Experio app's API: cabinets created, changed or deactivated, served at once (guide: `docs/experio-api.md`). |
 | `docs/tests.md` | Every test by category, and how to add a client situation to the live model tests. |

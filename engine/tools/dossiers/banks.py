@@ -180,6 +180,14 @@ def free_code(dossier_id, prefix, context):
     return next(code for code in (prefix, *(f"{prefix}{n}" for n in range(1, 100))) if code not in taken)
 
 
+def padded(dossier_id, code):
+    """Return the account ``code`` padded with zeros to the dossier's chart length. Experio pads a code only when the
+    dossier blocks it (account_length_block, exp_account.py verify_accounts_length): padded here, as its other
+    accounts are."""
+    length = odoo_call("res.company", "read", [dossier_id], fields=["accounts_chart_length"])[0]
+    return code.ljust(length["accounts_chart_length"] or 0, "0")
+
+
 def make_bank_journal(dossier_id, bank, context):
     """Make the dossier's bank journal at ``bank`` ({id, name}) with its own treasury account, as the journal form
     does.
@@ -206,10 +214,7 @@ def make_bank_journal(dossier_id, bank, context):
     )
     used = {a["code"][:5] for a in accounts}
     account = next((f"5141{n}" for n in range(1, 10) if f"5141{n}" not in used), None)
-    # Experio pads a code to the chart's length only when the dossier blocks it (account_length_block,
-    # exp_account.py verify_accounts_length): padded here, as its other accounts are.
-    length = odoo_call("res.company", "read", [dossier_id], fields=["accounts_chart_length"])[0]
-    account = account and account.ljust(length["accounts_chart_length"] or 0, "0")
+    account = account and padded(dossier_id, account)
     if not account:
         raise ToolError(
             f"Le dossier a déjà les comptes 51411 à 51419 : le journal `{name}` est à créer par le cabinet."
