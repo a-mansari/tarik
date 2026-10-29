@@ -144,7 +144,10 @@ def test_without_entries_the_onboarding_waits_for_the_clients_files(monkeypatch)
     assert "Il manque : journaux, fournisseurs, clients." in waiting["message"]
     assert "integration terminee" in setup.finish_setup(557, finish=True)["message"]  # the client said all was sent
     counts["exp.journal"] = 9
-    assert "integration terminee" in setup.finish_setup(557)["message"]  # its accounts and journals (a model's copy)
+    finished = setup.finish_setup(557)["message"]  # its accounts and journals (a model's copy)
+    assert "integration terminee" in finished
+    assert finished.endswith("Vous pouvez encore envoyer vos fichiers fournisseurs et clients.")
+    assert "Vous pouvez" not in setup.finish_setup(557, finish=True)["message"]  # the client said all was sent
     counts["exp.journal"] = 0
     counts["experio.history"] = 40
     assert "integration terminee" in setup.finish_setup(557)["message"]  # a FEC: finished as before
