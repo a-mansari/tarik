@@ -1,9 +1,10 @@
 <!-- Tarik's harness as a flow, left to right (server/api/harness.py): clients and the Experio team write by email or on
-the Discussion page, a routine starts at its schedule; each reaches Tarik, his reply going back the
-same way, through the conversation it joins: Tarik only talks in conversations. Around Tarik what he reaches himself:
-his skills above, his model below, his tools on the right in one lane per family (his read tools, each workflow's), every one acting in Experio but the
-CGNC's. Every name is the one the code and the other pages use. Zoom and move as on a workflow's canvas
-(CanvasGraph.vue); hovering a node or a lane lights its links while the pointer is on it, a click tells what it does, under the map. -->
+the Discussion page, a routine starts at its schedule; each reaches Tarik through the conversation it joins (Tarik only
+talks in conversations), his reply going back the same way. Around Tarik what he reaches himself: his skills above,
+his model below, his tools on the right in one lane per family (his read tools, each workflow's, his own base's),
+each leading to where it acts: Experio, the CGNC or Tarik's own base. Every name is the one the code and the other
+pages use. Zoom and move as on a workflow's canvas (CanvasGraph.vue); hovering a node or a lane lights its links while
+the pointer is on it, a click tells what it does, under the map. -->
 <script setup>
 import { computed, nextTick, reactive, ref } from "vue";
 
@@ -19,7 +20,7 @@ const PAD = 10; // under a lane's last row
 const GAP = 26; // between two lanes
 const LANE = 300; // a lane's width
 const X = { source: 110, channel: 430, conversation: 740, tarik: 1050, tool: 1500, end: 1900 }; // each column's middle
-const PILL = { source: 160, channel: 150, conversation: 170, tarik: 112, skill: 210, tool: 250, end: 160, model: 300 }; // widths
+const PILL = { source: 160, channel: 150, conversation: 170, tarik: 112, skill: 210, tool: 250, end: 170, model: 390 }; // widths
 const WRAP = { model: 20 }; // characters on a line of these, the rest on a second one
 // The families' colours, from the theme's own (app.css, light and dark): a tool or a skill takes its family's.
 const HUES = ["--frame-1", "--frame-0", "--wait", "--bad", "--edge-resume", "--edge-cross", "--good", "--accent"];
@@ -79,8 +80,11 @@ const layout = computed(() => {
   Object.assign(nodes.conversations, { x: X.conversation, y: middle });
   Object.assign(nodes.model, { x: X.tarik, y: middle + 200 });
   Object.assign(nodes.experio, { x: X.end, y: middle, h: 74 });
-  const searched = edges.find((e) => e.target === "rag");
-  Object.assign(nodes.rag, { x: X.end, y: searched ? nodes[searched.source].y : TOP });
+  // Each other end (the CGNC, Tarik's own base) level with the tools leading to it.
+  for (const end of of("end").filter((n) => n.id !== "experio")) {
+    const ys = edges.filter((e) => e.target === end.id).map((e) => nodes[e.source].y);
+    Object.assign(end, { x: X.end, y: ys.length ? ys.reduce((sum, at) => sum + at, 0) / ys.length : TOP });
+  }
 
   const half = (n) => (PILL[n.kind] || 0) / 2;
   const curve = (a, b, bend = 0) => {
@@ -203,7 +207,7 @@ const onUp = () => {
         ref="svg"
         class="canvas map"
         :viewBox="box"
-        role="img"
+        role="group"
         aria-label="Le chemin des demandes jusqu'à Tarik, ses outils et les réponses"
         @mouseleave="lit = null"
         @wheel.prevent="onWheel"

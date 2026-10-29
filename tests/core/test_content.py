@@ -80,7 +80,7 @@ def test_no_sentence_is_cut_by_a_line_break(path):
     text = content.text(path)
     if path.endswith(".json"):
         data = json.loads(text)
-        texts = [v for group in ("tools", "read_tools") for v in data.get(group, {}).values()]
+        texts = [v for group in ("tools", "read_tools", "own_tools") for v in data.get(group, {}).values()]
         texts += [data["instructions"]] if "instructions" in data else []
     else:
         texts = [content.front_matter(text)[1]]
