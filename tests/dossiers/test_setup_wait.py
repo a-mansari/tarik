@@ -409,8 +409,7 @@ def test_missing_posting_settings_are_filled_as_experio_does(monkeypatch):
     assert done == [
         "compte `34210000 Clients` créé",
         "journal `Ventes` créé",
-        "réglé(s) dans la configuration du dossier : compte clients, journal de ventes, compte clients étrangers, "
-        "journal de ventes étrangères",
+        "réglé(s) dans la configuration du dossier : compte clients, compte clients étrangers",  # the journal: told
     ]
     assert problems == [] and calls[0] == ("res.company", "auto_detect_settings")
     assert ("exp.account", "create", {"code": "34210000", "name": "Clients", "company_id": 557}) in calls
