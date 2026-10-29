@@ -9,11 +9,19 @@ a res.company or a res.users cannot be deleted from here, and only the client ca
 import csv
 import io
 
-from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop
+from engine.tools.core.app import CRASHED, ToolError, log, ok, question, routine, step_tool, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import POSTED, TEST_MODE
 from engine.tools.core.conversation import client_messages, own_words
-from engine.tools.core.experio import dry_run, experio_refusal, odoo_call, odoo_json, refused, require_dossier
+from engine.tools.core.experio import (
+    dry_run,
+    experio_refusal,
+    is_refusal,
+    odoo_call,
+    odoo_json,
+    refused,
+    require_dossier,
+)
 from engine.tools.core.words import ICE_WRITTEN, counted, normalized, said
 from engine.tools.dossiers.identity import FOLDER_TYPES, PLACEHOLDER_IDS, confirmed, having, real_ids
 from engine.tools.dossiers.people import RANK, attach_user, level_of, sender_reach, users_by_email
@@ -279,12 +287,16 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
     if dry_run():
         would = counted(len(rows), "{} dossier serait créé", "{} dossiers seraient créés")
         return ok(f"{TEST_MODE}`{name}` : {would}.")
-    created, refused_rows = [], []
+    created, refused_rows, crashed_rows = [], [], []
     for r in rows:
         try:
             dossier_id = odoo_json("res.company", "create", values_of(r))
         except Exception as error:
-            refused_rows.append(f"- Ligne {r['line']} (`{r['name']}`) : {experio_refusal(error)}")
+            log(f"import_dossiers {file_id} line {r['line']}: {error}")
+            if is_refusal(error):
+                refused_rows.append(f"- Ligne {r['line']} (`{r['name']}`) : {experio_refusal(error)}")
+            else:
+                crashed_rows.append(f"- Ligne {r['line']} (`{r['name']}`)")
             continue
         attach_user(None, dossier_id)
         created.append(r["name"])
@@ -296,6 +308,8 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
             + "\n".join(refused_rows)
             + "\nCorrigez ces lignes et renvoyez-les seules."
         )
+    if crashed_rows:
+        message += f"\nCes lignes n'ont pas été créées : {CRASHED}\n" + "\n".join(crashed_rows)
     return ok(message)
 
 
@@ -345,11 +359,9 @@ def invited(user_id, email):
     try:
         odoo_json("res.users", "action_invite_user", [user_id])
     except Exception as error:  # the user stays made and on the dossier: only the invitation is to send again
-        why = experio_refusal(error)
-        return (
-            f" Je n'ai pas pu envoyer l'invitation, car Experio refuse : {why}. "
-            "Le cabinet peut la renvoyer depuis Experio (bouton Inviter)."
-        )
+        log(f"invited {user_id}: {error}")
+        why = f", car Experio refuse : {experio_refusal(error)}." if is_refusal(error) else f" : {CRASHED}"
+        return f" Je n'ai pas pu envoyer l'invitation{why} Le cabinet peut la renvoyer depuis Experio (bouton Inviter)."
     return f" J'ai envoyé l'invitation Experio à `{email}`, avec son identifiant et son mot de passe."
 
 

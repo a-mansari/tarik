@@ -244,5 +244,5 @@ def test_experio_unreachable_says_the_declaration_could_not_be_prepared(experio,
         raise ConnectionRefusedError("down")
 
     monkeypatch.setattr(delay, "odoo_call", down)
-    with pytest.raises(ToolError, match="n'a pas pu préparer la déclaration des délais de paiement"):
+    with pytest.raises(ToolError, match=r"^Échec technique, réessayez plus tard\.$"):
         delay.prepare_payment_delay_declaration(857)

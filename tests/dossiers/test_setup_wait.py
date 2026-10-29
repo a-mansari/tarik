@@ -234,7 +234,9 @@ def test_a_finished_setup_says_how_many_lines_went_to_experio(stepper):
 
 @pytest.mark.communication
 def test_experio_refusing_to_finish_the_onboarding_gives_its_reason(stepper, monkeypatch):
-    monkeypatch.setattr(setup, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("journal requis")))
+    monkeypatch.setattr(
+        setup, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "journal requis"))
+    )
     with pytest.raises(ToolError, match=r"`Gecafisc` : Experio refuse de terminer l'intégration \(journal requis\)"):
         setup.finish_setup(557)
 
@@ -265,7 +267,9 @@ def test_the_current_exercice_is_opened_only_when_the_dossier_has_none(stepper, 
 @pytest.mark.communication
 def test_experio_refusing_the_exercice_gives_its_reason(stepper, monkeypatch):
     monkeypatch.setattr(setup, "odoo_call", lambda model, method, domain: 0)
-    monkeypatch.setattr(setup, "open_exercice", lambda *a: (_ for _ in ()).throw(RuntimeError("dates en conflit")))
+    monkeypatch.setattr(
+        setup, "open_exercice", lambda *a: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "dates en conflit"))
+    )
     with pytest.raises(ToolError, match=r"Experio refuse d'ouvrir l'exercice \d+ \(dates en conflit\)"):
         setup.exercice_note(557, "Gecafisc")
 

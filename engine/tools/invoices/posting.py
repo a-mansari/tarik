@@ -8,13 +8,14 @@ Posting also saves the invoice's account, non-recoverable TVA and RAS settings o
 
 import time
 
-from engine.tools.core.app import log, ok, routine, step_tool, stop
+from engine.tools.core.app import CRASHED, log, ok, routine, step_tool, stop
 from engine.tools.core.config import POSTED, TEST_MODE
 from engine.tools.core.experio import (
     blocking,
     dry_run,
     experio_refusal,
     invoice_context,
+    is_refusal,
     odoo_call,
     odoo_json,
     plain,
@@ -184,6 +185,8 @@ def post_invoice(invoice_id: int) -> dict:
         after = odoo_call("exp.invoice", "read", [invoice_id], fields=["state", "error_msg"], context=context)[0]
     except Exception as error:  # not refused(): a refusal here stops this invoice, with Experio's own reason
         log(f"post_invoice {invoice_id}: {error}")
+        if not is_refusal(error):
+            return stop(f"Facture {invoice_id} : {CRASHED}")
         return stop(f"Facture {invoice_id} : Experio a refusé la comptabilisation : {experio_refusal(error)}")
     if after["state"] in POSTED:
         return ok(f"Facture {invoice_id} : comptabilisée.{told}")

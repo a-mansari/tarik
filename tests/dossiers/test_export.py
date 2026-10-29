@@ -201,5 +201,5 @@ def test_experio_unreachable_says_the_export_could_not_be_prepared(experio, monk
         raise ConnectionRefusedError("down")
 
     monkeypatch.setattr(export, "odoo_call", down)
-    with pytest.raises(ToolError, match=r"n'a pas pu préparer l'export \(down\)"):
+    with pytest.raises(ToolError, match=r"^Échec technique, réessayez plus tard\.$"):
         export.export_entries(857, session_id="s")

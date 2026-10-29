@@ -1,6 +1,7 @@
 """New dossiers: FEC or grand livre, the files read, and what only the client may ask for."""
 
 import io
+import xmlrpc.client
 from datetime import datetime
 
 import openpyxl
@@ -320,6 +321,8 @@ def test_an_unknown_dossier_type_is_refused(creating):
 
 @pytest.mark.communication
 def test_experio_refusing_a_new_dossier_gives_its_reason(creating, monkeypatch):
-    monkeypatch.setattr(identity, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("ICE invalide")))
+    monkeypatch.setattr(
+        identity, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "ICE invalide"))
+    )
     with pytest.raises(ToolError, match="Experio refuse de créer le dossier `DELTA` : ICE invalide"):
         identity.create_dossier(name="DELTA", client_message="Créez DELTA", session_id="s")

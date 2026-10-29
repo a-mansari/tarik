@@ -290,7 +290,7 @@ def test_experio_unreachable_says_the_tva_declaration_could_not_be_prepared(expe
         raise ConnectionRefusedError("down")
 
     monkeypatch.setattr(tva, "odoo_call", down)
-    with pytest.raises(ToolError, match=r"n'a pas pu préparer la déclaration \(down\)"):
+    with pytest.raises(ToolError, match=r"^Échec technique, réessayez plus tard\.$"):
         tva.prepare_tva_declaration(857)
 
 

@@ -277,7 +277,7 @@ def test_experio_unreachable_says_the_ras_declaration_could_not_be_prepared(expe
         raise ConnectionRefusedError("down")
 
     monkeypatch.setattr(ras, "odoo_call", down)
-    with pytest.raises(ToolError, match="n'a pas pu préparer la déclaration RAS"):
+    with pytest.raises(ToolError, match=r"^Échec technique, réessayez plus tard\.$"):
         ras.prepare_ras_declaration(857, "IS")
 
 

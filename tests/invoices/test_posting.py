@@ -1,5 +1,7 @@
 """Posting: only when Experio's own check is clear, and the state read back decides."""
 
+import xmlrpc.client
+
 import pytest
 
 from engine.tools.core import experio as experio_calls
@@ -30,7 +32,7 @@ def experio(monkeypatch):
         if method == "collect_validation_messages":
             return [("error", text) for text in state["blocking"]]
         if method == "action_post" and state["after"] == "refused":
-            raise RuntimeError("Traceback\nValidationError: Tiers sans compte")
+            raise state.get("failure", experio_calls.ExperioRefusal("Tiers sans compte", "odoo.exceptions.UserError"))
         if method == "action_post":
             return state.get("action")
 
@@ -66,7 +68,11 @@ def test_writing_lines_fixed_by_hand_are_not_rebuilt(experio):
 def test_experios_refusal_and_state_decide(experio):
     experio["after"] = "refused"
     result = posting.post_invoice(3)
-    assert result["status"] == "stop" and result["message"].endswith("ValidationError: Tiers sans compte")
+    assert result["message"] == "Facture 3 : Experio a refusé la comptabilisation : Tiers sans compte"
+    experio["failure"] = xmlrpc.client.Fault(1, "Traceback (most recent call last):\nKeyError: 'partner_id'")
+    result = posting.post_invoice(3)  # a crash: never Experio's reason
+    assert result["status"] == "stop" and result["message"] == "Facture 3 : échec technique, réessayez plus tard."
+    del experio["failure"]
     experio["after"] = "draft"  # action_post went through, the invoice stayed a draft
     assert posting.post_invoice(3)["message"] == "Facture 3 : pas comptabilisée (Bloque)."
     experio["state"] = "post"

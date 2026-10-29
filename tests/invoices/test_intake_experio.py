@@ -2,6 +2,7 @@
 
 import base64
 import io
+import xmlrpc.client
 
 import openpyxl
 import pypdfium2
@@ -413,7 +414,7 @@ def test_test_mode_imports_no_excel_template(experio, monkeypatch):
 @pytest.mark.communication
 def test_an_excel_template_refused_says_experio_reason(experio, monkeypatch):
     def refused(*args):
-        raise RuntimeError("aucune ligne dans le canevas")
+        raise xmlrpc.client.Fault(2, "aucune ligne dans le canevas")
 
     monkeypatch.setattr(intake, "import_canvas", refused)
     file_id = saved("releve.xlsx", canvas(), "statement")

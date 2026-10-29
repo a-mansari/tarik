@@ -1,6 +1,8 @@
 """A dossier's configuration copied from a model, and its files through Experio's Importation screen (db_cabinet):
 tested by Experio first, imported only when its test finds nothing, every refusal a stop with the file taken."""
 
+import xmlrpc.client
+
 import pytest
 
 from engine.tools.core.app import ToolError
@@ -57,7 +59,9 @@ def test_the_copy_is_only_said_in_test_mode(copying, monkeypatch):
 
 @pytest.mark.communication
 def test_experio_refusing_the_copy_gives_its_reason(copying, monkeypatch):
-    monkeypatch.setattr(setup, "odoo_json", lambda *a: (_ for _ in ()).throw(RuntimeError("compte 4421 manquant")))
+    monkeypatch.setattr(
+        setup, "odoo_json", lambda *a: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "compte 4421 manquant"))
+    )
     with pytest.raises(ToolError, match="Experio n'a pas pu copier la configuration : compte 4421 manquant"):
         setup.copy_configuration(557, 890)
 
@@ -177,7 +181,7 @@ def test_errors_in_experios_import_itself_are_a_stop(importing):
     ],
 )
 def test_experio_failing_a_call_of_the_import_is_a_stop_with_its_reason(importing, failing, said):
-    importing[failing] = RuntimeError("boom")
+    importing[failing] = xmlrpc.client.Fault(2, "boom")
     file_id = sent("fec.csv", FEC)
     answer = setup.import_entries(557, file_id)
     assert answer["status"] == "stop" and answer["message"] == said and kind_of(file_id) == "entries"
@@ -189,7 +193,7 @@ def test_experio_refusing_the_import_after_its_test_gives_its_reason(importing, 
 
     def failing_import(model, method, *args, context=None):
         if method == "execute_import" and not args[-1]:
-            raise RuntimeError("verrou")
+            raise xmlrpc.client.Fault(2, "verrou")
         return real(model, method, *args, context=context)
 
     monkeypatch.setattr(setup, "odoo_json", failing_import)

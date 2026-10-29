@@ -9,7 +9,7 @@ scan (its name, ICE and IF), as the invoice screen's "Créer" does; a name close
 
 import re
 
-from engine.tools.core.app import ToolError, log, ok, question, step_tool
+from engine.tools.core.app import CRASHED, ToolError, log, ok, question, step_tool
 from engine.tools.core.config import TIERS_MIN_SIMILARITY
 from engine.tools.core.conversation import chosen_among
 from engine.tools.core.experio import (
@@ -18,6 +18,7 @@ from engine.tools.core.experio import (
     fill_invoice,
     in_dossier,
     invoice_context,
+    is_refusal,
     odoo_call,
     odoo_json,
     refused,
@@ -218,8 +219,10 @@ def create_tiers(invoice, name, kind, unchecked=False):
     try:
         partner_id = odoo_call("exp.partner", "create", values, context=invoice_context(invoice))
     except Exception as error:
-        reason = experio_refusal(error)
         log(f"tiers créé {invoice['id']} {name}: {error}")
+        if not is_refusal(error):
+            raise ToolError(f"Facture {invoice['id']} : {CRASHED}") from None
+        reason = experio_refusal(error)
         if NOT_IN_REGISTRY in normalized(reason) and not unchecked:
             numbers = ", ".join(
                 f"{label} {values[key]}" for key, label in (("ice", "ICE"), ("vat", "IF")) if key in values

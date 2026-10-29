@@ -10,13 +10,14 @@ the question when no open exercice covers the date: late invoice in an open one,
 import re
 from datetime import date
 
-from engine.tools.core.app import log, ok, question, routine, step_tool
+from engine.tools.core.app import CRASHED, ToolError, log, ok, question, routine, step_tool
 from engine.tools.core.experio import (
     dry_run,
     experio_refusal,
     fill_invoice,
     in_dossier,
     invoice_context,
+    is_refusal,
     odoo_call,
     odoo_json,
     refused,
@@ -149,6 +150,8 @@ def new_exercice(invoice_id, invoice, opens):
         fill_invoice(invoice_id, {"exercice_id": exercice_id}, invoice_context(invoice))
     except Exception as error:  # not refused(): Experio's reason becomes a question to the client
         log(f"settle_exercice {invoice_id}: {error}")
+        if not is_refusal(error):
+            raise ToolError(f"Facture {invoice_id} : {CRASHED}") from None
         return question(
             f"Facture {invoice_id} : Experio refuse de créer l'exercice {year} ({experio_refusal(error)}). "
             f"La comptabiliser plutôt comme facture antérieure dans un exercice ouvert ? "
