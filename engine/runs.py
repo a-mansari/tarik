@@ -22,7 +22,7 @@ from engine.calls import within
 from engine.content import LABELS
 from engine.knowledge import cgnc
 from engine.settings import DEFAULT_CABINET
-from engine.tools.core import usage
+from engine.tools.core import claude_code, usage
 from engine.tools.core.app import log
 from engine.tools.core.queries import Q
 from engine.tools.invoices.pipeline import released
@@ -166,7 +166,7 @@ UNATTENDED = contextvars.ContextVar("unattended", default=False)
 # page for the run it starts, read in the configurable ("writer"). The chat has no sender to check; its writer does.
 WRITER = contextvars.ContextVar("writer", default=None)
 # The run a run's tree started from (itself for a run started on its own), the same way: stopping a run stops its tree.
-ROOT = contextvars.ContextVar("root", default=None)
+ROOT = usage.ROOT
 TASKS = {}  # run_id -> the task of a run started on its own (start), while it goes on: the one stop() cancels
 STOPPED = {}  # run_id of a tree's root -> why its runs end ("Arrêté par <who>"), while they end
 
@@ -207,7 +207,7 @@ async def start(name, payload, slots=SLOTS, unattended=False):
     running = execute(run_id, name, cabinet, session, thread, given, slots=slots, unattended=unattended)
     task = asyncio.create_task(running)
     TASKS[run_id] = task
-    task.add_done_callback(lambda _: (TASKS.pop(run_id, None), STOPPED.pop(run_id, None)))
+    task.add_done_callback(lambda _: (TASKS.pop(run_id, None), STOPPED.pop(run_id, None), claude_code.forget(run_id)))
     return run_id, task
 
 
@@ -236,6 +236,7 @@ async def stop(run_id, by):
         return root
     STOPPED[root] = f"Arrêté par {by}"
     task.cancel()
+    claude_code.kill(root)  # its model calls end now, not up to MODEL_TIMEOUT later
     return root
 
 

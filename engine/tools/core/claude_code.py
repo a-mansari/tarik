@@ -25,8 +25,35 @@ PROCESSES = threading.BoundedSemaphore(int(os.getenv("TARIK_MODEL_CALLS", "10"))
 ARGUMENT = 128 * 1024  # Linux's limit on one argument (MAX_ARG_STRLEN), its final NUL included
 
 
+# The CLI calls going on in a run tree, as (usage.ROOT, process), and the trees stopped (runs.stop) until they end:
+# a stopped tree's processes are killed and it starts no other (a tool retrying, a call waiting for its slot).
+RUNNING = set()
+KILLED = set()
+_LOCK = threading.Lock()
+
+
+def kill(root):
+    """Stop run tree ``root``'s CLI calls: those going on killed at once (their slots freed), any other refused until
+    forget(``root``)."""
+    with _LOCK:
+        KILLED.add(root)
+        for tree, process in RUNNING:
+            if tree == root:
+                process.kill()
+
+
+def forget(root):
+    """Let run tree ``root`` call the CLI again: it has ended (runs.start)."""
+    with _LOCK:
+        KILLED.discard(root)
+
+
 class ClaudeCodeError(RuntimeError):
     """The CLI failed: not installed, not logged in, out of quota, busy or timed out."""
+
+
+class ClaudeCodeStopped(ClaudeCodeError):
+    """The call's run was stopped by hand (runs.stop): killed, or never started."""
 
 
 class ClaudeCodeUnreadable(ClaudeCodeError):
@@ -60,10 +87,7 @@ def ask(system, content, schema, timeout=MODEL_TIMEOUT):
             ]  # fmt: skip
             try:
                 pathlib.Path(prompt).write_text(system, encoding="utf-8")
-                done = subprocess.run(
-                    command, input=json.dumps(message), capture_output=True, text=True, env=env, cwd=empty,
-                    timeout=max(1, timeout - (time.monotonic() - started)),
-                )  # fmt: skip
+                done = answered(command, json.dumps(message), env, empty, timeout - (time.monotonic() - started))
             except FileNotFoundError:
                 raise ClaudeCodeError("the claude CLI is not installed in this image") from None
             except subprocess.TimeoutExpired:
@@ -83,6 +107,35 @@ def ask(system, content, schema, timeout=MODEL_TIMEOUT):
     if not isinstance(result.get("structured_output"), dict):
         raise ClaudeCodeUnreadable(f"claude CLI gave no structured answer: {str(result.get('result'))[:300]}")
     return result["structured_output"]
+
+
+def answered(command, given, env, cwd, timeout):
+    """Run the CLI ``command`` on stdin ``given`` within ``timeout`` seconds (at least one) and return it ended
+    (returncode, stdout, stderr), as subprocess.run would; kept in RUNNING meanwhile, under its run tree, so a stop
+    kills it (a call outside any run is never stopped). Raises subprocess.TimeoutExpired once it is killed for its
+    time, ClaudeCodeStopped when its run tree was stopped."""
+    root = usage.ROOT.get()
+    with _LOCK:
+        if root in KILLED:
+            raise ClaudeCodeStopped("claude CLI: its run was stopped")
+        process = subprocess.Popen(
+            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, cwd=cwd
+        )  # started under the lock: a stop either sees it or comes before it
+        held = (root, process)
+        if root is not None:
+            RUNNING.add(held)
+    try:
+        stdout, stderr = process.communicate(given, timeout=max(1, timeout))
+    except BaseException:  # its time over, or anything else: never left running
+        process.kill()
+        process.communicate()
+        raise
+    finally:
+        with _LOCK:
+            RUNNING.discard(held)
+    if root in KILLED:
+        raise ClaudeCodeStopped("claude CLI: its run was stopped")
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def result_event(output):
