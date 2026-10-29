@@ -273,6 +273,14 @@ def test_in_test_mode_the_list_is_only_said(listing, experio, monkeypatch):
 
 
 @pytest.mark.communication
+def test_a_long_list_is_cut_after_max_shown():
+    lines = [f"- Ligne {n}" for n in range(management.MAX_SHOWN + 3)]
+    text = management.capped(lines)
+    assert text.splitlines()[-1] == "- ... et 3 autres" and len(text.splitlines()) == management.MAX_SHOWN + 1
+    assert management.capped(lines[:2]) == "- Ligne 0\n- Ligne 1"
+
+
+@pytest.mark.communication
 def test_the_rows_experio_refuses_are_listed_and_the_others_created(listing, experio, monkeypatch):
     listing["text"] = f"{HEAD}\nBETA;societe;;;mensuelle;;\nDELTA;societe;;12345678;mensuelle;;"
     listing["text"] += "\nGAMMA;societe;;87654321;mensuelle;;"
@@ -292,7 +300,7 @@ def test_the_rows_experio_refuses_are_listed_and_the_others_created(listing, exp
         "`dossiers.csv` : 1 dossier créé sur 3.\nExperio a refusé ces lignes :\n"
         "- Ligne 3 (`DELTA`) : IF inconnu du registre"
         "\n\nCorrigez ces lignes et renvoyez-les seules."  # its own paragraph: the chat would fold it into the bullet
-        "\nCes lignes n'ont pas été créées : échec technique, réessayez plus tard.\n- Ligne 4 (`GAMMA`)"
+        "\n\nCes lignes n'ont pas été créées : échec technique, réessayez plus tard.\n- Ligne 4 (`GAMMA`)"
     )
     assert attached == [9]
 
@@ -458,7 +466,7 @@ def test_experio_failing_the_archiving_says_where(monkeypatch):
     monkeypatch.setattr(
         management, "odoo_json", lambda *a: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "factures ouvertes"))
     )
-    with pytest.raises(ToolError, match="Experio refuse d'archiver le dossier `BETA` : factures ouvertes"):
+    with pytest.raises(ToolError, match=r"^Dossier `BETA` : Experio refuse de l'archiver \(factures ouvertes\)\.$"):
         management.archive_dossier(5, True, "s")
 
 

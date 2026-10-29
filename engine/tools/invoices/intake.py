@@ -748,7 +748,7 @@ def import_bank_statement(
             if dry_run():
                 return ok(f"{TEST_MODE}`{name}` : le relevé Excel serait importé, journal `{journal['name']}`.{done}")
             with refused(
-                f"import_bank_statement {file_id}", f"Experio n'a pas pu importer le relevé {name} ({{reason}})."
+                f"import_bank_statement {file_id}", f"`{name}` : Experio n'a pas pu importer le relevé ({{reason}})."
             ):
                 statement_id = import_canvas(name, data, dossier_id, journal["id"])
             db.execute(Q.set_file_statement, (statement_id, None, file_id))
