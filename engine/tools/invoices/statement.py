@@ -15,6 +15,7 @@ import ast
 import io
 import re
 import time
+from datetime import date, timedelta
 
 import openpyxl
 
@@ -681,6 +682,67 @@ def owed_invoices(statement, lines, context):
     return given, only_tiers
 
 
+LEDGER_DAYS = 400  # how far back a supplier entry still explains a payment
+
+
+def ledger_tiers(statement, lines, context):
+    """Give purchase lines paid out with no tiers and no invoice the one supplier the dossier's ledger names for them.
+
+    Two pieces of evidence, the first that answers: (1) another entry quoting the cheque or transfer number in its
+    label (the cabinet booked the payment when it issued it); (2) one unpaid supplier entry (credit on a 4411 account,
+    not reconciled) of exactly the line's amount in the LEDGER_DAYS before its date. Only a single supplier, and one
+    the line's tiers picker accepts. Measured on the 97 cheque lines the cabinets' 159 dossiers pointed with a tiers
+    and no invoice (their own entries left out): (1) found 13 and was right 10 times, (2) found 32 and was right 27
+    times: a tiers Tarik infers, said as such in the report for the cabinet to check.
+
+    Returns how many lines got one (counted also in test mode, where nothing is written).
+    """
+    company, given = context["allowed_company_ids"][0], 0
+    for line in lines:
+        amount = amount_of(line)
+        if (
+            not amount
+            or line["partner_id"]
+            or line["operation_type"] != "purchase"
+            or not (line["debit"] or 0) > (line["credit"] or 0)
+            or not line["partner_id_domain"]
+        ):
+            continue
+        own = ("move_id.bank_statement_line_id", "!=", line["id"])
+        base = [("company_id", "=", company), ("partner_id", "!=", False), own]
+        wanted = [
+            [*base, ("name", "ilike", number)] for number in re.findall(r"\d{6,}", line["payment_ref"])[:1]
+        ]  # (1) then (2)
+        since = (date.fromisoformat(line["date"]) - timedelta(days=LEDGER_DAYS)).isoformat()
+        wanted.append(
+            [
+                *base,
+                ("account_id.code", "=like", "4411%"),
+                ("credit", "=", amount),
+                ("reconciled", "=", False),
+                ("date", "<=", line["date"]),
+                ("date", ">=", since),
+            ]
+        )
+        for domain in wanted:
+            found = odoo_call("exp.move.line", "search_read", domain, fields=["partner_id"], limit=20, context=context)
+            suppliers = {entry["partner_id"][0] for entry in found}
+            if not suppliers:
+                continue
+            accepted = len(suppliers) == 1 and odoo_call(
+                "exp.partner",
+                "search_count",
+                [*ast.literal_eval(line["partner_id_domain"]), ("id", "in", list(suppliers))],
+                context=context,
+            )
+            if accepted:
+                if not dry_run():
+                    odoo_call(LINE, "write", [line["id"]], {"partner_id": suppliers.pop()}, context=context)
+                given += 1
+            break  # the first evidence that answers decides, right or not
+    return given
+
+
 def blocked_reasons(statement, context):
     """Return (reasons, ready, posted) for the statement's lines.
 
@@ -871,13 +933,22 @@ def tie_cited_invoices(statement_id: int, client_message: str = "") -> dict:
 
 @step_tool
 def tie_owed_invoices(statement_id: int) -> dict:
-    """Give the statement's lines the one open invoice owing their amount, or only its tiers (owed_invoices)."""
+    """Give the statement's lines the one open invoice owing their amount, or only its tiers (owed_invoices), then
+    the supplier the ledger names for a payment still without one (ledger_tiers)."""
 
     def work(statement, context):
         tied, only_tiers = owed_invoices(statement, open_lines(statement, context), context)
+        ledger = ledger_tiers(statement, open_lines(statement, context), context)
         said = counted(tied, "la seule facture ouverte de leur tiers et de leur montant")
         also = counted(only_tiers, "le tiers des factures ouvertes de leur montant, qui sont toutes de lui")
-        return (", ".join(filter(None, [said, also])), "")
+        found = counted(ledger, "leur tiers retrouvé dans le grand livre")
+        note = (
+            "Tiers retrouvé dans le grand livre (écriture citant le numéro du chèque ou du virement, ou facture "
+            "fournisseur impayée de ce montant) : à vérifier par le cabinet."
+            if ledger
+            else ""
+        )
+        return (", ".join(filter(None, [said, also, found])), note)
 
     return completing(statement_id, "tie_owed_invoices", work)
 
