@@ -1,8 +1,11 @@
 """The invoice's tiers: names compared, the client's choice among those proposed (fictional tiers)."""
 
+import xmlrpc.client
+
 import pytest
 
 from engine.tools.core.config import TIERS_MIN_SIMILARITY
+from engine.tools.core.experio import ExperioRefusal
 from engine.tools.core.words import similarity
 from engine.tools.invoices.tiers import flagged_tier
 
@@ -431,12 +434,39 @@ def test_why_experio_refused_to_link_a_tiers_is_said(linking, monkeypatch):
     from engine.tools.invoices import tiers
 
     def refuse(*args):
-        raise RuntimeError("Traceback\nValidationError: tiers archivé")
+        raise xmlrpc.client.Fault(2, "Ce tiers est archivé.")
 
     monkeypatch.setattr(tiers, "fill_invoice", refuse)
-    with pytest.raises(ToolError, match=r"Facture 4 : Experio a refusé le tiers `ATLAS` \(.*tiers archivé\)"):
+    with pytest.raises(
+        ToolError, match=r"^Facture 4 : Experio a refusé le tiers `ATLAS` \(Ce tiers est archivé\.\)\.$"
+    ):
         tiers.link(linking["invoice"], 7, "purchase")
     assert linking["confirmed"] == []
+
+
+CRASHES = [
+    KeyError("partner_id"),  # ours
+    xmlrpc.client.Fault(1, "Traceback (most recent call last):\n  File odoo/models.py\nKeyError: 'partner_id'"),
+    ExperioRefusal("'partner_id'", "builtins.KeyError"),  # Experio's, over JSON-RPC
+]
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("crash", CRASHES)
+def test_a_crash_linking_or_creating_a_tiers_is_no_refusal_nor_shown(linking, monkeypatch, crash):
+    from engine.tools.core.app import ToolError
+    from engine.tools.invoices import tiers
+
+    def crashing(*args, **kw):
+        raise crash
+
+    monkeypatch.setattr(tiers, "fill_invoice", crashing)
+    with pytest.raises(ToolError, match=r"^Facture 4 : échec technique, réessayez plus tard\.$"):
+        tiers.link(linking["invoice"], 7, "purchase")
+    linking["answers"][("exp.partner", "create")] = crashing
+    invoice = linking["invoice"] | {"supplier_name": "", "detected_supplier_ice": "", "detected_supplier_if": ""}
+    with pytest.raises(ToolError, match=r"^Facture 4 : échec technique, réessayez plus tard\.$"):
+        tiers.create_tiers(invoice, "ATLAS", "purchase")
 
 
 @pytest.mark.technical

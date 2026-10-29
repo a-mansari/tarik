@@ -10,7 +10,7 @@ from typing import Final
 
 import httpx
 
-from engine.tools.core.app import ToolError, log, tool, wait
+from engine.tools.core.app import CRASHED, ToolError, log, tool, wait
 from engine.tools.core.cabinets import current, setting
 from engine.tools.core.config import DOSSIER_DOMAIN, JSON_TIMEOUT, ODOO_URL, READING, RPC_TIMEOUT, TEST_MODE
 from engine.tools.core.words import strip_tags
@@ -115,15 +115,20 @@ def refused(log_text, message, error=ToolError):
     """Context manager: turn any exception raised in the block into ``error`` (ToolError by default) with ``message``.
 
     A ToolError passes through unchanged. Any other exception is logged with ``log_text``, then re-raised as
-    ``error(message)``, "{reason}" in ``message`` replaced by Experio's reason (experio_refusal). Only a ToolError's
-    own message reaches the agent, so the original exception stays in the log."""
+    ``error(message)``, "{reason}" in ``message`` replaced by Experio's reason (experio_refusal) when Experio refused
+    (is_refusal). A crash, ours or Experio's, never reads as Experio's reason: a ``message`` with "{reason}" becomes
+    its subject (before « : Experio », as « Facture 12 ») then CRASHED. Only a ToolError's own message reaches the
+    agent, so the original exception stays in the log."""
     try:
         yield
     except ToolError:
         raise
     except Exception as failure:
         log(f"{log_text}: {failure}")
-        raise error(message.replace("{reason}", experio_refusal(failure))) from None
+        if is_refusal(failure) or "{reason}" not in message:
+            raise error(message.replace("{reason}", experio_refusal(failure))) from None
+        subject, cut, _ = message.partition(" : Experio")
+        raise error(f"{subject} : {CRASHED}" if cut else CRASHED.capitalize()) from None
 
 
 # --- Calls ---
@@ -428,13 +433,18 @@ def experio_refusal(error):
     return text.strip().splitlines()[-1][:300]
 
 
+# Experio refusing, over JSON-RPC: its checks (CHECK_REFUSALS) and RedirectWarning, not a UserError (odoo/exceptions.py
+# :30) but sent with faultCode 2 over XML-RPC. Not an AccessError: its text names the dossier the record belongs to.
+REFUSALS = (*CHECK_REFUSALS, "odoo.exceptions.RedirectWarning")
+
+
 def is_refusal(error):
-    """True when ``error`` is Experio refusing (a UserError or ValidationError its checks raise), not a crash,
-    ours or Experio's. Over XML-RPC Experio sends those with faultCode 2 and anything else with code 1 and its whole
-    traceback (odoo/addons/base/controllers/rpc.py xmlrpc_handle_exception_int); over JSON-RPC, by the class name."""
+    """True when ``error`` is Experio refusing (a UserError, ValidationError or RedirectWarning), not a crash, ours or
+    Experio's. Over XML-RPC Experio sends those with faultCode 2 and anything else with code 1 and its whole traceback
+    (odoo/addons/base/controllers/rpc.py xmlrpc_handle_exception_int); over JSON-RPC, by the class name (REFUSALS)."""
     if isinstance(error, xmlrpc.client.Fault):
         return error.faultCode == 2
-    return isinstance(error, ExperioRefusal) and error.name in CHECK_REFUSALS
+    return isinstance(error, ExperioRefusal) and error.name in REFUSALS
 
 
 def plain(html):

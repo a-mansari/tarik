@@ -1,5 +1,7 @@
 """Changing an existing dossier: only to values the client wrote, never another dossier's ICE, IF or name."""
 
+import xmlrpc.client
+
 import pytest
 
 from engine.tools.core.app import ToolError
@@ -150,6 +152,8 @@ def test_an_unknown_type_is_refused(experio):
 
 @pytest.mark.communication
 def test_experio_refusing_the_change_gives_its_reason(experio, monkeypatch):
-    monkeypatch.setattr(onboarding, "odoo_json", lambda *a: (_ for _ in ()).throw(RuntimeError("RC deja pris")))
+    monkeypatch.setattr(
+        onboarding, "odoo_json", lambda *a: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "RC deja pris"))
+    )
     with pytest.raises(ToolError, match="Experio refuse de modifier le dossier `Gecafisc` : RC deja pris"):
         onboarding.update_dossier(557, rc="331245", client_message="RC 331245")

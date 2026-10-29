@@ -1,8 +1,11 @@
 """A TPE statement: its network read, imported through Experio's own TPE upload, its lines given Experio's
 operations, its card sales' client asked, posted on demand."""
 
+import xmlrpc.client
+
 import pytest
 
+from engine.tools.core.experio import ExperioRefusal
 from engine.tools.invoices import tpe
 
 HEADER = """ATTIJARI PAYMENT S.A au capital de 35.000.000 DH,
@@ -209,7 +212,9 @@ def test_posting_confirms_experios_network_change_warning(experio):
 
 @pytest.mark.functionality
 def test_a_duplicate_statement_stops(experio):
-    experio["post"] = Exception("Ce relevé TPE ne peut pas être comptabilisé, car un relevé en doublon existe")
+    experio["post"] = xmlrpc.client.Fault(
+        2, "Ce relevé TPE ne peut pas être comptabilisé, car un relevé en doublon existe"
+    )
     result = tpe.post_tpe(460)
     assert result["status"] == "stop" and "doublon" in result["message"]
 
@@ -361,3 +366,17 @@ def test_another_window_at_posting_stops_for_the_cabinet(experio):
     experio["post"] = {"res_model": "exp.monetary.statement.duplicate", "name": "Doublon possible"}
     result = tpe.post_tpe(460)
     assert result["status"] == "stop" and "« Doublon possible »" in result["message"] and experio["confirmed"] == []
+
+
+@pytest.mark.security
+def test_experio_refusing_a_tpe_statement_says_why_and_a_crash_is_not_shown(experio):
+    experio["post"] = ExperioRefusal("Ce relevé existe déjà.", "odoo.exceptions.ValidationError")
+    result = tpe.post_tpe(460)
+    assert result["message"] == "Relevé TPE n° 460 : pas comptabilisé, Experio refuse : Ce relevé existe déjà."
+    for crash in (KeyError("line_ids"), xmlrpc.client.Fault(1, "Traceback (most recent call last):\nKeyError: 'x'")):
+        experio["post"] = crash
+        result = tpe.post_tpe(460)
+        assert (
+            result["status"] == "stop"
+            and result["message"] == "Relevé TPE n° 460 : échec technique, réessayez plus tard."
+        )

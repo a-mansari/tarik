@@ -2,6 +2,7 @@
 
 import http.client
 import threading
+import xmlrpc.client
 
 import httpx
 import pytest
@@ -220,8 +221,32 @@ def test_a_failure_becomes_the_given_message_with_experio_reason_and_a_tool_erro
         raise experio.ExperioRefusal("Compte\n bloque", "odoo.exceptions.UserError")
     with pytest.raises(ToolError, match="^own$"), experio.refused("log", "Refus : {reason}"):
         raise ToolError("own")
-    with pytest.raises(ValueError, match="last line"), experio.refused("log", "{reason}", error=ValueError):
-        raise RuntimeError("Traceback\n  File x\nlast line")
+    with pytest.raises(ValueError, match="^Refus$"), experio.refused("log", "{reason}", error=ValueError):
+        raise xmlrpc.client.Fault(2, "Refus")
+    with pytest.raises(ToolError, match="^Refus : Factures sans total$"), experio.refused("log", "Refus : {reason}"):
+        raise experio.ExperioRefusal("Factures sans total", "odoo.exceptions.RedirectWarning")
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "crash",
+    [
+        KeyError("partner_id"),  # ours
+        xmlrpc.client.Fault(1, "Traceback (most recent call last):\n  File odoo/models.py\nKeyError: 'partner_id'"),
+        experio.ExperioRefusal("'partner_id'", "builtins.KeyError"),  # Experio's, over JSON-RPC
+        xmlrpc.client.Fault(4, "... switching to the company: AUTRE DOSSIER."),  # an AccessError names another dossier
+    ],
+)
+def test_a_crash_is_not_told_as_experio_reason(crash):
+    crashed = pytest.raises(ToolError, match=r"^Facture 4 : échec technique, réessayez plus tard\.$")
+    with crashed, experio.refused("log", "Facture 4 : Experio a refusé le compte ({reason})."):
+        raise crash
+    crashed = pytest.raises(ToolError, match=r"^Échec technique, réessayez plus tard\.$")
+    with crashed, experio.refused("log", "Experio refuse ce changement : {reason}"):
+        raise crash
+    unsaid = pytest.raises(ToolError, match=r"^Facture 4 : Experio n'a pas pu lister les factures\.$")
+    with unsaid, experio.refused("log", "Facture 4 : Experio n'a pas pu lister les factures."):
+        raise crash
 
 
 @pytest.mark.technical

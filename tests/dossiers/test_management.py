@@ -1,11 +1,13 @@
 """A list of dossiers, a collaborateur or client, an archiving: checked, read back, written only on the client's yes."""
 
 import re
+import xmlrpc.client
 
 import pytest
 
 from engine.tools.core.app import ToolError
 from engine.tools.core.config import TEST_MODE
+from engine.tools.core.experio import ExperioRefusal
 from engine.tools.dossiers import management
 from engine.tools.dossiers.management import problems_of, read_rows
 from tests.fakes import FakeDb
@@ -273,20 +275,24 @@ def test_in_test_mode_the_list_is_only_said(listing, experio, monkeypatch):
 @pytest.mark.communication
 def test_the_rows_experio_refuses_are_listed_and_the_others_created(listing, experio, monkeypatch):
     listing["text"] = f"{HEAD}\nBETA;societe;;;mensuelle;;\nDELTA;societe;;12345678;mensuelle;;"
+    listing["text"] += "\nGAMMA;societe;;87654321;mensuelle;;"
     attached = []
     monkeypatch.setattr(management, "attach_user", lambda user_id, dossier_id: attached.append(dossier_id))
 
     def odoo_json(model, method, values):
-        if values.get("vat"):
-            raise RuntimeError("IF inconnu du registre")
+        if values.get("vat") == "12345678":
+            raise ExperioRefusal("IF inconnu du registre", "odoo.exceptions.ValidationError")
+        if values.get("vat"):  # a crash, ours or Experio's: never shown
+            raise xmlrpc.client.Fault(1, "Traceback (most recent call last):\nKeyError: 'vat'")
         return 9
 
     monkeypatch.setattr(management, "odoo_json", odoo_json)
     answer = management.import_dossiers(7, True, "s")
     assert answer["message"] == (
-        "`dossiers.csv` : 1 dossier créé sur 2.\nExperio a refusé ces lignes :\n"
+        "`dossiers.csv` : 1 dossier créé sur 3.\nExperio a refusé ces lignes :\n"
         "- Ligne 3 (`DELTA`) : IF inconnu du registre"
         "\n\nCorrigez ces lignes et renvoyez-les seules."  # its own paragraph: the chat would fold it into the bullet
+        "\nCes lignes n'ont pas été créées : échec technique, réessayez plus tard.\n- Ligne 4 (`GAMMA`)"
     )
     assert attached == [9]
 
@@ -370,17 +376,24 @@ def test_a_person_already_in_experio_is_only_attached(person, monkeypatch):
 
 @pytest.mark.communication
 def test_an_invitation_experio_refuses_leaves_the_person_made_and_says_why(person, monkeypatch):
+    failure = xmlrpc.client.Fault(2, "Maximum number of active employees is reached")
+
     def refusing(model, method, *args, **kw):
         if method == "action_invite_user":
-            raise RuntimeError("Traceback\nUserError: Maximum number of active employees is reached")
+            raise failure
         return 42
 
     monkeypatch.setattr(management, "odoo_json", refusing)
     monkeypatch.setattr(management, "experio_refusal", lambda error: "nombre maximal d'utilisateurs atteint")
     done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
     assert done["status"] == "ok" and "créé et rattaché" in done["message"]
-    refusal = "Je n'ai pas pu envoyer l'invitation, car Experio refuse : nombre maximal d'utilisateurs atteint"
+    refusal = "Je n'ai pas pu envoyer l'invitation, car Experio refuse : nombre maximal d'utilisateurs atteint."
     assert refusal in done["message"]
+    failure = KeyError("employee_state")  # a crash: never Experio's reason
+    done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
+    assert done["status"] == "ok" and "employee_state" not in done["message"]
+    crash = "Je n'ai pas pu envoyer l'invitation : échec technique, réessayez plus tard. Le cabinet peut la renvoyer"
+    assert crash in done["message"]
 
 
 @pytest.mark.communication
@@ -408,7 +421,9 @@ def test_in_test_mode_the_person_is_only_said(person, monkeypatch):
 
 @pytest.mark.communication
 def test_experio_failing_a_person_says_where(person, monkeypatch):
-    monkeypatch.setattr(management, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("login deja pris")))
+    monkeypatch.setattr(
+        management, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "login deja pris"))
+    )
     with pytest.raises(ToolError, match="Experio refuse ce client : login deja pris"):
         management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
     monkeypatch.setattr(management, "user_by_email", lambda *a: 1 / 0)
@@ -440,7 +455,9 @@ def test_experio_failing_the_archiving_says_where(monkeypatch):
     monkeypatch.setattr(management, "dry_run", lambda: False)
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
     monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
-    monkeypatch.setattr(management, "odoo_json", lambda *a: (_ for _ in ()).throw(RuntimeError("factures ouvertes")))
+    monkeypatch.setattr(
+        management, "odoo_json", lambda *a: (_ for _ in ()).throw(xmlrpc.client.Fault(2, "factures ouvertes"))
+    )
     with pytest.raises(ToolError, match="Experio refuse d'archiver le dossier `BETA` : factures ouvertes"):
         management.archive_dossier(5, True, "s")
 

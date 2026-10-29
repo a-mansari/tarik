@@ -1,9 +1,12 @@
 """Exercice choice, read in code, never by a model."""
 
+import xmlrpc.client
+
 import pytest
 
 from engine.tools.core.app import ToolError
 from engine.tools.core.config import TEST_MODE
+from engine.tools.core.experio import ExperioRefusal
 from engine.tools.invoices import exercice
 from engine.tools.invoices.exercice import exercice_choice, given_date
 
@@ -58,14 +61,14 @@ INVOICE = {
     "invoice_date": "2023-06-10",
     "is_old_invoice": False,
 }
-REFUSAL = "Traceback\nValidationError: Chevauchement d'exercices"
+REFUSAL = ExperioRefusal("Chevauchement d'exercices", "odoo.exceptions.ValidationError")
 
 
 @pytest.fixture
 def experio(monkeypatch):
     """A fake Experio: the dossier's open exercices, its late-invoice account, every call and write; the methods
     named in ``refuse`` (or "fill", the form) refused."""
-    state = {"invoice": dict(INVOICE), "calls": [], "written": [], "dry": False, "refuse": set()}
+    state = {"invoice": dict(INVOICE), "calls": [], "written": [], "dry": False, "refuse": set(), "refusal": REFUSAL}
     state["company"] = {"old_invoice_account_id": [1, "61800000 Factures antérieures"]}
     monkeypatch.setattr(exercice, "require_draft_invoice", lambda invoice_id, fields, what: dict(state["invoice"]))
     monkeypatch.setattr(exercice, "dry_run", lambda: state["dry"])
@@ -78,12 +81,12 @@ def experio(monkeypatch):
     def odoo_json(model, method, values, context):
         state["calls"].append((model, method, values, context))
         if method in state["refuse"]:
-            raise RuntimeError(REFUSAL)
+            raise state["refusal"]
         return 61 if method == "create" else None
 
     def fill_invoice(invoice_id, changes, context):
         if "fill" in state["refuse"]:
-            raise RuntimeError(REFUSAL)
+            raise state["refusal"]
         state["written"].append((changes, context))
         return changes
 
@@ -123,9 +126,19 @@ def test_experio_refusing_the_new_exercice_offers_the_open_ones_instead(experio,
     result = exercice.settle_exercice(3, answer="nouveau", decision="nouveau")
     assert result["status"] == "question" and experio["written"] == []
     assert result["message"] == (
-        "Facture 3 : Experio refuse de créer l'exercice 2023 (ValidationError: Chevauchement d'exercices). "
+        "Facture 3 : Experio refuse de créer l'exercice 2023 (Chevauchement d'exercices). "
         "La comptabiliser plutôt comme facture antérieure dans un exercice ouvert ? (`Exercice 2024`, `Exercice 2025`)"
     )
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "crash", [KeyError("exercice_id"), xmlrpc.client.Fault(1, "Traceback\n  File odoo/models.py\nKeyError: 'x'")]
+)
+def test_a_crash_opening_the_new_exercice_is_no_refusal_nor_shown(experio, crash):
+    experio["refuse"], experio["refusal"] = {"create"}, crash
+    with pytest.raises(ToolError, match=r"^Facture 3 : échec technique, réessayez plus tard\.$"):
+        exercice.settle_exercice(3, answer="nouveau", decision="nouveau")
 
 
 @pytest.mark.functionality

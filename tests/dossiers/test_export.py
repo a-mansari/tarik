@@ -66,7 +66,7 @@ def experio(monkeypatch):
         if method == "get_line_ids":
             return "exp.move.line(11, 12)"
         if state["refusal"]:
-            raise ExperioRefusal(state["refusal"])
+            raise ExperioRefusal(state["refusal"], "odoo.exceptions.UserError")
         if state["tiers"] and not context.get("exp_export_tiers_confirmed"):
             return {"res_model": export.TIERS_WIZARD, "res_id": 4}
         return {
@@ -201,5 +201,5 @@ def test_experio_unreachable_says_the_export_could_not_be_prepared(experio, monk
         raise ConnectionRefusedError("down")
 
     monkeypatch.setattr(export, "odoo_call", down)
-    with pytest.raises(ToolError, match=r"n'a pas pu préparer l'export \(down\)"):
+    with pytest.raises(ToolError, match=r"^Échec technique, réessayez plus tard\.$"):
         export.export_entries(857, session_id="s")

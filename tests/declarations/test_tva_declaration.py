@@ -104,7 +104,7 @@ def experio(monkeypatch):
         if method == "action_refresh":
             state["table"]["tva_en_rouge"] = 0.0  # Experio writes 0 on a first declaration
         if method == "check_declaration_requirements" and state["refusal"]:
-            raise ExperioRefusal(state["refusal"])
+            raise ExperioRefusal(state["refusal"], "odoo.exceptions.UserError")
         if method == "action_post":
             state["table"].update(state="done", name="TVA/Trimestre 3/2026")
             return state["post"]
@@ -271,11 +271,17 @@ def posting(experio, monkeypatch, outcome):
 
 @pytest.mark.communication
 def test_a_declaration_experio_refuses_is_said_not_declared(experio, monkeypatch):
-    result = posting(experio, monkeypatch, ExperioRefusal("Période verrouillée"))
+    result = posting(experio, monkeypatch, ExperioRefusal("Période verrouillée", "odoo.exceptions.UserError"))
     assert (
         result["status"] == "stop"
         and "Experio refuse de déclarer la TVA Trimestre 3 2026 : Période verrouillée" in result["message"]
     )
+
+
+@pytest.mark.security
+def test_a_crash_declaring_is_not_told_as_experio_refusal(experio, monkeypatch):
+    with pytest.raises(ToolError, match=r"^Échec technique, réessayez plus tard\.$"):
+        posting(experio, monkeypatch, ExperioRefusal("'tax_id'", "builtins.KeyError"))
 
 
 @pytest.mark.security
@@ -290,7 +296,7 @@ def test_experio_unreachable_says_the_tva_declaration_could_not_be_prepared(expe
         raise ConnectionRefusedError("down")
 
     monkeypatch.setattr(tva, "odoo_call", down)
-    with pytest.raises(ToolError, match=r"n'a pas pu préparer la déclaration \(down\)"):
+    with pytest.raises(ToolError, match=r"^Échec technique, réessayez plus tard\.$"):
         tva.prepare_tva_declaration(857)
 
 

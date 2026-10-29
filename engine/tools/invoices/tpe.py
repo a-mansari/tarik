@@ -25,11 +25,11 @@ import re
 
 import pypdfium2
 
-from engine.tools.core.app import ok, question, routine, stop
+from engine.tools.core.app import CRASHED, log, ok, question, routine, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.conversation import own_words
-from engine.tools.core.experio import dry_run, experio_refusal, in_dossier, odoo_call, odoo_json, plain
+from engine.tools.core.experio import dry_run, experio_refusal, in_dossier, is_refusal, odoo_call, odoo_json, plain
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, normalized
 from engine.tools.core.words import reasons as reason_lines
@@ -481,6 +481,9 @@ def post_tpe(statement_id):
             )
         action = with_fiscal_year(action, context)
     except Exception as error:  # Experio's refusal (an exact duplicate statement): its own words
+        log(f"post_tpe {statement_id}: {error}")
+        if not is_refusal(error):
+            return stop(f"Relevé TPE n° {statement_id} : {CRASHED}")
         return stop(f"Relevé TPE n° {statement_id} : pas comptabilisé, Experio refuse : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):
         window = f"la fenêtre « {action['name']} »" if action.get("name") else "une fenêtre de confirmation"
