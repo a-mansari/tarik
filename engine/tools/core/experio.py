@@ -428,24 +428,31 @@ def warns(invoice_id, check, context):
     return None
 
 
-# A MissingError's last line: the record's model and id, Tarik's user id (odoo/fields.py:1274, base fr.po:641).
-RECORD_LINE = re.compile(r"\((Record|Enregistrement) ?: .*\)")
+# A MissingError's last line, the record's model and ids and Tarik's user id: « (Record: exp.invoice(812,), User: 7) »
+# (odoo/fields.py __get__), « (Document type: exp.invoice, Operation: write, Records: [812], User: 7) »
+# (odoo/models.py check_access_rule, Odoo 15), in English or French (« Utilisateur : 7 »).
+RECORD_LINE = re.compile(r"\(.*\b(User|Utilisateur) ?: \d+\)")
+# _check_company's UserError lists the records of the other dossier, by name (odoo/models.py _check_company).
+OTHER_DOSSIER = re.compile(r"(Incompatible companies on records|Sociétés incompatibles sur les enregistrements)")
 
 
 def experio_refusal(error):
     """Return Experio's own message in ``error`` on one line, 300 characters at most: an ExperioRefusal's whole
     message (it may hold several lines: « ...for the company: \n: DOSSIER »), else the last line of the error's
-    text (an XML-RPC fault's traceback). A MissingError's record line is left out; an XML-RPC RedirectWarning (its
-    arguments' repr: message, action, button, context) gives its message."""
+    text (an XML-RPC fault's traceback). A MissingError's record line is left out, an incompatible-companies list
+    (another dossier's names) told in one sentence; an XML-RPC RedirectWarning (its arguments' repr: message, action,
+    button, context) gives its message."""
     text = error.faultString if isinstance(error, xmlrpc.client.Fault) else str(error)  # a Fault's str is its repr
-    lines = [line for line in text.strip().splitlines() if not RECORD_LINE.fullmatch(line.strip())]
+    if OTHER_DOSSIER.match(text.strip()):
+        return "un enregistrement utilisé appartient à un autre dossier"
+    lines = [line for line in text.strip().splitlines() if line.strip() and not RECORD_LINE.fullmatch(line.strip())]
     if isinstance(error, ExperioRefusal):
         return " ".join(" ".join(lines).split())[:300]
     last = lines[-1] if lines else ""
-    if isinstance(error, xmlrpc.client.Fault) and last.startswith("("):
+    if isinstance(error, xmlrpc.client.Fault) and last.startswith("(") and len(last) < 20_000:  # parsed in memory
         with contextlib.suppress(ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
             value = ast.literal_eval(last)  # literals only, nothing run
-            last = str(value[0]) if isinstance(value, tuple) and value else last
+            last = " ".join(str(value[0]).split()) if isinstance(value, tuple) and value else last
     return last[:300]
 
 

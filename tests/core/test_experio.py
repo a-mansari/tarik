@@ -508,6 +508,11 @@ def test_the_cabinets_own_company_is_found_by_its_xmlid(monkeypatch):
             "Enregistrement inexistant ou supprimé.\n(Enregistrement : exp.invoice(812,), Utilisateur : 7)",
             "odoo.exceptions.MissingError",
         ),
+        xmlrpc.client.Fault(  # Odoo 15's check_access_rule
+            2,
+            "Record does not exist or has been deleted.\n\n"
+            "(Document type: exp.invoice, Operation: write, Records: [812], User: 7)",
+        ),
     ],
 )
 def test_a_record_gone_is_a_refusal_without_its_model_id_nor_tarik_user(refusal):
@@ -543,3 +548,26 @@ def test_a_redirect_warning_gives_its_message_only(monkeypatch):
     assert (
         experio.is_refusal(refused.value) and experio.experio_refusal(refused.value) == "Factures sans total : FA-12."
     )
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        xmlrpc.client.Fault(
+            2, "Incompatible companies on records:\n- 'FA-12' belongs to company 'DOSSIER B' and 'Partenaire' ..."
+        ),
+        experio.ExperioRefusal(
+            "Sociétés incompatibles sur les enregistrements :\n- « FA-12 » appartient à la société « DOSSIER B »",
+            "odoo.exceptions.UserError",
+        ),
+    ],
+)
+def test_another_dossiers_names_never_reach_the_client(refusal):
+    assert experio.experio_refusal(refusal) == "un enregistrement utilisé appartient à un autre dossier"
+
+
+@pytest.mark.communication
+def test_a_redirect_warning_message_on_several_lines_reads_on_one():
+    fault = xmlrpc.client.Fault(2, str(("Compte manquant.\nConfigurez-le.", {"type": "x"}, "Voir", None)))
+    assert experio.experio_refusal(fault) == "Compte manquant. Configurez-le."

@@ -305,11 +305,11 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
     if refused_rows:
         message += (
             "\nExperio a refusé ces lignes :\n"
-            + capped(refused_rows)
+            + "\n".join(refused_rows)  # every one: the client corrects and sends them again
             + "\n\nCorrigez ces lignes et renvoyez-les seules."
         )
     if crashed_rows:
-        message += f"\n\nCes lignes n'ont pas été créées : {CRASHED}\n" + capped(crashed_rows)
+        message += f"\n\nCes lignes n'ont pas été créées : {CRASHED}\n" + "\n".join(crashed_rows)
     return ok(message)
 
 
