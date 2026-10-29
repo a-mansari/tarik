@@ -12,6 +12,7 @@ from engine.tools.core.app import ToolError
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.experio import ExperioRefusal
 from engine.tools.core.queries import Q
+from engine.tools.core.words import tiers_key
 from engine.tools.invoices import intake, pipeline, statement
 
 
@@ -1154,6 +1155,14 @@ def test_a_cheque_number_counts_only_on_an_entry_of_the_lines_own_amount(experio
     assert ([2], {"partner_id": 9}) in experio["written"]
 
 
+@pytest.mark.security
+def test_an_undated_cheque_still_counts_its_number_only_on_its_own_amount(experio):
+    cheque(experio)["by_number"] = [{"partner_id": [9, "ATLAS"], "debit": 999.0, "credit": 0}]
+    experio["lines"][1]["date"] = False
+    pointed()
+    assert not [w for w in experio["written"] if w[0] == [2] and "partner_id" in w[1]]
+
+
 @pytest.mark.functionality
 def test_an_unpaid_supplier_entry_of_the_exact_amount_names_the_supplier(experio):
     cheque(experio)["by_amount"] = [{"partner_id": [9, "ATLAS"]}]
@@ -1331,6 +1340,13 @@ def test_the_bank_s_cut_is_the_length_three_names_ending_their_label_share():
     assert statement.cut_width(lines, names) == 60
     names[3] = "ITISSALAT AL MA"  # a name repeated counts once: two names are not a cut
     assert statement.cut_width(lines, names) is None
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(("read", "known"), [("STE ALPHA 1", "STE ALPHA 2"), ("COMATEL", "COMATEX")])
+def test_two_companies_one_character_apart_are_not_a_misreading(read, known):
+    assert statement.twin(tiers_key(read), {tiers_key(known): 62}, cut=False) is None
+    assert statement.twin(tiers_key("AIS INEC"), {tiers_key("AIS INFC"): 62}, cut=False) == 62  # E for F: a scan's
 
 
 @pytest.mark.security

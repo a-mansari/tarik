@@ -793,7 +793,9 @@ def named_tiers(statement, lines, context):
         if partner_id is None and key not in by_name:
             if cut:  # a cut name is not a tiers' whole name: the line stays for the cabinet
                 continue
-            by_name[key] = None if dry_run() else created_tiers(line, name, context)
+            by_name[key] = (
+                -1 - len(created) if dry_run() else created_tiers(line, name, context)
+            )  # test mode: a stand-in
             created.append(name)
         if not dry_run():
             odoo_call(LINE, "write", [line["id"]], {"partner_id": partner_id or by_name[key]}, context=context)
@@ -809,23 +811,30 @@ def cut_width(lines, names):
     for line in lines:
         name = normalized(names.get(line["id"]) or "")
         if name and normalized(line["payment_ref"]).endswith(name):
-            ending.setdefault(len(line["payment_ref"].strip()), set()).add(name[:6])
+            ending.setdefault(len(line["payment_ref"].strip()), set()).add((tiers_key(name) or name)[:6])
     return max((length for length, found in ending.items() if len(found) >= 3 and length >= 50), default=None)
+
+
+# Characters a scan of a bank statement mistakes for one another (« AIS INEC » for « AIS INFC », « AGRL » for « AGRI »)
+CONFUSED = [set("ef"), set("il1"), set("oc0q"), set("s5"), set("b8"), set("g6"), set("z2")]
+
+
+def misread(a, b):
+    """True when ``a`` and ``b`` are one name read twice: same length, one character apart, a pair a scan confuses
+    (never two digits: « alpha 1 » and « alpha 2 » are two companies)."""
+    apart = [(x, y) for x, y in zip(a, b, strict=True) if x != y]
+    return len(apart) == 1 and any(set(apart[0]) <= pair for pair in CONFUSED)
 
 
 def twin(name, known, cut):
     """Return the id of the one tiers in ``known`` ({key: id}, keys normalized) that ``name`` (normalized) is a
-    misreading of (same length, one character apart: « ais inec » for « ais infc ») or, when ``cut``, the start of;
-    None when there is none or more than one."""
+    misreading of (misread) or, when ``cut``, the start of; None when there is none or more than one."""
     found = {
         i
         for key, i in known.items()
         if key
         and len(name) >= 6
-        and (
-            (len(key) == len(name) and sum(a != b for a, b in zip(key, name, strict=True)) <= 1)
-            or (cut and key.startswith(name) and key != name)
-        )
+        and ((len(key) == len(name) and misread(key, name)) or (cut and key.startswith(name) and key != name))
     }
     return found.pop() if len(found) == 1 else None
 
@@ -972,9 +981,8 @@ def ledger_tiers(statement, lines, context):
         own = ("move_id.bank_statement_line_id", "!=", line["id"])
         base = [("company_id", "=", company), ("partner_id", "!=", False), own]
         cheque = any(word in normalized(line["payment_ref"]) for word in ("cheque", "cheoue", "chq"))
-        wanted = [
-            [*base, ("name", "ilike", number)] for number in re.findall(r"\d{6,}", line["payment_ref"])[:1]
-        ]  # (1) then (2)
+        numbers = re.findall(r"\d{6,}", line["payment_ref"])[:1]
+        wanted = [[*base, ("name", "ilike", number)] for number in numbers]  # (1) then (2)
         if line["date"]:  # undated (Experio asks for one): no window before it, so no evidence (2)
             since = (date.fromisoformat(line["date"]) - timedelta(days=LEDGER_DAYS)).isoformat()
             wanted.append(
@@ -990,7 +998,7 @@ def ledger_tiers(statement, lines, context):
         for n, domain in enumerate(wanted):
             fields = ["partner_id", "debit", "credit"]
             found = odoo_call("exp.move.line", "search_read", domain, fields=fields, limit=20, context=context)
-            if n == 0 and len(wanted) > 1 and cheque:  # a cheque's number alone is weak: its own amount too
+            if n == 0 and numbers and cheque:  # a cheque's number alone is weak: its own amount too, dated or not
                 found = [e for e in found if round(abs((e["debit"] or 0) - (e["credit"] or 0)), 2) == amount]
             suppliers = {entry["partner_id"][0] for entry in found}
             if not suppliers:
