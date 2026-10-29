@@ -277,7 +277,7 @@ def whitelisted(to):
     refused = [address for address in recipients if not recipient_allowed(address)]
     if refused:
         log(f"send_email refused: {refused} not whitelisted")
-        raise ToolError(f"Email non envoye : destinataire hors de la liste autorisee ({', '.join(refused)}).")
+        raise ToolError(f"Email non envoyé : destinataire hors de la liste autorisée ({', '.join(refused)}).")
     return recipients
 
 
@@ -338,7 +338,7 @@ def send_email(
     recipients = whitelisted(to)
     host, user = setting("SMTP_HOST", ""), setting("SMTP_USER", "")
     if not host or not user:
-        raise ToolError("Email non envoye : SMTP non configure.")
+        raise ToolError("Email non envoyé : SMTP non configuré.")
     outbox = []
     if attach_session:
         with cabinet_db() as db:
@@ -349,9 +349,9 @@ def send_email(
         smtp_send(host, user, message)
     except Exception as error:
         log(f"send_email: {error}")
-        raise ToolError("Email non envoye : le serveur d'envoi a refuse.") from None
+        raise ToolError("Email non envoyé : le serveur d'envoi a refusé.") from None
     if outbox:
         with cabinet_db() as db:
             db.execute(Q.mark_outbox_sent, ([file_id for file_id, *_ in outbox],))
     save_sent(message)
-    return ok(f"Email envoye a {', '.join(recipients)}.", message_id=message["Message-ID"])
+    return ok(f"Email envoyé à {', '.join(recipients)}.", message_id=message["Message-ID"])

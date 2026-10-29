@@ -20,7 +20,7 @@ PER_CABINET = int(os.getenv("TARIK_CALLS_PER_CABINET", "10"))
 TOTAL = int(os.getenv("TARIK_CALLS_TOTAL", "40"))
 POOL = ThreadPoolExecutor(TOTAL, thread_name_prefix="tool")
 SLOTS = {}  # cabinet: its semaphore, made on its first call (in the running loop)
-INVALID = "des informations manquent ou sont invalides pour cette etape."
+INVALID = "des informations manquent ou sont invalides pour cette étape."
 
 # Steps whose ok answer is plumbing, not an outcome: recorded only when they fail or refuse, or say ``tell`` (an ok
 # the client reads: the dossier taken for them, the attachment that never arrived).

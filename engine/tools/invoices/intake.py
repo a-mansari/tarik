@@ -49,7 +49,7 @@ def require_kind(name, kind, wanted):
     statement never becomes an invoice draft (nor is cut page by page), nor the reverse. Also raises when the file is
     not identified yet (``kind`` None)."""
     if kind is None:
-        raise ToolError(f"`{name}` n'est pas encore identifie : appelez d'abord identify_document.")
+        raise ToolError(f"`{name}` n'est pas encore identifié : appelez d'abord identify_document.")
     if kind != wanted:
         other = "import_bank_statement" if kind == "statement" else "split_invoices puis create_draft_invoice"
         raise ToolError(f"`{name}` est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")

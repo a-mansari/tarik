@@ -73,7 +73,7 @@ def test_a_new_thread_is_acknowledged_answered_sent_then_finished(thread):
     out = fil(thread)
     assert thread.names == ["acknowledge_thread", "thread_refusal", "send_email", "finish_thread"]
     assert thread.asked == ["Objet : Factures\n\nVoici les factures."]
-    assert thread.args("send_email")[0]["body"] == "Bien recu." and out["sent"] == "Envoye a chef@cabinet.ma."
+    assert thread.args("send_email")[0]["body"] == "Bien recu." and out["sent"] == "Envoyé à chef@cabinet.ma."
     finished = thread.args("finish_thread")[0]
     assert (finished["sent"], finished["reason"], finished["sent_id"]) == (True, "", "<r1@x>")
     assert out["done"] == [{"thread_id": "<m1@x>", "sent": True, "reason": ""}]
@@ -84,7 +84,7 @@ def test_an_acknowledgement_not_sent_leaves_the_answer_to_go_on(thread):
     thread.answer("acknowledge_thread", ToolFailure("hors liste"))
     thread.answer("thread_refusal", {"refused": False})
     out = fil(thread)
-    assert out["acknowledged"] == "Pas envoye : hors liste"
+    assert out["acknowledged"] == "Pas envoyé : hors liste"
     assert thread.names == ["acknowledge_thread", "thread_refusal", "send_email", "finish_thread"]
 
 
@@ -148,7 +148,11 @@ def test_an_agent_that_cannot_answer_sets_the_thread_aside(thread):
     out = fil(thread)
     assert thread.names == ["acknowledge_thread", "finish_thread"]
     assert out["done"] == [
-        {"thread_id": "<m1@x>", "sent": False, "reason": "Tarik n'a pas pu repondre pour le moment."}
+        {
+            "thread_id": "<m1@x>",
+            "sent": False,
+            "reason": "Je n'ai pas pu répondre pour le moment. J'ai mis ce fil de côté, sans réponse au client.",
+        }
     ]
 
 
@@ -169,7 +173,7 @@ def test_a_manager_not_told_still_leaves_the_sender_without_a_reply(thread):
     thread.answer("thread_refusal", {"refused": True, "sender": "x", "subject": "y", "reason": "z"})
     thread.answer("notify_manager", ToolFailure("aucun responsable"))
     out = fil(thread)
-    assert out["manager"] == "Pas prevenu : aucun responsable" and "send_email" not in thread.names
+    assert out["manager"] == "Pas prévenu : aucun responsable" and "send_email" not in thread.names
 
 
 @pytest.mark.security
@@ -196,7 +200,8 @@ def test_a_reply_not_sent_finishes_the_thread_with_why(thread):
 def test_a_follow_up_resumes_traitement_then_dossier_and_sends_both_summaries(thread):
     out = fil(thread, follow_up=True)
     assert thread.names == ["traitement resume", "dossier resume", "send_email", "finish_thread"]
-    assert out["reply"] == "Suite du traitement de vos documents :\n\nFactures traitees.\n\nDossier termine."
+    opening = "J'ai poursuivi le traitement de vos documents. Voici où il en est.\n\n"
+    assert out["reply"] == opening + "Factures traitees.\n\nDossier termine."
     assert out["summaries"] == ["Factures traitees."] and out["done"][0]["sent"] is True
 
 
@@ -204,7 +209,8 @@ def test_a_follow_up_resumes_traitement_then_dossier_and_sends_both_summaries(th
 def test_a_follow_up_leaves_out_a_workflow_that_had_nothing_to_resume(thread):
     thread.resumed["traitement"] = NOTHING
     out = fil(thread, follow_up=True)
-    assert out["reply"] == "Suite du traitement de vos documents :\n\nDossier termine." and out["summaries"] == []
+    opening = "J'ai poursuivi le traitement de vos documents. Voici où il en est.\n\n"
+    assert out["reply"] == opening + "Dossier termine." and out["summaries"] == []
 
 
 @pytest.mark.functionality

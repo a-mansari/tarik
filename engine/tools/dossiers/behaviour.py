@@ -99,7 +99,7 @@ def writer(session_id, chat):
     Comportement page. (None, False) for a chat run without one."""
     address = sender_of(session_id)
     if address:
-        with refused("manage_behaviour", "Experio n'a pas pu verifier vos droits."):
+        with refused("manage_behaviour", "Experio n'a pas pu vérifier vos droits."):
             reach = sender_reach(session_id)
         return address, reach is None or reach.get("rank", 0) >= RANK["admin"]
     if not chat:

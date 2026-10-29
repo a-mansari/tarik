@@ -142,7 +142,7 @@ def test_test_mode_makes_no_import_folder(experio, monkeypatch):
     monkeypatch.setattr(import_folder, "dry_run", lambda: True)
     file_id = saved("imp.pdf", pdf(2))
     answer = import_folder.create_import_folder("imp", 857, "dossier d'import")
-    assert answer["message"].startswith("MODE TEST") and "2 pièce(s) : Transit, Douane" in answer["message"]
+    assert answer["message"].startswith("MODE TEST") and "2 pièces : Transit, Douane" in answer["message"]
     assert answer["invoices"] == [] and experio.json == [] and ("exp.invoice.import", "create") not in experio.calls
     assert folder_of(file_id) == (None, None)
 

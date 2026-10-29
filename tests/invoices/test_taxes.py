@@ -68,7 +68,7 @@ def test_a_missing_rate_gets_its_tax_on_the_dossiers_tva_account(experio):
     assert experio["listed"] == [4949, 4951, 5000]  # Configuration > General > Achats > Autres taxes
     assert notes == [
         "taxe `TVA 10% ACHATS` créée (compte `34550000`)",
-        "taxe 10 % ajoutee aux taxes du dossier (Configuration > General)",
+        "taxe 10 % ajoutée aux taxes du dossier (Configuration > Général)",
     ]
 
 
@@ -219,7 +219,7 @@ def test_a_tax_the_cabinets_rights_keep_out_of_the_settings_is_left_to_the_cabin
     )
     assert taxes.add_missing_taxes(272379, {}) == [
         "taxe `TVA 10% ACHATS` créée (compte `34550000`)",
-        "taxe 10 % a ajouter par le cabinet dans Configuration > General (autres taxes)",
+        "taxe 10 % à ajouter par le cabinet dans Configuration > Général (autres taxes)",
     ]
     assert experio["listed"] == [4949, 4951]
 

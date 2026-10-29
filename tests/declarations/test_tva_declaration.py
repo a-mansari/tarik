@@ -140,7 +140,7 @@ def test_the_carried_credit_given_is_written_after_experios_refresh(experio):
     experio["tables"] = [{"id": 50, "state": "draft"}]
     result = tva.prepare_tva_declaration(857, "T3 2026", credit_reporte="1 250,00")
     assert experio["written"] == [{"tva_en_rouge": 1250.0}]
-    assert result["status"] == "ok" and "TVA à payer 1200.00" in result["message"]
+    assert result["status"] == "ok" and "TVA à payer : 1200.00" in result["message"]
     assert "action_print_xml_for_deduction_report" in methods(experio)
     assert experio["kept"] == [("", tva.TABLE, "datas")] and "joint à cette réponse" in result["message"]
     assert "action_post" not in methods(experio)  # never declared without the client's words
@@ -151,10 +151,10 @@ def test_what_the_declaration_leaves_out_is_told(experio):
     experio["done_before"] = 1  # a later declaration: Experio carries the credit
     experio["counts"] = {"draft": 2, "blocked": 1, "unpaid": 4, "suspense": 3}
     message = tva.prepare_tva_declaration(857)["message"]
-    assert "2 facture(s) de la période encore en brouillon" in message
-    assert "1 facture(s) bloquée(s)" in message
-    assert "4 facture(s) d'achat non payée(s)" in message
-    assert "3 opération(s) bancaire(s)" in message
+    assert "2 factures de la période sont encore en brouillon" in message
+    assert "1 facture est bloquée" in message
+    assert "4 factures d'achat ne sont pas payées" in message
+    assert "3 opérations bancaires de la période sont en suspens" in message
 
 
 @pytest.mark.functionality
@@ -170,11 +170,11 @@ def test_experios_refusal_stops_before_any_file(experio):
 def test_declaring_asks_first_then_declares_on_the_clients_yes(experio):
     experio["done_before"] = 1
     asked = tva.prepare_tva_declaration(857, declarer=True)
-    assert asked["status"] == "question" and "Je le fais ?" in asked["message"]
+    assert asked["status"] == "question" and "Je la déclare dans Experio ?" in asked["message"]
     assert "action_post" not in methods(experio)
     done = tva.prepare_tva_declaration(857, declarer=True, client_confirmed=True)
     assert ("action_post", True) in experio["calls"]  # its coherence findings were in the question
-    assert done["status"] == "ok" and "dépôt sur le portail de la DGI" in done["message"]
+    assert done["status"] == "ok" and "déposer sur le portail de la DGI" in done["message"]
 
 
 @pytest.mark.security
@@ -191,7 +191,7 @@ def test_a_declared_period_is_only_read(experio):
     experio["tables"] = [{"id": 50, "state": "done"}]
     experio["table"]["state"] = "done"
     result = tva.prepare_tva_declaration(857, "T3")
-    assert "Déjà déclarée" in result["message"] and methods(experio) == []
+    assert "Elle est déjà déclarée dans Experio." in result["message"] and methods(experio) == []
 
 
 @pytest.mark.functionality
@@ -206,7 +206,7 @@ def test_a_quarter_named_for_a_monthly_dossier_is_asked_again_and_no_period_name
 @pytest.mark.communication
 def test_a_period_experio_lacks_is_said(monkeypatch):
     monkeypatch.setattr(tva, "odoo_call", lambda *a, **k: [])
-    with pytest.raises(ToolError, match="Experio n'a pas de période 13"):
+    with pytest.raises(ToolError, match="Experio n'a pas de période mensuelle n° 13"):
         tva.find_period("monthly", 13)
 
 
@@ -250,7 +250,7 @@ def test_lines_in_error_and_experio_warning_are_told(experio, monkeypatch):
         ),
     )
     message = tva.prepare_tva_declaration(857)["message"]
-    assert "Lignes en erreur : Taux absent (2) ; IF manquant (1)." in message
+    assert "Lignes en erreur :\n  - 2 lignes : taux absent.\n  - 1 ligne : IF manquant." in message
     assert "Experio signale : Période à vérifier" in message
 
 
@@ -272,7 +272,10 @@ def posting(experio, monkeypatch, outcome):
 @pytest.mark.communication
 def test_a_declaration_experio_refuses_is_said_not_declared(experio, monkeypatch):
     result = posting(experio, monkeypatch, ExperioRefusal("Période verrouillée"))
-    assert result["status"] == "stop" and "pas déclarée, Experio refuse : Période verrouillée" in result["message"]
+    assert (
+        result["status"] == "stop"
+        and "Experio refuse de déclarer la TVA Trimestre 3 2026 : Période verrouillée" in result["message"]
+    )
 
 
 @pytest.mark.security
@@ -314,7 +317,9 @@ def test_a_routine_never_takes_up_a_draft_someone_works_on(experio):
     experio["done_before"] = 1
     experio["tables"] = [{"id": 50, "state": "draft"}]
     result = tva.prepare_tva_declaration(857, new_only=True)
-    assert result["status"] == "ok" and result["message"].startswith("Déjà préparée, non actualisée.")
+    assert result["status"] == "ok" and result["message"].endswith(
+        "Elle était déjà préparée : je ne l'ai pas actualisée."
+    )
     assert methods(experio) == []  # no « Actualiser », no XML: the draft is left as it is
 
 

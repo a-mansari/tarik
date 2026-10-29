@@ -107,7 +107,7 @@ def test_no_tool_ever_shows_a_setting(schemas, monkeypatch, experio_mode):
             else stack.enter_context(fake_experio(experio_mode))
         )
         monkeypatch.setattr(experio, "ODOO_URL", url)
-        expected = {"unreachable": "injoignable", "empty": "Connecte", "fault": "refusee", "wrong_uid": "refusee"}[
+        expected = {"unreachable": "injoignable", "empty": "Connecté", "fault": "refusée", "wrong_uid": "refusée"}[
             experio_mode
         ]
         assert expected in call_text(A, "experio_connection", {})  # each mode really reached its path

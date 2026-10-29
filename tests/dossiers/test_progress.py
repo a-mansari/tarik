@@ -50,17 +50,24 @@ def experio(monkeypatch):
 @pytest.mark.communication
 def test_a_dossiers_progress_by_experios_own_statuses(experio):
     text = progress.dossier_progress(5)
-    assert text.splitlines()[:3] == [
+    assert text.splitlines()[:5] == [
         "Dossier `BETA`",
-        "Avancement (calcul d'Experio, tous exercices) : 50 % — pièces comptabilisées 8/16, opérations bancaires et "
-        "de caisse comptabilisées 8/16",
-        "Exercice : Exercice 2026 (2026-01-01 au 2026-12-31)",
+        "Avancement selon Experio, tous exercices confondus : 50 %",
+        "- 8 pièces comptabilisées sur 16",
+        "- 8 opérations bancaires et de caisse comptabilisées sur 16",
+        "Exercice : Exercice 2026, du 01/01/2026 au 31/12/2026",
     ]
-    assert "- Factures d'achat : 8 — 3 Brouillon, 5 Comptabilisé (comptabilisées : 5 payée(s))" in text
-    assert "- Factures de vente : 2 — 2 Exporté" in text
-    assert "- Relevés bancaires : 1 — 1 Partiel ; opérations : 10 — 2 Brouillon, 8 Comptabilisé" in text
-    assert "- Relevés TPE : 0" in text and "- Opérations bancaires en suspens (sans facture lettrée) : 4" in text
-    assert "Déclarations 2026 :\n- TVA : Trimestre 1 Déclaré, T2 Brouillon" in text
+    assert (
+        "- Factures d'achat : 8, dont 3 en brouillon et 5 comptabilisées\n  - Parmi les comptabilisées : 5 payées"
+        in text
+    )
+    assert "- Factures de vente : 2, dont 2 exportées" in text
+    assert (
+        "- Relevés bancaires : 1, dont 1 partiel\n  - Leurs opérations : 10, dont 2 en brouillon et 8 comptabilisées"
+        in text
+    )
+    assert "- Relevés TPE : 0" in text and "- Opérations bancaires en suspens, sans facture lettrée : 4" in text
+    assert "Déclarations 2026 :\n- TVA : Trimestre 1 déclarée, T2 en brouillon" in text
     assert "Délais" not in text  # a declaration Experio lacks is left out
     assert all(context["skip_fiscal_year_filter"] for context in experio)  # every exercice's posted rows counted
 

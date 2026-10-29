@@ -14,10 +14,12 @@ from engine.tools.core.app import routine, stop, tool
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.experio import login, odoo_call, refused, require_dossier, require_invoice
 from engine.tools.core.queries import Q
+from engine.tools.core.words import counted
 
 # Who may give Tarik work: the cabinet's collaborators and Experio's own staff (not client contacts).
 STAFF = ["employee", "internal"]
 LEVELS = {"none": "aucune", "user": "utilisateur", "approver": "approbateur", "admin": "administrateur"}
+STATES = {"new": "nouveau", "pending": "en attente", "inactive": "inactif"}  # Experio's French labels
 USER_FIELDS = ["name", "login", "employee_state", "exp_profile_id", "is_super_manager", "company_ids"]
 
 
@@ -32,10 +34,10 @@ def collaborator_line(user, levels, manager):
     profile = user["exp_profile_id"]
     role = f"{profile[1]} (gestion : {LEVELS[levels.get(profile[0], 'none')]})" if profile else "sans profil"
     super_manager = ", super manager" if user["is_super_manager"] else ""
-    state = "" if user["employee_state"] == "active" else ", compte " + (user["employee_state"] or "inactif")
+    state = "" if user["employee_state"] == "active" else ", compte " + STATES.get(user["employee_state"], "inactif")
     return (
         f"- {user['name']} ({user['login']}) : {role}, {'manager' if manager else 'non manager'}"
-        f"{super_manager}, {len(user['company_ids'])} dossier(s){state}"
+        f"{super_manager}, {counted(len(user['company_ids']), '{} dossier', '{} dossiers')}{state}"
     )
 
 
@@ -55,7 +57,7 @@ def list_collaborators() -> str:
         levels = {profile["id"]: profile["management_group"] or "none" for profile in profiles}  # "none", "user"...
         managers = {user["id"]: odoo_call("res.users", "user_is_manager", [user["id"]]) for user in users}
     lines = [collaborator_line(user, levels, managers[user["id"]]) for user in users]
-    return f"{len(users)} collaborateur(s) :\n" + "\n".join(lines)
+    return counted(len(users), "{} collaborateur :\n", "{} collaborateurs :\n") + "\n".join(lines)
 
 
 def exactly(address):
@@ -94,17 +96,17 @@ def check_creator(session_id: str) -> dict:
     client, when the sender is unknown or not a manager: nothing is created."""
     address = sender_of(session_id)
     if address is None:
-        return routine("Conversation sans expediteur a verifier.")
+        return routine("Conversation sans expéditeur à vérifier.")
     user = collaborator(address)
     if not user:
-        return stop(f"`{address}` n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun dossier n'est cree.")
+        return stop(f"`{address}` n'est ni collaborateur du cabinet ni de l'équipe Experio : je ne crée aucun dossier.")
     if user["employee_type"] == "internal":
-        return routine(f"`{user['name']}` (equipe Experio) peut creer des dossiers.")
+        return routine(f"`{user['name']}` (équipe Experio) peut créer des dossiers.")
     if odoo_call("res.users", "user_is_manager", [user["id"]]):
-        return routine(f"`{user['name']}` (manager du cabinet) peut creer des dossiers.")
+        return routine(f"`{user['name']}` (manager du cabinet) peut créer des dossiers.")
     return stop(
-        f"Seuls les managers du cabinet et l'equipe Experio creent des dossiers ; `{user['name']}` n'en fait pas "
-        "partie : aucun dossier n'est cree. Demandez a un manager du cabinet."
+        "Seuls les managers du cabinet et l'équipe Experio créent des dossiers. "
+        f"`{user['name']}` n'en fait pas partie : je ne crée aucun dossier. Demandez à un manager du cabinet."
     )
 
 
@@ -154,16 +156,16 @@ def check_manager(session_id: str) -> dict:
     client, when the sender is unknown or their profile may not: nothing is changed."""
     reach = sender_reach(session_id)
     if reach is None:
-        return routine("Expediteur de l'equipe Experio, ou conversation sans expediteur a verifier.")
+        return routine("Expéditeur de l'équipe Experio, ou conversation sans expéditeur à vérifier.")
     if not reach:
         address = sender_of(session_id)
-        return stop(f"`{address}` n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun acces n'est change.")
+        return stop(f"`{address}` n'est ni collaborateur du cabinet ni de l'équipe Experio : je ne change aucun accès.")
     if reach["rank"] >= RANK["approver"]:
-        return routine(f"`{reach['name']}` peut gerer les acces de ses dossiers.")
+        return routine(f"`{reach['name']}` peut gérer les accès de ses dossiers.")
     return stop(
-        "Seuls les managers du cabinet dont le profil Experio gere les utilisateurs (approbateur ou administrateur) "
-        f"et l'equipe Experio gerent les acces ; `{reach['name']}` n'en fait pas partie : rien n'est change. "
-        "Demandez a un manager du cabinet."
+        "Seuls les managers du cabinet dont le profil Experio gère les utilisateurs (approbateur ou administrateur) "
+        "et l'équipe Experio gèrent les accès. "
+        f"`{reach['name']}` n'en fait pas partie : je ne change rien. Demandez à un manager du cabinet."
     )
 
 
@@ -221,15 +223,15 @@ def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> d
     dossier = require_dossier(dossier_id)
     address = sender_of(session_id)
     if address is None:
-        return routine("Conversation sans expediteur a verifier.")
+        return routine("Conversation sans expéditeur à vérifier.")
     user = collaborator(address)
     if not user:
         return stop(
-            f"`{address}` n'est ni collaborateur du cabinet ni de l'equipe Experio : aucun travail sur le dossier "
-            f"`{dossier}`."
+            f"`{address}` n'est ni collaborateur du cabinet ni de l'équipe Experio : je ne travaille pas "
+            f"sur le dossier `{dossier}`."
         )
     if user["employee_type"] == "internal":
-        return routine(f"`{user['name']}` (equipe Experio) peut travailler sur le dossier `{dossier}`.")
+        return routine(f"`{user['name']}` (équipe Experio) peut travailler sur le dossier `{dossier}`.")
     if dossier_id not in user["company_ids"]:
-        return stop(f"Le dossier `{dossier}` n'est pas attribue a `{user['name']}` dans Experio : rien n'y est fait.")
+        return stop(f"Le dossier `{dossier}` n'est pas attribué à `{user['name']}` dans Experio : je n'y fais rien.")
     return routine(f"`{user['name']}` a le dossier `{dossier}`.")

@@ -104,7 +104,7 @@ def test_in_test_mode_the_difference_is_only_said(experio, monkeypatch):
 def test_an_invoice_left_unpaid_after_the_entry_says_its_payment_state(experio, monkeypatch):
     monkeypatch.setattr(difference, "odoo_json", lambda model, method, *a, **kw: {"res_id": 70})  # nothing paid
     result = difference.settle_difference(5, "81", client_confirmed=True)
-    assert result["status"] == "ok" and result["message"].endswith("facture état de paiement : partial.")
+    assert result["status"] == "ok" and result["message"].endswith("facture payée en partie.")
 
 
 @pytest.mark.functionality

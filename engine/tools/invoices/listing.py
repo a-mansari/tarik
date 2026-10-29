@@ -2,7 +2,7 @@
 
 from engine.tools.core.app import ToolError, ok, tool
 from engine.tools.core.experio import odoo_call, refused, require_dossier
-from engine.tools.core.words import without_if
+from engine.tools.core.words import counted, without_if
 
 # The statuses the agent may filter by -> Experio's own domain. Exclusive: each invoice is in one of them.
 STATUSES = {
@@ -12,19 +12,26 @@ STATUSES = {
     "payee": [("state", "=", "post"), ("payment_state", "=", "paid")],
     "exportee": [("state", "=", "export")],  # paid or not, as Experio's state shows it
 }
+WORDS = {  # a status -> its words for one invoice, for several
+    "en cours": ("en cours", "en cours"),
+    "brouillon": ("brouillon", "brouillon"),
+    "comptabilisee": ("comptabilisée", "comptabilisées"),
+    "payee": ("payée", "payées"),
+    "exportee": ("exportée", "exportées"),
+}
 # posted: by its payment; cancelled ones are never listed
-LABELS = {"pending": "en cours", "draft": "brouillon", "export": "exportee"}
+LABELS = {"pending": "en cours", "draft": "brouillon", "export": "exportée"}
 SIDES = {"achat": ("purchase", "d'achat"), "vente": ("sale", "de vente")}  # the side -> Experio's type, its words
 
 
 def label(invoice):
     """Return where ``invoice`` (a dict with state and payment_state) stands, in the client's words: a name of
-    STATUSES, or "comptabilisee (payée en partie)" for a posted invoice Experio marks partly paid."""
+    WORDS, or "comptabilisée (payée en partie)" for a posted invoice Experio marks partly paid."""
     if invoice["state"] in LABELS:
         return LABELS[invoice["state"]]
     if invoice["payment_state"] == "partial":  # Experio's unpaid / partial / paid (_compute_payment_state)
-        return "comptabilisee (payée en partie)"
-    return "payee" if invoice["payment_state"] == "paid" else "comptabilisee"
+        return "comptabilisée (payée en partie)"
+    return "payée" if invoice["payment_state"] == "paid" else "comptabilisée"
 
 
 def amount(value):
@@ -82,9 +89,11 @@ def list_invoices(dossier_id: int, status: str = "", limit: int = 20, side: str 
             fields=["invoice_number", "invoice_date", "partner_id", "amount_total", "state", "payment_state", "refund"],
         )
     side_words = SIDES[side][1] if side else ""
-    what = " ".join(word for word in ("facture(s)", side_words, wanted) if word)
+    status_one, status_many = WORDS[wanted] if wanted else ("", "")
+    one = " ".join(word for word in ("facture", side_words, status_one) if word)
+    many = " ".join(word for word in ("factures", side_words, status_many) if word)
     if not found:
-        return ok(f"Aucune {what.replace('(s)', '')} dans le dossier `{dossier}`.")
+        return ok(f"Aucune {one} dans le dossier `{dossier}`.")
     lines = [line(invoice) for invoice in found]
-    more = f" (les {len(found)} plus recentes)" if total > len(found) else ""
-    return ok(f"{total} {what} dans le dossier `{dossier}`{more} :\n" + "\n".join(lines))
+    more = counted(len(found), " (la plus récente)", " (les {} plus récentes)") if total > len(found) else ""
+    return ok(f"{counted(total, '{} ' + one, '{} ' + many)} dans le dossier `{dossier}`{more} :\n" + "\n".join(lines))

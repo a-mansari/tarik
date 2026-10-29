@@ -106,7 +106,7 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
         return ask_claude_code(system, pages, instruction, what, keys)
     key = setting("MODEL_API_KEY", "")
     if not key:
-        raise ToolError(f"{what} : le modele n'est pas encore configure.")
+        raise ToolError(f"{what} : le modèle n'est pas encore configuré.")
     blocks = [*images_of(pages), {"type": "text", "text": instruction}]
     try:
         body = {
@@ -134,10 +134,10 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
         raise ToolError(f"{what} : {refused(error.response.status_code)}") from None
     except httpx.TransportError as error:
         log(f"{what}: {error!r}")
-        raise ToolError(f"{what} : {READER} ne repond pas ; reessayez dans quelques minutes.") from None
+        raise ToolError(f"{what} : {READER} ne répond pas ; réessayez dans quelques minutes.") from None
     except Exception as error:
         log(f"{what}: {error!r}")
-        raise ToolError(f"{what} : {READER} a donne une reponse illisible ; reessayez dans quelques minutes.") from None
+        raise ToolError(f"{what} : {READER} a donné une réponse illisible ; réessayez dans quelques minutes.") from None
 
 
 def ask_claude_code(system, pages, instruction, what, keys):
@@ -149,8 +149,8 @@ def ask_claude_code(system, pages, instruction, what, keys):
     except claude_code.ClaudeCodeError as error:
         log(f"{what}: {error}")
         unreadable = isinstance(error, claude_code.ClaudeCodeUnreadable)
-        why = "a donne une reponse illisible" if unreadable else "est indisponible"
-        raise ToolError(f"{what} : {READER} {why} ; reessayez dans quelques minutes.") from None
+        why = "a donné une réponse illisible" if unreadable else "est indisponible"
+        raise ToolError(f"{what} : {READER} {why} ; réessayez dans quelques minutes.") from None
 
 
 def images_of(pages):
@@ -170,10 +170,10 @@ def refused(status):
     """Return why the model's service answered HTTP ``status``, in French for the client: the service unavailable
     (5xx, 429, 529: a later try may pass), else the file refused (4xx: the same file fails again)."""
     if status in (429, 529) or status >= 500:
-        return f"{READER} est indisponible (erreur {status}) ; reessayez dans quelques minutes."
+        return f"{READER} est indisponible (erreur {status}) ; réessayez dans quelques minutes."
     return (
-        f"{READER} a refuse de lire ce fichier (erreur {status}), bien qu'il ait ete recu ; renvoyez-le en PDF. "
-        "L'administrateur de Tarik peut voir le detail dans le journal du serveur."
+        f"{READER} a refusé de lire ce fichier (erreur {status}), bien qu'il ait été reçu ; renvoyez-le en PDF. "
+        "L'administrateur de Tarik peut voir le détail dans le journal du serveur."
     )
 
 

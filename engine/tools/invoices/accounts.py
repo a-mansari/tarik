@@ -29,7 +29,7 @@ from engine.tools.core.experio import (
     test_mode_note,
 )
 from engine.tools.core.model import ask_model, tool_prompt
-from engine.tools.core.words import normalized
+from engine.tools.core.words import counted, normalized
 from engine.tools.invoices.check import stored_check
 from engine.tools.invoices.classify import side_of
 from engine.tools.invoices.journal import JOURNAL_FIELDS, check_journal, journal_stop
@@ -65,7 +65,7 @@ def account_question(invoice, designation):
     why = (
         f"je n'ai pas pu choisir le compte pour « {designation} »"
         if designation
-        else "la designation est illisible, je n'ai pas pu choisir le compte"
+        else "la désignation est illisible, je n'ai pas pu choisir le compte"
     )
     return f"{facture} : {why}.\nQuel compte utiliser (code ou intitulé) ?"
 
@@ -280,9 +280,9 @@ def list_accounts(dossier_id: int, search: str = "", side: str = "") -> str:
     search = (search or "").strip()
     found = searched(accounts, search) if search else accounts
     if not found:
-        return f"Aucun compte du dossier {dossier} ne correspond a « {search} »."
-    more = " (les 100 premiers : precisez la recherche)" if len(found) > 100 else ""
-    return f"{len(found)} compte(s) du dossier {dossier}{more} :\n" + listing(found[:100])
+        return f"Aucun compte du dossier {dossier} ne correspond à « {search} »."
+    more = " (les 100 premiers : précisez la recherche)" if len(found) > 100 else ""
+    return counted(len(found), "{} compte", "{} comptes") + f" du dossier {dossier}{more} :\n" + listing(found[:100])
 
 
 def resolve_account(accounts, answer):

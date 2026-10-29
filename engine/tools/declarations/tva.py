@@ -35,7 +35,7 @@ from engine.tools.core.experio import (
     require_dossier,
 )
 from engine.tools.core.outbox import keep_record_file
-from engine.tools.core.words import as_number, normalized
+from engine.tools.core.words import as_number, counted, normalized, reasons
 
 TABLE = "exp.deduction.table"
 LINE = "exp.deduction.table.line"
@@ -46,6 +46,7 @@ FIELDS = ["state", "period_id", "fiscal_year", "start_date", "end_date", "regime
 FIELDS += ["deduction_amount", "tax_purchase_amount", "imposable_amount", "ca_total", "count_deduction_ids"]
 FIELDS += ["count_imposable_ids", "error_msg", "warning_msg", "config_error_msg", "datas_fname", "name"]
 FIELDS += ["declaration_type"]
+MODES = {"monthly": "mensuelle", "quarterly": "trimestrielle"}
 
 
 def last_ended(mode, today):
@@ -102,7 +103,7 @@ def find_period(mode, number):
         PERIOD, "search_read", [("type", "=", mode), ("period_id", "=", number)], fields=["name"], limit=1
     )
     if not found:
-        raise ToolError(f"Experio n'a pas de période {number} ({mode}).")
+        raise ToolError(f"Experio n'a pas de période {MODES.get(mode, mode)} n° {number}.")
     return found[0]
 
 
@@ -146,12 +147,24 @@ def left_out(dossier_id, table, context):
     said = []
     drafts = odoo_call("exp.invoice", "search_count", [*period, ("state", "=", "draft")], context=context)
     if drafts:
-        said.append(f"{drafts} facture(s) de la période encore en brouillon (comptabilisez-les d'abord)")
+        said.append(
+            counted(
+                drafts,
+                "{} facture de la période est encore en brouillon : comptabilisez-la d'abord",
+                "{} factures de la période sont encore en brouillon : comptabilisez-les d'abord",
+            )
+        )
     blocked = odoo_call(
         "exp.invoice", "search_count", [*period, ("declaration_state", "=", "blocked")], context=context
     )
     if blocked:
-        said.append(f"{blocked} facture(s) bloquée(s) pour la déclaration dans Experio")
+        said.append(
+            counted(
+                blocked,
+                "{} facture est bloquée pour la déclaration dans Experio",
+                "{} factures sont bloquées pour la déclaration dans Experio",
+            )
+        )
     if table["regime"] == "encaissement":
         unpaid = [
             ("type", "=", "purchase"),
@@ -160,7 +173,15 @@ def left_out(dossier_id, table, context):
         ]
         count = odoo_call("exp.invoice", "search_count", [*period, *unpaid], context=context)
         if count:
-            said.append(f"{count} facture(s) d'achat non payée(s) ou en partie (TVA déductible à son paiement lettré)")
+            said.append(
+                counted(
+                    count,
+                    "{} facture d'achat n'est pas payée ou l'est en partie : sa TVA sera déductible quand son paiement "
+                    "sera lettré",
+                    "{} factures d'achat ne sont pas payées ou le sont en partie : leur TVA sera déductible quand leur "
+                    "paiement sera lettré",
+                )
+            )
     return said
 
 
@@ -229,15 +250,24 @@ def check(table_id, context):
     return ""
 
 
-def summary(table, label):
-    """Return the French summary of the declaration ``table``: TVA due or credit, amounts, line counts."""
+def summary(table, label, made=False):
+    """Return the French summary of the declaration ``table``: a headline (« créée » when ``made``), then its TVA due
+    or credit, amounts and line counts, one per indented « - » line."""
     due = round(table["tva_due"] or 0, 2)
-    owed = f"TVA à payer {due:.2f}" if due > 0 else f"crédit de TVA {abs(due):.2f}"
-    return (
-        f"Déclaration de TVA {label} (n° `{table['id']}`, régime {table['regime']}) : {owed} ; TVA facturée "
-        f"{table['imposable_amount'] or 0:.2f}, TVA déductible {table['tax_purchase_amount'] or 0:.2f}, crédit "
-        f"reporté {table['tva_en_rouge'] or 0:.2f}, chiffre d'affaires {table['ca_total'] or 0:.2f} ; "
-        f"{table['count_imposable_ids']} ligne(s) de ventes, {table['count_deduction_ids']} de déductions."
+    owed = f"TVA à payer : {due:.2f}" if due > 0 else f"Crédit de TVA : {abs(due):.2f}"
+    regime = "débit" if table["regime"] == "debit" else table["regime"]
+    sales = counted(table["count_imposable_ids"], "{} ligne de ventes", "{} lignes de ventes")
+    deductions = counted(table["count_deduction_ids"], "{} ligne de déductions", "{} lignes de déductions")
+    return "\n".join(
+        [
+            f"Déclaration de TVA {label} (n° `{table['id']}`, régime {regime}{', créée' if made else ''}) :",
+            f"- {owed}",
+            f"- TVA facturée : {table['imposable_amount'] or 0:.2f}",
+            f"- TVA déductible : {table['tax_purchase_amount'] or 0:.2f}",
+            f"- Crédit reporté : {table['tva_en_rouge'] or 0:.2f}",
+            f"- Chiffre d'affaires : {table['ca_total'] or 0:.2f}",
+            f"- {sales} et {deductions}.",
+        ]
     )
 
 
@@ -285,7 +315,7 @@ def prepare_tva_declaration(
             text = f"Le dossier `{dossier}` est hors champ de la TVA dans Experio : pas de déclaration à faire."
             return routine(text) if new_only else stop(text)
         if new_only and not company["vat"]:  # Experio refuses to declare without it (check_declaration_requirements)
-            return stop(f"Dossier `{dossier}` : pas d'IF dans Experio, aucune déclaration de TVA créée.")
+            return stop(f"Le dossier `{dossier}` n'a pas d'IF dans Experio : je n'ai créé aucune déclaration de TVA.")
         today = date.today()
         number, year = period_named(mode, periode, today) or last_ended(mode, today)
         period = find_period(mode, number)
@@ -293,17 +323,19 @@ def prepare_tva_declaration(
         declared = [("company_id", "=", dossier_id), ("state", "=", "done")]
         if new_only and not odoo_call(TABLE, "search_count", declared, context=context):
             return stop(
-                f"Déclaration de TVA {label} du dossier `{dossier}` : sa première dans Experio, à préparer avec Tarik "
-                "(le crédit de TVA reporté est demandé). Rien n'a été créé."
+                f"La déclaration de TVA {label} du dossier `{dossier}` est sa première dans Experio : préparez-la avec "
+                "moi en conversation, car je dois vous demander le crédit de TVA reporté. Je n'ai rien créé."
             )
         table_id, made = declaration_of(dossier_id, period, year, company["regime_type"] or "encaissement", context)
         if table_id is None:
             return ok(f"{TEST_MODE}La déclaration de TVA {label} du dossier `{dossier}` serait créée et préparée.")
         table = read_table(table_id, context)
         if table["state"] == "done":
-            return ok(f"Déjà déclarée dans Experio. {summary(table, label)}", declaration_id=table_id, already=True)
+            text = f"{summary(table, label)}\n\nElle est déjà déclarée dans Experio."
+            return ok(text, declaration_id=table_id, already=True)
         if new_only and not made:
-            return ok(f"Déjà préparée, non actualisée. {summary(table, label)}", declaration_id=table_id, already=True)
+            text = f"{summary(table, label)}\n\nElle était déjà préparée : je ne l'ai pas actualisée."
+            return ok(text, declaration_id=table_id, already=True)
         first = is_first(dossier_id, table, context)
         given = as_number(credit_reporte) if str(credit_reporte).strip() else None
         carried = given if given is not None else (table["tva_en_rouge"] if first else None)
@@ -322,23 +354,34 @@ def prepare_tva_declaration(
         suspense = suspense_count(dossier_id, table, context)
         errors = line_errors(table_id, context)
         refusal = check(table_id, context)
-        text = ("Créée. " if made else "") + summary(table, label)
+        text = summary(table, label, made)
         if missing:
-            text += " Pas dans la déclaration : " + " ; ".join(missing) + "."
+            text += "\n- Pas dans la déclaration :" + "".join(f"\n  - {why}." for why in missing)
         if suspense:
-            text += f" {suspense} opération(s) bancaire(s) de la période en suspens ou sans tiers (à régler d'abord)."
+            text += "\n- " + counted(
+                suspense,
+                "{} opération bancaire de la période est en suspens ou sans tiers : à régler d'abord.",
+                "{} opérations bancaires de la période sont en suspens ou sans tiers : à régler d'abord.",
+            )
         if errors:
-            text += " Lignes en erreur : " + " ; ".join(f"{why} ({n})" for why, n in errors.items()) + "."
+            text += "\n- Lignes en erreur :"
+            text += "".join(f"\n  - {line}" for line in reasons(errors, "{} ligne", "{} lignes"))
         if table["warning_msg"]:
-            text += f" Experio signale : {plain(table['warning_msg'])}"
+            text += f"\n- Experio signale : {plain(table['warning_msg'])}"
         if refusal:
-            return stop(f"{text} Experio ne la laisse pas déclarer : {refusal}", declaration_id=table_id)
+            return stop(f"{text}\n\nExperio ne la laisse pas déclarer : {refusal}", declaration_id=table_id)
         if not dry_run():
             odoo_json(TABLE, "action_print_xml_for_deduction_report", [table_id], context=context)  # stored on it
             name = keep_record_file(session_id, TABLE, table_id, "datas", "datas_fname", context)
-            text += f" Fichier XML `{name}` joint à cette réponse." if name else " Fichier XML prêt sur la déclaration."
+            text += (
+                f"\n- Fichier XML `{name}` joint à cette réponse."
+                if name
+                else "\n- Fichier XML prêt sur la déclaration."
+            )
         if not declarer:
-            return ok(text + " Écrivez « déclarez la TVA » pour la déclarer dans Experio.", declaration_id=table_id)
+            return ok(
+                text + "\n\nÉcrivez « déclarez la TVA » pour que je la déclare dans Experio.", declaration_id=table_id
+            )
         return declare(table, label, text, client_confirmed, context)
 
 
@@ -351,14 +394,14 @@ def declare(table, label, text, client_confirmed, context):
     """
     if table["config_error_msg"]:
         return stop(
-            f"{text} Pas déclarée : réglage des écritures de TVA manquant dans Experio : "
+            f"{text}\n\nJe ne l'ai pas déclarée, car un réglage des écritures de TVA manque dans Experio : "
             f"{plain(table['config_error_msg'])}",
             declaration_id=table["id"],
         )
     if not client_confirmed:
         return question(
-            f"{text} Je la déclare dans Experio (écritures de TVA passées, factures et opérations marquées "
-            "déclarées) ? Le dépôt sur le portail de la DGI restera à faire par le cabinet. Je le fais ?",
+            f"{text}\n\nEn la déclarant, je passe ses écritures de TVA et je marque ses factures et opérations comme "
+            "déclarées. Le dépôt sur le portail de la DGI restera à faire par le cabinet. Je la déclare dans Experio ?",
             declaration_id=table["id"],
         )
     if dry_run():
@@ -366,16 +409,17 @@ def declare(table, label, text, client_confirmed, context):
     try:
         action = odoo_json(TABLE, "action_post", [table["id"]], context={**context, "exp_skip_coherence_check": True})
     except ExperioRefusal as error:
-        return stop(f"Déclaration de TVA {label} : pas déclarée, Experio refuse : {experio_refusal(error)}")
+        return stop(f"Experio refuse de déclarer la TVA {label} : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):
+        window = f"la fenêtre « {action['name']} »" if action.get("name") else "une fenêtre de confirmation"
         return stop(
-            f"Déclaration de TVA {label} : pas déclarée, Experio demande une confirmation à l'écran "
-            f"(« {action.get('name') or action['res_model']} ») : à valider par le cabinet dans Experio.",
+            f"Je n'ai pas déclaré la TVA {label} : Experio ouvre à l'écran {window}, que le cabinet doit valider "
+            "dans Experio.",
             declaration_id=table["id"],
         )
     done = read_table(table["id"], context)
     return ok(
-        f"Déclaration de TVA {label} déclarée dans Experio (`{done['name']}`), écritures de TVA passées. "
-        "Reste au cabinet : le dépôt sur le portail de la DGI (fichier XML de la déclaration).",
+        f"J'ai déclaré la TVA {label} dans Experio (`{done['name']}`) et passé ses écritures de TVA. Il reste au "
+        "cabinet à la déposer sur le portail de la DGI, avec le fichier XML de la déclaration.",
         declaration_id=table["id"],
     )

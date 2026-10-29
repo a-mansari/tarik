@@ -24,10 +24,10 @@ from engine.tools.core.cabinets import cabinet_db, current, setting
 from engine.tools.core.config import FILE_TYPES, READING
 from engine.tools.core.experio import main_company_id, odoo_call
 from engine.tools.core.queries import Q
-from engine.tools.core.words import strip_tags
+from engine.tools.core.words import counted, strip_tags
 from engine.tools.dossiers.behaviour import MAX_MINUTES, behaviour
 from engine.tools.dossiers.people import collaborator
-from engine.tools.dossiers.setup import waiting_setups
+from engine.tools.dossiers.setup import setups_settled, waiting_setups
 from engine.tools.emails.sending import imap_session, recipient_allowed, send_email
 from engine.tools.invoices.pipeline import waiting_drafts
 
@@ -225,11 +225,12 @@ def refusal(sender, auto):
     sender off the whitelist, or neither a cabinet collaborator nor Experio staff). Both are None when the sender may
     use Tarik; an automatic email (``auto``) gives a reason only."""
     if auto:
-        return "reponse automatique ou liste de diffusion", None
+        return "C'est une réponse automatique ou un message de liste de diffusion.", None
     if not recipient_allowed(sender):
-        return "expediteur hors de la liste autorisee", "expediteur hors de la liste autorisee"
+        reason = "L'expéditeur n'est pas dans la liste des adresses autorisées."
+        return reason, reason
     if not collaborator(sender):
-        reason = "expediteur ni collaborateur du cabinet ni de l'equipe Experio"
+        reason = "L'expéditeur n'est ni un collaborateur du cabinet ni un membre de l'équipe Experio."
         return reason, reason
     return None, None
 
@@ -430,28 +431,30 @@ def drafts_to_resume(session_id):
 def follow_ups_ready(db):
     """Return the ids of the follow-up threads to take now.
 
-    A thread is ready when it has a dossier to finish, when Experio has finished reading every draft its conversation
-    waits on (bluejay_state no longer in READING), or when its follow-up time is up. A thread with no draft left
-    (posted or deleted in Experio meanwhile) is marked done. When Experio cannot be reached, the thread is checked
-    again at the next tick."""
+    A thread is ready when a dossier of its conversation has its onboarding to finish or no line left in Experio's
+    processing (setups_settled), when Experio has finished reading every draft its conversation waits on
+    (bluejay_state no longer in READING), or when its follow-up time is up. A thread with no draft left (posted or
+    deleted in Experio meanwhile) is marked done. When Experio cannot be reached, the thread is checked again at the
+    next tick."""
     ready = []
     for thread_id, session_id, over in db.execute(Q.follow_up_threads).fetchall():
-        if waiting_setups(session_id)["dossiers"]:  # Experio's wait on its lines is over by the next tick
-            ready.append(thread_id)
-            continue
+        dossiers = waiting_setups(session_id)["dossiers"]
         drafts = drafts_to_resume(session_id)
-        if not drafts:
+        if not (dossiers or drafts):
             db.execute(
                 Q.finish_follow_up,
                 (thread_id,),
             )
             continue
         try:
-            read = odoo_call("exp.invoice", "read", drafts, fields=["bluejay_state"])
+            # dossiers told once their lines are processed, not at every tick while Experio works
+            settled = bool(dossiers) and setups_settled(dossiers)
+            read = odoo_call("exp.invoice", "read", drafts, fields=["bluejay_state"]) if drafts else []
         except Exception as error:  # Experio out: asked again at the next tick
             log(f"follow_ups_ready {thread_id}: {type(error).__name__}: {error}")
             continue
-        if over or all(draft["bluejay_state"] not in READING for draft in read):
+        drafts_read = bool(read) and all(draft["bluejay_state"] not in READING for draft in read)
+        if over or settled or drafts_read:
             ready.append(thread_id)
     return ready
 
@@ -553,22 +556,22 @@ def acknowledge_thread(thread_id: str) -> dict:
     behaviour « acknowledge »): a reply in an existing thread or a follow-up gets none. Returns an ok result with
     sent=True when sent, sent=False otherwise."""
     if not behaviour("acknowledge"):
-        return ok("Pas d'accuse de reception : desactive pour ce cabinet.", sent=False)
+        return ok("Pas d'accusé de réception : il est désactivé pour ce cabinet.", sent=False)
     with cabinet_db() as db:
         row = db.execute(
             Q.thread_to_acknowledge,
             (thread_id,),
         ).fetchone()
         if not row:
-            return ok("Pas d'accuse de reception : fil deja suivi.", sent=False)
+            return ok("Pas d'accusé de réception : le fil est déjà suivi.", sent=False)
         session_id, address, subject, to_acknowledge = row
         if not to_acknowledge:
-            return ok("Pas d'accuse de reception : fil deja suivi.", sent=False)
+            return ok("Pas d'accusé de réception : le fil est déjà suivi.", sent=False)
         reply = addressed(db, thread_id, address, subject)
     sent_in_thread(thread_id, reply, ACKNOWLEDGEMENT)
     with cabinet_db() as db:
         db.execute(Q.set_thread_acknowledged, (thread_id,))
-    return ok("Accuse de reception envoye.", sent=True)
+    return ok("Accusé de réception envoyé.", sent=True)
 
 
 @tool
@@ -580,11 +583,11 @@ def send_progress(thread_id: str) -> dict:
     with cabinet_db() as db:
         thread, refused = refusal_of(db, thread_id)
         if not thread or refused:
-            return ok("Pas de point d'avancement : fil inconnu ou expediteur refuse.", sent=False)
+            return ok("Pas de point d'avancement : fil inconnu ou expéditeur refusé.", sent=False)
         _, address, subject, _ = thread
         reply = addressed(db, thread_id, address, subject)
     sent_in_thread(thread_id, reply, PROGRESS)
-    return ok("Point d'avancement envoye.", sent=True)
+    return ok("Point d'avancement envoyé.", sent=True)
 
 
 @tool
@@ -593,7 +596,7 @@ def claim_threads() -> dict:
     Lock the threads waiting for Tarik's answer for this run and return them (ok result, threads: thread_item dicts)."""
     with cabinet_db() as db:
         threads = claim(db)
-    return ok(f"{len(threads)} fil(s) a traiter.", threads=threads)
+    return ok(counted(len(threads), "{} fil à traiter.", "{} fils à traiter."), threads=threads)
 
 
 def refusal_of(db, thread_id):
@@ -620,7 +623,7 @@ def thread_refusal(thread_id: str) -> dict:
             return ok("Pas de refus.", refused=False)
         db.execute(Q.handle_thread_messages, (thread_id,))
         set_aside(db, thread_id, "ignored", refused[0])
-    message = "Travail refuse : l'expediteur n'a pas ce dossier."
+    message = "Travail refusé : l'expéditeur n'a pas ce dossier."
     return ok(message, refused=True, sender=sender, subject=subject, reason=refused[0])
 
 
@@ -649,20 +652,20 @@ def notify_manager(sender: str, subject: str, reason: str) -> dict:
     manager = cabinet_manager()
     if not manager:
         raise ToolError(
-            "Manager non prevenu : aucun Responsable sur la societe du cabinet dans Experio, et MAIL_MANAGER "
+            "Manager non prévenu : aucun Responsable sur la société du cabinet dans Experio, et MAIL_MANAGER "
             "n'est pas l'email d'un collaborateur du cabinet."
         )
     with cabinet_db() as db:
         if db.execute(Q.manager_alerted_today, (sender,)).fetchone():
-            return ok(f"Manager deja prevenu aujourd'hui pour {sender}.")
+            return ok(f"Manager déjà prévenu aujourd'hui pour {sender}.")
         send_email(
             manager,
-            f"Tarik : email de {sender} non traite",
-            f"Bonjour,\n\n{sender} m'a ecrit (objet : « {subject or 'sans objet'} »).\n"
-            f"Je n'ai pas traite son email : {reason}.\n\nJe ne lui ai envoye aucune reponse.",
+            f"Tarik : email de {sender} non traité",
+            f"Bonjour,\n\n{sender} m'a écrit (objet : « {subject or 'sans objet'} »).\n\n"
+            f"Je n'ai pas traité son email. Motif : {reason.rstrip('.')}.\n\nJe ne lui ai envoyé aucune réponse.",
         )
         db.execute(Q.insert_mail_alert, (sender,))
-    return ok(f"Manager prevenu : {sender}.")
+    return ok(f"Manager prévenu : {sender}.")
 
 
 def thread_state(db, thread_id, session):
@@ -703,8 +706,8 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
         if sent_id:
             db.execute(Q.insert_mail_sent, (sent_id, thread_id))
         if not sent:
-            set_aside(db, thread_id, "error", reason or "reponse non envoyee")
-            return ok("Fil mis de cote : reponse non envoyee.")
+            set_aside(db, thread_id, "error", reason or "réponse non envoyée")
+            return ok("Fil mis de côté : réponse non envoyée.")
         db.execute(Q.handle_mail_messages, (list(message_ids),))
         state = thread_state(db, thread_id, session)
         db.execute(
@@ -712,10 +715,10 @@ def finish_thread(thread_id: str, message_ids: list, sent: bool, reason: str = "
             (state, state, FOLLOW_UP_MINUTES, thread_id),
         )
     done = {
-        "new": "Fil traite, un nouvel email attend.",
+        "new": "Fil traité. Un nouvel email attend.",
         "waiting": "Fil en attente du client.",
-        "follow_up": "Fil traite, la suite suivra.",
-        "done": "Fil traite.",
+        "follow_up": "Fil traité. La suite suivra.",
+        "done": "Fil traité.",
     }
     return ok(done[state])
 

@@ -164,7 +164,7 @@ def test_a_missing_operation_is_made_as_experio_makes_it(experio):
 def test_sales_without_client_are_asked_once_for_the_statement(experio):
     result = tpe.settle_tpe(460)
     assert result["status"] == "question"
-    assert "1 vente(s) par carte sans client" in result["message"]
+    assert "1 vente par carte n'a pas de client" in result["message"]
     operations = {entry["id"]: entry["operation_id"][0] for entry in experio["lines"] if entry["operation_id"]}
     assert operations == {1: 1188, 2: 2000, 3: 1269, 4: 1189}  # the sale on the dossier's first VENTE
 
@@ -203,7 +203,7 @@ def test_posting_confirms_experios_network_change_warning(experio):
     experio["post"] = {"res_model": tpe.JOURNAL_WARNING, "res_id": 3}
     result = tpe.post_tpe(460)
     assert experio["confirmed"] == [[3]]
-    assert result["status"] == "ok" and "4 ligne(s) comptabilisée(s)" in result["message"]
+    assert result["status"] == "ok" and "j'ai comptabilisé 4 lignes" in result["message"]
     assert "confirmé" in result["message"]
 
 
@@ -281,7 +281,7 @@ def test_test_mode_makes_no_operation_and_writes_no_line(experio, monkeypatch):
     monkeypatch.setattr(tpe, "dry_run", lambda: True)
     result = tpe.settle_tpe(460, "clients divers")
     assert experio["created"] == [] and all(not entry["operation_id"] for entry in experio["lines"])
-    assert result["message"].startswith("MODE TEST") and "créée(s) dans le dossier" in result["message"]
+    assert result["message"].startswith("MODE TEST") and "J'ai créé dans le dossier" in result["message"]
 
 
 @pytest.mark.functionality
@@ -290,9 +290,11 @@ def test_the_client_named_at_settling_gets_the_sales_and_lines_left_are_said(exp
     experio["lines"].append(line(6, "TOTAL REMISE", credit=1.0, state="post"))
     experio["ignore_remise"] = True
     result = tpe.settle_tpe(460, "clients divers")
-    assert result["status"] == "ok" and "ventes rattachées au client `CLIENTS DIVERS`" in result["message"]
-    assert "À compléter dans Experio : Compte manquant (1)" in result["message"]
-    assert "1 déjà comptabilisée(s)" in result["message"] and "Ignorer la ligne de solde remise" in result["message"]
+    assert (
+        result["status"] == "ok" and "ventes par carte sont rattachées au client `CLIENTS DIVERS`" in result["message"]
+    )
+    assert "- 1 ligne à compléter dans Experio : compte manquant." in result["message"]
+    assert "1 est déjà comptabilisée" in result["message"] and "Ignorer la ligne de solde remise" in result["message"]
     assert not experio["lines"][5]["operation_id"]  # a posted line is never written
 
 

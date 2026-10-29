@@ -40,7 +40,7 @@ from engine.tools.core.experio import (
     require_dossier,
 )
 from engine.tools.core.outbox import keep_record_file
-from engine.tools.core.words import normalized
+from engine.tools.core.words import counted, normalized
 from engine.tools.declarations.tva import find_period, last_ended, period_named
 
 # Each declaration: its model, its type (exp.withholding.table), its lines' field and model, the dossier's flag, its
@@ -52,7 +52,7 @@ KINDS = {
         "lines": "tax_withholding_ids",
         "line": "exp.tax.withholding.table.line",
         "flag": "declaration_ras_tva",
-        "sums": {"amount_ht": "HT", "amount_tva": "TVA", "amount_withholding": "retenue"},
+        "sums": {"amount_ht": "Montant HT", "amount_tva": "TVA", "amount_withholding": "Retenue"},
         "xml": "action_print_xml_ras_report",
     },
     "is": {
@@ -62,7 +62,7 @@ KINDS = {
         "lines": "is_withholding_ids",
         "line": "exp.withholding.table.line",
         "flag": "declaration_ras_is",
-        "sums": {"amount_ht": "HT", "amount_withholding": "retenue"},
+        "sums": {"amount_ht": "Montant HT", "amount_withholding": "Retenue"},
         "xml": "action_generate_xml_ras",
     },
     "ir": {
@@ -72,7 +72,7 @@ KINDS = {
         "lines": "ir_withholding_ids",
         "line": "exp.withholding.table.line",
         "flag": "declaration_ras_ir",
-        "sums": {"amount_ht": "HT", "amount_withholding": "retenue"},
+        "sums": {"amount_ht": "Montant HT", "amount_withholding": "Retenue"},
         "xml": "action_generate_xml_ras",
     },
     "non_resident": {
@@ -81,7 +81,7 @@ KINDS = {
         "lines": "foreign_withholding_ids",
         "line": "exp.foreign.withholding.table.line",
         "modes": ("monthly",),
-        "sums": {"amount_brute_mad": "brut", "amount_foreign_withholding": "retenue"},
+        "sums": {"amount_brute_mad": "Montant brut", "amount_foreign_withholding": "Retenue"},
         "xml": "action_download_xml_declaration",
     },
     "non_resident_yearly": {
@@ -90,7 +90,7 @@ KINDS = {
         "lines": "foreign_withholding_ids",
         "line": "exp.foreign.withholding.table.yearly.line",
         "modes": ("yearly",),
-        "sums": {"amount_brute_mad": "brut", "amount_foreign_withholding": "retenue"},
+        "sums": {"amount_brute_mad": "Montant brut", "amount_foreign_withholding": "Retenue"},
         "xml": "action_download_xml_declaration",
     },
 }
@@ -221,8 +221,8 @@ def refusals(kind, table, lines, dossier_id, context):
             other = done[0].get("type")
             if other and other != spec["type"]:
                 found.append(
-                    f"Experio la refuse car la RAS {other.upper()} de la même période est déjà déclarée "
-                    "(son contrôle de doublon ne distingue pas IS et IR)"
+                    f"la RAS {other.upper()} de la même période est déjà déclarée, et le contrôle de doublon "
+                    "d'Experio ne distingue pas IS et IR"
                 )
             else:
                 found.append("la période est déjà déclarée")
@@ -238,10 +238,20 @@ def refusals(kind, table, lines, dossier_id, context):
         if bare:
             found.append("tiers sans ICE ou IF : " + ", ".join(p["name"] for p in bare))
     if kind == "tva":
-        if any(not line["expense_type"] for line in lines):
-            found.append("ligne(s) sans type d'activité du tiers (fiche du tiers, « Type de dépense »)")
-        if any(not line["withholding_percentage"] for line in lines):
-            found.append("ligne(s) sans taux de retenue")
+        untyped = sum(not line["expense_type"] for line in lines)
+        if untyped:
+            found.append(
+                counted(
+                    untyped,
+                    "{} ligne n'a pas le type d'activité de son tiers (« Type de dépense » sur la fiche du tiers)",
+                    "{} lignes n'ont pas le type d'activité de leur tiers (« Type de dépense » sur la fiche du tiers)",
+                )
+            )
+        unrated = sum(not line["withholding_percentage"] for line in lines)
+        if unrated:
+            found.append(
+                counted(unrated, "{} ligne n'a pas de taux de retenue", "{} lignes n'ont pas de taux de retenue")
+            )
     return found
 
 
@@ -257,7 +267,11 @@ def left_out(kind, table, dossier_id, context):
         count = odoo_call("exp.invoice", "search_count", period + others, context=context)
         if count:
             said.append(
-                f"{count} facture(s) avec retenue dont le tiers n'est ni société ni personne (ni en IS ni en IR)"
+                counted(
+                    count,
+                    "{} facture avec retenue a un tiers ni société ni personne : elle n'est ni en IS ni en IR",
+                    "{} factures avec retenue ont un tiers ni société ni personne : elles ne sont ni en IS ni en IR",
+                )
             )
     bank = [("company_id", "=", dossier_id), ("date", ">=", table["start_date"]), ("date", "<=", table["end_date"])]
     bank += [("operation_id.type", "=", "local_withholding"), ("state", "in", ["post", "export"])]
@@ -265,8 +279,13 @@ def left_out(kind, table, dossier_id, context):
     count = odoo_call("exp.bank.statement.line", "search_count", bank, context=context)
     if count:
         said.append(
-            f"{count} retenue(s) passée(s) sur un relevé bancaire (« Ajuster »), qu'Experio ne reprend pas : "
-            "à ajouter à la main"
+            counted(
+                count,
+                "{} retenue a été passée sur un relevé bancaire (« Ajuster ») et Experio ne la reprend pas : "
+                "ajoutez-la à la main",
+                "{} retenues ont été passées sur un relevé bancaire (« Ajuster ») et Experio ne les reprend pas : "
+                "ajoutez-les à la main",
+            )
         )
     return said
 
@@ -285,57 +304,76 @@ def prepare(kind, dossier_id, words, declarer, client_confirmed, context, sessio
     label = f"{spec['label']} {period['name'] + ' ' if period else ''}{year}"
     table_id, made = declaration_of(kind, dossier_id, mode, period, year, context)
     if table_id is None:
-        return "ok", f"{TEST_MODE}{label} : serait créée et préparée.", None
+        return "ok", f"{TEST_MODE}La {label} serait créée et préparée.", None
     table = odoo_call(spec["model"], "read", [table_id], fields=FIELDS, context=context)[0]
     table["id"] = table_id
     lines = lines_of(kind, table_id, context)
     if table["state"] == "done":
-        return "already", f"{label} (n° `{table_id}`) : déjà déclarée dans Experio. {totals(spec, lines)}", table_id
+        return "already", f"{label} (n° `{table_id}`), déjà déclarée dans Experio :\n{totals(spec, lines)}", table_id
     if new_only and not made:
-        return "already", f"{label} (n° `{table_id}`) : déjà préparée, non actualisée. {totals(spec, lines)}", table_id
+        text = f"{label} (n° `{table_id}`), déjà préparée et laissée telle quelle :\n{totals(spec, lines)}"
+        return "already", text, table_id
     manual = sum(bool(line["added_manually"]) for line in lines)
     kept = ""
     if manual and kind in ("tva", "is", "ir"):  # Experio's refresh deletes them
-        kept = f" Non actualisée : {manual} ligne(s) ajoutée(s) à la main, qu'« Actualiser » effacerait."
+        kept = "\n- Je ne l'ai pas actualisée : " + counted(
+            manual,
+            "{} ligne y a été ajoutée à la main, qu'« Actualiser » effacerait.",
+            "{} lignes y ont été ajoutées à la main, qu'« Actualiser » effacerait.",
+        )
     elif not dry_run():
         refresh(kind, table_id, context)
         lines = lines_of(kind, table_id, context)
-    text = f"{label} (n° `{table_id}`{', créée' if made else ''}) : {totals(spec, lines)}{kept}"
+    text = f"{label} (n° `{table_id}`{', créée' if made else ''}) :\n{totals(spec, lines)}{kept}"
     full = sum(line["withholding_percentage"] == "100" for line in lines) if kind == "tva" else 0
     if full:
-        text += f" {full} retenue(s) à 100 % : tiers sans attestation de régularité valide à la comptabilisation."
+        text += "\n- " + counted(
+            full,
+            "{} retenue est à 100 % : son tiers n'avait pas d'attestation de régularité valide à la comptabilisation.",
+            "{} retenues sont à 100 % : leurs tiers n'avaient pas d'attestation de régularité valide à la "
+            "comptabilisation.",
+        )
     missing = left_out(kind, table, dossier_id, context)
     if missing:
-        text += " Pas dans la déclaration : " + " ; ".join(missing) + "."
+        text += "\n- Pas dans la déclaration :" + "".join(f"\n  - {why}." for why in missing)
     refused_by = refusals(kind, table, lines, dossier_id, context)
     if refused_by:
-        return "stop", f"{text} Experio ne la laissera pas déclarer : " + " ; ".join(refused_by) + ".", table_id
+        text += "\n- Experio ne la laissera pas déclarer :" + "".join(f"\n  - {why}." for why in refused_by)
+        return "stop", text, table_id
     if lines and not dry_run():
         try:  # Experio's own checks of the XML (company IF, each tiers' ICE and IF, amounts, payment dates)
             odoo_json(spec["model"], spec["xml"], [table_id], context=context)
         except ExperioRefusal as error:
-            return "stop", f"{text} Experio refuse son fichier XML : {experio_refusal(error)}", table_id
+            return "stop", f"{text}\n- Experio refuse son fichier XML : {experio_refusal(error)}", table_id
         name = keep_record_file(session_id, spec["model"], table_id, "datas_for_ras", "datas_fname_for_ras", context)
-        text += f" Fichier XML `{name}` joint à cette réponse." if name else " Fichier XML prêt sur la déclaration."
+        text += (
+            f"\n- Fichier XML `{name}` joint à cette réponse." if name else "\n- Fichier XML prêt sur la déclaration."
+        )
     if not declarer:
         return "ok", text, table_id
     if not client_confirmed:
         return "question", text, table_id
     if dry_run():
-        return "ok", f"{TEST_MODE}{label} serait déclarée.", table_id
+        return "ok", f"{TEST_MODE}La {label} serait déclarée.", table_id
     try:
         odoo_json(spec["model"], "action_post", [table_id], context=context)
     except ExperioRefusal as error:
-        return "stop", f"{label} : pas déclarée, Experio refuse : {experio_refusal(error)}", table_id
-    return "ok", f"{label} déclarée dans Experio. Reste au cabinet : le dépôt sur le portail de la DGI.", table_id
+        return "stop", f"Experio refuse de déclarer la {label} : {experio_refusal(error)}", table_id
+    return (
+        "ok",
+        f"J'ai déclaré la {label} dans Experio. Il reste au cabinet à la déposer sur le portail de la DGI.",
+        table_id,
+    )
 
 
 def totals(spec, lines):
-    """Return the French summary of ``lines``: count and the sums ``spec`` lists."""
+    """Return the French summary of ``lines``, one indented « - » line each: count and the sums ``spec`` lists."""
     if not lines:
-        return "aucune retenue sur la période (déclaration à néant)."
-    sums = ", ".join(f"{name} {sum(line[field] or 0 for line in lines):.2f}" for field, name in spec["sums"].items())
-    return f"{len(lines)} ligne(s), {sums}."
+        return "- Aucune retenue sur la période : déclaration à néant."
+    sums = "".join(
+        f"\n- {name} : {sum(line[field] or 0 for line in lines):.2f}" for field, name in spec["sums"].items()
+    )
+    return "- " + counted(len(lines), "{} ligne", "{} lignes") + sums
 
 
 @step_tool
@@ -375,19 +413,26 @@ def prepare_ras_declaration(
             return routine(f"Le dossier `{dossier}` ne déclare aucune RAS dans Experio : rien à préparer.")
         if not kinds:
             return stop(
-                f"Le dossier `{dossier}` ne déclare aucune RAS dans Experio (RAS TVA, IS et IR décochées) : dites "
-                "laquelle préparer (RAS TVA, IS, IR ou non-résidents)."
+                f"Le dossier `{dossier}` ne déclare aucune RAS dans Experio : RAS TVA, IS et IR y sont décochées. "
+                "Dites-moi laquelle préparer : RAS TVA, IS, IR ou non-résidents."
             )
         results = [
             prepare(kind, dossier_id, periode, declarer, client_confirmed, context, session_id, new_only)
             for kind in kinds
         ]
     notes = [
-        f"(la {KINDS[k]['label']} n'est pas cochée pour ce dossier dans Experio)"
+        f"La {KINDS[k]['label']} n'est pas cochée pour ce dossier dans Experio."
         for k in kinds
         if KINDS[k].get("flag") and not company.get(KINDS[k]["flag"])
     ]
-    text = " ".join(t for _, t, _ in results) + (" " + " ".join(notes) if notes else "")
+    # Several: one « - » item each, its own sub-points nested under it
+    texts = [t for _, t, _ in results]
+    if len(texts) == 1:
+        text = texts[0]
+    else:  # TEST_MODE once, at the front, where run_summary looks for it
+        test = TEST_MODE if any(t.startswith(TEST_MODE) for t in texts) else ""
+        text = test + "\n".join("- " + t.removeprefix(TEST_MODE).replace("\n", "\n  ") for t in texts)
+    text += "\n\n" + " ".join(notes) if notes else ""
     ids = [i for _, _, i in results if i]
     statuses = {s for s, _, _ in results}
     if "question" in statuses:
@@ -396,15 +441,16 @@ def prepare_ras_declaration(
         if len(both) == 1:
             other = "IR" if "is" in both else "IS"
             warn = (
-                f" Attention : une fois celle-ci déclarée, Experio refusera la RAS {other} de la même période "
-                "(son contrôle de doublon ne les distingue pas) : déclarez les deux ensemble."
+                f"\n\nAttention : une fois celle-ci déclarée, Experio refusera la RAS {other} de la même période, car "
+                "son contrôle de doublon ne les distingue pas. Déclarez les deux ensemble."
             )
+        them = "les" if len(kinds) > 1 else "la"
         return question(
-            f"{text}{warn} Je les déclare dans Experio ? Le dépôt sur le portail de la DGI restera à "
-            "faire par le cabinet. Je le fais ?",
+            f"{text}{warn}\n\nLe dépôt sur le portail de la DGI restera à faire par le cabinet. Je {them} déclare "
+            "dans Experio ?",
             declarations=ids,
         )
     if "stop" in statuses:
         return stop(text, declarations=ids)
-    hint = "" if declarer else " Écrivez « déclarez les RAS » pour les déclarer dans Experio."
+    hint = "" if declarer else "\n\nÉcrivez « déclarez les RAS » pour que je les déclare dans Experio."
     return ok(text + hint, declarations=ids, already=statuses == {"already"})

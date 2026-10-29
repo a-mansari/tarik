@@ -208,7 +208,7 @@ def untrusted(text, tool_name):
 # What a routine's run may start: the workflows that only prepare (its declarations: made, never taken up nor
 # declared; an export, never integrated). Anything else would act unattended. Its reads are Tarik's own reach.
 ROUTINE_WORKFLOWS = {"declarations", "export"}
-NOT_IN_ROUTINE = "Pas dans une routine : elle prépare et rapporte seulement."
+NOT_IN_ROUTINE = "Je ne le fais pas dans une routine : elle prépare et rapporte seulement."
 
 
 async def reading(runtime, tool_name, **arguments):

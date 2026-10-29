@@ -88,7 +88,7 @@ def test_an_analysis_export_gives_its_totals_and_keeps_its_file(experio):
     created = experio["created"][0]
     assert created["integration"] is False and created["export_template_id"] == 29
     assert created["date_from"] == "2026-07-01" and created["journal_ids"] == [(6, 0, [1, 2])]
-    assert "1 écriture(s), 2 ligne(s), débit 100.00, crédit 100.00" in result["message"]
+    assert "1 écriture, 2 lignes, débit 100.00, crédit 100.00" in result["message"]
     assert experio["kept"] == [("s", "TARIK TEST - Journals.xlsx", b"file")]
     assert "rien n'est verrouillé" in result["message"]
 
@@ -114,7 +114,7 @@ def test_an_integration_locks_only_once_confirmed(experio):
 def test_tiers_without_their_account_are_asked_then_exported_anyway(experio):
     experio["tiers"] = 3
     asked = export.export_entries(857, session_id="s")
-    assert asked["status"] == "question" and "3 ligne(s) ont un tiers sans compte tiers" in asked["message"]
+    assert asked["status"] == "question" and "3 lignes ont un tiers sans compte tiers" in asked["message"]
     export.export_entries(857, client_confirmed=True, session_id="s")
     assert ("print_excel_report", True) in experio["calls"] and experio["kept"]
 
@@ -161,7 +161,7 @@ def test_a_fec_counts_the_lines_experio_fec_takes_and_never_asks_for_an_integrat
     assert ("date", ">=", "2026-07-01") in experio["fec_domain"] and ("journal_id", "in", [1, 2]) in experio[
         "fec_domain"
     ]
-    assert "1 écriture(s), 2 ligne(s)" in result["message"] and "rien n'est verrouillé" in result["message"]
+    assert "1 écriture, 2 lignes" in result["message"] and "rien n'est verrouillé" in result["message"]
     assert experio["writes"] == []  # never switched to integration
 
 
@@ -177,7 +177,7 @@ def test_a_tiers_export_takes_no_journals_and_counts_no_lines(experio):
 def test_an_export_without_lines_counts_zero(monkeypatch):
     monkeypatch.setattr(export, "odoo_call", lambda *a, **k: pytest.fail("nothing to read"))
     monkeypatch.setattr(export, "odoo_json", lambda *a, **k: "exp.move.line()")
-    assert export.counted("journal", 9, {}) == " : 0 écriture(s), 0 ligne(s), débit 0.00, crédit 0.00"
+    assert export.totals("journal", 9, {}) == " : 0 écriture, 0 ligne, débit 0.00, crédit 0.00"
 
 
 @pytest.mark.communication

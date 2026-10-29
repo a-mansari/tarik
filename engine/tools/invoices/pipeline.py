@@ -17,7 +17,7 @@ from engine.tools.core.conversation import chosen_among, client_messages, own_wo
 from engine.tools.core.experio import _form as experio_form
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, require_invoice
 from engine.tools.core.queries import Q
-from engine.tools.core.words import normalized, said
+from engine.tools.core.words import counted, normalized, said
 from engine.tools.dossiers.people import check_sender
 from engine.tools.dossiers.setup import ask_banks, set_journal_bank
 from engine.tools.invoices import tpe
@@ -32,61 +32,61 @@ from engine.tools.invoices.tva import settle_tva
 from engine.tools.invoices.warnings import answer_warnings
 from engine.tools.invoices.withholding import settle_withholding
 
-# The sequence, in order: step tool -> what the client reads it as.
+# The sequence, in order: step tool -> what Tarik could not do when it fails there (« je n'ai pas pu … »).
 STEPS = {
-    "answer_pending": "réponse",
-    "waiting_drafts": "comptabilisation demandée",
-    "resolve_dossier": "dossier",
-    "check_sender": "accès au dossier",
-    "check_creator": "droit de créer des dossiers",
-    "check_manager": "droit de gérer les accès",
-    "create_dossier": "création du dossier",
-    "update_dossier": "modification du dossier",
-    "copy_configuration": "configuration",
-    "import_entries": "écritures",
-    "finish_setup": "intégration",
-    "ask_banks": "banque",
-    "setup_status": "état du dossier",
-    "setup_problems": "points à corriger du dossier",
-    "import_dossiers": "liste de dossiers",
-    "create_person": "accès",
-    "change_access": "accès",
-    "manage_routine": "routine",
-    "manage_behaviour": "réglages",
-    "archive_dossier": "archivage",
-    "files_to_process": "fichiers",
-    "create_import_folder": "dossier d'import",
-    "identify_document": "identification",
-    "import_bank_statement": "relevé bancaire",
-    "list_open_statements": "relevés à pointer",
-    "settle_statement": "pointage du relevé",
-    "detect_statement_lines": "détection d'Experio",
-    "choose_line_operations": "types d'opération",
-    "name_line_tiers": "tiers des opérations",
-    "tie_cited_invoices": "factures citées",
-    "tie_owed_invoices": "factures ouvertes",
-    "tie_tpe_remittances": "versements TPE",
-    "report_statement": "bilan du relevé",
-    "post_statement": "comptabilisation du relevé",
-    "split_invoices": "découpage",
-    "create_draft_invoice": "brouillon",
-    "wait_until_read": "lecture par Experio",
-    "check_invoice": "vérification",
-    "correct_invoice": "correction",
-    "classify_invoice": "classement",
-    "link_tiers": "tiers",
-    "check_duplicate": "doublon",
-    "assign_account": "compte",
-    "settle_tva": "TVA",
-    "check_journal": "journal",
-    "settle_withholding": "retenue à la source",
-    "settle_prepaid": "constatée d'avance",
-    "settle_exercice": "exercice",
-    "configure_cabinet": "paramétrage",
-    "settle_warnings": "avertissements",
-    "hold_posting": "mise en attente",
-    "post_invoice": "comptabilisation",
-    "apply_credit_note": "imputation de l'avoir",
+    "answer_pending": "prendre en compte votre réponse",
+    "waiting_drafts": "reprendre les factures à comptabiliser",
+    "resolve_dossier": "trouver le dossier",
+    "check_sender": "vérifier votre accès au dossier",
+    "check_creator": "vérifier votre droit de créer des dossiers",
+    "check_manager": "vérifier votre droit de gérer les accès",
+    "create_dossier": "créer le dossier",
+    "update_dossier": "modifier le dossier",
+    "copy_configuration": "copier la configuration",
+    "import_entries": "importer les écritures",
+    "finish_setup": "terminer l'intégration du dossier",
+    "ask_banks": "enregistrer la banque",
+    "setup_status": "lire l'état du dossier",
+    "setup_problems": "lister les points à corriger du dossier",
+    "import_dossiers": "importer la liste de dossiers",
+    "create_person": "créer l'accès",
+    "change_access": "modifier l'accès",
+    "manage_routine": "régler la routine",
+    "manage_behaviour": "modifier les réglages",
+    "archive_dossier": "archiver le dossier",
+    "files_to_process": "lire les fichiers à traiter",
+    "create_import_folder": "créer le dossier d'import",
+    "identify_document": "identifier le document",
+    "import_bank_statement": "importer le relevé bancaire",
+    "list_open_statements": "lister les relevés à pointer",
+    "settle_statement": "pointer le relevé",
+    "detect_statement_lines": "obtenir la détection d'Experio sur le relevé",
+    "choose_line_operations": "choisir les types d'opération",
+    "name_line_tiers": "trouver les tiers des opérations",
+    "tie_cited_invoices": "rapprocher les factures citées",
+    "tie_owed_invoices": "rapprocher les factures ouvertes",
+    "tie_tpe_remittances": "rapprocher les versements TPE",
+    "report_statement": "faire le bilan du relevé",
+    "post_statement": "comptabiliser le relevé",
+    "split_invoices": "découper le document en factures",
+    "create_draft_invoice": "créer le brouillon",
+    "wait_until_read": "obtenir la lecture d'Experio",
+    "check_invoice": "vérifier la facture",
+    "correct_invoice": "corriger la facture",
+    "classify_invoice": "classer la facture",
+    "link_tiers": "rattacher le tiers",
+    "check_duplicate": "vérifier les doublons",
+    "assign_account": "choisir le compte",
+    "settle_tva": "régler la TVA",
+    "check_journal": "vérifier le journal",
+    "settle_withholding": "régler la retenue à la source",
+    "settle_prepaid": "régler la charge constatée d'avance",
+    "settle_exercice": "vérifier l'exercice",
+    "configure_cabinet": "faire le paramétrage du cabinet",
+    "settle_warnings": "traiter les avertissements",
+    "hold_posting": "mettre la facture en attente",
+    "post_invoice": "comptabiliser la facture",
+    "apply_credit_note": "imputer l'avoir",
 }
 ORDER = list(STEPS)
 INVOICE_CHAIN = ORDER[ORDER.index("create_draft_invoice") :]  # an invoice's own steps, from its draft (Traitement)
@@ -155,15 +155,20 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
         if time.monotonic() >= deadline:
             resent = resend_if_stuck(invoice_id)
             return wait(
-                f"Facture {invoice_id} : Experio la lit encore{resent}, elle sera reprise a votre prochain message."
+                f"Facture {invoice_id} : Experio la lit encore{resent}, elle sera reprise à votre prochain message."
             )
         time.sleep(15)
     others = split_off(invoice_id)
     if others:
         listed = ", ".join(f"n° {other}" for other in others)
         return ok(
-            f"Facture {invoice_id} : lue par Experio, qui a tire du même document la ou les factures {listed} "
-            "(une par facture du document), traitees à la suite.",
+            f"Facture {invoice_id} : lue par Experio. "
+            + (
+                f"Experio a tiré du même document une autre facture, la {listed}. Je la traite à la suite."
+                if len(others) == 1
+                else f"Experio a tiré du même document {len(others)} autres factures ({listed}), une par facture du "
+                "document. Je les traite à la suite."
+            ),
             split_off=others,
         )
     return routine(f"Facture {invoice_id} : lue par Experio.")
@@ -276,7 +281,7 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
             pending = db.execute(Q.pending_step, (invoice_id,)).fetchone()
             if pending and (pending[0] not in ORDER or position(step) >= position(pending[0])):
                 db.execute(Q.delete_pending, (invoice_id,))
-    return ok("enregistre", step=step, status_recorded=status)
+    return ok("Enregistré.", step=step, status_recorded=status)
 
 
 # The summary's sections, in the order the client reads them: what was done, what waits (Experio still reading, a
@@ -310,7 +315,7 @@ def section_of(step, status, message=""):
 def summary_text(key, step, status, message):
     """Return one outcome's text for the summary, about ``key`` (an invoice id, None for a dossier's setup, or a
     negative file id): « Facture N : » added when an invoice's message lacks its number, QUESTION_MARK before a
-    question, the failing step named for an error."""
+    question, what Tarik could not do for an error (with_problem)."""
     text = message.removeprefix(TEST_MODE)
     if key and key > 0 and str(key) not in text:  # an error Experio gave without it: which invoice
         text = f"Facture {key} : {text}"
@@ -322,12 +327,13 @@ def summary_text(key, step, status, message):
 
 
 def with_problem(step, text):
-    """Return ``text`` with the step it failed at: after its « Facture N : » when it has one, else first."""
-    problem = f"problème à l'étape {STEPS.get(step, step)}"
+    """Return ``text`` saying what Tarik could not do (STEPS): after its « Facture N : » or `file` when it has one, else
+    first: « Facture 30 : je n'ai pas pu vérifier la facture : <why> »."""
+    problem = f"je n'ai pas pu {STEPS.get(step, 'aller au bout')}"
     head, sep, rest = text.partition(" : ")
-    if sep and head.lower().startswith("facture"):
+    if sep and (head.lower().startswith("facture") or head.startswith("`")):
         return f"{head} : {problem} : {rest}"
-    return f"{problem} : {text}"
+    return f"{problem[0].upper()}{problem[1:]} : {text}"
 
 
 def joined(key, texts):
@@ -342,14 +348,23 @@ def joined(key, texts):
     return "; ".join(part.rstrip(". ") for part in parts) + "."
 
 
+def bullet(text, depth=0, mark="- "):
+    """Return outcome ``text`` as a list item ``depth`` levels deep: its first line after ``mark``, its next lines (its
+    own "- " sub-points) indented under it, so the chat and the email nest them."""
+    pad = "  " * depth
+    return pad + mark + text.replace("\n", "\n" + pad + " " * len(mark))
+
+
 def listed(texts):
-    """Return an invoice's (or file's) outcome ``texts`` as summary lines: one "- " line each when there is one or they
+    """Return an invoice's (or file's) outcome ``texts`` as summary lines: one "- " item each when there is one or they
     don't start with a name (« Facture N » or a `file`); else that name on a line, then each outcome indented below."""
     head, sep, _ = texts[0].partition(" : ")
     if len(texts) == 1 or not sep or not (head.lower().startswith("facture") or head.startswith("`")):
-        return [f"- {text}" for text in texts]
+        return [bullet(text) for text in texts]
     named = head.lower() + " : "
-    return [f"- {head} :"] + [f"  - {text[len(named) :] if text.lower().startswith(named) else text}" for text in texts]
+    return [f"- {head} :"] + [
+        bullet(text[len(named) :] if text.lower().startswith(named) else text, 1) for text in texts
+    ]
 
 
 @tool
@@ -423,7 +438,9 @@ def sections_of(outcomes):
         shown = [outcome for outcome in found if not outcome[3] or outcome is found[-1]]
         if key is None:  # a dossier's setup: each outcome in its own section, on its own line
             for step, status, message, _ in shown:
-                sections[section_of(step, status, message)].append("- " + summary_text(key, step, status, message))
+                text = summary_text(key, step, status, message)
+                # A question is numbered by summary_sections, never bulleted too.
+                sections[section_of(step, status, message)].append(text if status == "question" else bullet(text))
             continue
         where = section_of(*found[-1][:3])
         texts = [summary_text(key, *outcome[:3]) for outcome in shown if section_of(*outcome[:3]) == where]
@@ -445,7 +462,7 @@ def summary_sections(sections):
         if not lines:
             continue
         # Questions numbered; the other lines are already listed (« - », an invoice's outcomes indented under it).
-        items = [f"{i}. {line}" for i, line in enumerate(lines, start=1)] if name == "question" else lines
+        items = [bullet(line, mark=f"{i}. ") for i, line in enumerate(lines, start=1)] if name == "question" else lines
         parts.append(SECTIONS[name] + "\n" + "\n".join(items))
     return "\n\n".join(parts)
 
@@ -754,7 +771,8 @@ def answer_pending(
         # Nothing asked: an account given here still goes to the invoice it names (none answered about).
         fixes, notes = verified_corrections(session_id, answer, corrections or [], None)
         result = ok(
-            "Aucune question en attente : les factures a reprendre le sont." + "".join(f" {note}" for note in notes),
+            "Aucune question en attente. Je reprends les factures restées en cours."
+            + "".join(f" {note}" for note in notes),
             next_step="waiting_drafts",
             step="answer_pending",
         )
@@ -884,8 +902,8 @@ def save_files(session_id: str = "", files: list | None = None) -> dict:
                 row = db.execute(Q.insert_agent_file, (session_id, name, mime, data, key)).fetchone()
                 if row:
                     saved.append({"id": row[0], "file_name": name})
-    left = f" Ignores : {' ; '.join(skipped)}." if skipped else ""
-    return ok(f"{len(saved)} fichier(s) enregistre(s).{left}", files=saved)
+    left = f" Ignorés : {' ; '.join(skipped)}." if skipped else ""
+    return ok(counted(len(saved), "{} fichier enregistré.", "{} fichiers enregistrés.") + left, files=saved)
 
 
 def is_entries(file_id, name):
@@ -920,7 +938,7 @@ def files_to_process(session_id: str, entries: bool = False, asked: bool = False
     own = [i for i, name in rows if is_entries(i, name) == entries]
     if asked and not own:
         return ok(NO_FILE, files=[], tell=True)
-    return ok(f"{len(own)} fichier(s) a traiter.", files=own)
+    return ok(counted(len(own), "{} fichier à traiter.", "{} fichiers à traiter."), files=own)
 
 
 # The stops a client's "reprenez" retries: a dossier setting or an Experio check the cabinet may have fixed since
@@ -1063,28 +1081,34 @@ def waiting_drafts(
     corrections = drafts_corrected(session_id, client_message, compte)
     if corrections:
         return ok(
-            f"{len(waiting)} facture(s) a reprendre.", invoices=waiting, corrections=corrections, facturation=billed
+            counted(len(waiting), "{} facture à reprendre.", "{} factures à reprendre."),
+            invoices=waiting,
+            corrections=corrections,
+            facturation=billed,
         )
     statements = statements_to_resume(session_id, held)
     if billed or statements:
         count = len(waiting) + len(billed)
         return ok(
-            f"{count} facture(s) et {len(statements)} relevé(s) a reprendre.",
+            counted(count, "{} facture", "{} factures")
+            + counted(len(statements), " et {} relevé à reprendre.", " et {} relevés à reprendre."),
             invoices=waiting,
             facturation=billed,
             statements=statements,
         )
     left = left_in_dossier(dossier_id, {*waiting, *billed}) if held and asks_whole(client_message) else ""
     if left and waiting:
-        return ok(left.strip(), invoices=waiting, tell=True)  # told in the reply, with what is posted
+        return ok(left, invoices=waiting, tell=True)  # told in the reply, with what is posted
     hint = elsewhere_hint(elsewhere_left, client_message, held) if not waiting else ""
     if held and not waiting:
         if run_id and worked_on(run_id):  # this run's other branch took them (« comptabilisez » goes both ways)
             return routine("Rien d'autre à comptabiliser.", invoices=[])
-        return stop(nothing_to_post(session_id, dossier_id) + hint + left, invoices=[])
+        # Apart: nothing_to_post ends on its list, which the hint would otherwise run on from.
+        told = [nothing_to_post(session_id, dossier_id), hint.strip(), left]
+        return stop("\n\n".join(part for part in told if part), invoices=[])
     if hint:
         return ok("Rien à reprendre dans cette conversation." + hint, invoices=[], tell=True)
-    return ok(f"{len(waiting)} facture(s) a reprendre.", invoices=waiting)
+    return ok(counted(len(waiting), "{} facture à reprendre.", "{} factures à reprendre."), invoices=waiting)
 
 
 def statements_to_resume(session_id, held):
@@ -1148,10 +1172,13 @@ def elsewhere_hint(count, client_message, held):
     for them too (whole_example, from ``client_message`` and ``held``). "" when there are none."""
     if not count:
         return ""
-    return (
-        f" {count} brouillon(s) d'autres conversations attendent dans ce dossier : écrivez "
-        f"« {whole_example(client_message, held)} », ou nommez-les (numéro de facture ou fournisseur), pour les "
-        "reprendre aussi."
+    example = whole_example(client_message, held)
+    return counted(
+        count,
+        " {} brouillon d'une autre conversation attend dans ce dossier. Pour le reprendre aussi, écrivez "
+        f"« {example} » ou nommez-le (numéro de facture ou fournisseur).",
+        " {} brouillons d'autres conversations attendent dans ce dossier. Pour les reprendre aussi, écrivez "
+        f"« {example} » ou nommez-les (numéro de facture ou fournisseur).",
     )
 
 
@@ -1204,7 +1231,7 @@ def asks_whole(client_message):
 
 
 def left_in_dossier(dossier_id, taken):
-    """When the client asks for the whole dossier: return the sentence reporting how many of its drafts stay drafts,
+    """When the client asks for the whole dossier: return the lines reporting how many of its drafts stay drafts,
     except those ``taken``, and why: a question waiting in their conversation, stopped by a step, or not imported by
     Tarik. "" when none stay or no ``dossier_id``."""
     if not dossier_id:
@@ -1217,12 +1244,25 @@ def left_in_dossier(dossier_id, taken):
         asked = {i for i, _ in db.execute(Q.pending_of_invoices, (left,))}
         made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (left,))}
     counts = [
-        (len(asked), "attend(ent) une réponse à sa question dans sa conversation"),
-        (len(made - asked), "arrêtée(s) par une étape, à corriger"),
-        (len(set(left) - made - asked), "pas importée(s) par Tarik, à comptabiliser dans Experio"),
+        (
+            len(asked),
+            "{} facture attend votre réponse à sa question, dans sa conversation.",
+            "{} factures attendent votre réponse à leur question, dans leur conversation.",
+        ),
+        (
+            len(made - asked),
+            "{} facture est arrêtée par un point à corriger.",
+            "{} factures sont arrêtées par un point à corriger.",
+        ),
+        (
+            len(set(left) - made - asked),
+            "{} facture n'a pas été importée par moi : comptabilisez-la dans Experio.",
+            "{} factures n'ont pas été importées par moi : comptabilisez-les dans Experio.",
+        ),
     ]
-    said = ", ".join(f"{count} {words}" for count, words in counts if count)
-    return f" Restent en brouillon dans ce dossier : {said}."
+    return "Restent en brouillon dans ce dossier :\n" + "\n".join(
+        f"- {counted(count, one, many)}" for count, one, many in counts if count
+    )
 
 
 def asked_among(ids, dossier_id, client_message):
@@ -1256,7 +1296,7 @@ def nothing_to_post(session_id, dossier_id):
         domain.append(("company_id", "=", dossier_id))
     drafts = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number"], order="id") if mine else []
     if not drafts:
-        return "Aucune facture laissée en brouillon dans cette conversation : rien à comptabiliser."
+        return "Aucune facture n'est restée en brouillon dans cette conversation. Il n'y a rien à comptabiliser."
     ids = [draft["id"] for draft in drafts]
     with cabinet_db() as db:
         made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (ids,))}
@@ -1270,16 +1310,17 @@ def nothing_to_post(session_id, dossier_id):
     furthest = furthest_outcomes(rows)
     lines = []
     for draft in drafts:
-        name = f"facture {draft['id']} ({draft['invoice_number'] or 'sans numéro'})"
+        name = f"Facture {draft['id']} ({draft['invoice_number'] or 'sans numéro'})"
         if draft["id"] in asked:
-            lines.append(f"- {name} : attend votre réponse à sa question : {asked[draft['id']]}")
+            lines.append(f"- {name} attend votre réponse à cette question : {asked[draft['id']]}")
         elif draft["id"] not in made:
-            lines.append(f"- {name} : pas importée par Tarik, à comptabiliser dans Experio")
+            lines.append(f"- {name} n'a pas été importée par moi : comptabilisez-la dans Experio.")
         elif draft["id"] in working and furthest.get(draft["id"], ("", "ok"))[1] in ("ok", "wait"):
             # Another run is at it, not stopped yet: its own reply will tell how it ends.
-            lines.append(f"- {name} : en cours de traitement, je vous écris dès qu'elle est prête")
+            lines.append(f"- {name} est en cours de traitement. Je vous écris dès qu'elle est prête.")
         elif draft["id"] in furthest:
-            lines.append(f"- {name} : {messages[(draft['id'], furthest[draft['id']][0])]}")
+            message = messages[(draft["id"], furthest[draft["id"]][0])].removeprefix(f"Facture {draft['id']} : ")
+            lines.append(bullet(f"{name} : {message}"))
         else:
-            lines.append(f"- {name} : encore en cours de traitement")
+            lines.append(f"- {name} est encore en cours de traitement.")
     return "Rien n'a été comptabilisé. Les brouillons de cette conversation :\n" + "\n".join(lines)

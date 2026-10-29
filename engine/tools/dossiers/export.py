@@ -34,7 +34,7 @@ from engine.tools.core.experio import (
     require_dossier,
 )
 from engine.tools.core.outbox import keep_file
-from engine.tools.core.words import normalized
+from engine.tools.core.words import counted, normalized
 from engine.tools.declarations.tva import MONTHS
 
 WIZARD = "exp.export.wizard"
@@ -139,8 +139,8 @@ def fec_lines(dossier_id, journals, wizard, context):
     return odoo_call("exp.move.line", "search", domain, context=context)
 
 
-def counted(kind, wizard_id, context, fec=None):
-    """Return « : n écriture(s), n ligne(s), débit, crédit » of what Experio's export selects now; "" for the tiers.
+def totals(kind, wizard_id, context, fec=None):
+    """Return « : 1 écriture, 2 lignes, débit, crédit » of what Experio's export selects now; "" for the tiers.
 
     ``fec``: for the FEC, its line ids (fec_lines); the other exports are counted with get_line_ids.
     """
@@ -148,7 +148,8 @@ def counted(kind, wizard_id, context, fec=None):
         return ""
     lines = fec if kind == "fec" else selected_lines(wizard_id, context)
     entries, count, debit, credit = summary(lines, context)
-    return f" : {entries} écriture(s), {count} ligne(s), débit {debit:.2f}, crédit {credit:.2f}"
+    entries, count = counted(entries, "{} écriture", "{} écritures"), counted(count, "{} ligne", "{} lignes")
+    return f" : {entries}, {count}, débit {debit:.2f}, crédit {credit:.2f}"
 
 
 @step_tool
@@ -233,7 +234,7 @@ def export_entries(
         model_note = "" if kind == "fec" else f", modèle {shown}"  # the FEC has its own
         head = f"Export {KINDS[kind]} du dossier `{dossier}` ({period}{model_note})"
         fec = fec_lines(dossier_id, journals, wizard, context) if kind == "fec" else None
-        told = head + counted(kind, wizard_id, context, fec)
+        told = head + totals(kind, wizard_id, context, fec)
         tiers_note = ""
         method = "action_print_fec" if kind == "fec" else "print_excel_report"
         try:
@@ -242,11 +243,11 @@ def export_entries(
                 found = odoo_call(TIERS_WIZARD, "read", [action["res_id"]], fields=["missing_count"], context=context)
                 missing = found[0]["missing_count"] if found else 0
                 tiers_note = (
-                    f" {missing} ligne(s) ont un tiers sans compte tiers dans Experio : leur colonne tiers "
-                    "restera vide (à corriger sur la fiche du tiers)."
+                    f" {counted(missing, '{} ligne a', '{} lignes ont')} un tiers sans compte tiers dans Experio : "
+                    "la colonne tiers restera vide dans le fichier (à corriger par le cabinet sur la fiche du tiers)."
                 )
                 if not client_confirmed:
-                    return question(f"{told}.{tiers_note} J'exporte quand même ? Je le fais ?")
+                    return question(f"{told}.{tiers_note} J'exporte quand même ? oui / non")
                 confirmed = {**context, "exp_export_tiers_confirmed": True}
                 action = odoo_json(WIZARD, method, [wizard_id], context=confirmed)
         except ExperioRefusal as error:
@@ -260,7 +261,7 @@ def export_entries(
                 )
             locked = {**context, "exp_export_tiers_confirmed": True}
             odoo_call(WIZARD, "write", [wizard_id], {"integration": True}, context=context)
-            told = head + counted(kind, wizard_id, context)  # integration leaves out the pieces already exported
+            told = head + totals(kind, wizard_id, context)  # integration leaves out the pieces already exported
             action = odoo_json(WIZARD, method, [wizard_id], context=locked)
         url = action.get("url", "") if isinstance(action, dict) else ""
         name = unquote(url.rsplit("/", 1)[-1].split("?")[0]) or f"Export {dossier}"
