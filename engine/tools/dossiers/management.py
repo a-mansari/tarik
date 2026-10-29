@@ -264,7 +264,7 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
         more = f"\n- ... et {others}" if len(problems) > MAX_SHOWN else ""
         return stop(
             f"`{name}` : je n'ai créé aucun dossier, car le fichier a "
-            f"{counted(len(problems), '{} problème', '{} problèmes')} :\n{shown}{more}\n"
+            f"{counted(len(problems), '{} problème', '{} problèmes')} :\n{shown}{more}\n\n"
             "Corrigez-le (ou supprimez les lignes en double) et renvoyez-le."
         )
     ask = counted(len(rows), "Je le crée", "Je les crée")
@@ -274,7 +274,7 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
         more = f"\n- ... et {others}" if len(rows) > MAX_SHOWN else ""
         return question(
             f"`{name}` contient {counted(len(rows), '{} dossier, correct', '{} dossiers, tous corrects')} :\n"
-            f"{listed}{more}\n{ask} ? oui / non"
+            f"{listed}{more}\n\n{ask} ? oui / non"
         )
     if dry_run():
         would = counted(len(rows), "{} dossier serait créé", "{} dossiers seraient créés")
@@ -294,7 +294,7 @@ def import_dossiers(file_id: int, client_confirmed: bool = False, session_id: st
         message += (
             "\nExperio a refusé ces lignes :\n"
             + "\n".join(refused_rows)
-            + "\nCorrigez ces lignes et renvoyez-les seules."
+            + "\n\nCorrigez ces lignes et renvoyez-les seules."
         )
     return ok(message)
 
@@ -410,7 +410,7 @@ def create_person(
         return stop(f"Pas d'accès créé pour `{given['email']}` : {why}. Rien n'est changé.")
     recap = person_recap(label, dossier, given, chosen, existing)
     if not confirmed(session_id, client_confirmed, "vous confirmez", given["email"]):
-        return question(f"{recap}\nVous confirmez ? oui / non")
+        return question(f"{recap}\n\nVous confirmez ? oui / non")
     if dry_run():
         return ok(
             f"{TEST_MODE}{label.capitalize()} `{given['name']}` (`{given['email']}`) serait rattaché au dossier "
@@ -580,7 +580,7 @@ def change_access(
     recap += f"\n- Dossier : `{dossier}`" if dossier else ""
     recap += f"\n- Profil : `{chosen}`" if chosen else ""
     if not confirmed(session_id, client_confirmed, "vous confirmez", user["login"], ACCESS[action], dossier, chosen):
-        return question(f"{recap}\nVous confirmez ? oui / non")
+        return question(f"{recap}\n\nVous confirmez ? oui / non")
     if dry_run():
         return ok(f"{TEST_MODE}{recap.splitlines()[0]} : serait fait.")
     with refused(f"change_access {email}", "Experio refuse ce changement : {reason}"):
