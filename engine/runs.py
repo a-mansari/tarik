@@ -19,6 +19,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from engine import agent, graphs, live
 from engine.content import LABELS
+from engine.knowledge import cgnc
 from engine.settings import DEFAULT_CABINET
 from engine.tools.core import usage
 from engine.tools.core.queries import Q
@@ -131,7 +132,8 @@ def thread_outcome(update, status):
 
 
 async def open_store(conninfo):
-    """Open the connection pool for the server's whole life and create the orchestrator schema and its tables."""
+    """Open the connection pool for the server's whole life and create the orchestrator schema and its tables, the
+    knowledge's with them (engine/knowledge/)."""
     global pool
     pool = AsyncConnectionPool(
         f"{conninfo} options='-c search_path={SCHEMA}'", open=False, max_size=20, kwargs={"autocommit": True}
@@ -139,6 +141,7 @@ async def open_store(conninfo):
     await pool.open()
     async with pool.connection() as db:
         await db.execute(Q.orchestrator_schema)
+    await asyncio.to_thread(cgnc.load, conninfo)  # the CGNC Tarik looks up, reloaded when its files changed
 
 
 async def end_cut_off():

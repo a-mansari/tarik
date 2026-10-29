@@ -134,6 +134,16 @@ Covers settings from Vault against a stand-in HTTP Vault: AppRole login, paths, 
 
 ---
 
+## 2b. knowledge
+
+### tests/knowledge/test_cgnc.py
+Covers the CGNC Tarik looks up (engine/knowledge/): its files, its load, its search, in the test database.
+- `test_the_files_are_whole` [technical]: pieces numbered in order, none empty; each account once, its parent in the plan.
+- `test_loaded_once_per_version` [technical]: a start with the same files loads nothing again.
+- `test_an_account_finds_its_rule_and_the_accounts_it_names` [functionality]: 6125 gives 61 › 612 › 6125, Titre IV's 612 rule, and 3491 among its linked accounts.
+- `test_a_dossiers_own_sub_account_is_found_by_the_accounts_it_starts_with` [functionality]: 61251001 is found as 61251.
+- `test_words_find_their_piece_accents_aside` [functionality]: "charges constatees d'avance" finds the term, then its account 349.
+
 ## 3. isolation (all security or technical)
 
 ### tests/isolation/test_cabinet_postgres.py
