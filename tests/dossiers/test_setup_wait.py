@@ -73,11 +73,22 @@ def test_a_follow_up_finishes_it_whatever_the_time(experio):
 
 
 @pytest.mark.functionality
-def test_a_refused_onboarding_never_leaves_the_dossier_waiting(experio, monkeypatch):
-    monkeypatch.setattr(setup, "complete_stepper", lambda company, context: 1 / 0)
-    with pytest.raises(ToolError, match="Experio refuse de terminer l'intégration"):
+@pytest.mark.parametrize("failing", ["complete_stepper", "exercice_note"])
+@pytest.mark.parametrize(
+    ("failure", "waiting"),
+    [(xmlrpc.client.Fault(2, "journal requis"), []), (xmlrpc.client.Fault(1, "Traceback"), [557])],
+)
+def test_only_experio_refusing_the_onboarding_ends_its_wait(experio, monkeypatch, failing, failure, waiting):
+    """Refused: the client acts on it, no follow-up repeats it. A crash: the wait stays, the follow-up retries."""
+
+    def fail(*args):
+        with setup.refused("finish_setup 557", "Experio refuse ({reason})."):
+            raise failure
+
+    monkeypatch.setattr(setup, failing, fail)
+    with pytest.raises(ToolError):
         setup.finish_setup(557)
-    assert setup.waiting_setups("s")["dossiers"] == []  # no follow-up re-sending the refusal every tick
+    assert setup.waiting_setups("s")["dossiers"] == waiting
 
 
 @pytest.mark.functionality
@@ -245,7 +256,7 @@ def test_a_finished_setup_says_how_many_lines_went_to_experio(stepper):
 
 
 @pytest.mark.communication
-def test_experio_refusing_to_finish_the_onboarding_gives_its_reason(db_cabinet, stepper, monkeypatch):
+def test_experio_refusing_to_finish_the_onboarding_gives_its_reason(stepper, monkeypatch):
     monkeypatch.setattr(setup, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("journal requis")))
     with pytest.raises(ToolError, match=r"`Gecafisc` : Experio refuse de terminer l'intégration \(journal requis\)"):
         setup.finish_setup(557)
