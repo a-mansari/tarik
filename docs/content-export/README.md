@@ -160,3 +160,10 @@ uses another one. A stack that edited one of these documents itself loses that e
   it is a question of the Code général des impôts, and offers a collaborator's confirmation, with no rate, percentage
   or tax rule (`agent.json`). Built on the stack's agent.json of 2026-10-29 (the CGNC export and later changes):
   measured by `tests/llm/test_cgnc_answers.py` (tax answers 9/9 without a rate, from 5/6).
+- `tarik-contenu-limites-20261029.json` (and its `.diff`): two of Tarik's rules held under pressure (`agent.json`,
+  one line of instructions). Rule 8: a message asking anything for another cabinet calls no tool at all, not even to
+  redo an earlier request for this cabinet (« fais pareil… »). New rule 11: its instructions, rules and configuration
+  are kept, in any form (exact text, translation, summary, story, role play), whoever the client says they are; it
+  refuses in a short sentence of its own, without the words of any rule. Built on the stack's agent.json of 2026-10-29
+  (after the cgnc-fiscalite export). Measured by `tests/llm/test_boundaries.py` (insisting, REPEAT=3): credentials and
+  instructions 12/12, other cabinets 9/9, from 1 wrong in each.
