@@ -411,9 +411,19 @@ def tested(file_id, name, label, arguments, context):
 
 def imported(file_id, name, label, arguments, context):
     """Run the import itself (execute_import, same ``arguments`` as tested) and return Experio's answer.
-    Raises Refused when it reports errors."""
-    with refused(f"import_entries {file_id}", f"{label} `{name}` : Experio a refusé l'import ({{reason}}).", Refused):
+    Raises Refused when it reports errors, refuses or fails."""
+    try:
         result = odoo_json("base_import.import", "execute_import", *arguments, False, context=context)
+    except Exception as failure:
+        log(f"import_entries {file_id}: {failure}")
+        if is_refusal(failure):
+            raise Refused(f"{label} `{name}` : Experio a refusé l'import ({experio_refusal(failure)}).") from None
+        # A timeout or a crash may come once Experio has saved the lines (one transaction, committed after the
+        # answer was given up): « réessayez » would have them imported twice.
+        raise Refused(
+            f"{label} `{name}` : échec technique pendant l'import, qui a pu aboutir quand même dans Experio. "
+            "Vérifiez les écritures du dossier dans Experio avant de renvoyer le fichier."
+        ) from None
     errors = errors_of(result)
     if errors:
         raise Refused(

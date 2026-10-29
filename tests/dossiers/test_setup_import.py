@@ -3,6 +3,7 @@ tested by Experio first, imported only when its test finds nothing, every refusa
 
 import xmlrpc.client
 
+import httpx
 import pytest
 
 from engine.tools.core.app import ToolError
@@ -185,6 +186,24 @@ def test_experio_failing_a_call_of_the_import_is_a_stop_with_its_reason(importin
     file_id = sent("fec.csv", FEC)
     answer = setup.import_entries(557, file_id)
     assert answer["status"] == "stop" and answer["message"] == said and kind_of(file_id) == "entries"
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("crash", [httpx.ReadTimeout("timed out"), xmlrpc.client.Fault(1, "Traceback\nKeyError: 'x'")])
+def test_a_crash_of_the_import_itself_says_to_check_experio_before_sending_again(importing, monkeypatch, crash):
+    real = setup.odoo_json
+
+    def crashing_import(model, method, *args, context=None):
+        if method == "execute_import" and not args[-1]:  # the test went through, the import itself fails
+            raise crash
+        return real(model, method, *args, context=context)
+
+    monkeypatch.setattr(setup, "odoo_json", crashing_import)
+    answer = setup.import_entries(557, sent("fec.csv", FEC))
+    assert answer["status"] == "stop" and answer["message"] == (
+        "FEC `fec.csv` : échec technique pendant l'import, qui a pu aboutir quand même dans Experio. "
+        "Vérifiez les écritures du dossier dans Experio avant de renvoyer le fichier."
+    )
 
 
 @pytest.mark.communication
