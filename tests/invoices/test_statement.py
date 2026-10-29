@@ -77,6 +77,9 @@ def experio(monkeypatch):
         declared=0,
         owner={},
         generic=[],
+        by_number=[],
+        by_amount=[],
+        accepts=True,
     )
     for line in state["lines"]:
         line.setdefault("partner_id", False)
@@ -116,6 +119,11 @@ def experio(monkeypatch):
                 allowed = state["picker"] if state["picker"] is not None else terms["id"]
                 return [i for i in terms["id"] if i in allowed]
             return [invoice for invoice in state["invoices"] if invoice["amount_residual"] in terms["amount_residual"]]
+        if model == "exp.move.line":  # the ledger: entries quoting a number, then supplier entries of an amount
+            quoting = any(term[0] == "name" for term in args[0] if isinstance(term, tuple))
+            return list(state["by_number"] if quoting else state["by_amount"])
+        if model == "exp.partner" and method == "search_count":  # the line's tiers picker accepts the supplier
+            return 1 if state["accepts"] else 0
         if model == "exp.partner" and method == "search":  # the dossier's « CLIENTS DIVERS »
             return list(state["generic"])
         if model == "exp.partner":
@@ -1085,3 +1093,43 @@ def test_a_card_remittance_is_a_sale_on_clients_divers_or_goes_to_suspense(exper
     pointed()  # the dossier's Vente Local (13131, account 3421) is the sale
     expected = {"operation_id": 13131, "partner_id": 31} if generic else {"operation_id": 13355}
     assert ([2], expected) in experio["written"]  # no CLIENTS DIVERS in the dossier: suspense, as before
+
+
+def cheque(experio, ref="PAIEMENT CHEQUE N 0373244"):
+    experio["lines"][1]["payment_ref"] = ref
+    return experio
+
+
+@pytest.mark.functionality
+def test_a_cheque_number_quoted_in_another_entry_names_the_supplier_and_the_cabinet_is_told(experio):
+    cheque(experio)["by_number"] = [{"partner_id": [9, "ATLAS"]}]
+    message = pointed()["message"]
+    assert ([2], {"partner_id": 9}) in experio["written"]
+    assert "leur tiers retrouvé dans le grand livre" in message and "à vérifier par le cabinet" in message
+
+
+@pytest.mark.functionality
+def test_an_unpaid_supplier_entry_of_the_exact_amount_names_the_supplier(experio):
+    cheque(experio)["by_amount"] = [{"partner_id": [9, "ATLAS"]}]
+    pointed()
+    assert ([2], {"partner_id": 9}) in experio["written"]
+
+
+@pytest.mark.functionality
+def test_the_number_decides_before_the_amount(experio):
+    cheque(experio)
+    experio["by_number"], experio["by_amount"] = [{"partner_id": [9, "ATLAS"]}], [{"partner_id": [10, "BETA"]}]
+    pointed()
+    assert ([2], {"partner_id": 9}) in experio["written"] and ([2], {"partner_id": 10}) not in experio["written"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("case", ["two suppliers", "refused by the picker", "nothing"])
+def test_the_ledger_gives_no_tiers_when_it_names_two_or_the_line_refuses_it(experio, case):
+    cheque(experio)
+    if case == "two suppliers":
+        experio["by_amount"] = [{"partner_id": [9, "ATLAS"]}, {"partner_id": [10, "BETA"]}]
+    if case == "refused by the picker":
+        experio["by_amount"], experio["accepts"] = [{"partner_id": [9, "ATLAS"]}], False
+    pointed()
+    assert not [w for w in experio["written"] if w[0] == [2] and "partner_id" in w[1]]
