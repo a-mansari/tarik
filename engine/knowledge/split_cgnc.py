@@ -5,10 +5,10 @@ Run once per new edition of the PDF, from a checkout (needs pdftotext, poppler-u
     python -m engine.knowledge.split_cgnc <cgnc.pdf>
 
 A piece is one part of the text between two of its own headings: a section (I -, A -) everywhere, one poste
-(612 Achats consommés...) in the plan of accounts (Titre III), one rubric or poste (61., 612.) in what each account
-holds (Titre IV), one term in the terminology. Each keeps its place (Titre › Chapitre/Classe › heading), its PDF
-pages and every account code it names. The text is only cleaned: runs of spaces (justified lines) made one, nothing
-reworded."""
+(612 Achats consommés...) in each plan of accounts (Titre III, modèle normal and simplifié), one rubric or poste
+(61., 612.) in what each account holds (Titre IV), one term in the terminology. Each keeps its place (Titre › plan ›
+Chapitre/Classe › heading), its PDF pages and every account code it names. The text is only cleaned: runs of spaces
+(justified lines) made one, the letter-spaced « T V A . » written TVA, nothing reworded."""
 
 import json
 import re
@@ -19,6 +19,7 @@ from pathlib import Path
 OUT = Path(__file__).resolve().parent / "cgnc"
 
 TOP = re.compile(r"^(PREMIERE PARTIE|TITRE [IVX]+\b.*)$")  # the Titres (the first part has none)
+PLAN = re.compile(r"^\s*[IVX]+ - Plan des comptes : Modèle (normal|simplifié)$")  # Titre III's two plans
 MIDDLE = re.compile(r"^\s*(Chapitre [IVX]+\b.*|CLASSE \d\b.*|Classe \d\b.*)$")
 SECTION = re.compile(
     r"^\s{0,8}([IVX]{1,4} ?[-–] .+"  # I - L'objectif d'information
@@ -30,8 +31,10 @@ SECTION = re.compile(
 POSTE = re.compile(r"^\s{0,8}\d{3}(?:/\d{3})? +[A-ZÉ][a-zéèêàôç’' ,\-]{3,}.*$")  # 612 Achats consommés (Titre III)
 TERM = re.compile(r"^- ([A-ZÉÈÀ][A-ZÉÈÀÔ’'(). ,/-]{2,})$")  # - ACTIF CIRCULANT (HORS TRESORERIE), in the terminology
 CODE = re.compile(r"(?<![\d,.])(\d{3,6})(?:/(\d{3}))?(?![\d,])")  # 6125, 613/614; not 1.000,00 nor 2 000
+HEADED = re.compile(r"^(\d{2,6})(?:/(\d{2,3}))?\b")  # the code a heading opens on: 61., 24/25., 612
 ACCOUNT = re.compile(r"^\s*(\d{2,6}(?:/\d{2,3})?)\.? +(\S.*?)\s*$")  # 6125 Achats non stockés..., in the plan
-SMALL, LARGE = 200, 5000  # a piece shorter (a bare heading) is joined to the next; longer, cut at blank lines
+SPACED_TVA = re.compile(r"\bT ?V ?A(?: \.)?(?=\W|$)")  # « T V A . », « T VA »: the PDF's letter-spaced TVA
+LARGE = 5000  # a piece longer is cut at blank lines
 
 
 def text_of(pdf):
@@ -41,38 +44,41 @@ def text_of(pdf):
 
 
 def cleaned(line):
-    """Return ``line`` with its runs of spaces made one, its indentation kept (it shows the plan's levels)."""
+    """Return ``line`` with its runs of spaces made one, its indentation kept (it shows the plan's levels), and the
+    letter-spaced « T V A . » written TVA (as everywhere else in the text, and as it is searched)."""
     stripped = line.lstrip()
-    return line[: len(line) - len(stripped)] + re.sub(r"\s{2,}", " ", stripped.rstrip())
+    return line[: len(line) - len(stripped)] + SPACED_TVA.sub("TVA", re.sub(r"\s{2,}", " ", stripped.rstrip()))
 
 
-def codes_in(text):
-    """Return every account code ``text`` names, in order, once each ("613/614" names 613 and 614).
+def text_in(lines):
+    return "\n".join(lines).strip("\n")
+
+
+def codes_in(title, body):
+    """Return every account code a piece names, in order, once each: the one its ``title`` opens on first, then the
+    ones its lines open on (a rubric's two digits too: 61.), then all those of its ``body`` ("613/614" names 613 and
+    614).
 
     A year (1992) or an amount is taken too when it looks like one; codes are only used to find pieces, and a
     code the plan lacks finds nothing."""
-    found = []
-    for code, other in CODE.findall(text):
-        for one in (code, other):
-            if one and one[0] != "0" and one not in found:
-                found.append(one)
-    return found
+    pairs = HEADED.findall(title) + [pair for line in body.split("\n") for pair in HEADED.findall(line.strip())]
+    pairs += CODE.findall(body)
+    return list(dict.fromkeys(one for pair in pairs for one in pair if one and one[0] != "0"))
 
 
 def split(pages):
-    """Return the pieces: [{id, place, title, page_start, page_end, codes, body}] in the CGNC's order."""
-    pieces, top, middle, terms, unfinished = [], "", "", False, False
+    """Return the pieces: [{id, place, page_start, page_end, codes, body}] in the CGNC's order."""
+    pieces, top, plan, middle, terms, unfinished = [], "", "", "", False, False
     current = {"title": "", "place": "", "parent": "", "lines": [], "pages": []}
 
     def close():
-        body = "\n".join(current["lines"]).strip("\n")
-        if body.strip():
-            pieces.append({**current, "body": body})
+        if text_in(current["lines"]).strip():
+            pieces.append(current)
 
     def start(title):
         nonlocal current
         close()
-        parent = " › ".join(part for part in (top, middle) if part)
+        parent = " › ".join(part for part in (top, plan, middle) if part)
         place = " › ".join(part for part in (parent, title) if part)
         current = {"title": title, "place": place, "parent": parent, "lines": [], "pages": []}
 
@@ -84,7 +90,10 @@ def split(pages):
                 top, unfinished = f"{top} {heading}", False
                 current["place"] = current["parent"] = top
             elif TOP.match(heading):
-                top, middle, unfinished = heading, "", heading.endswith(" DES")
+                top, plan, middle, unfinished = heading, "", "", heading.endswith(" DES")
+                start("")
+            elif top.startswith("TITRE III") and PLAN.match(line):
+                plan, middle = heading, ""
                 start("")
             elif MIDDLE.match(line):
                 middle, terms = heading, heading.startswith("Chapitre V : Terminologie")
@@ -101,27 +110,42 @@ def split(pages):
     return numbered(cut(joined(pieces)))
 
 
+def bare(piece):
+    """True when ``piece`` is its heading alone: one line of text."""
+    return sum(1 for line in piece["lines"] if line.strip()) <= 1
+
+
+def depth(title):
+    """Return how many digits ``title`` opens on: 2 for "61. CHARGES", 3 for "612 Achats", 0 for "A - ..."."""
+    found = HEADED.match(title)
+    return len(found.group(1)) if found else 0
+
+
 def joined(pieces):
-    """Return ``pieces`` with each one shorter than SMALL (a bare heading) joined to the next of the same Titre and
-    Chapitre, under the next one's title when it has one: the heading stays above it in its body. Bare headings in a
-    row are a list (a Classe's rubrics: 61., 63., 65., 67.): what follows them keeps the first one's title."""
+    """Return ``pieces`` with each bare heading joined to the next piece of the same Titre and Chapitre, under that
+    piece's title, the heading above it in its body: 22. Immobilisations incorporelles goes with 223.
+
+    Bare headings in a row are a list (a Classe's rubrics: 61., 63., 65., 67.), and so is a piece after them that
+    opens on a heading as deep as theirs (67. and the Classe's text after it): they keep the list's first title. A
+    deeper heading after them (111 after 11., 12.) is a piece of its own, the list above it."""
     out = []
     for piece in pieces:
         before = out[-1] if out else None
-        if before and len(before["body"]) < SMALL and before["parent"] == piece["parent"]:
-            listing = before.get("listing") or len(piece["body"]) < SMALL
-            own = piece["title"] and not listing
-            out[-1] = {
-                **before,
-                "lines": before["lines"] + piece["lines"],
-                "pages": before["pages"] + piece["pages"],
-                "body": before["body"] + "\n" + piece["body"],
-                "title": piece["title"] if own else before["title"],
-                "place": piece["place"] if own else before["place"],
-                "listing": listing,
-            }
-        else:
+        if not (before and (bare(before) or before.get("listing")) and before["parent"] == piece["parent"]):
             out.append(piece)
+            continue
+        listing = bare(piece)
+        listed = before.get("listing") and depth(piece["title"]) == before["depth"]
+        own = piece["title"] and not listing and not listed
+        out[-1] = {
+            **before,
+            "lines": before["lines"] + piece["lines"],
+            "pages": before["pages"] + piece["pages"],
+            "title": piece["title"] if own else before["title"],
+            "place": piece["place"] if own else before["place"],
+            "listing": listing,
+            "depth": depth(piece["title"]),
+        }
     return out
 
 
@@ -130,7 +154,7 @@ def cut(pieces):
     titled "(suite)" after the first."""
     out = []
     for piece in pieces:
-        if len(piece["body"]) <= LARGE:
+        if len(text_in(piece["lines"])) <= LARGE:
             out.append(piece)
             continue
         part, size, first = {"lines": [], "pages": []}, 0, True
@@ -142,18 +166,12 @@ def cut(pieces):
             part["pages"].append(page)
             size += len(line) + 1
         out.append(part_of(piece, part, first))
-    return [piece for piece in out if piece["body"].strip()]
+    return out
 
 
 def part_of(piece, part, first):
     suite = "" if first else " (suite)"
-    return {
-        **piece,
-        **part,
-        "body": "\n".join(part["lines"]).strip("\n"),
-        "title": piece["title"] + suite,
-        "place": piece["place"] + suite,
-    }
+    return {**piece, **part, "title": piece["title"] + suite, "place": piece["place"] + suite}
 
 
 def numbered(pieces):
@@ -162,11 +180,10 @@ def numbered(pieces):
         {
             "id": number,
             "place": piece["place"],
-            "title": piece["title"],
             "page_start": min(piece["pages"]),
             "page_end": max(piece["pages"]),
-            "codes": codes_in(piece["title"] + "\n" + piece["body"]),
-            "body": piece["body"],
+            "codes": codes_in(piece["title"], text_in(piece["lines"])),
+            "body": text_in(piece["lines"]),
         }
         for number, piece in enumerate(pieces, 1)
     ]
@@ -175,20 +192,24 @@ def numbered(pieces):
 def accounts(pages):
     """Return the chart of accounts of the modèle normal (Titre III, « I - Plan des comptes : Modèle normal »):
     [{code, label, parent}], parent the longest shorter code above it (none for a rubric, 2 digits). "613/614"
-    gives 613 and 614. A code listed twice keeps its first label."""
+    gives 613 and 614. A code listed twice keeps its first label. A label the PDF wraps goes on in the next line,
+    one without a code (6192 Dotations ... des immobilisations / incorporelles)."""
     lines = [cleaned(line) for page in pages for line in page]
-    begin = next(i for i, line in enumerate(lines) if "Plan des comptes : Modèle normal" in line)
-    end = next(i for i, line in enumerate(lines) if "Plan des comptes : Modèle simplifié" in line)
-    found = {}
-    for line in lines[begin:end]:
+    begin = next(i for i, line in enumerate(lines) if PLAN.match(line) and line.strip().endswith("normal"))
+    end = next(i for i, line in enumerate(lines) if PLAN.match(line) and line.strip().endswith("simplifié"))
+    found, last = {}, []
+    for line in lines[begin + 1 : end]:
         match = ACCOUNT.match(line)
-        if not match or MIDDLE.match(line):
-            continue
-        written, label = match.groups()
-        for code in written.split("/"):
-            label_seen = label.rstrip(" .")
-            if label_seen and code not in found:
-                found[code] = label_seen
+        if not line.strip() or MIDDLE.match(line):
+            last = []
+        elif not match:
+            for code in last:  # the label above goes on
+                found[code] = f"{found[code]} {line.strip().rstrip(' .')}"
+        else:
+            written, label = match.groups()
+            label = label.rstrip(" .")
+            last = [code for code in written.split("/") if label and code not in found]
+            found.update(dict.fromkeys(last, label))
     rows = []
     for code, label in found.items():
         parent = next((code[:n] for n in range(len(code) - 1, 1, -1) if code[:n] in found), None)

@@ -1,8 +1,8 @@
 """The CGNC (Code Général de Normalisation Comptable) as Tarik looks it up: its pieces and its chart of accounts,
-split from the PDF by split_cgnc.py into engine/knowledge/cgnc/, loaded into Postgres (schema orchestrator,
-engine/sql/knowledge.sql) at each start when those files changed, searched by account code and by words.
+split from the PDF by split_cgnc.py into engine/knowledge/cgnc/, loaded into Postgres (schema knowledge,
+engine/sql/knowledge.sql) at each start when they changed, searched by account code and by words.
 
-The same for every cabinet: a public text, read only, never a cabinet's data."""
+The same for every cabinet: a public text, never a cabinet's data."""
 
 import hashlib
 import json
@@ -15,6 +15,7 @@ from engine.tools.core.words import normalized
 
 DATA = Path(__file__).resolve().parent / "cgnc"
 FILES = ("pieces.jsonl", "accounts.jsonl")
+LIMIT = 10  # the pieces told at most in one search
 LINKED = 20  # the other accounts told at most, the first the pieces name
 
 
@@ -24,16 +25,21 @@ def rows(name):
 
 
 def digest():
-    """Return the sha256 of DATA's files, together: what was loaded, in knowledge_sources."""
-    return hashlib.sha256(b"".join((DATA / name).read_bytes() for name in FILES)).hexdigest()
+    """Return the sha256 of DATA's files and of the statements that load them, together: the version loaded, kept
+    in knowledge.sources (a change to how the rows are made reloads them too)."""
+    loading = (Q.knowledge_schema, Q.cgnc_piece_saved, Q.cgnc_account_saved)
+    return hashlib.sha256(
+        b"".join((DATA / name).read_bytes() for name in FILES) + "".join(loading).encode()
+    ).hexdigest()
 
 
 def load(conninfo):
-    """Make the knowledge tables if missing and load the CGNC into them when its files changed since the last load:
-    all of it replaced at once, in one transaction (a search meanwhile sees the old version, never half of it)."""
+    """Make the knowledge tables if missing and load the CGNC into them when its version changed since the last
+    load: all of it replaced at once, in one transaction (a search meanwhile reads the old version, never half of
+    it). Returns True when it loaded."""
     with psycopg.connect(conninfo) as db:  # one transaction, committed on leaving
-        db.execute(Q.knowledge_schema)
         db.execute(Q.knowledge_lock)
+        db.execute(Q.knowledge_schema)
         current = digest()
         if (found := db.execute(Q.knowledge_digest, ("cgnc",)).fetchone()) and found[0] == current:
             return False
@@ -54,9 +60,9 @@ def load(conninfo):
 def search(db, code="", words="", limit=5):
     """Return what the CGNC says about account ``code`` and/or ``words``, from connection ``db``:
     {account: [{code, label}] (the code asked and the accounts it is part of, the rubric first), pieces: [{place,
-    pages, body}] (at most ``limit``, the most to the point first; any of the words counts, more of them close together
-    rank higher), linked: [{code, label}] (the accounts of other
-    rubrics those pieces name: an entry's other side, 3491 for 6125)}.
+    pages, body}] (at most ``limit``, LIMIT at most, the most to the point first: holding all the words, then
+    naming the code, then the closest), linked: [{code, label}] (the accounts of other rubrics those pieces name, the
+    first named first: an entry's other side, 3491 for 6125)}.
 
     A code the plan lacks (a dossier's own sub-account, 61251001) is looked up by the accounts it starts with."""
     code = "".join(character for character in str(code) if character.isdigit())
@@ -65,19 +71,21 @@ def search(db, code="", words="", limit=5):
     asked = normalized(words).split()
     found = db.execute(
         Q.cgnc_found,
-        {"codes": within, "any_words": " or ".join(asked), "all_words": " ".join(asked), "limit": limit},
+        {
+            "codes": within,
+            "any_words": " or ".join(asked),
+            "all_words": " ".join(asked),
+            "limit": max(1, min(int(limit or LIMIT), LIMIT)),
+        },
     ).fetchall()
-    account = db.execute(Q.cgnc_accounts_named, (within,)).fetchall()
-    named = []
-    for *_, codes, _ in found:
-        # another rubric's: an entry's other side, not the account's own neighbours in the plan
-        named += [one for one in codes if not one.startswith(rubric) and one not in named]
-    linked = db.execute(Q.cgnc_accounts_named, (named[:LINKED],)).fetchall()
+    # another rubric's: an entry's other side, not the account's own neighbours in the plan
+    named = list(dict.fromkeys(one for *_, codes, _ in found for one in codes if not one.startswith(rubric)))
+    labels = dict(db.execute(Q.cgnc_accounts_named, (within + named,)).fetchall())
     return {
-        "account": [{"code": one, "label": label} for one, label in account],
+        "account": [{"code": one, "label": labels[one]} for one in reversed(within) if one in labels],
         "pieces": [
             {"place": place, "pages": f"{start}" if start == end else f"{start}-{end}", "body": body}
-            for _, place, start, end, _, body in found
+            for place, start, end, _, body in found
         ],
-        "linked": [{"code": one, "label": label} for one, label in linked],
+        "linked": [{"code": one, "label": labels[one]} for one in named if one in labels][:LINKED],
     }

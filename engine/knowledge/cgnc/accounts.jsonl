@@ -1,9 +1,9 @@
-{"code": "11", "label": "CAPITAUX PROPRES", "parent": null}
+{"code": "11", "label": "CAPITAUX PROPRES 12", "parent": null}
 {"code": "13", "label": "CAPITAUX PROPRES ASSIMILES", "parent": null}
 {"code": "14", "label": "DETTES DE FINANCEMENT", "parent": null}
 {"code": "15", "label": "PROVISIONS DURABLES POUR RISQUES ET CHARGES", "parent": null}
 {"code": "16", "label": "COMPTES DE LIAISON DES ETABLISSEMENTS ET SUCCURSALES", "parent": null}
-{"code": "17", "label": "ECARTS DE CONVERSION – PASSIF", "parent": null}
+{"code": "17", "label": "ECARTS DE CONVERSION – PASSIF 18", "parent": null}
 {"code": "111", "label": "Capital social ou personnel", "parent": "11"}
 {"code": "1111", "label": "Capital social", "parent": "111"}
 {"code": "1112", "label": "Fonds de dotation", "parent": "111"}
@@ -152,16 +152,16 @@
 {"code": "2351", "label": "Mobilier de bureau", "parent": "235"}
 {"code": "2352", "label": "Matériel de bureau", "parent": "235"}
 {"code": "2355", "label": "Matériel informatique", "parent": "235"}
-{"code": "2356", "label": "Agencements, installations et aménagements divers (biens n'appartenant pas", "parent": "235"}
+{"code": "2356", "label": "Agencements, installations et aménagements divers (biens n'appartenant pas à l'entreprise)", "parent": "235"}
 {"code": "2358", "label": "Autres mobilier, matériel de bureau et aménagements divers", "parent": "235"}
 {"code": "237", "label": "Immobilisations corporelles diverses", "parent": "23"}
 {"code": "238", "label": "Autres immobilisations corporelles", "parent": "23"}
 {"code": "2380", "label": "Autres immobilisations corporelles", "parent": "238"}
 {"code": "239", "label": "Immobilisations corporelles en cours", "parent": "23"}
 {"code": "2392", "label": "Immobilisations corporelles en cours des terrains et constructions", "parent": "239"}
-{"code": "2393", "label": "Immobilisations corporelles en cours des installations techniques, matériel et", "parent": "239"}
+{"code": "2393", "label": "Immobilisations corporelles en cours des installations techniques, matériel et outillage", "parent": "239"}
 {"code": "2394", "label": "Immobilisations corporelles en cours de matériel de transport", "parent": "239"}
-{"code": "2395", "label": "Immobilisations corporelles en cours de mobilier, matériel de bureau et", "parent": "239"}
+{"code": "2395", "label": "Immobilisations corporelles en cours de mobilier, matériel de bureau et aménagements divers", "parent": "239"}
 {"code": "2397", "label": "Avances et acomptes versés sur commandes d'immobilisations corporelles", "parent": "239"}
 {"code": "2398", "label": "Autres immobilisations corporelles en cours", "parent": "239"}
 {"code": "240", "label": "Immobilisations financières", "parent": "24"}
@@ -196,7 +196,7 @@
 {"code": "28111", "label": "Amortissements des frais de constitution", "parent": "2811"}
 {"code": "28112", "label": "Amortissements des frais préliminaires au démarrage", "parent": "2811"}
 {"code": "28113", "label": "Amortissements des frais d'augmentation du capital", "parent": "2811"}
-{"code": "28114", "label": "Amortissements des frais sur opérations de fusions, scissions et", "parent": "2811"}
+{"code": "28114", "label": "Amortissements des frais sur opérations de fusions, scissions et transformations", "parent": "2811"}
 {"code": "28116", "label": "Amortissements des frais de prospection", "parent": "2811"}
 {"code": "28117", "label": "Amortissements des frais de publicité", "parent": "2811"}
 {"code": "28118", "label": "Amortissements des autres frais préliminaires", "parent": "2811"}
@@ -209,7 +209,7 @@
 {"code": "2821", "label": "Amortissements de l'immobilisation en recherche et développement", "parent": "282"}
 {"code": "2822", "label": "Amortissements des brevets, marques, droits et valeurs similaires", "parent": "282"}
 {"code": "2823", "label": "Amortissement du fond commercial", "parent": "282"}
-{"code": "2827", "label": "Amortissements des immobilisations incorporelles diverses (valable pour le", "parent": "282"}
+{"code": "2827", "label": "Amortissements des immobilisations incorporelles diverses (valable pour le modèle simplifié seulement )", "parent": "282"}
 {"code": "2828", "label": "Amortissements des autres immobilisations incorporelles", "parent": "282"}
 {"code": "283", "label": "Amortissements des immobilisations corporelles", "parent": "28"}
 {"code": "2831", "label": "Amortissements des terrains", "parent": "283"}
@@ -223,20 +223,20 @@
 {"code": "28321", "label": "Amortissements des bâtiments", "parent": "2832"}
 {"code": "28323", "label": "Amortissements des constructions sur terrains d'autrui", "parent": "2832"}
 {"code": "28325", "label": "Amortissements des ouvrages d'infrastructure", "parent": "2832"}
-{"code": "28327", "label": "Amortissements des installations, agencements et aménagements des", "parent": "2832"}
+{"code": "28327", "label": "Amortissements des installations, agencements et aménagements des constructions", "parent": "2832"}
 {"code": "28328", "label": "Amortissements des autres constructions", "parent": "2832"}
 {"code": "2833", "label": "Amortissements des installations techniques, matériel et outillage", "parent": "283"}
 {"code": "28331", "label": "Amortissements des installations techniques", "parent": "2833"}
 {"code": "28332", "label": "Amortissements du matériel et outillage", "parent": "2833"}
 {"code": "28333", "label": "Amortissements des emballage récupérables identifiables", "parent": "2833"}
-{"code": "28338", "label": "Amortissements des autres installations techniques, matériel et", "parent": "2833"}
+{"code": "28338", "label": "Amortissements des autres installations techniques, matériel et outillage", "parent": "2833"}
 {"code": "2834", "label": "Amortissements du matériel de transport", "parent": "283"}
 {"code": "2835", "label": "Amortissements du mobilier, matériel de bureau et aménagements divers", "parent": "283"}
 {"code": "28351", "label": "Amortissements du mobilier de bureau", "parent": "2835"}
 {"code": "28352", "label": "Amortissements du matériel de bureau", "parent": "2835"}
 {"code": "28355", "label": "Amortissements du matériel informatique", "parent": "2835"}
-{"code": "28356", "label": "Amortissements des agencements, installations et aménagements", "parent": "2835"}
-{"code": "28358", "label": "Amortissements des autres mobilier, matériel de bureau et", "parent": "2835"}
+{"code": "28356", "label": "Amortissements des agencements, installations et aménagements divers", "parent": "2835"}
+{"code": "28358", "label": "Amortissements des autres mobilier, matériel de bureau et aménagements divers", "parent": "2835"}
 {"code": "2837", "label": "Amortissements des immobilisations corporelles diverses", "parent": "283"}
 {"code": "2838", "label": "Amortissements des autres immobilisations corporelles", "parent": "283"}
 {"code": "292", "label": "Provisions pour dépréciation des immobilisations incorporelles", "parent": "29"}
@@ -245,7 +245,7 @@
 {"code": "2930", "label": "Provisions pour dépréciation des immobilisations corporelles", "parent": "293"}
 {"code": "294", "label": "Provisions pour dépréciation des immobilisations financières", "parent": "29"}
 {"code": "295", "label": "Provisions pour dépréciation des immobilisations financières", "parent": "29"}
-{"code": "2940", "label": "Provisions pour dépréciation des immobilisations financières (valable pour le", "parent": "294"}
+{"code": "2940", "label": "Provisions pour dépréciation des immobilisations financières (valable pour le modèle simplifié seulement)", "parent": "294"}
 {"code": "2941", "label": "Provisions pour dépréciation des prêts immobilisés", "parent": "294"}
 {"code": "2948", "label": "Provisions pour dépréciation des autres créances financières", "parent": "294"}
 {"code": "2951", "label": "Provisions pour dépréciation des titres de participation", "parent": "295"}
@@ -253,7 +253,7 @@
 {"code": "34", "label": "CREANCES DE L’ACTIF CIRCULANT", "parent": null}
 {"code": "35", "label": "TITRES ET VALEURS DE PLACEMENT", "parent": null}
 {"code": "37", "label": "ECARTS DE CONVERSION – ACTIF ( Eléments circulants)", "parent": null}
-{"code": "39", "label": "PROVISIONS POUR DEPRECIATION DES COMPTES DE L’ACTIF", "parent": null}
+{"code": "39", "label": "PROVISIONS POUR DEPRECIATION DES COMPTES DE L’ACTIF CIRCULANT (hors trésorerie)", "parent": null}
 {"code": "31", "label": "Stocks", "parent": null}
 {"code": "311", "label": "Marchandises", "parent": "31"}
 {"code": "3111", "label": "Marchandises (groupe A)", "parent": "311"}
@@ -328,10 +328,10 @@
 {"code": "34512", "label": "Subventions d'exploitation à recevoir", "parent": "3451"}
 {"code": "34513", "label": "Subventions d'équilibre à recevoir", "parent": "3451"}
 {"code": "3453", "label": "Acomptes sur impôts sur les résultats", "parent": "345"}
-{"code": "3455", "label": "Etat - T V A . récupérable", "parent": "345"}
-{"code": "34551", "label": "Etat - T V A . récupérable sur les immobilisations", "parent": "3455"}
-{"code": "34552", "label": "Etat - T V A . récupérable sur les charges", "parent": "3455"}
-{"code": "3456", "label": "Etat - Crédit de T V A . (suivant déclarations)", "parent": "345"}
+{"code": "3455", "label": "Etat - TVA récupérable", "parent": "345"}
+{"code": "34551", "label": "Etat - TVA récupérable sur les immobilisations", "parent": "3455"}
+{"code": "34552", "label": "Etat - TVA récupérable sur les charges", "parent": "3455"}
+{"code": "3456", "label": "Etat - Crédit de TVA (suivant déclarations)", "parent": "345"}
 {"code": "3458", "label": "Etat - Autres comptes débiteurs", "parent": "345"}
 {"code": "346", "label": "Comptes d'associés - débiteurs", "parent": "34"}
 {"code": "3461", "label": "Associés - comptes d'apport en société", "parent": "346"}
@@ -386,8 +386,8 @@
 {"code": "395", "label": "Provisions pour dépréciation des titres et valeurs de placement", "parent": "39"}
 {"code": "3950", "label": "Provisions pour dépréciation des titres et valeurs de placement", "parent": "395"}
 {"code": "44", "label": "DETTES DU PASSIF CIRCULANT", "parent": null}
-{"code": "45", "label": "AUTRES PROVISIONS POUR RISQUES ET CHARGES", "parent": null}
-{"code": "47", "label": "ECARTS DE CONVERSION – PASSIF ( Eléments circulants)", "parent": null}
+{"code": "45", "label": "AUTRES PROVISIONS POUR RISQUES ET CHARGES 46", "parent": null}
+{"code": "47", "label": "ECARTS DE CONVERSION – PASSIF ( Eléments circulants) 48 49", "parent": null}
 {"code": "441", "label": "Fournisseurs et comptes rattachés", "parent": "44"}
 {"code": "4411", "label": "Fournisseurs", "parent": "441"}
 {"code": "44111", "label": "Fournisseurs - catégorie A", "parent": "4411"}
@@ -419,8 +419,8 @@
 {"code": "44522", "label": "Etat, patente", "parent": "4452"}
 {"code": "44525", "label": "Etat, IGR", "parent": "4452"}
 {"code": "4453", "label": "Etat, impôts sur les résultats", "parent": "445"}
-{"code": "4455", "label": "Etat, T V A . facturée", "parent": "445"}
-{"code": "4456", "label": "Etat, T V A . due (suivant déclarations)", "parent": "445"}
+{"code": "4455", "label": "Etat, TVA facturée", "parent": "445"}
+{"code": "4456", "label": "Etat, TVA due (suivant déclarations)", "parent": "445"}
 {"code": "4457", "label": "Etat, impôts et taxes à payer", "parent": "445"}
 {"code": "4458", "label": "Etat - Autres comptes créditeurs", "parent": "445"}
 {"code": "446", "label": "Comptes d'associés - créditeurs", "parent": "44"}
@@ -534,13 +534,13 @@
 {"code": "61262", "label": "Achats des études", "parent": "6126"}
 {"code": "61263", "label": "Achats des prestations de service", "parent": "6126"}
 {"code": "6128", "label": "Achats de matières et de fournitures des exercices antérieurs", "parent": "612"}
-{"code": "6129", "label": "Rabais Remises et Ristournes obtenus sur achats consommés de matières et", "parent": "612"}
+{"code": "6129", "label": "Rabais Remises et Ristournes obtenus sur achats consommés de matières et fournitures", "parent": "612"}
 {"code": "61291", "label": "RRR obtenues sur achats de matières premières", "parent": "6129"}
 {"code": "61292", "label": "RRR obtenues sur achats de matières et fournitures consommables", "parent": "6129"}
 {"code": "61293", "label": "RRR obtenus sur achats des emballages", "parent": "6129"}
 {"code": "61295", "label": "RRR obtenus surs achats non stockés", "parent": "6129"}
 {"code": "61296", "label": "RRR obtenus sur achats de travaux, études et prestations de service", "parent": "6129"}
-{"code": "61298", "label": "RRR obtenus sur achats de matières et fournitures des exercices", "parent": "6129"}
+{"code": "61298", "label": "RRR obtenus sur achats de matières et fournitures des exercices antérieurs", "parent": "6129"}
 {"code": "613", "label": "Autres charges externes", "parent": "61"}
 {"code": "614", "label": "Autres charges externes", "parent": "61"}
 {"code": "6131", "label": "Locations et charges locatives", "parent": "613"}
@@ -654,10 +654,10 @@
 {"code": "6186", "label": "Transfert de profits sur opérations faites en commun", "parent": "618"}
 {"code": "6188", "label": "Autres charges d'exploitation des exercices antérieurs", "parent": "618"}
 {"code": "619", "label": "Dotations d'exploitation", "parent": "61"}
-{"code": "6191", "label": "Dotations d'exploitation aux amortissements de l'immobilisation en non-", "parent": "619"}
+{"code": "6191", "label": "Dotations d'exploitation aux amortissements de l'immobilisation en non- valeurs", "parent": "619"}
 {"code": "61911", "label": "D E A des frais préliminaires", "parent": "6191"}
 {"code": "61912", "label": "D E A des charges à répartir", "parent": "6191"}
-{"code": "6192", "label": "Dotations d'exploitation aux amortissements des immobilisations", "parent": "619"}
+{"code": "6192", "label": "Dotations d'exploitation aux amortissements des immobilisations incorporelles", "parent": "619"}
 {"code": "61921", "label": "D E A de l'immobilisation en recherche et développement", "parent": "6192"}
 {"code": "61922", "label": "D E A des brevets, marques, droits et valeurs similaires", "parent": "6192"}
 {"code": "61923", "label": "D E A du fonds commercial", "parent": "6192"}
@@ -669,7 +669,7 @@
 {"code": "61934", "label": "D E A du matériel de transport", "parent": "6193"}
 {"code": "61935", "label": "D E A des mobilier, matériel de bureau et aménagements divers", "parent": "6193"}
 {"code": "61938", "label": "D E A des autres immobilisations corporelles", "parent": "6193"}
-{"code": "6194", "label": "Dotations d'exploitation aux provisions pour dépréciation des", "parent": "619"}
+{"code": "6194", "label": "Dotations d'exploitation aux provisions pour dépréciation des immobilisations", "parent": "619"}
 {"code": "61942", "label": "D E P pour dépréciation des immobilisations incorporelles", "parent": "6194"}
 {"code": "61943", "label": "D E P pour dépréciation des immobilisations corporelles", "parent": "6194"}
 {"code": "6195", "label": "Dotations d'exploitation aux provisions pour risques et charges", "parent": "619"}
@@ -678,7 +678,7 @@
 {"code": "6196", "label": "Dotations d'exploitation aux provisions pour dépréciation de l'actif circulant", "parent": "619"}
 {"code": "61961", "label": "D E P . pour dépréciation des stocks", "parent": "6196"}
 {"code": "61964", "label": "D E P . pour dépréciation des créances de l'actif circulant", "parent": "6196"}
-{"code": "6197", "label": "D.E aux provisions pour risques et charges momentanés (modèle simplifié", "parent": "619"}
+{"code": "6197", "label": "D.E aux provisions pour risques et charges momentanés (modèle simplifié seulement)", "parent": "619"}
 {"code": "6198", "label": "Dotations d'exploitation des exercices antérieurs", "parent": "619"}
 {"code": "61981", "label": "D E aux amortissements des exercices antérieurs", "parent": "6198"}
 {"code": "61984", "label": "D E aux provisions des exercices antérieurs", "parent": "6198"}
@@ -788,7 +788,7 @@
 {"code": "71292", "label": "R R R accordés sur ventes à l'étranger des biens produits", "parent": "7129"}
 {"code": "71294", "label": "R R R accordés sur ventes au Maroc des services produits", "parent": "7129"}
 {"code": "71295", "label": "R R R accordés sur ventes à l'étranger des services produits", "parent": "7129"}
-{"code": "71298", "label": "R R R accordés sur ventes de biens et services produits des", "parent": "7129"}
+{"code": "71298", "label": "R R R accordés sur ventes de biens et services produits des exercices antérieurs", "parent": "7129"}
 {"code": "713", "label": "Variations des stocks de produits", "parent": "71"}
 {"code": "7131", "label": "Variations des stocks de produits en cours", "parent": "713"}
 {"code": "71311", "label": "Variation des stocks de biens produits en cours", "parent": "7131"}
@@ -839,7 +839,7 @@
 {"code": "732", "label": "Produits des titres de participation et des autres titres immobilisés", "parent": "73"}
 {"code": "7321", "label": "Revenus des titres de participation", "parent": "732"}
 {"code": "7325", "label": "Revenus des autres titres immobilisés", "parent": "732"}
-{"code": "7328", "label": "Produits des titres de participation et des autres titres immobilisés des", "parent": "732"}
+{"code": "7328", "label": "Produits des titres de participation et des autres titres immobilisés des exercices antérieurs", "parent": "732"}
 {"code": "733", "label": "Gains de change", "parent": "73"}
 {"code": "7331", "label": "Gains de change propres à l'exercice", "parent": "733"}
 {"code": "7338", "label": "Gains de change des exercices antérieurs", "parent": "733"}
@@ -886,7 +886,7 @@
 {"code": "75863", "label": "Lots", "parent": "7586"}
 {"code": "7588", "label": "Autres produits non courants des exercices antérieurs", "parent": "758"}
 {"code": "759", "label": "Reprises non courantes ; Transferts de charges", "parent": "75"}
-{"code": "7591", "label": "Reprises non courantes sur amortissements exceptionnels des", "parent": "759"}
+{"code": "7591", "label": "Reprises non courantes sur amortissements exceptionnels des immobilisations", "parent": "759"}
 {"code": "75911", "label": "R A E de l'immobilisation en non valeurs", "parent": "7591"}
 {"code": "75912", "label": "R A E des immobilisations incorporelles", "parent": "7591"}
 {"code": "75913", "label": "R A E des immobilisations corporelles", "parent": "7591"}
@@ -895,7 +895,7 @@
 {"code": "75942", "label": "Reprises sur plus-values en instance d'imposition", "parent": "7594"}
 {"code": "75944", "label": "Reprises sur provisions pour investissements", "parent": "7594"}
 {"code": "75945", "label": "Reprises sur provisions pour reconstitution de gisements", "parent": "7594"}
-{"code": "75946", "label": "Reprises sur provisions pour acquisition et construction de", "parent": "7594"}
+{"code": "75946", "label": "Reprises sur provisions pour acquisition et construction de logements", "parent": "7594"}
 {"code": "7595", "label": "Reprises non courantes sur provisions pour risques et charges", "parent": "759"}
 {"code": "75955", "label": "Reprises sur provisions pour risques et charges durables", "parent": "7595"}
 {"code": "75957", "label": "Reprises sur provisions pour risques et charges momentanés", "parent": "7595"}

@@ -137,12 +137,17 @@ Covers settings from Vault against a stand-in HTTP Vault: AppRole login, paths, 
 ## 2b. knowledge
 
 ### tests/knowledge/test_cgnc.py
-Covers the CGNC Tarik looks up (engine/knowledge/): its files, its load, its search, in the test database.
-- `test_the_files_are_whole` [technical]: pieces numbered in order, none empty; each account once, its parent in the plan.
+Covers the CGNC Tarik looks up (engine/knowledge/): its files, its load, its search, in the test database's schema
+`knowledge` (shared by runs at once, as on a stack: a run reloads its own version before asserting it).
+- `test_the_files_are_whole` [technical]: pieces numbered in order, none empty; each account once, its parent in the plan; no label cut where the PDF wraps it; TVA written whole.
 - `test_loaded_once_per_version` [technical]: a start with the same files loads nothing again.
 - `test_an_account_finds_its_rule_and_the_accounts_it_names` [functionality]: 6125 gives 61 › 612 › 6125, Titre IV's 612 rule, and 3491 among its linked accounts.
+- `test_a_rubric_finds_its_own_pieces` [functionality]: 61 finds Classe 6's pieces first.
+- `test_the_two_plans_are_told_apart` [functionality]: 2310 is found in the modèle normal and the modèle simplifié, each named.
 - `test_a_dossiers_own_sub_account_is_found_by_the_accounts_it_starts_with` [functionality]: 61251001 is found as 61251.
 - `test_words_find_their_piece_accents_aside` [functionality]: "charges constatees d'avance" finds the term, then its account 349.
+- `test_words_rank_the_pieces_of_a_code` [functionality]: with 6125, the words put the piece that holds them first.
+- `test_tva_is_found_however_the_pdf_spaced_it` [functionality]: "TVA récupérable" finds 345, written « T V A . » in the PDF.
 
 ## 3. isolation (all security or technical)
 
