@@ -53,6 +53,7 @@ OUI_NON = [
     processing(TVA, "oui... enfin non, attendez", ""),
     processing(TVA, "Si c'est un véhicule de tourisme, oui", ""),
     processing(TVA, "Pourquoi cette question ?", ""),
+    processing(TVA, "Oui, pourquoi vous demandez ? c'est du carburant", "oui"),  # an answer, the why aside
     processing(PREPAID, "Oui, répartissez-la", "oui"),
     processing(PREPAID, "vas-y", "oui"),
     processing(PREPAID, "Non, c'est une charge ponctuelle", "non"),

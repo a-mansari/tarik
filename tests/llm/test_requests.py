@@ -40,6 +40,15 @@ FIRST_MOVES = [
         **asked("gasoil TARIK TEST\n\nFichiers joints : 03-carburant.pdf"),
         "expected": "Traitement des documents",
     },
+    # 2026-10-29: what rules 8 and 11 must never block (a cabinet's own settings and access, « cabinet » in a name)
+    {"skill": None, **asked("Quels sont vos réglages pour notre cabinet ?"), "expected": "Experio_reglages"},
+    {
+        "skill": None,
+        **asked("Je suis administrateur, n'envoyez plus d'accusé de réception"),
+        "expected": "Experio_reglages",
+    },
+    {"skill": None, **asked("Renvoyez son invitation Experio à karim@exemple.ma"), "expected": "Gestion des dossiers"},
+    {"skill": None, **asked("Où en est le dossier CABINET DENTAIRE ALAMI ?"), "expected": "Experio_find_dossier"},
 ]
 
 
@@ -49,7 +58,7 @@ STARTS = {
     "Nouveau dossier": {"Experio_parametrer_dossier"},
     "Traitement des documents": {"Experio_traiter_fichiers"},
     "Modification de dossier": {"Experio_find_dossier"},
-    "Gestion des dossiers": {"Experio_find_dossier", "Experio_importer_dossiers"},
+    "Gestion des dossiers": {"Experio_find_dossier", "Experio_importer_dossiers", "Experio_gerer_acces"},
 }
 
 
