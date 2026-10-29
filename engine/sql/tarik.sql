@@ -95,6 +95,10 @@ select message from tarik_results where session_id = %s and status = 'question' 
 select distinct dossier_id from tarik_results where session_id = %s and
 step = 'create_dossier' and status = 'ok' and dossier_id is not null
 
+-- name: file_names_of_session
+-- The names of the files the conversation received (not the parts cut from them).
+select file_name from tarik_files where session_id = %s and parent_id is null
+
 -- name: sender_of_session
 -- === engine/tools/dossiers/people.py ===
 -- Who wrote, for an email conversation.
