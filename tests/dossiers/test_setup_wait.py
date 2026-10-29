@@ -53,7 +53,7 @@ def test_a_dossier_waits_when_the_run_has_no_time_left_for_experio(experio):
 def test_a_follow_up_finishes_it_whatever_the_time(experio):
     assert setup.finish_setup(557)["status"] == "ok"
     again = setup.finish_setup(557)
-    assert again["message"].endswith("Experio traite les ecritures des leur import.") and again.get("routine")
+    assert again["message"].endswith("Experio traite les écritures dès leur import.") and again.get("routine")
 
 
 @pytest.mark.functionality
@@ -122,7 +122,7 @@ def statused(monkeypatch, states, onboarding=False, stale=()):
 @pytest.mark.functionality
 def test_a_dossier_waits_until_experio_processed_its_lines(experio, monkeypatch):
     _, answer = statused(monkeypatch, {"done": 90, "pending": 10})
-    assert "10 ligne(s) encore en traitement" in answer["message"] and setup.waiting_setups("s")["dossiers"] == [557]
+    assert "10 lignes sont encore en traitement" in answer["message"] and setup.waiting_setups("s")["dossiers"] == [557]
     statused(monkeypatch, {"done": 100})
     assert setup.waiting_setups("s")["dossiers"] == []  # every line processed: the follow-up has said it all
 
@@ -131,7 +131,7 @@ def test_a_dossier_waits_until_experio_processed_its_lines(experio, monkeypatch)
 def test_lines_stuck_after_the_onboarding_are_sent_again(experio, monkeypatch):
     resent, answer = statused(monkeypatch, {"new": 3}, stale=[11, 12, 13])
     assert resent == [("action_resend", [11, 12, 13])]  # Experio's own « Re-send »
-    assert "3 ligne(s) bloquée(s) renvoyée(s)" in answer["message"]
+    assert "3 lignes bloquées ont été renvoyées" in answer["message"]
     resent, _ = statused(monkeypatch, {"new": 3}, onboarding=True, stale=[11])
     assert resent == []  # still onboarding: its lines wait on purpose
 
@@ -153,15 +153,15 @@ def test_the_same_entries_file_sent_again_is_not_imported_twice(experio, monkeyp
     )
     monkeypatch.setattr(setup, "odoo_json", lambda *a, **k: pytest.fail("imported a second time"))
     answer = setup.import_entries(557, second)
-    assert answer["status"] == "stop" and "deja importe" in answer["message"] and "`fec.csv`" in answer["message"]
+    assert answer["status"] == "stop" and "déjà importé" in answer["message"] and "`fec.csv`" in answer["message"]
 
 
 @pytest.mark.communication
 def test_what_experios_detection_created_is_said():
     before = {"exp.account": 10, "exp.journal": 2, "exp.partner": 0, "exp.fiscal.entries": 1}
     after = {"exp.account": 52, "exp.journal": 6, "exp.partner": 14, "exp.fiscal.entries": 1}
-    assert setup.created_note(before, after) == " Experio a cree : 42 compte(s), 4 journal(aux), 14 tiers."
-    assert setup.created_note(before, before) == " Experio n'a rien eu a creer."
+    assert setup.created_note(before, after) == " Experio a créé : 42 comptes, 4 journaux, 14 tiers."
+    assert setup.created_note(before, before) == " Experio n'a rien eu à créer."
 
 
 @pytest.fixture
@@ -210,7 +210,8 @@ def test_the_stepper_is_walked_to_its_end_with_the_dossiers_journals_and_prefixe
 def test_a_finished_setup_says_how_many_lines_went_to_experio(stepper):
     answer = setup.finish_setup(557)
     assert answer["message"] == (
-        "Dossier `Gecafisc` : integration terminee (40 ligne(s) d'ecritures transmises au traitement d'Experio)."
+        "Dossier `Gecafisc` : l'intégration est terminée.\n"
+        "- 40 lignes d'écritures sont transmises au traitement d'Experio."
     )
     assert stepper[-1][0] == "complete_onboarding"
 
@@ -218,17 +219,17 @@ def test_a_finished_setup_says_how_many_lines_went_to_experio(stepper):
 @pytest.mark.communication
 def test_experio_refusing_to_finish_the_onboarding_gives_its_reason(stepper, monkeypatch):
     monkeypatch.setattr(setup, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("journal requis")))
-    with pytest.raises(ToolError, match=r"`Gecafisc` : Experio refuse de terminer l'integration \(journal requis\)"):
+    with pytest.raises(ToolError, match=r"`Gecafisc` : Experio refuse de terminer l'intégration \(journal requis\)"):
         setup.finish_setup(557)
 
 
 @pytest.mark.security
 def test_in_test_mode_the_onboarding_is_only_said_finished(stepper, monkeypatch):
     monkeypatch.setattr(setup, "dry_run", lambda: True)
-    monkeypatch.setattr(setup, "exercice_note", lambda dossier_id, dossier: "un exercice 2026 serait ouvert")
+    monkeypatch.setattr(setup, "exercice_note", lambda dossier_id, dossier: "L'exercice 2026 serait ouvert.")
     answer = setup.finish_setup(557)
     assert answer["message"] == (
-        f"{TEST_MODE}Dossier `Gecafisc` : integration terminee (un exercice 2026 serait ouvert, stepper termine)."
+        f"{TEST_MODE}Dossier `Gecafisc` : l'intégration serait terminée.\n- L'exercice 2026 serait ouvert."
     )
     assert stepper == []
 
@@ -238,9 +239,11 @@ def test_the_current_exercice_is_opened_only_when_the_dossier_has_none(stepper, 
     year = date.today().year
     assert setup.exercice_note(557, "Gecafisc") is None and stepper == []
     monkeypatch.setattr(setup, "odoo_call", lambda model, method, domain: 0)
-    assert setup.exercice_note(557, "Gecafisc") == f"exercice {year} ouvert" and stepper == [("open_exercice", year)]
+    assert setup.exercice_note(557, "Gecafisc") == f"J'ai ouvert l'exercice {year}." and stepper == [
+        ("open_exercice", year)
+    ]
     monkeypatch.setattr(setup, "dry_run", lambda: True)
-    assert setup.exercice_note(557, "Gecafisc") == f"un exercice {year} serait ouvert" and len(stepper) == 1
+    assert setup.exercice_note(557, "Gecafisc") == f"L'exercice {year} serait ouvert." and len(stepper) == 1
 
 
 @pytest.mark.communication
@@ -297,12 +300,12 @@ def test_experios_error_reasons_are_merged_amounts_read_and_the_rest_counted():
         {"error_type": "Débits '846.0' et crédits '1705.5'", "error_type_count": 2},
     ]
     assert setup.error_reasons(reasons) == [
-        "7 lignes : comptes tiers introuvables",
-        "2 lignes : Débits 846,00 et crédits 1 705,50",
-        "1 ligne : sans motif",
+        "7 lignes : comptes tiers introuvables.",
+        "2 lignes : débits 846,00 et crédits 1 705,50.",
+        "1 ligne : sans motif.",
     ]
     many = [{"error_type": f"motif {n}", "error_type_count": 1} for n in range(setup.ERROR_LINES + 2)]
-    assert setup.error_reasons(many)[-1] == "2 autre(s) motif(s), 2 ligne(s)"
+    assert setup.error_reasons(many)[-1] == "2 lignes : 2 autres motifs."
 
 
 @pytest.mark.communication
@@ -319,9 +322,11 @@ def test_the_state_tells_the_lines_the_exercices_and_the_counts(monkeypatch):
     monkeypatch.setattr(setup, "processed", lambda dossier_id, context: None)
     monkeypatch.setattr(setup, "setup_facts", lambda dossier_id, context: facts)
     assert setup.setup_status(557)["message"] == (
-        "Dossier `Gecafisc` : écritures importées : 33 882 traitées, 594 à lettrer, 2 en erreur ; "
-        "exercices ouverts : `2025` (en cours) ; 4 comptes, 4 journaux, 4 taxes, 4 tiers dans le dossier ; "
-        "intégration pas encore terminée."
+        "Dossier `Gecafisc` : état du paramétrage.\n"
+        "- Écritures importées : 33 882 traitées, 594 à lettrer, 2 en erreur.\n"
+        "- Exercices ouverts : `2025` (en cours).\n"
+        "- Le dossier a 4 comptes, 4 journaux, 4 taxes et 4 tiers.\n"
+        "- L'intégration n'est pas encore terminée."
     )
 
 
@@ -343,10 +348,11 @@ def test_the_problems_tell_experios_errors_the_missing_settings_and_another_doss
     answer = setup.setup_problems(557)
     assert answer["status"] == "stop" and answer["message"] == (
         "Dossier `Gecafisc` :\n"
-        "  - 2 ligne(s) refusée(s) par Experio, à corriger dans votre fichier puis à renvoyer :\n"
-        "    - 2 lignes : Compte inconnu\n"
-        "  - à paramétrer avant de comptabiliser : journal de ventes\n"
-        "  - réglages sur les journaux d'un autre dossier (à créer ou importer) : journal d'achats"
+        "- 2 lignes ont été refusées par Experio : corrigez-les dans votre fichier puis renvoyez-le.\n"
+        "  - 2 lignes : compte inconnu.\n"
+        "- À paramétrer avant de comptabiliser : journal de ventes.\n"
+        "- Ces réglages utilisent le journal d'un autre dossier : journal d'achats. Créez ou importez leur journal "
+        "dans ce dossier."
     )
 
 
@@ -365,7 +371,9 @@ def test_nothing_to_fix_is_ok(monkeypatch):
     monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {})
     answer = setup.setup_problems(557)
     assert answer["status"] == "ok" and answer["tell"]  # told, though setup_problems' ok is otherwise quiet
-    assert answer["message"] == "Dossier `Gecafisc` : rien à corriger (fait par Tarik : compte `3421 Clients` créé)."
+    assert answer["message"] == (
+        "Dossier `Gecafisc` : rien à corriger.\n- Ce que j'ai fait :\n  - compte `3421 Clients` créé"
+    )
 
 
 UNSET = ["local_customer_account_id", "foreign_customer_account_id", "local_sale_journal_id", "foreign_sale_journal_id"]
@@ -409,7 +417,7 @@ def test_missing_posting_settings_are_filled_as_experio_does(monkeypatch):
     assert done == [
         "compte `34210000 Clients` créé",
         "journal `Ventes` créé",
-        "réglé(s) dans la configuration du dossier : compte clients, journal de ventes, compte clients étrangers, "
+        "configuration du dossier complétée : compte clients, journal de ventes, compte clients étrangers, "
         "journal de ventes étrangères",
     ]
     assert problems == [] and calls[0] == ("res.company", "auto_detect_settings")
@@ -429,8 +437,8 @@ def test_a_3421_account_experio_does_not_take_is_told(monkeypatch):
     done, problems, calls = filling(monkeypatch, in_chart=[{"code": "34210000"}])
     assert not [call for call in calls if call[1] == "create"]
     assert problems[0] == (
-        "le compte `34210000` n'est pas du type tiers clients qu'Experio demande pour le compte clients et le compte "
-        "clients étrangers : son type est à corriger dans le plan comptable"
+        "Le compte `34210000` n'est pas du type tiers clients qu'Experio demande pour le compte clients et le compte "
+        "clients étrangers : corrigez son type dans le plan comptable."
     )
 
 
@@ -438,7 +446,7 @@ def test_a_3421_account_experio_does_not_take_is_told(monkeypatch):
 def test_a_refused_write_keeps_what_was_done(monkeypatch):
     done, problems, _ = filling(monkeypatch, refused_journal=True)
     assert done[0] == "compte `34210000 Clients` créé"
-    assert problems == ["Experio a refusé le paramétrage de Tarik (ValidationError: code déjà pris)"]
+    assert problems == ["Experio a refusé mon paramétrage (ValidationError: code déjà pris)."]
 
 
 @pytest.mark.functionality

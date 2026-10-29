@@ -150,5 +150,4 @@ uses another one. A stack that edited one of these documents itself loses that e
   go: `agent.json` asks for clear, complete sentences instead of « phrases courtes », and an opening and a closing
   sentence around any tool report it copies; `skills/traitement-documents.md` and `skills/reponse-question.md` open
   every summary with a sentence saying what was done (not only past five invoices) and end with what comes next. Built
-  on the stack's content of 2026-10-29 before the cgnc export: import it with the readable-reports commit, and redo
-  its three changes by hand (the `.diff`) on a stack that has already imported the cgnc export.
+  on the comportement and cgnc exports: import it after them, with the readable-reports commit.
