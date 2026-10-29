@@ -1,6 +1,7 @@
 """A dossier whose onboarding waits on Experio (on the real Postgres, db_cabinet): finished in the run when its
 time allows, else left waiting for a follow-up; a refused import never leaves it waiting."""
 
+from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -65,13 +66,6 @@ def test_a_refused_import_never_leaves_the_dossier_waiting(experio, monkeypatch)
         ).fetchone()[0]
     assert setup.import_entries(557, broken)["status"] == "stop"
     assert setup.waiting_setups("s")["dossiers"] == []  # the client sends a corrected file first
-
-
-@pytest.mark.communication
-def test_a_setup_ends_telling_the_journals_still_to_create(experio, monkeypatch):
-    monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {"local_purchase_journal_id": "ACHAT"})
-    message = setup.finish_setup(557, seconds_left=90)["message"]
-    assert "journal d'achats sont ceux d'un autre dossier" in message
 
 
 @pytest.mark.functionality
@@ -331,13 +325,20 @@ def test_the_state_tells_the_lines_the_exercices_and_the_counts(monkeypatch):
     )
 
 
+def experio_answers(company, others, processing=0):
+    """An odoo_call answering the dossier's ``company`` to a read, ``processing`` lines still processed to a count,
+    ``others`` to the rest."""
+    return lambda model, method, *a, **k: {"read": [company], "search_count": processing}.get(method, others)
+
+
 @pytest.mark.communication
 def test_the_problems_tell_experios_errors_the_missing_settings_and_another_dossiers_journals(monkeypatch):
     company = {**dict.fromkeys(setup.POSTING_SETTINGS, [1, "x"]), "local_sale_journal_id": False}
     reasons = [{"error_type": "Compte inconnu", "error_type_count": 2}]
     monkeypatch.setattr(setup, "require_dossier", lambda dossier_id: "Gecafisc")
     monkeypatch.setattr(setup, "in_dossier", lambda dossier_id: {})
-    monkeypatch.setattr(setup, "odoo_call", lambda model, method, *a, **k: [company] if method == "read" else reasons)
+    monkeypatch.setattr(setup, "fill_posting_settings", lambda dossier_id, company, context: ([], [], company))
+    monkeypatch.setattr(setup, "odoo_call", experio_answers(company, reasons))
     monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {"local_purchase_journal_id": "ACH"})
     answer = setup.setup_problems(557)
     assert answer["status"] == "stop" and answer["message"] == (
@@ -354,9 +355,98 @@ def test_nothing_to_fix_is_ok(monkeypatch):
     company = dict.fromkeys(setup.POSTING_SETTINGS, [1, "x"])
     monkeypatch.setattr(setup, "require_dossier", lambda dossier_id: "Gecafisc")
     monkeypatch.setattr(setup, "in_dossier", lambda dossier_id: {})
-    monkeypatch.setattr(setup, "odoo_call", lambda model, method, *a, **k: [company] if method == "read" else [])
+    monkeypatch.setattr(
+        setup,
+        "fill_posting_settings",
+        lambda dossier_id, company, context: (["compte `3421 Clients` créé"], [], company),
+    )
+    monkeypatch.setattr(setup, "dry_run", lambda: False)
+    monkeypatch.setattr(setup, "odoo_call", experio_answers(company, []))
     monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {})
-    assert setup.setup_problems(557)["status"] == "ok"
+    answer = setup.setup_problems(557)
+    assert answer["status"] == "ok" and answer["tell"]  # told, though setup_problems' ok is otherwise quiet
+    assert answer["message"] == "Dossier `Gecafisc` : rien à corriger (fait par Tarik : compte `3421 Clients` créé)."
+
+
+UNSET = ["local_customer_account_id", "foreign_customer_account_id", "local_sale_journal_id", "foreign_sale_journal_id"]
+SET_NOW = dict.fromkeys(["local_customer_account_id", "foreign_customer_account_id"], [9, "34210000"])
+
+
+def filling(monkeypatch, *, test_mode=False, in_chart=(), refused_journal=False):
+    """A dossier without customer account nor sale journal, its supplier side set; ``in_chart``: the 3421 accounts
+    found. Returns the fill's (done, problems) and the Experio calls made."""
+    company = dict.fromkeys(setup.POSTING_SETTINGS, [1, "x"])
+    reads = iter([company | dict.fromkeys(UNSET, False), company | SET_NOW])  # after the detection, at the end
+    calls = []
+
+    def odoo_call(model, method, *args, **kwargs):
+        calls.append((model, method, *args))
+        return {"read": [next(reads)] if method == "read" else None, "search_read": list(in_chart)}.get(method)
+
+    def set_journal(dossier_id, kind):
+        if refused_journal:
+            raise RuntimeError("ValidationError: code déjà pris")
+        return f"{setup.TEST_MODE if test_mode else ''}journal `Ventes` {'serait créé' if test_mode else 'créé'}"
+
+    monkeypatch.setattr(setup, "dry_run", lambda: test_mode)
+    monkeypatch.setattr("engine.tools.core.experio.dry_run", lambda: test_mode)  # would()'s
+    monkeypatch.setattr(setup, "dossier_lock", lambda dossier_id: nullcontext())
+    monkeypatch.setattr(setup, "current", lambda: "cabinet")
+    monkeypatch.setattr(setup, "padded", lambda dossier_id, code: code.ljust(8, "0"))
+    monkeypatch.setattr(setup, "odoo_call", odoo_call)
+    monkeypatch.setattr(setup, "odoo_json", lambda model, method, *args, **kwargs: calls.append((model, method)))
+    monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: dict.fromkeys(UNSET[2:], False))
+    monkeypatch.setattr(setup, "set_journal", set_journal)
+    done, problems, _ = setup.fill_posting_settings(557, company | dict.fromkeys(UNSET, False), {})
+    return done, problems, calls
+
+
+@pytest.mark.functionality
+def test_missing_posting_settings_are_filled_as_experio_does(monkeypatch):
+    """No 3421 account and no sale journal: Tarik runs the detection, makes the CGNC customer account and the sale
+    journal, and tells the settings that changed; the supplier side, already set, is left alone."""
+    done, problems, calls = filling(monkeypatch)
+    assert done == [
+        "compte `34210000 Clients` créé",
+        "journal `Ventes` créé",
+        "réglé(s) dans la configuration du dossier : compte clients, journal de ventes, compte clients étrangers, "
+        "journal de ventes étrangères",
+    ]
+    assert problems == [] and calls[0] == ("res.company", "auto_detect_settings")
+    assert ("exp.account", "create", {"code": "34210000", "name": "Clients", "company_id": 557}) in calls
+    assert "Fournisseurs" not in str(calls)
+
+
+@pytest.mark.functionality
+def test_in_test_mode_the_fill_says_what_it_would_do_and_writes_nothing(monkeypatch):
+    done, problems, calls = filling(monkeypatch, test_mode=True)
+    assert done == ["compte `34210000 Clients` serait créé", "journal `Ventes` serait créé"] and problems == []
+    assert [call for call in calls if call[1] in ("create", "auto_detect_settings")] == []
+
+
+@pytest.mark.communication
+def test_a_3421_account_experio_does_not_take_is_told(monkeypatch):
+    done, problems, calls = filling(monkeypatch, in_chart=[{"code": "34210000"}])
+    assert not [call for call in calls if call[1] == "create"]
+    assert problems[0] == (
+        "le compte `34210000` n'est pas du type tiers clients qu'Experio demande pour le compte clients et le compte "
+        "clients étrangers : son type est à corriger dans le plan comptable"
+    )
+
+
+@pytest.mark.communication
+def test_a_refused_write_keeps_what_was_done(monkeypatch):
+    done, problems, _ = filling(monkeypatch, refused_journal=True)
+    assert done[0] == "compte `34210000 Clients` créé"
+    assert problems == ["Experio a refusé le paramétrage de Tarik (ValidationError: code déjà pris)"]
+
+
+@pytest.mark.functionality
+def test_a_dossier_already_set_calls_nothing(monkeypatch):
+    company = dict.fromkeys(setup.POSTING_SETTINGS, [1, "x"])
+    monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {})
+    monkeypatch.setattr(setup, "odoo_json", lambda *a, **k: pytest.fail("called"))
+    assert setup.fill_posting_settings(557, company, {}) == ([], [], company)
 
 
 @pytest.mark.communication
@@ -382,3 +472,15 @@ def test_stuck_lines_are_not_sent_again_in_test_mode_nor_when_none_is_stuck(monk
     stuck[0] = []
     monkeypatch.setattr(setup, "dry_run", lambda: False)
     assert setup.resend_stale(557, {}) == 0
+
+
+@pytest.mark.functionality
+def test_settings_are_left_to_lines_still_processed(monkeypatch):
+    """An import still processed may bring the dossier's own journals: nothing is made, nothing asked of the client."""
+    company = {**dict.fromkeys(setup.POSTING_SETTINGS, [1, "x"]), "local_sale_journal_id": False}
+    monkeypatch.setattr(setup, "require_dossier", lambda dossier_id: "Gecafisc")
+    monkeypatch.setattr(setup, "in_dossier", lambda dossier_id: {})
+    monkeypatch.setattr(setup, "fill_posting_settings", lambda *a: pytest.fail("filled"))
+    monkeypatch.setattr(setup, "odoo_call", experio_answers(company, [], processing=3))
+    monkeypatch.setattr(setup, "misplaced_journals", lambda dossier_id, fields: {})
+    assert setup.setup_problems(557)["message"] == "Dossier `Gecafisc` : rien à corriger."
