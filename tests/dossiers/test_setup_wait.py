@@ -73,6 +73,14 @@ def test_a_follow_up_finishes_it_whatever_the_time(experio):
 
 
 @pytest.mark.functionality
+def test_a_refused_onboarding_never_leaves_the_dossier_waiting(experio, monkeypatch):
+    monkeypatch.setattr(setup, "complete_stepper", lambda company, context: 1 / 0)
+    with pytest.raises(ToolError, match="Experio refuse de terminer l'intégration"):
+        setup.finish_setup(557)
+    assert setup.waiting_setups("s")["dossiers"] == []  # no follow-up re-sending the refusal every tick
+
+
+@pytest.mark.functionality
 def test_a_refused_import_never_leaves_the_dossier_waiting(experio, monkeypatch):
     monkeypatch.setattr(setup, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("Experio refuse")))
     with cabinet_db() as db:
@@ -138,7 +146,11 @@ def statused(monkeypatch, states, onboarding=False, stale=()):
 @pytest.mark.functionality
 def test_a_dossier_waits_until_experio_processed_its_lines(experio, monkeypatch):
     _, answer = statused(monkeypatch, {"done": 90, "pending": 10})
-    assert "10 lignes sont encore en traitement" in answer["message"] and setup.waiting_setups("s")["dossiers"] == [557]
+    assert (
+        "10 lignes sont encore en traitement chez Experio : demandez-moi l'état du dossier plus tard."
+        in answer["message"]
+    )
+    assert setup.waiting_setups("s")["dossiers"] == [557]
     statused(monkeypatch, {"done": 100})
     assert setup.waiting_setups("s")["dossiers"] == []  # every line processed: the follow-up has said it all
 
@@ -233,7 +245,7 @@ def test_a_finished_setup_says_how_many_lines_went_to_experio(stepper):
 
 
 @pytest.mark.communication
-def test_experio_refusing_to_finish_the_onboarding_gives_its_reason(stepper, monkeypatch):
+def test_experio_refusing_to_finish_the_onboarding_gives_its_reason(db_cabinet, stepper, monkeypatch):
     monkeypatch.setattr(setup, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("journal requis")))
     with pytest.raises(ToolError, match=r"`Gecafisc` : Experio refuse de terminer l'intégration \(journal requis\)"):
         setup.finish_setup(557)

@@ -764,10 +764,13 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
             "et vous donnerai l'état du dossier dans quelques minutes."
         )
     time.sleep(pause)
-    with refused(
-        f"finish_setup {dossier_id}", f"Dossier `{dossier}` : Experio refuse de terminer l'intégration ({{reason}})."
-    ):
-        complete_stepper(company, context)
+    refusal = f"Dossier `{dossier}` : Experio refuse de terminer l'intégration ({{reason}})."
+    try:
+        with refused(f"finish_setup {dossier_id}", refusal):
+            complete_stepper(company, context)
+    except ToolError:
+        setup_waits(dossier_id)  # the client acts on the refusal: no follow-up sends it again every tick
+        raise
     waiting = entries_count(dossier_id, context)
     notes.append(
         counted(
@@ -942,11 +945,14 @@ def setup_status(dossier_id: int) -> dict:
     if onboarding:
         parts.append("L'intégration n'est pas encore terminée.")
     elif still:
+        # No result promised: the follow-up ends after FOLLOW_UP_MINUTES, and Experio processes the lines with no
+        # time bound, a stuck one re-sent only by « Re-send » (exp_account experio_history.py action_resend), as
+        # resend_stale does at a later status, past STALE_MINUTES
         parts.append(
             counted(
                 still,
-                "{} ligne est encore en traitement chez Experio : son résultat suivra.",
-                "{} lignes sont encore en traitement chez Experio : leur résultat suivra.",
+                "{} ligne est encore en traitement chez Experio : demandez-moi l'état du dossier plus tard.",
+                "{} lignes sont encore en traitement chez Experio : demandez-moi l'état du dossier plus tard.",
             )
         )
     return ok(f"Dossier `{dossier}` : état du paramétrage." + "".join(f"\n- {part}" for part in parts))
