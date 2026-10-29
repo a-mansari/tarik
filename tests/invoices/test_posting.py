@@ -12,12 +12,13 @@ from engine.tools.invoices import posting
 def experio(monkeypatch):
     """A fake Experio: what its check says blocks the invoice, the state after action_post, every call made."""
     state = {"blocking": [], "after": "post", "state": "draft", "calls": [], "lines": []}
-    invoice = {"company_id": [5, "D"], "exercice_id": False}
+    invoice = {"company_id": [5, "D"], "exercice_id": False, "partner_id": [9, "T"], "type": "purchase"}
     monkeypatch.setattr(
         posting, "require_invoice", lambda i, f: {**invoice, "state": state["state"], "line_ids": state["lines"]}
     )
     monkeypatch.setattr(posting, "dry_run", lambda: False)
     monkeypatch.setattr(posting, "missing_compte_tiers", lambda invoice: None)
+    monkeypatch.setattr(posting, "side_of", lambda invoice: "purchase")
     monkeypatch.setattr(posting, "auto_merge", lambda invoice: None)
     monkeypatch.setattr(posting, "disbursements_first", lambda invoice: None)
     monkeypatch.setattr(posting, "assets_without_category", lambda invoice_id, context: state.get("assets", []))
@@ -90,11 +91,34 @@ def test_an_invoice_whose_tiers_has_no_compte_tiers_is_not_posted(experio, monke
     purchase["type"] = "purchase"
     monkeypatch.setattr(posting, "require_invoice", lambda i, f: purchase)
     monkeypatch.setattr(posting, "refresh", lambda invoice_id, context: posted.append("refresh"))
+    tried = []
+    monkeypatch.setattr(posting, "side_of", lambda invoice: "purchase")
+    monkeypatch.setattr(posting, "invoice_context", lambda invoice: {})
+    monkeypatch.setattr(posting, "ensure_tiers_account", lambda *args: tried.append(args) or "pas de Compte Tiers")
     result = posting.post_invoice(3)
     assert result["status"] == "stop" and "Compte Tiers fournisseur" in result["message"] and posted == []
+    assert tried and tried[0][1:3] == (9, "purchase")  # the dossier's series was tried first
     assert posting.missing_compte_tiers({**purchase, "type": "sale"}) is None  # its customer account is there
     company["ignore_third_party_account"] = True  # the dossier does without them
     assert posting.missing_compte_tiers(purchase) is None
+
+
+@pytest.mark.functionality
+def test_a_tiers_given_its_account_at_posting_lets_the_invoice_post_and_the_client_is_told(experio, monkeypatch):
+    """Linked before its dossier had a series (a FEC loaded after): the series gives it at posting."""
+    accounts = [None, "441125727"]  # missing_compte_tiers is asked before and after
+
+    monkeypatch.setattr(
+        posting, "missing_compte_tiers", lambda invoice: "fournisseur" if accounts.pop(0) is None else None
+    )
+    monkeypatch.setattr(
+        posting, "ensure_tiers_account", lambda *a: "compte tiers `441125727` attribué par Tarik, dans la suite"
+    )
+    result = posting.post_invoice(3)
+    assert (
+        result["status"] == "ok"
+        and "comptabilisée. Son compte tiers `441125727` attribué par Tarik" in result["message"]
+    )
 
 
 @pytest.mark.functionality

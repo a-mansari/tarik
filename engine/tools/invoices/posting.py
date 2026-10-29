@@ -22,8 +22,10 @@ from engine.tools.core.experio import (
     refused,
     require_invoice,
 )
+from engine.tools.invoices.classify import side_of
 from engine.tools.invoices.configuration import assets_text, assets_without_category
 from engine.tools.invoices.exercice import with_fiscal_year
+from engine.tools.invoices.tiers import ensure_tiers_account
 
 RETRIES, PAUSE = 3, 1.0  # the check can lag right after a refresh
 ACCOUNT = {
@@ -142,7 +144,15 @@ def post_invoice(invoice_id: int) -> dict:
     first = disbursements_first(invoice)
     if first:
         return first
-    role = missing_compte_tiers(invoice)
+    role, told = missing_compte_tiers(invoice), ""
+    if role:  # linked before its dossier had a series (a FEC loaded after): the dossier's series gives it now
+        partner, kind, context = invoice["partner_id"][0], side_of(invoice), invoice_context(invoice)
+        with refused(
+            f"post_invoice {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu attribuer le compte tiers."
+        ):
+            phrase = ensure_tiers_account(invoice_id, partner, kind, context)
+        role = missing_compte_tiers(invoice)
+        told = f" Son {phrase}." if not role else ""
     if role:
         return stop(
             f"Facture {invoice_id} : pas comptabilisée, son tiers n'a pas de Compte Tiers {role} : le cabinet doit "
@@ -174,7 +184,7 @@ def post_invoice(invoice_id: int) -> dict:
         log(f"post_invoice {invoice_id}: {error}")
         return stop(f"Facture {invoice_id} : Experio a refusé la comptabilisation : {experio_refusal(error)}")
     if after["state"] in POSTED:
-        return ok(f"Facture {invoice_id} : comptabilisée.")
+        return ok(f"Facture {invoice_id} : comptabilisée.{told}")
     # A window instead of the posting (a closed earlier exercice, a move's confirmation): over RPC nobody answers.
     if isinstance(action, dict) and action.get("res_model"):
         log(f"post_invoice {invoice_id}: action_post opened {action.get('res_model')}")

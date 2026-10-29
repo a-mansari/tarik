@@ -215,6 +215,17 @@ def created_here(session_id, name):
     return None
 
 
+def drawn_from_a_file(session_id, name, words):
+    """True when ``name`` is no name the client wrote (not in their ``words``) but words of a file they sent: a FEC
+    named « FEC ANFA RETAIL.xlsx » makes the agent create « ANFA RETAIL » when the client only said « charge ce
+    FEC »."""
+    if said(normalized(name), normalized(words)):
+        return False
+    with cabinet_db() as db:
+        files = [file_name for (file_name,) in db.execute(Q.file_names_of_session, (session_id,))]
+    return any(said(normalized(name), normalized(file_name.rsplit(".", 1)[0])) for file_name in files)
+
+
 def duplicate(session_id, client_confirmed, name, ice, if_number):
     """Return a stop result when another dossier has this ICE or IF; a question result while a dossier has a very
     similar name and the client has not confirmed creating it anyway; None when the dossier may be created."""
@@ -284,6 +295,18 @@ def create_dossier(
             dossier_id=reused["id"],
             reused=True,
         )
+    if drawn_from_a_file(session_id, name, words):  # a file's name is not a dossier's: this conversation's, or ask
+        with cabinet_db() as db:
+            made = [dossier_id for (dossier_id,) in db.execute(Q.dossiers_created_in_session, (session_id,))]
+        if len(made) == 1:
+            dossier = odoo_call("res.company", "read", made, fields=["name"])[0]
+            return ok(
+                f"`{name}` est le nom d'un fichier, pas d'un dossier : le dossier `{dossier['name']}`, créé dans cette "
+                "conversation, est repris.",
+                dossier_id=dossier["id"],
+                reused=True,
+            )
+        return question(f"`{name}` est le nom d'un fichier reçu. Quel est le nom du dossier à créer ?")
     refusal = duplicate(session_id, client_confirmed, name, ice, if_number)
     if refusal:
         return refusal
