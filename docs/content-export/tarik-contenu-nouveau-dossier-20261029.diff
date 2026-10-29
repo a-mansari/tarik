@@ -1,6 +1,6 @@
 --- a/skills/nouveau-dossier.md
 +++ b/skills/nouveau-dossier.md
-@@ -4,6 +4,7 @@
+@@ -5,6 +5,7 @@
  DÉCIDE TOUT DE SUITE, sans rien demander d'autre :
  - Le client donne le nom d'un nouveau dossier → appelle Experio_parametrer_dossier maintenant (cas 1). Le nom suffit. Ne cherche pas ce nom avant : Experio_parametrer_dossier prévient lui-même si un dossier au nom proche existe.
  - Le client envoie un FEC, un grand livre, un plan comptable, des journaux, des fournisseurs ou des clients pour un dossier qui existe → cas 2.
