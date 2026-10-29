@@ -9,7 +9,9 @@ import pytest
 from engine import pointage
 from engine.tools.core import experio as core
 from engine.tools.core.app import ToolError
+from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.experio import ExperioRefusal
+from engine.tools.core.queries import Q
 from engine.tools.invoices import intake, pipeline, statement
 
 
@@ -79,6 +81,8 @@ def experio(monkeypatch):
         generic=[],
         by_number=[],
         labelled=[],
+        created=[],
+        created_written=[],
         by_amount=[],
         accepts=True,
     )
@@ -127,6 +131,14 @@ def experio(monkeypatch):
         if model == "exp.move.line":  # the ledger: entries quoting a number, then supplier entries of an amount
             quoting = any(term[0] == "name" for term in args[0] if isinstance(term, tuple))
             return list(state["by_number"] if quoting else state["by_amount"])
+        if model == "exp.partner" and method == "create":  # a tiers made from a label's name
+            state["created"].append(args[0])
+            return 77
+        if model == "exp.partner" and method == "write":
+            state["created_written"].append((args[0], args[1]))
+            return True
+        if model == "exp.partner" and method == "read":
+            return [{"third_party_supplier_account": False, "third_party_customer_account": False}]
         if model == "exp.partner" and method == "search_count":  # the line's tiers picker accepts the supplier
             return 1 if state["accepts"] else 0
         if model == "exp.partner" and method == "search":  # the dossier's « CLIENTS DIVERS »
@@ -412,8 +424,6 @@ def test_a_window_or_a_refusal_at_posting_stops_for_the_cabinet(experio):
 
 @pytest.mark.functionality
 def test_a_statement_is_taken_up_again_while_read_or_when_the_client_asks_to_post(db_cabinet, monkeypatch):
-    from engine.tools.core.cabinets import cabinet_db
-
     with cabinet_db() as db:
         for name in ("a.pdf", "b.pdf", "c.pdf"):
             db.execute(
@@ -759,7 +769,7 @@ def test_without_the_model_the_lines_stay_for_the_cabinet_and_the_pointing_goes_
 @pytest.mark.functionality
 def test_nothing_is_asked_of_the_model_when_every_line_has_its_operation(experio):
     pointed()
-    assert experio["asked"] == []
+    assert not [a for a in experio["asked"] if a.startswith("Operations")]
 
 
 @pytest.mark.functionality
@@ -829,9 +839,13 @@ def test_a_dossier_without_open_statement_says_so(experio):
 
 
 @pytest.mark.functionality
-def test_a_bank_statement_read_by_experio_goes_on_to_its_pointing_steps(experio):
+def test_a_bank_statement_read_by_experio_goes_on_to_its_pointing_steps(experio, db_cabinet):
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (id, session_id, file_name, mime_type, data) values (8, 's', 'r.pdf', 'x', 'x')"
+        )
     result = statement.settle_statement(8)
-    assert result["statement_id"] == 40 and result["bank"] and result.get("routine")
+    assert result["statement_id"] == 40 and result["bank"] and result.get("routine") and result["post_asked"] is False
     assert experio["applied"] == [] and experio["written"] == []  # its pointing is the next steps'
 
 
@@ -1207,7 +1221,7 @@ def test_a_label_the_dossier_always_pointed_one_way_gets_that_operation_without_
     ]
     pointed()
     assert any(w[0] == [2] and w[1].get("operation_id") == 13156 for w in experio["written"])
-    assert experio["asked"] == []  # the memory settled it
+    assert not [a for a in experio["asked"] if a.startswith("Operations")]  # the memory settled it
 
 
 @pytest.mark.functionality
@@ -1229,7 +1243,7 @@ def test_a_purchase_label_the_dossier_always_paid_one_way_gets_that_payment_meth
     experio["history"] = [past("PAIEMENT DE VOTRE FACTURE 0001", 13136, method=2)]
     pointed()
     assert ([2], {"exp_payment_method_id": 2}) in experio["written"]
-    assert experio["asked"] == []
+    assert not [a for a in experio["asked"] if a.startswith("Operations")]
 
 
 @pytest.mark.functionality
@@ -1240,3 +1254,49 @@ def test_a_tiers_the_dossier_always_gave_a_label_is_given_only_when_seen_twice(e
     experio["history"] = [past(f"VIR EMIS WEB {n}", 13136, partner=51) for n in range(seen)]
     pointed()
     assert (([2], {"partner_id": 51}) in experio["written"]) is written
+
+
+@pytest.mark.functionality
+def test_a_request_to_post_made_with_the_statement_is_kept_for_the_run_resumed_after_a_question(experio, db_cabinet):
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (id, session_id, file_name, mime_type, data) values (8, 's', 'r.pdf', 'x', 'x')"
+        )
+        db.execute(Q.mark_file_post_asked, (8,))  # what import_bank_statement does for comptabiliser « oui »
+    assert statement.settle_statement(8)["post_asked"] is True
+
+
+def named_in_label(experio, monkeypatch, ref, name, lines=(2,)):
+    monkeypatch.setattr(statement, "series_account", lambda partner, kind, context: "441100999")
+    for line_id in lines:
+        experio["lines"][line_id - 1]["payment_ref"] = ref
+    experio["answer"] = {"lines": [{"id": i, "tiers": None, "name": name} for i in lines]}
+    return experio
+
+
+@pytest.mark.functionality
+def test_a_counterparty_the_dossier_does_not_know_is_created_from_the_label_and_told(experio, monkeypatch):
+    named_in_label(experio, monkeypatch, "VIR EMIS WEB SOCIETE ATLAS NEGOCE 0912", "ATLAS NEGOCE")
+    message = pointed()["message"]
+    assert experio["created"] == [{"name": "ATLAS NEGOCE", "type": "company", "company_id": 857, "is_supplier": True}]
+    assert ([2], {"partner_id": 77}) in experio["written"]
+    assert ([77], {"third_party_supplier_account": "441100999"}) in experio["created_written"]  # the series' code
+    assert "Tiers créé(s) d'après le libellé : `ATLAS NEGOCE`" in message
+
+
+@pytest.mark.functionality
+def test_a_sale_line_gets_a_customer_and_one_tiers_serves_every_line_naming_it(experio, monkeypatch):
+    for line in experio["lines"][1:]:
+        line["operation_type"] = "sale"
+    named_in_label(experio, monkeypatch, "VIR RECU DE KAYSER CONCEPT", "KAYSER CONCEPT", lines=(2, 3))
+    pointed()
+    assert len(experio["created"]) == 1 and experio["created"][0]["is_customer"] is True
+    assert ([2], {"partner_id": 77}) in experio["written"] and ([3], {"partner_id": 77}) in experio["written"]
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("name", ["ATLAS NEGOCE SARL AU", "AT", "123456", None])
+def test_a_name_the_label_does_not_carry_creates_no_tiers(experio, monkeypatch, name):
+    named_in_label(experio, monkeypatch, "VIR EMIS WEB SOCIETE ATLAS NEGOCE 0912", name)
+    pointed()
+    assert experio["created"] == []

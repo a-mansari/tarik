@@ -130,3 +130,6 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-points-dossier-20261029.json`: `labels.json` gets the dossier step « Points à corriger » (what the
   client must fix, told apart from « État du dossier », whose description is shortened). Import it once the stack runs
   the commit that splits `setup_status` and `setup_problems`: before, check.py finds no description for the node `points`.
+- `tarik-contenu-tiers-crees-20261029.json` (and its `.diff`): `tools/point-line-tiers.md` also gives the counterparty's name
+  written in a bank label when no tiers of the dossier fits (the tiers is then created). Import it with the commit that
+  creates tiers from bank labels; before, the model gives no name and no tiers is created.

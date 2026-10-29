@@ -238,6 +238,36 @@ def test_a_journal_s_rib_gives_it_its_bank_and_takes_the_statement(monkeypatch):
     assert "journal `BQ1` mis à la banque `CIH` (d'après son RIB)" in done
 
 
+STATEMENT_RIB = (
+    "Banque Ville N°Compte Clé Devise\n230 780 0000 012345678901 23 MAD\n"  # as a bank prints it, in columns
+)
+
+
+@pytest.mark.functionality
+def test_the_rib_printed_on_the_statement_picks_the_journal_of_its_bank_without_asking(monkeypatch):
+    journals = [
+        {"id": 5, "name": "BQ BMCE", "bank_id": [1, "BANK OF AFRICA (BMCE)"]},
+        {"id": 6, "name": "BQ CIH", "bank_id": [2, "CIH"]},
+    ]
+    monkeypatch.setattr(intake, "odoo_call", fake_experio(journals, []))
+    journal, _ = intake.statement_journal("r.pdf", "ATLAS", 857, 0, "", STATEMENT_RIB)
+    assert journal["id"] == 6  # bank code 230 is CIH: no « lequel ? »
+    asked, _ = intake.statement_journal("r.pdf", "ATLAS", 857, 0, "", "")
+    assert asked["status"] == "question"  # without the RIB, two banks and no word: asked, as before
+
+
+@pytest.mark.functionality
+def test_the_journal_whose_rib_is_the_printed_one_wins_among_several_at_the_same_bank(monkeypatch):
+    cih = [2, "CIH"]
+    journals = [
+        {"id": 5, "name": "BQ A", "bank_id": cih, "rib": "230 780 0000099999999999 11"},
+        {"id": 6, "name": "BQ B", "bank_id": cih, "rib": "230780000001234567890123"},
+    ]
+    monkeypatch.setattr(intake, "odoo_call", fake_experio(journals, []))
+    journal, _ = intake.statement_journal("r.pdf", "ATLAS", 857, 0, "", STATEMENT_RIB)
+    assert journal["id"] == 6
+
+
 @pytest.mark.functionality
 def test_a_statement_of_a_bank_the_dossier_has_no_journal_at_makes_its_journal(monkeypatch):
     written = []
