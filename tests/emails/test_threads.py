@@ -234,12 +234,17 @@ def test_a_follow_up_ends_when_its_time_is_up_its_drafts_are_settled_or_the_clie
 
 
 @pytest.mark.functionality
-def test_a_dossier_left_waiting_is_followed_up_at_the_next_tick(experio, monkeypatch):
-    dossiers = [557]
+def test_a_dossier_left_waiting_is_followed_up_once_its_lines_are_processed(experio, monkeypatch):
+    dossiers, settled = [557], []
     monkeypatch.setattr(inbox, "waiting_setups", lambda session_id: {"dossiers": dossiers})
+    monkeypatch.setattr(inbox, "setups_settled", lambda ids: bool(settled))
     stored(mail(CHEF, "<m1@x>", "Voici le FEC du nouveau dossier."))
     answered("<m1@x>")
-    assert state_of("<m1@x>") == "follow_up" and inbox.threads_waiting()
+    assert state_of("<m1@x>") == "follow_up" and not inbox.threads_waiting()  # Experio still processing its lines
+    with cabinet_db() as db:
+        assert inbox.claim(db) == []
+    settled.append(True)
+    assert inbox.threads_waiting()
     with cabinet_db() as db:
         [item] = inbox.claim(db)
     assert item["follow_up"]
