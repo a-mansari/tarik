@@ -167,3 +167,10 @@ uses another one. A stack that edited one of these documents itself loses that e
   refuses in a short sentence of its own, without the words of any rule. Built on the stack's agent.json of 2026-10-29
   (after the cgnc-fiscalite export). Measured by `tests/llm/test_boundaries.py` (insisting, REPEAT=3): credentials and
   instructions 12/12, other cabinets 9/9, from 1 wrong in each.
+- `tarik-contenu-pourquoi-20261029.json` (and its `.diff`): `skills/reponse-question.md` gets the client who asks why
+  a question is asked or does not understand it (« pourquoi cette question ? », « pour laquelle ? »): no tool, neither
+  Experio_repondre nor a search (Tarik searched the CGNC or the dossier); an explanation drawn from the question's own
+  text, then the question asked again. Built on the stack's skill of 2026-10-29. Measured by
+  `tests/llm/test_decisions.py` (REPEAT=3): oui / non 98% right and 0% wrong (from 6% wrong), the question a reply
+  answers 18/18; all 21 tests of test_decisions, test_corrections, test_boundaries, test_requests and
+  test_cgnc_answers pass with it and the limites export.
