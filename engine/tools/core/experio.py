@@ -264,7 +264,7 @@ def require_dossier(dossier_id, opened=True):
     can't be reached: without a real dossier id from find_dossier, the tool fails instead of guessing.
     ``opened`` False: Tarik need not open it, for the tools whose Experio calls name no dossier (in_dossier)."""
     _require_id(dossier_id, "dossier_id manquant ou invalide : trouvez d'abord le dossier avec Experio_find_dossier.")
-    with refused(f"require_dossier {dossier_id}", "Experio est injoignable : le dossier n'a pas pu etre verifie."):
+    with refused(f"require_dossier {dossier_id}", "Experio est injoignable : le dossier n'a pas pu être vérifié."):
         found = odoo_call(
             "res.company", "search_read", [("id", "=", dossier_id), *DOSSIER_DOMAIN], fields=["name", "user_ids"]
         )
@@ -284,24 +284,24 @@ def require_invoice(invoice_id, fields):
     first. Raises ToolError unless the id is a real invoice of one of the cabinet's dossiers, or when Experio
     can't be reached."""
     _require_id(
-        invoice_id, "invoice_id manquant ou invalide : c'est le numero de facture brouillon donne a sa creation."
+        invoice_id, "invoice_id manquant ou invalide : c'est le numéro de facture brouillon donné à sa création."
     )
     in_a_dossier = [(f"company_id.{field}", op, value) for field, op, value in DOSSIER_DOMAIN]
-    with refused(f"require_invoice {invoice_id}", "Experio est injoignable : la facture n'a pas pu etre lue."):
+    with refused(f"require_invoice {invoice_id}", "Experio est injoignable : la facture n'a pas pu être lue."):
         found = odoo_call("exp.invoice", "search_read", [("id", "=", invoice_id), *in_a_dossier], fields=fields)
     if not found:
         raise ToolError(f"Aucune facture n° {invoice_id} dans les dossiers du cabinet.")
     return found[0]
 
 
-def require_draft(invoice_id, invoice, what="etre modifiee"):
+def require_draft(invoice_id, invoice, what="être modifiée"):
     """Raise ToolError unless ``invoice`` (dict with "state") is a draft. ``what``: the French action refused,
     as in « seule une facture brouillon peut {what} »."""
     if invoice["state"] != "draft":
         raise ToolError(f"Facture {invoice_id} : seule une facture brouillon peut {what}.")
 
 
-def require_draft_invoice(invoice_id, fields, what="etre modifiee", read=False):
+def require_draft_invoice(invoice_id, fields, what="être modifiée", read=False):
     """Return invoice ``invoice_id``'s ``fields`` (dict; ``fields`` must include state). Raises ToolError unless it
     is a draft (``what``: as in require_draft); with ``read``, also while Experio is still reading its scan
     (``fields`` must then include bluejay_state)."""
@@ -319,7 +319,7 @@ def still_reading(invoice):
     """Return a wait result while Experio still reads the scan of ``invoice`` (dict with id and bluejay_state),
     else None."""
     if invoice["bluejay_state"] in READING:
-        return wait(f"Facture {invoice['id']} : Experio est encore en train de la lire, reessayez dans une minute.")
+        return wait(f"Facture {invoice['id']} : Experio est encore en train de la lire, réessayez dans une minute.")
     return None
 
 
@@ -505,7 +505,7 @@ def fill_invoice(invoice_id, changes, context, save=True):
     if save and start.get("partner_id") and values.get("partner_id") != start["partner_id"]:
         log(f"fill_invoice {invoice_id}: partner {start['partner_id']} -> {values.get('partner_id')} refused")
         raise ToolError(
-            f"Facture {invoice_id} : son tiers est deja choisi dans Experio ; Tarik ne le remplace pas. "
+            f"Facture {invoice_id} : son tiers est déjà choisi dans Experio ; Tarik ne le remplace pas. "
             "Un collaborateur du cabinet peut le changer dans Experio s'il n'est pas le bon."
         )
     if changed and save and not dry_run():
@@ -532,6 +532,6 @@ def experio_connection() -> str:
     except Exception as error:
         database, _, user, _ = account()
         log(f"experio_connection: {user} on {database} refused: {error}")
-        return "Experio repond, mais ma connexion y est refusee."
+        return "Experio répond, mais ma connexion y est refusée."
     log(f"experio_connection: ok, Odoo {version}")
-    return "Connecte au systeme Experio."
+    return "Connecté au système Experio."

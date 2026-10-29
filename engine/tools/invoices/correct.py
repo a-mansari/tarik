@@ -65,7 +65,7 @@ def change_text(field, value):
     if field.startswith("amount_tva_") and field.removeprefix("amount_tva_").isdigit():
         return f"TVA {field.removeprefix('amount_tva_')} % {value}"
     label = FIELD_LABELS.get(field, field)
-    return f"{label} renseigné(e)" if field.endswith("_id") else f"{label} {value}"
+    return f"{label} : valeur renseignée" if field.endswith("_id") else f"{label} {value}"
 
 
 def titled_invoice(extracted):
@@ -242,7 +242,7 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         # if any (Experio refuses to record a total of 0).
         if (invoice.get("amount_total") or 0) <= 0:
             return stop(
-                f"Facture {invoice_id} : le document ne porte aucun montant a payer (total "
+                f"Facture {invoice_id} : le document ne porte aucun montant à payer (total "
                 f"{extracted['amount_total']:.2f}) : c'est sans doute un justificatif de paiement, pas une facture. "
                 "Rien n'a été comptabilisé ; envoyez la facture elle-même, avec ses montants."
             )

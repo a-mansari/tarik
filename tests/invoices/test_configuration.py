@@ -58,8 +58,8 @@ def test_experios_own_detection_runs_only_when_its_check_blocks(experio):
     assert [c[1] for c in experio["calls"]].count("create_tax_ids") == 1
     assert ("res.company", "auto_detect_settings") in experio["calls"]
     assert result["message"] == (
-        "Facture 3 : détection automatique des paramètres du dossier lancée, 3 taxe(s) créée(s) : plus rien ne bloque "
-        "la comptabilisation."
+        "Facture 3 : j'ai lancé la détection automatique des paramètres du dossier. Elle a créé 3 taxes. "
+        "Plus rien ne bloque la comptabilisation."
     )
     experio["before"], experio["calls"] = [], []
     assert configuration.configure_cabinet(3)["routine"] and len(experio["calls"]) == 1  # nothing missing: one read
@@ -74,9 +74,9 @@ def test_what_still_blocks_stops_the_invoice_the_dossier_s_settings_apart_from_t
     result = configuration.configure_cabinet(3)
     assert result["status"] == "stop"
     assert result["message"].endswith(
-        "Pas comptabilisable en l'état. À régler par le cabinet dans la Configuration du dossier : The configuration "
-        "of local supplier journal is not defined. Sur la facture elle-même, Experio signale : Le montant TTC de la "
-        "facture doit être strictement positif."
+        "La facture n'est pas comptabilisable en l'état. À régler par le cabinet dans la Configuration du dossier : "
+        "The configuration of local supplier journal is not defined. Sur la facture elle-même, Experio signale : "
+        "Le montant TTC de la facture doit être strictement positif."
     )
 
 
@@ -85,7 +85,7 @@ def test_a_warning_is_no_setting_and_blocks_nothing_here(experio):
     # Experio posts despite its warnings (action_post raises on settings and errors only): settle_warnings' own.
     experio["after"] = [("warning", "<p>Date d'echeance depassee</p>")]
     result = configuration.configure_cabinet(3)
-    assert result["status"] == "ok" and result["message"].endswith("plus rien ne bloque la comptabilisation.")
+    assert result["status"] == "ok" and result["message"].endswith("Plus rien ne bloque la comptabilisation.")
     experio["before"], experio["calls"] = [("warning", "<p>Prorata</p>")], []
     assert configuration.configure_cabinet(3)["routine"]  # nothing blocks: no detection run at all
     assert ("res.company", "auto_detect_settings") not in experio["calls"]
@@ -99,14 +99,14 @@ def test_an_amount_the_invoice_carries_turns_its_switch_on_with_its_account(expe
         "use_supplier_guarantee_holdback": True,
         "supplier_guarantee_holdback_account_id": 413,
     }
-    assert "retenue de garantie active(s) dans le dossier" in result["message"]
+    assert "J'ai activé dans le dossier : retenue de garantie" in result["message"]
     # no 6149 account for the prorata, no 6167 for the stamp: the cabinet's, named
     assert result["message"].endswith(
         "À régler par le cabinet dans la Configuration du dossier : prorata : compte à choisir ; "
         "timbre : compte à choisir."
     )
     experio["calls"].clear()
-    assert "active(s)" not in configuration.configure_cabinet(3)["message"]  # set now: nothing written again
+    assert "J'ai activé" not in configuration.configure_cabinet(3)["message"]  # set now: nothing written again
     assert ("res.config.settings", "create") not in experio["calls"]
 
 
@@ -122,7 +122,7 @@ def test_a_setting_the_cabinets_rights_refuse_is_reported_not_claimed(experio, m
     experio["invoice"].update(amount_guarantee_holdback=500)
     monkeypatch.setattr(configuration, "save_settings", lambda *a: False)
     result = configuration.configure_cabinet(3)
-    assert "active(s)" not in result["message"] and "retenue de garantie : compte à choisir" in result["message"]
+    assert "J'ai activé" not in result["message"] and "retenue de garantie : compte à choisir" in result["message"]
 
 
 @pytest.mark.functionality

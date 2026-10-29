@@ -82,7 +82,7 @@ def test_a_message_asking_for_work_without_a_file_is_told_its_attachment_is_miss
     from engine.tools.invoices.pipeline import NO_FILE
 
     assert files_to_process("s", asked=True)["message"] == NO_FILE
-    assert files_to_process("s")["message"] == "0 fichier(s) a traiter."  # a follow-up says nothing
+    assert files_to_process("s")["message"] == "0 fichier à traiter."  # a follow-up says nothing
 
 
 @pytest.mark.technical

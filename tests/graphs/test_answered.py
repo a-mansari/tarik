@@ -69,7 +69,7 @@ def test_untaken_files_are_reminded_until_taken(asking):
     asking["turns"] = [turn("ai"), turn("ai", "tool", "ai", text="traite")]
     asking["untaken"] = [True, False]
     assert reply(asking, files=["f.pdf"]) == "traite"
-    assert "ces fichiers n'ont pas ete traites" in asking["asked"][1]
+    assert "ces fichiers n'ont pas été traités" in asking["asked"][1]
 
 
 @pytest.mark.security

@@ -27,12 +27,12 @@ from engine.tools.core.experio import (
 )
 from engine.tools.dossiers.banks import free_code
 
-ACHAT, VENTE = "General > Achat, carte ", "General > Vente, carte "
+ACHAT, VENTE = "Général > Achat, carte ", "Général > Vente, carte "
 SETTING = {  # (type, local?) -> the dossier setting Experio takes the journal from, and where it is set
     ("purchase", True): ("local_purchase_journal_id", "journal d'achats local", ACHAT + "Achat local"),
-    ("purchase", False): ("foreign_purchase_journal_id", "journal d'achats etranger", ACHAT + "Achat à l'etranger"),
+    ("purchase", False): ("foreign_purchase_journal_id", "journal d'achats étranger", ACHAT + "Achat à l'étranger"),
     ("sale", True): ("local_sale_journal_id", "journal de ventes local", VENTE + "Vente locale"),
-    ("sale", False): ("foreign_sale_journal_id", "journal de ventes etranger", VENTE + "Vente à l'etranger"),
+    ("sale", False): ("foreign_sale_journal_id", "journal de ventes étranger", VENTE + "Vente à l'étranger"),
 }
 
 
@@ -131,7 +131,7 @@ def journal_stop(invoice_id, invoice):
         start = f"Facture {invoice_id} : le {label} du dossier (`{wrong[field]}`) est celui d'un autre dossier"
     return stop(
         f"{start}, à régler par le cabinet avant de continuer : créer ou importer les journaux du dossier "
-        f"(Configuration > Comptabilite > Journaux), puis le choisir dans Configuration > {where}. "
+        f"(Configuration > Comptabilité > Journaux), puis le choisir dans Configuration > {where}. "
         "Rien n'a été modifié."
     )
 
@@ -161,7 +161,7 @@ def check_journal(invoice_id: int, tell: bool = True) -> dict:
     if dry_run():
         return ok(f"{TEST_MODE}Facture {invoice_id} : elle passerait au journal `{expected[1]}`.")
     context = invoice_context(invoice)
-    with refused(f"check_journal {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu mettre a jour le journal."):
+    with refused(f"check_journal {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu mettre à jour le journal."):
         refresh(invoice_id, context)  # Experio sets its own journal
         now = odoo_call("exp.invoice", "read", [invoice_id], fields=["journal_id"], context=context)[0]["journal_id"]
     if not now or now[0] != expected[0]:

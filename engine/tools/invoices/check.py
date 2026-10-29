@@ -11,7 +11,7 @@ from engine.tools.core.config import MIN_SIMILARITY
 from engine.tools.core.experio import has_scan, odoo_call, require_invoice, still_reading
 from engine.tools.core.model import ask_model, scan_pages, tool_prompt
 from engine.tools.core.queries import Q
-from engine.tools.core.words import as_number, normalized, similarity, without_if
+from engine.tools.core.words import as_number, counted, normalized, similarity, without_if
 
 # The invoice header fields Experio captured (correct_invoice may write them back), then the tiers' name and ICE.
 CAPTURED: Final = (
@@ -108,7 +108,7 @@ def _date_difference(stored, extracted, resolved):
         "stored": str(stored.get("invoice_date")),
         "extracted": f"{resolved} ({raw})" if raw else resolved,
         "problem": (
-            f"La date capturee ({stored.get('invoice_date')}) differe de celle lue sur le scan ({raw} -> {resolved})."
+            f"La date lue par Experio ({stored.get('invoice_date')}) diffère de celle du scan ({raw}, soit {resolved})."
         ),
     }
 
@@ -278,7 +278,7 @@ def _check_result(invoice_id, report):
     if not report["bad_fields"]:
         return routine(f"Facture {invoice_id} : conforme, ce qu'Experio a lu correspond au scan.")
     differences = "\n".join(f"- {b['field']} : {b['problem']}" for b in report["bad_fields"])
-    found = f"{len(report['bad_fields'])} ecart(s) entre Experio et le scan"
+    found = counted(len(report["bad_fields"]), "{} écart", "{} écarts") + " entre Experio et le scan"
     return routine(f"Facture {invoice_id} : {found} :\n{differences}")  # correct_invoice says what it changed
 
 

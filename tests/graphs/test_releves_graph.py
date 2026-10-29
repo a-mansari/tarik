@@ -27,13 +27,16 @@ def test_each_open_statement_is_pointed_step_by_step_and_not_posted_unasked(step
 @pytest.mark.functionality
 def test_the_report_gathers_what_each_step_did(steps):
     listed(steps, 40)
-    steps.answer("detect_statement_lines", {"status": "ok", "said": "2 pointée(s)", "note": ""})
+    steps.answer("detect_statement_lines", {"status": "ok", "said": "2 opérations ont été pointées.", "note": ""})
     steps.answer(
-        "tie_cited_invoices", {"status": "ok", "said": "", "note": "Facture(s) citée(s) non rattachée(s) : X."}
+        "tie_cited_invoices",
+        {"status": "ok", "said": "", "note": "Je n'ai pas rattaché la facture X que vous avez citée."},
     )
     steps.run(graph, dossier_id=5)
     report = steps.args("report_statement")[0]
-    assert report["said"] == ["2 pointée(s)"] and report["notes"] == ["Facture(s) citée(s) non rattachée(s) : X."]
+    assert report["said"] == ["2 opérations ont été pointées."] and report["notes"] == [
+        "Je n'ai pas rattaché la facture X que vous avez citée."
+    ]
 
 
 @pytest.mark.functionality

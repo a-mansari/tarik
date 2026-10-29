@@ -15,15 +15,15 @@ from engine.tools.core.words import ICE_WRITTEN, as_number, normalized, said, si
 from engine.tools.dossiers.people import attach_user
 from engine.tools.dossiers.search import dossiers
 
-FOLDER_TYPES = {"company": "societe", "person": "personne physique", "cpu": "CPU", "st": "ST"}
+FOLDER_TYPES = {"company": "société", "person": "personne physique", "cpu": "CPU", "st": "ST"}
 PLACEHOLDER_IDS = {"1111", "2222"}  # Experio's own "not known yet" ICE/IF, shared by many dossiers
 
 SKIP_QUESTION = (
-    "Experio verifie l'ICE et l'IF aupres du registre officiel. Confirmez-vous {what} sans cette "
-    "verification ? oui / non"
+    "Experio vérifie l'ICE et l'IF auprès du registre officiel. Confirmez-vous {what} sans cette "
+    "vérification ? oui / non"
 )
 SIMILAR_QUESTION = (
-    "Un dossier au nom tres proche existe deja ({names}). Faut-il quand meme creer un nouveau dossier `{name}` ? "
+    "Un dossier au nom très proche existe déjà ({names}). Faut-il quand même créer un nouveau dossier `{name}` ? "
     "oui / non"
 )
 
@@ -40,7 +40,7 @@ EDITABLE = {
     "capital": ("capital", "capital"),
     "cnss": ("cnss_number", "CNSS"),
     "street": ("street", "adresse"),
-    "street2": ("street2", "complement d'adresse"),
+    "street2": ("street2", "complément d'adresse"),
     "city": ("city", "ville"),
     "zip": ("zip", "code postal"),
 }
@@ -198,7 +198,7 @@ def client_ids(ice, if_number, words, client_message):
         ice = ""
     if "IF" in left_out:
         if_number = ""
-    note = f" Non repris, le client ne l'a pas ecrit : {', '.join(left_out)}." if left_out else ""
+    note = f" Non repris, car le client ne l'a pas écrit : {', '.join(left_out)}." if left_out else ""
     return ice, if_number, note
 
 
@@ -232,13 +232,13 @@ def duplicate(session_id, client_confirmed, name, ice, if_number):
     same, similar = lookalikes(name, ice, if_number)
     if same:
         return stop(
-            f"Dossier `{name}` non cree : un dossier existe deja avec cet ICE ou cet IF "
+            f"Dossier `{name}` non créé : un dossier existe déjà avec cet ICE ou cet IF "
             f"({', '.join(f'`{d["name"]}`' for d in same)})."
         )
     # The skip question comes only once this dossier's similar name was confirmed: a yes to it confirms both.
     if similar and not (
-        confirmed(session_id, client_confirmed, "nom tres proche", name)
-        or confirmed(session_id, client_confirmed, "sans cette verification", name)
+        confirmed(session_id, client_confirmed, "nom très proche", name)
+        or confirmed(session_id, client_confirmed, "sans cette vérification", name)
     ):
         return question(SIMILAR_QUESTION.format(names=", ".join(f"`{d['name']}`" for d in similar), name=name))
     return None
@@ -291,7 +291,7 @@ def create_dossier(
     reused = created_here(session_id, name)
     if reused:
         return ok(
-            f"Dossier `{reused['name']}` deja cree dans cette conversation : il est repris.",
+            f"Dossier `{reused['name']}` déjà créé dans cette conversation : je le reprends.",
             dossier_id=reused["id"],
             reused=True,
         )
@@ -312,19 +312,20 @@ def create_dossier(
         return refusal
     values = {"name": name, "folder_type": folder_type, "enabled": True}  # enabled, as Experio's dossier import sets it
     if skip_ice_if_check:
-        if not confirmed(session_id, client_confirmed, "sans cette verification", name):
-            return question(SKIP_QUESTION.format(what=f"la creation du dossier `{name}`"))
+        if not confirmed(session_id, client_confirmed, "sans cette vérification", name):
+            return question(SKIP_QUESTION.format(what=f"la création du dossier `{name}`"))
         values["ignore_ice_if_verification"] = True
     for field, value in (("ice", ice), ("vat", if_number)):
         if value and value.strip():
             values[field] = value.strip()
     if dry_run():
-        return ok(f"{TEST_MODE}Le dossier `{name}` serait cree.{not_taken}")
-    with refused(f"create_dossier {name}", f"Experio refuse de creer le dossier `{name}` : {{reason}}"):
+        return ok(f"{TEST_MODE}Le dossier `{name}` serait créé.{not_taken}")
+    with refused(f"create_dossier {name}", f"Experio refuse de créer le dossier `{name}` : {{reason}}"):
         dossier_id = odoo_json("res.company", "create", values, context=main_dossier_context())
         attach_user(None, dossier_id)  # Tarik works in it from here on
-    unchecked = " ICE et IF non verifies (verification ignoree, a la demande du client)." if skip_ice_if_check else ""
-    return ok(f"Dossier `{name}` cree dans Experio.{unchecked}{not_taken}", dossier_id=dossier_id)
+    unchecked = " ICE et IF non vérifiés : la vérification a été ignorée, à la demande du client."
+    unchecked = unchecked if skip_ice_if_check else ""
+    return ok(f"Dossier `{name}` créé dans Experio.{unchecked}{not_taken}", dossier_id=dossier_id)
 
 
 # --- Changing a dossier ---
@@ -380,11 +381,11 @@ def conflict(dossier_id, dossier, changes):
         if other:
             label = "ICE" if field == "ice" else "IF"
             return stop(
-                f"Dossier `{dossier}` non modifie : le dossier `{other[0]['name']}` a deja cet {label} ({value})."
+                f"Dossier `{dossier}` non modifié : le dossier `{other[0]['name']}` a déjà cet {label} ({value})."
             )
     new_name = changes.get("name")
     if new_name and any(normalized(d["name"]) == normalized(new_name) and d["id"] != dossier_id for d in dossiers()):
-        return stop(f"Dossier `{dossier}` non modifie : un autre dossier s'appelle deja `{new_name}`.")
+        return stop(f"Dossier `{dossier}` non modifié : un autre dossier s'appelle déjà `{new_name}`.")
     return None
 
 
@@ -444,7 +445,7 @@ def update_dossier(
     )
     if not asked:  # MiniMax sometimes calls with no fields: told how to call again, it does
         raise ToolError(
-            "Aucun champ a modifier : rappelle Experio_modifier_dossier avec le dossier_id et les seuls champs "
+            "Aucun champ à modifier : rappelle Experio_modifier_dossier avec le dossier_id et les seuls champs "
             "que le client veut changer, remplis avec ses valeurs."
         )
     words = "\n".join(client_messages(session_id, client_message))
@@ -455,15 +456,15 @@ def update_dossier(
         require_folder_type(asked["folder_type"])
     written = {key: value for key, value in asked.items() if client_wrote(key, value, words)}
     not_written = [EDITABLE[key][1] for key in asked if key not in written]
-    unchanged = f" Non modifie, le client ne l'a pas ecrit : {', '.join(not_written)}." if not_written else ""
+    unchanged = f" Non modifié, car le client ne l'a pas écrit : {', '.join(not_written)}." if not_written else ""
     current, changes = changes_to(dossier_id, written)
     if not changes:
-        return stop(f"Dossier `{dossier}` : rien a modifier.{unchanged}")
+        return stop(f"Dossier `{dossier}`  : rien à modifier.{unchanged}")
     refusal = conflict(dossier_id, dossier, changes)
     if refusal:
         return refusal
     if skip_ice_if_check:
-        if not confirmed(session_id, client_confirmed, "sans cette verification", dossier):
+        if not confirmed(session_id, client_confirmed, "sans cette vérification", dossier):
             return question(SKIP_QUESTION.format(what=f"la modification du dossier `{dossier}`"))
         changes["ignore_ice_if_verification"] = True
     each = []
@@ -473,7 +474,7 @@ def update_dossier(
             each.append(f"{label} : {current.get(field) or 'vide'} -> {changes[field]}")
     shown = " ; ".join(each)
     if dry_run():
-        return ok(f"{TEST_MODE}Le dossier `{dossier}` serait modifie : {shown}.{unchanged}")
+        return ok(f"{TEST_MODE}Le dossier `{dossier}` serait modifié : {shown}.{unchanged}")
     with refused(f"update_dossier {dossier_id}", f"Experio refuse de modifier le dossier `{dossier}` : {{reason}}"):
         odoo_json("res.company", "write", [dossier_id], changes)
-    return ok(f"Dossier `{dossier}` modifie : {shown}.{unchanged}")
+    return ok(f"Dossier `{dossier}` modifié : {shown}.{unchanged}")

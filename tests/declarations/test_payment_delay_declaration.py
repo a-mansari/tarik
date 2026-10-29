@@ -120,8 +120,8 @@ def test_the_lines_totals_and_xml_are_given(experio):
     result = delay.prepare_payment_delay_declaration(857)
     assert result["status"] == "ok"
     assert (
-        "2 ligne(s), 2 fournisseur(s) ; non encore payé 1200.00, payé hors délai 500.00, amende 386.00"
-        in (result["message"])
+        "- 2 lignes pour 2 fournisseurs\n- Non encore payé : 1200.00\n- Payé hors délai : 500.00\n"
+        "- Amende : 386.00" in (result["message"])
     )
     assert "print_xml_deduction_report" in experio["calls"] and "action_post" not in experio["calls"]
 
@@ -135,25 +135,27 @@ def test_what_experio_refuses_and_leaves_out_is_told(experio):
     result = delay.prepare_payment_delay_declaration(857)
     assert result["status"] == "stop"
     message = result["message"]
-    assert "aucune déclaration n'est requise" in message and "fournisseur(s) sans IF : ALPHA" in message
-    assert "3 facture(s) d'achat de la période sans suivi de délai" in message and "1 facture(s) bloquée(s)" in message
+    assert "aucune déclaration n'est requise" in message and "1 fournisseur n'a pas d'IF : ALPHA" in message
+    assert (
+        "3 factures d'achat de la période n'ont pas de suivi de délai" in message and "1 facture est bloquée" in message
+    )
 
 
 @pytest.mark.functionality
 def test_lines_added_by_hand_are_never_refreshed_away(experio):
     experio["lines"] = [line(added_manually=True)]
     message = delay.prepare_payment_delay_declaration(857)["message"]
-    assert "action_refresh" not in experio["calls"] and "ajoutée(s) à la main" in message
+    assert "action_refresh" not in experio["calls"] and "1 ligne y a été ajoutée à la main" in message
 
 
 @pytest.mark.security
 def test_declaring_asks_first_then_declares_on_the_clients_yes(experio):
     experio["lines"] = [line()]
     asked = delay.prepare_payment_delay_declaration(857, declarer=True)
-    assert asked["status"] == "question" and "Je le fais ?" in asked["message"]
+    assert asked["status"] == "question" and "Je la déclare dans Experio ?" in asked["message"]
     assert "action_post" not in experio["calls"]
     done = delay.prepare_payment_delay_declaration(857, declarer=True, client_confirmed=True)
-    assert "action_post" in experio["calls"] and "déclarée dans Experio" in done["message"]
+    assert "action_post" in experio["calls"] and "J'ai déclaré les délais de paiement" in done["message"]
 
 
 @pytest.mark.functionality
@@ -187,7 +189,7 @@ def test_a_declaration_already_declared_is_only_reported(experio):
     experio["tables"] = [{"id": 44, "state": "done"}]
     experio["table"]["state"] = "done"
     result = delay.prepare_payment_delay_declaration(857, declarer=True, client_confirmed=True)
-    assert "(n° `44`) : déjà déclarée dans Experio" in result["message"] and "à néant" in result["message"]
+    assert "(n° `44`), déjà déclarée dans Experio" in result["message"] and "à néant" in result["message"]
     assert experio["calls"] == []
 
 
@@ -220,7 +222,11 @@ def test_a_declaration_experio_refuses_is_said_not_declared(experio):
     experio["lines"] = [line()]
     experio["refusal"] = "Période déjà déclarée"
     result = delay.prepare_payment_delay_declaration(857, declarer=True, client_confirmed=True)
-    assert result["status"] == "stop" and "pas déclarée, Experio refuse : Période déjà déclarée" in result["message"]
+    assert (
+        result["status"] == "stop"
+        and "Experio refuse de déclarer les délais de paiement" in result["message"]
+        and "Période déjà déclarée" in result["message"]
+    )
 
 
 @pytest.mark.communication

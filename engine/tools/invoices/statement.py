@@ -37,7 +37,7 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.model import ask_model, tool_prompt
 from engine.tools.core.queries import Q
-from engine.tools.core.words import as_number, normalized, said, tiers_key
+from engine.tools.core.words import as_number, counted, normalized, said, tiers_key
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
 from engine.tools.invoices.exercice import with_fiscal_year
@@ -192,7 +192,7 @@ def named_invoices(statement, words, context):
     open line's amount is not looked at (a partial payment included): only invoices of a line's amount are named back.
 
     Returns (given, note): how many lines got one (counted also in test mode, where nothing is written), and a
-    sentence for the reply naming each such invoice no line got, and why ("" when there is none).
+    sentence per line for the reply naming each such invoice no line got, and why ("" when there is none).
     """
     words = normalized(words or "")
     fields = ["state", "invoice_ids", "partner_id", "debit", "credit", "operation_type", "invoice_ids_domain"]
@@ -208,7 +208,9 @@ def named_invoices(statement, words, context):
     # keep their tiers and picker from before it: the count may promise a link the real run will not make
     taken = {i for row in used for i in row["invoice_ids"]}  # invoices on a line, this run's added below
     elsewhere = {i for row in used if row["id"] not in statement["line_ids"] for i in row["invoice_ids"]}
-    why = {i: "déjà sur une opération d'un autre relevé" for i in ids if i in elsewhere}  # {invoice: why not given}
+    why = {
+        i: "elle est déjà sur une opération d'un autre relevé" for i in ids if i in elsewhere
+    }  # {invoice: why not given}
     given, fits = set(), set()
     for line in lines:
         same = [c for c in named if c["id"] not in taken and round(c["amount_residual"], 2) == amount_of(line)]
@@ -236,10 +238,12 @@ def named_invoices(statement, words, context):
                     why[c["id"]] = f"une autre facture citée convient aussi à l'opération « {label(line)} »"
     for i in fits:
         why.setdefault(i, "l'opération de son montant ne la propose pas (autre tiers ou autre sens)")
-    left = " ; ".join(
-        f"{c['invoice_number']} : {why[c['id']]}" for c in named if c["id"] in why and c["id"] not in given
+    left = "\n".join(
+        f"Je n'ai pas rattaché la facture {c['invoice_number']} que vous avez citée : {why[c['id']]}."
+        for c in named
+        if c["id"] in why and c["id"] not in given
     )
-    return len(given), left and f" Facture(s) citée(s) non rattachée(s) : {left}."
+    return len(given), left
 
 
 # A number a bank label carries (cheque, invoice...): 4 digits or more, dates (« 13/02/25 », « 13 02 25 ») left out.
@@ -967,13 +971,13 @@ def blocked_reasons(statement, context):
     """Return (reasons, ready, posted) for the statement's lines.
 
     reasons: {Experio's reason: how many lines} for the draft and pending lines (Experio's own error_msg, the red
-    icon's text, else the state). ready and posted: how many lines are ready, and posted or exported.
+    icon's text, else tpe.NO_REASON). ready and posted: how many lines are ready, and posted or exported.
     """
     lines = odoo_call(LINE, "read", statement["line_ids"], fields=["state", "error_msg"], context=context)
     reasons = {}
     for line in lines:
         if line["state"] in ("draft", "pending"):
-            reason = plain(line["error_msg"] or "") or line["state"]
+            reason = plain(line["error_msg"] or "") or tpe.NO_REASON
             reasons[reason] = reasons.get(reason, 0) + 1
     return reasons, sum(line["state"] == "ready" for line in lines), sum(line["state"] in POSTED for line in lines)
 
@@ -1012,7 +1016,7 @@ def opening_note(statement, context):
     if not lines or abs(abs(carried) - abs(start)) < 0.01:
         return ""
     return (
-        f" Premier relevé du journal : son solde initial ({start:.2f}) diffère de l'à-nouveau du compte "
+        f"C'est le premier relevé du journal, et son solde initial ({start:.2f}) diffère de l'à-nouveau du compte "
         f"({abs(carried):.2f})."
     )
 
@@ -1066,7 +1070,7 @@ def settle_statement(file_id: int, run_id: str = "") -> dict:
 
 # A bank statement's pointing, one step each, as the cabinet works the statement's « Operations » list: Experio's own
 # detection, then what it leaves, then where the statement stands (report_statement). Each step says what it did in
-# ``said`` (a part of the report's sentence) and ``note`` (a sentence after it), routine results the report gathers.
+# ``said`` (its sentences, one per line) and ``note`` (the same, for what is left), routine results the report gathers.
 
 
 def completing(statement_id, step, work):
@@ -1079,13 +1083,14 @@ def completing(statement_id, step, work):
     context = in_dossier(statement["company_id"][0])
     with refused(f"{step} {statement_id}", f"Relevé n° {statement_id} : Experio a refusé ({{reason}})."):
         said, note = work(statement, context)
-    text = f"{TEST_MODE if dry_run() else ''}Relevé n° {statement_id} : {said or 'rien de plus'}."
+    done = " ".join(said.splitlines()) or "rien d'autre à faire."
+    text = f"{TEST_MODE if dry_run() else ''}Relevé n° {statement_id} : {done}"
     return routine(text, statement_id=statement_id, said=said, note=note)
 
 
-def counted(count, words):
-    """Return « <count> <words> », "" for none."""
-    return f"{count} {words}" if count else ""
+def sentence(count, one, many):
+    """Return words.counted's sentence for ``count``, "" for none (nothing to say)."""
+    return counted(count, one, many) if count else ""
 
 
 @step_tool
@@ -1095,7 +1100,11 @@ def detect_statement_lines(statement_id: int) -> dict:
         statement_id,
         "detect_statement_lines",
         lambda statement, context: (
-            counted(auto_point(statement, context), "pointée(s) par la détection d'Experio"),
+            sentence(
+                auto_point(statement, context),
+                "{} opération a été pointée par la détection d'Experio.",
+                "{} opérations ont été pointées par la détection d'Experio.",
+            ),
             "",
         ),
     )
@@ -1105,7 +1114,6 @@ def detect_statement_lines(statement_id: int) -> dict:
 def choose_line_operations(statement_id: int) -> dict:
     """Give the statement's lines the operation and payment method the model reads in their label
     (chosen_operations)."""
-    phrase = "reçoivent de Tarik leur type d'opération ou mode de paiement, lu dans le libellé"
 
     def work(statement, context):
         given, parked = chosen_operations(statement, open_lines(statement, context), context)
@@ -1117,14 +1125,21 @@ def choose_line_operations(statement_id: int) -> dict:
         if lacking and not own:  # a dossier made without a model dossier
             note = (
                 "Le dossier n'a aucune opération bancaire à lui : pour que je pointe ses relevés, dites-moi le "
-                "dossier modèle dont reprendre le paramétrage."
+                "dossier modèle dont reprendre le paramétrage.\n"
             )
-        if parked:
-            note += (
-                f" {parked} ligne(s) sans indice dans le libellé mise(s) en compte d'attente (3497 ou 4497) : "
-                "à reclasser par le cabinet."
-            )
-        return counted(given, phrase), note.strip()
+        note += sentence(
+            parked,
+            "{} opération dont le libellé ne dit rien est en compte d'attente (3497 ou 4497) : le cabinet doit la "
+            "reclasser.",
+            "{} opérations dont le libellé ne dit rien sont en compte d'attente (3497 ou 4497) : le cabinet doit les "
+            "reclasser.",
+        )
+        said = sentence(
+            given,
+            "{} opération a reçu son type d'opération ou son mode de paiement, que j'ai lu dans son libellé.",
+            "{} opérations ont reçu leur type d'opération ou leur mode de paiement, que j'ai lu dans leur libellé.",
+        )
+        return said, note.strip()
 
     return completing(statement_id, "choose_line_operations", work)
 
@@ -1136,8 +1151,14 @@ def name_line_tiers(statement_id: int) -> dict:
 
     def work(statement, context):
         given, created = named_tiers(statement, open_lines(statement, context), context)
-        note = f"Tiers créé(s) d'après le libellé : {', '.join(f'`{name}`' for name in created)}." if created else ""
-        return counted(given, "leur tiers, nommé dans le libellé"), note
+        names = ", ".join(f"`{name}`" for name in created)
+        note = counted(len(created), "J'ai créé le tiers", "J'ai créé les tiers") + f" {names} d'après le libellé."
+        said = sentence(
+            given,
+            "{} opération a reçu le tiers que son libellé nomme.",
+            "{} opérations ont reçu le tiers que leur libellé nomme.",
+        )
+        return said, note if created else ""
 
     return completing(
         statement_id,
@@ -1154,9 +1175,17 @@ def tie_cited_invoices(statement_id: int, client_message: str = "") -> dict:
     def work(statement, context):
         tied, unnamed = named_invoices(statement, client_message, context)
         labelled = label_invoices(statement, open_lines(statement, context), context)  # tied above: no longer open
-        said = counted(tied, "rattachée(s) à la facture que vous avez citée")
-        also = counted(labelled, "rattachée(s) à la facture dont le numéro est dans le libellé")
-        return ", ".join(filter(None, [said, also])), unnamed.strip()
+        said = sentence(
+            tied,
+            "{} opération est rattachée à la facture que vous avez citée.",
+            "{} opérations sont rattachées aux factures que vous avez citées.",
+        )
+        also = sentence(
+            labelled,
+            "{} opération est rattachée à la facture dont son libellé porte le numéro.",
+            "{} opérations sont rattachées à la facture dont leur libellé porte le numéro.",
+        )
+        return "\n".join(filter(None, [said, also])), unnamed
 
     return completing(statement_id, "tie_cited_invoices", work)
 
@@ -1169,16 +1198,29 @@ def tie_owed_invoices(statement_id: int) -> dict:
     def work(statement, context):
         tied, only_tiers = owed_invoices(statement, open_lines(statement, context), context)
         ledger = ledger_tiers(statement, open_lines(statement, context), context)
-        said = counted(tied, "la seule facture ouverte de leur tiers et de leur montant")
-        also = counted(only_tiers, "le tiers des factures ouvertes de leur montant, qui sont toutes de lui")
-        found = counted(ledger, "leur tiers retrouvé dans le grand livre")
-        note = (
-            "Tiers retrouvé dans le grand livre (écriture citant le numéro du chèque ou du virement, ou facture "
-            "fournisseur impayée de ce montant) : à vérifier par le cabinet."
-            if ledger
-            else ""
+        said = sentence(
+            tied,
+            "{} opération a reçu la seule facture ouverte de son tiers et de son montant.",
+            "{} opérations ont reçu la seule facture ouverte de leur tiers et de leur montant.",
         )
-        return (", ".join(filter(None, [said, also, found])), note)
+        also = sentence(
+            only_tiers,
+            "{} opération a reçu le tiers des factures ouvertes de son montant, qui sont toutes de lui.",
+            "{} opérations ont reçu le tiers des factures ouvertes de leur montant, qui sont toutes de lui.",
+        )
+        found = sentence(
+            ledger,
+            "{} opération a reçu son tiers, retrouvé dans le grand livre.",
+            "{} opérations ont reçu leur tiers, retrouvé dans le grand livre.",
+        )
+        note = sentence(
+            ledger,
+            "Ce tiers vient d'une écriture citant le numéro du chèque ou du virement, ou d'une facture fournisseur "
+            "impayée de ce montant : le cabinet doit le vérifier.",
+            "Ces tiers viennent d'une écriture citant le numéro du chèque ou du virement, ou d'une facture "
+            "fournisseur impayée de ce montant : le cabinet doit les vérifier.",
+        )
+        return "\n".join(filter(None, [said, also, found])), note
 
     return completing(statement_id, "tie_owed_invoices", work)
 
@@ -1189,45 +1231,62 @@ def tie_tpe_remittances(statement_id: int) -> dict:
 
     def work(statement, context):
         tied, left = tie_tpe(statement, context) or (0, 0)
-        note = f"{left} versement(s) TPE sans relevé TPE certain : à rapprocher par le cabinet." if left else ""
-        return counted(tied, "versement(s) TPE rapproché(s) de leur relevé TPE"), note
+        note = sentence(
+            left,
+            "{} versement TPE n'a pas de relevé TPE certain : le cabinet doit le rapprocher.",
+            "{} versements TPE n'ont pas de relevé TPE certain : le cabinet doit les rapprocher.",
+        )
+        said = sentence(
+            tied,
+            "{} versement TPE est rapproché de son relevé TPE.",
+            "{} versements TPE sont rapprochés de leur relevé TPE.",
+        )
+        return said, note
 
     return completing(statement_id, "tie_tpe_remittances", work)
 
 
 @step_tool
 def report_statement(statement_id: int, said: list[str] | None = None, notes: list[str] | None = None) -> dict:
-    """Say where bank statement ``statement_id`` stands after its pointing, as one line for the client.
+    """Say where bank statement ``statement_id`` stands after its pointing, for the client.
 
     Args:
         statement_id: the statement.
-        said: what the pointing steps did, each a part of the sentence (« 18 pointée(s) par la détection d'Experio »).
-        notes: their sentences to add after it.
+        said: what the pointing steps did, their sentences one per line (« 18 opérations ont été pointées par la
+            détection d'Experio. »).
+        notes: what they left, the same way.
 
-    The line has how many operations were read, ``said``, how many are ready and posted, the balance checks (the
-    statement's own, the journal's previous statement, the à-nouveau for the journal's first), ``notes``, and what
-    Experio says still blocks lines."""
+    A headline with how many operations were read, ready and posted, then one « - » line per sentence of ``said``,
+    per balance check (the statement's own, the journal's previous statement, the à-nouveau for the journal's first),
+    per sentence of ``notes``, and per reason Experio gives for lines it still blocks."""
     statement = read_statement(statement_id)
     context = in_dossier(statement["company_id"][0])
     with refused(f"report_statement {statement_id}", f"Relevé n° {statement_id} : Experio a refusé ({{reason}})."):
         reasons, ready, posted = blocked_reasons(statement, context)
         opening = opening_note(statement, context)
-    parts = [f"Relevé n° {statement_id} : {len(statement['line_ids'])} opération(s) lue(s)", *(said or [])]
-    parts.append(f"{ready} prête(s) à comptabiliser" + (f", {posted} déjà comptabilisée(s)" if posted else ""))
-    text = ", ".join(parts) + "."
+    read = counted(len(statement["line_ids"]), "{} opération", "{} opérations")
+    text = f"Relevé n° {statement_id} : j'ai lu {read}, " + (
+        counted(ready, "{} est prête à comptabiliser", "{} sont prêtes à comptabiliser")
+        if ready
+        else "aucune n'est prête à comptabiliser"
+    )
+    text += counted(posted, " et {} est déjà comptabilisée", " et {} sont déjà comptabilisées") if posted else ""
+    points = [line for done in said or [] for line in done.splitlines()]
     no_balances = not statement["balance_start"] and not statement["balance_end_real"]
     if no_balances:  # Excel's template has none; a scan Experio read no balance on
-        text += " Le relevé ne donne pas ses soldes : à saisir dans Experio pour contrôler qu'il est complet."
+        points.append(
+            "Le relevé n'indique pas ses soldes : saisissez-les dans Experio pour vérifier qu'il est complet."
+        )
     elif not statement["is_complete"]:
-        text += (
-            f" Le solde final calculé ({statement['balance_end']:.2f}) ne correspond pas au solde du relevé "
+        points.append(
+            f"Le solde final calculé ({statement['balance_end']:.2f}) ne correspond pas au solde du relevé "
             f"({statement['balance_end_real']:.2f}) : une opération manque ou est mal lue."
         )
     if not statement["is_valid"]:
-        text += " Son solde initial ne suit pas le solde final du relevé précédent de ce journal."
-    text += opening + "".join(f" {note}" for note in notes or [])
-    if reasons:
-        text += " À compléter dans Experio : " + " ; ".join(f"{why} ({n})" for why, n in reasons.items()) + "."
+        points.append("Le solde initial du relevé ne suit pas le solde final du relevé précédent de ce journal.")
+    points += [line for note in [opening, *(notes or [])] for line in note.splitlines()]
+    points += [f"{counted(n, '{} opération', '{} opérations')} {tpe.to_complete(why)}" for why, n in reasons.items()]
+    text += "." + "".join(f"\n- {point}" for point in points)
     return ok(f"{TEST_MODE if dry_run() else ''}{text}", statement_id=statement_id)
 
 
@@ -1278,7 +1337,7 @@ def post_statement(file_id: int) -> dict:
     A TPE statement goes to tpe.post_tpe. For a bank statement, a window Experio opens instead (a duplicate
     statement, operations out of its period, an exchange rate still to fetch) or Experio's refusal returns a stop
     result for the cabinet. Otherwise an ok result with how many operations were posted, how many are left to
-    complete, and the posted ones still unpaid or partly paid (suspens).
+    complete, and the posted ones still unpaid or partly paid (suspens), one « - » line each under a headline.
     """
     statement_id, network = statement_of(file_id)
     if not statement_id:
@@ -1311,16 +1370,22 @@ def posting(statement):
     statement = read_statement(statement_id)
     reasons, ready, posted = blocked_reasons(statement, context)
     pending = suspense(statement, context)
-    text = f"Relevé n° {statement_id} : {posted} opération(s) comptabilisée(s)"
-    text += f", {sum(reasons.values())} restent à compléter" if reasons else ""
-    text += "."
+    text = f"Relevé n° {statement_id} : j'ai comptabilisé {counted(posted, '{} opération', '{} opérations')}."
+    left = sum(reasons.values())
+    if left:
+        text += counted(
+            left,
+            "\n- {} opération reste à compléter dans Experio.",
+            "\n- {} opérations restent à compléter dans Experio.",
+        )
     if pending:
-        text += f" En suspens (payées sans facture rapprochée) : {pending}."
+        text += f"\n- {pending}"
     return ok(text, statement_id=statement_id)
 
 
 def suspense(statement, context):
-    """Return the statement's posted operations still unpaid or partly paid, as text for the reply ("" when none).
+    """Return the statement's posted operations still unpaid or partly paid, as a sentence for the reply ("" when
+    none).
 
     Purchase, sale and their advance operations with payment_state unpaid or partial and not reconciled, as Experio's
     « Suspense » screen lists them: « libellé (montant) », the first 10 then how many others.
@@ -1335,7 +1400,15 @@ def suspense(statement, context):
         and line.get("payment_state") in ("unpaid", "partial")
         and not line.get("is_reconciled")
     ]
-    return ", ".join(left[:10]) + (f" et {len(left) - 10} autre(s)" if len(left) > 10 else "")
+    if not left:
+        return ""
+    listed = ", ".join(left[:10]) + (counted(len(left) - 10, " et {} autre", " et {} autres") if len(left) > 10 else "")
+    said = counted(
+        len(left),
+        "{} opération comptabilisée reste en suspens, payée sans facture rapprochée : ",
+        "{} opérations comptabilisées restent en suspens, payées sans facture rapprochée : ",
+    )
+    return f"{said}{listed}."
 
 
 # A dossier's statements already in Experio (imported by the cabinet, or by Tarik earlier): those not posted yet, read
@@ -1361,12 +1434,14 @@ def list_open_statements(dossier_id: int) -> dict:
     if not found:
         return routine(NO_STATEMENT.format(dossier_id), statement_ids=[])
     numbers = ", ".join(f"n° {i}" for i in found)
-    return routine(f"Dossier n° {dossier_id} : {len(found)} relevé(s) à pointer ({numbers}).", statement_ids=found)
+    found_text = counted(len(found), "{} relevé à pointer", "{} relevés à pointer")
+    return routine(f"Dossier n° {dossier_id} : j'ai trouvé {found_text} ({numbers}).", statement_ids=found)
 
 
 def each_statement(dossier_id, step):
     """Run ``step`` (a statement read with FIELDS -> a step result) on each of the dossier's open statements and return
-    one ok result joining their messages, with their ids (statement_ids); a routine result when there is none."""
+    one ok result, with their ids (statement_ids): a headline then a « - » item per statement, its own sub-lines
+    indented under it; a routine result when there is none."""
     statements = open_statements(dossier_id)
     if not statements:
         return routine(NO_STATEMENT.format(dossier_id))
@@ -1376,7 +1451,8 @@ def each_statement(dossier_id, step):
             results.append(step(statement))
         except ToolError as failure:  # one statement Experio refuses: said, the others still done
             results.append({"message": str(failure)})
-    text = "\n- ".join(result["message"] for result in results)  # one bullet each in the summary's « - » list
+    text = f"Dossier n° {dossier_id} : " + counted(len(results), "{} relevé traité.", "{} relevés traités.")
+    text += "".join("\n- " + result["message"].replace("\n", "\n  ") for result in results)
     return ok(text, statement_ids=[statement["id"] for statement in statements])
 
 

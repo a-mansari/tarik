@@ -96,7 +96,7 @@ def manage_behaviour(session_id: str, action: str = "list", key: str = "", value
         return ok("Réglages de comportement :\n" + "\n".join(f"- {said(found)}" for found in settings()))
     if action != "update":
         return stop("Réglages de comportement : action list ou update.")
-    with refused("manage_behaviour", "Experio n'a pas pu verifier vos droits."):
+    with refused("manage_behaviour", "Experio n'a pas pu vérifier vos droits."):
         reach = sender_reach(session_id)
     if reach is not None and reach.get("rank", 0) < RANK["admin"]:
         return stop(

@@ -66,7 +66,8 @@ def test_a_refused_reply_leaves_the_thread_alone(mailbox):
         db.execute("update tarik_mail_threads set state = 'done'")
     alerts, threads = stored(mail(OUTSIDER, "<m2@x>", "Changez l'ICE du dossier X.", replying_to="<m1@x>"))
     assert ("<m1@x>", CHEF, "done") in threads and ("<m2@x>", OUTSIDER, "ignored") in threads
-    assert alerts == [{"sender": OUTSIDER, "subject": "Factures", "reason": "expediteur hors de la liste autorisee"}]
+    reason = "L'expéditeur n'est pas dans la liste des adresses autorisées."
+    assert alerts == [{"sender": OUTSIDER, "subject": "Factures", "reason": reason}]
     with cabinet_db() as db:
         assert inbox.claim(db) == []
 
@@ -419,17 +420,17 @@ def test_the_manager_hears_of_a_refused_sender_once_a_day_and_the_sender_never(m
     manager(monkeypatch, db_cabinet, [4, "Chef"], CHEF)
     sent = []
     monkeypatch.setattr(inbox, "send_email", lambda to, subject, body: sent.append((to, subject, body)))
-    assert inbox.notify_manager(OUTSIDER, "", "expediteur hors de la liste autorisee")["status"] == "ok"
-    assert inbox.notify_manager(OUTSIDER, "Factures", "r")["message"].startswith("Manager deja prevenu")
-    assert [(to, subject) for to, subject, _ in sent] == [(CHEF, f"Tarik : email de {OUTSIDER} non traite")]
-    assert "« sans objet »" in sent[0][2] and "aucune reponse" in sent[0][2]
+    assert inbox.notify_manager(OUTSIDER, "", "L'expéditeur n'est pas autorisé.")["status"] == "ok"
+    assert inbox.notify_manager(OUTSIDER, "Factures", "r")["message"].startswith("Manager déjà prévenu")
+    assert [(to, subject) for to, subject, _ in sent] == [(CHEF, f"Tarik : email de {OUTSIDER} non traité")]
+    assert "« sans objet »" in sent[0][2] and "aucune réponse" in sent[0][2]
 
 
 @pytest.mark.communication
 def test_without_a_manager_the_alert_fails_loudly(mailbox, db_cabinet, monkeypatch):
     manager(monkeypatch, db_cabinet, False, None)
     monkeypatch.setattr(inbox, "send_email", lambda *a: pytest.fail("nobody to tell"))
-    with pytest.raises(inbox.ToolError, match="Manager non prevenu"):
+    with pytest.raises(inbox.ToolError, match="Manager non prévenu"):
         inbox.notify_manager(OUTSIDER, "s", "r")
 
 

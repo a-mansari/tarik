@@ -233,7 +233,7 @@ def test_a_foreign_currency_experio_has_is_set_and_one_it_lacks_is_noted(correct
     from engine.tools.invoices import correct
 
     correcting["read"] = {"currency": "eur"}
-    assert correct.correct_invoice(3)["message"] == "Facture 3 : corrigée (devise renseigné(e))."
+    assert correct.correct_invoice(3)["message"] == "Facture 3 : corrigée (devise : valeur renseignée)."
     assert correcting["calls"] == [
         ("res.currency", "search_read", [("name", "=", "EUR")], {"fields": ["id"], "limit": 1})
     ]
@@ -290,7 +290,7 @@ def test_what_experio_recomputed_by_itself_is_logged_not_told(correcting, capsys
 
     correcting["read"] = {"currency": "USD"}
     correcting["changed"] = {"currency_id": 9, "exchange_rate": 10.1}
-    assert correct.correct_invoice(3)["message"] == "Facture 3 : corrigée (devise renseigné(e))."
+    assert correct.correct_invoice(3)["message"] == "Facture 3 : corrigée (devise : valeur renseignée)."
     assert "Experio also updated exchange_rate" in capsys.readouterr().out
 
 
@@ -330,7 +330,7 @@ def test_each_corrected_field_is_said_as_the_client_reads_it():
     assert change_text("multi_tva", True) is None
     assert change_text("refund", True) == "avoir" and change_text("refund", False) == "facture, pas un avoir"
     assert change_text("amount_tva_20", 40.0) == "TVA 20 % 40.0"
-    assert change_text("payment_method_id", 4) == "mode de paiement renseigné(e)"
+    assert change_text("payment_method_id", 4) == "mode de paiement : valeur renseignée"
 
 
 @pytest.mark.communication

@@ -81,7 +81,7 @@ def test_a_routine_is_read_back_then_made_on_the_clients_yes(chat):
     done = make(True)
     assert done["status"] == "ok" and done["message"].startswith("Routine n° ")
     listed = routines.manage_routine("list")
-    assert "1 routine(s)" in listed["message"] and "prochaine le" in listed["message"]
+    assert "1 routine :" in listed["message"] and "prochaine le" in listed["message"]
 
 
 @pytest.mark.security
@@ -109,7 +109,7 @@ def test_only_admins_and_staff_make_or_resume_a_routine_and_each_manages_their_o
     if not made:
         assert result["status"] == "stop" and "administrateurs" in result["message"]
     shown = routines.manage_routine("list", session_id="s")
-    assert ("1 routine(s)" in shown["message"]) is made  # the chat's routine is never theirs
+    assert ("1 routine :" in shown["message"]) is made  # the chat's routine is never theirs
     with cabinet_db() as db:
         (other,) = db.execute("select min(id) from tarik_routines").fetchone()
     assert "Quelle routine" in routines.manage_routine("pause", routine_id=other, session_id="s")["message"]
@@ -286,7 +286,7 @@ def test_a_failing_dossier_reads_as_tarik_says_never_as_the_error(running, db_ca
     assert "- **2** dossiers parcourus : **2** en échec" in report
     assert "**En échec**\n\n- `ALPHA`\n- `BETA`" in report
     texts = [data for name, data in running["files"].items() if not name.endswith(".xlsx")]
-    assert all(b"secret" not in data and b"echec technique" in data for data in texts)
+    assert all(b"secret" not in data and "échec technique".encode() in data for data in texts)
 
 
 @pytest.mark.communication
@@ -340,7 +340,7 @@ def test_the_dossiers_not_reached_before_the_next_period_are_left_to_it(running,
     (row,) = clock.claimed()
     late = (*row[:7], datetime.now(ZONE) - timedelta(days=2), *row[8:])  # a period whose next one already came
     report = asyncio.run(clock.ran(db_cabinet, late))
-    assert ": **2** non traités (la période suivante est arrivée avant)" in report
+    assert ": **2** non traités, la période suivante étant arrivée avant" in report
     assert not [tool for tool, _ in running["calls"] if tool == "dossier_progress_figures"]
 
 
@@ -449,9 +449,9 @@ def test_a_progress_report_is_a_few_lines_and_every_dossier_s_figures_are_in_the
     excel, spreadsheet, text = running["files"]
     assert report.split("\n\n**En bref**\n\n")[1].splitlines() == [
         "- **2** dossiers parcourus : **2** lus",
-        "- Avancement moyen des dossiers (celui de chacun selon Experio) : **55 %**",
-        "- Opérations bancaires en suspens (comptabilisées, sans facture lettrée, exercice en cours) : **1** opération "
-        "dans **1** dossier",
+        "- Avancement moyen des dossiers, selon Experio : **55 %**",
+        "- **1** opération bancaire de l'exercice en cours, dans **1** dossier, est en suspens : comptabilisée mais "
+        "sans facture lettrée",
         "",
         "**Les moins avancés**",
         "",
@@ -463,6 +463,8 @@ def test_a_progress_report_is_a_few_lines_and_every_dossier_s_figures_are_in_the
         f"- `{excel}` : le tableau, un dossier par ligne, avec des filtres",
         f"- `{spreadsheet}` : le même tableau, pour un autre logiciel",
         f"- `{text}` : le détail complet, à lire tel quel",
+        "",
+        "Répondez à cet e-mail pour toute question sur un dossier.",
     ]
     assert [name.rsplit(".", 1)[1] for name in running["files"]] == ["xlsx", "csv", "txt"]
     sheet = openpyxl.load_workbook(io.BytesIO(next(d for n, d in running["files"].items() if n.endswith(".xlsx"))))

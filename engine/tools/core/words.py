@@ -118,3 +118,9 @@ def written_numbers(text):
     for number in WRITTEN.findall(text or ""):
         values += readings(number)
     return values
+
+
+def counted(count, one, many):
+    """Return the phrase that agrees with ``count`` (French: 0 and 1 singular), its "{}" the count: counted(3,
+    "{} opération lue", "{} opérations lues") -> "3 opérations lues"; never "opération(s)"."""
+    return (one if count <= 1 else many).format(count)

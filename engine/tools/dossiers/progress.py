@@ -13,18 +13,22 @@ every count by status here passes skip_fiscal_year_filter, as dashboard_manager 
 
 from engine.tools.core.app import ToolError, log, tool
 from engine.tools.core.experio import in_dossier, odoo_call, refused, require_dossier
+from engine.tools.core.words import counted as numbered  # counted() here counts Experio's records
 
-STATES = {  # Experio's states of invoices, statements and their lines, as its fr.po names them, in their order
-    "pending": "En cours",
-    "draft": "Brouillon",
-    "partial": "Partiel",
-    "ready": "Prêt",
-    "suspense": "Suspens",
-    "post": "Comptabilisé",
-    "export": "Exporté",
+# Experio's states of invoices, statements and their lines, as its fr.po names them, in their order: the masculine
+# word (relevés), then the feminine (factures, opérations)
+STATES = {
+    "pending": ("en cours", "en cours"),
+    "draft": ("en brouillon", "en brouillon"),
+    "partial": ("partiel", "partielle"),
+    "ready": ("prêt", "prête"),
+    "suspense": ("en suspens", "en suspens"),
+    "post": ("comptabilisé", "comptabilisée"),
+    "export": ("exporté", "exportée"),
 }
-PAYMENT_STATES = {"unpaid": "impayée(s)", "partial": "payée(s) en partie", "paid": "payée(s)"}
-DECLARATION_STATES = {"draft": "Brouillon", "done": "Déclaré"}
+PAYMENT_STATES = {"unpaid": ("impayé", "impayée"), "partial": ("payé en partie", "payée en partie")}
+PAYMENT_STATES["paid"] = ("payé", "payée")
+DECLARATION_STATES = {"draft": "en brouillon", "done": "déclarée"}
 BOOKED = ("post", "export")
 PIECES = ["exp.invoice", "exp.receipt"]  # dashboard_manager _PIECES_MODELS
 OPERATIONS = ["exp.bank.statement.line", "exp.cash.statement.line", "exp.monetary.statement.line"]
@@ -73,9 +77,22 @@ def counted(model, domain, groups, context):
     return {key(group): group["__count"] for group in found}
 
 
-def by_state(counts, labels):
-    """Return ``counts`` {state: n} as « 3 Brouillon, 12 Comptabilisé » in ``labels``' order, "" when none."""
-    return ", ".join(f"{counts[state]} {label}" for state, label in labels.items() if counts.get(state))
+def by_state(counts, labels, feminine=False):
+    """Return ``counts`` {state: n} as « 3 en brouillon et 12 comptabilisées » in ``labels``' order, their feminine
+    word when ``feminine``; "" when none."""
+    said = []
+    for state, words in labels.items():
+        if counts.get(state):
+            word = words[feminine]
+            first, _, rest = word.partition(" ")
+            many = word if first == "en" else f"{first}s {rest}".strip()  # « en brouillon » never takes an s
+            said.append(numbered(counts[state], "{} " + word, "{} " + many))
+    return " et ".join([", ".join(said[:-1]), said[-1]] if len(said) > 1 else said)
+
+
+def french_date(day):
+    """Return Experio's ISO date ``day`` (« 2026-01-31 ») as the client writes it: « 31/01/2026 »."""
+    return f"{day[8:10]}/{day[5:7]}/{day[:4]}"
 
 
 def exercice_of(dossier_id, year, context):
@@ -110,10 +127,11 @@ def invoice_lines(dossier_id, exercice, context):
         mine = {state: n for (kind, state), n in states.items() if kind == side}
         total = sum(mine.values())
         paid = {state: n for (kind, state), n in payments.items() if kind == side}
-        text = by_state(mine, STATES) or "aucune"
+        text = f"- Factures {word} : {total}"
+        text += f", dont {by_state(mine, STATES, True)}" if mine else ""
         if paid:
-            text += f" (comptabilisées : {by_state(paid, PAYMENT_STATES)})"
-        lines.append(f"- Factures {word} : {total} — {text}")
+            text += f"\n  - Parmi les comptabilisées : {by_state(paid, PAYMENT_STATES, True)}"
+        lines.append(text)
     return lines
 
 
@@ -129,15 +147,15 @@ def statement_lines(dossier_id, exercice, context):
         line_domain = mine + ([("exp_deleted", "=", False)] if model == "exp.bank.statement" else [])
         operations = counted(f"{model}.line", line_domain, ["state"], context)
         text = f"- Relevés {word} : {sum(statements.values())}"
-        text += f" — {by_state(statements, STATES)}" if statements else ""
+        text += f", dont {by_state(statements, STATES)}" if statements else ""
         if operations:
-            text += f" ; opérations : {sum(operations.values())} — {by_state(operations, STATES)}"
+            text += f"\n  - Leurs opérations : {sum(operations.values())}, dont {by_state(operations, STATES, True)}"
         lines.append(text)
     suspense = [*mine, ("exp_deleted", "=", False), ("state", "in", list(BOOKED))]
     suspense += [("payment_state", "in", ["unpaid", "partial"]), ("is_reconciled", "=", False)]
     left = odoo_call("exp.bank.statement.line", "search_count", suspense, context=context)
     if left:
-        lines.append(f"- Opérations bancaires en suspens (sans facture lettrée) : {left}")
+        lines.append(f"- Opérations bancaires en suspens, sans facture lettrée : {left}")
     return lines, left
 
 
@@ -179,12 +197,21 @@ def progress_of(dossier_id, year=0):
         statements, suspense = statement_lines(dossier_id, exercice, context)
         shown_year = int(exercice["date_end"][:4]) if exercice else year
         declarations = declaration_lines(dossier_id, shown_year, context) if shown_year else []
-    period = f"{exercice['name']} ({exercice['date_start']} au {exercice['date_end']})" if exercice else "sans exercice"
-    progress_words = "rien à traiter encore" if progress is None else f"{progress} %"
+    period = "aucun dans Experio"
+    if exercice:
+        period = f"{exercice['name']}, du {french_date(exercice['date_start'])} au {french_date(exercice['date_end'])}"
+    progress_words = "rien à traiter pour l'instant" if progress is None else f"{progress} %"
+    booked = numbered(pieces_booked, "{} pièce comptabilisée", "{} pièces comptabilisées")
+    operations_said = numbered(
+        operations_booked,
+        "{} opération bancaire ou de caisse comptabilisée",
+        "{} opérations bancaires et de caisse comptabilisées",
+    )
     parts = [
         f"Dossier `{dossier}`",
-        f"Avancement (calcul d'Experio, tous exercices) : {progress_words} — pièces comptabilisées "
-        f"{pieces_booked}/{pieces}, opérations bancaires et de caisse comptabilisées {operations_booked}/{operations}",
+        f"Avancement selon Experio, tous exercices confondus : {progress_words}",
+        f"- {booked} sur {pieces}",
+        f"- {operations_said} sur {operations}",
         f"Exercice : {period}",
         "Pièces :",
         *invoices,

@@ -67,14 +67,14 @@ def test_the_agent_finds_accounts_by_code_or_misspelled_words(monkeypatch):
     monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: chart)
     assert (
         accounts.list_accounts(5, "hotelrie")
-        == "1 compte(s) du dossier ALPHA :\n61436000 Frais d'hôtellerie et de restauration"
+        == "1 compte du dossier ALPHA :\n61436000 Frais d'hôtellerie et de restauration"
     )
     assert "61421000" in accounts.list_accounts(5, "transport")
     assert [a["id"] for a in accounts.searched(chart, "6111")] == [1]
     assert [a["id"] for a in accounts.searched(chart, "achats de marchandises")] == [1, 2, 3]
-    assert accounts.list_accounts(5, "carburant") == "Aucun compte du dossier ALPHA ne correspond a « carburant »."
+    assert accounts.list_accounts(5, "carburant") == "Aucun compte du dossier ALPHA ne correspond à « carburant »."
     assert accounts.searched(chart, "deplacement") == []  # not "placement"
-    assert accounts.list_accounts(5).startswith("8 compte(s)")
+    assert accounts.list_accounts(5).startswith("8 comptes")
 
 
 @pytest.mark.functionality
@@ -298,7 +298,7 @@ def test_the_account_experio_memorized_for_the_tiers_is_applied(experio):
 def test_a_memorized_account_experio_would_warn_about_is_not_taken(experio):
     experio["answers"][("exp.account", "read")] = [{"code": "44110000", "name": "Fournisseurs"}]
     result = accounts.assign_account(3)
-    assert result["status"] == "question" and "la designation est illisible" in result["message"]
+    assert result["status"] == "question" and "la désignation est illisible" in result["message"]
     assert experio["filled"] == []
 
 
@@ -363,7 +363,7 @@ def test_a_charge_the_model_picks_in_the_chart_is_applied(experio, monkeypatch):
 @pytest.mark.communication
 def test_the_question_names_the_invoice_by_what_it_has():
     invoice = {"id": 3, "invoice_number": False, "partner_id": False, "amount_total": 0}
-    assert accounts.account_question(invoice, None).startswith("Facture 3 : la designation est illisible")
+    assert accounts.account_question(invoice, None).startswith("Facture 3 : la désignation est illisible")
 
 
 @pytest.mark.security
@@ -421,7 +421,7 @@ def test_a_chart_experio_cannot_give_is_said_and_a_long_one_cut_at_100(monkeypat
     many = [{"id": n, "code": f"6{n:07d}", "name": f"Compte {n}"} for n in range(120)]
     monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: many)
     listed = accounts.list_accounts(5)
-    assert listed.startswith("120 compte(s) du dossier ALPHA (les 100 premiers") and listed.count("\n") == 100
+    assert listed.startswith("120 comptes du dossier ALPHA (les 100 premiers") and listed.count("\n") == 100
 
 
 @pytest.mark.functionality

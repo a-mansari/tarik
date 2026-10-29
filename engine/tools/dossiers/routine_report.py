@@ -24,7 +24,7 @@ FIGURES = [  # the progress's columns: figure key, its header
     ("pieces", "Pièces"),
     ("operations_booked", "Opérations comptabilisées"),
     ("operations", "Opérations"),
-    ("suspense", "Opérations en suspens (comptabilisées, non lettrées)"),
+    ("suspense", "Opérations comptabilisées en suspens, non lettrées"),
     ("exercice", "Exercice"),
 ]
 NAMED = 5  # dossiers named in the email's body, the rest only counted
@@ -132,7 +132,7 @@ def summary(task, parts, title, files):
     counts = {result: sum(part["result"] == result for part in parts) for result in words}
     ended = ", ".join(f"**{n}** {words[r][n != 1]}" for r, n in counts.items() if n)
     if counts[LEFT]:
-        ended += " (la période suivante est arrivée avant)"
+        ended += ", la période suivante étant arrivée avant"
     lines = ["Bonjour,", "", f"Voici le rapport « {title} ».", "", "**En bref**", ""]
     lines.append(f"- {plural(len(parts), 'dossier')} parcouru{'s' if len(parts) != 1 else ''} : {ended}")
     least = []
@@ -140,15 +140,18 @@ def summary(task, parts, title, files):
         read = [part for part in parts if part["result"] == READ and part["figures"]["progress"] is not None]
         if read:
             mean = round(sum(part["figures"]["progress"] for part in read) / len(read))
-            lines.append(f"- Avancement moyen des dossiers (celui de chacun selon Experio) : **{mean} %**")
+            lines.append(f"- Avancement moyen des dossiers, selon Experio : **{mean} %**")
             behind = [part for part in read if part["figures"]["progress"] < 100]  # done ones are never « behind »
             least = sorted(behind, key=lambda part: part["figures"]["progress"])[:NAMED]
         waiting = [part for part in parts if part["result"] == READ and part["figures"]["suspense"]]
         if waiting:
             total = sum(part["figures"]["suspense"] for part in waiting)
             dossiers = plural(len(waiting), "dossier")
-            suspense = "Opérations bancaires en suspens (comptabilisées, sans facture lettrée, exercice en cours)"
-            lines.append(f"- {suspense} : {plural(total, 'opération')} dans {dossiers}")
+            lines.append(
+                f"- {plural(total, 'opération bancaire', 'opérations bancaires')} de l'exercice en cours, dans "
+                f"{dossiers}, {'sont' if total > 1 else 'est'} en suspens : comptabilisée{'s' if total > 1 else ''} "
+                "mais sans facture lettrée"
+            )
     if least:
         lines += ["", "**Les moins avancés**", ""]
         lines += [f"{i}. {code(part['dossier'])} : {part['figures']['progress']} %" for i, part in enumerate(least, 1)]
@@ -163,5 +166,7 @@ def summary(task, parts, title, files):
         f"- `{excel}` : le tableau, un dossier par ligne, avec des filtres",
         f"- `{spreadsheet}` : le même tableau, pour un autre logiciel",
         f"- `{text}` : le détail complet, à lire tel quel",
+        "",
+        "Répondez à cet e-mail pour toute question sur un dossier.",
     ]
     return "\n".join(lines)

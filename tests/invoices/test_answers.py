@@ -428,9 +428,9 @@ def test_when_nothing_is_to_be_posted_the_client_is_told_why(db_cabinet, monkeyp
     )
     told = pipeline.waiting_drafts("s", held=True, dossier_id=5)
     assert told["status"] == "stop" and told["invoices"] == []
-    assert "facture 1 (F-1) : attend votre réponse à sa question : quel compte ?" in told["message"]
-    assert "facture 2 (F-2) : Facture 2 : doublon." in told["message"]
-    assert "facture 3 (sans numéro) : pas importée par Tarik" in told["message"]
+    assert "Facture 1 (F-1) attend votre réponse à cette question : quel compte ?" in told["message"]
+    assert "- Facture 2 (F-2) : doublon." in told["message"]
+    assert "Facture 3 (sans numéro) n'a pas été importée par moi" in told["message"]
 
 
 @pytest.mark.communication
@@ -448,7 +448,7 @@ def test_a_draft_another_run_is_working_on_is_said_in_progress(db_cabinet, monke
         "A", "other", "create_draft_invoice", {"status": "ok", "message": "brouillon 2 créé", "invoice_id": 2}
     )
     told = pipeline.waiting_drafts("s", held=True, dossier_id=5, run_id="B")["message"]
-    assert "facture 2 (F-2) : en cours de traitement" in told and "brouillon 2 créé" not in told
+    assert "Facture 2 (F-2) est en cours de traitement" in told and "brouillon 2 créé" not in told
 
 
 @pytest.mark.communication
@@ -471,7 +471,7 @@ def test_an_earlier_runs_stop_is_not_said_of_a_draft_another_run_took_up_again(d
         "C", "other", "wait_until_read", {"status": "ok", "message": "lue par Experio", "invoice_id": 2}
     )
     told = pipeline.waiting_drafts("s", held=True, dossier_id=5, run_id="B")["message"]
-    assert "facture 2 (F-2) : en cours de traitement" in told and "laissée en brouillon" not in told
+    assert "Facture 2 (F-2) est en cours de traitement" in told and "laissée en brouillon" not in told
 
 
 @pytest.mark.functionality
@@ -488,7 +488,7 @@ def test_posting_takes_the_conversations_own_held_drafts_first(db_cabinet, monke
     assert pipeline.waiting_drafts("this", held=True, dossier_id=5)["invoices"] == [7]
     assert pipeline.waiting_drafts("new", held=True, dossier_id=5)["invoices"] == []
     told = pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message="Comptabilisez-les.")["message"]
-    assert "2 brouillon(s) d'autres conversations attendent" in told
+    assert "2 brouillons d'autres conversations attendent" in told
     assert "« comptabilisez toutes les factures du dossier »" in told
     assert pipeline.waiting_drafts(
         "new", held=True, dossier_id=5, client_message="Comptabilisez toutes les factures du dossier."
@@ -562,8 +562,10 @@ def test_asked_for_the_whole_dossier_what_stays_a_draft_is_said_with_why(db_cabi
     )
     assert told["invoices"] == [4] and told["tell"]
     assert told["message"] == (
-        "Restent en brouillon dans ce dossier : 1 attend(ent) une réponse à sa question dans sa conversation, "
-        "1 arrêtée(s) par une étape, à corriger, 2 pas importée(s) par Tarik, à comptabiliser dans Experio."
+        "Restent en brouillon dans ce dossier :\n"
+        "- 1 facture attend votre réponse à sa question, dans sa conversation.\n"
+        "- 1 facture est arrêtée par un point à corriger.\n"
+        "- 2 factures n'ont pas été importées par moi : comptabilisez-les dans Experio."
     )
 
 

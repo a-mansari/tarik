@@ -89,7 +89,7 @@ async def acknowledge(state: Thread):
         result = await call(state["cabinet"], "acknowledge_thread", thread_id=state["thread"]["thread_id"])
         return {"acknowledged": said(result)}
     except Exception as error:  # not sent (whitelist, SMTP): the agent answers all the same
-        return {"acknowledged": f"Pas envoye : {failure_text(error)}"}
+        return {"acknowledged": f"Pas envoyé : {failure_text(error)}"}
 
 
 # What a reply or forward puts before a subject: « Re: », « TR : », « Fwd: », repeated or not.
@@ -135,7 +135,7 @@ async def ask(state: Thread):
         reply = await kept_informed(state["cabinet"], thread["thread_id"], work)
         return {"reply": reply}
     except Exception:  # no reply (the model failing): set aside, with why, never asked twice
-        return {"error": "Tarik n'a pas pu repondre pour le moment."}
+        return {"error": "Je n'ai pas pu répondre pour le moment. J'ai mis ce fil de côté, sans réponse au client."}
 
 
 async def refusal(state: Thread):
@@ -155,7 +155,7 @@ async def notify(state: Thread):
         )
         return {"manager": said(told)}
     except Exception as error:  # no manager set, or the email not sent: the sender still gets nothing
-        return {"manager": f"Pas prevenu : {failure_text(error)}"}
+        return {"manager": f"Pas prévenu : {failure_text(error)}"}
 
 
 def said(result):
@@ -185,7 +185,7 @@ async def send(state: Thread):
         )
     except Exception as error:
         return {"error": failure_text(error)}
-    return {"sent": f"Envoye a {thread['to']}.", "sent_id": (result or {}).get("message_id") or ""}
+    return {"sent": f"Envoyé à {thread['to']}.", "sent_id": (result or {}).get("message_id") or ""}
 
 
 async def resumed(state, name, node):
@@ -217,7 +217,7 @@ async def follow_up_dossiers(state: Thread):
     except Exception as error:  # set aside with why: never answered blind
         return {"error": failure_text(error)}
     told = "\n\n".join(said for said in summaries if said)
-    return {"reply": for_client("Suite du traitement de vos documents :\n\n" + told)}
+    return {"reply": for_client("J'ai poursuivi le traitement de vos documents. Voici où il en est.\n\n" + told)}
 
 
 async def finish(state: Thread):

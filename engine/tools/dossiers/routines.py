@@ -23,7 +23,7 @@ from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.conversation import client_messages, own_words
 from engine.tools.core.experio import odoo_call, refused
 from engine.tools.core.queries import Q
-from engine.tools.core.words import normalized
+from engine.tools.core.words import counted, normalized
 from engine.tools.dossiers.identity import client_wrote, confirmed
 from engine.tools.dossiers.people import RANK, ROUTINE_SESSION, collaborator, exactly, sender_of, sender_reach
 from engine.tools.emails.sending import allowed_recipients, recipient_allowed
@@ -286,7 +286,7 @@ def manage_routine(
         ToolError: unknown ``action``."""
     if action not in ACTIONS:
         raise ToolError(f"action : {', '.join(ACTIONS)}.")
-    with refused(f"manage_routine {action}", "Experio n'a pas pu verifier vos droits."):
+    with refused(f"manage_routine {action}", "Experio n'a pas pu vérifier vos droits."):
         reach = sender_reach(session_id)
     sender = sender_of(session_id) or CHAT
     if action in ("create", "update", "resume") and reach is not None and reach.get("rank", 0) < RANK["admin"]:
@@ -304,7 +304,8 @@ def manage_routine(
     if action == "list":
         if not rows:
             return routine("Aucune routine.")
-        return ok(f"{len(rows)} routine(s) :\n" + "\n".join(f"- {listed(row)}" for row in rows))
+        head = counted(len(rows), "{} routine :\n", "{} routines :\n")
+        return ok(head + "\n".join(f"- {listed(row)}" for row in rows))
     row = next((r for r in rows if r["id"] == routine_id), None)
     if not row:
         return question(f"Quelle routine ? Aucune n° {routine_id} parmi les vôtres (demandez la liste).")

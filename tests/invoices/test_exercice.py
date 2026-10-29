@@ -149,7 +149,7 @@ def test_a_late_invoice_is_booked_by_experios_own_action_in_the_exercice_chosen(
 def test_a_dossier_without_a_late_invoice_account_is_told_its_current_account_stays(experio):
     experio["company"]["old_invoice_account_id"] = False
     result = exercice.settle_exercice(3, answer="2024", decision="Exercice 2024")
-    assert result["status"] == "ok" and "Aucun compte de factures anterieures dans le dossier" in result["message"]
+    assert result["status"] == "ok" and "Aucun compte de factures antérieures dans le dossier" in result["message"]
     assert [call[0] for call in json_calls(experio)] == ["action_activate_old_invoice"]
 
 

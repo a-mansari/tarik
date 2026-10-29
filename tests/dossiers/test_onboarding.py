@@ -141,7 +141,7 @@ def test_a_new_dossier_takes_only_the_ice_and_if_the_client_wrote(db_cabinet, mo
     answer = identity.create_dossier(
         name="FAIR KAPPA", ice="001111222333444", if_number="0712345", client_message=MESSAGE, session_id="s"
     )
-    assert answer["status"] == "ok" and answer["message"].endswith("Non repris, le client ne l'a pas ecrit : ICE.")
+    assert answer["status"] == "ok" and answer["message"].endswith("Non repris, car le client ne l'a pas écrit : ICE.")
 
 
 @pytest.mark.security
@@ -289,7 +289,7 @@ def test_a_new_dossier_skips_the_registry_check_only_on_the_clients_yes(creating
     first = identity.create_dossier(
         name="GAMMA", ice="008123456000999", skip_ice_if_check=True, client_message=message, session_id="s"
     )
-    assert first["status"] == "question" and "creation du dossier `GAMMA` sans cette verification" in first["message"]
+    assert first["status"] == "question" and "création du dossier `GAMMA` sans cette vérification" in first["message"]
     asked("create_dossier", first["message"])
     done = identity.create_dossier(
         name="GAMMA",
@@ -300,7 +300,7 @@ def test_a_new_dossier_skips_the_registry_check_only_on_the_clients_yes(creating
         session_id="s",
     )
     assert creating[0]["ignore_ice_if_verification"] is True and creating[0]["ice"] == "008123456000999"
-    assert done["message"].endswith("ICE et IF non verifies (verification ignoree, a la demande du client).")
+    assert done["message"].endswith("ICE et IF non vérifiés : la vérification a été ignorée, à la demande du client.")
 
 
 @pytest.mark.security
@@ -308,7 +308,7 @@ def test_an_if_the_client_did_not_write_is_left_out_of_a_new_dossier(creating):
     answer = identity.create_dossier(
         name="DELTA", if_number="99887766", client_message="Créez DELTA, IF 0712345", session_id="s"
     )
-    assert "vat" not in creating[0] and answer["message"].endswith("Non repris, le client ne l'a pas ecrit : IF.")
+    assert "vat" not in creating[0] and answer["message"].endswith("Non repris, car le client ne l'a pas écrit : IF.")
 
 
 @pytest.mark.functionality
@@ -321,5 +321,5 @@ def test_an_unknown_dossier_type_is_refused(creating):
 @pytest.mark.communication
 def test_experio_refusing_a_new_dossier_gives_its_reason(creating, monkeypatch):
     monkeypatch.setattr(identity, "odoo_json", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("ICE invalide")))
-    with pytest.raises(ToolError, match="Experio refuse de creer le dossier `DELTA` : ICE invalide"):
+    with pytest.raises(ToolError, match="Experio refuse de créer le dossier `DELTA` : ICE invalide"):
         identity.create_dossier(name="DELTA", client_message="Créez DELTA", session_id="s")

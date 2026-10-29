@@ -215,9 +215,9 @@ def pointed(client_message=""):
 def test_a_statement_is_pointed_by_experios_detection_and_its_blocked_lines_said(experio):
     result = pointed(client_message="")
     assert experio["applied"] == [[5]]  # Experio's « Auto Point », confirmed as its window's « Apply »
-    assert "2 pointée(s) par la détection d'Experio" in result["message"]
-    assert "1 prête(s) à comptabiliser" in result["message"]
-    assert "The partner is mandatory for this operation. (2)" in result["message"]
+    assert "2 opérations ont été pointées par la détection d'Experio." in result["message"]
+    assert "1 est prête à comptabiliser" in result["message"]
+    assert "- 2 opérations à compléter dans Experio : the partner is mandatory for this operation." in result["message"]
 
 
 @pytest.mark.functionality
@@ -235,7 +235,7 @@ def test_a_line_the_client_ties_to_an_invoice_by_its_number_gets_it(experio):
     named = [("company_id", "=", 857), ("state", "in", ["post", "export"]), ("invoice_number", "!=", False)]
     picker = [("company_id", "=", 857), ("id", "in", [70])]  # the line's form's picker, asked about the named ones
     assert experio["searched"] == [("search_read", [*named, ("amount_residual", "in", [200.0])]), ("search", picker)]
-    assert "1 rattachée(s) à la facture que vous avez citée" in result["message"]
+    assert "1 opération est rattachée à la facture que vous avez citée." in result["message"]
 
 
 @pytest.mark.functionality
@@ -259,8 +259,8 @@ def test_an_invoice_on_another_line_is_not_given(experio):
     result = pointed(client_message="facture FA-0012")
     assert experio["written"] == [] and experio["typed"] == []
     assert (
-        "Facture(s) citée(s) non rattachée(s) : FA-0012 : déjà sur une opération d'un autre relevé."
-        in result["message"]
+        "Je n'ai pas rattaché la facture FA-0012 que vous avez citée : elle est déjà sur une opération d'un autre "
+        "relevé." in result["message"]
     )
 
 
@@ -279,7 +279,10 @@ def test_an_invoice_the_lines_form_refuses_is_not_given_and_its_reason_said(expe
     experio["form"] = {70: ExperioRefusal(SAME_ACCOUNT, "odoo.exceptions.UserError")}
     result = pointed(client_message="facture FA-0012")
     assert experio["written"] == []
-    assert f"FA-0012 : Experio la refuse sur l'opération « VIR 1 » ({SAME_ACCOUNT})." in result["message"]
+    assert (
+        f"FA-0012 que vous avez citée : Experio la refuse sur l'opération « VIR 1 » ({SAME_ACCOUNT})."
+        in result["message"]
+    )
 
 
 @pytest.mark.functionality
@@ -289,7 +292,7 @@ def test_of_two_invoices_named_the_one_the_form_accepts_is_given(experio):
     experio["form"] = {70: ExperioRefusal(SAME_ACCOUNT, "odoo.exceptions.UserError"), 71: {}}
     result = pointed(client_message="FA-0012 ou FA-0013")
     assert experio["written"] == [([2], {"invoice_ids": [(4, 71)]})]  # the form filled no tiers: none written
-    assert "FA-0012 : " in result["message"]
+    assert "FA-0012 que vous avez citée : " in result["message"]
 
 
 @pytest.mark.functionality
@@ -302,7 +305,10 @@ def test_a_line_two_invoices_fit_gets_none_and_no_more_is_tried(experio):
     result = pointed(client_message="FA-0012 FA-0013 FA-0014")
     assert experio["written"] == [] and len(experio["typed"]) == 2
     for number in ("FA-0012", "FA-0013", "FA-0014"):  # FA-0014 was not tried: the same reason
-        assert f"{number} : une autre facture citée convient aussi à l'opération « VIR 1 »" in result["message"]
+        assert (
+            f"{number} que vous avez citée : une autre facture citée convient aussi à l'opération « VIR 1 »"
+            in result["message"]
+        )
 
 
 @pytest.mark.functionality
@@ -326,7 +332,10 @@ def test_an_invoice_the_lines_picker_leaves_out_is_said_not_given(experio):
     experio["picker"] = set()  # another tiers' or the other way's
     result = pointed(client_message="facture FA-0012")
     assert experio["written"] == [] and experio["typed"] == []
-    assert "FA-0012 : l'opération de son montant ne la propose pas (autre tiers ou autre sens)." in result["message"]
+    assert (
+        "FA-0012 que vous avez citée : l'opération de son montant ne la propose pas (autre tiers ou autre sens)."
+        in result["message"]
+    )
 
 
 @pytest.mark.functionality
@@ -409,8 +418,11 @@ def test_a_statement_experio_still_reads_waits(experio, monkeypatch):
 @pytest.mark.functionality
 def test_posting_takes_the_ready_lines_and_lists_whats_in_suspense(experio):
     result = statement.post_statement(8)
-    assert result["status"] == "ok" and "1 opération(s) comptabilisée(s), 2 restent à compléter" in result["message"]
-    assert "En suspens" in result["message"] and "VIR 1 (200.00)" in result["message"]
+    assert (
+        result["status"] == "ok"
+        and "j'ai comptabilisé 1 opération.\n- 2 opérations restent à compléter" in result["message"]
+    )
+    assert "reste en suspens" in result["message"] and "VIR 1 (200.00)" in result["message"]
 
 
 @pytest.mark.security
@@ -492,7 +504,7 @@ def test_a_template_experio_refuses_leaves_no_empty_statement(monkeypatch):
 def test_a_statement_without_balances_is_said_so_never_called_incomplete(experio):
     experio["statement"].update(balance_start=0.0, balance_end_real=0.0, is_complete=False, balance_end=-2216.37)
     message = pointed()["message"]
-    assert "ne donne pas ses soldes" in message and "une opération manque" not in message
+    assert "n'indique pas ses soldes" in message and "une opération manque" not in message
 
 
 @pytest.mark.functionality
@@ -563,14 +575,14 @@ def test_a_tpe_statement_experio_refuses_says_its_reason(monkeypatch, step):
 def test_no_detection_from_experio_points_nothing(experio, monkeypatch):
     monkeypatch.setattr(statement, "odoo_json", lambda model, method, ids, **kw: True)  # « No detection results »
     assert statement.auto_point({"id": 40}, {}) == 0
-    assert "pointée(s)" not in pointed()["message"]
+    assert "pointée" not in pointed()["message"]
 
 
 @pytest.mark.security
 def test_test_mode_confirms_no_detection_ties_no_invoice_and_posts_nothing(experio, monkeypatch):
     monkeypatch.setattr(statement, "dry_run", lambda: True)
     result = pointed(client_message="Le virement paie la facture FA-0012.")
-    assert result["message"].startswith("MODE TEST") and "2 pointée(s)" in result["message"]
+    assert result["message"].startswith("MODE TEST") and "2 opérations ont été pointées" in result["message"]
     assert experio["applied"] == [] and experio["written"] == []
     posted = statement.post_statement(8)
     assert posted["message"].startswith("MODE TEST") and "seraient comptabilisées" in posted["message"]
@@ -583,7 +595,7 @@ def test_a_posted_statement_is_neither_pointed_nor_posted_again(experio, monkeyp
         line["state"] = "post"
     monkeypatch.setattr(statement, "tie_tpe", lambda *a: pytest.fail("a posted statement is not tied"))
     result = pointed(client_message="facture FA-0012")
-    assert experio["applied"] == [] and experio["written"] == [] and "3 déjà comptabilisée(s)" in result["message"]
+    assert experio["applied"] == [] and experio["written"] == [] and "3 sont déjà comptabilisées" in result["message"]
     assert statement.post_statement(8)["message"] == "Relevé n° 40 : déjà comptabilisé."
 
 
@@ -591,8 +603,8 @@ def test_a_posted_statement_is_neither_pointed_nor_posted_again(experio, monkeyp
 def test_tpe_remittances_tied_and_left_are_said(experio, monkeypatch):
     monkeypatch.setattr(statement, "tie_tpe", lambda statement_, context: (2, 1))
     message = pointed()["message"]
-    assert "2 versement(s) TPE rapproché(s) de leur relevé TPE" in message
-    assert "1 versement(s) TPE sans relevé TPE certain : à rapprocher par le cabinet" in message
+    assert "2 versements TPE sont rapprochés de leur relevé TPE." in message
+    assert "1 versement TPE n'a pas de relevé TPE certain : le cabinet doit le rapprocher." in message
 
 
 @pytest.mark.functionality
@@ -719,7 +731,7 @@ def test_a_line_without_operation_gets_the_one_the_model_reads_in_its_label_with
     experio["answer"] = {"lines": [{"id": 2, "operation": 13156, "payment_method": 3}]}
     message = pointed()["message"]
     assert ([2], {"operation_id": 13156, "partner_id": 31}) in experio["written"]  # no payment method: not a purchase
-    assert "1 reçoivent de Tarik leur type d'opération" in message
+    assert "1 opération a reçu son type d'opération" in message
     asked = experio["asked"][0]
     assert "13136 | Achat Local | purchase | outbound" in asked and "2 | 2026-03-15 | -200.00 | outbound | ? |" in asked
 
@@ -763,7 +775,7 @@ def test_without_the_model_the_lines_stay_for_the_cabinet_and_the_pointing_goes_
     unpointed(experio)
     experio["answer"] = ToolError("Pointage du relevé : le modele n'est pas encore configure.")
     message = pointed()["message"]
-    assert "2 pointée(s) par la détection d'Experio" in message and "type d'opération" not in message
+    assert "2 opérations ont été pointées par la détection d'Experio." in message and "type d'opération" not in message
 
 
 @pytest.mark.functionality
@@ -807,7 +819,7 @@ def test_a_line_with_its_tiers_gets_the_one_open_invoice_of_its_amount(experio):
     message = pointed()["message"]
     assert ([1], {"invoice_ids": [(4, 70)]}) in experio["written"]
     assert experio["owing"][0][-1] == ("amount_residual", "=", 200.0)  # in the line's own picker
-    assert "1 la seule facture ouverte de leur tiers et de leur montant" in message
+    assert "1 opération a reçu la seule facture ouverte de son tiers et de son montant." in message
 
 
 @pytest.mark.functionality
@@ -828,7 +840,7 @@ def test_a_dossiers_open_statements_are_listed_to_be_pointed_and_each_posted(exp
     listed = statement.list_open_statements(857)
     assert listed["statement_ids"] == [40, 41] and listed.get("routine") and "n° 40, n° 41" in listed["message"]
     posted = statement.post_dossier_statements(857)
-    assert posted["message"].count("opération(s) comptabilisée(s)") == 2 and "\n- Relevé n° 41 :" in posted["message"]
+    assert posted["message"].count("j'ai comptabilisé") == 2 and "\n- Relevé n° 41 :" in posted["message"]
 
 
 @pytest.mark.functionality
@@ -852,8 +864,8 @@ def test_a_bank_statement_read_by_experio_goes_on_to_its_pointing_steps(experio,
 @pytest.mark.communication
 def test_each_pointing_step_says_what_it_did_for_the_report(experio):
     detected = statement.detect_statement_lines(40)
-    assert detected["said"] == "2 pointée(s) par la détection d'Experio" and detected.get("routine")
-    assert statement.name_line_tiers(40)["message"] == "Relevé n° 40 : rien de plus."
+    assert detected["said"] == "2 opérations ont été pointées par la détection d'Experio." and detected.get("routine")
+    assert statement.name_line_tiers(40)["message"] == "Relevé n° 40 : rien d'autre à faire."
 
 
 @pytest.mark.functionality
@@ -1024,7 +1036,7 @@ def test_a_line_nothing_says_goes_to_the_suspense_of_its_way_and_the_client_is_t
     with_suspense(experio, payment_ref="CD AP 000155 030826", debit=debit, credit=credit)
     message = pointed()["message"]
     assert ([2], {"operation_id": operation}) in experio["written"]
-    assert "1 ligne(s) sans indice dans le libellé mise(s) en compte d'attente (3497 ou 4497)" in message
+    assert "1 opération dont le libellé ne dit rien est en compte d'attente (3497 ou 4497)" in message
 
 
 @pytest.mark.security
@@ -1124,7 +1136,7 @@ def test_a_transfer_number_quoted_in_another_entry_names_the_supplier_and_the_ca
     cheque(experio, "VIR EMIS WEB 123456789")["by_number"] = [{"partner_id": [9, "ATLAS"], "debit": 0, "credit": 5.0}]
     message = pointed()["message"]
     assert ([2], {"partner_id": 9}) in experio["written"]  # a transfer's number alone: 62 of 65 right
-    assert "leur tiers retrouvé dans le grand livre" in message and "à vérifier par le cabinet" in message
+    assert "son tiers, retrouvé dans le grand livre" in message and "le cabinet doit le vérifier" in message
 
 
 @pytest.mark.functionality
@@ -1176,7 +1188,7 @@ def test_an_invoice_number_in_the_label_ties_the_invoice_and_gives_the_tiers(exp
     experio["lines"][1]["partner_id"] = False
     message = pointed()["message"]
     assert ([2], {"invoice_ids": [(4, 70)], "partner_id": 9}) in experio["written"]
-    assert "rattachée(s) à la facture dont le numéro est dans le libellé" in message
+    assert "1 opération est rattachée à la facture dont son libellé porte le numéro." in message
 
 
 @pytest.mark.functionality
@@ -1281,7 +1293,7 @@ def test_a_counterparty_the_dossier_does_not_know_is_created_from_the_label_and_
     assert experio["created"] == [{"name": "ATLAS NEGOCE", "type": "company", "company_id": 857, "is_supplier": True}]
     assert ([2], {"partner_id": 77}) in experio["written"]
     assert ([77], {"third_party_supplier_account": "441100999"}) in experio["created_written"]  # the series' code
-    assert "Tiers créé(s) d'après le libellé : `ATLAS NEGOCE`" in message
+    assert "J'ai créé le tiers `ATLAS NEGOCE` d'après le libellé." in message
 
 
 @pytest.mark.functionality

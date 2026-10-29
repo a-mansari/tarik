@@ -46,14 +46,14 @@ def test_the_rows_as_written_and_what_is_wrong_with_them(experio):
     rows = rows_of(text)
     assert rows[0]["ice"] == "001234567000089" and rows[0]["ras_tva"] is True  # leading zeros back, oui read
     assert [p.split(" : ", 1)[1] for p in problems_of(rows)] == [
-        "l'ICE ou l'IF est deja celui du dossier `ALPHA SARL`",
-        "le dossier `ALPHA SARL` existe deja",
-        "type « SA » inconnu (societe, personne physique, CPU, ST)",
+        "l'ICE ou l'IF est déjà celui du dossier `ALPHA SARL`",
+        "le dossier `ALPHA SARL` existe déjà",
+        "type « SA » inconnu (société, personne physique, CPU, ST)",
         "IF « abc » incorrect (chiffres uniquement)",
-        "mode de declaration « annuelle » inconnu (mensuelle, trimestrielle, hors champ)",
+        "mode de déclaration « annuelle » inconnu (mensuelle, trimestrielle, hors champ)",
         "RAS TVA « peut-etre » incompris (oui ou non)",
-        "meme ICE que la ligne 2",
-        "l'ICE ou l'IF est deja celui du dossier `ALPHA SARL`",
+        "même ICE que la ligne 2",
+        "l'ICE ou l'IF est déjà celui du dossier `ALPHA SARL`",
         "en double avec la ligne 2",
     ]
     with pytest.raises(ToolError, match="il manque des colonnes.*ICE"):
@@ -87,12 +87,12 @@ def test_the_dossiers_are_created_only_on_the_clients_yes_to_the_list(experio, m
     asked = management.import_dossiers(7, False, "s")
     assert (
         asked["status"] == "question"
-        and "- `BETA` : societe" in asked["message"]
-        and "Je les cree ?" in asked["message"]
+        and "- `BETA` : société" in asked["message"]
+        and "Je les crée ?" in asked["message"]
     )
     assert experio == []
     done = management.import_dossiers(7, True, "s")
-    assert done["message"] == "`dossiers.csv` : 2 dossier(s) cree(s) sur 2."
+    assert done["message"] == "`dossiers.csv` : 2 dossiers créés sur 2."
     assert experio[0] == {
         "name": "BETA",
         "folder_type": "company",
@@ -122,7 +122,7 @@ def test_a_person_is_made_of_the_clients_words_and_their_yes(monkeypatch):
     invented = management.create_person(
         "collaborator", 5, "Samira Alami", "s.alami@cabinet.ma", "", "chef de mission", False, message, "s"
     )
-    assert "son e-mail" in invented["message"] and "email : pas ecrit par le client" in invented["message"]
+    assert "son e-mail" in invented["message"] and "email : pas écrit par le client" in invented["message"]
     asked = management.create_person(
         "collaborator", 5, "Samira Alami", "samira@cabinet.ma", "", "chef de mission", False, message, "s"
     )
@@ -131,9 +131,11 @@ def test_a_person_is_made_of_the_clients_words_and_their_yes(monkeypatch):
         "collaborator", 5, "Samira Alami", "samira@cabinet.ma", "", "chef de mission", True, message, "s"
     )
     assert done["message"].startswith(
-        "Collaborateur `Samira Alami` (`samira@cabinet.ma`) cree et rattache au dossier `BETA`"
+        "Collaborateur `Samira Alami` (`samira@cabinet.ma`) créé et rattaché au dossier `BETA`"
     )
-    assert done["message"].endswith(" Invitation Experio envoyee a `samira@cabinet.ma` (identifiant et mot de passe).")
+    assert done["message"].endswith(
+        " J'ai envoyé l'invitation Experio à `samira@cabinet.ma`, avec son identifiant et son mot de passe."
+    )
     assert written[0] == {
         "name": "Samira Alami",
         "login": "samira@cabinet.ma",  # no "email": Odoo's sign-up mail is not Experio's invitation
@@ -168,9 +170,9 @@ def test_archiving_reads_back_and_waits_for_the_yes(monkeypatch):
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
     monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
     asked = management.archive_dossier(5, False, "s")
-    assert "`BETA` (12 facture(s), dont 7 comptabilisee(s))" in asked["message"] and archived == []
+    assert "`BETA`, qui a 12 factures, dont 7 comptabilisées." in asked["message"] and archived == []
     done = management.archive_dossier(5, True, "s")
-    assert done["message"].startswith("Dossier `BETA` archive.") and archived == [[5]]
+    assert done["message"].startswith("Dossier `BETA` archivé.") and archived == [[5]]
 
 
 @pytest.mark.communication
@@ -180,7 +182,7 @@ def test_archiving_reads_back_and_waits_for_the_yes(monkeypatch):
         ("dossiers.pdf", b"%PDF", "envoyez la liste des dossiers en Excel (.xlsx) ou en CSV"),
         ("dossiers.xlsx", b"pas un classeur", "fichier illisible"),
         ("dossiers.csv", b";;\n", "le fichier est vide"),
-        ("dossiers.csv", HEAD.encode(), "aucune ligne de dossier sous l'en-tete"),
+        ("dossiers.csv", HEAD.encode(), "aucune ligne de dossier sous l'en-tête"),
     ],
 )
 def test_a_list_that_cannot_be_read_says_why(name, data, said):
@@ -229,7 +231,7 @@ def listing(experio, monkeypatch):
 def test_a_rows_country_town_and_ras_tva_are_read_back_and_created(listing, experio):
     asked = management.import_dossiers(7, False, "s")
     assert (
-        "- `BETA` : societe, ICE non renseigne, IF non renseigne, mensuelle, 20000 Casablanca, Maroc, RAS TVA non"
+        "- `BETA` : société, ICE non renseigné, IF non renseigné, mensuelle, 20000 Casablanca, Maroc, RAS TVA non"
         in (asked["message"])
     )
     management.import_dossiers(7, True, "s")
@@ -249,15 +251,15 @@ def test_a_rows_country_town_and_ras_tva_are_read_back_and_created(listing, expe
 def test_a_list_with_problems_creates_nothing_and_shows_the_first_ones(listing, experio):
     listing["text"] = HEAD + "".join(f"\nD{n};SA;;;mensuelle;;" for n in range(17))
     answer = management.import_dossiers(7, True, "s")
-    assert answer["status"] == "stop" and "le fichier a 17 probleme(s)" in answer["message"]
-    assert "- ... et 2 autre(s)" in answer["message"] and experio == []
+    assert answer["status"] == "stop" and "le fichier a 17 problèmes" in answer["message"]
+    assert "- ... et 2 autres" in answer["message"] and experio == []
 
 
 @pytest.mark.communication
 def test_a_long_list_is_read_back_in_part(listing):
     listing["text"] = HEAD + "".join(f"\nD{n};societe;;;mensuelle;;" for n in range(17))
     asked = management.import_dossiers(7, False, "s")
-    assert "17 dossier(s), tous corrects" in asked["message"] and "- ... et 2 autres" in asked["message"]
+    assert "17 dossiers, tous corrects" in asked["message"] and "- ... et 2 autres" in asked["message"]
     assert "- D15" not in asked["message"]
 
 
@@ -265,7 +267,7 @@ def test_a_long_list_is_read_back_in_part(listing):
 def test_in_test_mode_the_list_is_only_said(listing, experio, monkeypatch):
     monkeypatch.setattr(management, "dry_run", lambda: True)
     answer = management.import_dossiers(7, True, "s")
-    assert answer["message"] == f"{TEST_MODE}`dossiers.csv` : 1 dossier(s) seraient crees." and experio == []
+    assert answer["message"] == f"{TEST_MODE}`dossiers.csv` : 1 dossier serait créé." and experio == []
 
 
 @pytest.mark.communication
@@ -282,7 +284,7 @@ def test_the_rows_experio_refuses_are_listed_and_the_others_created(listing, exp
     monkeypatch.setattr(management, "odoo_json", odoo_json)
     answer = management.import_dossiers(7, True, "s")
     assert answer["message"] == (
-        "`dossiers.csv` : 1 dossier(s) cree(s) sur 2.\nRefuses par Experio :\n"
+        "`dossiers.csv` : 1 dossier créé sur 2.\nExperio a refusé ces lignes :\n"
         "- Ligne 3 (`DELTA`) : IF inconnu du registre"
         "\nCorrigez ces lignes et renvoyez-les seules."
     )
@@ -292,7 +294,7 @@ def test_the_rows_experio_refuses_are_listed_and_the_others_created(listing, exp
 @pytest.mark.communication
 def test_experio_not_checking_the_list_is_said(listing, monkeypatch):
     monkeypatch.setattr(management, "dossiers", lambda: (_ for _ in ()).throw(RuntimeError("timeout")))
-    with pytest.raises(ToolError, match="Experio n'a pas pu verifier la liste des dossiers"):
+    with pytest.raises(ToolError, match="Experio n'a pas pu vérifier la liste des dossiers"):
         management.import_dossiers(7, True, "s")
 
 
@@ -340,12 +342,13 @@ def test_a_client_is_created_with_the_phone_the_client_wrote(person):
     asked = management.create_person(
         "client", 5, "Karim Idrissi", "karim@beta.ma", "0612345678", "client", False, MESSAGE, "s"
     )
-    assert "- Telephone : 0612345678\n" in asked["message"] and person == []
+    assert "- Téléphone : 0612345678\n" in asked["message"] and person == []
     done = management.create_person(
         "client", 5, "Karim Idrissi", "karim@beta.ma", "0612345678", "client", True, MESSAGE, "s"
     )
     assert done["message"].startswith(
-        "Client `Karim Idrissi` (`karim@beta.ma`) cree et rattache au dossier `BETA`, profil `Client`. Invitation"
+        "Client `Karim Idrissi` (`karim@beta.ma`) créé et rattaché au dossier `BETA`, profil `Client`. "
+        "J'ai envoyé l'invitation"
     )
     assert person[0]["phone"] == "0612345678" and person[0]["employee_type"] == "client"
     assert person[1] == (42, 5, 7, "client") and person[2] == ("action_invite_user", [42])
@@ -356,13 +359,13 @@ def test_a_person_already_in_experio_is_only_attached(person, monkeypatch):
     known = {"id": 8, "name": "K. Idrissi", "login": "karim@beta.ma", "employee_state": "active"}
     monkeypatch.setattr(management, "user_by_email", lambda email, kind: known)
     asked = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", False, MESSAGE, "s")
-    assert asked["message"].startswith("Le client `K. Idrissi` existe deja (`karim@beta.ma`). Avant de le rattacher")
+    assert asked["message"].startswith("Le client `K. Idrissi` existe déjà (`karim@beta.ma`). Avant de le rattacher")
     done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
-    assert done["message"] == "Client `Karim Idrissi` (`karim@beta.ma`) rattache au dossier `BETA`, profil `Client`."
+    assert done["message"] == "Client `Karim Idrissi` (`karim@beta.ma`) rattaché au dossier `BETA`, profil `Client`."
     assert person == [(8, 5, 7, "client")]  # already invited: no new password sent
     known["employee_state"] = "new"  # made in Experio, never invited: invited now
     done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
-    assert person[-1] == ("action_invite_user", [8]) and "Invitation Experio envoyee" in done["message"]
+    assert person[-1] == ("action_invite_user", [8]) and "J'ai envoyé l'invitation Experio" in done["message"]
 
 
 @pytest.mark.communication
@@ -375,15 +378,16 @@ def test_an_invitation_experio_refuses_leaves_the_person_made_and_says_why(perso
     monkeypatch.setattr(management, "odoo_json", refusing)
     monkeypatch.setattr(management, "experio_refusal", lambda error: "nombre maximal d'utilisateurs atteint")
     done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
-    assert done["status"] == "ok" and "cree et rattache" in done["message"]
-    assert "Invitation non envoyee, Experio refuse : nombre maximal d'utilisateurs atteint" in done["message"]
+    assert done["status"] == "ok" and "créé et rattaché" in done["message"]
+    refusal = "Je n'ai pas pu envoyer l'invitation, car Experio refuse : nombre maximal d'utilisateurs atteint"
+    assert refusal in done["message"]
 
 
 @pytest.mark.communication
 def test_a_name_the_client_did_not_write_is_asked(person):
     asked = management.create_person("client", 5, "Karim Alaoui", "karim@beta.ma", "", "client", True, MESSAGE, "s")
     assert asked["message"] == (
-        "Pour creer ce client sur le dossier `BETA`, il me faut son nom. (name : pas ecrit par le client)"
+        "Pour créer ce client sur le dossier `BETA`, il me faut son nom. (name : pas écrit par le client)"
     )
     assert person == []
 
@@ -398,7 +402,7 @@ def test_a_person_of_no_known_kind_is_refused(person):
 def test_in_test_mode_the_person_is_only_said(person, monkeypatch):
     monkeypatch.setattr(management, "dry_run", lambda: True)
     done = management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
-    assert done["message"] == f"{TEST_MODE}Client `Karim Idrissi` (`karim@beta.ma`) serait rattache au dossier `BETA`."
+    assert done["message"] == f"{TEST_MODE}Client `Karim Idrissi` (`karim@beta.ma`) serait rattaché au dossier `BETA`."
     assert person == []
 
 
@@ -408,7 +412,7 @@ def test_experio_failing_a_person_says_where(person, monkeypatch):
     with pytest.raises(ToolError, match="Experio refuse ce client : login deja pris"):
         management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
     monkeypatch.setattr(management, "user_by_email", lambda *a: 1 / 0)
-    with pytest.raises(ToolError, match="Experio n'a pas pu verifier cet utilisateur"):
+    with pytest.raises(ToolError, match="Experio n'a pas pu vérifier cet utilisateur"):
         management.create_person("client", 5, "Karim Idrissi", "karim@beta.ma", "", "client", True, MESSAGE, "s")
     monkeypatch.setattr(management, "profiles", lambda kind: 1 / 0)
     with pytest.raises(ToolError, match="Experio n'a pas pu lire les profils"):
@@ -423,7 +427,7 @@ def test_in_test_mode_nothing_is_archived(monkeypatch):
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)
     monkeypatch.setattr(management, "sender_reach", lambda session_id: None)  # the chat: no sender to limit
     monkeypatch.setattr(management, "odoo_json", lambda *a: pytest.fail("archived"))
-    assert management.archive_dossier(5, True, "s")["message"] == f"{TEST_MODE}Le dossier `BETA` serait archive."
+    assert management.archive_dossier(5, True, "s")["message"] == f"{TEST_MODE}Le dossier `BETA` serait archivé."
 
 
 @pytest.mark.communication
@@ -480,7 +484,7 @@ def test_an_access_change_is_read_back_and_made_only_on_the_clients_yes(access):
     assert asked["status"] == "question" and "lui donner le dossier\n- Dossier : `BETA`" in asked["message"]
     assert access["written"] == []
     done = changed("assign")
-    assert done["message"] == "Collaborateur `Samira Alami` (`samira@cabinet.ma`) : dossier donne (dossier `BETA`)."
+    assert done["message"] == "Collaborateur `Samira Alami` (`samira@cabinet.ma`) : dossier donné (dossier `BETA`)."
     assert access["written"] == [("attach", 42, 5, None, "employee")]
 
 
@@ -508,7 +512,7 @@ def test_a_role_everywhere_or_on_one_dossier(access):
     done = changed("role", 1, "chef de mission")
     row = {"user_id": 42, "company_id": 1, "profile_id": 2}
     assert access["written"][-1] == ("exp.user.company.profile", "create", row)
-    assert done["message"].endswith("profil change sur ce dossier (dossier `BETA`), profil `Chef de mission`.")
+    assert done["message"].endswith("profil changé sur ce dossier (dossier `BETA`), profil `Chef de mission`.")
 
 
 @pytest.mark.functionality
@@ -540,7 +544,7 @@ def sender(access, monkeypatch):
 @pytest.mark.security
 def test_a_sender_changes_access_only_on_their_dossiers_and_never_above_themselves(access, sender):
     refused = changed("assign", 1)  # dossier 1 is not Chef's
-    assert refused["status"] == "stop" and "n'est pas attribue a `Chef`" in refused["message"]
+    assert refused["status"] == "stop" and "n'est pas attribué à `Chef`" in refused["message"]
     assert "plus de droits" in changed("role", 0, "admin")["message"]  # a profile above Chef's own
     access["user"]["exp_profile_id"] = [9, "Admin"]
     assert "`Samira Alami` a plus de droits que `Chef`" in changed("invite", 0)["message"]  # no reset of an admin

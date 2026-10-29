@@ -59,7 +59,7 @@ def test_a_long_run_s_summary_keeps_what_the_client_needs_and_drops_the_rest(db_
             "  - comptabilisee.",
         ]
     assert "Facture 27" in rest.split("**À corriger**")[0] and "Facture 27" not in done  # a duplicate, only there
-    assert "Facture 30 : problème à l'étape vérification" in rest.split("**Questions**")[0]
+    assert "Facture 30 : je n'ai pas pu vérifier la facture : " in rest.split("**Questions**")[0]
     questions = rest.split("**Questions**\n")[1].splitlines()
     assert [line[:3] for line in questions] == ["1. ", "2. "] and all("QUESTION : Facture" in q for q in questions)
     assert "Facture 29" not in done  # where it stands: its question, not what was done before it
@@ -75,6 +75,19 @@ def test_a_draft_kept_until_the_client_says_to_post_it_waits_it_is_nothing_to_co
     held = "Facture 14 : importée et vérifiée, laissée en brouillon. Dites-moi quand la comptabiliser."
     record_step("r", "s", "hold_posting", {"status": "stop", "message": held, "invoice_id": 14})
     assert run_summary("r")["message"] == f"**En attente**\n- {held}"
+
+
+@pytest.mark.communication
+def test_an_outcome_s_sub_points_nest_under_its_own_bullet(db_cabinet):
+    told = "`r.pdf` : relevé pointé.\n- 2 opérations lettrées.\n- 1 opération à reclasser."
+    record_step("r", "s", "report_statement", {"status": "ok", "message": told, "file_id": 1})
+    record_step("r", "s", "post_statement", {"status": "ok", "message": "`r.pdf` : comptabilisé.", "file_id": 1})
+    asked = {"status": "question", "message": "`f.pdf` : achat ?\n- ou vente ?", "file_id": 2}
+    record_step("r", "s", "split_invoices", asked)
+    assert run_summary("r")["message"] == (
+        "**Fait**\n- `r.pdf` :\n  - relevé pointé.\n    - 2 opérations lettrées.\n    - 1 opération à reclasser.\n"
+        "  - comptabilisé.\n\n**Questions**\n1. QUESTION : `f.pdf` : achat ?\n   - ou vente ?"
+    )
 
 
 @pytest.mark.communication
@@ -101,7 +114,7 @@ def test_a_twin_stopped_before_its_tiers_is_a_duplicate_too(db_cabinet):
 def test_drafts_waiting_in_other_conversations_are_said_under_en_attente_with_the_client_s_verb(db_cabinet):
     from engine.tools.invoices.pipeline import whole_example
 
-    told = "Rien à reprendre dans cette conversation. 3 brouillon(s) d'autres conversations attendent dans ce dossier."
+    told = "Rien à reprendre dans cette conversation. 3 brouillons d'autres conversations attendent dans ce dossier."
     record_step("r", "s", "waiting_drafts", {"status": "ok", "message": told, "tell": True})
     assert run_summary("r")["message"] == f"**En attente**\n- {told}"
     assert whole_example("Objet : Reprise\n\nReprenez les factures en attente.", False).startswith("reprenez ")

@@ -26,7 +26,7 @@ from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused, require_dossier
 from engine.tools.core.model import ask_model, pdf_pages, to_pdf, tool_prompt
 from engine.tools.core.queries import Q
-from engine.tools.core.words import normalized
+from engine.tools.core.words import counted, normalized
 
 FOLDER_WORDS = re.compile(r"(?<![a-z])(?:dossiers? d ?import|dossiers? import)(?![a-z])")
 MULTIPLE_WORDS = re.compile(
@@ -240,7 +240,8 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
         for group, documents in folders:
             listed = ", ".join(f"{kinds[kind]}" for _, _, kind, _ in documents)
             if dry_run():
-                said.append(f"{TEST_MODE}dossier d'import de {len(documents)} pièce(s) : {listed}")
+                pieces = counted(len(documents), "{} pièce", "{} pièces")
+                said.append(f"{TEST_MODE}dossier d'import de {pieces} : {listed}")
                 continue
             folder_id, made = create_in_experio(dossier_id, group, documents, rule["import_folder_number"])
             with cabinet_db() as db:

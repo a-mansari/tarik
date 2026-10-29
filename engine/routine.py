@@ -25,6 +25,7 @@ from engine.tools.core.app import CRASHED, log
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.outbox import keep_file
 from engine.tools.core.queries import Q
+from engine.tools.core.words import counted
 from engine.tools.dossiers import routine_report as report_files
 from engine.tools.dossiers.routines import ZONE, address_problem
 from engine.tools.dossiers.search import opened_dossiers
@@ -112,7 +113,12 @@ async def listed(state: Run):
         found = await within(state["call"]["cabinet"], opened_dossiers)
     except Exception as error:  # Experio unreachable: the report says so
         return broke(state["call"], "dossiers", error)
-    return {"dossiers": found, "outcomes": [{"status": "ok", "message": f"{len(found)} dossier(s) à parcourir."}]}
+    return {
+        "dossiers": found,
+        "outcomes": [
+            {"status": "ok", "message": counted(len(found), "{} dossier à parcourir.", "{} dossiers à parcourir.")}
+        ],
+    }
 
 
 def each_dossier(state: Run):
@@ -139,7 +145,7 @@ async def declared(given, dossier_id):
     asked = {"mode": given["task"], "dossier_id": dossier_id, "session_id": given["session_id"]}
     run = {"call": {**asked, "cabinet": given["cabinet"], "routine": True}}
     output = await runs.nested("declarations", run, given["cabinet"], given["session_id"], node="dossier") or {}
-    text = output.get("message") or f"Dossier n° {dossier_id} : rien à dire."
+    text = output.get("message") or f"Dossier n° {dossier_id} : je n'ai rien à en dire."
     last = (output.get("outcomes") or [{}])[-1]
     status = last.get("status")
     if text.strip() == NOTHING:
@@ -186,7 +192,7 @@ async def report(state: Run):
         text = parts[0] if parts else NOTHING
         if len(text) > BODY_CHARACTERS:  # the whole reply as a file, its start in the email
             await within(cabinet, keep_file, session, f"{stem}.txt", text.encode())
-            text = text[:BODY_CHARACTERS] + "\n\n(Suite dans le fichier joint.)"
+            text = text[:BODY_CHARACTERS] + "\n\nLa suite est dans le fichier joint."
         return {"report": text, "outcomes": [{"status": "ok", "message": text}]}
     if not parts:  # no dossier opened, or Experio could not list them
         text = CRASHED if failed(state) else NOTHING
@@ -212,7 +218,7 @@ async def sent(state: Run):
     given = state["call"]
     cabinet, session = given["cabinet"], given["session_id"]
     if await within(cabinet, thread_of_session, session):  # a period run again after its report went: never twice
-        return {"outcomes": [{"status": "ok", "message": "Rapport déjà envoyé pour cette période."}]}
+        return {"outcomes": [{"status": "ok", "message": "Le rapport de cette période est déjà envoyé."}]}
     email = {"to": given["notify"], "subject": given["subject"], "body": state["report"]}
     result = await run_step(state, "send_email", **email, attach_session=session)
     # An instruction's conversation is the reply's only when its agent replied: cut off, a tool call is left open there.

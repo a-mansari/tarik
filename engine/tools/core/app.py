@@ -10,7 +10,7 @@ import inspect
 TOOLS = {}  # name: the function
 
 
-CRASHED = "echec technique, reessayez plus tard."  # what the client reads of a tool's crash (its cause is logged)
+CRASHED = "échec technique, réessayez plus tard."  # what the client reads of a tool's crash (its cause is logged)
 
 
 class ToolError(Exception):
