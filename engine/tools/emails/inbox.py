@@ -27,7 +27,7 @@ from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, strip_tags
 from engine.tools.dossiers.behaviour import behaviour
 from engine.tools.dossiers.people import collaborator
-from engine.tools.dossiers.setup import waiting_setups
+from engine.tools.dossiers.setup import setups_settled, waiting_setups
 from engine.tools.emails.sending import imap_session, recipient_allowed, send_email
 from engine.tools.invoices.pipeline import waiting_drafts
 
@@ -416,28 +416,30 @@ def drafts_to_resume(session_id):
 def follow_ups_ready(db):
     """Return the ids of the follow-up threads to take now.
 
-    A thread is ready when it has a dossier to finish, when Experio has finished reading every draft its conversation
-    waits on (bluejay_state no longer in READING), or when its follow-up time is up. A thread with no draft left
-    (posted or deleted in Experio meanwhile) is marked done. When Experio cannot be reached, the thread is checked
-    again at the next tick."""
+    A thread is ready when a dossier of its conversation has its onboarding to finish or no line left in Experio's
+    processing (setups_settled), when Experio has finished reading every draft its conversation waits on
+    (bluejay_state no longer in READING), or when its follow-up time is up. A thread with no draft left (posted or
+    deleted in Experio meanwhile) is marked done. When Experio cannot be reached, the thread is checked again at the
+    next tick."""
     ready = []
     for thread_id, session_id, over in db.execute(Q.follow_up_threads).fetchall():
-        if waiting_setups(session_id)["dossiers"]:  # Experio's wait on its lines is over by the next tick
-            ready.append(thread_id)
-            continue
+        dossiers = waiting_setups(session_id)["dossiers"]
         drafts = drafts_to_resume(session_id)
-        if not drafts:
+        if not (dossiers or drafts):
             db.execute(
                 Q.finish_follow_up,
                 (thread_id,),
             )
             continue
         try:
-            read = odoo_call("exp.invoice", "read", drafts, fields=["bluejay_state"])
+            # dossiers told once their lines are processed, not at every tick while Experio works
+            settled = bool(dossiers) and setups_settled(dossiers)
+            read = odoo_call("exp.invoice", "read", drafts, fields=["bluejay_state"]) if drafts else []
         except Exception as error:  # Experio out: asked again at the next tick
             log(f"follow_ups_ready {thread_id}: {type(error).__name__}: {error}")
             continue
-        if over or all(draft["bluejay_state"] not in READING for draft in read):
+        drafts_read = bool(read) and all(draft["bluejay_state"] not in READING for draft in read)
+        if over or settled or drafts_read:
             ready.append(thread_id)
     return ready
 

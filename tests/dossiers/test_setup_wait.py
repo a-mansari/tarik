@@ -536,3 +536,13 @@ def test_a_dossier_finished_without_entries_gets_no_exercice(stepper, monkeypatc
     monkeypatch.setattr(setup, "odoo_call", odoo_call)
     assert setup.finish_setup(557, finish=True)["status"] == "ok"
     assert not [call for call in stepper if call[0] == "open_exercice"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(("onboarding", "still", "settled"), [(1, 5, True), (0, 5, False), (0, 0, True)])
+def test_a_follow_up_is_settled_once_the_onboarding_is_to_finish_or_the_lines_processed(
+    monkeypatch, onboarding, still, settled
+):
+    counts = {"res.company": onboarding, "experio.history": still}
+    monkeypatch.setattr(setup, "odoo_call", lambda model, method, *args, **kw: counts[model])
+    assert setup.setups_settled([557]) is settled

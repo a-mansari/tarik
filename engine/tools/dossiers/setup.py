@@ -251,6 +251,16 @@ def setup_waits(dossier_id, file_id=None):
             db.execute(Q.delete_setup_wait, (dossier_id,))
 
 
+def setups_settled(dossiers):
+    """True when a follow-up has something new to tell of ``dossiers`` (ids): one's onboarding is still to finish,
+    or none has lines Experio is still processing (experio.history state new or pending). Raises Experio's error."""
+    context = {"allowed_company_ids": list(dossiers)}
+    if odoo_call("res.company", "search_count", [("id", "in", dossiers), ("show_onboarding", "=", True)]):
+        return True
+    still = [("company_id", "in", dossiers), ("state", "in", ["new", "pending"])]
+    return not odoo_call("experio.history", "search_count", still, context=context)
+
+
 @tool
 def waiting_setups(session_id: str) -> dict:
     """Return an ok result listing (``dossiers``: ids) the dossiers waiting in tarik_setups for this
