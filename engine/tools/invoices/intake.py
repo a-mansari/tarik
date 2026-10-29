@@ -17,7 +17,16 @@ from engine.tools.core.experio import dossier_lock, dry_run, in_dossier, odoo_ca
 from engine.tools.core.model import pdf_pages, to_pdf
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
-from engine.tools.dossiers.banks import BANK_ALIASES, give_bank, journal_bank, make_bank_journal, one_bank_named
+from engine.tools.dossiers.banks import (
+    BANK_ALIASES,
+    IBAN_START,
+    RIB,
+    bank_of_rib,
+    give_bank,
+    journal_bank,
+    make_bank_journal,
+    one_bank_named,
+)
 from engine.tools.invoices import tpe
 from engine.tools.invoices.classify import classify_pages, client_side
 from engine.tools.invoices.statement import import_canvas, is_canvas
@@ -526,10 +535,27 @@ def journal_named(usable, words):
     return named[0] if len(named) == 1 else None
 
 
+def statement_text(raw):
+    """Return the text of a PDF statement's first two pages, blanks squeezed (the RIB is printed in columns); "" for
+    a scan, an image or an unreadable file."""
+    try:
+        document = pypdfium2.PdfDocument(raw)
+        pages = [document[i].get_textpage().get_text_range() for i in range(min(2, len(document)))]
+    except Exception:  # a scan or another format: the client's words and the file's name decide
+        return ""
+    return re.sub(r"[ \t]+", " ", "\n".join(pages))
+
+
+def printed_rib(text):
+    """Return the 24 digits of the RIB printed in ``text`` (statement_text), "" when there is none."""
+    found = RIB.search(IBAN_START.sub(" ", text or ""))
+    return re.sub(r"\D", "", found.group()) if found else ""
+
+
 BANK_QUESTION = "De quelle banque est ce relevé ?"  # the answer goes back to the import as the client's words
 
 
-def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
+def statement_journal(name, dossier, dossier_id, journal_id, client_message="", text=""):
     """Return the usable bank journal (dict) statement ``name`` goes to, and what Tarik did to have it (French text,
     "" when nothing): ``journal_id`` when given, else chosen_journal's, under the dossier's lock (dossier_lock: the
     statements of one message, run in parallel, never make the same journal twice).
@@ -549,13 +575,14 @@ def statement_journal(name, dossier, dossier_id, journal_id, client_message=""):
         dossier_lock(dossier_id),
         refused(f"statement_journal {dossier_id}", f"Dossier `{dossier}` : Experio a refusé le journal de banque."),
     ):
-        return chosen_journal(name, dossier, dossier_id, own_words(client_message))
+        return chosen_journal(name, dossier, dossier_id, own_words(client_message), text)
 
 
-def chosen_journal(name, dossier, dossier_id, words):
-    """statement_journal without a journal given: the dossier's journal at the one bank the file's name or the client's
-    ``words`` name (« relevé BMCE »), made when the dossier has none there (make_bank_journal); else its only usable
-    one, else the one the client names by its own name.
+def chosen_journal(name, dossier, dossier_id, words, text=""):
+    """statement_journal without a journal given: the journal whose RIB is the one printed on the statement (``text``),
+    else the dossier's journal at the one bank the RIB's bank code, the file's name or the client's ``words`` name
+    (« relevé BMCE »), made when the dossier has none there (make_bank_journal); else its only usable one, else the
+    one the client names by its own name.
 
     First, a bank journal without its bank whose RIB or own name says one bank (« BQ AWB ») gets it, as ask_banks does
     (give_bank). A bank named when the dossier has one journal still without its bank goes to that journal: no
@@ -574,7 +601,11 @@ def chosen_journal(name, dossier, dossier_id, words):
             journal["bank_id"] = [found["id"], found["name"]]
             usable.append(journal)
             done.append(f"journal `{journal['name']}` {would('mis')} à la banque `{found['name']}` (d'après {how})")
-    bank = one_bank_named(f"{name.rsplit('.', 1)[0]} {words}", banks)  # « relevés BMCE et SGMB »: none taken
+    rib = printed_rib(text)  # the account itself: it wins over any name
+    same = [j for j in usable if rib and re.sub(r"\D", "", j.get("rib") or "") == rib]
+    if len(same) == 1:
+        return same[0], notice(done)
+    bank = one_bank_named(f"{name.rsplit('.', 1)[0]} {words}", banks) or bank_of_rib(text, banks)
     bankless = [j for j in journals if not j["bank_id"]]
     if bank:
         at = [j for j in usable if j["bank_id"][0] == bank["id"]]
@@ -643,7 +674,12 @@ def import_tpe_file(db, file_id, name, raw, dossier, dossier_id, journal_id, net
 
 @step_tool
 def import_bank_statement(
-    file_id: int, dossier_id: int, journal_id: int = 0, client_message: str = "", network: str = ""
+    file_id: int,
+    dossier_id: int,
+    journal_id: int = 0,
+    client_message: str = "",
+    network: str = "",
+    posting: str = "",
 ) -> dict:
     """Import a bank statement the client sent into one of the dossier's bank journals, through Experio's own statement
     import (exp.bank.statement.import; Experio then reads its lines). Safe to call again: a file already imported, or
@@ -672,6 +708,8 @@ def import_bank_statement(
             db, file_id, "file_name", "mime_type", "data", "kind", "statement_id"
         )
         require_kind(name, kind, "statement")
+        if posting == "oui":  # kept at once: a question on the way ends this run, its answer carries no request
+            db.execute(Q.mark_file_post_asked, (file_id,))
         if existing:
             return ok(f"`{name}` : relevé déjà importé (n° {existing}).", statement_id=existing)
         # The same statement sent again (another email, the same zip twice): imported once per dossier. Two copies
@@ -697,7 +735,8 @@ def import_bank_statement(
                     network or read,
                     client_message,
                 )
-        journal, done = statement_journal(name, dossier, dossier_id, journal_id, client_message)
+        text = "" if is_canvas(name, data) else statement_text(as_pdf(mime, data))
+        journal, done = statement_journal(name, dossier, dossier_id, journal_id, client_message, text)
         if "status" in journal:
             return journal
         if bank_code(journal) in UNSUPPORTED_BANKS:  # Experio's own list (bank_statement._compute_is_not_supported)

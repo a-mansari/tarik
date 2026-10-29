@@ -85,6 +85,14 @@ and r.status = 'ok' and r.dossier_id = %s and f.id <> %s order by f.id limit 1
 -- The statement imported from a file (a TPE statement: its network): a second call must not import it again.
 update tarik_files set statement_id = %s, tpe_type = %s where id = %s
 
+-- name: mark_file_post_asked
+-- The client asked to post this file (a statement) when sending it.
+update tarik_files set post_asked = true where id = %s
+
+-- name: file_post_asked
+-- Whether the client asked to post this file when sending it.
+select post_asked from tarik_files where id = %s
+
 -- name: last_question_of_session
 -- === engine/tools/dossiers/identity.py ===
 -- Tarik's last question in the conversation.

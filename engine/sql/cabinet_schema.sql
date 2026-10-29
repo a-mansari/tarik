@@ -113,6 +113,10 @@ create table if not exists tarik_held (
 );
 alter table tarik_held add column if not exists released boolean not null default false;
 
+-- A file the client asked to post (comptabiliser) when sending it: kept, because a question on the way (which bank?)
+-- ends the run and the answer that resumes it does not carry the request.
+alter table tarik_files add column if not exists post_asked boolean not null default false;
+
 -- The client's oui / non answer to a step's question on an invoice (non-recoverable TVA, prepaid spread): a "non"
 -- changes nothing in Experio, so without it here an invoice taken up again would be asked again.
 create table if not exists tarik_answers (
