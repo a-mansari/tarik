@@ -367,6 +367,12 @@ def listed(texts):
     ]
 
 
+def released(run_id):
+    """Free the invoices run ``run_id`` claimed, for another run: it is over."""
+    with cabinet_db() as db:
+        db.execute(Q.release_invoices, (run_id,))
+
+
 @tool
 def run_summary(run_id: str) -> dict:
     """Return what happened in run ``run_id``, for the client, as an ok result in sections: Fait, En attente, Doublons,

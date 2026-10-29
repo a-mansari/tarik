@@ -58,6 +58,9 @@ def given(cabinet, row):
     return {"call": call}
 
 
+STOPPED = "Routine arrêtée à la main pendant son exécution."
+
+
 async def ran(cabinet, row):
     """Run one claimed routine of ``cabinet`` as a Routine run (one at a time per cabinet) and keep its report with
     its period; return the report. A failed run's period is reported all the same: never run again in a loop."""
@@ -68,6 +71,10 @@ async def ran(cabinet, row):
             _, task = await runs.start("routine", {"input": given(cabinet, row)}, slots=None, unattended=True)
             output, failure = await task
             report = CRASHED if failure else (output or {}).get("message") or CRASHED
+        except asyncio.CancelledError:
+            if asyncio.current_task().cancelling():  # the server stopping: its period runs again at the next start
+                raise
+            report = STOPPED  # stopped by hand (runs.stop): reported, never run again
         except Exception as error:
             log(f"{cabinet} routine {routine_id}: {type(error).__name__}: {error}")
             report = CRASHED

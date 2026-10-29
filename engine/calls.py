@@ -62,13 +62,22 @@ async def call(cabinet, tool, /, **arguments):
         raise ToolFailure(INVALID) from None
     slot = SLOTS.setdefault(cabinet, asyncio.Semaphore(PER_CABINET))
     async with slot:
+        work = asyncio.ensure_future(within(cabinet, lambda: function(**arguments)))
         try:
-            return await within(cabinet, lambda: function(**arguments))
+            return await asyncio.shield(work)
+        except asyncio.CancelledError:  # its run stopped: the tool's thread ends what it does, its slot held meanwhile
+            await finished(work)
+            raise
         except ToolError as refusal:
             raise ToolFailure(str(refusal)) from None
         except Exception as error:
             log(f"{cabinet} {tool}: {type(error).__name__}: {error}")
             raise ToolFailure(CRASHED) from None
+
+
+async def finished(work):
+    """Wait for ``work`` (a task its caller no longer awaits: its run was stopped) to end, whatever it ends with."""
+    await asyncio.wait({work})
 
 
 async def within(cabinet, function, /, *args):
@@ -95,7 +104,18 @@ async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a
 
     A ToolFailure becomes {"status": "error", "message": ...}, keeping any invoice_id, file_id or dossier_id it was
     given. The outcome is recorded, except an ok result of a QUIET_WHEN_OK tool without ``tell``. The first four
-    are positional-only so a tool can take its own ``run_id`` keyword."""
+    are positional-only so a tool can take its own ``run_id`` keyword. A run stopped (runs.stop) lets its step end
+    and be recorded: what it did in Experio is never left unrecorded."""
+    work = asyncio.ensure_future(stepped(cabinet, run_id, session, tool, **arguments))
+    try:
+        return await asyncio.shield(work)
+    except asyncio.CancelledError:
+        await finished(work)
+        raise
+
+
+async def stepped(cabinet, run_id, session, tool, /, **arguments):
+    """step()'s work: the call and its outcome recorded."""
     try:
         result = await call(cabinet, tool, **arguments)
     except ToolFailure as failure:

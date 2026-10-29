@@ -60,6 +60,7 @@ function older() {
             <td><span class="chip" :class="e.action === 'login_failed' ? 'error' : ''">{{ data.words[e.action] || e.action }}</span></td>
             <td class="mono">
               <RouterLink v-if="e.action === 'run_started' && e.detail.run_id" :to="`/ui/executions/${e.detail.run_id}`">{{ graphName(e.target) }}</RouterLink>
+              <RouterLink v-else-if="e.action === 'run_stopped'" :to="`/ui/executions/${e.target}`">{{ e.detail.cabinet || e.target }}</RouterLink>
               <template v-else-if="e.action === 'layout_saved' || e.action === 'layout_reset'">{{ graphName(e.target) }}</template>
               <template v-else>{{ e.target }}</template>
             </td>

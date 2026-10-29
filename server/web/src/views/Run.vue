@@ -1,9 +1,10 @@
 <!-- One run step by step: what it was asked, its canvas, what the client reads, its conversation, the model calls it
-made, and its steps, each added as it ends while the run goes on; once it has ended, the page is read again. -->
+made, and its steps, each added as it ends while the run goes on; once it has ended, the page is read again. An admin
+can stop it while it goes on, with the run it was started from and every run it started. -->
 <script setup>
-import { computed, onUnmounted, shallowRef, watch } from "vue";
+import { computed, onUnmounted, ref, shallowRef, watch } from "vue";
 
-import { callLink, graphName, plural, statusName, stepName, usePage } from "../api.js";
+import { callLink, graphName, plural, send, session, statusName, stepName, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import CanvasGraph from "../components/CanvasGraph.vue";
 import Icon from "../components/Icon.vue";
@@ -27,6 +28,21 @@ watch(run, (found) => {
   events.value = followRun(found.run_id, last).on("end", reload);
 }, { immediate: true });
 onUnmounted(() => events.value?.close());
+
+// Stopped by an admin: the whole tree goes (a nested run goes on inside its parent's step), what is done stays done.
+const stopping = ref(false);
+const stopError = ref("");
+async function stop() {
+  const tree = run.value.parent_id || run.value.children.length
+    ? " L'exécution qui l'a lancée et toutes celles qu'elle a lancées s'arrêtent aussi." : "";
+  const asked = `Arrêter cette exécution ?${tree} L'étape en cours se termine d'abord ; ce qui est fait dans `
+    + "Experio reste fait.";
+  if (!confirm(asked)) return;
+  stopping.value = true;
+  const answer = await send(`/executions/${encodeURIComponent(run.value.run_id)}/stop`, {});
+  stopError.value = answer.ok ? "" : answer.data?.error || "Arrêt refusé.";
+  if (!answer.ok) stopping.value = false; // stopped: the page follows its end (followRun), the button stays off
+}
 </script>
 
 <template>
@@ -68,8 +84,12 @@ onUnmounted(() => events.value?.close());
       <div class="state">
         <span :class="`chip big ${run.status}`">{{ statusName(run.status) }}</span>
         <span class="num muted">{{ run.seconds }} s</span>
+        <button v-if="session.admin && stillGoing(run.status)" type="button" class="panel-button" :disabled="stopping"
+          @click="stop"><Icon name="stop" :size="14" /> {{ stopping ? "Arrêt demandé…" : "Arrêter" }}</button>
       </div>
     </div>
+
+    <div v-if="stopError" class="panel bad" role="alert"><b>Non arrêtée :</b> {{ stopError }}</div>
 
     <div v-if="run.error" class="panel bad"><b>L'exécution a échoué.</b> {{ run.error }}</div>
 
