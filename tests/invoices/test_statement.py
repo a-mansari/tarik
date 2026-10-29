@@ -66,7 +66,17 @@ def experio(monkeypatch):
         "post": None,
     }
     state.update(
-        history=[], open=[40], owed=[], owing=[], partners=[], operations=[], answer=None, asked=[], declared=0
+        history=[],
+        open=[40],
+        owed=[],
+        owing=[],
+        partners=[],
+        operations=[],
+        answer=None,
+        asked=[],
+        declared=0,
+        owner={},
+        generic=[],
     )
     for line in state["lines"]:
         line.setdefault("partner_id", False)
@@ -94,6 +104,8 @@ def experio(monkeypatch):
             return [dict(row) for row in state["history"]]
         if model == statement.LINE and method == "search_read":
             return [{"id": state["in_use_line"], "invoice_ids": state["in_use"]}]
+        if model == "exp.invoice" and method == "read":  # an invoice's tiers
+            return [{"id": i, "partner_id": state["owner"].get(i, [9, "ATLAS"])} for i in args[0]]
         if model == "exp.invoice":
             terms = {term[0]: term[2] for term in args[0]}
             if method == "search" and "id" not in terms:  # the invoices owing a line's amount (owed_invoices)
@@ -104,6 +116,8 @@ def experio(monkeypatch):
                 allowed = state["picker"] if state["picker"] is not None else terms["id"]
                 return [i for i in terms["id"] if i in allowed]
             return [invoice for invoice in state["invoices"] if invoice["amount_residual"] in terms["amount_residual"]]
+        if model == "exp.partner" and method == "search":  # the dossier's « CLIENTS DIVERS »
+            return list(state["generic"])
         if model == "exp.partner":
             return [dict(partner) for partner in state["partners"]]
         if model == "bank.operation.type":
@@ -1044,3 +1058,30 @@ def test_a_cheque_line_without_tiers_gets_the_invoice_owing_its_amount_and_throu
 def test_home_banking_in_a_label_is_pointed_autres_as_the_cabinets_do():
     methods = {2: "Chèque", 4: "Virement Bancaire", 6: "Autres"}
     assert statement.method_in_label("PAIEMENT LYDEC HB 06/08/2026", methods) == 6
+
+
+@pytest.mark.functionality
+def test_a_line_with_no_tiers_gets_the_tiers_when_all_invoices_of_its_amount_are_one_suppliers(experio):
+    experio["owed"] = [70, 71]  # two equal invoices of ATLAS: no invoice is chosen, the supplier is known
+    pointed()
+    assert ([2], {"partner_id": 9}) in experio["written"]
+    assert not [w for w in experio["written"] if w[0] == [2] and "invoice_ids" in w[1]]
+
+
+@pytest.mark.functionality
+def test_invoices_of_two_suppliers_give_no_tiers(experio):
+    experio["owed"] = [70, 71]
+    experio["owner"] = {71: [10, "BETA"]}
+    pointed()
+    assert not [w for w in experio["written"] if w[0] == [2] and "partner_id" in w[1]]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("generic", [[31], []])
+def test_a_card_remittance_is_a_sale_on_clients_divers_or_goes_to_suspense(experio, generic):
+    """The cabinets' own reading of « CD AP » credits: Vente Local on CLIENTS DIVERS (79 of 101 lines)."""
+    with_suspense(experio, payment_ref="CD AP : 000155 030826", debit=0.0, credit=150.0)
+    experio["generic"] = generic
+    pointed()  # the dossier's Vente Local (13131, account 3421) is the sale
+    expected = {"operation_id": 13131, "partner_id": 31} if generic else {"operation_id": 13355}
+    assert ([2], expected) in experio["written"]  # no CLIENTS DIVERS in the dossier: suspense, as before
