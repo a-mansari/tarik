@@ -75,6 +75,7 @@ class Run(TypedDict, total=False):
     files: list  # the message's files to import (entries, or a spreadsheet of dossiers)
     finishing: list  # the dossiers whose onboarding is finished next
     finish_options: dict  # how finish_setup finishes them (seconds_left, finish)
+    copied: bool  # a model dossier's configuration was copied: no setup file is awaited
     finished: list  # those finished: their state is said
 
 
@@ -142,7 +143,7 @@ async def configuration(state: Run):
     copied = await run_step(
         state, "copy_configuration", dossier_id=state["target"], model_dossier_id=state["call"]["model_dossier_id"]
     )
-    return {"outcomes": [copied]}
+    return {"outcomes": [copied], "copied": copied.get("status") == "ok"}
 
 
 async def creator(state: Run):
@@ -362,9 +363,11 @@ def after_entries(state: Run):
 
 async def banks(state: Run):
     """Graph node: ask the bank of each of the dossier's bank journals (ask_banks), and queue the dossier for
-    finish_setup with no time limit."""
+    finish_setup with no time limit. A copied configuration finishes the onboarding even without entries: the
+    copy holds the accounts and journals, and a later FEC is processed as soon as it is imported."""
     asked = await run_step(state, "ask_banks", dossier_id=state["target"])
-    options = {"seconds_left": 0, "finish": state["call"].get("finish") is True}
+    finish = state["call"].get("finish") is True or state.get("copied") is True
+    options = {"seconds_left": 0, "finish": finish}
     return {"outcomes": [asked], "finishing": [state["target"]], "finish_options": options}
 
 

@@ -31,6 +31,14 @@ def test_a_new_dossier_takes_its_models_configuration_then_its_files_then_is_onb
 
 
 @pytest.mark.functionality
+@pytest.mark.parametrize(("model", "finish"), [(3, True), (0, False)])
+def test_a_copied_configuration_finishes_the_onboarding_without_files(steps, model, finish):
+    steps.answer("create_dossier", {"status": "ok", "dossier_id": 7})
+    steps.run(graph, name="Alpha", model_dossier_id=model)
+    assert steps.args("finish_setup") == [{"dossier_id": 7, "seconds_left": 0, "finish": finish}]
+
+
+@pytest.mark.functionality
 @pytest.mark.parametrize("given", [{}, {"model_dossier_id": 3, "reused": True}])
 def test_without_a_model_or_with_a_reused_dossier_no_configuration_is_copied(steps, given):
     steps.answer("create_dossier", {"status": "ok", "dossier_id": 7, "reused": given.get("reused", False)})
