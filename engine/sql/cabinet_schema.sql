@@ -296,3 +296,12 @@ create table if not exists tarik_routine_runs (
     ran_at timestamptz not null default now(),
     primary key (routine_id, due_at)
 );
+
+-- How Tarik behaves for this cabinet (engine/tools/dossiers/behaviour.py): a setting changed on the Comportement page
+-- or in a conversation; one without a row has its default.
+create table if not exists tarik_behaviour (
+    key text primary key,
+    value jsonb not null,
+    changed_by text not null,
+    changed_at timestamptz not null default now()
+);

@@ -8,6 +8,7 @@
 - Modes person, access: create and invite a person, or change one's access (a dossier given or taken, a role, an
   invitation sent again), for a sender whose own Experio profile may manage users (check_manager).
 - Mode routine: make, change, list, pause, resume or delete a routine (manage_routine), after the same check.
+- Mode behaviour: list or change how Tarik behaves for the cabinet (manage_behaviour), after the same check.
 - Mode resume: finish the conversation's dossiers left waiting.
 One step per node, so the canvas shows each. No time budget: finish_setup gets seconds_left 0 (no limit)."""
 
@@ -47,6 +48,8 @@ INPUTS = [
     "routine_name",
     "routine_id",
     "prompt",
+    "setting",
+    "value",
     "rc",
     "patente",
     "tsc",
@@ -90,7 +93,7 @@ def by_mode(state: Run):
     if failed(state):
         return "resume"  # a failed save is recorded and goes no further: the files the run would work on are missing
     mode = call.get("mode")
-    if mode in ("person", "access", "routine"):
+    if mode in ("person", "access", "routine", "behaviour"):
         return "gestionnaire"
     if mode in ("update", "archive", "difference"):
         return "expediteur"
@@ -163,11 +166,11 @@ async def manager(state: Run):
 
 @stops_at("resume")
 def after_manager(state: Run):
-    """Route to "acces" (mode person), "droits" (mode access) or "routine" (mode routine); "resume" when the check
-    failed."""
+    """Route to "acces" (mode person), "droits" (mode access), "routine" (mode routine) or "reglages" (mode
+    behaviour); "resume" when the check failed."""
     if failed(state):
         return "resume"
-    return {"person": "acces", "routine": "routine"}.get(state["call"].get("mode"), "droits")
+    return {"person": "acces", "routine": "routine", "behaviour": "reglages"}.get(state["call"].get("mode"), "droits")
 
 
 async def access(state: Run):
@@ -206,6 +209,20 @@ async def routine(state: Run):
         client_confirmed=call.get("client_confirmed") is True,
         client_message=call.get("client_message") or "",
         session_id=call["session_id"],
+    )
+    return {"outcomes": [result]}
+
+
+async def behaviour(state: Run):
+    """Graph node: list or change how Tarik behaves for the cabinet (manage_behaviour)."""
+    call = state["call"]
+    result = await run_step(
+        state,
+        "manage_behaviour",
+        session_id=call["session_id"],
+        action=call.get("action") or "list",
+        key=call.get("setting") or "",
+        value=str(call.get("value") or ""),
     )
     return {"outcomes": [result]}
 
@@ -398,6 +415,7 @@ for name, node in {
     "acces": person,
     "droits": access,
     "routine": routine,
+    "reglages": behaviour,
     "archivage": archive,
     "ecart": difference,
     "fichiers": files,
@@ -413,7 +431,7 @@ for name, node in {
     run.add_node(name, node)
 run.add_edge(START, "debut")
 run.add_conditional_edges("debut", by_mode, ["createur", "gestionnaire", "expediteur", "reprise", "resume"])
-run.add_conditional_edges("gestionnaire", after_manager, ["acces", "droits", "routine", "resume"])
+run.add_conditional_edges("gestionnaire", after_manager, ["acces", "droits", "routine", "reglages", "resume"])
 run.add_conditional_edges("createur", after_creator, ["creation", "fichiers", "resume"])
 run.add_conditional_edges("creation", after_create, ["configuration", "fichiers", "resume"])
 run.add_conditional_edges("configuration", *ok_or_summary("fichiers"))  # a refused copy goes no further
@@ -424,7 +442,7 @@ run.add_edge("banques", "finalisation")
 run.add_edge("reprise", "finalisation")
 run.add_conditional_edges("finalisation", after_finish, ["etat", "resume"])
 run.add_edge("etat", "points")
-for name in ("modification", "acces", "droits", "routine", "archivage", "ecart", "listes", "points"):
+for name in ("modification", "acces", "droits", "routine", "reglages", "archivage", "ecart", "listes", "points"):
     run.add_edge(name, "resume")
 run.add_edge("resume", END)
 graph = run.compile(name="Tarik - Dossier")

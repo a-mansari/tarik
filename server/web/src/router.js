@@ -24,6 +24,7 @@ export const router = createRouter({
     { path: "/ui/tarik-prompts/:path(.*)", component: view("Content"), meta: { title: "Tarik capabilities", pageClass: "wide" } },
     { path: "/ui/settings", component: view("Settings"), meta: { title: "Réglages", pageClass: "wide" } },
     { path: "/ui/routines", component: view("Routines"), meta: { title: "Routines" } },
+    { path: "/ui/comportement", component: view("Behaviour"), meta: { title: "Comportement" } },
     { path: "/ui/comptes", component: view("Accounts"), meta: { title: "Comptes" } },
     { path: "/ui/logs-serveur", component: view("Journal"), meta: { title: "Logs serveur" } },
     { path: "/:rest(.*)", component: view("Missing"), meta: { title: "Introuvable" } },

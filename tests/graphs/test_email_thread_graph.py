@@ -32,6 +32,7 @@ def thread(steps, monkeypatch):
 
     async def answered(cabinet, session, message, files, agent, skipped):
         asked.append(message)
+        await asyncio.sleep(resumed.get("seconds", 0))
         if isinstance(resumed.get("agent"), Exception):
             raise resumed["agent"]
         return "Bien recu."
@@ -47,6 +48,13 @@ def thread(steps, monkeypatch):
 
     monkeypatch.setattr(emails, "call", steps.call)
     monkeypatch.setattr(emails, "answered", answered)
+
+    async def within(cabinet, function, argument):  # the setting read, or the progress email sent as a step
+        if function is emails.behaviour:
+            return resumed.get(argument, 0)
+        return await steps.call(cabinet, function.__name__, thread_id=argument)
+
+    monkeypatch.setattr(emails, "within", within)
     monkeypatch.setattr(runs, "nested", nested)
     steps.asked, steps.resumed = asked, resumed
     return steps
@@ -76,6 +84,37 @@ def test_an_acknowledgement_not_sent_leaves_the_answer_to_go_on(thread):
     out = fil(thread)
     assert out["acknowledged"] == "Pas envoye : hors liste"
     assert thread.names == ["acknowledge_thread", "thread_refusal", "send_email", "finish_thread"]
+
+
+@pytest.mark.communication
+def test_a_long_answer_tells_the_client_it_is_still_going_every_few_minutes(thread):
+    thread.resumed.update(progress=0.001, seconds=0.2)  # 0.06 s between progress emails
+    thread.answer("thread_refusal", {"refused": False})
+    out = fil(thread)
+    assert thread.names.count("send_progress") >= 2 and thread.args("send_progress")[0] == {"thread_id": "<m1@x>"}
+    assert thread.names[-3:] == ["thread_refusal", "send_email", "finish_thread"] and out["sent"]
+
+
+@pytest.mark.communication
+def test_no_progress_email_when_the_cabinet_set_none_or_one_fails(thread):
+    thread.resumed["seconds"] = 0.05
+    thread.answer("thread_refusal", {"refused": False})
+    fil(thread)
+    assert "send_progress" not in thread.names
+    thread.calls.clear()
+    thread.resumed["progress"] = 0.0005
+    thread.answer("send_progress", ToolFailure("hors liste"))
+    assert fil(thread)["sent"] and "send_progress" in thread.names  # the reply still sent
+
+
+@pytest.mark.functionality
+def test_a_setting_not_read_still_lets_the_agent_answer(thread, monkeypatch):
+    async def down(cabinet, function, argument):
+        raise RuntimeError("postgres down")
+
+    monkeypatch.setattr(emails, "within", down)
+    thread.answer("thread_refusal", {"refused": False})
+    assert fil(thread)["sent"]
 
 
 @pytest.mark.functionality

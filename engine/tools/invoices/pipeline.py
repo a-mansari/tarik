@@ -52,6 +52,7 @@ STEPS = {
     "create_person": "accès",
     "change_access": "accès",
     "manage_routine": "routine",
+    "manage_behaviour": "réglages",
     "archive_dossier": "archivage",
     "files_to_process": "fichiers",
     "create_import_folder": "dossier d'import",
@@ -108,6 +109,7 @@ SETUP_STEPS = {
     "create_person",
     "change_access",
     "manage_routine",
+    "manage_behaviour",
     "check_manager",
     "archive_dossier",
 }
