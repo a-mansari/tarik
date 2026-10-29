@@ -678,12 +678,12 @@ def setup_missing(dossier_id, context):
 def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -> dict:
     """Finish a new dossier's onboarding as its stepper does (Suivant to the last step, then « Enregistrer et
     terminer »), so Experio processes the imported entries. Opens the current year's exercice first when the
-    dossier has none open.
+    dossier has entries but no open exercice.
 
     Args:
         seconds_left: the run's time left (0: no limit).
-        finish: the client said every setup file was sent; without it, a dossier with no entries imported
-            keeps waiting for its files.
+        finish: the client said every setup file was sent, or a model's configuration was copied in this run;
+            without it, a dossier with no entries imported keeps waiting for its files.
 
     Returns:
         - a routine result when the onboarding was already finished;
@@ -702,7 +702,8 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
         return routine(
             f"Dossier `{dossier}` : integration deja terminee, Experio traite les ecritures des leur import."
         )
-    if not finish and not entries_count(dossier_id, context):
+    entries = entries_count(dossier_id, context)
+    if not finish and not entries:
         setup_waits(dossier_id)  # nothing to wait for: the client's next files, or their word
         missing = setup_missing(dossier_id, context)
         lacking = f" Il manque : {', '.join(missing)}." if missing else ""
@@ -711,7 +712,9 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
             "journaux, fournisseurs, clients), ou dites que tout est envoye pour terminer l'integration."
         )
     notes = []
-    exercice = exercice_note(dossier_id, dossier)
+    # Without entries the exercice would be a calendar guess, and Experio dates every exercice a later FEC brings
+    # from the earliest one (exp_account experio_history.py create_missing_exercices_fiscal): the FEC sets it.
+    exercice = exercice_note(dossier_id, dossier) if entries else None
     if exercice:
         notes.append(exercice)
     if dry_run():
