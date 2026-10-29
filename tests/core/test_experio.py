@@ -223,6 +223,8 @@ def test_a_failure_becomes_the_given_message_with_experio_reason_and_a_tool_erro
         raise ToolError("own")
     with pytest.raises(ValueError, match="^Refus$"), experio.refused("log", "{reason}", error=ValueError):
         raise xmlrpc.client.Fault(2, "Refus")
+    with pytest.raises(ToolError, match="^Refus : Factures sans total$"), experio.refused("log", "Refus : {reason}"):
+        raise experio.ExperioRefusal("Factures sans total", "odoo.exceptions.RedirectWarning")
 
 
 @pytest.mark.security
@@ -232,6 +234,7 @@ def test_a_failure_becomes_the_given_message_with_experio_reason_and_a_tool_erro
         KeyError("partner_id"),  # ours
         xmlrpc.client.Fault(1, "Traceback (most recent call last):\n  File odoo/models.py\nKeyError: 'partner_id'"),
         experio.ExperioRefusal("'partner_id'", "builtins.KeyError"),  # Experio's, over JSON-RPC
+        xmlrpc.client.Fault(4, "... switching to the company: AUTRE DOSSIER."),  # an AccessError names another dossier
     ],
 )
 def test_a_crash_is_not_told_as_experio_reason(crash):

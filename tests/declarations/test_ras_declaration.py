@@ -80,7 +80,7 @@ def experio(monkeypatch):
         if method == "post_process_values":
             return args[0]
         if method in ("action_print_xml_ras_report", "action_generate_xml_ras") and state["xml_refusal"]:
-            raise ExperioRefusal(state["xml_refusal"])
+            raise ExperioRefusal(state["xml_refusal"], "odoo.exceptions.UserError")
         return None
 
     monkeypatch.setattr(ras, "odoo_call", odoo_call)
@@ -263,7 +263,7 @@ def test_a_ras_declaration_experio_refuses_is_said_not_declared(experio, monkeyp
 
     def odoo_json(model, method, ids, *args, **kw):
         if method == "action_post":
-            raise ExperioRefusal("Déclaration en double")
+            raise ExperioRefusal("Déclaration en double", "odoo.exceptions.UserError")
         return inner(model, method, ids, *args, **kw)
 
     monkeypatch.setattr(ras, "odoo_json", odoo_json)

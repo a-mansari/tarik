@@ -28,6 +28,7 @@ from engine.tools.core.experio import (
     dry_run,
     experio_refusal,
     in_dossier,
+    is_refusal,
     odoo_call,
     odoo_json,
     plain,
@@ -246,6 +247,8 @@ def check(table_id, context):
     try:
         odoo_json(TABLE, "check_declaration_requirements", [table_id], context=context)
     except ExperioRefusal as error:
+        if not is_refusal(error):  # a crash: told as one (refused(), calls.call), never as Experio's reason
+            raise
         return experio_refusal(error)
     return ""
 
@@ -409,6 +412,8 @@ def declare(table, label, text, client_confirmed, context):
     try:
         action = odoo_json(TABLE, "action_post", [table["id"]], context={**context, "exp_skip_coherence_check": True})
     except ExperioRefusal as error:
+        if not is_refusal(error):  # a crash: told as one (refused(), calls.call), never as Experio's reason
+            raise
         return stop(f"Experio refuse de déclarer la TVA {label} : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):
         window = f"la fenêtre « {action['name']} »" if action.get("name") else "une fenêtre de confirmation"

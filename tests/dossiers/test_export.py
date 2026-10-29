@@ -66,7 +66,7 @@ def experio(monkeypatch):
         if method == "get_line_ids":
             return "exp.move.line(11, 12)"
         if state["refusal"]:
-            raise ExperioRefusal(state["refusal"])
+            raise ExperioRefusal(state["refusal"], "odoo.exceptions.UserError")
         if state["tiers"] and not context.get("exp_export_tiers_confirmed"):
             return {"res_model": export.TIERS_WIZARD, "res_id": 4}
         return {

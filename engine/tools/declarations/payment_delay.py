@@ -28,6 +28,7 @@ from engine.tools.core.experio import (
     dry_run,
     experio_refusal,
     in_dossier,
+    is_refusal,
     odoo_call,
     odoo_json,
     plain,
@@ -238,6 +239,8 @@ def prepare_payment_delay_declaration(
             try:  # Experio's own checks of its XML (the dossier's IF, its period)
                 odoo_json(TABLE, "print_xml_deduction_report", [table_id], context=context)
             except ExperioRefusal as error:
+                if not is_refusal(error):  # a crash: told as one (refused(), calls.call), never as Experio's reason
+                    raise
                 return stop(
                     f"{text}\n- Experio refuse son fichier XML : {experio_refusal(error)}", declaration_id=table_id
                 )
@@ -263,6 +266,8 @@ def prepare_payment_delay_declaration(
         try:
             odoo_json(TABLE, "action_post", [table_id], context=context)
         except ExperioRefusal as error:
+            if not is_refusal(error):  # a crash: told as one (refused(), calls.call), never as Experio's reason
+                raise
             return stop(
                 f"Experio refuse de déclarer les {label} : {experio_refusal(error)}",
                 declaration_id=table_id,

@@ -70,9 +70,9 @@ def experio(monkeypatch):
     def odoo_json(model, method, ids, **kw):
         state["calls"].append(method)
         if method == "action_post" and state.get("refusal"):
-            raise ExperioRefusal(state["refusal"])
+            raise ExperioRefusal(state["refusal"], "odoo.exceptions.UserError")
         if method == "print_xml_deduction_report" and state.get("xml_refusal"):
-            raise ExperioRefusal(state["xml_refusal"])
+            raise ExperioRefusal(state["xml_refusal"], "odoo.exceptions.UserError")
 
     monkeypatch.setattr(delay, "odoo_call", odoo_call)
     monkeypatch.setattr(delay, "odoo_json", odoo_json)

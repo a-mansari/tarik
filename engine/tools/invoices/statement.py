@@ -20,7 +20,7 @@ from datetime import date, timedelta
 
 import openpyxl
 
-from engine.tools.core.app import ToolError, log, ok, routine, step_tool, stop, wait
+from engine.tools.core.app import CRASHED, ToolError, log, ok, routine, step_tool, stop, wait
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import (
@@ -29,6 +29,7 @@ from engine.tools.core.experio import (
     dry_run,
     experio_refusal,
     in_dossier,
+    is_refusal,
     odoo_call,
     odoo_json,
     plain,
@@ -1362,6 +1363,9 @@ def posting(statement):
     try:
         action = with_fiscal_year(odoo_json(STATEMENT, "action_post", [statement_id], context=context), context)
     except Exception as error:  # Experio's refusal (complete validation required, exact duplicate): its own words
+        log(f"post_statement {statement_id}: {error}")
+        if not is_refusal(error):
+            return stop(f"Relevé n° {statement_id} : {CRASHED}")
         return stop(f"Relevé n° {statement_id} : pas comptabilisé, Experio refuse : {experio_refusal(error)}")
     if isinstance(action, dict) and action.get("res_model"):
         window = f"la fenêtre « {action['name']} »" if action.get("name") else "une fenêtre de confirmation"

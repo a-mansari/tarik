@@ -28,6 +28,7 @@ from engine.tools.core.experio import (
     dry_run,
     experio_refusal,
     in_dossier,
+    is_refusal,
     odoo_call,
     odoo_json,
     refused,
@@ -251,6 +252,8 @@ def export_entries(
                 confirmed = {**context, "exp_export_tiers_confirmed": True}
                 action = odoo_json(WIZARD, method, [wizard_id], context=confirmed)
         except ExperioRefusal as error:
+            if not is_refusal(error):  # a crash: told as one (refused(), calls.call), never as Experio's reason
+                raise
             models = "" if template else models_note(model, kind, context)
             return stop(f"{told}. Experio refuse l'export : {experio_refusal(error)}{models}")
         if integration:

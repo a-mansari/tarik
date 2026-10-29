@@ -34,6 +34,7 @@ from engine.tools.core.experio import (
     dry_run,
     experio_refusal,
     in_dossier,
+    is_refusal,
     odoo_call,
     odoo_json,
     refused,
@@ -344,6 +345,8 @@ def prepare(kind, dossier_id, words, declarer, client_confirmed, context, sessio
         try:  # Experio's own checks of the XML (company IF, each tiers' ICE and IF, amounts, payment dates)
             odoo_json(spec["model"], spec["xml"], [table_id], context=context)
         except ExperioRefusal as error:
+            if not is_refusal(error):  # a crash: told as one (refused(), calls.call), never as Experio's reason
+                raise
             return "stop", f"{text}\n- Experio refuse son fichier XML : {experio_refusal(error)}", table_id
         name = keep_record_file(session_id, spec["model"], table_id, "datas_for_ras", "datas_fname_for_ras", context)
         text += (
@@ -358,6 +361,8 @@ def prepare(kind, dossier_id, words, declarer, client_confirmed, context, sessio
     try:
         odoo_json(spec["model"], "action_post", [table_id], context=context)
     except ExperioRefusal as error:
+        if not is_refusal(error):  # a crash: told as one (refused(), calls.call), never as Experio's reason
+            raise
         return "stop", f"Experio refuse de déclarer la {label} : {experio_refusal(error)}", table_id
     return (
         "ok",

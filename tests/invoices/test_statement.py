@@ -393,8 +393,9 @@ def test_an_invoice_number_counts_only_as_whole_words(experio):
 
 @pytest.mark.functionality
 def test_an_experio_error_other_than_a_refusal_stops_the_step(experio):
+    # its text may name another dossier (« switching to the company: ... »): a crash, never shown
     experio["form"] = {70: ExperioRefusal("Access denied", "odoo.exceptions.AccessError")}
-    with pytest.raises(ToolError, match=r"n° 40 : Experio a refusé \(Access denied\)"):
+    with pytest.raises(ToolError, match=r"^Relevé n° 40 : échec technique, réessayez plus tard\.$"):
         pointed(client_message="facture FA-0012")
 
 
@@ -429,9 +430,13 @@ def test_posting_takes_the_ready_lines_and_lists_whats_in_suspense(experio):
 def test_a_window_or_a_refusal_at_posting_stops_for_the_cabinet(experio):
     experio["post"] = {"res_model": "exp.bank.statement.duplicate.wizard", "name": "Relevé en double"}
     assert "« Relevé en double »" in statement.post_statement(8)["message"]
-    experio["post"] = RuntimeError("Traceback\nUserError: Complete statement validation is required.")
+    experio["post"] = ExperioRefusal("Complete statement validation is required.", "odoo.exceptions.UserError")
     result = statement.post_statement(8)
     assert result["status"] == "stop" and result["message"].endswith("Complete statement validation is required.")
+    experio["post"] = ExperioRefusal("'journal_id'", "builtins.KeyError")  # a crash: never Experio's reason
+    result = statement.post_statement(8)
+    assert result["status"] == "stop" and "échec technique, réessayez plus tard." in result["message"]
+    assert "journal_id" not in result["message"]
 
 
 @pytest.mark.functionality
