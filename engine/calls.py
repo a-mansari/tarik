@@ -29,6 +29,7 @@ QUIET_WHEN_OK = {
     "files_to_process",
     "waiting_drafts",
     "waiting_setups",
+    "setup_problems",
     "check_sender",
     "check_creator",
     "check_manager",

@@ -5,7 +5,7 @@ import pytest
 from engine.dossier import graph
 
 NOT_OK = ["stop", "question", "wait", "error"]
-ONBOARDING = ["ask_banks", "finish_setup", "setup_status", "run_summary"]
+ONBOARDING = ["ask_banks", "finish_setup", "setup_status", "setup_problems", "run_summary"]
 
 
 @pytest.mark.functionality
@@ -190,6 +190,8 @@ def test_resume_finishes_the_waiting_dossiers_and_says_the_state_of_those_finish
         "finish_setup",
         "setup_status",
         "setup_status",
+        "setup_problems",
+        "setup_problems",
         "run_summary",
     ]
     assert steps.args("finish_setup") == [{"dossier_id": 3}, {"dossier_id": 4}, {"dossier_id": 5}]

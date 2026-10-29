@@ -123,3 +123,7 @@ uses another one. A stack that edited one of these documents itself loses that e
   d'opération », « Tiers des opérations » and « Comptabilisation du relevé » (`labels.json`). Import it after
   the pointage-etapes export, once the stack runs the commit with the tiers reading: before, check.py and the
   consistency test find no `tools/point-line-tiers.md`, and the tiers reading is skipped (the lines stay for the cabinet).
+
+- `tarik-contenu-points-dossier-20261029.json`: `labels.json` gets the dossier step « Points à corriger » (what the
+  client must fix, told apart from « État du dossier », whose description is shortened). Import it once the stack runs
+  the commit that splits `setup_status` and `setup_problems`: before, check.py finds no description for the node `points`.
