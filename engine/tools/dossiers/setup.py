@@ -28,7 +28,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import openpyxl
 
-from engine.tools.core.app import ToolError, log, ok, question, routine, step_tool, stop, tool, wait
+from engine.tools.core.app import CRASHED, ToolError, log, ok, question, routine, step_tool, stop, tool, wait
 from engine.tools.core.cabinets import cabinet_db, current
 from engine.tools.core.config import ENTRY_FILES, TEST_MODE
 from engine.tools.core.experio import (
@@ -36,6 +36,7 @@ from engine.tools.core.experio import (
     dry_run,
     experio_refusal,
     in_dossier,
+    is_refusal,
     misplaced_journals,
     odoo_call,
     odoo_json,
@@ -997,7 +998,12 @@ def fill_posting_settings(dossier_id, company, context):
             problems.append(f"Je n'ai pas pu finir le paramétrage : {failure}")
         except Exception as failure:  # what was done before is still told
             log(f"fill_posting_settings {dossier_id}: {failure}")
-            problems.append(f"Experio a refusé mon paramétrage ({experio_refusal(failure)}).")
+            if is_refusal(failure):
+                problems.append(
+                    f"Je n'ai pas pu finir le paramétrage : Experio l'a refusé ({experio_refusal(failure)})."
+                )
+            else:  # a crash, ours or Experio's: its text (a field name, a traceback) stays in the log
+                problems.append(f"Je n'ai pas pu finir le paramétrage : {CRASHED}")
         if dry_run():
             return done, problems, company
         after = odoo_call("res.company", "read", [dossier_id], fields=list(POSTING_SETTINGS))[0]

@@ -424,7 +424,17 @@ def experio_refusal(error):
     text (an XML-RPC fault's traceback)."""
     if isinstance(error, ExperioRefusal):
         return " ".join(str(error).split())[:300]
-    return str(error).strip().splitlines()[-1][:300]
+    text = error.faultString if isinstance(error, xmlrpc.client.Fault) else str(error)  # a Fault's str is its repr
+    return text.strip().splitlines()[-1][:300]
+
+
+def is_refusal(error):
+    """True when ``error`` is Experio refusing (a UserError or ValidationError its checks raise), not a crash,
+    ours or Experio's. Over XML-RPC Experio sends those with faultCode 2 and anything else with code 1 and its whole
+    traceback (odoo/addons/base/controllers/rpc.py xmlrpc_handle_exception_int); over JSON-RPC, by the class name."""
+    if isinstance(error, xmlrpc.client.Fault):
+        return error.faultCode == 2
+    return isinstance(error, ExperioRefusal) and error.name in CHECK_REFUSALS
 
 
 def plain(html):

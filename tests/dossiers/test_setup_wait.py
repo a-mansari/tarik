@@ -1,6 +1,7 @@
 """A dossier whose onboarding waits on Experio (on the real Postgres, db_cabinet): finished in the run when its
 time allows, else left waiting for a follow-up; a refused import never leaves it waiting."""
 
+import xmlrpc.client
 from contextlib import nullcontext
 from datetime import UTC, date, datetime, timedelta
 
@@ -9,6 +10,7 @@ import pytest
 from engine.tools.core.app import ToolError
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
+from engine.tools.core.experio import ExperioRefusal
 from engine.tools.dossiers import setup
 
 
@@ -394,7 +396,7 @@ UNSET = ["local_customer_account_id", "foreign_customer_account_id", "local_sale
 SET_NOW = dict.fromkeys(["local_customer_account_id", "foreign_customer_account_id"], [9, "34210000"])
 
 
-def filling(monkeypatch, *, test_mode=False, in_chart=(), refused_journal=False):
+def filling(monkeypatch, *, test_mode=False, in_chart=(), refused_journal=None):
     """A dossier without customer account nor sale journal, its supplier side set; ``in_chart``: the 3421 accounts
     found. Returns the fill's (done, problems) and the Experio calls made."""
     company = dict.fromkeys(setup.POSTING_SETTINGS, [1, "x"])
@@ -407,7 +409,7 @@ def filling(monkeypatch, *, test_mode=False, in_chart=(), refused_journal=False)
 
     def set_journal(dossier_id, kind):
         if refused_journal:
-            raise RuntimeError("ValidationError: code déjà pris")
+            raise refused_journal
         return f"{setup.TEST_MODE if test_mode else ''}journal `Ventes` {'serait créé' if test_mode else 'créé'}"
 
     monkeypatch.setattr(setup, "dry_run", lambda: test_mode)
@@ -457,9 +459,25 @@ def test_a_3421_account_experio_does_not_take_is_told(monkeypatch):
 
 @pytest.mark.communication
 def test_a_refused_write_keeps_what_was_done(monkeypatch):
-    done, problems, _ = filling(monkeypatch, refused_journal=True)
-    assert done[0] == "compte `34210000 Clients` créé"
-    assert problems == ["Experio a refusé mon paramétrage (ValidationError: code déjà pris)."]
+    for refusal in (
+        ExperioRefusal("Ce code est déjà pris.", "odoo.exceptions.ValidationError"),
+        xmlrpc.client.Fault(2, "Ce code est déjà pris."),
+    ):
+        done, problems, _ = filling(monkeypatch, refused_journal=refusal)
+        assert done[0] == "compte `34210000 Clients` créé"
+        assert problems == ["Je n'ai pas pu finir le paramétrage : Experio l'a refusé (Ce code est déjà pris.)."]
+
+
+@pytest.mark.security
+def test_a_failure_of_ours_is_not_blamed_on_experio_nor_shown(monkeypatch):
+    for crash in (
+        KeyError("foreign_sale_journal_id"),  # ours
+        xmlrpc.client.Fault(1, "Traceback (most recent call last):\n  File \"/opt/odoo/models.py\"\nKeyError: 'x'"),
+        ExperioRefusal("'foreign_sale_journal_id'", "builtins.KeyError"),  # Experio's, over JSON-RPC
+    ):
+        done, problems, _ = filling(monkeypatch, refused_journal=crash)
+        assert done[0] == "compte `34210000 Clients` créé"
+        assert problems == ["Je n'ai pas pu finir le paramétrage : échec technique, réessayez plus tard."]
 
 
 @pytest.mark.functionality
