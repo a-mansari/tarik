@@ -42,3 +42,34 @@ def test_a_minimax_call_is_priced_at_its_published_rates():
     assert usage.priced("MiniMax-M3", 100_000, 100_000, 100_000) == pytest.approx(0.030 + 0.006 + 0.120)
     assert usage.priced("MiniMax-M3", 600_000, 0, 0) == pytest.approx(2 * 0.18)  # a long prompt: every rate doubled
     assert usage.priced("unknown", 10, 0, 10) is None
+
+
+# Many threads reading PDFs at once, as the server's tools do: a separate process, so a pdfium segfault fails the
+# test instead of killing the run.
+READ_AT_ONCE = """
+import io, sys
+from concurrent.futures import ThreadPoolExecutor
+from PIL import Image
+from engine.tools.core import model
+from engine.tools.invoices import intake, tpe
+
+buffer = io.BytesIO()
+pages = [Image.new("RGB", (400, 560), "white") for _ in range(4)]
+pages[0].save(buffer, format="PDF", save_all=True, append_images=pages[1:])
+raw = buffer.getvalue()
+reads = [lambda: model.pdf_pages(raw, None), lambda: intake.split_pdf(raw, [2, 3]), lambda: tpe.first_page_text(raw),
+         lambda: intake.statement_text(raw), lambda: intake.merged_pdf([raw, raw])]
+with ThreadPoolExecutor(16) as pool:
+    list(pool.map(lambda i: reads[i % len(reads)](), range(400)))
+"""
+
+
+@pytest.mark.technical
+def test_pdfs_read_in_many_threads_at_once_never_crash_the_server():
+    import pathlib
+    import subprocess
+    import sys
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    done = subprocess.run([sys.executable, "-c", READ_AT_ONCE], cwd=root, capture_output=True, timeout=300)
+    assert done.returncode == 0, done.stderr.decode()[-2000:]

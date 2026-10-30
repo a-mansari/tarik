@@ -2,9 +2,11 @@
 per cabinet), and the pages of the documents clients send, rendered as images it can read."""
 
 import base64
+import contextlib
 import io
 import json
 import re
+import threading
 
 import httpx
 import psycopg
@@ -191,14 +193,37 @@ def to_pdf(raw):
     return buffer.getvalue()
 
 
+# pdfium is not thread-safe, not even for two documents, and tools run in threads (engine/calls.py): every use holds
+# PDFIUM and closes its documents inside it, as one left to the garbage collector is closed whenever and in whatever
+# thread it runs. Seven statements read at once segfaulted the whole server (2026-10-30).
+PDFIUM = threading.RLock()
+
+
+@contextlib.contextmanager
+def pdf_document(raw=None):
+    """Yield pypdfium2's document of PDF bytes ``raw`` (None: a new empty one) under PDFIUM, closed with its pages on
+    exit. Raises pypdfium2.PdfiumError when ``raw`` is no PDF."""
+    with PDFIUM:
+        document = pypdfium2.PdfDocument.new() if raw is None else pypdfium2.PdfDocument(raw)
+        try:
+            yield document
+        finally:
+            document.close()
+
+
 def pdf_pages(raw, limit=MAX_PAGES, scale=SCALE):
     """Return the first ``limit`` pages (None: all) of PDF bytes ``raw`` as PNG bytes, rendered at ``scale`` with
     their longest side at most MAX_SIDE pixels."""
+    images = []
+    with pdf_document(raw) as document:
+        for index in range(len(document) if limit is None else min(limit, len(document))):
+            page = document[index]
+            fitting = min(scale, MAX_SIDE / max(page.get_size()))  # the longest side at most MAX_SIDE
+            images.append(page.render(scale=fitting).to_pil())  # its own pixels: to_pil converts BGR to RGB
     pages = []
-    for page in list(pypdfium2.PdfDocument(raw))[:limit]:
-        fitting = min(scale, MAX_SIDE / max(page.get_size()))  # the longest side at most MAX_SIDE
+    for image in images:  # encoded out of PDFIUM: most of the time, and no pdfium in it
         buffer = io.BytesIO()
-        page.render(scale=fitting).to_pil().save(buffer, format="PNG")
+        image.save(buffer, format="PNG")
         pages.append(buffer.getvalue())
     return pages
 

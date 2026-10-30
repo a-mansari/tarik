@@ -14,7 +14,7 @@ from engine.tools.core.cabinets import cabinet_db, setting
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.conversation import client_messages, own_words
 from engine.tools.core.experio import dossier_lock, dry_run, in_dossier, odoo_call, refused, require_dossier, would
-from engine.tools.core.model import pdf_pages, to_pdf
+from engine.tools.core.model import pdf_document, pdf_pages, to_pdf
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
 from engine.tools.dossiers.banks import (
@@ -228,16 +228,16 @@ def split_choice(messages):
 def split_pdf(raw, starts):
     """Cut PDF ``raw`` into one PDF per invoice: [(first page, last page, bytes)], 1-based. ``starts``: the pages that
     begin an invoice; page 1 always does, numbers out of range are dropped."""
-    pdf = pypdfium2.PdfDocument(raw)
-    count = len(pdf)
-    starts = sorted({1, *(n for n in starts if 1 <= n <= count)})
     documents = []
-    for first, after in itertools.pairwise([*starts, count + 1]):
-        document = pypdfium2.PdfDocument.new()
-        document.import_pages(pdf, list(range(first - 1, after - 1)))
-        buffer = io.BytesIO()
-        document.save(buffer)
-        documents.append((first, after - 1, buffer.getvalue()))
+    with pdf_document(raw) as pdf:
+        count = len(pdf)
+        starts = sorted({1, *(n for n in starts if 1 <= n <= count)})
+        for first, after in itertools.pairwise([*starts, count + 1]):
+            buffer = io.BytesIO()
+            with pdf_document() as document:
+                document.import_pages(pdf, list(range(first - 1, after - 1)))
+                document.save(buffer)
+            documents.append((first, after - 1, buffer.getvalue()))
     return documents
 
 
@@ -349,7 +349,8 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
         if invoice_id or parent_id or mime != "application/pdf":  # parent_id: already one invoice cut out of a PDF
             return one
         try:
-            count = len(pypdfium2.PdfDocument(bytes(data)))
+            with pdf_document(bytes(data)) as document:
+                count = len(document)
         except pypdfium2.PdfiumError:
             return ok(
                 f"`{name}` : {said_side}PDF illisible, 1 document, fichier n° {file_id}.", files=[file_id], **side
@@ -490,11 +491,12 @@ def same_statement_files(db, file_id, client_message):
 
 def merged_pdf(raws):
     """Return PDFs ``raws`` merged into one, their pages in order."""
-    document = pypdfium2.PdfDocument.new()
-    for raw in raws:
-        document.import_pages(pypdfium2.PdfDocument(raw))
     buffer = io.BytesIO()
-    document.save(buffer)
+    with pdf_document() as document:
+        for raw in raws:
+            with pdf_document(raw) as source:
+                document.import_pages(source)
+        document.save(buffer)
     return buffer.getvalue()
 
 
@@ -539,8 +541,8 @@ def statement_text(raw):
     """Return the text of a PDF statement's first two pages, blanks squeezed (the RIB is printed in columns); "" for
     a scan, an image or an unreadable file."""
     try:
-        document = pypdfium2.PdfDocument(raw)
-        pages = [document[i].get_textpage().get_text_range() for i in range(min(2, len(document)))]
+        with pdf_document(raw) as document:
+            pages = [document[i].get_textpage().get_text_range() for i in range(min(2, len(document)))]
     except Exception:  # a scan or another format: the client's words and the file's name decide
         return ""
     return re.sub(r"[ \t]+", " ", "\n".join(pages))
