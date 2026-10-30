@@ -106,10 +106,8 @@ def test_an_admin_s_change_and_a_member_s_reading_go_through(monkeypatch):
     assert called("member", "GET", "/graphs/traitement/layout", monkeypatch) == (200, True)
 
 
-@pytest.mark.security
-def test_the_login_throttle_forgets_what_its_wait_is_over(monkeypatch):
-    import asyncio
-
+def no_account(monkeypatch, failures=None):
+    """log_in's database holding no account, each query yielding once so guesses sent at once interleave."""
     from server import accounts
 
     class Db:
@@ -120,12 +118,84 @@ def test_the_login_throttle_forgets_what_its_wait_is_over(monkeypatch):
             return False
 
         async def execute(self, *args):
+            await asyncio.sleep(0)
             return self
 
         async def fetchone(self):
-            return None  # no such account
+            return None
 
     monkeypatch.setattr(accounts.runs, "pool", type("Pool", (), {"connection": lambda self: Db()})())
-    monkeypatch.setattr(accounts, "FAILURES", {"old@x": (3, accounts.time.monotonic() - accounts.WAIT_SECONDS - 1)})
+    monkeypatch.setattr(accounts, "FAILURES", failures or {})
+    monkeypatch.setattr(accounts, "HASHING", asyncio.Semaphore(2))  # a semaphore keeps the loop it first waited on
+    return accounts
+
+
+def logged_in(monkeypatch, body):
+    """server.login's answer to ``body`` (bytes) from this server's own page."""
+    from starlette.requests import Request
+
+    from server import audit
+
+    async def receive():
+        return {"type": "http.request", "body": body}
+
+    async def recorded(*args):
+        return None
+
+    monkeypatch.setattr(audit, "record", recorded)
+    headers = [(b"host", b"tarik"), (b"origin", b"http://tarik")]
+    scope = {"type": "http", "method": "POST", "path": "/ui/api/login", "headers": headers, "query_string": b""}
+    return asyncio.run(server.login(Request(scope, receive)))
+
+
+@pytest.mark.security
+def test_the_login_throttle_forgets_what_its_wait_is_over(monkeypatch):
+    from server import accounts
+
+    no_account(monkeypatch, {"old@x": (3, accounts.time.monotonic() - accounts.WAIT_SECONDS - 1)})
     asyncio.run(accounts.log_in("new@x", "nope"))
     assert set(accounts.FAILURES) == {"new@x"}  # a guess with a new address never grows it without end
+
+
+@pytest.mark.security
+def test_the_try_that_reaches_the_limit_is_told_to_wait_not_called_wrong(monkeypatch):
+    from server import accounts
+
+    no_account(monkeypatch, {"a@x": (accounts.WAIT_AFTER - 1, accounts.time.monotonic())})
+    assert logged_in(monkeypatch, b'{"email": "a@x", "password": "nope"}').status_code == 429
+
+
+@pytest.mark.security
+def test_an_email_or_password_too_long_to_be_real_is_never_hashed(monkeypatch):
+    from server import accounts
+
+    async def never(*args):
+        raise AssertionError("never hashed nor counted")
+
+    monkeypatch.setattr(accounts, "log_in", never)
+    assert logged_in(monkeypatch, b'{"email": "a@x", "password": "%s"}' % (b"x" * 1025)).status_code == 400
+    assert logged_in(monkeypatch, b'{"email": "%s@x", "password": "p"}' % (b"a" * 260)).status_code == 400
+
+
+@pytest.mark.security
+def test_guesses_sent_at_once_each_count_and_an_ended_wait_starts_again(monkeypatch):
+    accounts = no_account(monkeypatch)
+
+    async def guesses(count):
+        await asyncio.gather(*(accounts.log_in("a@x", "nope") for _ in range(count)))
+
+    asyncio.run(guesses(accounts.WAIT_AFTER))
+    assert accounts.waiting("a@x")  # not one count for the whole burst
+    over = accounts.time.monotonic() - accounts.WAIT_SECONDS - 1
+    no_account(monkeypatch, {"a@x": (accounts.WAIT_AFTER, over)})
+    asyncio.run(guesses(1))
+    assert not accounts.waiting("a@x")  # one more mistake after the wait is the first of 5 again
+
+
+@pytest.mark.security
+def test_an_unknown_account_is_hashed_like_a_real_one_so_its_answer_is_as_slow(monkeypatch):
+    accounts = no_account(monkeypatch)
+    checked = []
+    monkeypatch.setattr(accounts, "matches", lambda password, stored: checked.append(stored) or True)
+    assert asyncio.run(accounts.log_in("nobody@x", "anything")) is None  # refused even when the dummy "matches"
+    assert checked == [accounts.UNSET]

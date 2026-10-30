@@ -45,6 +45,7 @@ def test_an_invited_account_sets_its_password_once_through_its_link(monkeypatch)
             await accounts.accept(token, "short")
         await accounts.accept(token, "a long enough password")
         assert await accounts.log_in("new@cabinet.ma", "a long enough password")
+        assert "new@cabinet.ma" not in accounts.FAILURES  # a way in clears its tries: logging in never locks out
         with pytest.raises(ValueError, match="déjà servi"):
             await accounts.accept(token, "another long password")
         assert await accounts.invited(token) is None

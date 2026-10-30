@@ -6,6 +6,7 @@ account created on the page has no password until its person sets one through a 
 INVITATION_HOURS; only its token's hash is stored). Each account has a role (ROLES): an admin changes what everyone
 uses, a member reads and talks to Tarik (server/server.py's admin_only decides which routes need an admin)."""
 
+import asyncio
 import hashlib
 import hmac
 import re
@@ -23,6 +24,7 @@ EMAIL = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+")  # a comma never: it separate
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 FAILURES = {}  # email: (count, last failure's monotonic time): a guessing run waits
 WAIT_AFTER, WAIT_SECONDS = 5, 60
+HASHING = asyncio.Semaphore(2)  # logins hashed at once, off the event loop: a flood of logins waits, not Tarik
 
 
 def hashed(password, salt=None):
@@ -36,6 +38,9 @@ def matches(password, stored):
     """True when ``password`` hashes to ``stored`` (a hashed() string), compared in constant time."""
     _, salt, _ = stored.split("$")
     return hmac.compare_digest(hashed(password, bytes.fromhex(salt)), stored)
+
+
+UNSET = hashed(secrets.token_urlsafe())  # what a password is checked against when there is none to check
 
 
 def digest(token):
@@ -158,24 +163,35 @@ def forget_waited(now):
         del FAILURES[stale]
 
 
+def waiting(email):
+    """True while ``email`` must wait: WAIT_AFTER failed logins within WAIT_SECONDS (a guessing run waits)."""
+    count, last = FAILURES.get(email.strip().lower(), (0, 0.0))
+    return count >= WAIT_AFTER and time.monotonic() - last < WAIT_SECONDS
+
+
 async def log_in(email, password):
     """Open a session for ``email`` and ``password`` and return its token, or None.
 
     None when the password is wrong, the account has no password yet or is closed, or after WAIT_AFTER failures
     within WAIT_SECONDS (a guessing run waits)."""
     email = email.strip().lower()
-    count, last = FAILURES.get(email, (0, 0.0))
-    if count >= WAIT_AFTER and time.monotonic() - last < WAIT_SECONDS:
+    if waiting(email):
         return None
+    now = time.monotonic()
+    forget_waited(now)  # a wait that is over starts again from 0
+    # counted before the database wait, so guesses sent at once each count; a right password clears it
+    FAILURES[email] = (FAILURES.get(email, (0, 0.0))[0] + 1, now)
     async with runs.pool.connection() as db:
         row = await (await db.execute(Q.user_password, (email,))).fetchone()
-        if not row or not row[0] or not matches(password, row[0]):  # no password yet: its invitation sets one
-            now = time.monotonic()
-            forget_waited(now)
-            FAILURES[email] = (count + 1, now)
-            return None
-        FAILURES.pop(email, None)
-        token = secrets.token_urlsafe(32)
+    stored = row[0] if row else None  # none: no such account, or no password yet (its invitation sets one)
+    # hashed either way, so an unknown account is as slow as a real one; never skip it when stored is empty
+    async with HASHING:
+        right = await asyncio.to_thread(matches, password, stored or UNSET)
+    if not right or not stored:
+        return None
+    FAILURES.pop(email, None)
+    token = secrets.token_urlsafe(32)
+    async with runs.pool.connection() as db:
         await db.execute(
             Q.session_opened,
             (digest(token), email, SESSION_HOURS),
