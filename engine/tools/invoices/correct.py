@@ -51,6 +51,9 @@ FIELD_LABELS = {
     "amount_insurance": "assurance BTP",
     "amount_ts": "taxe de séjour",
     "amount_tsp": "taxe de promotion touristique",
+    "amount_tsc": "taxe de services communaux",
+    "amount_regional_tax": "taxe régionale",
+    "amount_tva_3": "taxe régionale",
     "advance_amount": "avance / acompte",
 }
 
@@ -62,7 +65,7 @@ def change_text(field, value):
         return None
     if field == "refund":
         return "avoir" if value else "facture, pas un avoir"
-    if field.startswith("amount_tva_") and field.removeprefix("amount_tva_").isdigit():
+    if field.startswith("amount_tva_") and field.removeprefix("amount_tva_").isdigit() and field != "amount_tva_3":
         return f"TVA {field.removeprefix('amount_tva_')} % {value}"
     label = FIELD_LABELS.get(field, field)
     return f"{label} : valeur renseignée" if field.endswith("_id") else f"{label} {value}"
@@ -116,33 +119,53 @@ def planned_changes(extracted, bad_fields, invoice):
     return changes
 
 
-# A tax Experio counts in the TTC only when the dossier uses it (get_amounts_list: use_ts_tax, use_tsp_tax), and books
-# on the dossier's account for it (get_amount_ts_account_id: no detection fills it, it has no default): the setting,
-# its account, and how the client reads it.
+# A tax Experio counts in the TTC only when the dossier uses it (get_amounts_list: use_ts_tax, use_tsp_tax, the TSC and
+# taxe régionale switches), and books on the dossier's account for it (get_amount_ts_account_id: no detection fills
+# it, it has no default): the setting, its account (None: Experio falls back on the invoice's own), and how the client
+# reads it. The TSC and the taxe régionale have a setting per side; a purchase keeps its taxe régionale in amount_tva_3.
 TAX_SETTINGS = {
     "amount_ts": ("use_ts_tax", "ts_account_id", "taxe de séjour"),
     "amount_tsp": ("use_tsp_tax", "tsp_account_id", "taxe de promotion touristique"),
 }
+SIDED_TAX_SETTINGS = {
+    "purchase": {
+        "amount_tsc": ("use_tsc_purchase_tax", "tsc_account_id", "taxe de services communaux"),
+        "amount_tva_3": ("use_amount_tva_3", None, "taxe régionale"),
+    },
+    "sale": {
+        "amount_tsc": ("use_tsc_sale_tax", "tsc_sale_account_id", "taxe de services communaux"),
+        "amount_regional_tax": ("use_regional_tax", "regional_tax_account_id", "taxe régionale"),
+    },
+}
+TAX_FIELDS = [*TAX_SETTINGS, "amount_tsc", "amount_tva_3", "amount_regional_tax"]
+
+
+def regional_field(changes, invoice):
+    """Rename the taxe régionale the scan check read (amount_regional_tax) in ``changes`` to the field Experio keeps
+    it in: amount_tva_3 on a purchase."""
+    if "amount_regional_tax" in changes and invoice["type"] == "purchase":
+        changes["amount_tva_3"] = changes.pop("amount_regional_tax")
 
 
 def tax_settings(invoice, changes, notes):
-    """Turn on the dossier's setting for each tourist tax (taxe de séjour, taxe de promotion touristique) the
-    invoice has or gets from ``changes``, as the Configuration screen does: with it off, Experio leaves the tax out
-    of the TTC (get_amounts_list).
+    """Turn on the dossier's setting for each tax Experio counts only when the dossier uses it (taxe de séjour, taxe de
+    promotion touristique, TSC, taxe régionale) the invoice has or gets from ``changes``, as the Configuration screen
+    does: with it off, Experio leaves the tax out of the TTC (get_amounts_list).
 
     Edits ``changes`` and appends French notes for the reply to ``notes``. When the dossier has no account for the
     tax, the amounts stay as Experio read them: the tax and the stamp Experio read it as are dropped from
     ``changes``, and a note tells the cabinet to set the account (the invoice would not post otherwise). When the
     setting cannot be saved, the tax is dropped from ``changes`` too."""
-    taxed = [field for field in TAX_SETTINGS if (changes.get(field, invoice.get(field)) or 0) > 0]
+    settings = {**TAX_SETTINGS, **SIDED_TAX_SETTINGS[invoice["type"]]}
+    taxed = [field for field in settings if (changes.get(field, invoice.get(field)) or 0) > 0]
     if not taxed:
         return
     company_id, context = invoice["company_id"][0], invoice_context(invoice)
-    wanted = [name for field in taxed for name in TAX_SETTINGS[field][:2]]
+    wanted = [name for field in taxed for name in settings[field][:2] if name]
     held = odoo_call("res.company", "read", [company_id], fields=wanted, context=context)[0]
     for field in taxed:
-        setting, account, label = TAX_SETTINGS[field]
-        if not held[account]:
+        setting, account, label = settings[field]
+        if account and not held[account]:
             if field in changes:
                 changes.pop(field)
                 changes.pop("amount_stamp", None)  # Experio read the tax as a stamp: it stays so, the TTC balanced
@@ -225,7 +248,8 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         "payment_method_id",
         "amount_total",
         "amount_untaxed",
-        *TAX_SETTINGS,
+        "type",
+        *TAX_FIELDS,
         *HOTEL,
         *(f"should_use_{field.removeprefix('amount_')}" for field in HOTEL),
     ]
@@ -253,6 +277,7 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         }
         notes.append("montants gardés tels que saisis par Experio, le scan ne porte aucun montant à payer")
     changes = planned_changes(extracted, bad_fields, invoice)
+    regional_field(changes, invoice)
     hotel_parts(extracted, invoice, changes)
     with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé la correction."):
         tax_settings(invoice, changes, notes)

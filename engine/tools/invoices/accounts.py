@@ -144,7 +144,7 @@ def _memorized(invoice, context):
     return fill_invoice(invoice["id"], {"partner_id": invoice["partner_id"][0]}, context, save=False).get("account_id")
 
 
-def _model_choice(invoice, kind, designation):
+def model_choice(invoice, kind, designation):
     """Ask the model which of the dossier's accounts fits ``designation`` (what the invoice bills).
 
     ``kind``: "purchase" (classes 6 and 2 offered) or "sale" (class 7). Returns (account {id, code, name}, reason
@@ -228,7 +228,7 @@ def assign_account(
         return question(account_question(invoice, None))
     if hint:  # the client's own word for what it is, beside what the invoice says
         designation = f"{designation} (le client précise : « {hint} »)"
-    account, reason = _model_choice(invoice, kind, designation)
+    account, reason = model_choice(invoice, kind, designation)
     if account and hint:
         reason = f"« {hint} » ne désigne aucun compte du dossier, choisi d'après vos mots et la facture : {reason}"
     if not account:

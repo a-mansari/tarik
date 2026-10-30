@@ -44,11 +44,11 @@ section 9: one line in `tests/llm/test_decisions.py` is usually enough.**
 | dossiers | 9 | 144 |
 | emails | 4 | 56 |
 | graphs | 7 | 70 |
-| invoices | 33 | 479 |
+| invoices | 34 | 510 |
 | isolation | 4 | 24 |
 | llm | 5 | 13 |
 | style | 2 | 7 |
-| **Total** | **83 test files** | **970 test functions** |
+| **Total** | **84 test files** | **1001 test functions** |
 
 These are function counts. With parametrize the collected item count is higher (1,412 run by a plain
 `python -m pytest`). Every call Tarik makes to Experio (odoo_call, odoo_json, fill_invoice, refresh) is run by at
@@ -58,8 +58,8 @@ By marker:
 
 | Marker | Tests |
 |---|---|
-| functionality | 508 |
-| security | 194 |
+| functionality | 530 |
+| security | 198 |
 | communication | 153 |
 | technical | 55 |
 | style | 8 |
@@ -504,7 +504,11 @@ Covers comparing what Experio read with the scan: dates, the model's report, fal
 - `test_an_answer_unusable_twice_is_refused_and_nothing_stored` [technical, param]: two bad answers: refused, nothing stored.
 - `test_a_draft_experio_has_not_read_or_without_a_scan_is_not_checked` [functionality, param]: still reading, not read, or no PDF scan: not checked.
 - `test_a_sale_is_checked_against_its_customer` [functionality]: a sale's model prompt holds the customer note.
+- `test_a_regional_tax_already_in_the_ht_does_not_hide_a_wrong_amount` [functionality]: a taxe régionale inside the HT does not make the amount flags dropped as the model's misreading.
+- `test_a_purchase_s_regional_tax_is_read_from_its_own_experio_field` [functionality]: a purchase's taxe régionale is read from `amount_tva_3`, a sale's from `amount_regional_tax`.
+- `test_the_tsc_and_the_regional_tax_count_in_the_ttc_the_scan_adds_up_to` [functionality]: the TSC and the taxe régionale are parts of the TTC the scan must add up to.
 - `test_a_date_or_tva_lines_out_of_shape_are_never_guessed` [technical]: a three-digit year or tva_lines not a list are refused.
+- `test_the_scan_s_charge_lines_are_read_as_numbers_or_refused` [functionality]: charge lines' HT and rate become numbers, a non-list is refused.
 
 ### tests/invoices/test_classify.py
 Covers a draft taken up again keeping its classified side.
@@ -518,6 +522,7 @@ Covers a draft taken up again keeping its classified side.
 - `test_a_scan_of_the_other_side_than_the_client_said_stops_untouched` [functionality]: a scan of the other side than the client said stops.
 - `test_a_draft_experio_already_has_on_the_right_side_is_left_as_it_is` [functionality]: the right type already: routine, nothing written.
 - `test_the_type_is_changed_through_experios_form_in_the_invoices_dossier` [functionality]: the type is changed through Experio's form with the invoice's context.
+- `test_a_regional_tax_written_for_the_old_side_follows_the_type_change` [functionality]: a taxe régionale written for the old side moves to the new side's field, never over a value there.
 - `test_test_mode_says_the_type_would_change` [security]: in test mode the type change is only said.
 - `test_a_type_change_experio_refuses_is_said_refused` [communication]: Experio refusing the type change is a tool error.
 - `test_a_draft_no_longer_editable_gets_no_type_change` [security]: a draft no longer editable gets no type change.
@@ -530,6 +535,7 @@ Covers the dossier's tax settings before posting.
 - `test_experios_own_detection_runs_only_when_its_check_blocks` [functionality]: Experio auto-detection runs only when its check blocks.
 - `test_what_still_blocks_is_named_for_the_cabinet` [communication]: the remaining blocking settings are named for the cabinet.
 - `test_an_amount_the_invoice_carries_turns_its_switch_on_with_its_account` [functionality]: an amount on the invoice turns its setting on, with its account.
+- `test_a_purchases_regional_tax_needs_only_its_switch_a_sales_and_a_tsc_need_their_account_too` [functionality]: a purchase's taxe régionale turns its switch on (Experio falls back on the invoice's account); a sale's and the TSC's account are the cabinet's choice.
 - `test_experio_ignores_a_foreign_purchases_deductions_so_nothing_is_set` [functionality]: foreign-purchase deductions are left unset, since Experio ignores them.
 - `test_a_setting_the_cabinets_rights_refuse_is_reported_not_claimed` [security]: a setting refused for lack of rights is reported, not claimed as done.
 - `test_a_warning_is_no_setting_and_blocks_nothing_here` [functionality]: Experio's warnings block nothing at this step (settle_warnings handles them).
@@ -567,6 +573,10 @@ Covers corrections planned from a check (the HT/TVA fuel case).
 - `test_every_header_amount_correct_invoice_writes_is_said_in_french` [communication, xfail]: the stamp, débours... amounts are said by Experio's field name (suspected bug).
 - `test_a_tourist_tax_counts_only_with_its_setting_and_its_account` [functionality, param]: setting turned on with its account; without it, Experio's reading kept.
 - `test_a_tourist_tax_already_on_the_invoice_turns_its_setting_on_too` [functionality]: an earlier correction's tax gets its setting.
+- `test_a_regional_tax_counts_with_its_setting_and_is_written_in_the_field_of_the_invoice_side` [functionality, param]: the taxe régionale is written in `amount_tva_3` (purchase) or `amount_regional_tax` (sale), its setting turned on, no account needed.
+- `test_a_sales_regional_tax_without_the_dossiers_account_is_left_as_experio_read_it_and_told` [functionality]: no regional tax account on a sale: nothing written, the cabinet told (Experio refuses it at posting).
+- `test_the_tsc_counts_with_its_side_s_setting_and_account` [functionality, param]: the TSC's purchase or sale setting is turned on when the dossier has its account.
+- `test_a_tsc_without_its_account_is_left_as_experio_read_it_and_told` [functionality]: no TSC account: nothing written, the cabinet told.
 
 ### tests/invoices/test_duplicates.py
 Covers the duplicate check.
@@ -903,6 +913,25 @@ Covers the run summary (db_cabinet, uses tests/runs.py).
 - `test_the_same_failure_on_two_invoices_names_each_one` [communication]: a shared failure lists each affected invoice number.
 - `test_a_long_run_s_summary_keeps_what_the_client_needs_and_drops_the_rest` [communication]: a long summary keeps the essentials and drops routine lines.
 - `test_what_tarik_did_is_noted_in_each_invoices_history_in_experio` [communication]: one internal note per invoice in Experio's history, never for routine steps only.
+
+### tests/invoices/test_split.py
+Covers splitting a draft's charges over several expense accounts, on the lines the scan check read, through Experio's wizard (`exp.invoice.line.split`).
+- `test_the_ht_is_split_through_experios_wizard_each_part_at_the_lines_tax` [functionality]: the wizard is opened on the line, its lines replaced by the parts on the line's tax and code, then validated.
+- `test_each_rate_is_split_on_its_own_line` [functionality]: one wizard per TVA rate, each on its own charge line.
+- `test_the_first_part_takes_the_tva_rounding_so_the_lines_keep_the_invoices_tva` [functionality]: the parts' TVA add up to the line's, the first taking the rounding.
+- `test_a_split_that_does_not_add_up_or_leaves_the_class_is_refused_before_anything_is_written` [security, param]: one part, a negative part, a wrong total or a class 3 account: refused, nothing written.
+- `test_nothing_is_written_when_one_rate_cannot_be_split` [security]: one rate without a charge line stops the whole split before any wizard opens.
+- `test_a_rate_without_exactly_one_charge_line_is_left_to_the_cabinet` [functionality, param]: no line or several lines at a rate: left to the cabinet.
+- `test_test_mode_says_the_split_and_writes_nothing` [security]: test mode only says the split.
+- `test_charge_lines_are_grouped_by_rate_when_they_add_up_to_experios_line` [functionality]: scan lines grouped per rate; a lone line, a total that misses the HT, a rate Experio already split, an unreadable line and an immobilisation account leave the rate whole; a rounding is tolerated.
+- `test_an_invoice_billing_things_of_different_kinds_is_split_on_the_model_s_accounts` [functionality]: split_charges gives each line the model's account and says the split.
+- `test_lines_the_model_puts_on_one_account_stay_one_line_and_a_rounding_goes_to_the_largest` [functionality]: lines on one account are merged; all on one account: nothing split.
+- `test_a_line_without_a_sure_account_or_a_durable_good_leaves_the_invoice_on_one_account` [security, param]: no sure account or a class 2 account: the invoice keeps one account, told.
+- `test_one_line_a_posted_invoice_or_no_check_changes_nothing` [functionality]: one line, no check or a posted invoice: routine, nothing written.
+- `test_a_split_experio_refuses_leaves_the_invoice_on_its_account_and_says_so` [functionality]: a refused split never blocks the invoice.
+- `test_a_split_leaves_a_part_on_the_account_the_invoice_is_on` [functionality]: no part on the invoice's account (named, memorized or chosen): not split.
+- `test_a_transit_or_customs_invoice_is_never_split` [functionality, param]: transit (refreshed at posting) and customs (TVA on the DUM) invoices stay on one account.
+- `test_too_many_different_lines_stay_on_one_account_without_asking_the_model` [functionality]: more than 5 distinct lines: no model call, one account.
 
 ### tests/invoices/test_taxes.py
 - `test_a_sale_without_tva_gets_experios_own_zero_rate_tax_listed` [functionality]: Experio's own 0 % tax, made by Experio when missing, listed in the dossier's settings.
