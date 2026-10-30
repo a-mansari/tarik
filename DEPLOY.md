@@ -24,7 +24,7 @@ configuration) and in the seed files (secrets, loaded into Vault once). `.env.ex
 ## 2. What to provide
 
 1. **`.env`**: copy `.env.example` and fill the **Required** block: `ODOO_URL`, `POSTGRES_PASSWORD`, `TARIK_MODEL_URL`,
-   `VAULT_ADDR` (`http://vault:8200`), `TARIK_DEFAULT_CABINET`, `TARIK_SEED_DIR`. The compose file refuses to start when
+   `VAULT_ADDR` (`http://vault:8200`), `TARIK_DEFAULT_CABINET`, `TARIK_SEED_DIR`, `TARIK_TRUSTED_PROXIES`. The compose file refuses to start when
    one is missing. Every other line is optional, with its default in the file. `.env` is never committed and never sent
    to the image build.
 2. **The seed folder** (`TARIK_SEED_DIR`): the template is `deploy/seed.example/` (see its `README.md`). It holds
@@ -44,7 +44,9 @@ configuration) and in the seed files (secrets, loaded into Vault once). `.env.ex
 
 A path is written into Vault only when it does not exist yet. Later, cabinets are created and changed through the Experio
 API (`docs/experio-api.md`) or the Cabinets page, and those changes are kept at every restart. To push a changed seed
-file into existing paths, run the stack once with `VAULT_SEED_OVERWRITE=1`.
+file into existing paths, run the stack once with `VAULT_SEED_OVERWRITE=1`: it merges `orchestrator.json` and `shared.json`
+only, never a cabinet's file (a cabinet's edited settings, `DRY_RUN` included, are never reverted). `vault-init` stops with
+a message when a seed file still holds `CHANGE_ME`, and when Vault ends with no cabinet.
 
 ## 3. Build and run
 
@@ -65,7 +67,7 @@ docker compose -f docker-compose.prod.yml up -d
 
 Behind a reverse proxy: the server speaks plain HTTP. Terminate TLS at the proxy and forward `X-Forwarded-For` and
 `X-Forwarded-Proto` (the login cookie is `Secure` only when it sees `https`, and the login throttle keys on the client
-address). Set `TARIK_TRUSTED_PROXIES` to the proxy's address; the default `*` trusts any sender, fit only when the port
+address). `TARIK_TRUSTED_PROXIES` (required) is the proxy's address; `*` trusts any sender, fit only when the port
 is reachable by the proxy alone. Publish the port on the proxy's interface (`TARIK_BIND`), never on the open network.
 
 ## 4. First start
@@ -91,7 +93,7 @@ is reachable by the proxy alone. Publish the port on the proxy's interface (`TAR
   in the database by hand (content) is read only at start: restart.
 - **Limits**: `TARIK_CALLS_PER_CABINET`, `TARIK_CALLS_TOTAL` and `TARIK_MODEL_CALLS` cap the model calls at once.
 - **A secret changed**: through the Cabinets page or the Experio API for a cabinet; for the shared or the model's, edit
-  the seed file and run once with `VAULT_SEED_OVERWRITE=1`.
+  the seed file and run once with `VAULT_SEED_OVERWRITE=1` (`orchestrator.json` and `shared.json` only).
 
 ## 6. For the security review
 

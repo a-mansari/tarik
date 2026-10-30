@@ -5,7 +5,7 @@
 #               vault_keys volume
 #   vault-init  one-shot at each start: initialises and unseals Vault the first time, makes the two AppRoles and their
 #               login files, and loads the seed files (deploy/seed.example/) into the paths that do not exist yet
-# Every address, port and limit comes from .env (.env.example); nothing is written here.
+# vault-init refuses a seed file still holding CHANGE_ME and a Vault with no cabinet. Every address, port and limit comes from .env (.env.example); nothing is written here.
 #   docker compose -f docker-compose.prod.yml build
 #   docker compose -f docker-compose.prod.yml up -d
 name: tarik
@@ -17,8 +17,8 @@ services:
       context: .
       args:
         INSTALL_CLAUDE_CODE: ${INSTALL_CLAUDE_CODE:-1}
-        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION}
+        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
     command: ["python", "-m", "server"]
     restart: unless-stopped
     ports:
@@ -29,7 +29,7 @@ services:
       ODOO_URL: ${ODOO_URL:?ODOO_URL is required (.env)}
       TARIK_MODEL_URL: ${TARIK_MODEL_URL:?TARIK_MODEL_URL is required (.env)}
       TARIK_GRAPH_TOKEN: ${TARIK_GRAPH_TOKEN:-}
-      TARIK_TRUSTED_PROXIES: ${TARIK_TRUSTED_PROXIES:-*}
+      TARIK_TRUSTED_PROXIES: ${TARIK_TRUSTED_PROXIES:?TARIK_TRUSTED_PROXIES is required (.env), the reverse proxy's address}
       POSTGRES_HOST: ${POSTGRES_HOST:-db}
       POSTGRES_DB: ${POSTGRES_DB:-tarik}
       POSTGRES_USER: ${POSTGRES_USER:-tarik}

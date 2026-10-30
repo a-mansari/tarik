@@ -13,17 +13,17 @@ services:
       context: .
       args: # the Claude Code CLI's installer (.env.example); INSTALL_CLAUDE_CODE=0 leaves it out
         INSTALL_CLAUDE_CODE: ${INSTALL_CLAUDE_CODE:-1}
-        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION}
+        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
     command: ["python", "-m", "server"] # as the image's own, for an image built before server/ held the server
     restart: unless-stopped
     ports:
       - "${TARIK_BIND:-127.0.0.1}:${TARIK_PORT:-2024}:2024" # server/server.py, local only unless TARIK_BIND says so
     environment:
-      VAULT_ADDR: ${VAULT_ADDR}
-      TARIK_DEFAULT_CABINET: ${TARIK_DEFAULT_CABINET}
+      VAULT_ADDR: ${VAULT_ADDR:?VAULT_ADDR is required (.env), http://vault:8200 for the bundled Vault}
+      TARIK_DEFAULT_CABINET: ${TARIK_DEFAULT_CABINET:?TARIK_DEFAULT_CABINET is required (.env)}
       ODOO_URL: ${ODOO_URL}
-      TARIK_MODEL_URL: ${TARIK_MODEL_URL}
+      TARIK_MODEL_URL: ${TARIK_MODEL_URL:?TARIK_MODEL_URL is required (.env)}
       TARIK_GRAPH_TOKEN: ${TARIK_GRAPH_TOKEN:-} # scripts' bearer token (run.py); empty: none accepted
       TARIK_TRUSTED_PROXIES: ${TARIK_TRUSTED_PROXIES:-*}
       POSTGRES_HOST: ${POSTGRES_HOST:-db}
@@ -46,7 +46,7 @@ services:
       - ./vault/.local/approle:/run/vault:ro # the AppRole: it may only read secret/tarik/*
       - ./vault/.local/settings-approle:/run/vault-settings:ro # the Cabinets page's: each cabinet's own settings only
     depends_on: [db, vault]
-    dns: ["${DNS_PRIMARY}", "${DNS_SECONDARY}"] # the resolvers the container uses (.env)
+    dns: ["${DNS_PRIMARY:-1.1.1.1}", "${DNS_SECONDARY:-8.8.8.8}"] # the resolvers the container uses (.env, optional)
 
   db:
     image: postgres:17-alpine

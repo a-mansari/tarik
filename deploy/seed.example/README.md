@@ -14,5 +14,6 @@ file. At least one cabinet is needed: the server does not start without. The key
 block. Values are JSON strings. Every `CHANGE_ME` must be replaced or its line deleted.
 
 Later changes go through the Experio API or the Cabinets page (they are kept: a path already in Vault is never
-overwritten). To push a changed file anyway, run the stack once with `VAULT_SEED_OVERWRITE=1`.
+overwritten). To push a changed `orchestrator.json` or `shared.json` anyway, run the stack once with
+`VAULT_SEED_OVERWRITE=1`; a cabinet's file is never pushed again. `vault-init` refuses a file still holding `CHANGE_ME`.
 Delete the seed folder from the machine once Vault holds the values, if you prefer: Vault is then the only copy.

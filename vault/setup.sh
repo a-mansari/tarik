@@ -46,29 +46,54 @@ chmod 644 /vault/approle/role_id /vault/approle/secret_id /vault/settings-approl
 # The stack's own secrets, loaded from the seed files (JSON, one object of settings per path) in $SEED_DIR (/seed):
 #   orchestrator.json -> secret/tarik/orchestrator   shared.json -> secret/tarik/shared
 #   cabinets/<cabinet's exact Experio database>.json -> secret/tarik/cabinets/<cabinet>
-# A path is written only when it does not exist yet, so what the Experio API or the Cabinets page changed later is kept;
-# VAULT_SEED_OVERWRITE=1 merges the files' keys into the existing paths too (a rotated key). The server needs at least
-# one cabinet in Vault to start, hence the cabinets' seed.
+# A path is written only when it does not exist yet, so what the Experio API or the Cabinets page changed later is kept.
+# VAULT_SEED_OVERWRITE=1 also merges orchestrator.json's and shared.json's keys into their existing paths (a rotated
+# key), never a cabinet's. A file still holding CHANGE_ME is refused, and so is a Vault with no cabinet at the end: the
+# server does not start without one.
 SEED_DIR="${SEED_DIR:-/seed}"
-put_file() {
+# have PATH [FIELD]: success when it exists, 1 when Vault says it does not; any other failure (Vault unreachable, no
+# right) stops the script, never read as "absent": a write would then replace what is there.
+have() {
+  if [ -n "$2" ]; then
+    out="$(vault kv get -field="$2" "$1" 2>&1)" && return 0
+  else
+    out="$(vault kv metadata get "$1" 2>&1)" && return 0
+  fi
+  case "$out" in *"No value found"* | *"not present"*) return 1 ;; esac
+  echo "vault: $out" >&2
+  exit 1
+}
+refuse_placeholders() {
+  if grep -q CHANGE_ME "$1"; then
+    echo "$1 still holds CHANGE_ME: fill it, or delete the line" >&2
+    exit 1
+  fi
+}
+put_file() { # PATH FILE [merge: 1 when VAULT_SEED_OVERWRITE may merge it into an existing path]
   [ -f "$2" ] || return 0
-  if vault kv get "$1" >/dev/null 2>&1; then
-    [ "$VAULT_SEED_OVERWRITE" = 1 ] || return 0
+  if have "$1"; then
+    [ "$3" = 1 ] && [ "$VAULT_SEED_OVERWRITE" = 1 ] || return 0
+    refuse_placeholders "$2"
     vault kv patch "$1" @"$2" >/dev/null && echo "updated $1"
   else
+    refuse_placeholders "$2"
     vault kv put "$1" @"$2" >/dev/null && echo "seeded $1"
   fi
 }
-put_file secret/tarik/orchestrator "$SEED_DIR/orchestrator.json"
-put_file secret/tarik/shared "$SEED_DIR/shared.json"
+put_file secret/tarik/orchestrator "$SEED_DIR/orchestrator.json" 1
+put_file secret/tarik/shared "$SEED_DIR/shared.json" 1
 for file in "$SEED_DIR"/cabinets/*.json; do
-  [ -f "$file" ] && put_file "secret/tarik/cabinets/$(basename "$file" .json)" "$file"
+  [ -f "$file" ] && put_file "secret/tarik/cabinets/$(basename "$file" .json)" "$file" 0
 done
+if ! vault kv list secret/tarik/cabinets >/dev/null 2>&1; then
+  echo "no cabinet in Vault: add $SEED_DIR/cabinets/<the cabinet's exact Experio database name>.json" >&2
+  exit 1
+fi
 # The Experio app's key, made here once inside Vault when no seed file holds it (never typed, never shown): its admin
 # reads it from Vault, or the seed gives it (EXPERIO_API_KEY in orchestrator.json) when the Experio app made it.
-if ! vault kv get -field=EXPERIO_API_KEY secret/tarik/orchestrator >/dev/null 2>&1; then
+if ! have secret/tarik/orchestrator EXPERIO_API_KEY; then
   key="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-  if vault kv get secret/tarik/orchestrator >/dev/null 2>&1; then
+  if have secret/tarik/orchestrator; then
     vault kv patch secret/tarik/orchestrator EXPERIO_API_KEY="$key" >/dev/null
   else
     vault kv put secret/tarik/orchestrator EXPERIO_API_KEY="$key" >/dev/null
