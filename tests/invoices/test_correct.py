@@ -391,8 +391,13 @@ def test_a_tourist_tax_already_on_the_invoice_turns_its_setting_on_too(correctin
     ("kind", "company", "turned", "written"),
     [
         ("purchase", {"use_amount_tva_3": False}, {"use_amount_tva_3": True}, "amount_tva_3"),  # Experio's own field
-        ("sale", {"use_regional_tax": False}, {"use_regional_tax": True}, "amount_regional_tax"),
-        ("sale", {"use_regional_tax": True}, None, "amount_regional_tax"),  # already used: nothing to turn on
+        (
+            "sale",
+            {"use_regional_tax": False, "regional_tax_account_id": [4, "4458"]},
+            {"use_regional_tax": True},
+            "amount_regional_tax",
+        ),
+        ("sale", {"use_regional_tax": True, "regional_tax_account_id": [4, "4458"]}, None, "amount_regional_tax"),
     ],
 )
 def test_a_regional_tax_counts_with_its_setting_and_is_written_in_the_field_of_the_invoice_side(
@@ -401,7 +406,7 @@ def test_a_regional_tax_counts_with_its_setting_and_is_written_in_the_field_of_t
     from engine.tools.invoices import correct
 
     correcting["invoice"]["type"] = kind
-    correcting["found"]["res.company"] = [company]  # no account: Experio books it on the invoice's own
+    correcting["found"]["res.company"] = [company]  # a purchase needs no account: Experio books it on the invoice's
     saved = []
     monkeypatch.setattr(correct, "save_settings", lambda c, values, context: saved.append(values) or True)
     correcting["read"] = {"amount_regional_tax": 30.0}
@@ -446,3 +451,15 @@ def test_a_tsc_without_its_account_is_left_as_experio_read_it_and_told(correctin
     result = correct.correct_invoice(3)
     assert "le dossier n'a pas de compte de taxe de services communaux" in result["message"]
     assert correcting["filled"] == []  # neither the TSC nor the stamp Experio read it as is written
+
+
+@pytest.mark.functionality
+def test_a_sales_regional_tax_without_the_dossiers_account_is_left_as_experio_read_it_and_told(correcting):
+    from engine.tools.invoices import correct
+
+    correcting["invoice"]["type"] = "sale"  # Experio refuses to post it without regional_tax_account_id
+    correcting["found"]["res.company"] = [{"use_regional_tax": True, "regional_tax_account_id": False}]
+    correcting["read"] = {"amount_regional_tax": 30.0}
+    correcting["bad"] = [flag("amount_regional_tax", None, 30)]
+    result = correct.correct_invoice(3)
+    assert "le dossier n'a pas de compte de taxe régionale" in result["message"] and correcting["filled"] == []

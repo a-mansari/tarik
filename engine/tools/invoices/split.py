@@ -5,7 +5,8 @@ Experio keeps one account per TVA line (exp.invoice.line.account_id) and rebuild
 at each refresh (action_refresh), so a split written by hand is lost by the next refresh. Its wizard
 (exp.invoice.line.split, opened from a line by action_open_split_wizard) replaces the line by the lines given and
 rebuilds the accounting writing (validate_lines), the way its Lines screen does. The split is therefore the last
-thing written on a draft: Tarik refreshes nothing after it, and posting refreshes only an invoice with no writing.
+thing written on a draft: Tarik refreshes nothing after it, and posting refreshes only an invoice with no writing
+(and a transit invoice, which is why it is never split).
 Experio refuses to post lines whose HT does not add up to the invoice's untaxed amount (validate_tva_lines): the
 parts must add up to the line's HT, checked here first.
 
@@ -35,6 +36,10 @@ LINE = "exp.invoice.line"
 LINE_FIELDS = ["line_type", "amount_ht", "amount_tva", "tax_id", "tax_rate", "code_id", "account_id"]
 CHARGE_CLASSES = {"purchase": ("2", "6"), "sale": ("7",)}  # the classes Experio's own account warning allows
 TOLERANCE = 0.05  # the scan's lines may miss the invoice's HT by a rounding: the largest part takes it
+MAX_DESIGNATIONS = 5  # one model call (and chart read) each: more distinct lines than this stay on one account
+# Experio rebuilds a transit invoice's lines at posting (disbursements_first) and takes a customs invoice's TVA on the
+# DUM, not on a line's HT: neither is split.
+NOT_SPLIT = ("transit", "customs")
 
 
 def untaxed_lines(invoice_id, context):
@@ -135,6 +140,8 @@ def charge_groups(charge_lines, untaxed):
             continue
         if len(same) != 1:
             left.append(f"à {rate} % Experio a {len(same)} lignes de charges" if same else f"pas de ligne à {rate} %")
+        elif (same[0]["account_id"] or [0, ""])[1].startswith("2"):  # its tax and code are an immobilisation's
+            left.append("le compte de la facture est une immobilisation")
         elif abs(round(sum(ht for _, ht in lines), 2) - same[0]["amount_ht"]) > TOLERANCE:
             left.append(f"les lignes à {rate} % ne font pas le HT de la facture")
         else:
@@ -142,12 +149,15 @@ def charge_groups(charge_lines, untaxed):
     return chosen, left
 
 
-def parts_of(invoice, kind, lines, untaxed_ht):
+def parts_of(invoice, kind, lines, untaxed_ht, keep):
     """Return ([(account id, HT)], [labels]) for ``lines`` ([(designation, HT)]) of one rate: the model's account for
     each designation, lines on the same account merged, the largest part taking the rounding to ``untaxed_ht``.
 
+    ``keep``: the account id the invoice is on (named by the client, memorized by Experio or chosen by assign_account):
+    a split leaves at least one part on it, else it would replace an account the client may have said.
+
     Returns (None, reason) when a line has no account the model is sure of, or one on class 2 (an immobilisation, which
-    only the client confirms); (None, "") when every line fits one account."""
+    only the client confirms), or none stays on ``keep``; (None, "") when every line fits one account."""
     accounts = {}  # designation -> account {id, code, name}
     for designation, _ in lines:
         if designation not in accounts:
@@ -163,6 +173,8 @@ def parts_of(invoice, kind, lines, untaxed_ht):
         merged[account["id"]] = round(merged.get(account["id"], 0) + ht, 2)
     if len(merged) < 2:
         return None, ""
+    if keep and keep not in merged:
+        return None, "aucune ligne ne reste sur le compte de la facture"
     parts = list(merged.items())
     largest = max(range(len(parts)), key=lambda i: parts[i][1])
     parts[largest] = (parts[largest][0], round(parts[largest][1] + untaxed_ht - sum(ht for _, ht in parts), 2))
@@ -180,9 +192,11 @@ def split_charges(invoice_id: int) -> dict:
     merged. An ok result says the split made; a routine one that the invoice stays on its one account (one line, all
     lines on one account, lines not read in full, an immobilisation among them, a draft already split, a posted
     invoice). A refusal by Experio leaves the invoice on its one account, and says so."""
-    invoice = require_invoice(invoice_id, ["state", "type", "company_id", "exercice_id"])
+    invoice = require_invoice(invoice_id, ["state", "type", "invoice_type", "company_id", "exercice_id"])
     if invoice["state"] != "draft":
         return routine(f"Facture {invoice_id} : pas un brouillon, rien à répartir.")
+    if invoice["invoice_type"] in NOT_SPLIT:
+        return routine(f"Facture {invoice_id} : facture de {invoice['invoice_type']}, un seul compte.")
     check = stored_check(invoice_id)
     charge_lines = (check[1].get("charge_lines") if check else None) or []
     if len(charge_lines) < 2:
@@ -192,10 +206,12 @@ def split_charges(invoice_id: int) -> dict:
     with refused(f"split_charges {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu lire ses lignes."):
         untaxed = untaxed_lines(invoice_id, context)
     groups, left = charge_groups(charge_lines, untaxed)
+    if len({designation for lines in groups.values() for designation, _ in lines}) > MAX_DESIGNATIONS:
+        return routine(f"Facture {invoice_id} : trop de lignes différentes pour les répartir, un seul compte.")
     by_rate, said = {}, []
     for rate, lines in groups.items():
-        height = next(line["amount_ht"] for line in untaxed if line["tax_rate"] == rate)
-        parts, labels = parts_of(invoice, kind, lines, height)
+        line = next(line for line in untaxed if line["tax_rate"] == rate)
+        parts, labels = parts_of(invoice, kind, lines, line["amount_ht"], line["account_id"] and line["account_id"][0])
         if parts:
             by_rate[rate] = parts
             said.append(f"à {rate} % : {', '.join(labels)}")

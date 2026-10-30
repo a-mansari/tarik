@@ -137,6 +137,18 @@ def test_the_type_is_changed_through_experios_form_in_the_invoices_dossier(asked
     assert asked["filled"] == [(5, {"type": "sale"}, {"c": 1})] and contexts == [5]
 
 
+@pytest.mark.functionality
+def test_a_regional_tax_written_for_the_old_side_follows_the_type_change(asked, monkeypatch):
+    monkeypatch.setattr(classify, "fill_invoice", lambda invoice_id, values, context: asked["filled"].append(values))
+    asked["draft"].update(amount_tva_3=30.0, amount_regional_tax=0.0)  # a purchase's field: the invoice is a sale
+    classify.classify_invoice(5)
+    assert asked["filled"] == [{"type": "sale", "amount_tva_3": 0.0, "amount_regional_tax": 30.0}]
+    asked["filled"].clear()
+    asked["draft"].update(amount_regional_tax=12.0)  # the sale's field already holds one: nothing moved over it
+    classify.classify_invoice(5)
+    assert asked["filled"] == [{"type": "sale"}]
+
+
 @pytest.mark.security
 def test_test_mode_says_the_type_would_change(asked, monkeypatch):
     monkeypatch.setattr(classify, "test_mode_note", lambda: "MODE TEST. ")

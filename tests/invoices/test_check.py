@@ -409,3 +409,13 @@ def test_the_scan_s_charge_lines_are_read_as_numbers_or_refused():
     report["extracted"]["charge_lines"] = "loyer"
     with pytest.raises(ValueError, match="charge_lines is not a list"):
         resolve_report(report, {})
+
+
+@pytest.mark.functionality
+def test_a_regional_tax_already_in_the_ht_does_not_hide_a_wrong_amount():
+    # HT 1000 holds the tax (30): the parts read add up to 1230 with it, to the TTC 1200 without it
+    scan = {"amount_untaxed": 1000, "amount_tva": 200, "amount_regional_tax": 30, "amount_total": 1200}
+    assert [
+        b["field"] for b in drop_false_alarms([flag("amount_untaxed", 900, 1000)], {"amount_untaxed": 900}, scan)
+    ] == ["amount_untaxed"]
+    assert len(drop_false_alarms([flag("amount_total", 1500, 1200)], {"amount_total": 1500}, scan)) == 1

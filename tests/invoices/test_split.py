@@ -16,6 +16,7 @@ LINE = {
     "account_id": [31, "6111"],
 }
 DRAFT = {"id": 3, "state": "draft", "company_id": [5, "D"], "exercice_id": [2, "2026"], "type": "purchase"}
+DRAFT["invoice_type"] = "invoice"
 
 
 @pytest.fixture
@@ -137,6 +138,9 @@ def test_charge_lines_are_grouped_by_rate_when_they_add_up_to_experios_line():
     assert groups == {} and left == ["à 20 % Experio a 2 lignes de charges"]  # already split
     groups, left = split.charge_groups(charges(("loyer", 600, 20), ("", 400, 20)), untaxed)
     assert groups == {} and left == ["les lignes du scan ne sont pas toutes lisibles"]
+    durable = [{**LINE, "account_id": [50, "2332 Matériel"]}]
+    groups, left = split.charge_groups(charges(("loyer", 600, 20), ("charges", 400, 20)), durable)
+    assert groups == {} and left == ["le compte de la facture est une immobilisation"]  # its tax and code too
 
 
 @pytest.fixture
@@ -223,3 +227,30 @@ def test_a_split_experio_refuses_leaves_the_invoice_on_its_account_and_says_so(s
         result["status"] == "ok"
         and "Experio a refusé la répartition. Charges laissées sur un seul compte." in (result["message"])
     )
+
+
+@pytest.mark.functionality
+def test_a_split_leaves_a_part_on_the_account_the_invoice_is_on(stepping):
+    stepping["accounts"]["loyer"] = {"id": 35, "code": "6135", "name": "Autres"}  # the invoice is on 31
+    stepping["accounts"]["transport"] = {"id": 36, "code": "6146", "name": "Transports"}
+    result = split.split_charges(3)
+    assert stepping["made"] == [] and result["routine"]
+    assert "aucune ligne ne reste sur le compte de la facture" in result["message"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("kind", ["transit", "customs"])
+def test_a_transit_or_customs_invoice_is_never_split(stepping, monkeypatch, kind):
+    monkeypatch.setattr(split, "require_invoice", lambda *a: {**DRAFT, "invoice_type": kind})
+    result = split.split_charges(3)
+    assert stepping["made"] == [] and result["routine"] and kind in result["message"]
+
+
+@pytest.mark.functionality
+def test_too_many_different_lines_stay_on_one_account_without_asking_the_model(stepping, monkeypatch):
+    asked = []
+    monkeypatch.setattr(split, "model_choice", lambda *a: asked.append(a) or (None, None))
+    stepping["charges"] = charges(*((f"ligne {i}", 100, 20) for i in range(10)))
+    stepping["untaxed"][0]["amount_ht"] = 1000.0
+    result = split.split_charges(3)
+    assert asked == [] and result["routine"] and "trop de lignes différentes" in result["message"]

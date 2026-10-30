@@ -170,7 +170,9 @@ def drop_false_alarms(bad, stored, extracted):
     except a captured TTC far from both the TTC read and the sum of the parts read."""
     total = extracted.get("amount_total") or 0
     parts = sum(extracted.get(name) or 0 for name in TTC_PARTS)
-    self_consistent = extracted.get("amount_total") is None or abs(parts - total) <= 1
+    # A taxe régionale Experio holds in the HT (get_regional_tax_calc_mode: "ht") is no extra part of the TTC.
+    inside = parts - (extracted.get("amount_regional_tax") or 0)
+    self_consistent = extracted.get("amount_total") is None or min(abs(parts - total), abs(inside - total)) <= 1
     kept = []
     for b in bad:
         field, value = b["field"], stored.get(b["field"])
@@ -182,7 +184,9 @@ def drop_false_alarms(bad, stored, extracted):
         # A TTC captured far from both the TTC read and the parts read is wrong whichever the model misread
         # (a bill holding two bills, its other taxes in no field: the HU invoice).
         wrong_either_way = (
-            field == "amount_total" and value is not None and min(abs(value - total), abs(value - parts)) > 1
+            field == "amount_total"
+            and value is not None
+            and min(abs(value - total), abs(value - parts), abs(value - inside)) > 1
         )
         if field in AMOUNT_FIELDS and not self_consistent and not wrong_either_way:
             log(f"check: amounts read do not add up ({parts} vs {total}), {field} flag dropped")

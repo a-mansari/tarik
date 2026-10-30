@@ -68,10 +68,15 @@ AMOUNTS = {
         ("use_tsc_purchase_tax", "tsc_account_id", None),
         ("use_tsc_sale_tax", "tsc_sale_account_id", None),
     ),
-    # Experio books the taxe régionale on the invoice's own account when the dossier has none (_get_tr_style_config):
-    # only its switch is needed. A purchase keeps it in amount_tva_3, a sale in amount_regional_tax.
+    # A purchase's taxe régionale is booked on the invoice's own account when the dossier has none
+    # (_get_tr_style_config): only its switch is needed. A sale's needs the dossier's account, which Experio checks
+    # at posting (validate_activity_type_settings: missing_regional_tax_account).
     "amount_tva_3": ("taxe régionale", ("use_amount_tva_3", None, None), (None, None, None)),
-    "amount_regional_tax": ("taxe régionale", (None, None, None), ("use_regional_tax", None, None)),
+    "amount_regional_tax": (
+        "taxe régionale",
+        (None, None, None),
+        ("use_regional_tax", "regional_tax_account_id", None),
+    ),
 }
 FOREIGN_IGNORED = {"amount_guarantee_holdback", "amount_prorata", "amount_insurance", "advance_amount"}
 INVOICE_FIELDS = ["state", "company_id", "exercice_id", "type", "is_local_invoice", *AMOUNTS]
