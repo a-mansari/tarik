@@ -18,6 +18,7 @@ POSTGRES: Final = {
 RPC_TIMEOUT: Final = 300  # one Experio XML-RPC call
 JSON_TIMEOUT: Final = 600  # one Experio JSON-RPC call
 MODEL_TIMEOUT: Final = 300  # one vision model answer
+PDF_TIMEOUT: Final = 120  # one PDF read, cut or rendered of work (model.pdfium): a 50-page scan renders in about 10 s
 # Experio reads a scan in well under a minute; drafts still unread after this are taken up by the email follow-up
 # (waiting_drafts), so a run is never held by one stuck reading.
 READ_WAIT: Final = 600  # one run's wait for Experio to read its drafts, all of them
