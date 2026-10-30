@@ -44,11 +44,11 @@ section 9: one line in `tests/llm/test_decisions.py` is usually enough.**
 | dossiers | 9 | 144 |
 | emails | 4 | 56 |
 | graphs | 7 | 70 |
-| invoices | 33 | 485 |
+| invoices | 34 | 490 |
 | isolation | 4 | 24 |
 | llm | 5 | 13 |
 | style | 2 | 7 |
-| **Total** | **83 test files** | **976 test functions** |
+| **Total** | **84 test files** | **981 test functions** |
 
 These are function counts. With parametrize the collected item count is higher (1,412 run by a plain
 `python -m pytest`). Every call Tarik makes to Experio (odoo_call, odoo_json, fill_invoice, refresh) is run by at
@@ -58,8 +58,8 @@ By marker:
 
 | Marker | Tests |
 |---|---|
-| functionality | 514 |
-| security | 194 |
+| functionality | 517 |
+| security | 196 |
 | communication | 153 |
 | technical | 55 |
 | style | 8 |
@@ -909,6 +909,14 @@ Covers the run summary (db_cabinet, uses tests/runs.py).
 - `test_the_same_failure_on_two_invoices_names_each_one` [communication]: a shared failure lists each affected invoice number.
 - `test_a_long_run_s_summary_keeps_what_the_client_needs_and_drops_the_rest` [communication]: a long summary keeps the essentials and drops routine lines.
 - `test_what_tarik_did_is_noted_in_each_invoices_history_in_experio` [communication]: one internal note per invoice in Experio's history, never for routine steps only.
+
+### tests/invoices/test_split.py
+Covers splitting a draft's HT over several expense accounts through Experio's wizard (`exp.invoice.line.split`); not yet called by a step.
+- `test_the_ht_is_split_through_experios_wizard_each_part_at_the_lines_tax` [functionality]: the wizard is opened on the line, its lines replaced by the parts on the line's tax and code, then validated.
+- `test_the_first_part_takes_the_tva_rounding_so_the_lines_keep_the_invoices_tva` [functionality]: the parts' TVA add up to the line's, the first taking the rounding.
+- `test_a_split_that_does_not_add_up_or_leaves_the_class_is_refused_before_anything_is_written` [security, param]: one part, a negative part, a wrong total or a class 3 account: refused, nothing written.
+- `test_an_invoice_without_exactly_one_charge_line_is_left_to_the_cabinet` [functionality, param]: no line or several rates: left to the cabinet.
+- `test_test_mode_says_the_split_and_writes_nothing` [security]: test mode only says the split.
 
 ### tests/invoices/test_taxes.py
 - `test_a_sale_without_tva_gets_experios_own_zero_rate_tax_listed` [functionality]: Experio's own 0 % tax, made by Experio when missing, listed in the dossier's settings.
