@@ -2,21 +2,22 @@
 per cabinet), and the pages of the documents clients send, rendered as images it can read."""
 
 import base64
-import contextlib
 import io
 import json
+import multiprocessing
 import re
 import threading
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 import httpx
 import psycopg
-import pypdfium2
 from PIL import Image, ImageOps
 
-from engine.tools.core import claude_code, usage
+from engine.tools.core import claude_code, pdfs, usage
 from engine.tools.core.app import ToolError, log
 from engine.tools.core.cabinets import current, setting
-from engine.tools.core.config import MAX_PAGES, MAX_SIDE, MODEL_TIMEOUT, POSTGRES, SCALE
+from engine.tools.core.config import MAX_PAGES, MAX_SIDE, MODEL_TIMEOUT, PDF_TIMEOUT, POSTGRES, SCALE
 from engine.tools.core.experio import HTTP
 from engine.tools.core.queries import Q
 
@@ -193,51 +194,51 @@ def to_pdf(raw):
     return buffer.getvalue()
 
 
-# pdfium is not thread-safe, not even for two documents, and tools run in threads (engine/calls.py): every use holds
-# PDFIUM and closes its documents inside it, as one left to the garbage collector is closed whenever and in whatever
-# thread it runs. Seven statements read at once segfaulted the whole server (2026-10-30).
-PDFIUM = threading.RLock()
+# pdfium is not thread-safe, not even for two documents, and a PDF can make it hang: every use runs in one of these
+# processes (pdfs.py), several cabinets' pages rendered at once, each call's process killed after PDF_TIMEOUT of work
+# (pdfs.within; time waiting in the queue does not count). A dead process breaks its pool, failing every call in it:
+# the pool is replaced and each call tried once more, so only the PDF that broke it fails. A script whose __main__
+# reads PDFs needs the `if __name__ == "__main__"` guard, as the pool's processes import it (python -m server's own
+# is never imported).
+PDF_WORKERS = 4
+PDF_POOL = None
+PDF_POOL_LOCK = threading.Lock()
 
 
-@contextlib.contextmanager
-def pdf_document(raw=None):
-    """Yield pypdfium2's document of PDF bytes ``raw`` (None: a new empty one) under PDFIUM, closed with its pages on
-    exit. Raises pypdfium2.PdfiumError when ``raw`` is no PDF."""
-    with PDFIUM:
-        document = pypdfium2.PdfDocument.new() if raw is None else pypdfium2.PdfDocument(raw)
+def pdfium(function, *args):
+    """Return ``function(*args)`` (one of pdfs.py's) run in a pool process; its own exceptions (pypdfium2.PdfiumError)
+    are raised as they are. Raises ToolError when it works over PDF_TIMEOUT or its process dies, twice."""
+    global PDF_POOL
+    for _ in range(2):  # a pool another call's PDF broke: tried again on the new one
         try:
-            yield document
-        finally:
-            document.close()
+            with PDF_POOL_LOCK:  # submitted under the lock: never to a pool another call has just killed
+                if PDF_POOL is None:  # forkserver, not fork: the server's other threads hold locks
+                    PDF_POOL = ProcessPoolExecutor(PDF_WORKERS, mp_context=multiprocessing.get_context("forkserver"))
+                pool = PDF_POOL
+                future = pool.submit(pdfs.within, PDF_TIMEOUT, function, *args)
+            return future.result()
+        except BrokenProcessPool as error:
+            log(f"pdfium {function.__name__}: {error!r}")
+            with PDF_POOL_LOCK:
+                if PDF_POOL is pool:  # once, whichever call saw it first
+                    PDF_POOL = None
+                    pool.kill_workers()  # the pool's other processes, and its shutdown
+    raise ToolError("Le fichier PDF n'a pas pu être lu (fichier illisible), réessayez.") from None
 
 
 def pdf_pages(raw, limit=MAX_PAGES, scale=SCALE):
     """Return the first ``limit`` pages (None: all) of PDF bytes ``raw`` as PNG bytes, rendered at ``scale`` with
-    their longest side at most MAX_SIDE pixels."""
-    images = []
-    with pdf_document(raw) as document:
-        for index in range(len(document) if limit is None else min(limit, len(document))):
-            page = document[index]
-            fitting = min(scale, MAX_SIDE / max(page.get_size()))  # the longest side at most MAX_SIDE
-            images.append(page.render(scale=fitting).to_pil())  # its own pixels: to_pil converts BGR to RGB
-    pages = []
-    for image in images:  # encoded out of PDFIUM: most of the time, and no pdfium in it
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        pages.append(buffer.getvalue())
-    return pages
+    their longest side at most MAX_SIDE pixels. Raises pypdfium2.PdfiumError when ``raw`` is no PDF."""
+    return pdfium(pdfs.pages, raw, limit, scale, MAX_SIDE)
 
 
 def pdf_text(raw, pages=None):
     """Return the text of PDF ``raw``'s first ``pages`` pages (None: all), blanks squeezed (a RIB is printed in
-    columns); "" for a scan, an image or an unreadable file."""
+    columns); "" for a scan, an image or an unreadable file (one pdfium hangs or crashes on too)."""
     try:
-        with pdf_document(raw) as document:
-            count = len(document) if pages is None else min(pages, len(document))
-            text = "\n".join(document[i].get_textpage().get_text_range() for i in range(count))
-    except Exception:  # a scan or another format: its text is not read
+        return pdfium(pdfs.text, raw, pages)
+    except ToolError:
         return ""
-    return re.sub(r"[ \t]+", " ", text)
 
 
 def scan_pages(document_pdf):

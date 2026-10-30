@@ -23,14 +23,13 @@ handles it on Experio's own TPE screens (module bank: exp.monetary.statement, no
 import base64
 import re
 
-import pypdfium2
-
-from engine.tools.core.app import CRASHED, log, ok, question, routine, stop
+from engine.tools.core import pdfs
+from engine.tools.core.app import CRASHED, ToolError, log, ok, question, routine, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.conversation import own_words
 from engine.tools.core.experio import dry_run, experio_refusal, in_dossier, is_refusal, odoo_call, odoo_json, plain
-from engine.tools.core.model import pdf_document
+from engine.tools.core.model import pdfium
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, normalized
 from engine.tools.core.words import reasons as reason_lines
@@ -101,11 +100,11 @@ def is_tpe_text(text):
 
 
 def first_page_text(raw):
-    """Return the text of PDF ``raw``'s first page ("" for a scan or an unreadable PDF)."""
+    """Return the text of PDF ``raw``'s first page ("" for a scan or an unreadable PDF, one pdfium hangs or crashes
+    on too)."""
     try:
-        with pdf_document(raw) as document:
-            return document[0].get_textpage().get_text_range() if len(document) else ""
-    except pypdfium2.PdfiumError:
+        return pdfium(pdfs.first_page_text, raw)
+    except ToolError:
         return ""
 
 

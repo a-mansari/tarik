@@ -73,3 +73,29 @@ def test_pdfs_read_in_many_threads_at_once_never_crash_the_server():
     root = pathlib.Path(__file__).resolve().parents[2]
     done = subprocess.run([sys.executable, "-c", READ_AT_ONCE], cwd=root, capture_output=True, timeout=300)
     assert done.returncode == 0, done.stderr.decode()[-2000:]
+
+
+@pytest.mark.technical
+def test_a_pdf_read_that_hangs_or_crashes_is_a_tool_error_and_the_next_read_works(monkeypatch):
+    import os
+    import time
+
+    monkeypatch.setattr(model, "PDF_TIMEOUT", 1)
+    with pytest.raises(ToolError, match="illisible"):
+        model.pdfium(time.sleep, 30)  # a PDF pdfium loops on
+    with pytest.raises(ToolError, match="illisible"):
+        model.pdfium(os._exit, 1)  # a PDF pdfium segfaults on
+    page = io.BytesIO()
+    Image.new("RGB", (400, 560), "white").save(page, format="PNG")
+    assert len(model.pdf_pages(model.to_pdf(page.getvalue()))) == 1  # a fresh pool
+
+
+@pytest.mark.technical
+def test_a_file_that_is_no_pdf_says_so_across_the_pool():
+    import pypdfium2
+
+    from engine.tools.invoices import tpe
+
+    with pytest.raises(pypdfium2.PdfiumError):  # intake's « PDF illisible »
+        model.pdf_pages(b"not a pdf")
+    assert model.pdf_text(b"not a pdf") == "" and tpe.first_page_text(b"not a pdf") == ""
