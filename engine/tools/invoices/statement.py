@@ -1153,8 +1153,8 @@ def balance_line(line):
     no operation and no date printed in its label only."""
     if line["date"] or line["operation_type"] or PRINTED_DATE.search(line["payment_ref"] or ""):
         return ""
-    words = normalized(line["payment_ref"] or "")
-    return next((name for name in BALANCE_LINES if said(name, words)), "")
+    words = normalized(line["payment_ref"] or "").removeprefix("valeur libelle ")  # a column title glued before
+    return next((name for name in BALANCE_LINES if words.startswith(name)), "")  # never « reglement ancien solde … »
 
 
 def scan_leftovers(statement, context):
@@ -1173,27 +1173,34 @@ def scan_leftovers(statement, context):
     lines = [line for line in open_lines(statement, context) if not line["date"]]
     amount = {line["id"]: round((line["credit"] or 0) - (line["debit"] or 0), 2) for line in lines}
     kind = {line["id"]: balance_line(line) for line in lines}
-    glued = [
-        line for line in lines if line["operation_type"] and len(PRINTED_DATE.findall(line["payment_ref"] or "")) > 1
-    ]
+    glued = [line for line in lines if len(PRINTED_DATE.findall(line["payment_ref"] or "")) > 1]
+    empty = {  # no amount, and nothing says it is an operation: a header or a section title
+        line["id"]
+        for line in lines
+        if not amount[line["id"]]
+        and not PRINTED_DATE.search(line["payment_ref"] or "")
+        and not (line["operation_id"] or line["partner_id"] or line["invoice_ids"])
+    }
     printed = [x for x in lines if kind[x["id"]] in ("ancien solde", "nouveau solde")]
     first = [amount[x["id"]] for x in printed if kind[x["id"]] == "ancien solde"]
     last = [amount[x["id"]] for x in printed if kind[x["id"]] == "nouveau solde"]
     unsure = any(said("debit", w) or said("debiteur", w) for w in (normalized(x["payment_ref"]) for x in printed))
     given = statement["balance_start"] or statement["balance_end_real"]
     sure = not given and len(first) == 1 and first[0] and len(last) <= 1 and not unsure
-    balances = (first[0], last[0] if last else None) if sure else None
+    open_statement = statement["state"] in ("draft", "pending")  # its screen's « supprimer » only then
+    # 5. filled only when its balance rows go too, else they would count twice in its computed balance
+    balances = (first[0], last[0] or None if last else None) if sure and open_statement else None
     removed = []
-    if statement["state"] in ("draft", "pending"):
-        removed = [x["id"] for x in lines if (not amount[x["id"]] or kind[x["id"]]) and x not in glued]
+    if open_statement:
+        removed = [x["id"] for x in lines if (x["id"] in empty or kind[x["id"]]) and x not in glued]
         if len(removed) == len(statement["line_ids"]):  # nothing left would be an empty statement: the cabinet sees
             removed = []
     if not dry_run():
-        if balances:
-            values = {"balance_start": balances[0]} | ({"balance_end_real": last[0]} if last else {})
-            odoo_call(STATEMENT, "write", [statement["id"]], values, context=context)
         if removed:
             odoo_call(LINE, "unlink", removed, context=context)
+        if balances:
+            values = {"balance_start": balances[0]} | ({"balance_end_real": balances[1]} if balances[1] else {})
+            odoo_call(STATEMENT, "write", [statement["id"]], values, context=context)
     return len(removed), balances, [line["payment_ref"] for line in glued]
 
 
@@ -1399,6 +1406,10 @@ def report_statement(statement_id: int, said: list[str] | None = None, notes: li
     if no_balances:  # Excel's template has none; a scan Experio read no balance on
         points.append(
             "Le relevé n'indique pas ses soldes : saisissez-les dans Experio pour vérifier qu'il est complet."
+        )
+    elif not statement["balance_end_real"]:
+        points.append(
+            "Le relevé n'indique pas son solde final : saisissez-le dans Experio pour vérifier qu'il est complet."
         )
     elif not statement["is_complete"]:
         points.append(
