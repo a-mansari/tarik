@@ -11,7 +11,8 @@ const failure = ref("");
 
 // What went wrong, by the server's status; a closed or unset account stays a wrong login (never said apart).
 const FAILURES = {
-  401: "Email ou mot de passe incorrect. Après 5 essais, attendez une minute.",
+  400: "Email ou mot de passe trop long.",
+  401: "Email ou mot de passe incorrect. Après plusieurs essais, attendez une minute.",
   403: "Connexion refusée : cette page n'est pas ouverte depuis l'adresse de Tarik. Prévenez l'administrateur.",
   429: "Trop d'essais : attendez une minute avant de réessayer.",
 };

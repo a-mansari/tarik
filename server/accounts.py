@@ -6,6 +6,7 @@ account created on the page has no password until its person sets one through a 
 INVITATION_HOURS; only its token's hash is stored). Each account has a role (ROLES): an admin changes what everyone
 uses, a member reads and talks to Tarik (server/server.py's admin_only decides which routes need an admin)."""
 
+import asyncio
 import hashlib
 import hmac
 import re
@@ -23,6 +24,7 @@ EMAIL = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+")  # a comma never: it separate
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
 FAILURES = {}  # email: (count, last failure's monotonic time): a guessing run waits
 WAIT_AFTER, WAIT_SECONDS = 5, 60
+HASHING = asyncio.Semaphore(2)  # logins hashed at once, off the event loop: a flood of logins waits, not Tarik
 
 
 def hashed(password, salt=None):
@@ -181,11 +183,15 @@ async def log_in(email, password):
     FAILURES[email] = (FAILURES.get(email, (0, 0.0))[0] + 1, now)
     async with runs.pool.connection() as db:
         row = await (await db.execute(Q.user_password, (email,))).fetchone()
-        stored = row[0] if row else None  # none: no such account, or no password yet (its invitation sets one)
-        if not matches(password, stored or UNSET) or not stored:  # hashed either way: as slow, so no account told apart
-            return None
-        FAILURES.pop(email, None)
-        token = secrets.token_urlsafe(32)
+    stored = row[0] if row else None  # none: no such account, or no password yet (its invitation sets one)
+    # hashed either way, so an unknown account is as slow as a real one; never skip it when stored is empty
+    async with HASHING:
+        right = await asyncio.to_thread(matches, password, stored or UNSET)
+    if not right or not stored:
+        return None
+    FAILURES.pop(email, None)
+    token = secrets.token_urlsafe(32)
+    async with runs.pool.connection() as db:
         await db.execute(
             Q.session_opened,
             (digest(token), email, SESSION_HOURS),
