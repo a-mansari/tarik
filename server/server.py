@@ -157,7 +157,8 @@ async def login(request: Request):
     """POST /ui/api/login {email, password}: open a session and return {ok, next} with the session cookie set.
 
     Returns 403 for a cross-site request, 400 for invalid JSON or an email or password too long to be real, 429 while
-    the address must wait after too many failures and 401 for a wrong login (both recorded as login_failed)."""
+    the email must wait after too many failures from this browser's address and 401 for a wrong login (both recorded
+    as login_failed)."""
     if not same_origin(request):
         return JSONResponse({"error": "cross-site request refused"}, status_code=403)
     try:
@@ -167,10 +168,11 @@ async def login(request: Request):
         return JSONResponse({"error": "invalid JSON"}, status_code=400)
     if len(email) > 254 or len(password) > 1024:  # never hashed nor kept as a throttle key
         return JSONResponse({"error": "email ou mot de passe trop long"}, status_code=400)
-    token = await accounts.log_in(email, password)
+    address = request.client.host if request.client else ""  # the browser's, as Funnel's X-Forwarded-For says
+    token = await accounts.log_in(email, password, address)
     if token is None:
         await audit.record(email[:200], "login_failed")
-        if accounts.waiting(email):
+        if accounts.waiting(email, address):
             return JSONResponse({"error": "trop d'essais : attendez une minute"}, status_code=429)
         return JSONResponse({"error": "email ou mot de passe incorrect"}, status_code=401)
     await audit.record(email, "login")

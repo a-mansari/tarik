@@ -130,8 +130,8 @@ def no_account(monkeypatch, failures=None):
     return accounts
 
 
-def logged_in(monkeypatch, body):
-    """server.login's answer to ``body`` (bytes) from this server's own page."""
+def logged_in(monkeypatch, body, address="1.2.3.4"):
+    """server.login's answer to ``body`` (bytes) from this server's own page, in a browser at ``address``."""
     from starlette.requests import Request
 
     from server import audit
@@ -145,6 +145,7 @@ def logged_in(monkeypatch, body):
     monkeypatch.setattr(audit, "record", recorded)
     headers = [(b"host", b"tarik"), (b"origin", b"http://tarik")]
     scope = {"type": "http", "method": "POST", "path": "/ui/api/login", "headers": headers, "query_string": b""}
+    scope["client"] = (address, 443)  # as uvicorn sets it from Funnel's X-Forwarded-For
     return asyncio.run(server.login(Request(scope, receive)))
 
 
@@ -152,16 +153,16 @@ def logged_in(monkeypatch, body):
 def test_the_login_throttle_forgets_what_its_wait_is_over(monkeypatch):
     from server import accounts
 
-    no_account(monkeypatch, {"old@x": (3, accounts.time.monotonic() - accounts.WAIT_SECONDS - 1)})
-    asyncio.run(accounts.log_in("new@x", "nope"))
-    assert set(accounts.FAILURES) == {"new@x"}  # a guess with a new address never grows it without end
+    no_account(monkeypatch, {("old@x", "A"): (3, accounts.time.monotonic() - accounts.WAIT_SECONDS - 1)})
+    asyncio.run(accounts.log_in("new@x", "nope", "A"))
+    assert set(accounts.FAILURES) == {("new@x", "A")}  # a guess with a new address never grows it without end
 
 
 @pytest.mark.security
 def test_the_try_that_reaches_the_limit_is_told_to_wait_not_called_wrong(monkeypatch):
     from server import accounts
 
-    no_account(monkeypatch, {"a@x": (accounts.WAIT_AFTER - 1, accounts.time.monotonic())})
+    no_account(monkeypatch, {("a@x", "1.2.3.4"): (accounts.WAIT_AFTER - 1, accounts.time.monotonic())})
     assert logged_in(monkeypatch, b'{"email": "a@x", "password": "nope"}').status_code == 429
 
 
@@ -182,14 +183,14 @@ def test_guesses_sent_at_once_each_count_and_an_ended_wait_starts_again(monkeypa
     accounts = no_account(monkeypatch)
 
     async def guesses(count):
-        await asyncio.gather(*(accounts.log_in("a@x", "nope") for _ in range(count)))
+        await asyncio.gather(*(accounts.log_in("a@x", "nope", "A") for _ in range(count)))
 
     asyncio.run(guesses(accounts.WAIT_AFTER))
-    assert accounts.waiting("a@x")  # not one count for the whole burst
+    assert accounts.waiting("a@x", "A")  # not one count for the whole burst
     over = accounts.time.monotonic() - accounts.WAIT_SECONDS - 1
-    no_account(monkeypatch, {"a@x": (accounts.WAIT_AFTER, over)})
+    no_account(monkeypatch, {("a@x", "A"): (accounts.WAIT_AFTER, over)})
     asyncio.run(guesses(1))
-    assert not accounts.waiting("a@x")  # one more mistake after the wait is the first of 5 again
+    assert not accounts.waiting("a@x", "A")  # one more mistake after the wait is the first of 5 again
 
 
 @pytest.mark.security
@@ -197,5 +198,15 @@ def test_an_unknown_account_is_hashed_like_a_real_one_so_its_answer_is_as_slow(m
     accounts = no_account(monkeypatch)
     checked = []
     monkeypatch.setattr(accounts, "matches", lambda password, stored: checked.append(stored) or True)
-    assert asyncio.run(accounts.log_in("nobody@x", "anything")) is None  # refused even when the dummy "matches"
+    assert asyncio.run(accounts.log_in("nobody@x", "anything", "A")) is None  # refused even when the dummy "matches"
     assert checked == [accounts.UNSET]
+
+
+@pytest.mark.security
+def test_a_guessing_run_from_one_address_never_locks_the_person_out_from_theirs(monkeypatch):
+    from server import accounts
+
+    no_account(monkeypatch, {("boss@x", "6.6.6.6"): (accounts.WAIT_AFTER, accounts.time.monotonic())})
+    body = b'{"email": "boss@x", "password": "nope"}'
+    assert logged_in(monkeypatch, body, "6.6.6.6").status_code == 429  # the guesser waits
+    assert logged_in(monkeypatch, body, "105.72.1.1").status_code == 401  # the boss, elsewhere, is still checked

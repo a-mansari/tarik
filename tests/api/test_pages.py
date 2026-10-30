@@ -86,7 +86,7 @@ def test_logging_in_never_leads_to_another_site(target, monkeypatch):
 
     from server import server
 
-    async def log_in(email, password):
+    async def log_in(email, password, address):
         return "token"
 
     async def record(*args, **kwargs):

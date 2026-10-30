@@ -22,7 +22,7 @@ INVITATION_HOURS = 72
 MIN_PASSWORD = 12
 EMAIL = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+")  # a comma never: it separates a list's addresses
 SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
-FAILURES = {}  # email: (count, last failure's monotonic time): a guessing run waits
+FAILURES = {}  # (email, address): (count, last failure's monotonic time): a guessing run waits
 WAIT_AFTER, WAIT_SECONDS = 5, 60
 HASHING = asyncio.Semaphore(2)  # logins hashed at once, off the event loop: a flood of logins waits, not Tarik
 
@@ -163,24 +163,24 @@ def forget_waited(now):
         del FAILURES[stale]
 
 
-def waiting(email):
-    """True while ``email`` must wait: WAIT_AFTER failed logins within WAIT_SECONDS (a guessing run waits)."""
-    count, last = FAILURES.get(email.strip().lower(), (0, 0.0))
+def waiting(email, address):
+    """True while ``email`` must wait from ``address``: WAIT_AFTER failed logins from there within WAIT_SECONDS."""
+    count, last = FAILURES.get((email.strip().lower(), address), (0, 0.0))
     return count >= WAIT_AFTER and time.monotonic() - last < WAIT_SECONDS
 
 
-async def log_in(email, password):
-    """Open a session for ``email`` and ``password`` and return its token, or None.
+async def log_in(email, password, address):
+    """Open a session for ``email`` and ``password``, tried from the browser's ``address``; return its token or None.
 
-    None when the password is wrong, the account has no password yet or is closed, or after WAIT_AFTER failures
-    within WAIT_SECONDS (a guessing run waits)."""
+    None when the password is wrong, the account has no password yet or is closed, or after WAIT_AFTER failures from
+    ``address`` within WAIT_SECONDS: a guessing run waits, but never locks the person out from their own address."""
     email = email.strip().lower()
-    if waiting(email):
+    if waiting(email, address):
         return None
-    now = time.monotonic()
+    key, now = (email, address), time.monotonic()
     forget_waited(now)  # a wait that is over starts again from 0
     # counted before the database wait, so guesses sent at once each count; a right password clears it
-    FAILURES[email] = (FAILURES.get(email, (0, 0.0))[0] + 1, now)
+    FAILURES[key] = (FAILURES.get(key, (0, 0.0))[0] + 1, now)
     async with runs.pool.connection() as db:
         row = await (await db.execute(Q.user_password, (email,))).fetchone()
     stored = row[0] if row else None  # none: no such account, or no password yet (its invitation sets one)
@@ -189,7 +189,7 @@ async def log_in(email, password):
         right = await asyncio.to_thread(matches, password, stored or UNSET)
     if not right or not stored:
         return None
-    FAILURES.pop(email, None)
+    FAILURES.pop(key, None)
     token = secrets.token_urlsafe(32)
     async with runs.pool.connection() as db:
         await db.execute(
