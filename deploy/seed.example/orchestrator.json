@@ -1,0 +1,4 @@
+{
+  "MODEL_API_KEY": "CHANGE_ME the model provider's key",
+  "EXPERIO_API_KEY": "CHANGE_ME the key the Experio app sends to /api/ (openssl rand -hex 32), or delete this line: Vault makes a random one"
+}

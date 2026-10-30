@@ -69,8 +69,10 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 
 ## Run it
 
-Its `.env` (never in git, from `.env.example`) gives `POSTGRES_PASSWORD` and `ODOO_URL`; `.env.example` also lists
-every setting it reads from Vault.
+Its `.env` (never in git, from `.env.example`) gives what it needs to start: `ODOO_URL`, `POSTGRES_PASSWORD`,
+`TARIK_MODEL_URL`, `VAULT_ADDR`, `TARIK_DEFAULT_CABINET`, and the optional limits and addresses; `.env.example` also
+lists every setting it reads from Vault. No address is written in the code (`tests/style/test_deployment.py`).
+To deploy it, see `DEPLOY.md` and `docker-compose.prod.yml`.
 
 ```bash
 docker compose up --build -d

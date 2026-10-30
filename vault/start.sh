@@ -1,6 +1,7 @@
 #!/bin/sh
-# Start Vault, then unseal it with the local key (vault/.local/unseal/unseal_key, made by setup.sh).
-# Local convenience only: on the public server the unseal key never sits next to Vault.
+# Start Vault, then unseal it with the key setup.sh kept in /vault/unseal (vault/.local/unseal in development, the
+# vault_keys volume in a deployment). The key sits on a volume only the Vault containers mount: whoever can read the
+# host's volumes can unseal it. A hardened deployment unseals through a KMS instead (a `seal` stanza in config.hcl).
 set -e
 vault server -config=/vault/config/config.hcl &
 server=$!

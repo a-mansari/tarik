@@ -34,18 +34,21 @@ from engine.tools.core.model import MODEL_URL, adapter
 def model(cabinet):
     """Return the chat model for a run of ``cabinet``, chosen by that cabinet's MODEL_ADAPTER setting.
 
-    "claude-code" gives ChatClaudeCode; otherwise ChatAnthropic on agent.json's model, at MODEL_API_URL (default
-    MiniMax's Anthropic-style address) with MODEL_API_KEY. Settings are read within the cabinet.
+    "claude-code" gives ChatClaudeCode; otherwise ChatAnthropic on agent.json's model, at MODEL_API_URL (Vault's, else
+    .env's TARIK_MODEL_URL) with MODEL_API_KEY. Settings are read within the cabinet.
 
     Raises:
-        RuntimeError: MODEL_API_KEY is not set and the adapter is not claude-code.
+        RuntimeError: MODEL_API_KEY or MODEL_API_URL is not set and the adapter is not claude-code.
     """
     with using(cabinet):
         chosen, key, url = adapter(), setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", MODEL_URL)
     if chosen == "claude-code":  # the Cabinets page's choice
         return ChatClaudeCode(cabinet=cabinet)
-    if not key:
-        raise RuntimeError("MODEL_API_KEY is not set in Vault secret/tarik/orchestrator: the agent has no model")
+    if not key or not url:
+        raise RuntimeError(
+            "MODEL_API_KEY (Vault secret/tarik/orchestrator) or MODEL_API_URL (Vault) / TARIK_MODEL_URL (.env) is "
+            "not set: the agent has no model"
+        )
     return ChatAnthropic(
         model=AGENT["model"],  # content/agent.json
         anthropic_api_url=url,

@@ -28,6 +28,7 @@ def test_a_failed_reading_says_it_is_tarik_s_reader_not_experio(monkeypatch, sta
     def post(url, **kw):
         return httpx.Response(status, request=httpx.Request("POST", url))
 
+    monkeypatch.setattr(model, "MODEL_URL", "http://model.invalid")
     monkeypatch.setattr(model, "setting", lambda name, default="": "key" if name == "MODEL_API_KEY" else default)
     monkeypatch.setattr(model, "model_name", lambda: "m")
     monkeypatch.setattr(model, "adapter", lambda: "minimax")
@@ -35,6 +36,19 @@ def test_a_failed_reading_says_it_is_tarik_s_reader_not_experio(monkeypatch, sta
     with pytest.raises(ToolError) as raised:
         model.ask_model("s", [], "i", "Identification du document")
     assert says in str(raised.value) and "pas Experio" in str(raised.value)
+
+
+@pytest.mark.security
+def test_a_model_without_its_address_is_not_configured_and_nothing_is_sent(monkeypatch):
+    # No address in .env nor in Vault: never a default provider's, so no scan is sent anywhere unasked.
+    sent = []
+    monkeypatch.setattr(model, "MODEL_URL", "")
+    monkeypatch.setattr(model, "setting", lambda name, default="": "key" if name == "MODEL_API_KEY" else default)
+    monkeypatch.setattr(model, "adapter", lambda: "minimax")
+    monkeypatch.setattr(model.HTTP, "post", lambda *a, **k: sent.append(a))
+    with pytest.raises(ToolError, match="le modèle n'est pas encore configuré"):
+        model.ask_model("s", [], "i", "Identification du document")
+    assert sent == []
 
 
 @pytest.mark.functionality

@@ -4,25 +4,36 @@
 #   docker compose up --build -d
 # The project keeps the name sarnec-n8n, and the database its volume: the names of the stacks they came from (Vault's
 # data is in sarnec-n8n_vault_data). The n8n implementation is retired (branch main); its data backed up, not here.
+# This file is for development (the code mounted); the deployment is docker-compose.prod.yml, see DEPLOY.md.
 name: sarnec-n8n
 
 services:
   server:
-    build: .
+    build:
+      context: .
+      args: # the Claude Code CLI's installer (.env.example); INSTALL_CLAUDE_CODE=0 leaves it out
+        INSTALL_CLAUDE_CODE: ${INSTALL_CLAUDE_CODE:-1}
+        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION}
     command: ["python", "-m", "server"] # as the image's own, for an image built before server/ held the server
     restart: unless-stopped
     ports:
-      - "127.0.0.1:2024:2024" # server/server.py, local only
+      - "${TARIK_BIND:-127.0.0.1}:${TARIK_PORT:-2024}:2024" # server/server.py, local only unless TARIK_BIND says so
     environment:
-      VAULT_ADDR: http://vault:8200
-      TARIK_DEFAULT_CABINET: experio_cabinet_8
+      VAULT_ADDR: ${VAULT_ADDR}
+      TARIK_DEFAULT_CABINET: ${TARIK_DEFAULT_CABINET}
       ODOO_URL: ${ODOO_URL}
+      TARIK_MODEL_URL: ${TARIK_MODEL_URL}
       TARIK_GRAPH_TOKEN: ${TARIK_GRAPH_TOKEN:-} # scripts' bearer token (run.py); empty: none accepted
-      POSTGRES_HOST: db
-      POSTGRES_DB: tarik
-      POSTGRES_USER: tarik
+      TARIK_TRUSTED_PROXIES: ${TARIK_TRUSTED_PROXIES:-*}
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_DB: ${POSTGRES_DB:-tarik}
+      POSTGRES_USER: ${POSTGRES_USER:-tarik}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      TARIK_PROMPTS_KEEP_DAYS: "30"
+      TARIK_PROMPTS_KEEP_DAYS: ${TARIK_PROMPTS_KEEP_DAYS:-30}
+      TARIK_CALLS_PER_CABINET: ${TARIK_CALLS_PER_CABINET:-10}
+      TARIK_CALLS_TOTAL: ${TARIK_CALLS_TOTAL:-40}
+      TARIK_MODEL_CALLS: ${TARIK_MODEL_CALLS:-10}
     volumes: # the code, mounted (a change needs a restart, not a build); never vault/ nor .env
       - ./check.py:/app/check.py
       - ./run.py:/app/run.py
@@ -30,18 +41,19 @@ services:
       - ./engine:/app/engine
       - ./tests:/app/tests
       - ./pytest.ini:/app/pytest.ini
+      - ./.env.example:/app/.env.example:ro # the deployment tests read it
       - ./pyproject.toml:/app/pyproject.toml
       - ./vault/.local/approle:/run/vault:ro # the AppRole: it may only read secret/tarik/*
       - ./vault/.local/settings-approle:/run/vault-settings:ro # the Cabinets page's: each cabinet's own settings only
     depends_on: [db, vault]
-    dns: [1.1.1.1, 8.8.8.8]
+    dns: ["${DNS_PRIMARY}", "${DNS_SECONDARY}"] # the resolvers the container uses (.env)
 
   db:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: tarik
-      POSTGRES_USER: tarik
+      POSTGRES_DB: ${POSTGRES_DB:-tarik}
+      POSTGRES_USER: ${POSTGRES_USER:-tarik}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - db_data:/var/lib/postgresql/data
