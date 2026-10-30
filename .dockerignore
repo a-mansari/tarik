@@ -1,7 +1,11 @@
-# The image takes only requirements.txt and the pages' sources (server/web/, built in the image); the code is mounted
-# (docker-compose.yml). Never send secrets to a build.
+# The image takes requirements.txt, the code (engine/, server/, check.py, run.py) and the pages' sources (server/web/,
+# built in the image's first stage). Never the tests, the docs, vault/ nor .env: no secret goes to a build.
 *
 !requirements.txt
-!server/web/
+!engine/
+!server/
+!check.py
+!run.py
+**/__pycache__
 server/web/node_modules/
 server/web/dist/

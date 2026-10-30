@@ -1,0 +1,103 @@
+# Tarik for a deployment (see DEPLOY.md): three containers, nothing to set up by hand.
+#   server      the code (engine/ and server/ in one process), read-only AppRole logins from the volumes below
+#   db          Postgres (or the platform's own: leave this one out with POSTGRES_HOST set)
+#   vault       Vault, on this compose network only (no published port), unsealed again at each start from the
+#               vault_keys volume
+#   vault-init  one-shot at each start: initialises and unseals Vault the first time, makes the two AppRoles and their
+#               login files, and loads the seed files (deploy/seed.example/) into the paths that do not exist yet
+# vault-init refuses a seed file still holding CHANGE_ME and a Vault with no cabinet. Every address, port and limit comes from .env (.env.example); nothing is written here.
+#   docker compose -f docker-compose.prod.yml build
+#   docker compose -f docker-compose.prod.yml up -d
+name: tarik
+
+services:
+  server:
+    image: ${TARIK_IMAGE:-tarik-server:latest}
+    build:
+      context: .
+      args:
+        INSTALL_CLAUDE_CODE: ${INSTALL_CLAUDE_CODE:-1}
+        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
+    command: ["python", "-m", "server"]
+    restart: unless-stopped
+    ports:
+      - "${TARIK_BIND:-127.0.0.1}:${TARIK_PORT:-2024}:2024"
+    environment:
+      VAULT_ADDR: ${VAULT_ADDR:?VAULT_ADDR is required (.env), http://vault:8200 for the bundled Vault}
+      TARIK_DEFAULT_CABINET: ${TARIK_DEFAULT_CABINET:?TARIK_DEFAULT_CABINET is required (.env)}
+      ODOO_URL: ${ODOO_URL:?ODOO_URL is required (.env)}
+      TARIK_MODEL_URL: ${TARIK_MODEL_URL:?TARIK_MODEL_URL is required (.env)}
+      TARIK_GRAPH_TOKEN: ${TARIK_GRAPH_TOKEN:-}
+      TARIK_TRUSTED_PROXIES: ${TARIK_TRUSTED_PROXIES:?TARIK_TRUSTED_PROXIES is required (.env), the reverse proxy's address}
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_DB: ${POSTGRES_DB:-tarik}
+      POSTGRES_USER: ${POSTGRES_USER:-tarik}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (.env)}
+      TARIK_PROMPTS_KEEP_DAYS: ${TARIK_PROMPTS_KEEP_DAYS:-30}
+      TARIK_CALLS_PER_CABINET: ${TARIK_CALLS_PER_CABINET:-10}
+      TARIK_CALLS_TOTAL: ${TARIK_CALLS_TOTAL:-40}
+      TARIK_MODEL_CALLS: ${TARIK_MODEL_CALLS:-10}
+    volumes:
+      - vault_approle:/run/vault:ro # role_id, secret_id: reads secret/tarik/*
+      - vault_settings_approle:/run/vault-settings:ro # the Cabinets page's: each cabinet's own settings only
+    healthcheck: # GET /ok needs no login
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:2024/ok', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    depends_on:
+      db:
+        condition: service_started
+      vault-init:
+        condition: service_completed_successfully
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tarik}
+      POSTGRES_USER: ${POSTGRES_USER:-tarik}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required (.env)}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  vault:
+    image: hashicorp/vault:1.18.3
+    restart: unless-stopped
+    entrypoint: ["sh", "/vault/config/start.sh"]
+    volumes:
+      - ./vault/config.hcl:/vault/config/config.hcl:ro
+      - ./vault/start.sh:/vault/config/start.sh:ro
+      - vault_keys:/vault/unseal:ro # the unseal key and root token, made by vault-init
+      - vault_data:/vault/file
+    healthcheck: # up, sealed or not (vault status: 0 unsealed, 2 sealed, 1 down)
+      test: ["CMD", "sh", "-c", "VAULT_ADDR=http://127.0.0.1:8200 vault status >/dev/null 2>&1; [ $$? -ne 1 ]"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  vault-init:
+    image: hashicorp/vault:1.18.3
+    restart: "no"
+    entrypoint: ["sh", "/vault/config/setup.sh"]
+    environment:
+      VAULT_ADDR: http://vault:8200 # the Vault container, on this network
+      VAULT_SEED_OVERWRITE: ${VAULT_SEED_OVERWRITE:-0}
+    volumes:
+      - ./vault/setup.sh:/vault/config/setup.sh:ro
+      - ${TARIK_SEED_DIR:?TARIK_SEED_DIR is required (.env), see deploy/seed.example/}:/seed:ro
+      - vault_keys:/vault/unseal
+      - vault_approle:/vault/approle
+      - vault_settings_approle:/vault/settings-approle
+    depends_on:
+      vault:
+        condition: service_healthy
+
+volumes:
+  db_data:
+  vault_data:
+  vault_keys: # the unseal key and root token: back it up with vault_data, and keep it private to the Vault containers
+  vault_approle:
+  vault_settings_approle:

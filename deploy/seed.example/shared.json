@@ -1,0 +1,7 @@
+{
+  "IMAP_HOST": "CHANGE_ME",
+  "IMAP_PORT": "993",
+  "IMAP_FOLDER": "INBOX",
+  "SMTP_HOST": "CHANGE_ME",
+  "SMTP_PORT": "465"
+}

@@ -5,6 +5,7 @@ import base64
 import io
 import json
 import multiprocessing
+import os
 import re
 import threading
 from concurrent.futures import ProcessPoolExecutor
@@ -66,7 +67,9 @@ def json_answer(text, keys=()):
     return found[0]
 
 
-MODEL_URL = "https://api.minimax.io/anthropic"  # the provider's Anthropic-style address (MODEL_API_URL overrides it)
+# The provider's Anthropic-style address: the stack's default from .env (TARIK_MODEL_URL; not MODEL_API_URL, a Vault
+# setting that must not also sit in the environment), which Vault's MODEL_API_URL (secret/tarik/orchestrator) overrides.
+MODEL_URL = os.getenv("TARIK_MODEL_URL", "").strip()
 
 # The models a cabinet may work with (MODEL_ADAPTER, the Cabinets page): the first one when it names none.
 ADAPTERS = {
@@ -107,8 +110,8 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
     Raises ToolError when the model is not configured, refuses, can't be reached, or answers unreadably."""
     if adapter() == "claude-code":
         return ask_claude_code(system, pages, instruction, what, keys)
-    key = setting("MODEL_API_KEY", "")
-    if not key:
+    key, url = setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", MODEL_URL)
+    if not key or not url:
         raise ToolError(f"{what} : le modèle n'est pas encore configuré.")
     blocks = [*images_of(pages), {"type": "text", "text": instruction}]
     try:
@@ -123,7 +126,7 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
         else:
             body["temperature"] = 0
         answer = HTTP.post(
-            setting("MODEL_API_URL", MODEL_URL).rstrip("/") + "/v1/messages",
+            url.rstrip("/") + "/v1/messages",
             timeout=MODEL_TIMEOUT,
             headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
             json=body,

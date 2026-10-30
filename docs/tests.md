@@ -38,7 +38,7 @@ section 9: one line in `tests/llm/test_decisions.py` is usually enough.**
 | Category (directory) | Files | Tests |
 |---|---|---|
 | api | 6 | 54 |
-| core (includes vault) | 10 | 71 |
+| core (includes vault) | 10 | 72 |
 | vault (tests/core/test_vault.py, counted in core) | 1 | 9 |
 | declarations | 3 | 52 |
 | dossiers | 9 | 144 |
@@ -47,8 +47,8 @@ section 9: one line in `tests/llm/test_decisions.py` is usually enough.**
 | invoices | 34 | 510 |
 | isolation | 4 | 24 |
 | llm | 5 | 13 |
-| style | 2 | 7 |
-| **Total** | **84 test files** | **1001 test functions** |
+| style | 3 | 10 |
+| **Total** | **85 test files** | **1005 test functions** |
 
 These are function counts. With parametrize the collected item count is higher (1,412 run by a plain
 `python -m pytest`). Every call Tarik makes to Experio (odoo_call, odoo_json, fill_invoice, refresh) is run by at
@@ -59,9 +59,9 @@ By marker:
 | Marker | Tests |
 |---|---|
 | functionality | 530 |
-| security | 198 |
+| security | 199 |
 | communication | 153 |
-| technical | 55 |
+| technical | 58 |
 | style | 8 |
 | llm | 13 |
 | live | 0 |
@@ -204,6 +204,13 @@ Covers code and content consistency: ruff, tool names in skills, prompt files, n
 - `test_no_sql_in_python` [style]: SQL lives in engine/sql/ files, never inline in Python.
 
 ---
+
+
+### tests/style/test_deployment.py
+Covers what a deployment needs: nothing hard-coded, everything in `.env.example`.
+- `test_no_address_is_written_in_the_code` [technical]: no URL (but localhost) in `engine/`, `server/` or `run.py`.
+- `test_every_environment_variable_the_code_reads_is_in_env_example` [technical]: every variable the code reads is written in `.env.example` (skipped where it is not mounted).
+- `test_env_example_holds_no_setting_vault_holds` [technical]: no `.env.example` line is a Vault setting, which the server refuses to start with in the environment.
 
 ## 5. dossiers
 

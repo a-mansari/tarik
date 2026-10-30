@@ -1,12 +1,13 @@
-# Local Vault for Tarik's secrets (docker-compose.yml). Data kept in the vault_data volume.
-# On the public server, use a real Vault: TLS on, and its own unseal (operators' key shares or a KMS).
+# Vault for Tarik's secrets (docker-compose.yml, docker-compose.prod.yml). Data kept in the vault_data volume.
+# It listens on the compose network only (no published port), in plain HTTP: put TLS on and a KMS seal in front of
+# anything reachable from outside that network.
 storage "file" {
   path = "/vault/file"
 }
 
 listener "tcp" {
   address     = "0.0.0.0:8200"
-  tls_disable = true # local only: Docker's network, and 127.0.0.1 on the host
+  tls_disable = true # the compose network only, never published
 }
 
 disable_mlock = true
