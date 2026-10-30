@@ -1264,9 +1264,16 @@ def ends_with_amount(row, amount):
     return any(re.search(rf"(?<!\d)(?<!\d[ .]){re.escape(w)}$", row) for w in written)
 
 
-def row_date(found, near):
-    """Return the date row match ``found`` (ROW_DATE) prints, a row without a year taking the one nearest ``near``;
-    None when it is no date."""
+def row_date(row, near, value_date=False):
+    """Return the date text ``row`` starts with, its second one (the value date) when ``value_date``, a row without a
+    year taking the one nearest ``near``; None when it is no date. A second date is one only printed as the first
+    (with a year or without): « 11 02 25 15 10 ECHEANCE » prints one date, not 15 October."""
+    found = ROW_DATE.match(row)
+    if found and value_date:
+        second = ROW_DATE.match(row, found.end())
+        found = second if second and bool(second[3]) == bool(found[3]) else None
+    if not found:
+        return None
     day, month, year = found.groups()
     years = [2000 + int(year) % 100] if year else [near.year - 1, near.year, near.year + 1]
     try:
@@ -1283,14 +1290,12 @@ def amount_of_line(line):
 def printed_date(line, rows, near, taken, value_date=False):
     """Return the date printed for ``line`` on its one row of ``rows`` (the PDF's text rows) that ends with its amount,
     is no other line's (``taken``: the (date, amount) of the lines in the statement's month) and, when several are
-    left, is of its day; None when not exactly one. The row's first date, its second (the value date) when
-    ``value_date``: a row printing one date then gives none."""
+    left, is of its day; None when not exactly one. The row's value date when ``value_date`` (row_date)."""
     found = [
         printed
         for row in rows
-        if (m := ROW_DATE.match(row)) and ends_with_amount(row, amount_of_line(line))
-        if (m := ROW_DATE.match(row, m.end()) if value_date else m)
-        if (printed := row_date(m, near)) and (printed, amount_of_line(line)) not in taken
+        if ends_with_amount(row, amount_of_line(line))
+        if (printed := row_date(row, near, value_date)) and (printed, amount_of_line(line)) not in taken
     ]
     if len(found) > 1:
         found = [printed for printed in found if printed.day == date.fromisoformat(line["date"]).day]
@@ -1306,8 +1311,9 @@ def reading_problems(statement, lines, text, context, value_date=False):
       its lines' most common month, exp_bank_statement_date_wizard.py:69-79) gets the date printed for it
       (printed_date) when that one is in the month. Printed as read: a real operation of another month, left to
       Experio's own window at posting. The date printed is the one Experio's reading keeps by the dossier's « Date
-      to Use » (``value_date``: res.company date_use_selection "date_value", res_company.py:158-166, puts the
-      row's value date in the line, exp_bluejay_job.py:1652-1653), else the operation date.
+      to Use » (``value_date``: res.company date_use_selection "date_value", res_company.py:158-170, puts the
+      row's value date in the line, exp_bluejay_job.py:1652-1653), else the operation date; so for the line of no
+      amount below. A row printing one date gives none then: left to the cabinet.
     - The one dated line of no amount gets what the ending balance misses, when both balances were read and its row
       prints that very amount.
 
@@ -1341,8 +1347,7 @@ def reading_problems(statement, lines, text, context, value_date=False):
         and statement["balance_start"]
         and statement["balance_end_real"]
         and any(
-            (m := ROW_DATE.match(row))
-            and row_date(m, month) == date.fromisoformat(empty[0]["date"])
+            row_date(row, month, value_date) == date.fromisoformat(empty[0]["date"])
             and ends_with_amount(row, abs(missing))
             for row in rows
         )
