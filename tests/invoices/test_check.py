@@ -270,7 +270,11 @@ def test_a_conforming_check_is_stored_and_routine(checking, db_cabinet):
 
     result = check.check_invoice(3)
     assert result["routine"] and "conforme" in result["message"]
-    assert check.stored_check(3) == (True, {"invoice_date_language": "fr", "tva_lines": [], "invoice_date": None}, [])
+    assert check.stored_check(3) == (
+        True,
+        {"invoice_date_language": "fr", "tva_lines": [], "charge_lines": [], "invoice_date": None},
+        [],
+    )
     assert check.stored_check(4) is None
 
 
@@ -388,3 +392,20 @@ def test_the_tsc_and_the_regional_tax_count_in_the_ttc_the_scan_adds_up_to():
     # without them the parts (120) miss the TTC (128): the amount flag would be dropped as the model's misreading
     bare = {**scan, "amount_tsc": 0, "amount_regional_tax": 0}
     assert drop_false_alarms([flag("amount_untaxed", 90, 100)], {"amount_untaxed": 90}, bare) == []
+
+
+@pytest.mark.functionality
+def test_the_scan_s_charge_lines_are_read_as_numbers_or_refused():
+    report = {
+        "readable": True,
+        "extracted": {
+            "invoice_date_language": "fr",
+            "charge_lines": [{"designation": "loyer", "amount_ht": "1 200,50", "rate": "20"}, "bruit"],
+        },
+    }
+    assert resolve_report(report, {})["extracted"]["charge_lines"] == [
+        {"designation": "loyer", "amount_ht": 1200.5, "rate": 20}
+    ]
+    report["extracted"]["charge_lines"] = "loyer"
+    with pytest.raises(ValueError, match="charge_lines is not a list"):
+        resolve_report(report, {})

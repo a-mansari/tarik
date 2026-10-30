@@ -448,7 +448,7 @@ def test_words_naming_no_account_guide_the_choice_and_are_said(experio, monkeypa
         picked.append(designation)
         return {"id": 9, "code": "61241000", "name": "Achats de carburants"}, "du gasoil pour les véhicules"
 
-    monkeypatch.setattr(accounts, "_model_choice", choice)
+    monkeypatch.setattr(accounts, "model_choice", choice)
     monkeypatch.setattr(accounts, "_memorized", lambda *a: pytest.fail("the client's words come before the memory"))
     result = accounts.assign_account(3, answer=words, client_message=f"{words} TARIK TEST")
     if not chosen:

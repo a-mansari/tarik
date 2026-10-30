@@ -44,6 +44,7 @@ SALE_NOTE: Final = (
 REPORT_KEYS: Final = ("readable", "extracted", "bad_fields")  # a reply without bad_fields is not "nothing differs"
 NUMBERS = set(CAPTURED) - {"invoice_number", "invoice_date"}  # compared as numbers, never as text
 LINE_NUMBERS = ("rate", "amount_ht", "amount_tva")
+CHARGE_NUMBERS = ("rate", "amount_ht")  # a charge line: what is billed, its HT and its rate
 # The amounts that make the TTC: HT + TVA + stamp + debours + taxe de sejour + TPT + TSC + taxe régionale.
 TTC_PARTS = {
     "amount_untaxed",
@@ -99,13 +100,14 @@ def _as_numbers(extracted):
     Raises ValueError when an amount is not one number (as_number) or tva_lines is not a list."""
     for field in (NUMBERS | set(HOTEL)) & set(extracted):
         extracted[field] = as_number(extracted[field])
-    if not isinstance(extracted.get("tva_lines") or [], list):
-        raise ValueError(f"tva_lines is not a list: {extracted['tva_lines']!r}")
-    extracted["tva_lines"] = [
-        {**line, **{key: as_number(line.get(key)) for key in LINE_NUMBERS}}
-        for line in extracted.get("tva_lines") or []
-        if isinstance(line, dict)
-    ]
+    for lines, numbers in (("tva_lines", LINE_NUMBERS), ("charge_lines", CHARGE_NUMBERS)):
+        if not isinstance(extracted.get(lines) or [], list):
+            raise ValueError(f"{lines} is not a list: {extracted[lines]!r}")
+        extracted[lines] = [
+            {**line, **{key: as_number(line.get(key)) for key in numbers}}
+            for line in extracted.get(lines) or []
+            if isinstance(line, dict)
+        ]
 
 
 def _date_difference(stored, extracted, resolved):

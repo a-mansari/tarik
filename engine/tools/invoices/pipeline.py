@@ -85,6 +85,7 @@ STEPS = {
     "settle_exercice": "vérifier l'exercice",
     "configure_cabinet": "faire le paramétrage du cabinet",
     "settle_warnings": "traiter les avertissements",
+    "split_charges": "répartir les charges sur leurs comptes",
     "hold_posting": "mettre la facture en attente",
     "post_invoice": "comptabiliser la facture",
     "apply_credit_note": "imputer l'avoir",

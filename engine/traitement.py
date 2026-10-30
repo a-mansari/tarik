@@ -141,7 +141,14 @@ PHASES = {
         "settle_prepaid",
         "settle_exercice",
     ],
-    "comptabilisation": ["configure_cabinet", "settle_warnings", "hold_posting", "post_invoice", "apply_credit_note"],
+    "comptabilisation": [
+        "configure_cabinet",
+        "settle_warnings",
+        "split_charges",  # last write on the draft: Experio's refresh rebuilds the lines from the header
+        "hold_posting",
+        "post_invoice",
+        "apply_credit_note",
+    ],
 }
 assert [tool for steps in PHASES.values() for tool in steps] == INVOICE_CHAIN, "the phases must hold the chain in order"
 
