@@ -160,6 +160,8 @@ def experio(monkeypatch):
             return [dict(partner) for partner in state["partners"]]
         if model == "res.bank":
             return list(state["banks"])
+        if model == "res.company":  # the dossier's « Date to Use »
+            return [{"date_use_selection": "operation_date"}]
         if model == "bank.operation.type":
             return [dict(operation) for operation in state["operations"]]
         if model == "exp.payment.method":
@@ -244,6 +246,21 @@ def test_a_misdated_line_the_pdf_does_not_print_once_is_left_and_said(experio):
     corrected, left = statement.reading_problems(experio["statement"], experio["lines"], PRINTED, {})
     assert experio["written"] == [] and corrected == []
     assert left == ["« VIR 3 » est datée du 2026-10-15, hors du mois du relevé : vérifiez-la."]
+
+
+@pytest.mark.functionality
+def test_a_line_out_of_the_month_gets_the_operation_date_printed_by_default(experio):
+    experio["lines"][2].update(date="2026-04-01", debit=0.0, credit=500.0)
+    statement.reading_problems(experio["statement"], experio["lines"], "31 03 26 01 04 26 VIR X 500,00", {})
+    assert experio["written"] == [([3], {"date": "2026-03-31"})]
+
+
+@pytest.mark.functionality
+def test_a_dossier_dating_by_value_date_keeps_the_value_date_printed(experio):
+    experio["lines"][2].update(date="2026-04-01", debit=0.0, credit=500.0)  # Experio read it right, out of March
+    rows = "31 03 26 01 04 26 VIR X 500,00"
+    corrected, left = statement.reading_problems(experio["statement"], experio["lines"], rows, {}, value_date=True)
+    assert experio["written"] == [] and corrected == [] and left == []
 
 
 @pytest.mark.functionality
