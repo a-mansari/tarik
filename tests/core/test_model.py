@@ -58,7 +58,7 @@ pages = [Image.new("RGB", (400, 560), "white") for _ in range(4)]
 pages[0].save(buffer, format="PDF", save_all=True, append_images=pages[1:])
 raw = buffer.getvalue()
 reads = [lambda: model.pdf_pages(raw, None), lambda: intake.split_pdf(raw, [2, 3]), lambda: tpe.first_page_text(raw),
-         lambda: intake.statement_text(raw), lambda: intake.merged_pdf([raw, raw])]
+         lambda: model.pdf_text(raw, 2), lambda: intake.merged_pdf([raw, raw])]
 with ThreadPoolExecutor(16) as pool:
     list(pool.map(lambda i: reads[i % len(reads)](), range(400)))
 """

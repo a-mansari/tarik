@@ -80,7 +80,7 @@ def test_the_dossiers_are_created_only_on_the_clients_yes_to_the_list(experio, m
             return self
 
         def fetchone(self):
-            return ("s", "dossiers.csv", "text/csv", b"", None, None, None, None)  # Q.file_locked's columns
+            return ("s", "dossiers.csv", "text/csv", b"", *[None] * 5)  # Q.file_locked's columns
 
     monkeypatch.setattr(management, "cabinet_db", lambda: Db())
     monkeypatch.setattr(management, "taken", lambda file_id: None)
@@ -221,7 +221,7 @@ def test_a_rows_country_ice_and_name_are_checked(experio):
 def listing(experio, monkeypatch):
     """The client's spreadsheet (``listing["text"]``) sent as file 7, read back with their yes."""
     state = {"text": f"{HEAD};Pays;Code postal\nBETA;societe;;;mensuelle;Casablanca;non;MA;20000"}
-    monkeypatch.setattr(management, "cabinet_db", lambda: FakeDb(("s", "dossiers.csv", "text/csv", b"", *[None] * 4)))
+    monkeypatch.setattr(management, "cabinet_db", lambda: FakeDb(("s", "dossiers.csv", "text/csv", b"", *[None] * 5)))
     monkeypatch.setattr(management, "read_rows", lambda *a: rows_of(state["text"]))
     monkeypatch.setattr(management, "taken", lambda file_id: None)
     monkeypatch.setattr(management, "confirmed", lambda session_id, yes, *parts: yes)

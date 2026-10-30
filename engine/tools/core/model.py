@@ -228,6 +228,18 @@ def pdf_pages(raw, limit=MAX_PAGES, scale=SCALE):
     return pages
 
 
+def pdf_text(raw, pages=None):
+    """Return the text of PDF ``raw``'s first ``pages`` pages (None: all), blanks squeezed (a RIB is printed in
+    columns); "" for a scan, an image or an unreadable file."""
+    try:
+        with pdf_document(raw) as document:
+            count = len(document) if pages is None else min(pages, len(document))
+            text = "\n".join(document[i].get_textpage().get_text_range() for i in range(count))
+    except Exception:  # a scan or another format: its text is not read
+        return ""
+    return re.sub(r"[ \t]+", " ", text)
+
+
 def scan_pages(document_pdf):
     """Return the first MAX_PAGES pages of a scan stored in Experio (``document_pdf``: base64 str), as PNG bytes."""
     return pdf_pages(base64.b64decode(document_pdf))

@@ -1,6 +1,7 @@
 """A bank statement's pointing, one step per box, as the cabinet works the statement's « Operations » list: Experio's
-own detection, then what it leaves (operations, tiers, cited and open invoices, TPE remittances), then where the
-statement stands. Traitement runs it on a statement it imported, Relevés on each of a dossier's open statements.
+own detection, its reading checked against the statement's PDF, then what it leaves (operations, tiers, cited and
+open invoices, TPE remittances), then where the statement stands. Traitement runs it on a statement it imported,
+Relevés on each of a dossier's open statements.
 
 Each step's result is routine: its ``said`` and ``note`` go into the report's one line (report_statement). A step that
 is not ok ends the statement's pointing; the summary says where."""
@@ -15,6 +16,7 @@ from engine.calls import run_step, stops_at
 # Each box and its step, in order.
 STEPS = {
     "detection": "detect_statement_lines",
+    "lecture": "check_statement_reading",
     "types": "choose_line_operations",
     "tiers": "name_line_tiers",
     "factures_citees": "tie_cited_invoices",

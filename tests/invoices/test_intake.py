@@ -64,7 +64,7 @@ def test_test_mode_creates_no_draft_and_imports_no_statement(monkeypatch):
     monkeypatch.setattr(intake, "dry_run", lambda: True)
 
     monkeypatch.setattr(
-        intake, "cabinet_db", lambda: FakeDb(("s", "f.pdf", "application/pdf", b"%PDF", "invoice", None, None, None))
+        intake, "cabinet_db", lambda: FakeDb(("s", "f.pdf", "application/pdf", b"%PDF", "invoice", *[None] * 4))
     )
     draft = intake.create_draft_invoice(1, 557)
     assert draft["status"] == "stop" and draft["message"].startswith("MODE TEST") and "invoice_id" not in draft
@@ -76,7 +76,7 @@ def test_test_mode_creates_no_draft_and_imports_no_statement(monkeypatch):
     monkeypatch.setattr(
         intake,
         "cabinet_db",
-        lambda: FileOnly(("s", "r.pdf", "application/pdf", b"%PDF", "statement", None, None, None)),
+        lambda: FileOnly(("s", "r.pdf", "application/pdf", b"%PDF", "statement", *[None] * 4)),
     )
     statement = intake.import_bank_statement(2, 557)
     assert (
@@ -161,14 +161,14 @@ def test_gladden_identifies_a_file_first_and_the_model_when_it_cant(
     from engine.tools.invoices import intake
 
     sent, asked = [], []
-    db = FakeDb((None, "f.pdf", "application/pdf", pdf(3), None, None, None, None))
+    db = FakeDb((None, "f.pdf", "application/pdf", pdf(3), None, None, None, None, None))
     monkeypatch.setattr(intake, "cabinet_db", lambda: db)
     settings = {"GLADDEN_URL": "https://runner.example/gladden", "GLADDEN_CALLBACK_URL": callback_url}
     monkeypatch.setattr(intake, "setting", lambda key, default=None: settings[key])
 
     def classify(url, raw, callback):
         sent.append(len(pypdfium2.PdfDocument(raw)))
-        return gladden_says
+        return gladden_says, None
 
     monkeypatch.setattr(intake.gladden, "classify", classify)
     monkeypatch.setattr(intake, "classify_pages", lambda pages, what: asked.append(len(pages)) or ("rb", ""))
@@ -209,7 +209,7 @@ def test_what_the_client_says_a_file_is_is_read_from_their_words_only(said, kind
 def test_the_client_corrects_a_file_s_kind_until_it_is_imported(message, imported, kind, monkeypatch):
     from engine.tools.invoices import intake
 
-    db = FakeDb(("s", "douane.pdf", "application/pdf", pdf(1), "statement", None, imported, None))
+    db = FakeDb(("s", "douane.pdf", "application/pdf", pdf(1), "statement", None, imported, None, None))
     monkeypatch.setattr(intake, "cabinet_db", lambda: db)
     monkeypatch.setattr(intake, "gladden_type", lambda raw: pytest.fail("a known kind is never read again"))
     assert intake.identify_document(1, client_message=message)["kind"] == kind
@@ -220,9 +220,9 @@ def test_the_client_corrects_a_file_s_kind_until_it_is_imported(message, importe
 def test_a_document_that_is_neither_invoice_nor_statement_is_said_and_left_alone(monkeypatch):
     from engine.tools.invoices import intake
 
-    db = FakeDb((None, "contrat leasing.pdf", "application/pdf", pdf(2), None, None, None, None))
+    db = FakeDb((None, "contrat leasing.pdf", "application/pdf", pdf(2), None, None, None, None, None))
     monkeypatch.setattr(intake, "cabinet_db", lambda: db)
-    monkeypatch.setattr(intake, "gladden_type", lambda raw: None)
+    monkeypatch.setattr(intake, "gladden_type", lambda raw: (None, None))
     monkeypatch.setattr(intake, "classify_pages", lambda pages, what: ("autre", "un contrat de crédit-bail"))
     answer = intake.identify_document(1)
     assert answer["status"] == "stop" and answer["kind"] == "other"
@@ -250,24 +250,43 @@ def test_a_statement_sent_again_is_not_imported_twice_in_its_dossier(db_cabinet,
         )
     monkeypatch.setattr(intake, "require_dossier", lambda dossier_id: "D")
     monkeypatch.setattr(intake, "statement_journal", lambda *a: ({"status": "question", "message": "lequel ?"}, ""))
+    deleted = set()
+    monkeypatch.setattr(intake, "still_in_experio", lambda statement_id, *a: statement_id not in deleted)
     answer = intake.import_bank_statement(again, 557)
     assert answer["statement_id"] == 42 and "déjà importé (n° 42)" in answer["message"]
     with cabinet_db() as db:
         assert db.execute("select statement_id from tarik_files where id = %s", (again,)).fetchone() == (42,)
     assert intake.import_bank_statement(other, 557)["status"] == "question"  # another statement: imported as usual
     assert intake.import_bank_statement(again, 558)["statement_id"] == 42  # linked to it now: never imported again
+    deleted.add(42)  # deleted in Experio: the same file sent once more (a new file) is imported again
+    with cabinet_db() as db:
+        resent = db.execute(insert, ("s3", "releve.pdf", b"%PDF same", None)).fetchone()[0]
+    assert intake.import_bank_statement(resent, 557)["status"] == "question"
 
 
 @pytest.mark.functionality
 def test_a_leasing_schedule_gladden_calls_a_statement_is_set_aside_by_the_model(monkeypatch):
     from engine.tools.invoices import intake
 
-    db = FakeDb((None, "echeancier.pdf", "application/pdf", pdf(1), None, None, None, None))
+    db = FakeDb((None, "echeancier.pdf", "application/pdf", pdf(1), None, None, None, None, None))
     monkeypatch.setattr(intake, "cabinet_db", lambda: db)
-    monkeypatch.setattr(intake, "gladden_type", lambda raw: "bank")
+    monkeypatch.setattr(intake, "gladden_type", lambda raw: ("bank", None))
     monkeypatch.setattr(intake, "classify_pages", lambda pages, what: ("autre", "un échéancier de leasing"))
     answer = intake.identify_document(1)
     assert answer["kind"] == "other" and answer["status"] == "stop"
+
+
+@pytest.mark.functionality
+def test_the_bank_gladden_reads_on_a_statement_is_kept_for_its_journal(monkeypatch):
+    from engine.tools.core.queries import Q
+    from engine.tools.invoices import intake
+
+    db = FakeDb((None, "releve.pdf", "application/pdf", pdf(1), None, None, None, None, None))
+    monkeypatch.setattr(intake, "cabinet_db", lambda: db)
+    monkeypatch.setattr(intake, "gladden_type", lambda raw: ("bank", "sgeneral"))
+    monkeypatch.setattr(intake, "classify_pages", lambda pages, what: ("rb", "un relevé bancaire"))
+    assert intake.identify_document(1)["kind"] == "statement"
+    assert db.queries[-1] == (Q.set_file_gladden_bank, ("sgeneral", 1))
 
 
 @pytest.mark.functionality
@@ -303,9 +322,9 @@ def test_a_screenshot_gladden_calls_an_invoice_never_becomes_a_draft(monkeypatch
 
     buffer = io.BytesIO()
     Image.new("RGB", (300, 200), "white").save(buffer, format="PNG")
-    db = FakeDb((None, "capture.png", "image/png", buffer.getvalue(), None, None, None, None))
+    db = FakeDb((None, "capture.png", "image/png", buffer.getvalue(), None, None, None, None, None))
     monkeypatch.setattr(intake, "cabinet_db", lambda: db)
-    monkeypatch.setattr(intake, "gladden_type", lambda raw: "invoice")
+    monkeypatch.setattr(intake, "gladden_type", lambda raw: ("invoice", None))
     monkeypatch.setattr(intake, "classify_pages", lambda pages, what: ("autre", "une capture d'écran d'un logiciel"))
     assert intake.identify_document(1)["kind"] == "other"
 

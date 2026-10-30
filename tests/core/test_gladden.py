@@ -28,7 +28,7 @@ def answering(monkeypatch, callback):
 @pytest.mark.functionality
 def test_gladden_type_comes_back_from_its_callback(monkeypatch):
     sent = answering(monkeypatch, {"type": "bank", "sub_type": "bmce"})
-    assert gladden.classify(RUNNER, b"%PDF", "https://tarik.example/gladden/") == "bank"
+    assert gladden.classify(RUNNER, b"%PDF", "https://tarik.example/gladden/") == ("bank", "bmce")
     base = "https://tarik.example/gladden/"
     assert sent[0].startswith(base) and len(sent[0]) > len(base) + 20  # a random token, the route's only key
     assert gladden._waiting == {}  # nothing left waiting
@@ -37,13 +37,13 @@ def test_gladden_type_comes_back_from_its_callback(monkeypatch):
 @pytest.mark.functionality
 def test_no_callback_or_no_runner_means_no_type(monkeypatch):
     answering(monkeypatch, None)
-    assert gladden.classify(RUNNER, b"%PDF", "https://tarik.example/gladden", wait=0.1) is None
+    assert gladden.classify(RUNNER, b"%PDF", "https://tarik.example/gladden", wait=0.1) == (None, None)
 
     def down(*args):
         raise httpx.ConnectError("refused")
 
     monkeypatch.setattr(gladden, "submit", down)
-    assert gladden.classify(RUNNER, b"%PDF", "https://tarik.example/gladden") is None
+    assert gladden.classify(RUNNER, b"%PDF", "https://tarik.example/gladden") == (None, None)
     assert gladden._waiting == {}
 
 

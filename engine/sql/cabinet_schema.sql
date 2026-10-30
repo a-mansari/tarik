@@ -36,6 +36,8 @@ alter table tarik_files add column if not exists twin_of integer;
 create index if not exists tarik_files_invoice_content on tarik_files (content_md5) where invoice_id is not null;
 -- A TPE statement (exp.monetary.statement, not a bank statement): statement_id is one, of this network (cmi, naps...).
 alter table tarik_files add column if not exists tpe_type text;
+-- The bank Gladden read on a statement at its identification, as Experio's bank code (bmce, sgeneral...).
+alter table tarik_files add column if not exists gladden_bank text;
 
 -- The files Tarik makes for a conversation (an export: Experio keeps none), sent with its next email reply and
 -- downloadable from the conversation.
