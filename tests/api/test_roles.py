@@ -153,9 +153,9 @@ def logged_in(monkeypatch, body, address="1.2.3.4"):
 def test_the_login_throttle_forgets_what_its_wait_is_over(monkeypatch):
     from server import accounts
 
-    no_account(monkeypatch, {("old@x", "A"): (3, accounts.time.monotonic() - accounts.WAIT_SECONDS - 1)})
+    no_account(monkeypatch, {("old@x", "B"): (3, accounts.time.monotonic() - accounts.WAIT_SECONDS - 1)})
     asyncio.run(accounts.log_in("new@x", "nope", "A"))
-    assert set(accounts.FAILURES) == {("new@x", "A")}  # a guess with a new address never grows it without end
+    assert set(accounts.FAILURES) == {("new@x", "A")}  # old tries of any email or address dropped: never grows
 
 
 @pytest.mark.security
@@ -163,7 +163,7 @@ def test_the_try_that_reaches_the_limit_is_told_to_wait_not_called_wrong(monkeyp
     from server import accounts
 
     no_account(monkeypatch, {("a@x", "1.2.3.4"): (accounts.WAIT_AFTER - 1, accounts.time.monotonic())})
-    assert logged_in(monkeypatch, b'{"email": "a@x", "password": "nope"}').status_code == 429
+    assert logged_in(monkeypatch, b'{"email": "a@x", "password": "nope"}', "1.2.3.4").status_code == 429
 
 
 @pytest.mark.security

@@ -163,9 +163,14 @@ def forget_waited(now):
         del FAILURES[stale]
 
 
+def tries(email, address):
+    """Return the FAILURES key of ``email`` tried from ``address`` (cut short: it is the client's X-Forwarded-For)."""
+    return email.strip().lower(), address[:64]
+
+
 def waiting(email, address):
     """True while ``email`` must wait from ``address``: WAIT_AFTER failed logins from there within WAIT_SECONDS."""
-    count, last = FAILURES.get((email.strip().lower(), address), (0, 0.0))
+    count, last = FAILURES.get(tries(email, address), (0, 0.0))
     return count >= WAIT_AFTER and time.monotonic() - last < WAIT_SECONDS
 
 
@@ -173,11 +178,12 @@ async def log_in(email, password, address):
     """Open a session for ``email`` and ``password``, tried from the browser's ``address``; return its token or None.
 
     None when the password is wrong, the account has no password yet or is closed, or after WAIT_AFTER failures from
-    ``address`` within WAIT_SECONDS: a guessing run waits, but never locks the person out from their own address."""
-    email = email.strip().lower()
+    ``address`` within WAIT_SECONDS: a guessing run waits there, without locking out the person at another address."""
+    key = tries(email, address)
+    email = key[0]
     if waiting(email, address):
         return None
-    key, now = (email, address), time.monotonic()
+    now = time.monotonic()
     forget_waited(now)  # a wait that is over starts again from 0
     # counted before the database wait, so guesses sent at once each count; a right password clears it
     FAILURES[key] = (FAILURES.get(key, (0, 0.0))[0] + 1, now)
