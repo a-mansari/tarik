@@ -29,6 +29,7 @@ FREE_FORM = {
 # The fields a client can map a column to, as the question names them to the client.
 FIELD_LABELS = {
     "partner_id": "le tiers (fournisseur ou client)",
+    "partner_name": "le nom du tiers",
     "invoice_number": "le numéro de facture",
     "invoice_date": "la date de la facture",
     "amount_untaxed": "le montant HT",
@@ -44,8 +45,10 @@ FIELD_LABELS = {
     "notes": "les notes internes",
     "invoice_ref": "le nom (référence interne)",
 }
-# What an invoice needs at least: the tiers, its number, its date, and one total.
-REQUIRED = ("partner_id", "invoice_number", "invoice_date")
+# What an invoice needs at least: the tiers (Experio's screen maps a « Fournisseur » header to partner_name), its
+# number, its date, and one total.
+TIERS = ("partner_id", "partner_name")
+REQUIRED = ("invoice_number", "invoice_date")
 TOTALS = ("amount_untaxed", "amount_total")
 
 # Header words that make a table one of invoices. A bank statement has dates and amounts too (débit, crédit), but

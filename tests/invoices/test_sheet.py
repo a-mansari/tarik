@@ -56,6 +56,7 @@ def test_what_an_invoice_still_needs_is_listed():
     assert sheet.missing(["partner_id", "invoice_number", "invoice_date", "amount_total"]) == []
     lacks = sheet.missing(["invoice_number", "amount_tva"])
     assert len(lacks) == 3 and any("TTC" in lack for lack in lacks)
+    assert sheet.missing(["partner_name", "invoice_number", "invoice_date", "amount_untaxed"]) == []  # Experio's own
 
 
 PREVIEW = {"headers": FREE, "matches": {}, "options": {"separator": ";"}}
@@ -103,7 +104,7 @@ def test_drafts_are_imported_on_the_side_given_and_the_columns_used_are_told(exp
 
 @pytest.mark.security
 def test_a_duplicate_is_refused_the_first_time_and_imported_when_the_client_insists(experio):
-    experio["held"] = [{"invoice_number": "F1", "partner_id": [5, "ATLAS"]}]
+    experio["held"] = [{"invoice_number": "F1", "partner_id": [5, "ATLAS - 44110101 - 1234"]}]  # Experio's display name
     first = sheet.import_invoice_sheet(857, 1, "achat")
     assert first["status"] == "question" and "n° F1 (ATLAS)" in first["message"] and not experio["imported"]
     again = sheet.import_invoice_sheet(857, 1, "achat", keep_duplicates=True)
@@ -131,3 +132,14 @@ def test_a_row_experio_refuses_stops_the_import_and_takes_the_file(experio, monk
     monkeypatch.setattr(sheet, "tested", refuse)
     result = sheet.import_invoice_sheet(857, 1, "achat")
     assert result["status"] == "stop" and experio["taken"] == [1] and not experio["imported"]
+
+
+@pytest.mark.functionality
+def test_a_tva_missing_from_a_sheet_with_ht_and_ttc_is_their_difference_and_told(experio, monkeypatch):
+    seen = []
+    monkeypatch.setattr(sheet, "previewed", lambda f, n, text, c, m: seen.append(text) or (7, PREVIEW))
+    fields = ["partner_id", "invoice_number", "invoice_date", "amount_untaxed", "amount_total"]
+    text = sheet.with_vat(TEXT, ";", fields)
+    assert text.splitlines()[0].endswith("TVA calculée") and text.splitlines()[1].endswith(";20.00")
+    assert sheet.with_vat(TEXT, ";", [*fields[:4], "amount_tva"]) is None  # a TVA column: left as the client gave it
+    assert sheet.with_vat("a;b\n1;\n", ";", ["amount_untaxed", "amount_total"]).splitlines()[1] == "1;;"  # no guess

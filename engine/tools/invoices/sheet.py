@@ -19,7 +19,7 @@ from engine.tools.core.app import ok, question, step_tool, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, require_dossier
-from engine.tools.core.words import counted, normalized
+from engine.tools.core.words import as_number, counted, normalized
 from engine.tools.dossiers.setup import (
     IMPORT_OPTIONS,
     Refused,
@@ -32,7 +32,7 @@ from engine.tools.dossiers.setup import (
 )
 from engine.tools.invoices.classify import CATEGORY_TO_TYPE
 from engine.tools.invoices.intake import file_row
-from engine.tools.invoices.sheet_headers import FIELD_LABELS, FREE_FORM, REQUIRED, TOTALS
+from engine.tools.invoices.sheet_headers import FIELD_LABELS, FREE_FORM, REQUIRED, TIERS, TOTALS
 
 LABEL = "Tableur de factures"
 SIDES = {"achat": "purchase", "purchase": "purchase", "vente": "sale", "sale": "sale", **CATEGORY_TO_TYPE}
@@ -72,6 +72,7 @@ def mapped_fields(preview, wanted):
 def missing(fields):
     """Return the labels of what an invoice still needs that no column in ``fields`` gives."""
     lacks = [FIELD_LABELS[f] for f in REQUIRED if f not in fields]
+    lacks = ([FIELD_LABELS[TIERS[0]]] if not set(TIERS) & set(fields) else []) + lacks
     return lacks + (
         [f"{FIELD_LABELS[TOTALS[0]]} ou {FIELD_LABELS[TOTALS[1]]}"] if not set(TOTALS) & set(fields) else []
     )
@@ -81,6 +82,38 @@ def rows_of(text, separator, fields):
     """Return the rows of ``text`` as [{Experio field: cell}], only the columns mapped."""
     table = list(csv.reader(io.StringIO(text), delimiter=separator))[1:]
     return [{f: row[i].strip() for i, f in enumerate(fields) if f and i < len(row)} for row in table if any(row)]
+
+
+def cell_number(cell):
+    """Return the cell's number, None when it is empty or not clearly one."""
+    try:
+        return as_number(cell) if cell.strip() else None
+    except ValueError:
+        return None
+
+
+TAX_FIELDS = {"amount_tva", "multi_tva", "amount_tax_non_recoverable"}
+
+
+def with_vat(text, separator, fields):
+    """Return ``text`` with a last column « TVA calculée » (TTC minus HT, to the centime) when the sheet gives the HT
+    and the TTC but no TVA at all (Experio refuses an invoice whose HT, TVA and other amounts do not add up to its
+    TTC); None when nothing is added. A row missing either amount, or with a TTC under its HT, gets no value."""
+    taxed = {f for f in fields if f and (f in TAX_FIELDS or f.startswith("amount_tva_"))}
+    if taxed or not set(TOTALS) <= set(fields):
+        return None
+    ht, ttc = fields.index(TOTALS[0]), fields.index(TOTALS[1])
+    table = list(csv.reader(io.StringIO(text), delimiter=separator))
+    for number, row in enumerate(table):
+        if number == 0:
+            row.append("TVA calculée")
+            continue
+        low, high = (cell_number(row[i]) if i < len(row) else None for i in (ht, ttc))
+        row += [""] * (len(table[0]) - 1 - len(row))
+        row.append(f"{high - low:.2f}" if low is not None and high is not None and high >= low else "")
+    out = io.StringIO()
+    csv.writer(out, delimiter=separator, lineterminator="\n").writerows(table)
+    return out.getvalue()
 
 
 def twins(rows, side, dossier_id, context):
@@ -99,18 +132,20 @@ def twins(rows, side, dossier_id, context):
         fields=["invoice_number", "partner_id"],
         context=context,
     )
-    held = {
+    # Experio names a tiers « NOM - compte - ICE »: a sheet's name matches when it starts that name.
+    held = [
         (normalized(i["invoice_number"] or ""), normalized(i["partner_id"][1] if i["partner_id"] else ""))
         for i in found
-    }
+    ]
     seen, lines = set(), []
     for r in rows:
-        key = (normalized(r.get("invoice_number", "")), normalized(r.get("partner_id", "")))
-        if not key[0]:
+        who = r.get("partner_id") or r.get("partner_name", "")
+        number, name = normalized(r.get("invoice_number", "")), normalized(who)
+        if not number:
             continue
-        if key in held or key in seen:
-            lines.append(f"n° {r['invoice_number']} ({r.get('partner_id', '?')})")
-        seen.add(key)
+        if (number, name) in seen or any(n == number and h.startswith(name) for n, h in held):
+            lines.append(f"n° {r['invoice_number']} ({who or '?'})")
+        seen.add((number, name))
     return lines
 
 
@@ -155,6 +190,11 @@ def import_invoice_sheet(
                 file_id=file_id,
             )
         separator = preview.get("options", {}).get("separator") or separator_of(text)
+        computed = with_vat(text, separator, fields)
+        if computed:  # the client's HT and TTC, no TVA: the difference is the TVA, told with the columns
+            text = computed
+            import_id, preview = previewed(file_id, name, text, context, "exp.invoice")
+            fields = mapped_fields(preview, {**parsed_columns(columns), "tva calculee": "amount_tva"})
         rows = rows_of(text, separator, fields)
         same = twins(rows, side, dossier_id, context)
         if same and not keep_duplicates:
@@ -167,7 +207,7 @@ def import_invoice_sheet(
         options = {**IMPORT_OPTIONS, **preview.get("options", {})}
         arguments = ([import_id], fields, preview["headers"], options)
         test = tested(file_id, name, LABEL, arguments, context)
-        used = ", ".join(
+        used = ("TVA calculée (TTC moins HT) ; " if computed else "") + ", ".join(
             f"`{h}` → {FIELD_LABELS.get(f, f)}" for h, f in zip(preview["headers"], fields, strict=True) if f
         )
         if dry_run():
