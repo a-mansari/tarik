@@ -26,6 +26,8 @@ CAPTURED: Final = (
     "amount_insurance",
     "amount_ts",
     "amount_tsp",
+    "amount_tsc",
+    "amount_regional_tax",
     "advance_amount",
     "amount_total",
 )
@@ -42,8 +44,17 @@ SALE_NOTE: Final = (
 REPORT_KEYS: Final = ("readable", "extracted", "bad_fields")  # a reply without bad_fields is not "nothing differs"
 NUMBERS = set(CAPTURED) - {"invoice_number", "invoice_date"}  # compared as numbers, never as text
 LINE_NUMBERS = ("rate", "amount_ht", "amount_tva")
-# The amounts that make the TTC: HT + TVA + stamp + debours + taxe de sejour + TPT.
-TTC_PARTS = {"amount_untaxed", "amount_tva", "amount_stamp", "amount_disbursement", "amount_ts", "amount_tsp"}
+# The amounts that make the TTC: HT + TVA + stamp + debours + taxe de sejour + TPT + TSC + taxe régionale.
+TTC_PARTS = {
+    "amount_untaxed",
+    "amount_tva",
+    "amount_stamp",
+    "amount_disbursement",
+    "amount_ts",
+    "amount_tsp",
+    "amount_tsc",
+    "amount_regional_tax",
+}
 AMOUNT_FIELDS = TTC_PARTS | {"amount_total"}
 UTILITIES = {"water": "water ", "electricity": "electricity "}  # Experio's utility_type, as the model reads it
 
@@ -183,6 +194,8 @@ def _captured(invoice):
     "ice" (the tiers' ICE), None when no tiers is set."""
     partner = invoice["partner_id"]
     stored = {name: invoice.get(name) for name in CAPTURED}
+    if invoice.get("type") == "purchase":  # Experio keeps a purchase's taxe régionale in amount_tva_3, a sale's apart
+        stored["amount_regional_tax"] = invoice.get("amount_tva_3")
     stored["tier"] = partner[1] if partner else None
     stored["ice"] = None
     if partner:
@@ -287,7 +300,8 @@ def check_invoice(invoice_id: int) -> dict:
     """Check a draft invoice once Experio has read it: compare what Experio captured with what the scan shows,
     and list every difference. Changes nothing in Experio; the check is stored for correct_invoice.
     ``invoice_id``: the draft invoice number given at its creation."""
-    fields = ["bluejay_state", "document_pdf", "file_type", *CAPTURED, "partner_id", "token", "utility_type", "type"]
+    fields = ["bluejay_state", "document_pdf", "file_type", *CAPTURED, "amount_tva_3", "partner_id", "token"]
+    fields += ["utility_type", "type"]
     invoice = require_invoice(invoice_id, fields)
     reading = still_reading(invoice)
     if reading:

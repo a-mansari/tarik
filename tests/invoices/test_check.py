@@ -368,3 +368,23 @@ def test_a_pdf_experio_stored_without_its_file_type_is_a_scan():
     assert has_scan({"document_pdf": "JVBER", "file_type": "none"})
     assert not has_scan({"document_pdf": "UEsDB", "file_type": "excel"})
     assert not has_scan({"document_pdf": False, "file_type": "pdf"})
+
+
+@pytest.mark.functionality
+def test_a_purchase_s_regional_tax_is_read_from_its_own_experio_field(checking):
+    from engine.tools.invoices.check import _captured
+
+    invoice = {**checking["invoice"], "amount_tva_3": 30.0, "amount_regional_tax": 0.0, "amount_tsc": 12.0}
+    assert _captured(invoice)["amount_regional_tax"] == 30.0 and _captured(invoice)["amount_tsc"] == 12.0
+    assert _captured({**invoice, "type": "sale", "amount_regional_tax": 25.0})["amount_regional_tax"] == 25.0
+
+
+@pytest.mark.functionality
+def test_the_tsc_and_the_regional_tax_count_in_the_ttc_the_scan_adds_up_to():
+    scan = {"amount_untaxed": 100, "amount_tva": 20, "amount_tsc": 5, "amount_regional_tax": 3, "amount_total": 128}
+    assert [b["field"] for b in drop_false_alarms([flag("amount_tsc", 0, 5)], {"amount_tsc": 0}, scan)] == [
+        "amount_tsc"
+    ]
+    # without them the parts (120) miss the TTC (128): the amount flag would be dropped as the model's misreading
+    bare = {**scan, "amount_tsc": 0, "amount_regional_tax": 0}
+    assert drop_false_alarms([flag("amount_untaxed", 90, 100)], {"amount_untaxed": 90}, bare) == []

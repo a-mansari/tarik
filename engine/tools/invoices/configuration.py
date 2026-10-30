@@ -63,6 +63,15 @@ AMOUNTS = {
     ),
     "amount_ts": ("taxe de sejour", (None, None, None), ("use_ts_tax", "ts_account_id", None)),
     "amount_tsp": ("taxe de promotion touristique", (None, None, None), ("use_tsp_tax", "tsp_account_id", None)),
+    "amount_tsc": (
+        "taxe de services communaux",
+        ("use_tsc_purchase_tax", "tsc_account_id", None),
+        ("use_tsc_sale_tax", "tsc_sale_account_id", None),
+    ),
+    # Experio books the taxe régionale on the invoice's own account when the dossier has none (_get_tr_style_config):
+    # only its switch is needed. A purchase keeps it in amount_tva_3, a sale in amount_regional_tax.
+    "amount_tva_3": ("taxe régionale", ("use_amount_tva_3", None, None), (None, None, None)),
+    "amount_regional_tax": ("taxe régionale", (None, None, None), ("use_regional_tax", None, None)),
 }
 FOREIGN_IGNORED = {"amount_guarantee_holdback", "amount_prorata", "amount_insurance", "advance_amount"}
 INVOICE_FIELDS = ["state", "company_id", "exercice_id", "type", "is_local_invoice", *AMOUNTS]
@@ -189,9 +198,9 @@ def settings_needed(invoice, company):
     for amount, (name, supplier, customer) in AMOUNTS.items():
         switch, account, prefixes = supplier if purchase else customer
         ignored = foreign and ignored_abroad(amount, purchase)
-        if not invoice[amount] or not account or ignored:
+        if not invoice[amount] or not (switch or account) or ignored:
             continue
-        if not company[account]:
+        if account and not company[account]:
             found = prefixes and account_by_code(invoice["company_id"][0], prefixes)
             if not found:
                 cabinet.append(name)

@@ -44,11 +44,11 @@ section 9: one line in `tests/llm/test_decisions.py` is usually enough.**
 | dossiers | 9 | 144 |
 | emails | 4 | 56 |
 | graphs | 7 | 70 |
-| invoices | 33 | 479 |
+| invoices | 33 | 485 |
 | isolation | 4 | 24 |
 | llm | 5 | 13 |
 | style | 2 | 7 |
-| **Total** | **83 test files** | **970 test functions** |
+| **Total** | **83 test files** | **976 test functions** |
 
 These are function counts. With parametrize the collected item count is higher (1,412 run by a plain
 `python -m pytest`). Every call Tarik makes to Experio (odoo_call, odoo_json, fill_invoice, refresh) is run by at
@@ -58,7 +58,7 @@ By marker:
 
 | Marker | Tests |
 |---|---|
-| functionality | 508 |
+| functionality | 514 |
 | security | 194 |
 | communication | 153 |
 | technical | 55 |
@@ -504,6 +504,8 @@ Covers comparing what Experio read with the scan: dates, the model's report, fal
 - `test_an_answer_unusable_twice_is_refused_and_nothing_stored` [technical, param]: two bad answers: refused, nothing stored.
 - `test_a_draft_experio_has_not_read_or_without_a_scan_is_not_checked` [functionality, param]: still reading, not read, or no PDF scan: not checked.
 - `test_a_sale_is_checked_against_its_customer` [functionality]: a sale's model prompt holds the customer note.
+- `test_a_purchase_s_regional_tax_is_read_from_its_own_experio_field` [functionality]: a purchase's taxe régionale is read from `amount_tva_3`, a sale's from `amount_regional_tax`.
+- `test_the_tsc_and_the_regional_tax_count_in_the_ttc_the_scan_adds_up_to` [functionality]: the TSC and the taxe régionale are parts of the TTC the scan must add up to.
 - `test_a_date_or_tva_lines_out_of_shape_are_never_guessed` [technical]: a three-digit year or tva_lines not a list are refused.
 
 ### tests/invoices/test_classify.py
@@ -530,6 +532,7 @@ Covers the dossier's tax settings before posting.
 - `test_experios_own_detection_runs_only_when_its_check_blocks` [functionality]: Experio auto-detection runs only when its check blocks.
 - `test_what_still_blocks_is_named_for_the_cabinet` [communication]: the remaining blocking settings are named for the cabinet.
 - `test_an_amount_the_invoice_carries_turns_its_switch_on_with_its_account` [functionality]: an amount on the invoice turns its setting on, with its account.
+- `test_a_regional_tax_needs_only_its_switch_and_a_tsc_needs_its_account_too` [functionality]: the taxe régionale turns its switch on (Experio falls back on the invoice's account); the TSC's account is the cabinet's choice.
 - `test_experio_ignores_a_foreign_purchases_deductions_so_nothing_is_set` [functionality]: foreign-purchase deductions are left unset, since Experio ignores them.
 - `test_a_setting_the_cabinets_rights_refuse_is_reported_not_claimed` [security]: a setting refused for lack of rights is reported, not claimed as done.
 - `test_a_warning_is_no_setting_and_blocks_nothing_here` [functionality]: Experio's warnings block nothing at this step (settle_warnings handles them).
@@ -567,6 +570,9 @@ Covers corrections planned from a check (the HT/TVA fuel case).
 - `test_every_header_amount_correct_invoice_writes_is_said_in_french` [communication, xfail]: the stamp, débours... amounts are said by Experio's field name (suspected bug).
 - `test_a_tourist_tax_counts_only_with_its_setting_and_its_account` [functionality, param]: setting turned on with its account; without it, Experio's reading kept.
 - `test_a_tourist_tax_already_on_the_invoice_turns_its_setting_on_too` [functionality]: an earlier correction's tax gets its setting.
+- `test_a_regional_tax_counts_with_its_setting_and_is_written_in_the_field_of_the_invoice_side` [functionality, param]: the taxe régionale is written in `amount_tva_3` (purchase) or `amount_regional_tax` (sale), its setting turned on, no account needed.
+- `test_the_tsc_counts_with_its_side_s_setting_and_account` [functionality, param]: the TSC's purchase or sale setting is turned on when the dossier has its account.
+- `test_a_tsc_without_its_account_is_left_as_experio_read_it_and_told` [functionality]: no TSC account: nothing written, the cabinet told.
 
 ### tests/invoices/test_duplicates.py
 Covers the duplicate check.

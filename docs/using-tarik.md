@@ -41,7 +41,9 @@ itself and Experio sets the RAS TVA rate; when that rate depends on the supplier
 fiscale, Tarik asks for it once: send it as an attachment, or answer « sans attestation ». The same file sent
 twice makes one draft only. A sale is imported as a sale (Experio then reads its customer); one billing no TVA is
 ticked « TVA non facturée »; a customer with an activity type gets its retenue on, as a supplier does; a hotel's
-restaurant, breakfast and laundry amounts are split out where the dossier uses them. Drafts made by Experio's own
+restaurant, breakfast and laundry amounts are split out where the dossier uses them. The taxe régionale and the taxe de services communaux (TSC) printed on an invoice are checked
+against the scan and counted in its TTC: Tarik turns on their setting in the dossier, and asks the cabinet for the TSC
+account when the dossier has none. Drafts made by Experio's own
 Facturation are posted when you ask for them by name or ask for the whole dossier. A durable good (a computer, a
 vehicle, furniture) is proposed on a class 2 account and booked there only once you confirm it; posting then waits
 until its account has an asset category in Experio, without which Experio would make no asset. What Tarik did on an

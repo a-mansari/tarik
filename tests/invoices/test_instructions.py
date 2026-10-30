@@ -63,7 +63,11 @@ def test_an_account_correction_made_in_an_earlier_message_is_applied(monkeypatch
 @pytest.mark.functionality
 def test_the_payment_method_the_client_gave_wins_over_the_scan(monkeypatch):
     seen = []
-    monkeypatch.setattr(correct, "require_draft_invoice", lambda *a, **k: {"refund": False, "payment_method_id": False})
+    monkeypatch.setattr(
+        correct,
+        "require_draft_invoice",
+        lambda *a, **k: {"refund": False, "payment_method_id": False, "type": "purchase"},
+    )
     monkeypatch.setattr(correct, "stored_check", lambda invoice_id: (True, {"payment_method": "especes"}, []))
     monkeypatch.setattr(correct, "_currency", lambda code, changes, notes: None)
     monkeypatch.setattr(correct, "_payment_method", lambda name, invoice, changes: seen.append(name))

@@ -111,6 +111,19 @@ def test_an_amount_the_invoice_carries_turns_its_switch_on_with_its_account(expe
 
 
 @pytest.mark.functionality
+def test_a_regional_tax_needs_only_its_switch_and_a_tsc_needs_its_account_too(experio):
+    experio["invoice"].update(amount_tva_3=30, amount_tsc=12)
+    result = configuration.configure_cabinet(3)
+    assert experio["company"] == {"use_amount_tva_3": True}  # the regional tax falls back on the invoice's account
+    assert "J'ai activé dans le dossier : taxe régionale" in result["message"]
+    assert "taxe de services communaux : compte à choisir" in result["message"]  # no CGNC code: the cabinet's
+    experio["invoice"].update(type="sale", amount_tva_3=0, amount_regional_tax=30)
+    experio["calls"].clear()
+    configuration.configure_cabinet(3)
+    assert experio["company"]["use_regional_tax"] is True
+
+
+@pytest.mark.functionality
 def test_experio_ignores_a_foreign_purchases_deductions_so_nothing_is_set(experio):
     experio["invoice"].update(amount_guarantee_holdback=500, amount_stamp=1, is_local_invoice=False)
     configuration.configure_cabinet(3)

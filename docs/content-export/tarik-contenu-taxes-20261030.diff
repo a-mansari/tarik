@@ -1,0 +1,28 @@
+--- tools/check-invoice.md (avant)
++++ tools/check-invoice.md (après)
+@@ -20,6 +20,8 @@
+   amount_prorata: "prorata" (the share of the site's common costs charged to this supplier, BTP) -- deducted like the retenue, NOT part of the TTC. Absent means 0.
+   amount_ts: "taxe de sejour" (hotels) -- part of the TTC. Absent means 0.
+   amount_tsp: "taxe de promotion touristique" ("TPT", "TSP") -- part of the TTC. Absent means 0.
++  amount_tsc: "taxe de services communaux" ("TSC", "taxe de services communautaires") -- part of the TTC. Absent means 0.
++  amount_regional_tax: "taxe régionale" -- part of the TTC. Absent means 0.
+   advance_amount: "avance" / "acompte" already paid and deducted on this invoice -- NOT part of the TTC. Absent means 0.
+   amount_insurance: "assurance" / "assurance BTP" (the site insurance charged to this supplier, BTP) -- deducted like the retenue, NOT part of the TTC. Absent means 0. Moroccan invoices write 83 333,33 for 83333.33: the space groups thousands and the comma is the decimal point.
+ - amount_ht_restauration, amount_ht_breakfast, amount_ht_blanchisserie: on a hotel bill, the H.T of the restaurant (meals, bar), of the breakfasts and of the laundry, each only when the bill shows it apart. They are part of amount_untaxed, which stays the bill's whole H.T. Absent means 0. Never compared to Experio.
+@@ -44,6 +46,6 @@
+ - A field you cannot read on the scan is not a mismatch: leave it out, and set its extracted value to null.
+ - Also report a captured field that is empty while the scan plainly shows a value.
+ - Beyond the comparison, report an internal inconsistency in what the scan itself
+-  shows: TTC must equal HT + TVA + stamp + debours + taxe de sejour + TPT, within one dirham.
++  shows: TTC must equal HT + TVA + stamp + debours + taxe de sejour + TPT + TSC + taxe regionale, within one dirham.
+ - Give ``problem`` as one French sentence, quoting both values.
+ - Everything matching: return an empty list.
+--- tools/check-invoice-answer.md (avant)
++++ tools/check-invoice-answer.md (après)
+@@ -2,5 +2,5 @@
+ used_by: check_invoice (engine/tools/invoices/check.py)
+ ---
+ Answer with only one JSON object, of this shape:
+-{"readable": bool, "extracted": {"invoice_number": str|null, "invoice_date_raw": str|null, "invoice_date_language": "fr"|"en", "amount_untaxed": num|null, "amount_tva": num|null, "amount_stamp": num|null, "amount_disbursement": num|null, "amount_guarantee_holdback": num|null, "amount_prorata": num|null, "amount_insurance": num|null, "amount_ts": num|null, "amount_tsp": num|null, "advance_amount": num|null, "amount_total": num|null, "amount_ht_restauration": num|null, "amount_ht_breakfast": num|null, "amount_ht_blanchisserie": num|null, "tier": str|null, "designation": str|null, "ice": str|null, "vat": str|null, "is_credit_note": bool, "document_title": str|null, "credit_note_of": str|null, "currency": str|null, "payment_method": str|null, "period_start": str|null, "period_end": str|null, "country": str|null, "tva_lines": [{"rate": num, "amount_ht": num, "amount_tva": num}]}, "bad_fields": [{"field": str, "stored": str, "extracted": str, "problem": str}]}
++{"readable": bool, "extracted": {"invoice_number": str|null, "invoice_date_raw": str|null, "invoice_date_language": "fr"|"en", "amount_untaxed": num|null, "amount_tva": num|null, "amount_stamp": num|null, "amount_disbursement": num|null, "amount_guarantee_holdback": num|null, "amount_prorata": num|null, "amount_insurance": num|null, "amount_ts": num|null, "amount_tsp": num|null, "amount_tsc": num|null, "amount_regional_tax": num|null, "advance_amount": num|null, "amount_total": num|null, "amount_ht_restauration": num|null, "amount_ht_breakfast": num|null, "amount_ht_blanchisserie": num|null, "tier": str|null, "designation": str|null, "ice": str|null, "vat": str|null, "is_credit_note": bool, "document_title": str|null, "credit_note_of": str|null, "currency": str|null, "payment_method": str|null, "period_start": str|null, "period_end": str|null, "country": str|null, "tva_lines": [{"rate": num, "amount_ht": num, "amount_tva": num}]}, "bad_fields": [{"field": str, "stored": str, "extracted": str, "problem": str}]}
+ invoice_date_language is required: always pick one. Every num is a JSON number, with a decimal point and no thousands separator (1005.5, never "1 005,50" nor "1,005").

@@ -117,7 +117,11 @@ def test_a_scan_owing_nothing_keeps_what_experio_captured(monkeypatch):
             monkeypatch.setattr(correct, "require_draft_invoice", lambda *a, c=captured, **k: {"amount_total": c})
             result = correct.correct_invoice(3)
             assert result["status"] == "stop" and "justificatif de paiement, pas une facture" in result["message"]
-        monkeypatch.setattr(correct, "require_draft_invoice", lambda *a, **k: {"amount_total": 600.0, "refund": False})
+        monkeypatch.setattr(
+            correct,
+            "require_draft_invoice",
+            lambda *a, **k: {"amount_total": 600.0, "refund": False, "type": "purchase"},
+        )
         result = correct.correct_invoice(3)
         assert result["status"] != "stop" and "montants gardés tels que saisis par Experio" in result["message"]
     assert not written  # no amount, no credit note written over Experio's 600
@@ -167,7 +171,7 @@ def test_avoir_is_unticked_only_when_the_printed_title_says_facture(title, untic
 
 DRAFT = {"id": 3, "state": "draft", "company_id": [5, "D"], "exercice_id": [2, "2026"], "refund": False}
 DRAFT.update(amount_tax_non_recoverable=0.0, payment_method_id=False, currency_id=[1, "MAD"])
-DRAFT.update(amount_total=1200.0, amount_untaxed=1000.0)
+DRAFT.update(amount_total=1200.0, amount_untaxed=1000.0, type="purchase")
 CONTEXT = {"allowed_company_ids": [5], "cron_fiscal_entry_id": 2}
 
 
@@ -380,3 +384,65 @@ def test_a_tourist_tax_already_on_the_invoice_turns_its_setting_on_too(correctin
     monkeypatch.setattr(correct, "save_settings", lambda company, values, context: turned.append(values) or True)
     correct.correct_invoice(3)
     assert turned == [{"use_ts_tax": True}]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("kind", "company", "turned", "written"),
+    [
+        ("purchase", {"use_amount_tva_3": False}, {"use_amount_tva_3": True}, "amount_tva_3"),  # Experio's own field
+        ("sale", {"use_regional_tax": False}, {"use_regional_tax": True}, "amount_regional_tax"),
+        ("sale", {"use_regional_tax": True}, None, "amount_regional_tax"),  # already used: nothing to turn on
+    ],
+)
+def test_a_regional_tax_counts_with_its_setting_and_is_written_in_the_field_of_the_invoice_side(
+    correcting, monkeypatch, kind, company, turned, written
+):
+    from engine.tools.invoices import correct
+
+    correcting["invoice"]["type"] = kind
+    correcting["found"]["res.company"] = [company]  # no account: Experio books it on the invoice's own
+    saved = []
+    monkeypatch.setattr(correct, "save_settings", lambda c, values, context: saved.append(values) or True)
+    correcting["read"] = {"amount_regional_tax": 30.0}
+    correcting["bad"] = [flag("amount_regional_tax", None, 30)]
+    result = correct.correct_invoice(3)
+    assert saved == ([turned] if turned else [])
+    assert correcting["filled"][0][1] == {written: 30.0}
+    assert "taxe régionale 30.0" in result["message"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("kind", "account", "setting", "company_account"),
+    [
+        ("purchase", "tsc_account_id", "use_tsc_purchase_tax", "tsc_sale_account_id"),
+        ("sale", "tsc_sale_account_id", "use_tsc_sale_tax", "tsc_account_id"),
+    ],
+)
+def test_the_tsc_counts_with_its_side_s_setting_and_account(
+    correcting, monkeypatch, kind, account, setting, company_account
+):
+    from engine.tools.invoices import correct
+
+    correcting["invoice"]["type"] = kind
+    correcting["found"]["res.company"] = [{setting: False, account: [8, "6167"], company_account: False}]
+    saved = []
+    monkeypatch.setattr(correct, "save_settings", lambda c, values, context: saved.append(values) or True)
+    correcting["read"] = {"amount_tsc": 12.0}
+    correcting["bad"] = [flag("amount_tsc", None, 12)]
+    result = correct.correct_invoice(3)
+    assert saved == [{setting: True}] and correcting["filled"][0][1] == {"amount_tsc": 12.0}
+    assert "taxe de services communaux activée dans les paramètres du dossier" in result["message"]
+
+
+@pytest.mark.functionality
+def test_a_tsc_without_its_account_is_left_as_experio_read_it_and_told(correcting):
+    from engine.tools.invoices import correct
+
+    correcting["found"]["res.company"] = [{"use_tsc_purchase_tax": True, "tsc_account_id": False}]
+    correcting["read"] = {"amount_stamp": 0.0, "amount_tsc": 12.0}
+    correcting["bad"] = [flag("amount_stamp", 12, 0), flag("amount_tsc", 0, 12)]
+    result = correct.correct_invoice(3)
+    assert "le dossier n'a pas de compte de taxe de services communaux" in result["message"]
+    assert correcting["filled"] == []  # neither the TSC nor the stamp Experio read it as is written
