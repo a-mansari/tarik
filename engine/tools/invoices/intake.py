@@ -27,9 +27,15 @@ from engine.tools.dossiers.banks import (
 )
 from engine.tools.invoices import tpe
 from engine.tools.invoices.classify import SIDES, classify_pages
+from engine.tools.invoices.sheet_headers import is_invoice_sheet
 from engine.tools.invoices.statement import STATEMENT, import_canvas, is_canvas
 
-KIND_LABEL = {"invoice": "une facture", "statement": "un relevé bancaire", "other": "ni une facture ni un relevé"}
+KIND_LABEL = {
+    "invoice": "une facture",
+    "statement": "un relevé bancaire",
+    "sheet": "un tableur de factures",
+    "other": "ni une facture ni un relevé",
+}
 # How a client corrects what a file they sent is, in their own words (normalized): it wins over Gladden's and the
 # model's reading, as long as the file is not imported yet. Both kinds said, or none: nothing is decided.
 KIND_WORDS = {
@@ -185,6 +191,9 @@ def identify_document(file_id: int, client_message: str = "") -> dict:
         if is_canvas(name, data):  # Experio's own Excel statement template
             db.execute(Q.set_file_kind, ("statement", file_id))
             return identified(name, file_id, "statement")
+        if is_invoice_sheet(name, data):  # Experio's invoice template, or a client's table of invoices
+            db.execute(Q.set_file_kind, ("sheet", file_id))
+            return identified(name, file_id, "sheet")
         if mime != "application/pdf" and not mime.startswith("image/"):
             raise ToolError(f"`{name}` : format non pris en charge ({mime}), envoyez un PDF ou une photo.")
         raw = as_pdf(mime, data)
