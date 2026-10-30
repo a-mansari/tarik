@@ -86,6 +86,8 @@ def experio(monkeypatch):
         created_written=[],
         by_amount=[],
         accepts=True,
+        removed=[],
+        balanced=[],
     )
     for line in state["lines"]:
         line.setdefault("partner_id", False)
@@ -104,6 +106,12 @@ def experio(monkeypatch):
             return [dict(state["statement"], id=i) for i in args[0]]
         if model == statement.LINE and method == "read":
             return [dict(line) for line in state["lines"]]
+        if model == statement.LINE and method == "unlink":
+            state["removed"] += args[0]
+            return True
+        if model == statement.STATEMENT and method == "write":
+            state["balanced"].append(args[1])
+            return True
         if model == statement.LINE and method == "write":
             state["written"].append((args[0], args[1]))
             return True
@@ -872,6 +880,112 @@ def test_each_pointing_step_says_what_it_did_for_the_report(experio):
     detected = statement.detect_statement_lines(40)
     assert detected["said"] == "2 opérations ont été pointées par la détection d'Experio." and detected.get("routine")
     assert statement.name_line_tiers(40)["message"] == "Relevé n° 40 : rien d'autre à faire."
+
+
+def scanned(experio, *lines, start=0.0):
+    """Statement 40 as Experio read a scan (balance_start ``start``, no ending balance): the fixture's three lines,
+    then ``lines``, each (id, label, debit, credit, other fields), undated and of no operation unless they say."""
+    experio["statement"].update(balance_start=start, balance_end_real=0.0)
+    for line_id, ref, debit, credit, *more in lines:
+        line = dict(experio["lines"][1], id=line_id, payment_ref=ref, debit=debit, credit=credit, date=False)
+        blank = {"operation_type": False, "operation_id": False, "partner_id": False, "invoice_ids": []}  # as read
+        experio["lines"].append(line | blank | (more[0] if more else {}))
+
+
+SCAN = [
+    (50, "190 SARL FIRST EQUIPEMENT RUE DES OUDAYAS N 64", 0.0, 0.0),
+    (51, "ANCIEN SOLDE AU 29/08/2025", 0.0, 313453.76),
+    (52, "TOTAL MOUVEMENTS", 308401.51, 243028.0),
+    (53, "Valeur Libellé SOLDE REPORTÉ", 0.0, 114482.45),
+    (54, "NOUVEAU SOLDE AU 30/09/2025", 0.0, 248080.25),
+    (55, "PAIEMENT CHEQUE 7436903", 0.0, 0.0, {"date": "2025-09-24"}),  # an operation whose amount was not read
+    (56, "24 09 25 PAIEMENT CHEQUE 7436903 24 09 25 PAIEMENT CHEQUE 7436896", 6000.0, 0.0, {"operation_type": "x"}),
+    (57, "CHEQUES", 0.0, 0.0, {"state": "post"}),
+]
+
+
+@pytest.mark.functionality
+def test_what_a_scan_read_that_is_no_operation_is_removed_and_its_balances_filled(experio):
+    scanned(experio, *SCAN)
+    result = statement.detect_statement_lines(40)
+    assert experio["removed"] == [50, 51, 52, 53, 54]  # never a dated, glued or posted line
+    assert experio["balanced"] == [{"balance_start": 313453.76, "balance_end_real": 248080.25}]
+    assert result["said"] == (
+        "J'ai retiré 5 lignes qui ne sont pas des opérations : en-têtes, soldes et totaux.\n"
+        "2 opérations ont été pointées par la détection d'Experio."
+    )
+    assert result["message"].startswith("Relevé n° 40 : j'ai retiré 5 lignes")  # lowercased after the colon
+    assert result["note"] == (
+        "J'ai repris les soldes du relevé : 313453.76 au début, 248080.25 à la fin.\n"
+        "1 ligne réunit deux opérations (« 24 09 25 PAIEMENT CHEQUE 7436903 … ») : séparez-les dans Experio."
+    )
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "start, lines",
+    [
+        (1000.0, SCAN),  # the statement has its balances
+        (0.0, [*SCAN, (58, "ANCIEN SOLDE AU 31/07/2025", 0.0, 2000.0)]),  # two: which one?
+        (0.0, [(54, "NOUVEAU SOLDE DEBITEUR", 0.0, 2000.0) if line[0] == 54 else line for line in SCAN]),  # sign?
+    ],
+)
+def test_balances_are_filled_only_from_one_sure_balance_line(experio, start, lines):
+    scanned(experio, *lines, start=start)
+    result = statement.detect_statement_lines(40)
+    assert experio["balanced"] == [] and "repris" not in result["note"] and 51 in experio["removed"]
+
+
+@pytest.mark.security
+def test_test_mode_removes_and_fills_nothing_but_says_the_same(experio, monkeypatch):
+    scanned(experio, *SCAN)
+    done = statement.detect_statement_lines(40)
+    experio.update(removed=[], balanced=[])
+    monkeypatch.setattr(statement, "dry_run", lambda: True)
+    tested = statement.detect_statement_lines(40)
+    assert experio["removed"] == [] and experio["balanced"] == []
+    assert (tested["said"], tested["note"]) == (done["said"], done["note"])
+
+
+@pytest.mark.security
+def test_an_undated_line_that_may_be_an_operation_is_never_removed(experio):
+    scanned(
+        experio,
+        *SCAN,
+        (60, "24 09 25 PRLV CNSS", 0.0, 0.0),  # a date printed: an operation whose amount was not read
+        (61, "PRLV CNSS", 0.0, 0.0, {"operation_id": [13136, "x"]}),  # an operation already chosen
+        (62, "24 09 25 PRLV CNSS 24 09 25 PRLV CNSS", 0.0, 0.0),  # glued, no amount, no operation yet
+        (63, "REGLEMENT ANCIEN SOLDE FACT 2024", 0.0, 5000.0),  # « ancien solde » inside a real label
+    )
+    result = statement.detect_statement_lines(40)
+    assert not {60, 61, 62, 63} & set(experio["removed"]) and "2 lignes réunissent" in result["note"]
+
+
+@pytest.mark.functionality
+def test_an_unread_ending_balance_is_asked_never_written_as_zero(experio):
+    scanned(experio, *[(54, "NOUVEAU SOLDE AU 30/09/2025", 0.0, 0.0) if line[0] == 54 else line for line in SCAN])
+    statement.detect_statement_lines(40)
+    assert experio["balanced"] == [{"balance_start": 313453.76}]
+    experio["statement"].update(balance_start=313453.76, balance_end_real=0.0, is_complete=False)
+    message = statement.report_statement(40)["message"]
+    assert "n'indique pas son solde final" in message and "une opération manque" not in message
+
+
+@pytest.mark.security
+def test_a_statement_is_never_emptied(experio):
+    scanned(experio, (50, "", 0.0, 0.0))  # 4543: its only line, empty
+    experio["lines"] = experio["lines"][-1:]
+    experio["statement"]["line_ids"] = [50]
+    said = statement.detect_statement_lines(40)["said"]
+    assert experio["removed"] == [] and "retiré" not in said
+
+
+@pytest.mark.functionality
+def test_no_line_is_removed_once_the_statement_is_partly_posted(experio):
+    scanned(experio, *SCAN)
+    experio["statement"]["state"] = "partial"  # Experio's screen offers « supprimer » on a draft or pending one only
+    said = statement.detect_statement_lines(40)["said"]
+    assert "retiré" not in said and experio["removed"] == [] and experio["balanced"] == []  # its rows stay: no fill
 
 
 @pytest.mark.functionality

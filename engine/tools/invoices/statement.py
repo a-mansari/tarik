@@ -38,7 +38,7 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.model import ask_model, tool_prompt
 from engine.tools.core.queries import Q
-from engine.tools.core.words import as_number, counted, normalized, said, tiers_key
+from engine.tools.core.words import as_number, counted, normalized, reason, said, tiers_key
 from engine.tools.core.words import reasons as reason_lines
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
@@ -1133,7 +1133,7 @@ def completing(statement_id, step, work):
     context = in_dossier(statement["company_id"][0])
     with refused(f"{step} {statement_id}", f"Relevé n° {statement_id} : Experio a refusé ({{reason}})."):
         said, note = work(statement, context)
-    done = " ".join(said.splitlines()) or "rien d'autre à faire."
+    done = reason(" ".join(said.splitlines())) + "." if said else "rien d'autre à faire."  # « j'ai… » after the colon
     text = f"{TEST_MODE if dry_run() else ''}Relevé n° {statement_id} : {done}"
     return routine(text, statement_id=statement_id, said=said, note=note)
 
@@ -1143,21 +1143,101 @@ def sentence(count, one, many):
     return counted(count, one, many) if count else ""
 
 
+# What a scan's reading leaves on its lines that is no operation (its bluejay reading keeps every printed row).
+BALANCE_LINES = ("ancien solde", "nouveau solde", "solde reporte", "total mouvements")
+PRINTED_DATE = re.compile(r"\b\d{2} \d{2} \d{2}\b")  # « 24 09 25 », a scan's operation date kept in its label
+
+
+def balance_line(line):
+    """Return which of BALANCE_LINES undated statement ``line`` is (« ancien solde »...), "" when none: a line with
+    no operation and no date printed in its label only."""
+    if line["date"] or line["operation_type"] or PRINTED_DATE.search(line["payment_ref"] or ""):
+        return ""
+    words = normalized(line["payment_ref"] or "").removeprefix("valeur libelle ")  # a column title glued before
+    return next((name for name in BALANCE_LINES if words.startswith(name)), "")  # never « reglement ancien solde … »
+
+
+def scan_leftovers(statement, context):
+    """Clear what Experio read on ``statement``'s scan that is no operation, and fill its printed balances.
+
+    Removed, as the line's « supprimer » does (unlink, a soft delete Experio refuses on posted lines; its screen
+    offers it on a draft or pending statement only): undated open lines of no amount (headers, section titles) or
+    balance lines (balance_line). Never a dated line: a dated line of no amount is an operation whose amount was not
+    read. When the statement has no balances, its one « ancien solde » line (and « nouveau solde », at most one)
+    gives them, unless « débiteur » makes the sign unsure; balance_start and balance_end_real are plain fields.
+    Undated lines with an operation and two dates printed are two operations glued: left for the cabinet.
+
+    Returns (removed, balances, glued): how many lines (counted also in test mode, where nothing is written), the
+    (start, end) filled or None (end None without « nouveau solde »), the glued lines' labels.
+    """
+    lines = [line for line in open_lines(statement, context) if not line["date"]]
+    amount = {line["id"]: round((line["credit"] or 0) - (line["debit"] or 0), 2) for line in lines}
+    kind = {line["id"]: balance_line(line) for line in lines}
+    glued = [line for line in lines if len(PRINTED_DATE.findall(line["payment_ref"] or "")) > 1]
+    empty = {  # no amount, and nothing says it is an operation: a header or a section title
+        line["id"]
+        for line in lines
+        if not amount[line["id"]]
+        and not PRINTED_DATE.search(line["payment_ref"] or "")
+        and not (line["operation_id"] or line["partner_id"] or line["invoice_ids"])
+    }
+    printed = [x for x in lines if kind[x["id"]] in ("ancien solde", "nouveau solde")]
+    first = [amount[x["id"]] for x in printed if kind[x["id"]] == "ancien solde"]
+    last = [amount[x["id"]] for x in printed if kind[x["id"]] == "nouveau solde"]
+    unsure = any(said("debit", w) or said("debiteur", w) for w in (normalized(x["payment_ref"]) for x in printed))
+    given = statement["balance_start"] or statement["balance_end_real"]
+    sure = not given and len(first) == 1 and first[0] and len(last) <= 1 and not unsure
+    open_statement = statement["state"] in ("draft", "pending")  # its screen's « supprimer » only then
+    # 5. filled only when its balance rows go too, else they would count twice in its computed balance
+    balances = (first[0], last[0] or None if last else None) if sure and open_statement else None
+    removed = []
+    if open_statement:
+        removed = [x["id"] for x in lines if (x["id"] in empty or kind[x["id"]]) and x not in glued]
+        if len(removed) == len(statement["line_ids"]):  # nothing left would be an empty statement: the cabinet sees
+            removed = []
+    if not dry_run():
+        if removed:
+            odoo_call(LINE, "unlink", removed, context=context)
+        if balances:
+            values = {"balance_start": balances[0]} | ({"balance_end_real": balances[1]} if balances[1] else {})
+            odoo_call(STATEMENT, "write", [statement["id"]], values, context=context)
+    return len(removed), balances, [line["payment_ref"] for line in glued]
+
+
 @step_tool
 def detect_statement_lines(statement_id: int) -> dict:
-    """Run Experio's « Auto Point » on bank statement ``statement_id`` and confirm what it finds (auto_point)."""
-    return completing(
-        statement_id,
-        "detect_statement_lines",
-        lambda statement, context: (
-            sentence(
-                auto_point(statement, context),
-                "{} opération a été pointée par la détection d'Experio.",
-                "{} opérations ont été pointées par la détection d'Experio.",
-            ),
-            "",
-        ),
-    )
+    """Clear what Experio read on the scan that is no operation and fill its balances (scan_leftovers), then run
+    Experio's « Auto Point » on bank statement ``statement_id`` and confirm what it finds (auto_point)."""
+
+    def work(statement, context):
+        removed, balances, glued = scan_leftovers(statement, context)
+        cleared = sentence(
+            removed,
+            "J'ai retiré {} ligne qui n'est pas une opération : en-tête, solde ou total.",
+            "J'ai retiré {} lignes qui ne sont pas des opérations : en-têtes, soldes et totaux.",
+        )
+        pointed = sentence(
+            auto_point(statement, context),
+            "{} opération a été pointée par la détection d'Experio.",
+            "{} opérations ont été pointées par la détection d'Experio.",
+        )
+        notes = []
+        if balances:
+            start, end = balances
+            notes.append(
+                f"J'ai repris les soldes du relevé : {start:.2f} au début, {end:.2f} à la fin."
+                if end is not None
+                else f"J'ai repris le solde initial du relevé : {start:.2f}."
+            )
+        if glued:
+            shown = glued[0][: list(PRINTED_DATE.finditer(glued[0]))[1].start()].rstrip()  # its first operation
+            notes.append(
+                counted(len(glued), "{} ligne réunit", "{} lignes réunissent")
+                + f" deux opérations (« {shown} … ») : séparez-les dans Experio."
+            )
+        return "\n".join(filter(None, [cleared, pointed])), "\n".join(notes)
+
+    return completing(statement_id, "detect_statement_lines", work)
 
 
 @step_tool
@@ -1326,6 +1406,10 @@ def report_statement(statement_id: int, said: list[str] | None = None, notes: li
     if no_balances:  # Excel's template has none; a scan Experio read no balance on
         points.append(
             "Le relevé n'indique pas ses soldes : saisissez-les dans Experio pour vérifier qu'il est complet."
+        )
+    elif not statement["balance_end_real"]:
+        points.append(
+            "Le relevé n'indique pas son solde final : saisissez-le dans Experio pour vérifier qu'il est complet."
         )
     elif not statement["is_complete"]:
         points.append(
