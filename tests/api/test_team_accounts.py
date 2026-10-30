@@ -39,13 +39,13 @@ def against_the_test_store(check, monkeypatch):
 def test_an_invited_account_sets_its_password_once_through_its_link(monkeypatch):
     async def check():
         token = await accounts.invite("New@Cabinet.ma", "Nouvelle", "member")
-        assert await accounts.log_in("new@cabinet.ma", "") is None  # no password yet: no way in
+        assert await accounts.log_in("new@cabinet.ma", "", "1.2.3.4") is None  # no password yet: no way in
         assert (await accounts.invited(token))["email"] == "new@cabinet.ma"
         with pytest.raises(ValueError, match="trop court"):
             await accounts.accept(token, "short")
         await accounts.accept(token, "a long enough password")
-        assert await accounts.log_in("new@cabinet.ma", "a long enough password")
-        assert "new@cabinet.ma" not in accounts.FAILURES  # a way in clears its tries: logging in never locks out
+        assert await accounts.log_in("new@cabinet.ma", "a long enough password", "1.2.3.4")
+        assert ("new@cabinet.ma", "1.2.3.4") not in accounts.FAILURES  # a way in clears its tries: never locks out
         with pytest.raises(ValueError, match="déjà servi"):
             await accounts.accept(token, "another long password")
         assert await accounts.invited(token) is None
