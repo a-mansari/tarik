@@ -178,3 +178,28 @@ def test_guesses_sent_at_once_each_count_and_an_ended_wait_starts_again(monkeypa
     monkeypatch.setattr(accounts, "FAILURES", {"a@x": (accounts.WAIT_AFTER, 0.0)})  # its wait long over
     asyncio.run(guesses(1))
     assert not accounts.waiting("a@x")  # one more mistake after the wait is the first of 5 again
+
+
+@pytest.mark.security
+def test_an_unknown_account_is_hashed_like_a_real_one_so_its_answer_is_as_slow(monkeypatch):
+    from server import accounts
+
+    class Db:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, *args):
+            return self
+
+        async def fetchone(self):
+            return None  # no such account
+
+    checked = []
+    monkeypatch.setattr(accounts.runs, "pool", type("Pool", (), {"connection": lambda self: Db()})())
+    monkeypatch.setattr(accounts, "FAILURES", {})
+    monkeypatch.setattr(accounts, "matches", lambda password, stored: checked.append(stored) or True)
+    assert asyncio.run(accounts.log_in("nobody@x", "anything")) is None  # refused even when the dummy "matches"
+    assert checked == [accounts.UNSET]

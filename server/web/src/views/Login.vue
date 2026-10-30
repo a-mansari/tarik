@@ -31,7 +31,7 @@ async function login() {
     failure.value = FAILURES[answer.status] || `Tarik ne répond pas comme prévu (erreur ${answer.status}) : réessayez dans un instant.`;
     return;
   }
-  location.assign(answer.data.next); // the whole app again, with the session
+  location.assign(answer.data?.next || "/"); // the whole app again, with the session
 }
 </script>
 

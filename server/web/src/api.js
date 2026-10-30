@@ -31,7 +31,7 @@ export async function read(path, options = {}) {
   const answer = await fetch(apiPath(path), options);
   if (answer.status === 401 && !options.keepOnLogin) toLogin();
   const type = answer.headers.get("content-type") || "";
-  const data = type.includes("json") ? await answer.json() : null;
+  const data = type.includes("json") ? await answer.json().catch(() => null) : null; // a broken body: its status still says
   return { status: answer.status, ok: answer.ok, data };
 }
 

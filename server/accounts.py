@@ -38,6 +38,9 @@ def matches(password, stored):
     return hmac.compare_digest(hashed(password, bytes.fromhex(salt)), stored)
 
 
+UNSET = hashed(secrets.token_urlsafe())  # what a password is checked against when there is none to check
+
+
 def digest(token):
     """Return the SHA-256 hex digest of ``token``: the only form in which session and link tokens are stored."""
     return hashlib.sha256(token.encode()).hexdigest()
@@ -178,7 +181,8 @@ async def log_in(email, password):
     FAILURES[email] = (FAILURES.get(email, (0, 0.0))[0] + 1, now)
     async with runs.pool.connection() as db:
         row = await (await db.execute(Q.user_password, (email,))).fetchone()
-        if not row or not row[0] or not matches(password, row[0]):  # no password yet: its invitation sets one
+        stored = row[0] if row else None  # none: no such account, or no password yet (its invitation sets one)
+        if not matches(password, stored or UNSET) or not stored:  # hashed either way: as slow, so no account told apart
             return None
         FAILURES.pop(email, None)
         token = secrets.token_urlsafe(32)
