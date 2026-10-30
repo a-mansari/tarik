@@ -25,6 +25,7 @@ from engine.tools.invoices import (
     pipeline,
     posting,
     prepaid,
+    split,
     tiers,
     tva,
     warnings,

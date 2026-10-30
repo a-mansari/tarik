@@ -134,7 +134,7 @@ SIDED_TAX_SETTINGS = {
     },
     "sale": {
         "amount_tsc": ("use_tsc_sale_tax", "tsc_sale_account_id", "taxe de services communaux"),
-        "amount_regional_tax": ("use_regional_tax", None, "taxe régionale"),
+        "amount_regional_tax": ("use_regional_tax", "regional_tax_account_id", "taxe régionale"),
     },
 }
 TAX_FIELDS = [*TAX_SETTINGS, "amount_tsc", "amount_tva_3", "amount_regional_tax"]

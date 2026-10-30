@@ -1,0 +1,37 @@
+--- tools/check-invoice.md (avant)
++++ tools/check-invoice.md (après)
+@@ -37,6 +37,7 @@
+ - payment_method: how it is paid, when printed ("Mode de reglement", "Paiement") -- one of especes, cheque, virement, effet, prelevement, compensation, or null when not printed. Never compared to Experio.
+ - period_start, period_end: the period billed, as YYYY-MM-DD, only when the invoice states one ("periode du ... au ...", "abonnement annuel", "loyer de janvier a decembre"), else null. Never compared to Experio.
+ - tva_lines: one entry per TVA rate in the invoice's tax summary, with its rate (e.g. 20), its HT base and its TVA amount. A single-rate invoice gives one entry. Never compared to Experio.
++- charge_lines: one entry per line of what is billed in the invoice's body (each product or service line, never a tax, the stamp, a debours, a total or a payment line), with its designation copied, its HT amount and its TVA rate (e.g. 20). The line's HT is the amount before TVA: when only a quantity and a unit price are printed, their product; when only a TTC is printed, that TTC without its TVA. A single-line invoice gives one entry. Never compared to Experio.
+ 
+ Rules for the comparison:
+ 
+--- tools/check-invoice-answer.md (avant)
++++ tools/check-invoice-answer.md (après)
+@@ -2,5 +2,5 @@
+ used_by: check_invoice (engine/tools/invoices/check.py)
+ ---
+ Answer with only one JSON object, of this shape:
+-{"readable": bool, "extracted": {"invoice_number": str|null, "invoice_date_raw": str|null, "invoice_date_language": "fr"|"en", "amount_untaxed": num|null, "amount_tva": num|null, "amount_stamp": num|null, "amount_disbursement": num|null, "amount_guarantee_holdback": num|null, "amount_prorata": num|null, "amount_insurance": num|null, "amount_ts": num|null, "amount_tsp": num|null, "amount_tsc": num|null, "amount_regional_tax": num|null, "advance_amount": num|null, "amount_total": num|null, "amount_ht_restauration": num|null, "amount_ht_breakfast": num|null, "amount_ht_blanchisserie": num|null, "tier": str|null, "designation": str|null, "ice": str|null, "vat": str|null, "is_credit_note": bool, "document_title": str|null, "credit_note_of": str|null, "currency": str|null, "payment_method": str|null, "period_start": str|null, "period_end": str|null, "country": str|null, "tva_lines": [{"rate": num, "amount_ht": num, "amount_tva": num}]}, "bad_fields": [{"field": str, "stored": str, "extracted": str, "problem": str}]}
++{"readable": bool, "extracted": {"invoice_number": str|null, "invoice_date_raw": str|null, "invoice_date_language": "fr"|"en", "amount_untaxed": num|null, "amount_tva": num|null, "amount_stamp": num|null, "amount_disbursement": num|null, "amount_guarantee_holdback": num|null, "amount_prorata": num|null, "amount_insurance": num|null, "amount_ts": num|null, "amount_tsp": num|null, "amount_tsc": num|null, "amount_regional_tax": num|null, "advance_amount": num|null, "amount_total": num|null, "amount_ht_restauration": num|null, "amount_ht_breakfast": num|null, "amount_ht_blanchisserie": num|null, "tier": str|null, "designation": str|null, "ice": str|null, "vat": str|null, "is_credit_note": bool, "document_title": str|null, "credit_note_of": str|null, "currency": str|null, "payment_method": str|null, "period_start": str|null, "period_end": str|null, "country": str|null, "tva_lines": [{"rate": num, "amount_ht": num, "amount_tva": num}], "charge_lines": [{"designation": str, "amount_ht": num, "rate": num}]}, "bad_fields": [{"field": str, "stored": str, "extracted": str, "problem": str}]}
+ invoice_date_language is required: always pick one. Every num is a JSON number, with a decimal point and no thousands separator (1005.5, never "1 005,50" nor "1,005").
+--- labels.json (avant)
++++ labels.json (après)
+@@ -53,6 +53,7 @@
+       "comptes": "Comptes et taxes",
+       "comptabilisation": "Comptabilisation",
+       "settle_warnings": "Avertissements d'Experio",
++      "split_charges": "Répartition des charges",
+       "apply_credit_note": "Imputation de l'avoir",
+       "create_import_folder": "Dossier d'import",
+       "pointage": "Lecture du relevé",
+@@ -221,6 +222,7 @@
+         "comptes": "Le compte de charge ou de produit, la TVA, le journal, la retenue à la source, les charges constatées d'avance et l'exercice.",
+         "comptabilisation": "Les paramètres du dossier complétés et les avertissements d'Experio réglés, puis la facture laissée en brouillon vérifié, ou comptabilisée si le client l'a demandé (un avoir étant alors imputé sur la facture qu'il annule).",
+         "settle_warnings": "Règle chaque avertissement d'Experio avant la comptabilisation : corrigé quand Experio ou Tarik le peut (taux de RAS TVA selon les règles d'Experio, prorata du dossier, exercice), attendu quand le temps le règle (taux de change pas encore publié), levé quand il ne peut pas s'appliquer, demandé au client seulement pour un vrai choix (ICE de l'acheteur différent de celui du dossier, compte, taux IS/IR). Ce qui reste (DUM du dossier d'import, montant manquant, émetteur au nom du dossier, avertissement qui persiste) arrête la facture.",
++        "split_charges": "Répartit les charges d'une facture qui en porte de plusieurs sortes (loyer et charges, marchandise et transport) sur le compte qui convient à chacune, d'après les lignes du scan, un taux de TVA après l'autre. Une facture dont toutes les lignes vont au même compte, ou dont une ligne ressemble à une immobilisation, reste sur un seul compte. Dernière écriture sur le brouillon : le rafraîchissement d'Experio la défait.",
+         "apply_credit_note": "Après la comptabilisation d'un avoir, l'impute sur la facture qu'il annule, comme Experio le fait depuis « Crédits en attente » : la facture que cite l'avoir, sinon la seule facture du tiers restant due du même montant. Sinon, les factures possibles sont listées pour le cabinet. Annulable dans Experio.",
+         "create_import_folder": "Quand le client parle d'un dossier d'import, fait de ses fichiers un dossier d'import dans Experio, comme l'écran « Imports » : chaque page typée parmi les types d'Experio (transitaire, douane, DUM, fournisseur, pièce jointe...), chaque pièce un brouillon du dossier, la DUM lue par Experio ; un dossier par fichier s'il dit « plusieurs dossiers ». La facture du transitaire est traitée et comptabilisée en dernier.",
+         "pointage": "Attend la lecture d'Experio. Pour un relevé TPE : crée les opérations TPE manquantes comme Experio (sans leur compte, le relevé s'arrête), donne à chaque ligne son opération (vente, frais bancaires, taxe bancaire, solde net remise), demande à quel client rattacher les ventes par carte sans client, et donne total remise, commissions, TVA et net remise. Un relevé bancaire passe ensuite au pointage de ses opérations.",

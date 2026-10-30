@@ -193,3 +193,7 @@ uses another one. A stack that edited one of these documents itself loses that e
   the TSC (`amount_tsc`) and the taxe régionale (`amount_regional_tax`) as parts of the TTC. Built on the W-03 content
   of 2026-10-24 (the last export holding these two documents): import it with the commit that checks them; before,
   check.py ignores the two new keys.
+- `tarik-contenu-ventilation-20261030.json` (and its `.diff`): `tools/check-invoice*.md` also read the invoice's charge
+  lines (`charge_lines`: designation, HT, rate), and `labels.json` names and describes the step « Répartition des
+  charges » (`split_charges`). Built on the taxes export above and the labels of 2026-10-29 16:18: import it after the
+  taxes export, with the commit that adds `split_charges`; before, check.py finds no words for that step.

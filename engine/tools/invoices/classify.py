@@ -20,6 +20,8 @@ from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized
 
 CATEGORY_TO_TYPE = {"achat": "purchase", "vente": "sale"}
+# Where Experio keeps an invoice's taxe régionale, per side (_get_tr_style_config).
+REGIONAL_TAX = {"purchase": "amount_tva_3", "sale": "amount_regional_tax"}
 # How a client says which side their invoices are on (matched on normalized words).
 SIDE_WORDS = {"achat": r"achats?|fournisseurs?|purchases?", "vente": r"ventes?|sales?|factures? (?:de )?clients?"}
 SIDES = {"achat": {"achat"}, "vente": {"vente"}, "mixte": {"achat", "vente"}}
@@ -119,7 +121,7 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
     ``invoice_type``: achat or vente as the client said (checked by split_invoices). A scan on the other side
     stops the invoice; one the model reads as autre takes the client's side."""
     read = ["detected_supplier_ice", "detected_customer_ice", "detected_supplier_if", "detected_customer_if"]
-    read += ["folder_id", "folder_type"]
+    read += ["folder_id", "folder_type", *REGIONAL_TAX.values()]
     invoice = require_invoice(
         invoice_id, ["state", "type", "company_id", "exercice_id", "bluejay_state", "document_pdf", "file_type", *read]
     )
@@ -166,8 +168,13 @@ def classify_invoice(invoice_id: int, invoice_type: str = "") -> dict:
         return routine(already, category=category)
     require_draft(invoice_id, invoice, "changer de type")
     with refused(f"classify_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé le changement de type."):
-        # Experio's onchange on type runs, as on screen.
-        fill_invoice(invoice_id, {"type": wanted}, invoice_context(invoice))
+        # Experio's onchange on type runs, as on screen. The taxe régionale correct_invoice wrote for the side the
+        # invoice had goes to the field of the side it gets (Experio ignores the other one).
+        changes = {"type": wanted}
+        held, target = invoice.get(REGIONAL_TAX[invoice["type"]]), REGIONAL_TAX[wanted]
+        if held and not invoice.get(target):
+            changes |= {REGIONAL_TAX[invoice["type"]]: 0.0, target: held}
+        fill_invoice(invoice_id, changes, invoice_context(invoice))
     changed = "son type passerait à" if test_mode_note() else "j'ai changé son type en"
     told = f"{test_mode_note()}Facture {invoice_id} : {category} ({reason}) ; {changed} {category}."
     return ok(told, category=category)
