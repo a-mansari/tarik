@@ -129,3 +129,52 @@ def test_the_login_throttle_forgets_what_its_wait_is_over(monkeypatch):
     monkeypatch.setattr(accounts, "FAILURES", {"old@x": (3, accounts.time.monotonic() - accounts.WAIT_SECONDS - 1)})
     asyncio.run(accounts.log_in("new@x", "nope"))
     assert set(accounts.FAILURES) == {"new@x"}  # a guess with a new address never grows it without end
+
+
+@pytest.mark.security
+def test_a_login_that_must_wait_is_told_so_not_called_wrong(monkeypatch):
+    from starlette.requests import Request
+
+    from server import accounts, audit
+
+    async def receive():
+        return {"type": "http.request", "body": b'{"email": "a@x", "password": "right"}'}
+
+    async def recorded(*args):
+        return None
+
+    monkeypatch.setattr(accounts, "FAILURES", {"a@x": (accounts.WAIT_AFTER, accounts.time.monotonic())})
+    monkeypatch.setattr(audit, "record", recorded)
+    headers = [(b"host", b"tarik"), (b"origin", b"http://tarik")]
+    scope = {"type": "http", "method": "POST", "path": "/ui/api/login", "headers": headers, "query_string": b""}
+    assert asyncio.run(server.login(Request(scope, receive))).status_code == 429
+
+
+@pytest.mark.security
+def test_guesses_sent_at_once_each_count_and_an_ended_wait_starts_again(monkeypatch):
+    from server import accounts
+
+    class Db:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, *args):
+            await asyncio.sleep(0)  # the database's wait: the other guesses run meanwhile
+            return self
+
+        async def fetchone(self):
+            return None  # no such account
+
+    async def guesses(count):
+        await asyncio.gather(*(accounts.log_in("a@x", "nope") for _ in range(count)))
+
+    monkeypatch.setattr(accounts.runs, "pool", type("Pool", (), {"connection": lambda self: Db()})())
+    monkeypatch.setattr(accounts, "FAILURES", {})
+    asyncio.run(guesses(accounts.WAIT_AFTER))
+    assert accounts.waiting("a@x")  # not one count for the whole burst
+    monkeypatch.setattr(accounts, "FAILURES", {"a@x": (accounts.WAIT_AFTER, 0.0)})  # its wait long over
+    asyncio.run(guesses(1))
+    assert not accounts.waiting("a@x")  # one more mistake after the wait is the first of 5 again

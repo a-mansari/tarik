@@ -156,7 +156,8 @@ def return_to(request):
 async def login(request: Request):
     """POST /ui/api/login {email, password}: open a session and return {ok, next} with the session cookie set.
 
-    Returns 403 for a cross-site request, 400 for invalid JSON, 401 for a wrong login (recorded as login_failed)."""
+    Returns 403 for a cross-site request, 400 for invalid JSON, 429 while the address must wait after too many failures
+    and 401 for a wrong login (both recorded as login_failed)."""
     if not same_origin(request):
         return JSONResponse({"error": "cross-site request refused"}, status_code=403)
     try:
@@ -167,6 +168,8 @@ async def login(request: Request):
     token = await accounts.log_in(email, password)
     if token is None:
         await audit.record(email[:200], "login_failed")
+        if accounts.waiting(email):
+            return JSONResponse({"error": "trop d'essais : attendez une minute"}, status_code=429)
         return JSONResponse({"error": "email ou mot de passe incorrect"}, status_code=401)
     await audit.record(email, "login")
     answer = JSONResponse({"ok": True, "next": return_to(request)})

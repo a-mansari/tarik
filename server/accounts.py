@@ -158,21 +158,27 @@ def forget_waited(now):
         del FAILURES[stale]
 
 
+def waiting(email):
+    """True while ``email`` must wait: WAIT_AFTER failed logins within WAIT_SECONDS (a guessing run waits)."""
+    count, last = FAILURES.get(email.strip().lower(), (0, 0.0))
+    return count >= WAIT_AFTER and time.monotonic() - last < WAIT_SECONDS
+
+
 async def log_in(email, password):
     """Open a session for ``email`` and ``password`` and return its token, or None.
 
     None when the password is wrong, the account has no password yet or is closed, or after WAIT_AFTER failures
     within WAIT_SECONDS (a guessing run waits)."""
     email = email.strip().lower()
-    count, last = FAILURES.get(email, (0, 0.0))
-    if count >= WAIT_AFTER and time.monotonic() - last < WAIT_SECONDS:
+    if waiting(email):
         return None
+    now = time.monotonic()
+    forget_waited(now)  # a wait that is over starts again from 0
+    # counted before the database wait, so guesses sent at once each count; a right password clears it
+    FAILURES[email] = (FAILURES.get(email, (0, 0.0))[0] + 1, now)
     async with runs.pool.connection() as db:
         row = await (await db.execute(Q.user_password, (email,))).fetchone()
         if not row or not row[0] or not matches(password, row[0]):  # no password yet: its invitation sets one
-            now = time.monotonic()
-            forget_waited(now)
-            FAILURES[email] = (count + 1, now)
             return None
         FAILURES.pop(email, None)
         token = secrets.token_urlsafe(32)
