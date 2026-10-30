@@ -6,11 +6,24 @@ each leading to where it acts: Experio, the CGNC or Tarik's own base. Every name
 pages use. Zoom and move as on a workflow's canvas (CanvasGraph.vue); hovering a node or a lane lights its links while
 the pointer is on it, a click tells what it does, under the map. -->
 <script setup>
-import { computed, nextTick, reactive, ref } from "vue";
+import { computed, nextTick, onUnmounted, reactive, ref, watch } from "vue";
 
-import { usePage } from "../api.js";
+import { read } from "../api.js";
+import Icon from "./Icon.vue";
+import ZoomBar, { MAX_ZOOM, MIN_ZOOM } from "./ZoomBar.vue";
 
-const { data } = usePage(() => "/harnais");
+// Read once (the dashboard remounts on a change of cabinet). Failed: an error status, a broken body or no server.
+const data = ref(null);
+const failed = ref(false);
+read("/harnais").then(
+  (found) => {
+    data.value = found.ok ? found.data : null;
+    failed.value = !Array.isArray(data.value?.nodes);
+  },
+  () => {
+    failed.value = true;
+  },
+);
 
 const WIDTH = 2050; // wide: the map zooms, no column squeezed
 const TOP = 100; // under the column titles, themselves under the zoom bar
@@ -24,15 +37,22 @@ const PILL = { source: 160, channel: 150, conversation: 170, tarik: 112, skill: 
 const WRAP = { model: 20 }; // characters on a line of these, the rest on a second one
 // The families' colours, from the theme's own (app.css, light and dark): a tool or a skill takes its family's.
 const HUES = ["--frame-1", "--frame-0", "--wait", "--bad", "--edge-resume", "--edge-cross", "--good", "--accent"];
-// The zoom, as on a workflow's canvas (CanvasGraph.vue).
-const MIN_ZOOM = 10;
-const MAX_ZOOM = 250;
-const ZOOM_TICKS = [10, 25, 50, 75, 100, 150, 200, 250];
-const ICON = { width: 16, height: 16, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2,
-  "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" };
-
 const lit = ref(null);
 const picked = ref(null);
+
+// The moving lines stop while the map is off screen: they would repaint it every frame for nobody.
+const section = ref(null);
+const seen = ref(true);
+let watcher = null;
+watch(section, (element) => {
+  watcher?.disconnect();
+  if (!element) return;
+  watcher = new IntersectionObserver(([entry]) => {
+    seen.value = entry.isIntersecting;
+  });
+  watcher.observe(element);
+});
+onUnmounted(() => watcher?.disconnect());
 
 // A long name on two lines, cut after its comma, else at the space nearest its middle; the words unchanged.
 function lines(name, most) {
@@ -156,9 +176,6 @@ const fit = () => {
   zoom.value = 100;
   Object.assign(pan, { x: 0, y: 0 });
 };
-const onZoom = (event) => {
-  zoom.value = clamped(Number(event.target.value));
-};
 const at = (event) => new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.value.getScreenCTM().inverse());
 async function onWheel(event) {
   const before = at(event);
@@ -186,22 +203,13 @@ const onUp = () => {
 </script>
 
 <template>
-  <section v-if="layout" class="panel harness" aria-labelledby="harness-title">
+  <p v-if="failed" class="panel muted" role="status">Le harnais de Tarik n'a pas pu être chargé. Rechargez la page.</p>
+  <section v-else-if="layout" ref="section" :class="['panel', 'harness', { still: !seen }]" aria-labelledby="harness-title">
     <h2 id="harness-title">Le harnais de Tarik</h2>
     <p class="muted">Comment une demande arrive, ce que Tarik en fait et comment la réponse repart.</p>
     <div class="canvas-wrap">
       <div class="canvas-tools">
-        <button type="button" class="icon-button" aria-label="Tout voir" data-tip="Tout voir : le schéma entier, centré" @click="fit">
-          <svg v-bind="ICON"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
-        </button>
-        <label class="zoom-slider" data-tip="Zoom : glisser, ou cliquer une graduation">
-          <svg v-bind="ICON"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M8 11h6"/></svg>
-          <input type="range" :min="MIN_ZOOM" :max="MAX_ZOOM" step="5" list="harness-zoom-ticks" :value="zoom"
-            aria-label="Zoom" :aria-valuetext="`${zoom} %`" @input="onZoom">
-          <datalist id="harness-zoom-ticks"><option v-for="tick in ZOOM_TICKS" :key="tick" :value="tick" :label="`${tick} %`"></option></datalist>
-          <svg v-bind="ICON"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M8 11h6M11 8v6"/></svg>
-          <span class="zoom-value">{{ zoom }} %</span>
-        </label>
+        <ZoomBar v-model:zoom="zoom" @fit="fit" />
       </div>
       <svg
         ref="svg"
@@ -291,9 +299,9 @@ const onUp = () => {
         <span><svg class="key-line reply" width="28" height="10"><line x1="1" y1="5" x2="27" y2="5"/></svg>Réponse</span>
         <span><svg class="key-line uses" width="28" height="10"><line x1="1" y1="5" x2="27" y2="5"/></svg>Ce que Tarik utilise lui-même</span>
         <span class="gestures">
-          <span><svg v-bind="ICON"><path d="M9 9l6 12 2-5 5-2z"/><path d="M5 3v3M3 5h3M9 2v2M2 9h2"/></svg>Clic : voir</span>
-          <span><svg v-bind="ICON"><path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/></svg>Glisser : déplacer</span>
-          <span><svg v-bind="ICON"><rect x="6" y="2" width="12" height="20" rx="6"/><path d="M12 6v4"/></svg>Molette : zoom</span>
+          <span><Icon name="click" />Clic : voir</span>
+          <span><Icon name="drag" />Glisser : déplacer</span>
+          <span><Icon name="wheel" />Molette : zoom</span>
         </span>
       </div>
     </div>
@@ -344,6 +352,7 @@ const onUp = () => {
 .edge.dim, .node.dim, .lane.dim { opacity: .12; }
 @keyframes breathe { 50% { transform: scale(1.07); opacity: .7; } }
 @media (prefers-reduced-motion: reduce) { .edge.request, .edge.reply, .node.tarik .halo { animation: none; } }
+.still .edge, .still .node.tarik .halo { animation-play-state: paused; }
 .key-line line { stroke-width: 2; }
 .key-line.request line { stroke: var(--accent); stroke-dasharray: 5 3; }
 .key-line.reply line { stroke: var(--frame-1); stroke-dasharray: 5 3; }

@@ -7,6 +7,7 @@ Settings are told only as set or not, never their values; a cabinet's routines n
 Routines page (server.py: admin_only)."""
 
 import asyncio
+import functools
 import inspect
 import re
 
@@ -29,6 +30,13 @@ def first(text):
     return " ".join((text or "").strip().split("\n\n")[0].split())
 
 
+@functools.cache  # the code only changes with a restart
+def workflow_in(function):
+    """Return the workflow agent tool ``function``'s source runs (run_workflow("x"), its first), else None."""
+    found = RUNS.search(inspect.getsource(function))
+    return found and found[1]
+
+
 def leads_to(found):
     """Return agent tool ``found``'s (family, end): a read tool (agent.READ_TOOLS) reads Experio, or the CGNC for one
     of engine/knowledge; a Tarik_ tool changes Tarik's own base; any other runs a workflow, which acts in Experio.
@@ -38,8 +46,8 @@ def leads_to(found):
         return "read", "rag" if TOOLS[name].__module__.startswith("engine.knowledge") else "experio"
     if found.name.startswith("Tarik_"):
         return "own", "base"
-    if workflow := RUNS.search(inspect.getsource(found.coroutine or found.func)):
-        return f"workflow:{workflow[1]}", "experio"
+    if workflow := workflow_in(found.coroutine or found.func):
+        return f"workflow:{workflow}", "experio"
     raise ValueError(f"{found.name}: no workflow named in its source")
 
 

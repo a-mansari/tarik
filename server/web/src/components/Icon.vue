@@ -26,6 +26,13 @@ const PATHS = {
   clock: `<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>`,
   stop: `<rect x="6" y="6" width="12" height="12" rx="2"/>`,
   toggle: `<rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="3"/>`,
+  // A canvas's zoom bar and its gestures (ZoomBar.vue, the legends of CanvasGraph.vue and HarnessMap.vue).
+  fit: `<path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><rect x="9" y="9" width="6" height="6" rx="1"/>`,
+  "zoom-out": `<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M8 11h6"/>`,
+  "zoom-in": `<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4M8 11h6M11 8v6"/>`,
+  click: `<path d="M9 9l6 12 2-5 5-2z"/><path d="M5 3v3M3 5h3M9 2v2M2 9h2"/>`,
+  drag: `<path d="M12 2v20M2 12h20M12 2l-3 3M12 2l3 3M12 22l-3-3M12 22l3-3M2 12l3-3M2 12l3 3M22 12l-3-3M22 12l-3 3"/>`,
+  wheel: `<rect x="6" y="2" width="12" height="20" rx="6"/><path d="M12 6v4"/>`,
 };
 </script>
 
