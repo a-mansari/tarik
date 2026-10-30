@@ -38,7 +38,7 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.model import ask_model, tool_prompt
 from engine.tools.core.queries import Q
-from engine.tools.core.words import as_number, counted, normalized, reason, said, tiers_key
+from engine.tools.core.words import LEGAL_FORMS, as_number, counted, normalized, reason, said, tiers_key
 from engine.tools.core.words import reasons as reason_lines
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
@@ -781,10 +781,15 @@ def named_tiers(statement, lines, context):
         name = names.get(line["id"])
         if not name or line["operation_type"] not in ("purchase", "sale"):
             continue
-        cut = name.rstrip().endswith("-") or (  # « SOLAR-CLIM- », or the bank cut the label and the name with it
-            width
-            and len(line["payment_ref"].strip()) == width
-            and normalized(line["payment_ref"]).endswith(normalized(name))
+        last = normalized(name).split()[-1] if normalized(name) else ""
+        cut = (
+            name.rstrip().endswith("-")
+            or (len(last) <= 2 and last not in LEGAL_FORMS)
+            or (  # « IMPORT AN »
+                width
+                and len(line["payment_ref"].strip()) == width
+                and normalized(line["payment_ref"]).endswith(normalized(name))
+            )
         )
         made = {tiers_key(k[1]) or k[1]: i for k, i in by_name.items() if k[0] == line["operation_type"]}
         known = {tiers_key(n): i for i, _, _, n in offered[line["partner_id_domain"]]} | made
@@ -1401,7 +1406,7 @@ def report_statement(statement_id: int, said: list[str] | None = None, notes: li
         else "aucune n'est prête à comptabiliser"
     )
     text += counted(posted, " et {} est déjà comptabilisée", " et {} sont déjà comptabilisées") if posted else ""
-    points = [line for done in said or [] for line in done.splitlines()]
+    points = [line for done in [*(said or []), *(notes or [])] for line in done.splitlines()]  # done, then checks
     no_balances = not statement["balance_start"] and not statement["balance_end_real"]
     if no_balances:  # Excel's template has none; a scan Experio read no balance on
         points.append(
@@ -1418,7 +1423,7 @@ def report_statement(statement_id: int, said: list[str] | None = None, notes: li
         )
     if not statement["is_valid"]:
         points.append("Le solde initial du relevé ne suit pas le solde final du relevé précédent de ce journal.")
-    points += [line for note in [opening, *(notes or [])] for line in note.splitlines()]
+    points += opening.split("\n") if opening else []
     points += reason_lines(reasons, "{} opération à compléter dans Experio", "{} opérations à compléter dans Experio")
     text += "." + "".join(f"\n- {point}" for point in points)
     return ok(f"{TEST_MODE if dry_run() else ''}{text}", statement_id=statement_id)

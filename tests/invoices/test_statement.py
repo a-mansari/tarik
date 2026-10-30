@@ -947,6 +947,15 @@ def test_test_mode_removes_and_fills_nothing_but_says_the_same(experio, monkeypa
     assert (tested["said"], tested["note"]) == (done["said"], done["note"])
 
 
+@pytest.mark.communication
+def test_what_tarik_did_is_told_before_what_does_not_hold(experio):
+    scanned(experio, *SCAN)
+    said = statement.detect_statement_lines(40)
+    experio["statement"].update(balance_start=313453.76, balance_end_real=248080.25, is_complete=False)
+    message = statement.report_statement(40, [said["said"]], [said["note"]])["message"]
+    assert message.index("J'ai repris les soldes") < message.index("ne correspond pas")
+
+
 @pytest.mark.security
 def test_an_undated_line_that_may_be_an_operation_is_never_removed(experio):
     scanned(
@@ -1464,10 +1473,24 @@ def test_two_companies_one_character_apart_are_not_a_misreading(read, known):
 
 
 @pytest.mark.security
-def test_a_name_the_bank_cut_creates_no_tiers(experio, monkeypatch):
-    named_in_label(experio, monkeypatch, "18 06 25 SOLAR-CLIM-", "SOLAR-CLIM-")
+@pytest.mark.parametrize(
+    ("label", "name"),
+    [
+        ("18 06 25 SOLAR-CLIM-", "SOLAR-CLIM-"),
+        ("TRANSFERT EN FAVEUR DE HANGZHOUMELCHIZEDEK IMPORT AN MOTIE 1 :/INV/", "HANGZHOUMELCHIZEDEK IMPORT AN"),
+    ],
+)
+def test_a_name_the_bank_cut_creates_no_tiers(experio, monkeypatch, label, name):
+    named_in_label(experio, monkeypatch, label, name)
     pointed()
     assert experio["created"] == [] and not [w for w in experio["written"] if w[0] == [2] and "partner_id" in w[1]]
+
+
+@pytest.mark.functionality
+def test_a_name_ending_with_its_legal_form_is_whole(experio, monkeypatch):
+    named_in_label(experio, monkeypatch, "VIR EMIS WEB ATLAS NEGOCE SA 0912", "ATLAS NEGOCE SA")
+    pointed()
+    assert [c["name"] for c in experio["created"]] == ["ATLAS NEGOCE SA"]
 
 
 @pytest.mark.functionality
