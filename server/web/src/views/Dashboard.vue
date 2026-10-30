@@ -32,11 +32,13 @@ const opened = (answer) =>
       </div>
     </div>
     <section class="metrics" :aria-label="`Les ${data.days} derniers jours`">
-      <div class="metric"><span class="value num">{{ data.metrics.runs }}</span><span class="what">exécutions</span></div>
-      <div class="metric"><span class="value num">{{ data.metrics.seconds }}</span><span class="what">durée moyenne</span></div>
-      <div class="metric" :class="{ bad: data.metrics.bad }"><span class="value num">{{ data.metrics.failed }}</span><span class="what">en échec</span></div>
-      <div class="metric"><span class="value num">{{ data.metrics.conversations }}</span><span class="what">discussions</span></div>
-      <div class="metric"><span class="value num">{{ data.metrics.cost }}</span><span class="what">coût des modèles</span></div>
+      <div class="cards">
+        <div class="metric"><span class="value num">{{ data.metrics.runs }}</span><span class="what">exécutions</span></div>
+        <div class="metric"><span class="value num">{{ data.metrics.seconds }}</span><span class="what">durée moyenne</span></div>
+        <div class="metric" :class="{ bad: data.metrics.bad }"><span class="value num">{{ data.metrics.failed }}</span><span class="what">en échec</span></div>
+        <div class="metric"><span class="value num">{{ data.metrics.conversations }}</span><span class="what">discussions</span></div>
+        <div class="metric"><span class="value num">{{ data.metrics.cost }}</span><span class="what">coût des modèles</span></div>
+      </div>
       <ul v-if="data.metrics.models.length" class="usage">
         <li v-for="used in data.metrics.models" :key="used.model">
           <strong>{{ used.model }}</strong> : <ModelUsage :usage="used" full />
