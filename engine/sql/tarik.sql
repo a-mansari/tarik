@@ -51,12 +51,16 @@ bad_fields = excluded.bad_fields, checked_at = now()
 -- === engine/tools/invoices/intake.py ===
 -- A file as a tool reads it, its row locked until the transaction commits: a retry can't create a second draft nor
 -- import a statement twice.
-select session_id, file_name, mime_type, data, kind, invoice_id, statement_id, parent_id from tarik_files
+select session_id, file_name, mime_type, data, kind, invoice_id, statement_id, parent_id, gladden_bank from tarik_files
 where id = %s for update
 
 -- name: set_file_kind
 -- What identify_document found a file to be: invoice or statement.
 update tarik_files set kind = %s where id = %s
+
+-- name: set_file_gladden_bank
+-- The bank Gladden read on a file identified as a statement (Experio's bank code).
+update tarik_files set gladden_bank = %s where id = %s
 
 -- name: insert_cut_invoice_file
 -- One invoice cut out of a multi-invoice PDF, saved as its own file.
@@ -76,10 +80,11 @@ update tarik_files set invoice_id = %s where id = %s
 select pg_advisory_xact_lock(hashtext(md5(%s)))
 
 -- name: statement_of_same_content
--- The statement (bank or TPE) already imported into the dossier from a file of the very same content, another file.
+-- The statement (bank or TPE) already imported into the dossier from a file of the very same content, another file;
+-- the latest one, as a statement deleted in Experio is imported again.
 select f.statement_id, f.tpe_type from tarik_files f join tarik_results r on r.file_id = f.id
 where f.statement_id is not null and f.content_md5 = md5(%s) and r.step = 'import_bank_statement'
-and r.status = 'ok' and r.dossier_id = %s and f.id <> %s order by f.id limit 1
+and r.status = 'ok' and r.dossier_id = %s and f.id <> %s order by f.id desc limit 1
 
 -- name: set_file_statement
 -- The statement imported from a file (a TPE statement: its network): a second call must not import it again.

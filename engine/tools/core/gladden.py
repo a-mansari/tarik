@@ -42,7 +42,8 @@ def submit(url, pdf, token, response_uri):
 
 
 def classify(url, pdf, callback_url, wait=WAIT):
-    """Return Gladden's type ("invoice", "bank"...) for PDF bytes ``pdf``, waiting for its callback.
+    """Return Gladden's (type, sub_type) for PDF bytes ``pdf``, waiting for its callback: type "invoice", "bank"...,
+    sub_type a statement's bank as Experio's bank code ("bmce", "sgeneral"), the doctype its reading takes.
 
     Args:
         url: Gladden's address on its runner (GLADDEN_URL).
@@ -50,7 +51,8 @@ def classify(url, pdf, callback_url, wait=WAIT):
             <callback_url>/<token>.
         wait: seconds to wait for the callback.
 
-    Returns None when the document can't be sent, no callback comes in ``wait`` seconds, or it gives no type.
+    Returns (None, None) when the document can't be sent or no callback comes in ``wait`` seconds; each is None when
+    Gladden gives none.
     The token is random: it is the only key the open callback route checks."""
     token = secrets.token_urlsafe(24)
     event = threading.Event()
@@ -59,12 +61,13 @@ def classify(url, pdf, callback_url, wait=WAIT):
         submit(url, pdf, token, f"{callback_url.rstrip('/')}/{token}")
         if not event.wait(wait):
             log(f"gladden: no answer in {wait} s")
-            return None
+            return None, None
         _event, results = _waiting[token]
-        return results.get("type") or None
+        log(f"gladden: type {results.get('type')}, sub_type {results.get('sub_type')}")
+        return results.get("type") or None, results.get("sub_type") or None
     except httpx.HTTPError as error:
         log(f"gladden: {type(error).__name__}: {error}")
-        return None
+        return None, None
     finally:
         _waiting.pop(token, None)
 

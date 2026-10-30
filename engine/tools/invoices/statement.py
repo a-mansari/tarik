@@ -12,6 +12,7 @@
 """
 
 import ast
+import base64
 import io
 import re
 import time
@@ -36,10 +37,11 @@ from engine.tools.core.experio import (
     refused,
     type_in,
 )
-from engine.tools.core.model import ask_model, tool_prompt
+from engine.tools.core.model import ask_model, pdf_text, tool_prompt
 from engine.tools.core.queries import Q
 from engine.tools.core.words import LEGAL_FORMS, as_number, counted, normalized, reason, said, tiers_key
 from engine.tools.core.words import reasons as reason_lines
+from engine.tools.dossiers.banks import bank_of_rib
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
 from engine.tools.invoices.exercice import with_fiscal_year
@@ -1130,14 +1132,18 @@ def settle_statement(file_id: int, run_id: str = "") -> dict:
 
 def completing(statement_id, step, work):
     """Run ``work(statement, context)`` -> (said, note) on bank statement ``statement_id`` and return its routine
-    result, ``said`` and ``note`` in it; nothing on a posted statement. Experio's refusal is a ToolError naming the
+    result, ``said`` and ``note`` in it, or the result ``work`` returns when it stops; nothing on a posted
+    statement. Experio's refusal is a ToolError naming the
     statement."""
     statement = read_statement(statement_id)
     if statement["state"] in POSTED:
         return routine(f"Relevé n° {statement_id} : déjà comptabilisé.", statement_id=statement_id)
     context = in_dossier(statement["company_id"][0])
     with refused(f"{step} {statement_id}", f"Relevé n° {statement_id} : Experio a refusé ({{reason}})."):
-        said, note = work(statement, context)
+        done = work(statement, context)
+    if isinstance(done, dict):  # the step stopped: its own result
+        return done
+    said, note = done
     done = reason(" ".join(said.splitlines())) + "." if said else "rien d'autre à faire."  # « j'ai… » after the colon
     text = f"{TEST_MODE if dry_run() else ''}Relevé n° {statement_id} : {done}"
     return routine(text, statement_id=statement_id, said=said, note=note)
@@ -1243,6 +1249,146 @@ def detect_statement_lines(statement_id: int) -> dict:
         return "\n".join(filter(None, [cleared, pointed])), "\n".join(notes)
 
     return completing(statement_id, "detect_statement_lines", work)
+
+
+# Checking Experio's reading against the statement's own PDF (Experio keeps it: document_pdf), its text layer.
+ROW_DATE = re.compile(r"\s*(\d{2})[ /](\d{2})(?:[ /](\d{4}|\d{2}))?\b")  # « 11 02 25 », « 03/04 », « 03/04/2025 »
+
+
+def ends_with_amount(row, amount):
+    """True when text ``row`` ends with positive ``amount`` as a whole, however a statement prints it (« 1 620,00 »,
+    « 1.620,00 », « 1620,00 »): never 200,00 at the end of « 1 200,00 »."""
+    whole, cents = f"{amount:.2f}".split(".")
+    grouped = f"{int(whole):,}"
+    written = {f"{whole},{cents}", f"{grouped.replace(',', ' ')},{cents}", f"{grouped.replace(',', '.')},{cents}"}
+    return any(re.search(rf"(?<!\d)(?<!\d[ .]){re.escape(w)}$", row) for w in written)
+
+
+def row_date(found, near):
+    """Return the date row match ``found`` (ROW_DATE) prints, a row without a year taking the one nearest ``near``;
+    None when it is no date."""
+    day, month, year = found.groups()
+    years = [2000 + int(year) % 100] if year else [near.year - 1, near.year, near.year + 1]
+    try:
+        return min((date(y, int(month), int(day)) for y in years), key=lambda d: abs(d - near))
+    except ValueError:  # not a date: a row that only looks like one
+        return None
+
+
+def amount_of_line(line):
+    """Return ``line``'s amount, positive, rounded to the cent."""
+    return round(abs((line["credit"] or 0) - (line["debit"] or 0)), 2)
+
+
+def printed_date(line, rows, near, taken):
+    """Return the date printed for ``line`` on its one row of ``rows`` (the PDF's text rows) that ends with its amount,
+    is no other line's (``taken``: the (date, amount) of the lines in the statement's month) and, when several are
+    left, is of its day; None when not exactly one."""
+    found = [
+        printed
+        for row in rows
+        if (m := ROW_DATE.match(row)) and ends_with_amount(row, amount_of_line(line))
+        if (printed := row_date(m, near)) and (printed, amount_of_line(line)) not in taken
+    ]
+    if len(found) > 1:
+        found = [printed for printed in found if printed.day == date.fromisoformat(line["date"]).day]
+    return found[0] if len(found) == 1 else None
+
+
+def reading_problems(statement, lines, text, context):
+    """Correct what Experio misread on ``statement``'s ``lines`` that its PDF's ``text`` proves, as the cabinet would
+    on the line's form (date, debit and credit are plain fields, no onchange: bank_statement_line.py:260-299). Nothing
+    written in test mode.
+
+    - A line out of the statement's month (Experio's rule: its month or year is not the statement's date's, which is
+      its lines' most common month, exp_bank_statement_date_wizard.py:69-79) gets the date printed for it
+      (printed_date) when that one is in the month. Printed as read: a real operation of another month, left to
+      Experio's own window at posting.
+    - The one dated line of no amount gets what the ending balance misses, when both balances were read and its row
+      prints that very amount.
+
+    Returns (corrected, left): sentences for the client."""
+    if not statement["date"]:
+        return [], []
+    month = date.fromisoformat(statement["date"])
+    rows = [row.strip() for row in text.splitlines()]
+
+    def out(day):
+        return (day.month, day.year) != (month.month, month.year)
+
+    far = {x["id"] for x in lines if x["date"] and amount_of_line(x) and out(date.fromisoformat(x["date"]))}
+    taken = {(date.fromisoformat(x["date"]), amount_of_line(x)) for x in lines if x["date"] and x["id"] not in far}
+    corrected, left = [], []
+    for line in (x for x in lines if x["id"] in far):
+        right = printed_date(line, rows, month, taken)
+        if right == date.fromisoformat(line["date"]):
+            continue
+        if right and not out(right):
+            if not dry_run():
+                odoo_call(LINE, "write", [line["id"]], {"date": right.isoformat()}, context=context)
+            corrected.append(f"« {line['payment_ref']} » : date lue {line['date']}, corrigée en {right} (le relevé).")
+        else:
+            left.append(f"« {line['payment_ref']} » est datée du {line['date']}, hors du mois du relevé : vérifiez-la.")
+    empty = [line for line in lines if line["date"] and not amount_of_line(line)]
+    missing = round((statement["balance_end_real"] or 0) - (statement["balance_end"] or 0), 2)
+    proven = (
+        len(empty) == 1
+        and missing
+        and statement["balance_start"]
+        and statement["balance_end_real"]
+        and any(
+            (m := ROW_DATE.match(row))
+            and row_date(m, month) == date.fromisoformat(empty[0]["date"])
+            and ends_with_amount(row, abs(missing))
+            for row in rows
+        )
+    )
+    if proven:
+        where = "credit" if missing > 0 else "debit"
+        if not dry_run():
+            odoo_call(LINE, "write", [empty[0]["id"]], {where: abs(missing)}, context=context)
+        corrected.append(
+            f"« {empty[0]['payment_ref']} » : montant non lu, {abs(missing):.2f} au "
+            f"{'crédit' if missing > 0 else 'débit'} (le relevé)."
+        )
+    elif empty:
+        left.append(
+            counted(
+                len(empty), "{} opération datée n'a pas de montant lu", "{} opérations datées n'ont pas de montant lu"
+            )
+            + " : complétez-les dans Experio."
+        )
+    return corrected, left
+
+
+@step_tool
+def check_statement_reading(statement_id: int) -> dict:
+    """Check Experio's reading of bank statement ``statement_id`` against its PDF and correct what the PDF proves
+    (reading_problems). A statement read as another bank's than the one its RIB names (printed, else as Experio read
+    it: its rib field) is misread as a whole: its doctype, the bank code its journal's bank gave the reading
+    (exp_bank_statement_import.py:223), set the layout. Then a stop result says so, nothing corrected."""
+
+    def work(statement, context):
+        pdf = odoo_call(
+            STATEMENT, "read", [statement["id"]], fields=["document_pdf", "doctype", "rib"], context=context
+        )
+        pdf = pdf[0]
+        text = pdf_text(base64.b64decode(pdf["document_pdf"] or ""))
+        banks = odoo_call("res.bank", "search_read", [], fields=["name", "code"], context=context)
+        printed = bank_of_rib(text, banks) or bank_of_rib(pdf["rib"] or "", banks)
+        if printed and pdf["doctype"] and printed["code"] != pdf["doctype"]:
+            journal = statement["journal_id"][1]
+            return stop(
+                f"Relevé n° {statement['id']} : son RIB est de la banque `{printed['name']}`, mais il est dans le "
+                f"journal `{journal}`, d'une autre banque, et Experio l'a lu comme un relevé de cette autre banque : "
+                f"ses montants et ses dates ne sont pas fiables. Vérifiez la banque du journal `{journal}`, puis "
+                "supprimez le relevé dans Experio et renvoyez-le.",
+                statement_id=statement["id"],
+            )
+        corrected, left = reading_problems(statement, open_lines(statement, context), text, context)
+        return "\n".join(corrected), "\n".join(left)
+
+    return completing(statement_id, "check_statement_reading", work)
 
 
 @step_tool

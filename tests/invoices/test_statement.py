@@ -50,6 +50,9 @@ def experio(monkeypatch):
             "line_ids": [1, 2, 3],
             "date": "2026-03-31",
             "is_detected": True,
+            "document_pdf": False,  # no PDF kept: nothing to check the reading against
+            "doctype": "bmce",
+            "rib": False,
         },
         "lines": [
             {"id": 1, "state": "ready", "error_msg": False, "invoice_ids": [], "partner_id": [9, "ATLAS"]},
@@ -88,6 +91,7 @@ def experio(monkeypatch):
         accepts=True,
         removed=[],
         balanced=[],
+        banks=[],
     )
     for line in state["lines"]:
         line.setdefault("partner_id", False)
@@ -154,6 +158,8 @@ def experio(monkeypatch):
             return list(state["generic"])
         if model == "exp.partner":
             return [dict(partner) for partner in state["partners"]]
+        if model == "res.bank":
+            return list(state["banks"])
         if model == "bank.operation.type":
             return [dict(operation) for operation in state["operations"]]
         if model == "exp.payment.method":
@@ -218,6 +224,78 @@ def pointed(client_message=""):
         done.append(result)
     said = [result["said"] for result in done if result.get("said")]
     return statement.report_statement(40, said=said, notes=[result["note"] for result in done if result.get("note")])
+
+
+# The text rows of a statement's PDF, as printed_text gives them.
+PRINTED = "RELEVE DE COMPTE\n15 03 26 15 03 26 VIR A 200,00\n11 03 26 11 03 26 VIRT SARL BLED CONSERVES 1 620,00\n"
+
+
+@pytest.mark.functionality
+def test_a_line_read_far_from_the_statements_dates_gets_the_date_printed_for_it(experio):
+    experio["lines"][2].update(date="2026-10-11", debit=0.0, credit=1620.0, payment_ref="VIRT SARL BLED CONSERVES")
+    corrected, left = statement.reading_problems(experio["statement"], experio["lines"], PRINTED, {})
+    assert experio["written"] == [([3], {"date": "2026-03-11"})] and left == []
+    assert corrected == ["« VIRT SARL BLED CONSERVES » : date lue 2026-10-11, corrigée en 2026-03-11 (le relevé)."]
+
+
+@pytest.mark.functionality
+def test_a_misdated_line_the_pdf_does_not_print_once_is_left_and_said(experio):
+    experio["lines"][2].update(date="2026-10-15")  # 200,00 is printed on another row only: not this line's
+    corrected, left = statement.reading_problems(experio["statement"], experio["lines"], PRINTED, {})
+    assert experio["written"] == [] and corrected == []
+    assert left == ["« VIR 3 » est datée du 2026-10-15, hors du mois du relevé : vérifiez-la."]
+
+
+@pytest.mark.functionality
+def test_an_amount_is_never_matched_at_the_end_of_a_bigger_one(experio):
+    experio["lines"][2].update(date="2026-10-02", payment_ref="PRLV")  # 200,00, and the PDF prints only 1 200,00 then
+    rows = "02 03 26 PRLV ASSURANCE 1 200,00\n"
+    statement.reading_problems(experio["statement"], experio["lines"], rows, {})
+    assert experio["written"] == []
+
+
+@pytest.mark.functionality
+def test_a_line_printed_with_the_date_it_was_read_is_left_to_experios_posting(experio):
+    experio["lines"][2].update(date="2026-02-27", debit=0.0, credit=1620.0)  # a real operation of the month before
+    corrected, left = statement.reading_problems(experio["statement"], experio["lines"], "27 02 26 VIRT 1 620,00", {})
+    assert experio["written"] == [] and corrected == [] and left == []
+
+
+@pytest.mark.functionality
+def test_the_one_line_of_no_amount_gets_what_the_ending_balance_misses(experio):
+    experio["lines"][1].update(debit=0.0, credit=0.0)
+    experio["statement"].update(balance_end=1100.0, balance_end_real=1300.0, is_complete=False)
+    corrected, _ = statement.reading_problems(experio["statement"], experio["lines"], PRINTED, {})
+    assert experio["written"] == [([2], {"credit": 200.0})] and "montant non lu, 200.00 au crédit" in corrected[0]
+
+
+@pytest.mark.functionality
+def test_a_missing_amount_the_pdf_does_not_print_on_its_row_is_not_filled(experio):
+    experio["lines"][1].update(debit=0.0, credit=0.0)  # the gap is 1 200,00: another line is misread too
+    experio["statement"].update(balance_end=1100.0, balance_end_real=2300.0, is_complete=False)
+    corrected, left = statement.reading_problems(experio["statement"], experio["lines"], PRINTED, {})
+    assert experio["written"] == [] and corrected == [] and "1 opération datée n'a pas de montant lu" in left[0]
+
+
+@pytest.mark.functionality
+def test_several_lines_of_no_amount_are_left_for_the_cabinet(experio):
+    for line in experio["lines"][1:]:
+        line.update(debit=0.0, credit=0.0)
+    experio["statement"].update(balance_end=900.0, is_complete=False)
+    corrected, left = statement.reading_problems(experio["statement"], experio["lines"], PRINTED, {})
+    assert experio["written"] == [] and corrected == []
+    assert left == ["2 opérations datées n'ont pas de montant lu : complétez-les dans Experio."]
+
+
+@pytest.mark.functionality
+def test_a_statement_read_as_another_banks_than_its_rib_stops_its_pointing(experio, monkeypatch):
+    experio["banks"] = [{"id": 2, "name": "SAHAM BANK", "code": "sgeneral"}]
+    monkeypatch.setattr(statement, "pdf_text", lambda raw: "022 780 000 028 00 277022 16 74\n" + PRINTED)
+    result = statement.check_statement_reading(40)
+    assert result["status"] == "stop" and "son RIB est de la banque `SAHAM BANK`" in result["message"]
+    assert experio["written"] == []
+    experio["statement"]["doctype"] = "sgeneral"  # read as its own bank's: checked, nothing to correct
+    assert statement.check_statement_reading(40)["message"] == "Relevé n° 40 : rien d'autre à faire."
 
 
 @pytest.mark.functionality

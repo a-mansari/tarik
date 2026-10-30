@@ -258,6 +258,33 @@ def test_the_rib_printed_on_the_statement_picks_the_journal_of_its_bank_without_
 
 
 @pytest.mark.functionality
+def test_the_printed_rib_s_bank_wins_over_the_bank_the_client_names_and_says_so(monkeypatch):
+    journals = [
+        {"id": 5, "name": "BQ BMCE", "bank_id": [1, "BANK OF AFRICA (BMCE)"]},
+        {"id": 6, "name": "BQ CIH", "bank_id": [2, "CIH"]},
+    ]
+    monkeypatch.setattr(intake, "odoo_call", fake_experio(journals, []))
+    monkeypatch.setattr(intake, "dry_run", lambda: False)
+    journal, done = intake.statement_journal("r.pdf", "ATLAS", 857, 0, "relevé du compte BMCE", STATEMENT_RIB)
+    assert journal["id"] == 6  # the client said BMCE, the RIB's code 230 is CIH: read as a CIH statement
+    assert "à la banque `CIH` d'après son RIB, et non `BANK OF AFRICA (BMCE)` comme indiqué" in done
+
+
+@pytest.mark.functionality
+def test_without_a_printed_rib_the_bank_gladden_read_wins_over_the_bank_the_client_names(monkeypatch):
+    journals = [
+        {"id": 5, "name": "BQ BMCE", "bank_id": [1, "BANK OF AFRICA (BMCE)"]},
+        {"id": 6, "name": "BQ CIH", "bank_id": [2, "CIH"]},
+    ]
+    monkeypatch.setattr(intake, "odoo_call", fake_experio(journals, []))
+    monkeypatch.setattr(intake, "dry_run", lambda: False)
+    journal, done = intake.statement_journal("r.pdf", "ATLAS", 857, 0, "relevé BMCE", "", "cih")
+    assert journal["id"] == 6 and "d'après sa lecture, et non `BANK OF AFRICA (BMCE)`" in done
+    journal, done = intake.statement_journal("r.pdf", "ATLAS", 857, 0, "relevé BMCE", "", "")
+    assert journal["id"] == 5 and done == ""  # nothing read on it: the client's word, as before
+
+
+@pytest.mark.functionality
 def test_the_journal_whose_rib_is_the_printed_one_wins_among_several_at_the_same_bank(monkeypatch):
     cih = [2, "CIH"]
     journals = [

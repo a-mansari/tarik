@@ -232,7 +232,7 @@ def test_a_bank_statement_whose_pointing_stops_is_not_posted(steps):
         choose_line_operations={"status": "error"},
     )
     steps.run(graph, mode="files", comptabiliser="oui")
-    assert steps.names[-3:] == ["detect_statement_lines", "choose_line_operations", "run_summary"]
+    assert steps.names[-3:] == ["check_statement_reading", "choose_line_operations", "run_summary"]
 
 
 @pytest.mark.functionality

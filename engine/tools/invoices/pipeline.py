@@ -61,6 +61,7 @@ STEPS = {
     "list_open_statements": "lister les relevés à pointer",
     "settle_statement": "pointer le relevé",
     "detect_statement_lines": "obtenir la détection d'Experio sur le relevé",
+    "check_statement_reading": "vérifier la lecture du relevé",
     "choose_line_operations": "choisir les types d'opération",
     "name_line_tiers": "trouver les tiers des opérations",
     "tie_cited_invoices": "rapprocher les factures citées",

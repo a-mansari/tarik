@@ -14,7 +14,7 @@ from engine.tools.core.cabinets import cabinet_db, setting
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.conversation import client_messages, own_words
 from engine.tools.core.experio import dossier_lock, dry_run, in_dossier, odoo_call, refused, require_dossier, would
-from engine.tools.core.model import pdf_document, pdf_pages, to_pdf
+from engine.tools.core.model import pdf_document, pdf_pages, pdf_text, to_pdf
 from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized, said
 from engine.tools.dossiers.banks import (
@@ -29,7 +29,7 @@ from engine.tools.dossiers.banks import (
 )
 from engine.tools.invoices import tpe
 from engine.tools.invoices.classify import classify_pages, client_side
-from engine.tools.invoices.statement import import_canvas, is_canvas
+from engine.tools.invoices.statement import STATEMENT, import_canvas, is_canvas
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un relevé bancaire", "other": "ni une facture ni un relevé"}
 # How a client corrects what a file they sent is, in their own words (normalized): it wins over Gladden's and the
@@ -41,7 +41,17 @@ KIND_WORDS = {
 # Gladden's types Tarik takes; any other (or none) leaves the file to the model, and so does "bank" (checked).
 GLADDEN_KIND = {"invoice": "invoice", "bank": "statement"}
 # What Q.file_locked selects, in its order.
-FILE_COLUMNS = ("session_id", "file_name", "mime_type", "data", "kind", "invoice_id", "statement_id", "parent_id")
+FILE_COLUMNS = (
+    "session_id",
+    "file_name",
+    "mime_type",
+    "data",
+    "kind",
+    "invoice_id",
+    "statement_id",
+    "parent_id",
+    "gladden_bank",
+)
 
 
 def require_kind(name, kind, wanted):
@@ -107,12 +117,12 @@ def set_kind(file_id, kind):
 
 
 def gladden_type(raw):
-    """Return Gladden's type for the first page of PDF ``raw``; None when GLADDEN_URL or GLADDEN_CALLBACK_URL is not
-    set, or Gladden gives no answer."""
+    """Return Gladden's (type, bank) for the first page of PDF ``raw`` (gladden.classify); (None, None) when
+    GLADDEN_URL or GLADDEN_CALLBACK_URL is not set, or Gladden gives no answer."""
     url = setting("GLADDEN_URL", "")
     callback_url = setting("GLADDEN_CALLBACK_URL", "")
     if not url or not callback_url:
-        return None
+        return None, None
     _, _, first_page = split_pdf(raw, [2])[0]  # page 1 alone, as its own PDF
     return gladden.classify(url, first_page, callback_url)
 
@@ -192,7 +202,8 @@ def identify_document(file_id: int, client_message: str = "") -> dict:
         # The first page decides: an invoice is often followed by its payment's proofs (a cheque, the bank's
         # notice or account extract), which would make the whole file look like a statement.
         # shortcut: a PDF mixing invoices and a statement needs splitting by kind.
-        kind, reason = GLADDEN_KIND.get(gladden_type(raw)), ""
+        read, bank = gladden_type(raw)
+        kind, reason = GLADDEN_KIND.get(read), ""
         # Gladden's "bank" is checked by the model, which has the last word: Gladden calls a leasing schedule, a
         # contract or a customs slip a bank statement (its first page is a table of amounts and dates). So is a photo
         # Gladden calls an invoice: a screenshot of a software screen otherwise became a draft in Experio.
@@ -200,6 +211,8 @@ def identify_document(file_id: int, client_message: str = "") -> dict:
             category, reason = classify_pages(pages, "Identification du document")
             kind = {"rb": "statement", "autre": "other"}.get(category, "invoice")
         db.execute(Q.set_file_kind, (kind, file_id))
+        if kind == "statement" and read == "bank" and bank:  # its bank (a TPE's is its network): chosen_journal's
+            db.execute(Q.set_file_gladden_bank, (bank.lower(), file_id))  # second signal; Experio matches it =ilike
     return identified(name, file_id, kind, reason)
 
 
@@ -537,19 +550,8 @@ def journal_named(usable, words):
     return named[0] if len(named) == 1 else None
 
 
-def statement_text(raw):
-    """Return the text of a PDF statement's first two pages, blanks squeezed (the RIB is printed in columns); "" for
-    a scan, an image or an unreadable file."""
-    try:
-        with pdf_document(raw) as document:
-            pages = [document[i].get_textpage().get_text_range() for i in range(min(2, len(document)))]
-    except Exception:  # a scan or another format: the client's words and the file's name decide
-        return ""
-    return re.sub(r"[ \t]+", " ", "\n".join(pages))
-
-
 def printed_rib(text):
-    """Return the 24 digits of the RIB printed in ``text`` (statement_text), "" when there is none."""
+    """Return the 24 digits of the RIB printed in ``text`` (pdf_text), "" when there is none."""
     found = RIB.search(IBAN_START.sub(" ", text or ""))
     return re.sub(r"\D", "", found.group()) if found else ""
 
@@ -557,7 +559,7 @@ def printed_rib(text):
 BANK_QUESTION = "De quelle banque est ce relevé ?"  # the answer goes back to the import as the client's words
 
 
-def statement_journal(name, dossier, dossier_id, journal_id, client_message="", text=""):
+def statement_journal(name, dossier, dossier_id, journal_id, client_message="", text="", gladden_bank=""):
     """Return the usable bank journal (dict) statement ``name`` goes to, and what Tarik did to have it (French text,
     "" when nothing): ``journal_id`` when given, else chosen_journal's, under the dossier's lock (dossier_lock: the
     statements of one message, run in parallel, never make the same journal twice).
@@ -577,14 +579,15 @@ def statement_journal(name, dossier, dossier_id, journal_id, client_message="", 
         dossier_lock(dossier_id),
         refused(f"statement_journal {dossier_id}", f"Dossier `{dossier}` : Experio a refusé le journal de banque."),
     ):
-        return chosen_journal(name, dossier, dossier_id, own_words(client_message), text)
+        return chosen_journal(name, dossier, dossier_id, own_words(client_message), text, gladden_bank)
 
 
-def chosen_journal(name, dossier, dossier_id, words, text=""):
+def chosen_journal(name, dossier, dossier_id, words, text="", gladden_bank=""):
     """statement_journal without a journal given: the journal whose RIB is the one printed on the statement (``text``),
-    else the dossier's journal at the one bank the RIB's bank code, the file's name or the client's ``words`` name
-    (« relevé BMCE »), made when the dossier has none there (make_bank_journal); else its only usable one, else the
-    one the client names by its own name.
+    else the dossier's journal at the one bank the RIB's bank code names, else the one Gladden read (``gladden_bank``,
+    a bank code), else the file's name or the client's ``words`` (« relevé BMCE »), made when the dossier has none
+    there (make_bank_journal); else its only usable one, else the one the client names by its own name. The bank read
+    on the statement wins: it sets how Experio reads it; a bank named against it is said in the reply.
 
     First, a bank journal without its bank whose RIB or own name says one bank (« BQ AWB ») gets it, as ask_banks does
     (give_bank). A bank named when the dossier has one journal still without its bank goes to that journal: no
@@ -607,7 +610,15 @@ def chosen_journal(name, dossier, dossier_id, words, text=""):
     same = [j for j in usable if rib and re.sub(r"\D", "", j.get("rib") or "") == rib]
     if len(same) == 1:
         return same[0], notice(done)
-    bank = one_bank_named(f"{name.rsplit('.', 1)[0]} {words}", banks) or bank_of_rib(text, banks)
+    named_bank = one_bank_named(f"{name.rsplit('.', 1)[0]} {words}", banks)
+    read_bank, how = bank_of_rib(text, banks), "son RIB"
+    if not read_bank and gladden_bank:  # Experio's own match: bank_id.code =ilike sub_type (exp_gladden_job.py:545)
+        read_bank, how = next((b for b in banks if (b.get("code") or "").lower() == gladden_bank), None), "sa lecture"
+    bank = read_bank or named_bank
+    if named_bank and read_bank and read_bank["id"] != named_bank["id"]:
+        done.append(
+            f"relevé pris à la banque `{bank['name']}` d'après {how}, et non `{named_bank['name']}` comme indiqué"
+        )
     bankless = [j for j in journals if not j["bank_id"]]
     if bank:
         at = [j for j in usable if j["bank_id"][0] == bank["id"]]
@@ -674,6 +685,15 @@ def import_tpe_file(db, file_id, name, raw, dossier, dossier_id, journal_id, net
     )
 
 
+def still_in_experio(statement_id, dossier_id, tpe_type):
+    """True while statement ``statement_id`` of dossier ``dossier_id`` (a TPE one when ``tpe_type``) is in Experio,
+    archived or not: one deleted there (a soft delete, exp_deleted, app/models.py:4486, which its searches leave out)
+    is imported again when its file comes back."""
+    model = tpe.STATEMENT if tpe_type else STATEMENT
+    domain = [("id", "=", statement_id), ("active", "in", [True, False])]
+    return bool(odoo_call(model, "search_count", domain, context=in_dossier(dossier_id)))
+
+
 @step_tool
 def import_bank_statement(
     file_id: int,
@@ -685,7 +705,8 @@ def import_bank_statement(
 ) -> dict:
     """Import a bank statement the client sent into one of the dossier's bank journals, through Experio's own statement
     import (exp.bank.statement.import; Experio then reads its lines). Safe to call again: a file already imported, or
-    the same content imported before in the dossier, gives that statement.
+    the same content imported before in the dossier, gives that statement while it is still in Experio (a deleted one is
+    imported again).
 
     A TPE statement (relevé des opérations monétiques) goes to Experio's own TPE import instead, with its network (read
     on it, else asked). Experio's Excel template goes to its own Excel import. Files the client says are one statement
@@ -706,8 +727,8 @@ def import_bank_statement(
         ToolError: the file is not identified as a statement, or ``journal_id`` is not usable."""
     dossier = require_dossier(dossier_id)
     with cabinet_db() as db:
-        name, mime, data, kind, existing = file_row(
-            db, file_id, "file_name", "mime_type", "data", "kind", "statement_id"
+        name, mime, data, kind, existing, gladden_bank = file_row(
+            db, file_id, "file_name", "mime_type", "data", "kind", "statement_id", "gladden_bank"
         )
         require_kind(name, kind, "statement")
         if posting == "oui":  # kept at once: a question on the way ends this run, its answer carries no request
@@ -718,7 +739,7 @@ def import_bank_statement(
         # arriving together wait for each other here, until the first is imported.
         db.execute(Q.lock_file_content, (bytes(data),))
         twin = db.execute(Q.statement_of_same_content, (bytes(data), dossier_id, file_id)).fetchone()
-        if twin:
+        if twin and still_in_experio(twin[0], dossier_id, twin[1]):
             db.execute(Q.set_file_statement, (twin[0], twin[1], file_id))
             return ok(
                 f"`{name}` : relevé déjà importé (n° {twin[0]}), le même fichier envoyé avant.", statement_id=twin[0]
@@ -737,8 +758,8 @@ def import_bank_statement(
                     network or read,
                     client_message,
                 )
-        text = "" if is_canvas(name, data) else statement_text(as_pdf(mime, data))
-        journal, done = statement_journal(name, dossier, dossier_id, journal_id, client_message, text)
+        text = "" if is_canvas(name, data) else pdf_text(as_pdf(mime, data), 2)
+        journal, done = statement_journal(name, dossier, dossier_id, journal_id, client_message, text, gladden_bank)
         if "status" in journal:
             return journal
         if bank_code(journal) in UNSUPPORTED_BANKS:  # Experio's own list (bank_statement._compute_is_not_supported)
