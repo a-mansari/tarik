@@ -18,13 +18,11 @@ import base64
 import io
 import re
 
-import pypdfium2
-
 from engine.tools.core.app import ToolError, ok, question, step_tool, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused, require_dossier
-from engine.tools.core.model import ask_model, pdf_pages, to_pdf, tool_prompt
+from engine.tools.core.model import ask_model, pdf_document, pdf_pages, to_pdf, tool_prompt
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, normalized
 
@@ -92,10 +90,10 @@ def documents_of(raw, kinds, dossier, name):
 
 def pages_pdf(raw, numbers):
     """Return a new PDF (bytes) made of pages ``numbers`` (0-based) of PDF ``raw``."""
-    source, document = pypdfium2.PdfDocument(raw), pypdfium2.PdfDocument.new()
-    document.import_pages(source, list(numbers))
     buffer = io.BytesIO()
-    document.save(buffer)
+    with pdf_document(raw) as source, pdf_document() as document:
+        document.import_pages(source, list(numbers))
+        document.save(buffer)
     return buffer.getvalue()
 
 
@@ -175,12 +173,12 @@ def create_in_experio(dossier_id, group, documents, number_rule):
 
 def pages_pdf_all(raws):
     """Return all pages of PDFs ``raws``, in order, as one PDF: the folder's own document (document_pdf)."""
-    document = pypdfium2.PdfDocument.new()
-    for raw in raws:
-        source = pypdfium2.PdfDocument(raw)
-        document.import_pages(source)
     buffer = io.BytesIO()
-    document.save(buffer)
+    with pdf_document() as document:
+        for raw in raws:
+            with pdf_document(raw) as source:
+                document.import_pages(source)
+        document.save(buffer)
     return buffer.getvalue()
 
 
