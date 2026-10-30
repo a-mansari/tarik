@@ -259,7 +259,8 @@ def test_a_line_out_of_the_month_gets_the_operation_date_printed_by_default(expe
 def test_a_dossier_dating_by_value_date_never_gets_a_date_corrected_from_an_unproven_column(experio):
     experio["lines"][2].update(date="2026-04-01", debit=0.0, credit=500.0)  # printed as read, as its second date
     experio["lines"][1].update(date="2026-04-05", debit=0.0, credit=300.0)  # printed with neither date
-    rows = "31 03 26 01 04 26 VIR X 500,00\n28 03 26 30 03 26 VIR Y 300,00"
+    experio["lines"][0].update(date="2026-02-28", debit=0.0, credit=400.0)  # printed as read, as its first date
+    rows = "31 03 26 01 04 26 VIR X 500,00\n28 03 26 30 03 26 VIR Y 300,00\n28 02 26 01 03 26 VIR Z 400,00"
     corrected, left = statement.reading_problems(experio["statement"], experio["lines"], rows, {}, value_date=True)
     assert experio["written"] == [] and corrected == []
     assert left == ["« VIR 2 » est datée du 2026-04-05, hors du mois du relevé : vérifiez-la."]

@@ -1316,7 +1316,7 @@ def reading_problems(statement, lines, text, context, value_date=False):
       Experio's own window at posting. Not so when the dossier dates by value date (``value_date``: res.company
       date_use_selection "date_value", res_company.py:158-170; the line then holds the date the outside reading
       sent as date_value, exp_bluejay_job.py:1652-1653): which printed column that is, no code of Experio says, and
-      the live statements of such dossiers (read 2025-11, setting changed since) hold their first printed date. A
+      the live statements of such dossiers hold their first printed date (67 of 68 rows, 2026-10-30). A
       line printed with either date is left as read; any other is left to the cabinet, never corrected.
     - The one dated line of no amount gets what the ending balance misses, when both balances were read and its row
       prints that very amount.
