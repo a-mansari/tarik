@@ -24,7 +24,7 @@ import base64
 import re
 
 from engine.tools.core import pdfs
-from engine.tools.core.app import CRASHED, log, ok, question, routine, stop
+from engine.tools.core.app import CRASHED, ToolError, log, ok, question, routine, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.conversation import own_words
@@ -100,8 +100,12 @@ def is_tpe_text(text):
 
 
 def first_page_text(raw):
-    """Return the text of PDF ``raw``'s first page ("" for a scan or an unreadable PDF)."""
-    return pdfium(pdfs.first_page_text, raw)
+    """Return the text of PDF ``raw``'s first page ("" for a scan or an unreadable PDF, one pdfium hangs or crashes
+    on too)."""
+    try:
+        return pdfium(pdfs.first_page_text, raw)
+    except ToolError:
+        return ""
 
 
 def tpe_network(raw, words):

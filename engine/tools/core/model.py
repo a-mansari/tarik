@@ -196,9 +196,10 @@ def to_pdf(raw):
 
 # pdfium is not thread-safe, not even for two documents, and a PDF can make it hang: every use runs in one of these
 # processes (pdfs.py), several cabinets' pages rendered at once, each call's process killed after PDF_TIMEOUT of work
-# (pdfs.within; time waiting in the queue does not count). A dead process breaks its pool: the pool is replaced, its
-# other calls told to try again. A script whose __main__ reads PDFs needs the `if __name__ == "__main__"` guard, as
-# the pool's processes import it (python -m server's own is never imported).
+# (pdfs.within; time waiting in the queue does not count). A dead process breaks its pool, failing every call in it:
+# the pool is replaced and each call tried once more, so only the PDF that broke it fails. A script whose __main__
+# reads PDFs needs the `if __name__ == "__main__"` guard, as the pool's processes import it (python -m server's own
+# is never imported).
 PDF_WORKERS = 4
 PDF_POOL = None
 PDF_POOL_LOCK = threading.Lock()
@@ -206,22 +207,23 @@ PDF_POOL_LOCK = threading.Lock()
 
 def pdfium(function, *args):
     """Return ``function(*args)`` (one of pdfs.py's) run in a pool process; its own exceptions (pypdfium2.PdfiumError)
-    are raised as they are. Raises ToolError when it works over PDF_TIMEOUT or its process dies."""
+    are raised as they are. Raises ToolError when it works over PDF_TIMEOUT or its process dies, twice."""
     global PDF_POOL
-    try:
-        with PDF_POOL_LOCK:  # submitted under the lock: never to a pool another call has just killed
-            if PDF_POOL is None:  # forkserver, not fork: the server's other threads hold locks
-                PDF_POOL = ProcessPoolExecutor(PDF_WORKERS, mp_context=multiprocessing.get_context("forkserver"))
-            pool = PDF_POOL
-            future = pool.submit(pdfs.within, PDF_TIMEOUT, function, *args)
-        return future.result()
-    except BrokenProcessPool as error:
-        log(f"pdfium {function.__name__}: {error!r}")
-        with PDF_POOL_LOCK:
-            if PDF_POOL is pool:  # once, whichever call saw it first
-                PDF_POOL = None
-                pool.kill_workers()  # the pool's other processes, and its shutdown
-        raise ToolError("Le fichier PDF n'a pas pu être lu (fichier illisible), réessayez.") from None
+    for _ in range(2):  # a pool another call's PDF broke: tried again on the new one
+        try:
+            with PDF_POOL_LOCK:  # submitted under the lock: never to a pool another call has just killed
+                if PDF_POOL is None:  # forkserver, not fork: the server's other threads hold locks
+                    PDF_POOL = ProcessPoolExecutor(PDF_WORKERS, mp_context=multiprocessing.get_context("forkserver"))
+                pool = PDF_POOL
+                future = pool.submit(pdfs.within, PDF_TIMEOUT, function, *args)
+            return future.result()
+        except BrokenProcessPool as error:
+            log(f"pdfium {function.__name__}: {error!r}")
+            with PDF_POOL_LOCK:
+                if PDF_POOL is pool:  # once, whichever call saw it first
+                    PDF_POOL = None
+                    pool.kill_workers()  # the pool's other processes, and its shutdown
+    raise ToolError("Le fichier PDF n'a pas pu être lu (fichier illisible), réessayez.") from None
 
 
 def pdf_pages(raw, limit=MAX_PAGES, scale=SCALE):
@@ -232,8 +234,11 @@ def pdf_pages(raw, limit=MAX_PAGES, scale=SCALE):
 
 def pdf_text(raw, pages=None):
     """Return the text of PDF ``raw``'s first ``pages`` pages (None: all), blanks squeezed (a RIB is printed in
-    columns); "" for a scan, an image or an unreadable file."""
-    return pdfium(pdfs.text, raw, pages)
+    columns); "" for a scan, an image or an unreadable file (one pdfium hangs or crashes on too)."""
+    try:
+        return pdfium(pdfs.text, raw, pages)
+    except ToolError:
+        return ""
 
 
 def scan_pages(document_pdf):

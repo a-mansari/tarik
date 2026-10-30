@@ -12,7 +12,8 @@ import pypdfium2
 
 # pdfium is not thread-safe, not even for two documents: every use holds PDFIUM and closes its documents inside it,
 # as one left to the garbage collector is closed whenever and in whatever thread it runs. Seven statements read at
-# once segfaulted the whole server (2026-10-30). A pool process runs one call at a time; the lock keeps it so.
+# once segfaulted the whole server (2026-10-30). Only ever called through model.pdfium, in its pool's processes (one
+# call at a time each, the lock keeping it so): called in the server, a hang or a crash takes the server with it.
 PDFIUM = threading.RLock()
 
 
@@ -47,17 +48,14 @@ def saved(document):
 def pages(raw, limit, scale, max_side):
     """Return the first ``limit`` pages (None: all) of PDF ``raw`` as PNG bytes, rendered at ``scale`` with their
     longest side at most ``max_side`` pixels."""
-    images = []
+    encoded = []
     with pdf_document(raw) as document:
         for index in range(len(document) if limit is None else min(limit, len(document))):
             page = document[index]
             fitting = min(scale, max_side / max(page.get_size()))
-            images.append(page.render(scale=fitting).to_pil())  # its own pixels: to_pil converts BGR to RGB
-    encoded = []
-    for image in images:
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        encoded.append(buffer.getvalue())
+            buffer = io.BytesIO()  # encoded at once: a long file's pages never all held as images
+            page.render(scale=fitting).to_pil().save(buffer, format="PNG")  # to_pil converts BGR to RGB
+            encoded.append(buffer.getvalue())
     return encoded
 
 
