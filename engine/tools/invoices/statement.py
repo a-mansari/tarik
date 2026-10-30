@@ -1252,16 +1252,18 @@ def detect_statement_lines(statement_id: int) -> dict:
 
 
 # Checking Experio's reading against the statement's own PDF (Experio keeps it: document_pdf), its text layer.
-ROW_DATE = re.compile(r"\s*(\d{2})[ /](\d{2})(?:[ /](\d{4}|\d{2}))?\b")  # « 11 02 25 », « 03/04 », « 03/04/2025 »
+# « 11 02 25 », « 03/04 », « 03/04/2025 »; « 03/04 02/04 »: its value date follows, never read as a year
+ROW_DATE = re.compile(r"\s*(\d{2})[ /](\d{2})(?:[ /](\d{4}|\d{2})(?!/))?\b")
 
 
 def ends_with_amount(row, amount):
     """True when text ``row`` ends with positive ``amount`` as a whole, however a statement prints it (« 1 620,00 »,
-    « 1.620,00 », « 1620,00 »): never 200,00 at the end of « 1 200,00 »."""
+    « 1.620,00 », « 1620,00 »): never 200,00 at the end of « 1 200,00 », but 847,00 after a reference « 032025 » or
+    a date « 31/03/25 » (no 1-3 digit group before it)."""
     whole, cents = f"{amount:.2f}".split(".")
     grouped = f"{int(whole):,}"
     written = {f"{whole},{cents}", f"{grouped.replace(',', ' ')},{cents}", f"{grouped.replace(',', '.')},{cents}"}
-    return any(re.search(rf"(?<!\d)(?<!\d[ .]){re.escape(w)}$", row) for w in written)
+    return any(row.endswith(w) and not re.search(r"(?:^|\s)\d{1,3}[ .]$|\d$", row[: -len(w)]) for w in written)
 
 
 def row_date(row, near, value_date=False):
@@ -1288,18 +1290,19 @@ def amount_of_line(line):
 
 
 def printed_date(line, rows, near, taken, value_date=False):
-    """Return the date printed for ``line`` on its one row of ``rows`` (the PDF's text rows) that ends with its amount,
-    is no other line's (``taken``: the (date, amount) of the lines in the statement's month) and, when several are
-    left, is of its day; None when not exactly one. The row's value date when ``value_date`` (row_date)."""
-    found = [
+    """Return the date printed for ``line`` on its rows of ``rows`` (the PDF's text rows) that end with its amount and
+    are no other line's (``taken``: the (date, amount) of the lines in the statement's month): their one date, else
+    the one of its day; None when not exactly one (identical rows on one date are one date). The row's value date
+    when ``value_date`` (row_date)."""
+    found = {
         printed
         for row in rows
         if ends_with_amount(row, amount_of_line(line))
         if (printed := row_date(row, near, value_date)) and (printed, amount_of_line(line)) not in taken
-    ]
+    }
     if len(found) > 1:
-        found = [printed for printed in found if printed.day == date.fromisoformat(line["date"]).day]
-    return found[0] if len(found) == 1 else None
+        found = {printed for printed in found if printed.day == date.fromisoformat(line["date"]).day}
+    return found.pop() if len(found) == 1 else None
 
 
 def reading_problems(statement, lines, text, context, value_date=False):
@@ -1373,18 +1376,23 @@ def reading_problems(statement, lines, text, context, value_date=False):
 @step_tool
 def check_statement_reading(statement_id: int) -> dict:
     """Check Experio's reading of bank statement ``statement_id`` against its PDF and correct what the PDF proves
-    (reading_problems). A statement read as another bank's than the one its RIB names (printed, else as Experio read
-    it: its rib field) is misread as a whole: its doctype, the bank code its journal's bank gave the reading
-    (exp_bank_statement_import.py:223), set the layout. Then a stop result says so, nothing corrected."""
+    (reading_problems). A statement read as another bank's than the one its RIB names (as Experio read it: its rib
+    field, else printed on its first two pages) is misread as a whole: its doctype, the bank code its journal's bank
+    gave the reading (exp_bank_statement_import.py:223), set the layout. Then a stop result says so, nothing
+    corrected."""
 
     def work(statement, context):
         pdf = odoo_call(
             STATEMENT, "read", [statement["id"]], fields=["document_pdf", "doctype", "rib"], context=context
         )
         pdf = pdf[0]
-        text = pdf_text(base64.b64decode(pdf["document_pdf"] or ""))
+        raw = base64.b64decode(pdf["document_pdf"] or "")
+        text = pdf_text(raw)
         banks = odoo_call("res.bank", "search_read", [], fields=["name", "code"], context=context)
-        printed = bank_of_rib(text, banks) or bank_of_rib(pdf["rib"] or "", banks)
+        # the account's RIB as Experio read it (bank_statement.py:369), else the one its first two pages print outside
+        # its operations: never a supplier's RIB printed on an operation
+        header = "\n".join(row for row in pdf_text(raw, 2).splitlines() if not ROW_DATE.match(row))
+        printed = bank_of_rib(pdf["rib"] or "", banks) or bank_of_rib(header, banks)
         if printed and pdf["doctype"] and printed["code"] != pdf["doctype"]:
             journal = statement["journal_id"][1]
             return stop(
