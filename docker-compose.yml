@@ -9,6 +9,7 @@ name: sarnec-n8n
 
 services:
   server:
+    image: tarik
     build:
       context: .
       args: # the Claude Code CLI's installer (.env.example); INSTALL_CLAUDE_CODE=0 leaves it out
