@@ -57,10 +57,10 @@ printed title says « Facture ».
 
 **Make an import folder**: say « dossier d'import » with the folder's documents (the transit agent's invoice, customs,
 transport, the foreign supplier's invoice, the DUM...), and « plusieurs dossiers » for one folder per file. Tarik types
-each page as Experio's « Imports » screen does, creates the folder, has Experio read the DUM, and processes each piece
-like any invoice: the customs one goes to the dossier's customs tiers, the folder takes its number by the dossier's rule,
-and the transit agent's invoice is posted last, with the folder's invoices it paid. The same file sent twice makes one
-folder.
+each page as Experio's « Imports » screen does, creates the folder, attaches the DUM unread (Experio reads a DUM only
+from its own screen), and processes each piece like any invoice: the customs one goes to the dossier's customs tiers,
+the folder takes its number by the dossier's rule, and the transit agent's invoice is posted last, with the folder's
+invoices it paid. The same file sent twice makes one folder.
 
 **Bank statements**: once imported (a PDF, a photo, or Experio's Excel template; several files of one statement
 merged when you say « le même relevé »), Tarik waits for Experio's reading, checks its balances, points its operations

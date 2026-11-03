@@ -73,6 +73,17 @@ def test_several_tva_rates():
 
 
 @pytest.mark.functionality
+def test_a_rate_experio_has_no_field_for_is_told():
+    from engine.tools.invoices.correct import unsplit_note
+
+    lines = [{"rate": 20, "amount_ht": 100, "amount_tva": 20}, {"rate": 19, "amount_ht": 50, "amount_tva": 9.5}]
+    assert "19 %" in unsplit_note({"amount_tva": 29.5, "tva_lines": lines})
+    assert unsplit_note({"tva_lines": lines}) is None  # no total read: the lines are not trusted
+    known = [{"rate": 20, "amount_ht": 100, "amount_tva": 20}, {"rate": 10, "amount_ht": 50, "amount_tva": 5}]
+    assert unsplit_note({"amount_tva": 25, "tva_lines": known}) is None
+
+
+@pytest.mark.functionality
 def test_lines_at_one_rate_add_up():
     lines = [
         {"rate": 20, "amount_ht": 1000, "amount_tva": 200},

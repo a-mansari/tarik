@@ -79,6 +79,37 @@ def titled_invoice(extracted):
     return "facture" in title.split() and not any(word in title for word in ("avoir", "credit", "rectificative"))
 
 
+def rates_read(extracted):
+    """Return the scan's TVA lines, their TVA per rate ({rate: TVA}) and whether they can be trusted: read in full and
+    adding up to the TVA read on the scan (a line not read, or read twice, never becomes a written amount)."""
+    lines = [
+        line for line in extracted.get("tva_lines") or [] if line.get("amount_ht") and line.get("rate") is not None
+    ]
+    rates = {}  # rate -> its TVA: an invoice may list several lines at one rate
+    for line in lines:
+        rates[int(line["rate"])] = round(rates.get(int(line["rate"]), 0) + (line.get("amount_tva") or 0), 2)
+    trusted = (
+        all(line.get("amount_tva") is not None for line in lines)
+        and extracted.get("amount_tva") is not None
+        and abs(sum(rates.values()) - extracted["amount_tva"]) <= 1
+    )
+    return lines, rates, trusted
+
+
+def unsplit_note(extracted):
+    """Return the French note saying a scan's several TVA rates stay as Experio read them because one rate has no
+    amount_tva_<rate> field in Experio; None otherwise."""
+    _, rates, trusted = rates_read(extracted)
+    odd = sorted(set(rates) - {0} - MULTI_TVA_RATES)
+    if len(rates) > 1 and trusted and odd:
+        shown = ", ".join(f"{rate} %" for rate in odd)
+        return (
+            f"TVA à plusieurs taux laissée telle que lue par Experio : taux {shown} sans case dans Experio, "
+            "à ventiler par le cabinet"
+        )
+    return None
+
+
 def planned_changes(extracted, bad_fields, invoice):
     """Return what the check says to write, as {field: value}: the differing header fields, the credit note flag
     (refund) and the multi-TVA split (multi_tva and amount_tva_<rate>).
@@ -95,19 +126,7 @@ def planned_changes(extracted, bad_fields, invoice):
         changes["refund"] = True
     elif invoice.get("refund") and extracted.get("is_credit_note") is False and titled_invoice(extracted):
         changes["refund"] = False  # Experio's reading ticked « avoir », the document says « Facture » in its title
-    lines = [
-        line for line in extracted.get("tva_lines") or [] if line.get("amount_ht") and line.get("rate") is not None
-    ]
-    rates = {}  # rate -> its TVA: an invoice may list several lines at one rate
-    for line in lines:
-        rates[int(line["rate"])] = round(rates.get(int(line["rate"]), 0) + (line.get("amount_tva") or 0), 2)
-    # Split only from lines read in full that add up to the TVA read on the scan: a line not read, or read twice, never
-    # becomes a written amount.
-    trusted = (
-        all(line.get("amount_tva") is not None for line in lines)
-        and extracted.get("amount_tva") is not None
-        and abs(sum(rates.values()) - extracted["amount_tva"]) <= 1
-    )
+    lines, rates, trusted = rates_read(extracted)
     if (
         len(rates) > 1
         and trusted
@@ -296,6 +315,8 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         }
         notes.append("montants gardés tels que saisis par Experio, le scan ne porte aucun montant à payer")
     changes = planned_changes(extracted, bad_fields, invoice)
+    if note := unsplit_note(extracted):
+        notes.append(note)
     regional_field(changes, invoice)
     hotel_parts(extracted, invoice, changes)
     with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé la correction."):
