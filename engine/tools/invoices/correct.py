@@ -117,11 +117,22 @@ def planned_changes(extracted, bad_fields, invoice):
         changes["multi_tva"] = True
         changes.update({f"amount_tva_{rate}": amount for rate, amount in rates.items() if rate})
         changes["amount_tva"] = round(sum(rates.values()), 2)
-    elif len(rates) == 1 and trusted and invoice.get("multi_tva"):
-        # The scan has one rate and Experio read several (a split over rates the scan never shows): undone, the
-        # per-rate amounts it wrote zeroed, then the one TVA put back, so its lines add up to the TVA.
-        changes = {"multi_tva": False, **{f: 0.0 for f in PER_RATE if invoice.get(f)}, **changes}
-        changes["amount_tva"] = extracted["amount_tva"]
+    elif len(rates) == 1 and trusted:
+        (rate,) = rates
+        base = round(sum(line["amount_ht"] for line in lines), 2)
+        coherent = abs(round(base * rate / 100, 2) - extracted["amount_tva"]) <= 0.02
+        if rate in MULTI_TVA_RATES and not coherent:
+            # One rate on the scan, but its TVA is not that rate of the whole base (a bill whose TVA is charged on
+            # part of it, the rest at 0 %): Experio's own split, the TVA put on that rate, the rest left at 0 %.
+            only = f"amount_tva_{rate}"
+            changes = {"multi_tva": True, **{f: 0.0 for f in PER_RATE if invoice.get(f) and f != only}, **changes}
+            changes[only] = extracted["amount_tva"]
+            changes["amount_tva"] = extracted["amount_tva"]
+        elif invoice.get("multi_tva"):
+            # Experio read several rates on a scan that has one: undone, the per-rate amounts it wrote zeroed, then the
+            # one TVA put back, so its lines add up to the TVA.
+            changes = {"multi_tva": False, **{f: 0.0 for f in PER_RATE if invoice.get(f)}, **changes}
+            changes["amount_tva"] = extracted["amount_tva"]
     return changes
 
 
