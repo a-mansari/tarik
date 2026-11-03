@@ -18,6 +18,7 @@ A cabinet is named by its exact Experio database: lowercase letters, digits and 
 
 | Setting | Required | What |
 |---|---|---|
+| `EXPERIO_URL` | no | that cabinet's Experio, `https://` and its host only, when it is not the stack's `ODOO_URL` |
 | `ODOO_USER` | yes | Tarik's login in that cabinet's Experio |
 | `ODOO_UID` | yes | Tarik's user id there (a positive number): checked at every connection |
 | `ODOO_PASSWORD` | yes | its password (secret) |

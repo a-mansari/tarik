@@ -22,6 +22,8 @@ BEFORE = {
     ("key", "value", "why"),
     [
         ("DRY_RUN", "oui", "vaut 1"),
+        ("EXPERIO_URL", "http://system.experio.ma", "HTTPS"),
+        ("EXPERIO_URL", "https://system.experio.ma/web", "sans chemin"),
         ("ODOO_UID", "-3", "entier positif"),
         ("ODOO_USER", "", "vide"),
         ("MAIL_MANAGER", "pas une adresse", "adresse"),

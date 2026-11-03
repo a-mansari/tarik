@@ -9,7 +9,13 @@ import pytest
 
 from engine.tools.core import experio
 from engine.tools.core.app import ToolError
-from engine.tools.core.experio import expected_uid, require_dossier, require_invoice
+from engine.tools.core.experio import expected_uid, experio_url, require_dossier, require_invoice
+
+
+@pytest.fixture(autouse=True)
+def stack_experio(monkeypatch):
+    """Most of these calls run outside any cabinet: Experio is the stack's own, ODOO_URL."""
+    monkeypatch.setattr(experio, "experio_url", lambda: experio.ODOO_URL)
 
 
 @pytest.mark.security
@@ -200,6 +206,17 @@ def fake_settings(monkeypatch, **values):
 
 
 @pytest.mark.security
+def test_a_cabinet_reaches_its_own_experio_else_the_stacks(monkeypatch):
+    monkeypatch.setattr(experio, "ODOO_URL", "https://stack.invalid")
+    fake_settings(monkeypatch)
+    assert experio_url() == "https://stack.invalid"
+    fake_settings(monkeypatch, EXPERIO_URL="https://own.invalid/")
+    assert experio_url() == "https://own.invalid"
+    monkeypatch.setattr(experio, "experio_url", experio_url)
+    assert "own.invalid/" in repr(experio.rpc("/xmlrpc/2/common"))  # never the stack's connection
+
+
+@pytest.mark.security
 def test_the_api_key_is_used_before_the_password(monkeypatch):
     fake_settings(monkeypatch, ODOO_API_KEY="api", ODOO_PASSWORD="pw", ODOO_UID="430", ODOO_USER="tarik")
     assert experio.account() == ("cabinet_x", 430, "tarik", "api")
@@ -252,7 +269,7 @@ def test_a_crash_is_not_told_as_experio_reason(crash):
 @pytest.mark.technical
 def test_an_xml_rpc_connection_gives_up_after_the_timeout(monkeypatch):
     monkeypatch.setattr(experio, "ODOO_URL", "https://experio.invalid")
-    transport = experio._timed_transport()
+    transport = experio._timed_transport(experio.ODOO_URL)
     assert isinstance(transport, experio.xmlrpc.client.SafeTransport)
     assert transport.make_connection("experio.invalid").timeout == experio.RPC_TIMEOUT
 

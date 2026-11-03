@@ -25,9 +25,11 @@ from server.accounts import EMAIL
 ROLE = "/run/vault-settings"  # the page's AppRole files, mounted by docker-compose.yml
 
 # The settings the page shows, in its order, each with what it holds: text, a secret (never shown, only replaced),
-# a yes/no (DRY_RUN: 1 or 0), a positive integer, an address, or a comma-separated list of addresses and @domains.
+# a yes/no (DRY_RUN: 1 or 0), an HTTPS address, a positive integer, an address, or a comma-separated list of
+# addresses and @domains.
 FIELDS = {
     "DRY_RUN": "flag",
+    "EXPERIO_URL": "url",
     "ODOO_USER": "text",
     "ODOO_UID": "integer",
     "ODOO_PASSWORD": "secret",
@@ -41,8 +43,8 @@ FIELDS = {
     "MAIL_ALLOWED_RECIPIENTS": "recipients",
     "MODEL_ADAPTER": "adapter",
 }
-# Left empty: Tarik does without (MODEL_ADAPTER: the first of ADAPTERS).
-OPTIONAL = {"SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KEY", "MODEL_ADAPTER"}
+# Left empty: Tarik does without (MODEL_ADAPTER: the first of ADAPTERS; EXPERIO_URL: ODOO_URL).
+OPTIONAL = {"EXPERIO_URL", "SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KEY", "MODEL_ADAPTER"}
 IN_POSTGRES = "MODEL_ADAPTER"  # kept in cabinet_models, not in Vault
 # Every cabinet setting on the page, but the API's own.
 assert set(FIELDS) - {IN_POSTGRES} == cabinets.CABINET_SETTINGS - {"ACTIVE"}
@@ -91,6 +93,8 @@ def checked(key, value):
         raise ValueError(f"{key} vaut l'un de : {', '.join(ADAPTERS)}")
     if kind == "flag" and value not in ("0", "1"):
         raise ValueError(f"{key} vaut 1 (simulation) ou 0 (écritures réelles)")
+    if kind == "url" and not re.fullmatch(r"https://[^\s/]+/?", value):
+        raise ValueError(f"{key} est l'adresse HTTPS d'Experio, sans chemin")
     if kind == "integer" and not (value.isdigit() and int(value) > 0):
         raise ValueError(f"{key} est un nombre entier positif, sans espace (l'identifiant de Tarik dans Experio)")
     if kind == "address" and not EMAIL.fullmatch(value):

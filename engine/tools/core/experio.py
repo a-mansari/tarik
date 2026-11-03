@@ -84,6 +84,11 @@ def account():
     return current(), expected_uid(setting("ODOO_UID")), setting("ODOO_USER"), key
 
 
+def experio_url():
+    """Return the current cabinet's Experio address: its EXPERIO_URL, else ODOO_URL (the stack's)."""
+    return setting("EXPERIO_URL", ODOO_URL).rstrip("/")
+
+
 def dry_run():
     """True when the current cabinet is in test mode (DRY_RUN "1", the default): tools that write to Experio only
     report what they would write."""
@@ -144,16 +149,17 @@ def rpc(path):
     One is kept per thread and path: a run makes hundreds of calls, all on one connection instead of a new TLS one
     each."""
     proxies = _proxies.__dict__.setdefault("by_path", {})
-    endpoint = (ODOO_URL, path)
+    url = experio_url()
+    endpoint = (url, path)
     if endpoint not in proxies:
-        transport = _timed_transport()
-        proxies[endpoint] = xmlrpc.client.ServerProxy(f"{ODOO_URL}{path}", transport=transport, allow_none=True)
+        transport = _timed_transport(url)
+        proxies[endpoint] = xmlrpc.client.ServerProxy(f"{url}{path}", transport=transport, allow_none=True)
     return proxies[endpoint]
 
 
-def _timed_transport():
-    """Return an XML-RPC transport for ODOO_URL (HTTPS or not) whose connections give up after RPC_TIMEOUT seconds."""
-    base = xmlrpc.client.SafeTransport if ODOO_URL.startswith("https") else xmlrpc.client.Transport
+def _timed_transport(url):
+    """Return an XML-RPC transport for ``url`` (HTTPS or not) whose connections give up after RPC_TIMEOUT seconds."""
+    base = xmlrpc.client.SafeTransport if url.startswith("https") else xmlrpc.client.Transport
 
     class Timed(base):
         def make_connection(self, host):
@@ -181,7 +187,8 @@ def login():
     """Return Tarik's uid in the current cabinet, logging in once per account. Raises PermissionError when the login
     is refused or the uid is not the cabinet's ODOO_UID."""
     database, expected, user, key = account()
-    if _logins.get((ODOO_URL, database, user, key)) == expected:
+    url = experio_url()
+    if _logins.get((url, database, user, key)) == expected:
         return expected
     # Checks the key, writes nothing: a read.
     uid = once_more_if_cut(True, "login", lambda: rpc("/xmlrpc/2/common").authenticate(database, user, key, {}))
@@ -189,7 +196,7 @@ def login():
         raise PermissionError(f"login refused for {user} on {database}")
     if uid != expected:
         raise PermissionError(f"{user} on {database} is uid {uid}, expected {expected}: wrong cabinet or user")
-    _logins[(ODOO_URL, database, user, key)] = uid
+    _logins[(url, database, user, key)] = uid
     return uid
 
 
@@ -217,7 +224,7 @@ def odoo_json(model, method, *args, **kw):
 
     def post():
         response = HTTP.post(
-            f"{ODOO_URL}/jsonrpc", timeout=JSON_TIMEOUT, json={"jsonrpc": "2.0", "method": "call", "params": call}
+            f"{experio_url()}/jsonrpc", timeout=JSON_TIMEOUT, json={"jsonrpc": "2.0", "method": "call", "params": call}
         )
         if response.status_code in (502, 503, 504):
             raise GatewayError(response.status_code)
@@ -568,7 +575,7 @@ def experio_connection() -> str:
     try:
         version = rpc("/xmlrpc/2/common").version()["server_version"]
     except Exception as error:
-        log(f"experio_connection: {ODOO_URL} unreachable: {error}")
+        log(f"experio_connection: {experio_url()} unreachable: {error}")
         return "Experio est injoignable pour le moment."
     try:
         # A real read, not only the login: a password can log in yet be refused every call.
