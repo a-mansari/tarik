@@ -10,6 +10,7 @@ name: sarnec-n8n
 services:
   server:
     image: tarik
+    container_name: tarik-server
     build:
       context: .
       args: # the Claude Code CLI's installer (.env.example); INSTALL_CLAUDE_CODE=0 leaves it out
@@ -51,6 +52,7 @@ services:
 
   db:
     image: postgres:17-alpine
+    container_name: tarik-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-tarik}
@@ -61,6 +63,7 @@ services:
 
   vault:
     image: hashicorp/vault:1.18.3
+    container_name: tarik-vault
     restart: unless-stopped
     entrypoint: ["sh", "/vault/config/start.sh"]
     ports:
