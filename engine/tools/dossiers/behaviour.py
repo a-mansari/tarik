@@ -32,7 +32,7 @@ SETTINGS = {
         "(0 : jamais).",
     },
 }
-MAX_MINUTES = 25  # below inbox.LEASE_MINUTES: a thread's run sends at least one before it is taken as dead
+MAX_MINUTES = 25  # a long run tells the client at least this often
 ON, OFF = {"1", "true", "oui", "on", "activer"}, {"0", "false", "non", "off", "desactiver", "désactiver"}
 
 

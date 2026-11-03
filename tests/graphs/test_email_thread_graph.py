@@ -51,14 +51,20 @@ def thread(steps, monkeypatch):
     monkeypatch.setattr(emails, "call", steps.call)
     monkeypatch.setattr(emails, "answered", answered)
 
-    async def within(cabinet, function, argument, *files):  # the setting read, or the progress email sent as a step
+    async def within(cabinet, function, argument, *files):  # the setting read, the lease renewed, or the progress email
         if function is emails.behaviour:
             return resumed.get(argument, 0)
+        if function is emails.renew_lease:  # kept apart: it comes at every step, not as one of its steps
+            renewed.append(argument)
+            if isinstance(resumed.get("renewal"), Exception):
+                raise resumed["renewal"]
+            return None
         return await steps.call(cabinet, function.__name__, thread_id=argument, files=files[0])
 
     monkeypatch.setattr(emails, "within", within)
     monkeypatch.setattr(runs, "nested", nested)
-    steps.asked, steps.resumed = asked, resumed
+    renewed = []
+    steps.asked, steps.resumed, steps.renewed = asked, resumed, renewed
     return steps
 
 
@@ -106,8 +112,8 @@ def test_a_long_follow_up_tells_the_client_it_is_still_going_too(thread):
 
 
 @pytest.mark.communication
-def test_no_progress_email_once_the_thread_would_be_taken_up_again(thread, monkeypatch):
-    monkeypatch.setattr(emails, "LEASE_MINUTES", 0.0025)  # room for two progress emails of 0.001 minute
+def test_no_progress_email_once_the_run_stops_renewing_its_lease(thread, monkeypatch):
+    monkeypatch.setattr(emails, "RUN_MINUTES", 0.0025)  # room for two progress emails of 0.001 minute
     thread.resumed.update(progress=0.001, seconds=0.3)
     thread.answer("thread_refusal", {"refused": False})
     assert fil(thread)["sent"] and thread.names.count("send_progress") == 2
@@ -115,10 +121,33 @@ def test_no_progress_email_once_the_thread_would_be_taken_up_again(thread, monke
 
 @pytest.mark.communication
 def test_a_follow_up_counts_its_lease_from_the_claim_across_both_workflows(thread, monkeypatch):
-    monkeypatch.setattr(emails, "LEASE_MINUTES", 0.0025)  # room for two progress emails of 0.001 minute in all
+    monkeypatch.setattr(emails, "RUN_MINUTES", 0.0025)  # room for two progress emails of 0.001 minute in all
     thread.resumed.update(progress=0.001, seconds=0.15)  # each workflow alone would send two
     fil(thread, follow_up=True, claimed=time.time())
     assert thread.names.count("send_progress") == 2
+
+
+@pytest.mark.technical
+def test_a_long_run_renews_its_threads_lease_at_once_then_until_its_time_is_up(thread, monkeypatch):
+    monkeypatch.setattr(emails, "RENEW_MINUTES", 0.001)  # 0.06 s between renewals
+    monkeypatch.setattr(emails, "RUN_MINUTES", 0.0025)  # room for three of them, though the agent takes 0.3 s
+    thread.resumed["seconds"] = 0.3
+    thread.answer("thread_refusal", {"refused": False})
+    assert fil(thread)["sent"] and thread.renewed == ["<m1@x>"] * 3
+
+
+@pytest.mark.technical
+def test_a_follow_up_renews_its_lease_as_each_workflow_starts(thread):
+    fil(thread, follow_up=True)
+    assert thread.renewed == ["<m1@x>"] * 2  # Traitement, then Dossier: no wait for the first renewal
+
+
+@pytest.mark.technical
+def test_a_renewal_that_fails_leaves_the_answer_to_go_on(thread, monkeypatch):
+    monkeypatch.setattr(emails, "RENEW_MINUTES", 0.001)
+    thread.resumed.update(seconds=0.15, renewal=ToolFailure("base indisponible"))
+    thread.answer("thread_refusal", {"refused": False})
+    assert fil(thread)["sent"] and len(thread.renewed) >= 2  # tried again after a failure
 
 
 @pytest.mark.communication

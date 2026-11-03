@@ -26,14 +26,17 @@ from engine.tools.core.config import FILE_TYPES, READING
 from engine.tools.core.experio import main_company_id, odoo_call
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, strip_tags
-from engine.tools.dossiers.behaviour import MAX_MINUTES, behaviour
+from engine.tools.dossiers.behaviour import behaviour
 from engine.tools.dossiers.people import collaborator
 from engine.tools.dossiers.setup import setups_settled, waiting_setups
 from engine.tools.emails.sending import imap_session, recipient_allowed, send_email
 from engine.tools.invoices.pipeline import waiting_drafts
 
-LEASE_MINUTES = 30  # a run longer than this is taken as dead: the thread is picked up again
-assert MAX_MINUTES < LEASE_MINUTES  # a thread's run sends a progress email before it is taken as dead
+LEASE_MINUTES = 30  # a run silent longer than this is taken as dead: the thread is picked up again
+RENEW_MINUTES = 10  # how often a run still working renews its thread's lease (renew_lease)
+assert RENEW_MINUTES < LEASE_MINUTES
+# A run renews its lease this long after its claim at most: one stuck past it is taken as dead LEASE_MINUTES later.
+RUN_MINUTES = 180
 MAX_ATTEMPTS = 3
 FOLLOW_UP_MINUTES = 30  # how long after Tarik's reply the drafts Experio was reading are still followed up
 # The acknowledgement of a new thread, sent before the agent works on it (vouvoiement, no civility, as Tarik writes).
@@ -544,6 +547,13 @@ def threads_waiting():
     with cabinet_db() as db:
         waiting = db.execute(Q.any_thread_waiting, (LEASE_MINUTES,)).fetchone()
         return waiting is not None or bool(follow_ups_ready(db))
+
+
+def renew_lease(thread_id):
+    """Start thread ``thread_id``'s lease again (LEASE_MINUTES from now): its run still works on it, so no other run
+    takes it up. Only a thread still in progress."""
+    with cabinet_db() as db:
+        db.execute(Q.renew_thread_lease, (thread_id,))
 
 
 def set_aside(db, thread_id, state, reason):

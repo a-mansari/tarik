@@ -2,10 +2,10 @@
 
 Each claimed thread is a run of its own (FIL, "Fil d'emails"), all side by side: acknowledge it, ask the cabinet's
 agent in the thread's own conversation (engine.chat.answered, which reminds it of files still untaken), the client
-told every few minutes it still works when the cabinet chose so (kept_informed), check the sender (thread_refusal)
-and send the reply (send_email only sends to whitelisted addresses). A refused sender gets nothing: the manager is
-notified and the thread stays set aside. A follow-up thread skips the agent: it runs Traitement then Dossier in mode
-resume and sends their summaries."""
+told every few minutes it still works when the cabinet chose so and the thread's lease renewed meanwhile
+(kept_informed), check the sender (thread_refusal) and send the reply (send_email only sends to whitelisted
+addresses). A refused sender gets nothing: the manager is notified and the thread stays set aside. A follow-up thread
+skips the agent: it runs Traitement then Dossier in mode resume and sends their summaries."""
 
 import asyncio
 import contextlib
@@ -20,7 +20,7 @@ from engine.calls import ToolFailure, call, stops_at, within
 from engine.chat import answered
 from engine.tools.core.conversation import for_client, left_out
 from engine.tools.dossiers.behaviour import behaviour
-from engine.tools.emails.inbox import LEASE_MINUTES, send_progress
+from engine.tools.emails.inbox import RENEW_MINUTES, RUN_MINUTES, renew_lease, send_progress
 from engine.tools.invoices.pipeline import NOTHING
 
 
@@ -55,7 +55,7 @@ class Thread(Steps, total=False):
 async def claim(state: Run):
     """Graph node: claim the cabinet's threads waiting for an answer (claim_threads) into "threads"."""
     result = await call(state["cabinet"], "claim_threads")
-    claimed = time.time()  # their lease starts now (inbox.LEASE_MINUTES)
+    claimed = time.time()  # their lease starts now (inbox.LEASE_MINUTES), renewed while their run works (kept_informed)
     return {"threads": [{**thread, "claimed": claimed} for thread in result.get("threads", [])]}
 
 
@@ -127,13 +127,15 @@ def with_subject(subject, message):
 
 
 async def kept_informed(cabinet, thread, work):
-    """Await ``work`` and return its result, emailing the client in ``thread`` (send_progress) each time the
-    cabinet's progress minutes pass without it done; never when they are 0, nor when the setting cannot be read. A
-    progress email not sent is skipped. It is sent outside the cabinet's tool slots (within): the agents' own calls
-    never wait behind it. None is sent once LEASE_MINUTES have passed since the thread was claimed ("claimed", for
-    every step of its run): it is then taken up again, by a run that keeps its own client informed."""
-    deadline = thread.get("claimed", time.time()) + LEASE_MINUTES * 60
+    """Await ``work`` and return its result, the thread's lease renewed meanwhile (kept_alive), emailing the client in
+    ``thread`` (send_progress) each time the cabinet's progress minutes pass without it done; never when they are 0,
+    nor when the setting cannot be read. A progress email not sent is skipped. Both run outside the cabinet's tool
+    slots (within): the agents' own calls never wait behind them. Neither goes on once RUN_MINUTES have passed since
+    the thread was claimed ("claimed", for every step of its run): a run stuck that long is taken up again
+    LEASE_MINUTES later, by a run that keeps its own client informed."""
+    deadline = thread.get("claimed", time.time()) + RUN_MINUTES * 60
     task = asyncio.ensure_future(work)
+    renewing = asyncio.ensure_future(kept_alive(cabinet, thread["thread_id"], deadline))
     try:
         try:
             minutes = await within(cabinet, behaviour, "progress")
@@ -146,8 +148,21 @@ async def kept_informed(cabinet, thread, work):
                 await within(cabinet, send_progress, thread["thread_id"], thread["files"])
         return await task
     finally:
+        renewing.cancel()
         task.cancel()  # the thread's run cancelled: its agent too, waited for, so it ends as part of its tree
-        await asyncio.wait({task})
+        await asyncio.wait({task, renewing})
+
+
+async def kept_alive(cabinet, thread_id, deadline):
+    """Renew thread ``thread_id``'s lease (renew_lease) at once, then every RENEW_MINUTES until ``deadline``, so no
+    other run takes it up while this one works on it; at once, as the time before this step (its queue for a worker
+    among them) already used some of the lease. A renewal that fails is skipped: the lease lasts until the next."""
+    while True:
+        with contextlib.suppress(Exception):  # a database hiccup: the next renewal comes before the lease ends
+            await within(cabinet, renew_lease, thread_id)
+        if time.time() + RENEW_MINUTES * 60 >= deadline:
+            return
+        await asyncio.sleep(RENEW_MINUTES * 60)
 
 
 async def ask(state: Thread):

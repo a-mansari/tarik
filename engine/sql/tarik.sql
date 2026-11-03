@@ -349,15 +349,17 @@ select file_name from tarik_files where session_id = %s and parent_id is null an
 and invoice_id is null and statement_id is null order by id
 
 -- name: set_aside_failed_threads
--- Threads whose runs failed too many times (their lease over), set aside in error.
+-- Threads whose runs failed too many times (their lease over: LEASE_MINUTES since the claim or the run's last
+-- renewal), set aside in error.
 update tarik_mail_threads set state = 'error', reason = %s, claimed_at = null
-where state = 'in_progress' and attempts >= %s and claimed_at < now() - make_interval(mins => %s)
+where state = 'in_progress' and attempts >= %s and greatest(claimed_at, alive_at) < now() - make_interval(mins => %s)
 
 -- name: claim_mail_threads
 -- Lock for this run each thread Tarik must answer: new, or taken by a run that died (its lease of LEASE_MINUTES
--- is over), and each follow-up thread that is ready.
+-- since the claim or the run's last renewal is over), and each follow-up thread that is ready.
 update tarik_mail_threads set state = 'in_progress', claimed_at = now(), attempts = attempts + 1,
-updated_at = now() where state = 'new' or (state = 'in_progress' and claimed_at < now() - make_interval(mins => %s))
+updated_at = now() where state = 'new'
+or (state = 'in_progress' and greatest(claimed_at, alive_at) < now() - make_interval(mins => %s))
 or (state = 'follow_up' and thread_id = any(%s))
 returning thread_id, session_id, client_address, subject
 
@@ -390,7 +392,13 @@ select pg_try_advisory_lock(hashtext(%s))
 -- name: any_thread_waiting
 -- Whether a thread waits for Tarik: new, or taken by a run that died (its lease of LEASE_MINUTES is over).
 select 1 from tarik_mail_threads
-where state = 'new' or (state = 'in_progress' and claimed_at < now() - make_interval(mins => %s)) limit 1
+where state = 'new'
+or (state = 'in_progress' and greatest(claimed_at, alive_at) < now() - make_interval(mins => %s)) limit 1
+
+-- name: renew_thread_lease
+-- A run still working on its thread: its lease starts again (alive_at, never claimed_at: the run's refusals are read
+-- from its claim).
+update tarik_mail_threads set alive_at = now() where thread_id = %s and state = 'in_progress'
 
 -- name: set_aside_thread
 -- Unlock a thread in a state ('ignored' or 'error'), with a reason.
