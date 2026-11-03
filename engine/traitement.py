@@ -564,6 +564,8 @@ def resume_at(state: Run):
         return Send("fichier", {**payload, "entry": entry, "invoice_id": invoice_id, "outcomes": []})
 
     fixes = [sent(invoice_id, "assign_account") for invoice_id in corrections if invoice_id != answered]
+    # The supplier's other invoices that asked the same question, answered with it: each from its next step.
+    fixes += [sent(invoice_id, step) for invoice_id, step in last.get("more") or [] if invoice_id not in corrections]
     if last.get("status") != "ok" or not following:
         if answered in corrections:
             fixes.append(sent(answered, "assign_account"))
@@ -587,7 +589,11 @@ def resume_at(state: Run):
         following = "assign_account"
     # Every message takes up the drafts Experio was still reading (« reprise à votre prochain message »), an answer
     # too: the others are left to their own branch, never one invoice twice in a run.
-    skipped = {**state, "call": {**state["call"], "mode": "resume", "skip_invoices": sorted({answered, *corrections})}}
+    others = {invoice_id for invoice_id, _ in last.get("more") or []}
+    skipped = {
+        **state,
+        "call": {**state["call"], "mode": "resume", "skip_invoices": sorted({answered, *corrections, *others})},
+    }
     return [sent(answered, following), *fixes, Send("brouillons", skipped)]
 
 

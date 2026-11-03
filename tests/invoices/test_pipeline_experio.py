@@ -164,3 +164,22 @@ def test_a_tpe_statement_client_answer_resumes_its_pointing_once_given(monkeypat
     result = pipeline.apply_answer(item, "clients divers", "clients divers")
     assert result["step"] == "settle_statement" and result["file_id"] == 3
     assert (result.get("next_step") == "settle_statement") == resumes
+
+
+@pytest.mark.functionality
+def test_a_reading_already_stuck_over_an_hour_is_not_waited_for(monkeypatch):
+    """One reading Experio never finished must not hold the drafts behind it for the whole READ_WAIT."""
+    old = (pipeline.datetime.now(pipeline.UTC) - pipeline.timedelta(hours=2)).replace(tzinfo=None).isoformat()
+    draft = {"bluejay_state": "pending", "state": "pending", "create_date": old, "write_date": old}
+    clock = [0.0]
+    monkeypatch.setattr(pipeline.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(pipeline.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    monkeypatch.setattr(pipeline, "require_invoice", lambda invoice_id, fields: draft)
+    monkeypatch.setattr(pipeline, "READ_DEADLINES", {})
+    monkeypatch.setattr(pipeline, "resend_if_stuck", lambda invoice_id: " depuis plus d'une heure : relue")
+    result = pipeline.wait_until_read(4, "run")
+    assert result["status"] == "wait" and clock[0] == 0.0  # no waiting at all
+    assert "depuis plus d'une heure : relue" in result["message"]
+    fresh = (pipeline.datetime.now(pipeline.UTC) - pipeline.timedelta(minutes=30)).replace(tzinfo=None).isoformat()
+    assert not pipeline.stuck({"state": "pending", "create_date": fresh, "write_date": fresh})  # a queue, not stuck
+    assert not pipeline.stuck({"state": "draft", "create_date": old, "write_date": old})  # read: nothing to wait for

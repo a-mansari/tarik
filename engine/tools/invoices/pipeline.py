@@ -144,11 +144,12 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
     """Wait until Experio has finished reading draft ``invoice_id`` (its bluejay_state no longer "pending" nor "sent").
 
     ``run_id``: the run; all its drafts share one deadline of READ_WAIT seconds, so one stuck reading never holds the
-    run.
+    run. A reading already stuck over an hour (STUCK) is not waited for at all.
 
-    Returns a wait result when the deadline passes first (the draft is resumed at the client's next message; a reading
-    stuck over an hour is sent again, resend_if_stuck). Once read: an ok result with ``split_off``, the other drafts
-    Experio made from the same scan, for the run to take in hand too; a routine result when there are none."""
+    Returns a wait result when the deadline passes first or the reading is stuck (the draft is resumed at the client's
+    next message; a reading stuck over an hour is sent again, resend_if_stuck). Once read: an ok result with
+    ``split_off``, the other drafts Experio made from the same scan, for the run to take in hand too; a routine result
+    when there are none."""
     now = time.monotonic()
     for old in [run for run, deadline in READ_DEADLINES.items() if deadline < now - 3600]:
         del READ_DEADLINES[old]
@@ -156,7 +157,9 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
     if run_id:
         deadline = READ_DEADLINES.setdefault(run_id, deadline)
     while require_invoice(invoice_id, ["bluejay_state"])["bluejay_state"] in READING:
-        if time.monotonic() >= deadline:
+        # A reading Experio itself calls gone wrong (STUCK) is not waited for: the run's wait would only hold the
+        # drafts behind it.
+        if time.monotonic() >= deadline or stuck(require_invoice(invoice_id, STUCK_FIELDS)):
             resent = resend_if_stuck(invoice_id)
             return wait(
                 f"Facture {invoice_id} : Experio la lit encore{resent}, elle sera reprise à votre prochain message."
@@ -179,6 +182,16 @@ def wait_until_read(invoice_id: int, run_id: str = "") -> dict:
 
 
 STUCK = timedelta(minutes=60)  # Experio's own threshold for a reading gone wrong (get_pending_grouped_invoices_domain)
+STUCK_FIELDS = ["state", "create_date", "write_date", "company_id"]
+
+
+def stuck(invoice):
+    """True when ``invoice`` (read with STUCK_FIELDS) is still pending and both its creation and its last change are
+    over STUCK ago: Experio's reading of it went wrong (a resend changes it, so it is stuck again an hour later)."""
+    if invoice["state"] != "pending":
+        return False
+    now = datetime.now(UTC).replace(tzinfo=None)  # Experio's dates are UTC
+    return all(now - datetime.fromisoformat(invoice[field]) > STUCK for field in ("create_date", "write_date"))
 
 
 def resend_if_stuck(invoice_id):
@@ -188,10 +201,8 @@ def resend_if_stuck(invoice_id):
 
     Returns the phrase for the client's message: "" when nothing was done; else that it was sent again or, when Experio
     refused (Tarik's Experio user lacks the right), that the cabinet can resend it in Experio."""
-    invoice = require_invoice(invoice_id, ["state", "create_date", "write_date", "company_id"])
-    now = datetime.now(UTC).replace(tzinfo=None)  # Experio's dates are UTC
-    old = [now - datetime.fromisoformat(invoice[field]) > STUCK for field in ("create_date", "write_date")]
-    if invoice["state"] != "pending" or not all(old) or dry_run():
+    invoice = require_invoice(invoice_id, STUCK_FIELDS)
+    if not stuck(invoice) or dry_run():
         return ""
     try:
         odoo_json("exp.invoice", "action_resend", [invoice_id], context=in_dossier(invoice["company_id"][0]))
@@ -658,7 +669,7 @@ def invoice_names(ids):
     except Exception as error:  # the draft number still names it
         log(f"invoice_names: {error}")
         return {}
-    return {draft["id"]: set(names_of(draft)) for draft in found}
+    return {draft["id"]: {*names_of(draft), normalized(draft["invoice_number"] or "")} - {""} for draft in found}
 
 
 def statement_questions(statements):
@@ -722,19 +733,33 @@ def bank_questions(banks):
     return items
 
 
-def meant(waiting, about):
-    """Return the ``waiting`` item the client answers: the only one, or the one ``about`` names (an invoice's number or
-    a statement's name, as the questions are listed). None when unclear: the client is asked which."""
+# The questions whose answer is the supplier's: « azur transit : sans retenue » answers each of its invoices asking it.
+SUPPLIER_STEPS = {"settle_withholding", "settle_tva"}
+
+
+def meant_all(waiting, about):
+    """Return the ``waiting`` items the client answers: the only one, or those ``about`` names (an invoice's number, its
+    supplier, a statement's name, as the questions are listed). Several only when they all ask the same supplier-level
+    question (SUPPLIER_STEPS) and the client named their supplier; else [] when unclear: the client is asked which."""
     if len(waiting) == 1:
-        return waiting[0]
+        return list(waiting)
     named = named_by(waiting, about)
-    return named[0] if len(named) == 1 else None
+    if len(named) == 1:
+        return named
+    steps = {item["step"] for item in named}
+    return named if len(named) > 1 and len(steps) == 1 and steps <= SUPPLIER_STEPS else []
 
 
 def named_by(waiting, about):
     """Return the ``waiting`` items ``about`` names: an invoice's number, its supplier, a statement's name."""
     about = normalized(str(about or "")).removeprefix("facture ").removeprefix("releve ").removeprefix("n ")
     return [item for item in waiting if about and about in item["names"]]
+
+
+def meant(waiting, about):
+    """Return the one ``waiting`` item the client answers (meant_all), None when unclear or several."""
+    found = meant_all(waiting, about)
+    return found[0] if len(found) == 1 else None
 
 
 def about_this_file(item, answer):
@@ -925,7 +950,8 @@ def answer_pending(
         if fixes:
             result["corrections"] = as_pairs(fixes)
         return result
-    item = meant(waiting, about)
+    items = meant_all(waiting, about)
+    item = items[0] if items else None
     if not item:
         # An invoice's question already begins with its number and supplier when Experio gave them.
         questions = "\n".join(
@@ -940,6 +966,9 @@ def answer_pending(
     if sender["status"] != "ok":  # recorded as check_sender's: the email workflow tells the manager, never the sender
         return {**sender, "step": "check_sender"}
     result = apply_answer(item, answer, decision)
+    # The same supplier's other invoices asking the same question get the answer too, each to go on from its next step.
+    more = [(other["invoice_id"], apply_answer(other, answer, decision)) for other in items[1:]]
+    result["more"] = [[i, r["next_step"]] for i, r in more if r.get("status") == "ok" and r.get("next_step")]
     fixes, notes = verified_corrections(session_id, answer, corrections or [], item.get("invoice_id"))
     result["message"] = result.get("message", "") + "".join(f" {note}" for note in notes)
     if fixes:

@@ -280,7 +280,17 @@ def test_a_run_waits_on_experio_reading_once_for_all_its_drafts(monkeypatch):
     clock, states = [0.0], {1: "pending", 2: "pending", 3: "done"}
     monkeypatch.setattr(pipeline.time, "monotonic", lambda: clock[0])
     monkeypatch.setattr(pipeline.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
-    monkeypatch.setattr(pipeline, "require_invoice", lambda invoice_id, fields: {"bluejay_state": states[invoice_id]})
+    now = pipeline.datetime.now(pipeline.UTC).replace(tzinfo=None).isoformat()  # drafts read for a minute: not stuck
+    monkeypatch.setattr(
+        pipeline,
+        "require_invoice",
+        lambda invoice_id, fields: {
+            "bluejay_state": states[invoice_id],
+            "state": "pending",
+            "create_date": now,
+            "write_date": now,
+        },
+    )
     monkeypatch.setattr(pipeline, "READ_DEADLINES", {})
     monkeypatch.setattr(pipeline, "split_off", lambda invoice_id: [])
     monkeypatch.setattr(pipeline, "resend_if_stuck", lambda invoice_id: "")
@@ -807,3 +817,21 @@ def test_a_file_refused_as_no_document_is_not_taken_up_again_unless_named(db_cab
     assert len(listed["files"]) == 1  # the invoice only
     named = pipeline.files_to_process("s-receipt", client_message="2025-04-07_purchase_75552.pdf est une facture")
     assert len(named["files"]) == 2
+
+
+@pytest.mark.functionality
+def test_a_suppliers_answer_goes_to_each_of_its_invoices_asking_the_same_thing():
+    asking = {"step": "settle_withholding", "names": {"azur transit", "azur"}}
+    waiting = [
+        {**asking, "invoice_id": 1, "names": {"1", "1297", "azur transit"}},
+        {**asking, "invoice_id": 2, "names": {"2", "1323", "azur transit"}},
+        {"step": "settle_tva", "invoice_id": 3, "names": {"3", "azur transit"}},  # another question of the supplier
+        {"step": "settle_withholding", "invoice_id": 4, "names": {"4", "gecafisc"}},
+    ]
+    assert [i["invoice_id"] for i in pipeline.meant_all(waiting[:2] + waiting[3:], "azur transit")] == [1, 2]
+    assert pipeline.meant_all(waiting, "azur transit") == []  # two different questions: which one?
+    assert [i["invoice_id"] for i in pipeline.meant_all(waiting, "1297")] == [1]  # by its own number: that one
+    assert [i["invoice_id"] for i in pipeline.meant_all(waiting, "gecafisc")] == [4]
+    prepaid = [{"step": "settle_prepaid", "invoice_id": i, "names": {str(i), "srm"}} for i in (5, 6)]
+    assert pipeline.meant_all(prepaid, "srm") == []  # a per-invoice question is never answered for the others
+    assert pipeline.meant(waiting[:2], "azur transit") is None  # several: not one item
