@@ -12,7 +12,7 @@ name: tarik
 
 services:
   server:
-    image: ${TARIK_IMAGE:-tarik-server:latest}
+    image: ${TARIK_IMAGE:-tarik:latest}
     build:
       context: .
       args:
