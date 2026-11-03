@@ -57,7 +57,7 @@ from engine.tools.core.cabinets import (
     vault_settings,
 )
 from engine.tools.core.config import POSTGRES
-from engine.tools.core.experio import account
+from engine.tools.core.experio import account, experio_url
 from server import accounts, api, audit, experio_api, layouts
 
 TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
@@ -341,7 +341,8 @@ def check_cabinets():
     """Check at start that Vault is set, every cabinet is fully configured, and each schema is ready.
 
     Raises SystemExit (nothing is served) when Vault is off, no cabinet is configured, a setting is in the wrong
-    Vault path, or a cabinet's Experio account check fails (engine.tools.core.experio.account)."""
+    Vault path, or a cabinet's Experio account check fails (engine.tools.core.experio.account); PermissionError
+    for an EXPERIO_URL Tarik would not use (experio_url)."""
     if not VAULT_ENABLED:
         raise SystemExit("VAULT_ADDR is not set: Tarik's settings are read from Vault only")
     if not CABINETS:
@@ -352,6 +353,7 @@ def check_cabinets():
     for name in sorted(CABINETS):
         with using(name):
             account()  # exact database name and Tarik's user id, or SystemExit
+            experio_url()
     create_schemas()
 
 

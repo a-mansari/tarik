@@ -22,6 +22,10 @@ BEFORE = {
     ("key", "value", "why"),
     [
         ("DRY_RUN", "oui", "vaut 1"),
+        ("EXPERIO_URL", "http://system.experio.ma", "HTTPS"),
+        ("EXPERIO_URL", "https://system.experio.ma/web", "sans chemin"),
+        ("EXPERIO_URL", "https://system.experio.ma@other.example", "sans chemin"),
+        ("EXPERIO_URL", "https://system.experio.ma#", "sans chemin"),
         ("ODOO_UID", "-3", "entier positif"),
         ("ODOO_USER", "", "vide"),
         ("MAIL_MANAGER", "pas une adresse", "adresse"),
@@ -56,6 +60,23 @@ def test_a_setting_loses_its_outer_spaces_only_and_a_secret_none():
     assert cabinet_settings.changed(before, {"MAIL_ALLOWED_RECIPIENTS": " @experio.ma,@sarnec.com "}) == {}
     spaced = {"MAIL_ALLOWED_RECIPIENTS": "@experio.ma, @sarnec.com", "SMTP_PASSWORD": " pass word "}
     assert cabinet_settings.changed(before, spaced) == spaced  # inside a list, and a password's spaces, are kept
+
+
+@pytest.mark.parametrize("url", ["https://system.experio.ma", "https://system.experio.ma/", "https://x.ma:8443"])
+def test_an_experio_address_with_its_host_only_is_taken(url):
+    cabinet_settings.checked("EXPERIO_URL", url)
+
+
+@pytest.mark.security
+def test_a_new_experio_address_needs_its_secrets_typed_again():
+    """Tarik sends the password to EXPERIO_URL: a new address never gets the stored one."""
+    moved = {"EXPERIO_URL": "https://other.example"}
+    with pytest.raises(ValueError, match="retapez aussi ODOO_PASSWORD"):
+        cabinet_settings.changed(BEFORE, moved)
+    with pytest.raises(ValueError, match="ODOO_PASSWORD, ODOO_API_KEY"):
+        cabinet_settings.changed({**BEFORE, "ODOO_API_KEY": "old-key"}, moved)
+    assert cabinet_settings.changed(BEFORE, {**moved, "ODOO_PASSWORD": "old-password"}) == moved
+    assert cabinet_settings.changed({}, {**moved, "ODOO_PASSWORD": "pw"}) == {**moved, "ODOO_PASSWORD": "pw"}
 
 
 @pytest.mark.parametrize(("key", "value"), [("ODOO_UID", "4 30"), ("MAIL_MANAGER", "a b@c.ma"), ("ODOO_USER", "  ")])

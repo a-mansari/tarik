@@ -16,7 +16,7 @@ from email.utils import parseaddr
 import httpx
 from psycopg.types.json import Jsonb
 
-from engine.tools.core import cabinets, model
+from engine.tools.core import cabinets, experio, model
 from engine.tools.core.model import ADAPTERS
 from engine.tools.core.queries import Q
 from server import audit
@@ -25,9 +25,11 @@ from server.accounts import EMAIL
 ROLE = "/run/vault-settings"  # the page's AppRole files, mounted by docker-compose.yml
 
 # The settings the page shows, in its order, each with what it holds: text, a secret (never shown, only replaced),
-# a yes/no (DRY_RUN: 1 or 0), a positive integer, an address, or a comma-separated list of addresses and @domains.
+# a yes/no (DRY_RUN: 1 or 0), an HTTPS address, a positive integer, an address, or a comma-separated list of
+# addresses and @domains.
 FIELDS = {
     "DRY_RUN": "flag",
+    "EXPERIO_URL": "url",
     "ODOO_USER": "text",
     "ODOO_UID": "integer",
     "ODOO_PASSWORD": "secret",
@@ -41,8 +43,8 @@ FIELDS = {
     "MAIL_ALLOWED_RECIPIENTS": "recipients",
     "MODEL_ADAPTER": "adapter",
 }
-# Left empty: Tarik does without (MODEL_ADAPTER: the first of ADAPTERS).
-OPTIONAL = {"SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KEY", "MODEL_ADAPTER"}
+# Left empty: Tarik does without (MODEL_ADAPTER: the first of ADAPTERS; EXPERIO_URL: ODOO_URL).
+OPTIONAL = {"EXPERIO_URL", "SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KEY", "MODEL_ADAPTER"}
 IN_POSTGRES = "MODEL_ADAPTER"  # kept in cabinet_models, not in Vault
 # Every cabinet setting on the page, but the API's own.
 assert set(FIELDS) - {IN_POSTGRES} == cabinets.CABINET_SETTINGS - {"ACTIVE"}
@@ -91,6 +93,8 @@ def checked(key, value):
         raise ValueError(f"{key} vaut l'un de : {', '.join(ADAPTERS)}")
     if kind == "flag" and value not in ("0", "1"):
         raise ValueError(f"{key} vaut 1 (simulation) ou 0 (écritures réelles)")
+    if kind == "url" and not experio.OWN_EXPERIO.fullmatch(value):
+        raise ValueError(f"{key} est l'adresse HTTPS d'Experio, sans chemin")
     if kind == "integer" and not (value.isdigit() and int(value) > 0):
         raise ValueError(f"{key} est un nombre entier positif, sans espace (l'identifiant de Tarik dans Experio)")
     if kind == "address" and not EMAIL.fullmatch(value):
@@ -111,7 +115,10 @@ def changed(before, given):
 
     A non-secret value is trimmed of surrounding spaces, checked (see checked) and otherwise kept as typed; any other
     difference, a space inside included, counts as a change. A secret is kept exactly as typed, and an empty secret
-    leaves the current one unchanged. Keys outside FIELDS are ignored."""
+    leaves the current one unchanged. Keys outside FIELDS are ignored.
+
+    Raises ValueError when EXPERIO_URL changes without the Experio secrets already set typed again: Tarik sends them
+    to that address, so changing it must not hand the stored ones to another server."""
     found = {}
     for key, kind in FIELDS.items():
         if key not in given:
@@ -124,6 +131,9 @@ def changed(before, given):
         unset = next(iter(ADAPTERS)) if kind == "adapter" else ""  # an adapter unset: the first
         if value != (before.get(key) or unset):
             found[key] = value
+    kept = [key for key in ("ODOO_PASSWORD", "ODOO_API_KEY") if before.get(key) and not given.get(key)]
+    if "EXPERIO_URL" in found and kept:
+        raise ValueError(f"pour changer EXPERIO_URL, retapez aussi {', '.join(kept)}")
     return found
 
 
