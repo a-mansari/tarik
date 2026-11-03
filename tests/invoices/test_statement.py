@@ -187,6 +187,9 @@ def experio(monkeypatch):
         if method == "action_apply":
             state["applied"].append(ids)
             return True
+        if method == "action_fetch_exchange_rate":  # the rate window's button: the rates fetched, posting goes on
+            state["fetched"], state["post"] = ids, state.get("after_fetch")
+            return {"type": "ir.actions.act_window_close"}
         if method == "action_post":
             if isinstance(state["post"], Exception):
                 raise state["post"]
@@ -596,6 +599,17 @@ def test_posting_takes_the_ready_lines_and_lists_whats_in_suspense(experio):
         and "j'ai comptabilisé 1 opération.\n- 2 opérations restent à compléter" in result["message"]
     )
     assert "reste en suspens" in result["message"] and "VIR 1 (200.00)" in result["message"]
+
+
+@pytest.mark.functionality
+def test_the_missing_exchange_rate_window_is_answered_with_its_button_then_posted_again(experio):
+    experio["post"] = {"res_model": statement.RATE_WINDOW, "res_id": 77, "name": "Missing Exchange Rate"}
+    result = statement.post_statement(8)
+    assert experio["fetched"] == [77] and result["status"] == "ok"
+    assert "Taux de change des opérations en devise récupéré par Experio" in result["message"]
+    rate_window = {"res_model": statement.RATE_WINDOW, "res_id": 78, "name": "Missing Exchange Rate"}
+    experio.update(post=rate_window, after_fetch=rate_window)  # no rate came: the same window, for the cabinet
+    assert "« Missing Exchange Rate »" in statement.post_statement(8)["message"]
 
 
 @pytest.mark.security
@@ -1359,9 +1373,21 @@ def test_the_card_insurance_is_a_bank_charge_without_tva(experio):
         },
     ]
     for operation in experio["operations"][-2:]:
-        operation.update(account_id=[6, "614730000 FRAIS ET COMMIS"], error_msg=False)
+        operation.update(account_id=[6, "614730000 FRAIS ET COMMIS"], error_msg=False, tax_id=False)
     pointed()
     assert ([2], {"operation_id": 5002}) in experio["written"]
+
+
+@pytest.mark.functionality
+def test_the_card_insurance_never_takes_an_operation_that_adds_tva(experio):
+    with_suspense(experio, payment_ref="ASSURANCE SECURICARTE")
+    experio["operations"].append(
+        {"id": 5002, "name": "Frais Bancaire (HT)", "type": "bank_fee", "payment_type": "outbound"}
+        | {"bank_type": "frais_without_tax", "tax_id": [52, "TVA 10%"]}  # Experio's standard one: 10 % on top
+        | {"account_id": [6, "614730000 FRAIS ET COMMIS"], "error_msg": False}
+    )
+    pointed()
+    assert ([2], {"operation_id": 5002}) not in experio["written"]
 
 
 @pytest.mark.functionality
@@ -1375,6 +1401,78 @@ def test_a_dgi_payment_is_the_tva_due_only_when_a_declaration_owes_that_amount(e
     experio["declared"] = declared
     pointed()
     assert ([2], {"operation_id": operation}) in experio["written"]  # else: suspense, the tax is the cabinet's
+
+
+@pytest.mark.functionality
+def test_a_dgi_payment_of_a_declared_ras_goes_to_its_account(experio, monkeypatch):
+    with_suspense(experio, payment_ref="PRELEVEMENT EN FAV. DGI")
+    experio["operations"].append(
+        {"id": 5004, "name": "RAS IS", "type": False, "payment_type": "outbound", "bank_type": False}
+        | {"account_id": [7, "445700000 ETAT RAS"], "error_msg": False}
+    )
+    experio["declared"] = 0  # no TVA declaration owes it
+    monkeypatch.setattr(statement, "ras_paid", lambda amount, context: "44570000" if amount == 200.0 else None)
+    pointed()
+    assert ([2], {"operation_id": 5004}) in experio["written"]
+
+
+@pytest.fixture
+def ras_tables(monkeypatch):
+    """The dossier's declared RAS: {model: [tables]}, {line model: [lines]}, its RAS accounts' codes."""
+    state = {"tables": {}, "lines": {}}
+    accounts = {"local_withholding_account_id": [31, "4457"], "local_tax_withholding_account_id": [32, "445581"]}
+    accounts["local_tax_withholding_account_id_100"] = [33, "445582"]
+
+    def odoo_call(model, method, *args, **kw):
+        if method == "search_read":
+            assert ("state", "=", "done") in args[0]  # only what Experio holds declared
+            kind = next((term[2] for term in args[0] if term[0] == "type"), None)
+            return [t for t in state["tables"].get(model, []) if t.get("type") in (None, kind)]
+        if model == "res.company":
+            return [{kw["fields"][0]: accounts.get(kw["fields"][0], False)}]
+        if model == "exp.account":
+            return [{"code": {31: "44570000", 32: "44558100", 33: "44558200"}[args[0][0]]}]
+        return state["lines"][model]
+
+    monkeypatch.setattr(statement, "odoo_call", odoo_call)
+    return state
+
+
+CONTEXT_857 = {"allowed_company_ids": [857]}
+
+
+@pytest.mark.functionality
+def test_a_payment_equal_to_one_declared_ras_names_its_account(ras_tables):
+    ras_tables["tables"]["exp.withholding.table"] = [{"type": "is", "is_withholding_ids": [1, 2]}]
+    ras_tables["lines"]["exp.withholding.table.line"] = [{"amount_withholding": 120.0}, {"amount_withholding": 80.0}]
+    assert statement.ras_paid(200.0, CONTEXT_857) == "44570000"
+    assert statement.ras_paid(150.0, CONTEXT_857) is None  # no declaration of that total
+
+
+@pytest.mark.functionality
+def test_a_ras_tva_takes_its_rates_account_and_a_mixed_one_is_the_cabinets(ras_tables):
+    ras_tables["tables"]["exp.tax.withholding.table"] = [{"tax_withholding_ids": [1]}]
+    ras_tables["lines"]["exp.tax.withholding.table.line"] = [
+        {"amount_withholding": 90.0, "withholding_percentage": "75"}
+    ]
+    assert statement.ras_paid(90.0, CONTEXT_857) == "44558100"
+    ras_tables["tables"]["exp.tax.withholding.table"] = [{"tax_withholding_ids": [1, 2]}]
+    ras_tables["lines"]["exp.tax.withholding.table.line"] = [
+        {"amount_withholding": 45.0, "withholding_percentage": "75"},
+        {"amount_withholding": 45.0, "withholding_percentage": "100"},
+    ]
+    assert statement.ras_paid(90.0, CONTEXT_857) is None  # paid from two accounts: split by the cabinet
+
+
+@pytest.mark.functionality
+def test_two_declared_ras_of_the_same_total_name_none(ras_tables):
+    ras_tables["tables"]["exp.withholding.table"] = [{"type": "is", "is_withholding_ids": [1]}]
+    ras_tables["tables"]["exp.tax.withholding.table"] = [{"tax_withholding_ids": [2]}]
+    ras_tables["lines"]["exp.withholding.table.line"] = [{"amount_withholding": 200.0}]
+    ras_tables["lines"]["exp.tax.withholding.table.line"] = [
+        {"amount_withholding": 200.0, "withholding_percentage": "75"}
+    ]
+    assert statement.ras_paid(200.0, CONTEXT_857) is None
 
 
 @pytest.mark.functionality

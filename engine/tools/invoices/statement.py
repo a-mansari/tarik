@@ -7,8 +7,9 @@
   method and tiers from past posted lines, and an open posted invoice of exactly that tiers and amount, and shows them
   in a window to confirm; Tarik confirms them (the window's action_apply). A line the client ties to an invoice by its
   number gets that invoice when the amount owed is exactly the line's.
-- Posting: Experio's own validation of the statement (action_post), which posts its ready lines only. A window it
-  opens instead (duplicate, out of the period, exchange rate) stops for the cabinet.
+- Posting: Experio's own validation of the statement (action_post), which posts its ready lines only. Its « Missing
+  Exchange Rate » window (foreign lines at rate 1) is answered with its own button, then the posting tried again; any
+  other window it opens instead (duplicate, out of the period) stops for the cabinet.
 """
 
 import ast
@@ -41,6 +42,7 @@ from engine.tools.core.model import ask_model, pdf_text, tool_prompt
 from engine.tools.core.queries import Q
 from engine.tools.core.words import LEGAL_FORMS, as_number, counted, normalized, reason, said, tiers_key
 from engine.tools.core.words import reasons as reason_lines
+from engine.tools.declarations.ras import KINDS as RAS_KINDS
 from engine.tools.dossiers.banks import bank_of_rib
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
@@ -426,7 +428,7 @@ def operations_of(dossier_id, context):
     check_company, bank/models/bank_statement_line.py:177-181), without an error of their own (a line on one stays
     draft, :4031-4035; validate_operation_fields, bank/models/bank_operation_type.py:176-216)."""
     domain = ["|", ("company_id", "=", dossier_id), ("company_id", "=", False)]
-    fields = ["name", "type", "payment_type", "account_id", "error_msg", "bank_type"]
+    fields = ["name", "type", "payment_type", "account_id", "error_msg", "bank_type", "tax_id"]
     found = odoo_call("bank.operation.type", "search_read", domain, fields=fields, context=context)
     return {o["id"]: o for o in found if not o["error_msg"]}
 
@@ -500,9 +502,12 @@ def label_operation(line, operations, context):
     stamp-duty operation (account 6167). The cabinets' dossiers do it on 90% of such lines (a pharmacy's 233 of 233);
     a model reading it as a bank tax was the commonest error of a test copy.
 
-    « SECURICARTE » is the bank's card insurance: bank charges (61473), without TVA, as insurance is exempt. « DGI »
-    on money paid is the TVA due when a TVA declaration of the dossier owes exactly that amount (its tva_due_unsigned,
-    exp.deduction.table), to the TVA due account (4456); any other tax payment is for the cabinet.
+    « SECURICARTE » is the bank's card insurance: bank charges (61473), without TVA, as insurance is exempt: only an
+    « HT » operation with no tax, since Experio adds an HT operation's tax on top of the amount (bank_statement_line.py
+    get_tax_debit_and_credit) and its standard « Frais Bancaire (HT) » carries 10 % (bank/models/exp_account.py).
+    « DGI » on money paid is the TVA due when a TVA declaration of the dossier owes exactly that amount (its
+    tva_due_unsigned, exp.deduction.table), to the TVA due account (4456); else a declared RAS of exactly that total
+    (ras_paid); any other tax payment is for the cabinet.
     """
     words = normalized(line["payment_ref"])
     company = [("company_id", "=", context["allowed_company_ids"][0])]
@@ -515,13 +520,60 @@ def label_operation(line, operations, context):
     if said("timbre", words):  # the stamp duty on a deposit: the stamp-duty operation (6167), not a bank tax
         return operation_on(operations, "6167", type=False), None
     if said("securicarte", words):
-        return operation_on(operations, "61473", type="bank_fee", bank_type="frais_without_tax"), None
+        return operation_on(operations, "61473", type="bank_fee", bank_type="frais_without_tax", tax_id=False), None
     amount = round(abs((line["credit"] or 0) - (line["debit"] or 0)), 2)
     if said("dgi", words):
         owed = [("tva_due_unsigned", ">=", amount - 0.005), ("tva_due_unsigned", "<=", amount + 0.005)]
         if odoo_call("exp.deduction.table", "search_count", [*company, *owed], context=context):
             return operation_on(operations, "4456"), None
+        account = ras_paid(amount, context)
+        if account:
+            return operation_on(operations, account), None
     return None, None
+
+
+# The dossier's account each declared RAS is paid from (res.company, invoice/models/res_company.py), per declaration
+# kind (declarations.ras.KINDS); RAS TVA by its lines' rate (withholding_percentage).
+RAS_ACCOUNTS = {
+    "is": "local_withholding_account_id",
+    "ir": "local_ir_withholding_account_id",
+    "non_resident": "withholding_account_id",
+    "non_resident_yearly": "withholding_account_id",
+    "75": "local_tax_withholding_account_id",
+    "100": "local_tax_withholding_account_id_100",
+}
+RAS_RECENT = 6  # the dossier's latest declared tables of each kind a payment may settle
+
+
+def ras_paid(amount, context):
+    """Return the account code of the one declared RAS of the dossier whose total withheld is ``amount``, None when
+    none or several. Only Experio's declared tables (state done), the RAS_RECENT latest of each kind; a RAS TVA whose
+    lines are at both 75 % and 100 % is paid from two accounts: the cabinet splits it."""
+    dossier = context["allowed_company_ids"][0]
+    found = []
+    for kind, spec in RAS_KINDS.items():
+        domain = [("company_id", "=", dossier), ("state", "=", "done")]
+        domain += [("type", "=", spec["type"])] if "type" in spec else []
+        tables = odoo_call(
+            spec["model"],
+            "search_read",
+            domain,
+            fields=[spec["lines"]],
+            order="id desc",
+            limit=RAS_RECENT,
+            context=context,
+        )
+        withheld = "amount_foreign_withholding" if "foreign" in spec["model"] else "amount_withholding"
+        fields = [withheld, "withholding_percentage"] if kind == "tva" else [withheld]
+        for table in tables:
+            lines = odoo_call(spec["line"], "read", table[spec["lines"]], fields=fields, context=context)
+            if lines and abs(round(sum(line[withheld] or 0 for line in lines), 2) - amount) <= 0.005:
+                rates = {line["withholding_percentage"] for line in lines} if kind == "tva" else {kind}
+                found.append(RAS_ACCOUNTS.get(rates.pop()) if len(rates) == 1 else None)
+    if len(found) != 1 or not found[0]:
+        return None
+    held = odoo_call("res.company", "read", [dossier], fields=[found[0]], context=context)[0][found[0]]
+    return odoo_call("exp.account", "read", [held[0]], fields=["code"], context=context)[0]["code"] if held else None
 
 
 def is_suspense(operation):
@@ -1655,6 +1707,11 @@ def post_statement(file_id: int) -> dict:
     return posting(read_statement(statement_id))
 
 
+# Experio's window when foreign-currency lines are at rate 1 (bank_statement_line.py action_post); its one button
+# fetches their rates (exp_bank_exchange_rate_wizard.py action_fetch_exchange_rate).
+RATE_WINDOW = "exp.bank.exchange.rate.wizard"
+
+
 def posting(statement):
     """Post bank ``statement`` (read with FIELDS): post_statement's result."""
     statement_id = statement["id"]
@@ -1663,8 +1720,13 @@ def posting(statement):
     context = in_dossier(statement["company_id"][0])
     if dry_run():
         return ok(f"{TEST_MODE}Relevé n° {statement_id} : ses opérations prêtes seraient comptabilisées.")
+    fetched = False
     try:
         action = with_fiscal_year(odoo_json(STATEMENT, "action_post", [statement_id], context=context), context)
+        if isinstance(action, dict) and action.get("res_model") == RATE_WINDOW:  # its button, then posted again
+            odoo_json(RATE_WINDOW, "action_fetch_exchange_rate", [action["res_id"]], context=context)
+            fetched = True
+            action = with_fiscal_year(odoo_json(STATEMENT, "action_post", [statement_id], context=context), context)
     except Exception as error:  # Experio's refusal (complete validation required, exact duplicate): its own words
         log(f"post_statement {statement_id}: {error}")
         if not is_refusal(error):
@@ -1680,6 +1742,8 @@ def posting(statement):
     reasons, ready, posted = blocked_reasons(statement, context)
     pending = suspense(statement, context)
     text = f"Relevé n° {statement_id} : j'ai comptabilisé {counted(posted, '{} opération', '{} opérations')}."
+    if fetched:
+        text += "\n- Taux de change des opérations en devise récupéré par Experio avant de comptabiliser."
     left = sum(reasons.values())
     if left:
         text += counted(
