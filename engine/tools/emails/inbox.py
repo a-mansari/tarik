@@ -13,6 +13,7 @@ it creates nothing in Experio."""
 import contextlib
 import hashlib
 import re
+from collections import Counter
 from email import message_from_bytes, policy
 from email.utils import parseaddr
 
@@ -580,22 +581,22 @@ def acknowledge_thread(thread_id: str) -> dict:
 
 
 @tool
-def send_progress(thread_id: str, documents: int = 0) -> dict:
+def send_progress(thread_id: str, files: list) -> dict:
     """Tell the client, in their thread, that Tarik still works on it: the Emails graph sends it every « progress »
-    minutes the cabinet chose while Tarik has not answered. ``documents``: how many files the thread brought when it
-    was claimed (its "files"); with several, some taken by a tool since (untaken), the email says how many of them
-    (PROGRESS_COUNTED), else it is PROGRESS. A sender already refused in this run (check_sender, as thread_refusal
-    reads it) gets none: a refused sender gets nothing. Returns an ok result with sent=True when sent, sent=False
-    otherwise."""
+    minutes the cabinet chose while Tarik has not answered. ``files``: the names of the files the thread brought when
+    it was claimed (its "files"); with several, some taken by a tool since, the email says how many of them
+    (PROGRESS_COUNTED), else it is PROGRESS. A file the client sent since the claim counts in neither. A sender
+    already refused in this run (check_sender, as thread_refusal reads it) gets none: a refused sender gets nothing.
+    Returns an ok result with sent=True when sent, sent=False otherwise."""
     with cabinet_db() as db:
         thread, refused = refusal_of(db, thread_id)
         if not thread or refused:
             return ok("Pas de point d'avancement : fil inconnu ou expéditeur refusé.", sent=False)
         session_id, address, subject, _ = thread
         reply = addressed(db, thread_id, address, subject)
-    # A file the client sent since the claim is untaken too: never fewer than none taken. One document: no count.
-    taken = max(documents - untaken(session_id), 0) if documents > 1 else 0
-    sent_in_thread(thread_id, reply, PROGRESS_COUNTED.format(taken, documents) if taken else PROGRESS)
+        left = Counter(name for (name,) in db.execute(Q.untaken_file_names, (session_id,)))
+    taken = (Counter(files) - left).total() if len(files) > 1 else 0  # one document: no count
+    sent_in_thread(thread_id, reply, PROGRESS_COUNTED.format(taken, len(files)) if taken else PROGRESS)
     return ok("Point d'avancement envoyé.", sent=True)
 
 
