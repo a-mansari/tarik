@@ -11,7 +11,7 @@ import re
 
 from engine.tools.core.app import CRASHED, ToolError, log, ok, question, step_tool
 from engine.tools.core.config import TIERS_MIN_SIMILARITY
-from engine.tools.core.conversation import chosen_among
+from engine.tools.core.conversation import chosen_among, keep_answer, kept_answer
 from engine.tools.core.experio import (
     dry_run,
     experio_refusal,
@@ -256,7 +256,8 @@ def dossier_tiers(company_id):
 def link_tiers(invoice_id: int) -> dict:
     """Give a draft invoice its tiers (the supplier of a purchase, the customer of a sale) and its Compte Tiers.
 
-    Call it after classify_invoice. Keeps a tiers already set, else links the one Experio detected from the scan. A
+    Call it after classify_invoice. Keeps a tiers already set (unless it is Experio's own detection that the check read
+    differently on the scan: then asked), else links the one Experio detected from the scan. A
     customs invoice gets the dossier's customs tiers. Without one, an invoice already in the dossier is stopped; then
     the name printed on the scan (or read by the check) is linked to the one tiers of exactly that name, or created
     when no tiers of the dossier comes close, or else a question result proposes the close names (the client's
@@ -265,9 +266,26 @@ def link_tiers(invoice_id: int) -> dict:
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de tiers", read=True)
     kind = side_of(invoice)
     role = SIDE[kind]["role"]
-    if invoice["partner_id"]:  # already set in Experio (by it, by hand, by an answer): kept, whatever was detected
-        return link(invoice, invoice["partner_id"][0], kind)
     detected = invoice[SIDE[kind]["detected"]]
+    # Experio's own pick (what it detected) that the check read differently on the scan, e.g. the customer's ICE taken
+    # for the supplier's: not trusted, unless the client chose that very tiers when asked (choose_tiers keeps it).
+    disputed = bool(invoice["partner_id"]) and invoice["partner_id"] == detected and flagged_tier(invoice_id)
+    if disputed and kept_answer(invoice_id, "link_tiers") == str(invoice["partner_id"][0]):
+        disputed = None
+    if disputed:
+        same = same_name(invoice, disputed, kind)
+        if same:
+            return same
+        ice = checked_values(invoice_id).get("ice")
+        phrase, choices = find_tiers(invoice_id, disputed, TIERS_MIN_SIMILARITY, ice)
+        ask = phrase if choices else f"{phrase} Faut-il le créer sous ce nom, ou est-ce un autre tiers (nom ou ICE) ?"
+        return question(
+            f"Facture {invoice_id} : Experio a pris « {invoice['partner_id'][1]} », mais le scan indique « {disputed} »"
+            f" comme {role}. {ask}",
+            choices=choices,
+        )
+    if invoice["partner_id"]:  # already set in Experio (by hand, by an answer): kept, whatever was detected
+        return link(invoice, invoice["partner_id"][0], kind)
     if detected:
         return link(invoice, detected[0], kind)
     if invoice.get("import_invoice_type") == "customs":  # Experio has no customs tiers of its own: the dossier's
@@ -412,6 +430,7 @@ def choose_tiers(invoice_id, decision, answer, choices=None):
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de tiers", read=True)
     chosen = chosen_among(decision, choices)
     if chosen:
+        keep_answer(invoice_id, "link_tiers", str(chosen))
         return link(invoice, chosen, side_of(invoice))
     if said(UNCHECKED, normalized(answer or "")):  # the client's own words, never the agent's
         kind = side_of(invoice)
@@ -425,6 +444,7 @@ def choose_tiers(invoice_id, decision, answer, choices=None):
     written = ICE_WRITTEN.findall(given)
     by_ice = [p for p in dossier_tiers(invoice["company_id"][0]) if p["ice"] and p["ice"] in written]
     if len(by_ice) == 1:
+        keep_answer(invoice_id, "link_tiers", str(by_ice[0]["id"]))
         return link(invoice, by_ice[0]["id"], side_of(invoice))
     phrase, choices = find_tiers(invoice_id, given)
     if not choices and given == decision and not given.isdigit():  # a name the client gave, nothing like it: created
