@@ -237,3 +237,21 @@ def test_a_skill_loaded_on_an_earlier_turn_is_shown_as_it_is_now(monkeypatch):
     shown = agent.current_skills(messages)
     assert [m.content for m in shown] == ["Voici", "", "now", "Facture 272471 : en attente"]
     assert messages[2].content == "then"  # the conversation itself is left as it was
+
+
+@pytest.mark.functionality
+def test_the_suppliers_other_invoices_answered_with_it_go_on_from_their_own_next_step():
+    from engine import traitement
+
+    last = {
+        "status": "ok",
+        "next_step": "settle_prepaid",
+        "invoice_id": 7,
+        "more": [[8, "settle_prepaid"], [9, "check_journal"]],
+    }
+    state = {"call": {"session_id": "s"}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
+    sends = traitement.resume_at(state)
+    entries = [(s.arg["invoice_id"], s.arg["entry"]) for s in sends if s.node == "fichier"]
+    assert entries == [(7, "settle_prepaid"), (8, "settle_prepaid"), (9, "check_journal")]
+    [resuming] = [s for s in sends if s.node == "brouillons"]
+    assert resuming.arg["call"]["skip_invoices"] == [7, 8, 9]  # none of them taken up twice
