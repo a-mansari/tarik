@@ -33,6 +33,7 @@ INPUTS = [
     "about",
     "corrections",
     "invoice_type",
+    "invoice_type_words",
     "client_message",
     "tva_non_recuperable",
     "retenue",
@@ -365,7 +366,18 @@ async def aiguillage(state: Run):
         route = call.get("mode")
     if route == "answer" and call.get("comptabiliser") == "oui":
         route = "both"  # they ask to post: posting happens, whatever question waits (their words may answer it too)
-    return {"route": route if route in ("files", "answer", "resume", "both") else "files"}
+    found = {"route": route if route in ("files", "answer", "resume", "both") else "files"}
+    if call.get("invoice_type"):  # the agent's reading of achat / vente stands only with the client's own words
+        side = await run_tool(
+            call["cabinet"],
+            "verified_side",
+            session_id=call["session_id"],
+            invoice_type=call["invoice_type"],
+            words=call.get("invoice_type_words") or "",
+            client_message=call.get("client_message") or "",
+        )
+        found["call"] = {**call, "invoice_type": side["invoice_type"]}
+    return found
 
 
 def by_route(state: Run):

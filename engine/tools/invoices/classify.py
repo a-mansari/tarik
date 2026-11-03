@@ -2,8 +2,9 @@
 
 import re
 
-from engine.tools.core.app import ToolError, log, ok, routine, step_tool, stop
+from engine.tools.core.app import ToolError, log, ok, routine, step_tool, stop, tool
 from engine.tools.core.cabinets import cabinet_db
+from engine.tools.core.conversation import client_messages, own_words
 from engine.tools.core.experio import (
     fill_invoice,
     has_scan,
@@ -17,7 +18,7 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.model import READER, ask_model, scan_pages, tool_prompt
 from engine.tools.core.queries import Q
-from engine.tools.core.words import normalized
+from engine.tools.core.words import normalized, said
 
 CATEGORY_TO_TYPE = {"achat": "purchase", "vente": "sale"}
 # Where Experio keeps an invoice's taxe régionale, per side (_get_tr_style_config).
@@ -75,6 +76,30 @@ def client_side(invoice_type, words):
         side for side, pattern in SIDE_WORDS.items() if re.search(rf"\b(?:{pattern})\b", normalized(words or ""))
     }
     return invoice_type if invoice_type in SIDES and SIDES[invoice_type] <= written else None
+
+
+MIN_QUOTE = 4  # letters and digits: « a », « de » prove nothing
+
+
+@tool
+def verified_side(session_id: str, invoice_type: str = "", words: str = "", client_message: str = "") -> dict:
+    """Return the side (``invoice_type``) the agent read in the client's messages, only when it can show where.
+
+    The agent reads whether the client wrote achat, vente or both, and quotes the words it relied on (``words``).
+    The side stands when that quote is, word for word (case, accents and apostrophes aside), in a message of the
+    conversation; else it is "" and the side is read on the scan or asked. A model may not choose the side of the
+    client's invoices, and no list of words has to say what « achat » looks like: « factures d’achat »,
+    « règlement fournisseur », « dépenses » are the agent's to recognise, the code only checks the quote is the
+    client's.
+
+    Returns an ok result with ``invoice_type``: the side kept, or ""."""
+    quote = normalized(own_words(words))
+    if invoice_type not in SIDES or len(quote.replace(" ", "")) < MIN_QUOTE:
+        return ok("Le type n'est pas établi par les mots du client.", invoice_type="")
+    said_by_client = normalized(" ".join(client_messages(session_id, client_message)))
+    if not said(quote, said_by_client):
+        return ok("Les mots cités ne sont pas dans les messages du client.", invoice_type="")
+    return ok("Le type vient des mots du client.", invoice_type=invoice_type)
 
 
 def side_by_ice(invoice, company):

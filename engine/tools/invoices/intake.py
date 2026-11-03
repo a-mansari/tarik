@@ -26,7 +26,7 @@ from engine.tools.dossiers.banks import (
     one_bank_named,
 )
 from engine.tools.invoices import tpe
-from engine.tools.invoices.classify import classify_pages, client_side
+from engine.tools.invoices.classify import SIDES, classify_pages
 from engine.tools.invoices.statement import STATEMENT, import_canvas, is_canvas
 
 KIND_LABEL = {"invoice": "une facture", "statement": "un relevé bancaire", "other": "ni une facture ni un relevé"}
@@ -313,7 +313,8 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
 
     Args:
         file_id: the file.
-        invoice_type: achat, vente or mixte, as the client wrote it in this conversation. Without it, the side the scan
+        invoice_type: achat, vente or mixte, as the client wrote it in this conversation (verified_side checked it at
+            the start of the run). Without it, the side the scan
             shows for the dossier is used and reported to the client (``invoice_type`` in the result); a question result
             when the scan shows none.
         client_message: the client's message, read with the conversation's others for the side and the cut.
@@ -331,7 +332,7 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
             return again
         messages = client_messages(session_id, client_message)
         side, said_side = {}, ""
-        if not client_side(invoice_type, " ".join(messages)):
+        if invoice_type not in SIDES:  # verified at the start of the run (verified_side): the client's own words
             read = side_read(name, mime, data, dossier_id)
             if not read:
                 return question(f"`{name}` : s'agit-il de factures d'achat ou de vente ? Rien n'a été créé.")

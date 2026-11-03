@@ -124,7 +124,7 @@ def test_a_draft_stopped_as_no_invoice_is_classified_again_once_the_client_gives
     stopped = {"status": "stop", "message": "Facture 9 : ce n'est pas une facture.", "invoice_id": 9}
     pipeline.record_step("A", "s", "classify_invoice", stopped)
     pipeline.run_summary("A")
-    assert pipeline.waiting_drafts("s", stopped=True, run_id="B", invoice_type="achat")["invoices"] == []  # not said
+    assert pipeline.waiting_drafts("s", stopped=True, run_id="B", invoice_type="")["invoices"] == []  # not said
     remember_client_message("s", "C'est bien une facture d'achat, des droits de douane.")
     assert pipeline.waiting_drafts("s", stopped=True, run_id="C", invoice_type="achat")["invoices"] == [9]
 
