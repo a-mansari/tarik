@@ -145,12 +145,14 @@ create table if not exists tarik_mail_threads (
     state text not null default 'new', -- one of tarik_mail_threads_state_check's, below
     reason text, -- why it is ignored or in error
     attempts integer not null default 0, -- runs that did not finish: after 3 the thread is set aside in error
-    claimed_at timestamptz, -- a run working on it: another one leaves it alone for 30 minutes
+    claimed_at timestamptz, -- a run working on it: another one leaves it alone for 30 minutes (or since alive_at)
     updated_at timestamptz not null default now()
 );
 -- follow_up: Tarik answered, and the conversation's drafts Experio was still reading are taken up again,
 -- their outcome sent in the thread, until follow_up_until.
 alter table tarik_mail_threads add column if not exists follow_up_until timestamptz;
+-- When the run working on it last said it still does (renew_lease): its lease counts from then.
+alter table tarik_mail_threads add column if not exists alive_at timestamptz;
 -- When Tarik told the client their new thread was received (acknowledge_thread): once per thread.
 alter table tarik_mail_threads add column if not exists acknowledged_at timestamptz;
 -- A routine's email was kept here before it became Tarik's own turn in its conversation (agent.began): gone.

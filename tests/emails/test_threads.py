@@ -98,6 +98,28 @@ def test_an_email_during_a_run_waits_for_that_run_then_is_answered(mailbox):
 
 
 @pytest.mark.functionality
+def test_a_run_that_renews_its_lease_keeps_its_thread_and_one_gone_silent_loses_it(mailbox):
+    stored(mail(CHEF, "<m1@x>"))
+    with cabinet_db() as db:
+        [first] = inbox.claim(db)
+        db.execute("update tarik_mail_threads set claimed_at = now() - interval '45 minutes'")
+    inbox.renew_lease("<m1@x>")  # the run still works: claimed 45 minutes ago, renewed now
+    with cabinet_db() as db:
+        assert inbox.claim(db) == [] and not inbox.threads_waiting()
+        claimed = db.execute("select claimed_at from tarik_mail_threads").fetchone()[0]
+        db.execute("update tarik_mail_threads set alive_at = now() - interval '31 minutes'")  # silent since
+    assert inbox.threads_waiting()
+    with cabinet_db() as db:
+        [again] = inbox.claim(db)
+        assert db.execute("select claimed_at from tarik_mail_threads").fetchone()[0] > claimed
+    assert again["thread_id"] == first["thread_id"]
+    inbox.finish_thread("<m1@x>", again["message_ids"], True)
+    inbox.renew_lease("<m1@x>")  # a run that ended renews nothing
+    with cabinet_db() as db:
+        assert db.execute("select alive_at < now() - interval '30 minutes' from tarik_mail_threads").fetchone()[0]
+
+
+@pytest.mark.functionality
 def test_a_reply_naming_only_tarik_s_email_stays_in_its_thread(mailbox):
     stored(mail(CHEF, "<m1@x>"))
     with cabinet_db() as db:

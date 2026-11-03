@@ -105,8 +105,8 @@ def test_a_long_follow_up_tells_the_client_it_is_still_going_too(thread):
 
 
 @pytest.mark.communication
-def test_no_progress_email_once_the_thread_would_be_taken_up_again(thread, monkeypatch):
-    monkeypatch.setattr(emails, "LEASE_MINUTES", 0.0025)  # room for two progress emails of 0.001 minute
+def test_no_progress_email_once_the_run_stops_renewing_its_lease(thread, monkeypatch):
+    monkeypatch.setattr(emails, "RUN_MINUTES", 0.0025)  # room for two progress emails of 0.001 minute
     thread.resumed.update(progress=0.001, seconds=0.3)
     thread.answer("thread_refusal", {"refused": False})
     assert fil(thread)["sent"] and thread.names.count("send_progress") == 2
@@ -114,10 +114,31 @@ def test_no_progress_email_once_the_thread_would_be_taken_up_again(thread, monke
 
 @pytest.mark.communication
 def test_a_follow_up_counts_its_lease_from_the_claim_across_both_workflows(thread, monkeypatch):
-    monkeypatch.setattr(emails, "LEASE_MINUTES", 0.0025)  # room for two progress emails of 0.001 minute in all
+    monkeypatch.setattr(emails, "RUN_MINUTES", 0.0025)  # room for two progress emails of 0.001 minute in all
     thread.resumed.update(progress=0.001, seconds=0.15)  # each workflow alone would send two
     fil(thread, follow_up=True, claimed=time.time())
     assert thread.names.count("send_progress") == 2
+
+
+@pytest.mark.technical
+def test_a_long_run_renews_its_threads_lease_until_its_time_is_up(thread, monkeypatch):
+    monkeypatch.setattr(emails, "RENEW_MINUTES", 0.001)  # 0.06 s between renewals
+    monkeypatch.setattr(emails, "RUN_MINUTES", 0.0025)  # room for two of them, though the agent takes 0.3 s
+    thread.resumed["seconds"] = 0.3
+    thread.answer("thread_refusal", {"refused": False})
+    assert fil(thread)["sent"] and thread.names.count("renew_lease") == 2
+    assert thread.args("renew_lease")[0] == {"thread_id": "<m1@x>"}
+
+
+@pytest.mark.technical
+def test_a_renewal_that_fails_leaves_the_answer_to_go_on_and_none_comes_after_it(thread, monkeypatch):
+    monkeypatch.setattr(emails, "RENEW_MINUTES", 0.001)
+    thread.resumed["seconds"] = 0.15
+    thread.answer("thread_refusal", {"refused": False})
+    thread.answer("renew_lease", ToolFailure("base indisponible"))
+    out = fil(thread)
+    assert out["sent"] and "renew_lease" in thread.names
+    assert "renew_lease" not in thread.names[thread.names.index("send_email") :]  # stopped with the agent
 
 
 @pytest.mark.communication
