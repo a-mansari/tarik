@@ -71,6 +71,15 @@ def read_answer(kind, reply):
     )
 
 
+def about(invoice_id, tier, reply):
+    """Return ``reply`` introduced as the answer for one invoice: the agent hands over the client's whole email,
+    which often answers several invoices, and the model reads that as unclear (nothing it can apply to this one)."""
+    return (
+        f"[This answer is for invoice {invoice_id} of supplier {tier} only. The message may also answer other "
+        f"invoices: ignore those parts.]\n{reply}"
+    )
+
+
 def rate(value):
     """Return the whole rate the model gave (20, "20", "20 %", 20.0) as an int, None when it gave none.
 
@@ -307,7 +316,7 @@ def _local(invoice, partner, answer):
     auto = bool(partner["expense_type"]) and (invoice["invoice_date"] or "") >= RAS_TVA_FROM
     values = {"retenue": True} if auto else {}
     if answer:
-        read = local_withholding_answer(answer)
+        read = local_withholding_answer(about(invoice_id, tier, answer))
         if read is None:
             return question(f"Facture {invoice_id} : réponse non comprise, {QUESTIONS['local']}"), None
         read.pop("tax_withholding_percentage", None)  # Experio's rules set it, never the client's figure
@@ -329,7 +338,7 @@ def _foreign(invoice, answer):
     rule).
     """
     if answer:
-        values = withholding_answer(answer)
+        values = withholding_answer(about(invoice["id"], invoice["partner_id"][1], answer))
         if values is None:
             return question(f"Facture {invoice['id']} : réponse non comprise, {QUESTIONS['foreign']}"), None
         return None, values
