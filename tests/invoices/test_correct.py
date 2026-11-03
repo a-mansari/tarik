@@ -73,6 +73,17 @@ def test_several_tva_rates():
 
 
 @pytest.mark.functionality
+def test_a_rate_experio_has_no_field_for_is_told():
+    from engine.tools.invoices.correct import unsplit_note
+
+    lines = [{"rate": 20, "amount_ht": 100, "amount_tva": 20}, {"rate": 19, "amount_ht": 50, "amount_tva": 9.5}]
+    assert "19 %" in unsplit_note({"amount_tva": 29.5, "tva_lines": lines})
+    assert unsplit_note({"tva_lines": lines}) is None  # no total read: the lines are not trusted
+    known = [{"rate": 20, "amount_ht": 100, "amount_tva": 20}, {"rate": 10, "amount_ht": 50, "amount_tva": 5}]
+    assert unsplit_note({"amount_tva": 25, "tva_lines": known}) is None
+
+
+@pytest.mark.functionality
 def test_lines_at_one_rate_add_up():
     lines = [
         {"rate": 20, "amount_ht": 1000, "amount_tva": 200},
@@ -286,6 +297,16 @@ def test_a_correction_experio_already_holds_changes_nothing(correcting):
     correcting["changed"] = {}
     assert correct.correct_invoice(3)["message"] == "Facture 3 : déjà a jour, rien à changer."
     assert correcting["refreshed"] == []
+
+
+@pytest.mark.communication
+def test_a_rate_left_unsplit_is_told_even_when_nothing_changes(correcting):
+    from engine.tools.invoices import correct
+
+    lines = [{"rate": 20, "amount_ht": 100, "amount_tva": 20}, {"rate": 19, "amount_ht": 50, "amount_tva": 9.5}]
+    correcting["read"] = {"amount_untaxed": 900.0, "amount_tva": 29.5, "tva_lines": lines}
+    correcting["bad"], correcting["changed"] = [flag("amount_untaxed", 1000, 900)], {}
+    assert "taux 19 % sans case dans Experio" in correct.correct_invoice(3)["message"]
 
 
 @pytest.mark.communication

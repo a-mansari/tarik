@@ -46,7 +46,7 @@ MONTHS += ("novembre", "decembre")
 FIELDS = ["state", "period_id", "fiscal_year", "start_date", "end_date", "regime", "tva_en_rouge", "tva_due"]
 FIELDS += ["deduction_amount", "tax_purchase_amount", "imposable_amount", "ca_total", "count_deduction_ids"]
 FIELDS += ["count_imposable_ids", "error_msg", "warning_msg", "config_error_msg", "datas_fname", "name"]
-FIELDS += ["declaration_type"]
+FIELDS += ["declaration_type", "count_previous_deduction_ids"]
 MODES = {"monthly": "mensuelle", "quarterly": "trimestrielle"}
 
 
@@ -164,6 +164,17 @@ def left_out(dossier_id, table, context):
                 blocked,
                 "{} facture est bloquée pour la déclaration dans Experio",
                 "{} factures sont bloquées pour la déclaration dans Experio",
+            )
+        )
+    # Kept apart when the dossier has previous_deductions off, again at each « Actualiser » (split_by_period)
+    if table["count_previous_deduction_ids"]:
+        said.append(
+            counted(
+                table["count_previous_deduction_ids"],
+                "{} déduction payée avant la période (paiement, frais bancaires...) n'est pas déduite : Experio ne "
+                "la reprend que si le paramètre « déductions précédentes » du dossier est activé",
+                "{} déductions payées avant la période (paiements, frais bancaires...) ne sont pas déduites : Experio "
+                "ne les reprend que si le paramètre « déductions précédentes » du dossier est activé",
             )
         )
     if table["regime"] == "encaissement":
