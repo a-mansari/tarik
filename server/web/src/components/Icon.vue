@@ -25,6 +25,7 @@ const PATHS = {
   plus: `<path d="M12 5v14M5 12h14"/>`,
   clock: `<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>`,
   stop: `<rect x="6" y="6" width="12" height="12" rx="2"/>`,
+  eye: `<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>`,
   toggle: `<rect x="2" y="7" width="20" height="10" rx="5"/><circle cx="16" cy="12" r="3"/>`,
   // A canvas's zoom bar and its gestures (ZoomBar.vue, the legends of CanvasGraph.vue and HarnessMap.vue).
   fit: `<path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/><rect x="9" y="9" width="6" height="6" rx="1"/>`,

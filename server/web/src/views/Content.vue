@@ -4,6 +4,7 @@ exported to a file, or imported from one. -->
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import MarkdownIt from "markdown-it";
 import { API, plural, send, session, usePage } from "../api.js";
 import ContentImport from "../components/ContentImport.vue";
 import ContentStatus from "../components/ContentStatus.vue";
@@ -35,6 +36,15 @@ function touched(section) {
   return section.fields.filter((f) => f.key in data.value.compare.fields).length;
 }
 const changeOf = (f) => data.value.compare?.fields[f.key];
+// The long fields read as Markdown, by the same rules as the server's (server/api/runs.py MARKDOWN): no raw HTML.
+const MARKDOWN = new MarkdownIt("commonmark", { html: false, breaks: true }).enable("table");
+// The long fields show as Markdown; the ones opened as text, by key, their text area sized when it opens.
+const editing = ref({});
+function togglePreview(key, event) {
+  editing.value[key] = !editing.value[key];
+  const area = event.target.closest(".field").querySelector("textarea");
+  if (editing.value[key]) nextTick(() => fit(area));
+}
 const count = (text) => `${text.length.toLocaleString("fr-FR")} caractères`;
 
 // The version shown changed something, and it can be gone back to (an admin, not the version in service).
@@ -147,8 +157,9 @@ async function restore() {
       </div>
     </div>
     <div class="flow content-flow">
-      <form id="content-form" ref="form" class="content-form" @submit.prevent="save">
-        <fieldset class="plain" :disabled="!session.admin">
+      <form id="content-form" ref="form" class="content-form" @submit.prevent="session.admin && save()">
+        <!-- Read-only fields, not a disabled fieldset, so a member can still preview the Markdown. -->
+        <fieldset class="plain">
           <div v-if="data.sections.length > 1" class="card-tools">
             <button type="button" @click="allCards(true)">Tout déplier</button>
             <button type="button" @click="allCards(false)">Tout replier</button>
@@ -204,25 +215,67 @@ async function restore() {
                     <small class="count num">{{ changeOf(f).before }} → {{ changeOf(f).after }} caractères</small>
                   </div>
                   <span class="arrow" aria-hidden="true">→</span>
-                  <label class="field">
-                    <span>{{ f.label }} : en service</span>
+                  <label class="field" :for="f.long ? `field-${f.key}` : null">
+                    <!-- The label points at the text area (for), never at the toggle beside its title. -->
+                    <span class="field-head">{{ f.label }} : en service
+                      <button
+                        v-if="f.long"
+                        type="button"
+                        class="card-action preview-toggle"
+                        :aria-label="editing[f.key] ? 'Aperçu Markdown' : 'Modifier'"
+                        :data-tip="editing[f.key] ? 'Aperçu Markdown' : 'Modifier'"
+                        @click="togglePreview(f.key, $event)"
+                      >
+                        <Icon :name="editing[f.key] ? 'eye' : 'content'" :size="14" />
+                      </button>
+                    </span>
                     <template v-if="f.long">
-                      <textarea v-model="values[f.key]" :name="f.key" rows="3" @input="fit($event.target)"></textarea>
+                      <textarea
+                        v-show="editing[f.key]"
+                        :id="`field-${f.key}`"
+                        v-model="values[f.key]"
+                        :name="f.key"
+                        :readonly="!session.admin"
+                        rows="3"
+                        @input="fit($event.target)"
+                      ></textarea>
+                      <div v-if="!editing[f.key]" class="markdown-preview" v-html="MARKDOWN.render(values[f.key])"></div>
                       <small class="count num" aria-live="off">{{ count(values[f.key]) }}</small>
                     </template>
                     <template v-else>
-                      <input v-model="values[f.key]" :name="f.key">
+                      <input v-model="values[f.key]" :name="f.key" :readonly="!session.admin">
                       <small class="count num">{{ count(values[f.key]) }}</small>
                     </template>
                   </label>
                 </div>
-                <label v-else class="field">
-                  <span>{{ f.label }}</span>
+                <label v-else class="field" :for="f.long ? `field-${f.key}` : null">
+                  <!-- The label points at the text area (for), never at the toggle beside its title. -->
+                  <span class="field-head">{{ f.label }}
+                    <button
+                      v-if="f.long"
+                      type="button"
+                      class="card-action preview-toggle"
+                      :aria-label="editing[f.key] ? 'Aperçu Markdown' : 'Modifier'"
+                      :data-tip="editing[f.key] ? 'Aperçu Markdown' : 'Modifier'"
+                      @click="togglePreview(f.key, $event)"
+                    >
+                      <Icon :name="editing[f.key] ? 'eye' : 'content'" :size="14" />
+                    </button>
+                  </span>
                   <template v-if="f.long">
-                    <textarea v-model="values[f.key]" :name="f.key" rows="3" @input="fit($event.target)"></textarea>
+                    <textarea
+                      v-show="editing[f.key]"
+                      :id="`field-${f.key}`"
+                      v-model="values[f.key]"
+                      :name="f.key"
+                      :readonly="!session.admin"
+                      rows="3"
+                      @input="fit($event.target)"
+                    ></textarea>
+                    <div v-if="!editing[f.key]" class="markdown-preview" v-html="MARKDOWN.render(values[f.key])"></div>
                     <small class="count num" aria-live="off">{{ count(values[f.key]) }}</small>
                   </template>
-                  <input v-else v-model="values[f.key]" :name="f.key">
+                  <input v-else v-model="values[f.key]" :name="f.key" :readonly="!session.admin">
                 </label>
               </template>
             </div>
