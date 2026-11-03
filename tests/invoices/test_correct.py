@@ -467,11 +467,11 @@ def test_a_sales_regional_tax_without_the_dossiers_account_is_left_as_experio_re
 
 @pytest.mark.functionality
 def test_a_split_over_rates_the_scan_never_shows_is_undone_for_the_one_rate_it_has():
-    """The scan has one line at 10 %; Experio read 20 % and 0 %: its lines never added up to the TVA."""
-    scan = {"amount_tva": 1.5, "tva_lines": [{"rate": 10.0, "amount_ht": 15.56, "amount_tva": 1.5}]}
-    invoice = {"multi_tva": True, "amount_tva_20": 1.92, "amount_tva_10": 0.0}
+    """The scan has one line at 20 % that adds up; Experio read 10 % and 0 % too: its lines never added up."""
+    scan = {"amount_tva": 20.0, "tva_lines": [{"rate": 20.0, "amount_ht": 100.0, "amount_tva": 20.0}]}
+    invoice = {"multi_tva": True, "amount_tva_10": 7.0, "amount_tva_20": 0.0}
     changes = planned_changes(scan, [], invoice)
-    assert changes == {"multi_tva": False, "amount_tva_20": 0.0, "amount_tva": 1.5}
+    assert changes == {"multi_tva": False, "amount_tva_10": 0.0, "amount_tva": 20.0}
     assert list(changes)[0] == "multi_tva" and list(changes)[-1] == "amount_tva"  # off first, the one TVA last
     # Not touched: an invoice Experio did not split, a scan whose lines do not add up to its TVA, several rates.
     assert planned_changes(scan, [], {"multi_tva": False}) == {}
@@ -484,3 +484,15 @@ def test_a_split_over_rates_the_scan_never_shows_is_undone_for_the_one_rate_it_h
         ],
     }
     assert planned_changes(two, [], invoice)["multi_tva"] is True
+
+
+@pytest.mark.functionality
+def test_a_bill_whose_tva_is_not_its_rate_of_the_whole_base_keeps_the_rest_at_zero():
+    """15.56 HT at 10 % with a TVA of 1.50 (charged on 15.00 only): Experio's own split, no rate guessed from it."""
+    scan = {"amount_tva": 1.5, "tva_lines": [{"rate": 10.0, "amount_ht": 15.56, "amount_tva": 1.5}]}
+    changes = planned_changes(scan, [], {"multi_tva": False})
+    assert changes == {"multi_tva": True, "amount_tva_10": 1.5, "amount_tva": 1.5}
+    split = planned_changes(scan, [], {"multi_tva": True, "amount_tva_20": 1.92})
+    assert split == {"multi_tva": True, "amount_tva_20": 0.0, "amount_tva_10": 1.5, "amount_tva": 1.5}
+    whole = {"amount_tva": 3.11, "tva_lines": [{"rate": 20.0, "amount_ht": 15.56, "amount_tva": 3.11}]}
+    assert planned_changes(whole, [], {"multi_tva": False}) == {}  # coherent: one rate, nothing to do
