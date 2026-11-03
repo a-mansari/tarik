@@ -34,6 +34,8 @@ INPUTS = [
     "corrections",
     "invoice_type",
     "invoice_type_words",
+    "colonnes",
+    "doublons",
     "client_message",
     "tva_non_recuperable",
     "retenue",
@@ -239,13 +241,29 @@ async def split(state: File):
     return {"last": result, "outcomes": [result]}
 
 
+async def import_sheet(state: File):
+    """Graph node: import the file, a table of invoices, as drafts into the dossier (import_invoice_sheet)."""
+    call = state["call"]
+    result = await run_step(
+        state,
+        "import_invoice_sheet",
+        file_id=state["file_id"],
+        dossier_id=call["dossier_id"],
+        invoice_type=call.get("invoice_type") or "",
+        columns=call.get("colonnes") or "",
+        keep_duplicates=call.get("doublons") == "oui",
+    )
+    return {"last": result, "outcomes": [result]}
+
+
 @stops_at(END)
 def after_identify(state: File):
-    """Route: "releve" for a bank statement, else "decoupage"; END when identification was not ok."""
+    """Route: "releve" for a bank statement, "tableur" for a table of invoices, else "decoupage"; END when
+    identification was not ok."""
     last = state["last"]
     if last.get("status") != "ok":
         return END
-    return "releve" if last.get("kind") == "statement" else "decoupage"
+    return {"statement": "releve", "sheet": "tableur"}.get(last.get("kind"), "decoupage")
 
 
 def invoice_run(state: File, entry, call=None, **document):
@@ -268,6 +286,17 @@ def drafts(state: File):  # its end is also an ordinary one: a file sent again, 
     if not last["files"]:
         return END  # sent again, already posted: nothing to do
     return [invoice_run(state, "create_draft_invoice", call=call, file_id=file_id) for file_id in last["files"]]
+
+
+def sheet_drafts(state: File):
+    """Route after the table import: one invoice run per draft made, from classify_invoice (the drafts have no scan to
+    read nor check); END when the import was not ok."""
+    last = state["last"]
+    if last.get("status") != "ok":
+        return END
+    return [
+        invoice_run(state, "classify_invoice", invoice_id=invoice_id) for invoice_id in last.get("invoice_ids") or []
+    ] or END
 
 
 def split_drafts(state: File):
@@ -328,6 +357,7 @@ def after_pointing(state: File):
 file = StateGraph(File, output_schema=Outcomes)
 file.add_node("identification", identify)
 file.add_node("releve", import_statement)
+file.add_node("tableur", import_sheet)
 file.add_node("pointage", point_statement)
 file.add_node("operations", POINTING)
 file.add_node("comptabilisation_releve", post_statement)
@@ -345,7 +375,8 @@ def file_start(state: File):
 
 
 file.add_conditional_edges(START, file_start, ["identification", "facture", "pointage"])
-file.add_conditional_edges("identification", after_identify, ["releve", "decoupage", END])
+file.add_conditional_edges("identification", after_identify, ["releve", "tableur", "decoupage", END])
+file.add_conditional_edges("tableur", sheet_drafts, ["facture", END])
 file.add_conditional_edges("releve", after_import, ["pointage", END])
 file.add_conditional_edges("pointage", after_reading, ["operations", "comptabilisation_releve", END])
 file.add_conditional_edges("operations", after_pointing, ["comptabilisation_releve", END])

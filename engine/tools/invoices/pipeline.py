@@ -59,6 +59,7 @@ STEPS = {
     "create_import_folder": "créer le dossier d'import",
     "identify_document": "identifier le document",
     "import_bank_statement": "importer le relevé bancaire",
+    "import_invoice_sheet": "importer le tableur de factures",
     "list_open_statements": "lister les relevés à pointer",
     "settle_statement": "pointer le relevé",
     "detect_statement_lines": "obtenir la détection d'Experio sur le relevé",
