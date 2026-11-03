@@ -156,7 +156,7 @@ def test_what_the_declaration_leaves_out_is_told(experio):
     assert "1 facture est bloquée" in message
     assert "4 factures d'achat ne sont pas payées" in message
     assert "3 opérations bancaires de la période sont en suspens" in message
-    assert "période passée" not in message
+    assert "payée avant la période" not in message
 
 
 @pytest.mark.functionality
@@ -164,7 +164,7 @@ def test_late_invoices_experio_keeps_apart_are_told(experio):
     experio["done_before"] = 1
     experio["table"]["count_previous_deduction_ids"] = 2
     message = tva.prepare_tva_declaration(857)["message"]
-    assert "2 déductions de périodes passées" in message and "Déductions précédentes" in message
+    assert "2 déductions payées avant la période" in message and "déductions précédentes" in message
 
 
 @pytest.mark.functionality

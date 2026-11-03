@@ -330,7 +330,7 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         context = invoice_context(invoice)
         changed = fill_invoice(invoice_id, changes, context)
         if not changed:
-            return routine(f"Facture {invoice_id} : déjà a jour, rien à changer.")
+            return routine(f"Facture {invoice_id} : déjà a jour, rien à changer.{noted}")
         refresh(invoice_id, context)
     texts = (change_text(field, changed.get(field, value)) for field, value in changes.items())
     shown = ", ".join(text for text in texts if text) or "montants"

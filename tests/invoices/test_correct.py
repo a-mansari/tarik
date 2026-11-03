@@ -300,6 +300,16 @@ def test_a_correction_experio_already_holds_changes_nothing(correcting):
 
 
 @pytest.mark.communication
+def test_a_rate_left_unsplit_is_told_even_when_nothing_changes(correcting):
+    from engine.tools.invoices import correct
+
+    lines = [{"rate": 20, "amount_ht": 100, "amount_tva": 20}, {"rate": 19, "amount_ht": 50, "amount_tva": 9.5}]
+    correcting["read"] = {"amount_untaxed": 900.0, "amount_tva": 29.5, "tva_lines": lines}
+    correcting["bad"], correcting["changed"] = [flag("amount_untaxed", 1000, 900)], {}
+    assert "taux 19 % sans case dans Experio" in correct.correct_invoice(3)["message"]
+
+
+@pytest.mark.communication
 def test_what_experio_recomputed_by_itself_is_logged_not_told(correcting, capsys):
     from engine.tools.invoices import correct
 

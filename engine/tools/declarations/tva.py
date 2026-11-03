@@ -166,14 +166,15 @@ def left_out(dossier_id, table, context):
                 "{} factures sont bloquées pour la déclaration dans Experio",
             )
         )
-    if table["count_previous_deduction_ids"]:  # kept apart when the dossier has previous_deductions off
+    # Kept apart when the dossier has previous_deductions off, again at each « Actualiser » (split_by_period)
+    if table["count_previous_deduction_ids"]:
         said.append(
             counted(
                 table["count_previous_deduction_ids"],
-                "{} déduction d'une période passée (facture tardive) reste à part, onglet « Déductions précédentes » "
-                "d'Experio : à y déclarer par le cabinet si sa TVA doit être déduite",
-                "{} déductions de périodes passées (factures tardives) restent à part, onglet « Déductions "
-                "précédentes » d'Experio : à y déclarer par le cabinet si leur TVA doit être déduite",
+                "{} déduction payée avant la période (paiement, frais bancaires...) n'est pas déduite : Experio ne "
+                "la reprend que si le paramètre « déductions précédentes » du dossier est activé",
+                "{} déductions payées avant la période (paiements, frais bancaires...) ne sont pas déduites : Experio "
+                "ne les reprend que si le paramètre « déductions précédentes » du dossier est activé",
             )
         )
     if table["regime"] == "encaissement":
