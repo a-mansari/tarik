@@ -101,9 +101,22 @@ def test_a_sender_without_the_dossier_changes_nothing_and_is_recorded_as_refused
 def test_only_the_invoice_the_agent_names_among_those_waiting_is_answered(answers):
     waits(20, "settle_tva", "Facture FA-20 : la TVA est-elle non récupérable ? oui / non")
     waits(35, "settle_tva", "Facture FA-35 : la TVA est-elle non récupérable ? oui / non")
-    for about in ("", "99", "FA-20 ou FA-35"):  # none, one not waiting, not one
-        assert pipeline.answer_pending("s", "oui, TVA 20 %", "oui", about)["status"] == "question" and answers == []
+    assert pipeline.answer_pending("s", "oui, TVA 20 %", "oui")["status"] == "question" and answers == []  # which?
+    for about in ("99", "FA-20 ou FA-35"):  # one not waiting, not one: its draft is taken up, no question answered
+        assert pipeline.answer_pending("s", "oui, TVA 20 %", "oui", about)["next_step"] == "waiting_drafts"
+        assert answers == []
     assert pipeline.answer_pending("s", "oui pour la facture 35", "oui", "facture 35")["invoice_id"] == 35
+
+
+@pytest.mark.security
+def test_an_answer_about_another_invoice_never_takes_the_only_question(answers):
+    """« 1580156068 : non. IFS a le numéro 2503-0702 »: the agent's call about IFS left SRM's question alone."""
+    waits(11, "settle_prepaid", "Facture n° 1580156068 (SRM) : la répartir en charges constatées d'avance ?")
+    result = pipeline.answer_pending(
+        "s", "IFS NEUTRAL MARITIME a le numéro 2503-0702", "", "IFS NEUTRAL MARITIME MAROC"
+    )
+    assert result["next_step"] == "waiting_drafts" and "pour « IFS NEUTRAL MARITIME MAROC »" in result["message"]
+    assert answers == []
 
 
 @pytest.mark.functionality

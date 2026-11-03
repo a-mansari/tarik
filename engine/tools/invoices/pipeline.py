@@ -727,9 +727,14 @@ def meant(waiting, about):
     a statement's name, as the questions are listed). None when unclear: the client is asked which."""
     if len(waiting) == 1:
         return waiting[0]
-    about = normalized(str(about or "")).removeprefix("facture ").removeprefix("releve ").removeprefix("n ")
-    named = [item for item in waiting if about and about in item["names"]]
+    named = named_by(waiting, about)
     return named[0] if len(named) == 1 else None
+
+
+def named_by(waiting, about):
+    """Return the ``waiting`` items ``about`` names: an invoice's number, its supplier, a statement's name."""
+    about = normalized(str(about or "")).removeprefix("facture ").removeprefix("releve ").removeprefix("n ")
+    return [item for item in waiting if about and about in item["names"]]
 
 
 def about_this_file(item, answer):
@@ -904,11 +909,15 @@ def answer_pending(
     check_sender's result."""
     answer = own_words(answer)
     waiting = waiting_on(session_id)
-    if not waiting:
+    # An answer about an invoice no question waits on (« IFS a le numéro 2503-0702 » beside SRM's question) is never
+    # applied to another's question: its draft is taken up again instead.
+    elsewhere = bool(waiting and about.strip() and not named_by(waiting, about))
+    if not waiting or elsewhere:
         # Nothing asked: an account given here still goes to the invoice it names (none answered about).
         fixes, notes = verified_corrections(session_id, answer, corrections or [], None)
         result = ok(
-            "Aucune question en attente. Je reprends les factures restées en cours."
+            ("Aucune question en attente" + (f" pour « {about} »" if elsewhere else ""))
+            + ". Je reprends les factures restées en cours."
             + "".join(f" {note}" for note in notes),
             next_step="waiting_drafts",
             step="answer_pending",
