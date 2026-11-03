@@ -316,31 +316,71 @@ def test_the_ice_answer_is_kept_only_when_the_client_said_oui_or_non(experio, mo
     assert kept[0] == "oui" and experio["dismissed"] == ["detected_ice_mismatch_with_company_record"]
 
 
-@pytest.mark.functionality
-def test_a_missing_exchange_rate_is_fetched_by_experios_wizard(experio, monkeypatch):
+@pytest.fixture
+def rate_wizard(experio, monkeypatch):
+    """A foreign invoice at rate 0; Experio's rate wizard writes ``fetched`` (0: none found) or raises ``refusal``."""
     from engine.tools.core.experio import ExperioRefusal
 
     experio["invoice"].update(hide_exchange_rate=False, exchange_rate=0.0)
-    calls = []
-    monkeypatch.setattr(warnings, "odoo_call", lambda model, method, *a, **k: calls.append((model, method, a)) or 8)
-    monkeypatch.setattr(warnings, "odoo_json", lambda model, method, ids, context: calls.append((model, method, ids)))
-    assert "taux de change manquant récupéré par Experio" in warnings.settle_warnings(3)["message"]
-    assert calls == [
-        (warnings.RATE_WIZARD, "create", ({"invoice_ids": [(6, 0, [3])]},)),
-        (warnings.RATE_WIZARD, "action_fetch_exchange_rates", [8]),
+    state = {"fetched": 10.85, "refusal": None, "calls": [], "refreshed": []}
+
+    def odoo_call(model, method, *a, **k):
+        state["calls"].append((model, method))
+        if method == "read":
+            return [{"exchange_rate": experio["invoice"]["exchange_rate"]}]
+        return 8
+
+    def odoo_json(model, method, ids, context):
+        state["calls"].append((model, method))
+        if state["refusal"]:
+            raise ExperioRefusal(state["refusal"], "odoo.exceptions.UserError")
+        if state["fetched"]:
+            experio["invoice"]["exchange_rate"] = state["fetched"]
+
+    monkeypatch.setattr(warnings, "odoo_call", odoo_call)
+    monkeypatch.setattr(warnings, "odoo_json", odoo_json)
+    monkeypatch.setattr(warnings, "refresh", lambda i, context: state["refreshed"].append(i))
+    return state
+
+
+@pytest.mark.functionality
+def test_a_missing_exchange_rate_is_fetched_by_experios_wizard_then_the_lines_rebuilt(experio, rate_wizard):
+    said = warnings.fetch_rate(experio["invoice"], {})
+    assert said == "taux de change manquant récupéré par Experio (10.85)"
+    assert rate_wizard["calls"][:2] == [
+        (warnings.RATE_WIZARD, "create"),
+        (warnings.RATE_WIZARD, "action_fetch_exchange_rates"),
     ]
+    assert rate_wizard["refreshed"] == [3]  # the wizard writes the rate plainly: « Actualiser » rebuilds the lines
 
-    def refusing(model, method, ids, context):
-        raise ExperioRefusal("Taux introuvable pour le 15/10/2026", "odoo.exceptions.UserError")
 
-    monkeypatch.setattr(warnings, "odoo_json", refusing)
-    result = warnings.settle_warnings(3)
-    assert result["status"] == "stop" and "Taux introuvable pour le 15/10/2026" in result["message"]
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("refusal", "rate", "said"),
+    [
+        ("Taux introuvable pour le 15/10/2026", 0.0, "Taux introuvable pour le 15/10/2026"),
+        (None, 1.0, "pour cette devise ou cette date"),  # Experio returns none without a word
+        (None, -10.5, "pour cette devise ou cette date"),  # a negative rate its wizard never fetches
+    ],
+)
+def test_no_rate_found_stops_for_the_cabinet(experio, rate_wizard, refusal, rate, said):
+    experio["invoice"]["exchange_rate"] = rate
+    rate_wizard.update(refusal=refusal, fetched=0)
+    result = warnings.fetch_rate(experio["invoice"], {})
+    assert result["status"] == "stop" and said in result["message"] and rate_wizard["refreshed"] == []
+    assert ((warnings.RATE_WIZARD, "create") in rate_wizard["calls"]) is (rate != -10.5)
+
+
+@pytest.mark.functionality
+def test_a_rate_not_published_yet_waits(experio, rate_wizard):
+    rate_wizard["fetched"] = 0
+    experio["warn"]["validate_warning_today_exchange_rate"] = "Taux du jour indisponible."
+    assert warnings.fetch_rate(experio["invoice"], {})["status"] == "wait"
 
 
 @pytest.mark.functionality
 def test_a_rate_already_there_or_a_dirham_invoice_fetches_nothing(experio):
     experio["invoice"].update(hide_exchange_rate=False, exchange_rate=10.85)
-    assert warnings.settle_warnings(3)["routine"]
+    assert warnings.fetch_rate(experio["invoice"], {}) is None
     experio["invoice"].update(hide_exchange_rate=True, exchange_rate=1.0)  # MAD: Experio hides the rate, 1 is right
-    assert warnings.settle_warnings(3)["routine"]
+    assert warnings.fetch_rate(experio["invoice"], {}) is None

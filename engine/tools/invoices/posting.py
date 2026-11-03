@@ -81,8 +81,8 @@ def disbursements_first(invoice):
         "exp.invoice", "search", [*folder, ("state", "in", ["post", "export"]), ("transit_invoice_id", "=", False)]
     )
     missing = [i for i in eligible if i not in found["disbursement_invoice_ids"]]
+    context = invoice_context(found)
     if missing and not dry_run():
-        context = invoice_context(found)
         odoo_call(
             "exp.invoice",
             "write",
@@ -91,7 +91,7 @@ def disbursements_first(invoice):
             context=context,
         )
         refresh(invoice["id"], context)  # its disbursement lines, one per linked invoice
-    left = unbacked_disbursement(invoice["id"], invoice_context(found))
+    left = unbacked_disbursement(invoice["id"], context)
     if left:
         return (
             f"débours de {left:.2f} sans facture du dossier derrière (payée par le transitaire), passé au compte de "
