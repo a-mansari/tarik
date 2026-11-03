@@ -246,6 +246,13 @@ details.card.changed > summary .muted::after { content: " · modifié, pas encor
 .card-body { display: grid; gap: .9rem; padding: 1rem; }
 .field textarea { overflow: hidden; min-height: 4.5rem; }
 .field .count { justify-self: end; font-size: .75rem; color: var(--muted); margin-top: -.15rem; }
+.field-head { display: flex; align-items: center; gap: .4rem; }
+.preview-toggle { padding: .2rem .3rem; line-height: 0; }
+.markdown-preview { font-size: .9rem; line-height: 1.45; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: .5rem .6rem; min-height: 4.5rem; overflow-wrap: anywhere; }
+.markdown-preview > :first-child { margin-top: 0; }
+.markdown-preview > :last-child { margin-bottom: 0; }
+.markdown-preview table { border-collapse: collapse; }
+.markdown-preview th, .markdown-preview td { border: 1px solid var(--line); padding: .2rem .5rem; }
 @media (prefers-reduced-motion: reduce) { details.card > summary .card-title::before { transition: none; } }
 
 /* Content: export and import, and what a version changed, shown in the section it changed. */
@@ -279,7 +286,7 @@ details.card.touched { border-color: var(--wait, #9a6b00); }
 .field-pair > .field:first-child > * { grid-column: 1; }
 .field-pair > .field:last-child > * { grid-column: 3; }
 .field-pair > .field > span { grid-row: 1; align-self: end; }
-.field-pair > .field > :is(.field-diff, textarea, input) { grid-row: 2; align-self: center; }
+.field-pair > .field > :is(.field-diff, textarea, input, .markdown-preview) { grid-row: 2; align-self: center; }
 .field-pair > .field > .count { grid-row: 3; }
 .field-pair .arrow { grid-column: 2; grid-row: 2; align-self: center; font-size: 1.3rem; line-height: 1; color: var(--wait, #9a6b00); }
 @media (max-width: 60rem) {
