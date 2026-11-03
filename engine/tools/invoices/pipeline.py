@@ -13,7 +13,7 @@ from engine.tools.core.app import log, ok, question, routine, step_tool, stop, t
 from engine.tools.core.archives import unpacked
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import ENTRY_FILES, FILE_TYPES, READ_WAIT, READING, TEST_MODE
-from engine.tools.core.conversation import chosen_among, client_messages, own_words, yes_no
+from engine.tools.core.conversation import chosen_among, own_words, yes_no
 from engine.tools.core.experio import _form as experio_form
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, require_invoice
 from engine.tools.core.queries import Q
@@ -22,7 +22,7 @@ from engine.tools.dossiers.people import check_sender
 from engine.tools.dossiers.setup import ask_banks, set_journal_bank
 from engine.tools.invoices import tpe
 from engine.tools.invoices.accounts import confirm_account, set_account
-from engine.tools.invoices.classify import client_side
+from engine.tools.invoices.classify import SIDES, client_side
 from engine.tools.invoices.exercice import settle_exercice
 from engine.tools.invoices.intake import BANK_QUESTION, client_kind, file_named, import_bank_statement, set_kind
 from engine.tools.invoices.prepaid import settle_prepaid
@@ -1150,7 +1150,7 @@ def waiting_drafts(
     when this run's other branch already took them. Drafts other conversations left in the dossier are only counted,
     with how to ask for them (elsewhere_hint); when the client asks for the whole dossier, the drafts that stay are
     reported to the client (left_in_dossier)."""
-    sided = stopped and bool(client_side(invoice_type, " ".join(client_messages(session_id, ""))))  # their words
+    sided = stopped and invoice_type in SIDES  # their words, verified at the start of the run (verified_side)
     with cabinet_db() as db:
         rows = db.execute(
             Q.invoice_outcomes_of_session,

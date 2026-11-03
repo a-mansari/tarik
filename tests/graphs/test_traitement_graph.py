@@ -402,3 +402,27 @@ def test_the_side_read_on_the_scan_makes_the_draft_as_that_side(steps):
     steps.run(graph, mode="files")
     assert steps.args("create_draft_invoice")[0]["invoice_type"] == "vente"
     assert steps.args("split_invoices")[0]["dossier_id"] == 5
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(("kept", "expected"), [("achat", "achat"), ("", "")])
+def test_the_side_the_agent_read_stands_only_when_its_quote_is_the_clients(steps, kept, expected):
+    routed(
+        steps,
+        files=[11],
+        verified_side={"status": "ok", "invoice_type": kept},
+        identify_document={"status": "ok", "kind": "invoice"},
+        split_invoices=STOP,
+    )
+    steps.run(graph, mode="files", invoice_type="achat", invoice_type_words="factures d’achat")
+    asked = steps.args("verified_side")[0]
+    assert asked["invoice_type"] == "achat" and asked["words"] == "factures d’achat"
+    assert steps.names.index("verified_side") < steps.names.index("resolve_dossier")
+    assert steps.args("split_invoices")[0]["invoice_type"] == expected  # what the code kept, not the agent's claim
+
+
+@pytest.mark.security
+def test_a_message_without_a_side_asks_nothing_about_it(steps):
+    routed(steps)
+    steps.run(graph, mode="files", dossier="Alpha", comptabiliser="oui")
+    assert "verified_side" not in steps.names
