@@ -42,6 +42,12 @@ def experio(monkeypatch):
     return state
 
 
+@pytest.mark.communication
+def test_a_note_on_the_transit_invoices_debours_comes_with_its_posting(experio, monkeypatch):
+    monkeypatch.setattr(posting, "disbursements_first", lambda invoice: "débours de 350.00 sans facture")
+    assert posting.post_invoice(3)["message"] == "Facture 3 : comptabilisée. Note : débours de 350.00 sans facture."
+
+
 @pytest.mark.functionality
 def test_posted_only_when_nothing_blocks(experio):
     assert posting.post_invoice(3)["message"] == "Facture 3 : comptabilisée."
@@ -207,7 +213,7 @@ def test_no_compte_tiers_is_looked_for_without_a_tiers_or_a_side(monkeypatch):
 def transit(monkeypatch):
     """A fake Experio: a transit agent's import invoice, its folder's invoices paid by the agent, every write."""
     state = {"invoice_type": "transit", "folder_type": "import", "linked": [61], "waiting": [], "posted": [61, 62]}
-    state.update(writes=[], refreshed=[], dry=False)
+    state.update(writes=[], refreshed=[], dry=False, unbacked=[])
     monkeypatch.setattr(posting, "dry_run", lambda: state["dry"])
     monkeypatch.setattr(
         posting, "refresh", lambda invoice_id, context: state["refreshed"].append((invoice_id, context))
@@ -228,6 +234,9 @@ def transit(monkeypatch):
         if method == "write":
             state["writes"].append((args[0], args[1], kw["context"]))
             return True
+        if model == "exp.invoice.line":  # Experio's disbursement lines linked to no invoice
+            assert ("linked_disbursement_invoice_id", "=", False) in args[0]
+            return [{"amount_ht": amount} for amount in state["unbacked"]]
         domain = args[0]
         assert ("folder_id", "=", 40) in domain and ("is_disbursement_invoice", "=", True) in domain
         assert ("invoice_type", "!=", "transit") in domain
@@ -269,3 +278,10 @@ def test_nothing_is_linked_to_an_invoice_that_needs_no_disbursement(transit, cha
     transit.update(change)
     assert posting.disbursements_first({"id": 3}) is None
     assert transit["writes"] == [] and transit["refreshed"] == []
+
+
+@pytest.mark.functionality
+def test_debours_no_invoice_of_the_folder_covers_is_told(transit):
+    transit["unbacked"] = [350.0]
+    note = posting.disbursements_first({"id": 3})
+    assert note.startswith("débours de 350.00 sans facture du dossier derrière")

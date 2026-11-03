@@ -33,6 +33,7 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.model import ask_model, tool_prompt
 from engine.tools.core.words import counted, normalized, said
+from engine.tools.invoices.warnings import fetch_rate, with_done
 
 TVA_ACCOUNTS = ["|", ("code", "=like", "3455%"), ("code", "=like", "4455%")]
 # Per amount of the invoice: its name, then per side (purchase, sale) the dossier's switch (None: none), its
@@ -92,6 +93,9 @@ INVOICE_FIELDS = [
     "invoice_number",
     "partner_id",
     "invoice_date",
+    "amount_total",
+    "exchange_rate",
+    "hide_exchange_rate",
     *AMOUNTS,
 ]
 
@@ -232,6 +236,22 @@ def settings_needed(invoice, company):
     return values, names, cabinet
 
 
+def deductions_refused(invoice):
+    """Return what Experio means to refuse in the invoice's deductions but lets through, as French phrases: a negative
+    retenue de garantie or one above the TTC, a negative prorata. Its check returns these messages instead of raising
+    them (validate_counter_amounts, exp_invoice.py:9597-9608), so posting would go through. A retenue of the whole TTC
+    is Experio's on purpose (its test_validate_counter_amounts_holdback_equal_to_total). Amounts Experio ignores abroad
+    are left out."""
+    purchase, foreign = invoice["type"] == "purchase", not invoice["is_local_invoice"]
+    total, said = invoice["amount_total"], []
+    holdback, prorata = invoice["amount_guarantee_holdback"] or 0, invoice["amount_prorata"] or 0
+    if not (foreign and ignored_abroad("amount_guarantee_holdback", purchase)) and (holdback < 0 or holdback > total):
+        said.append(f"retenue de garantie {holdback:.2f} : positive et pas plus que le TTC ({total:.2f}) attendue")
+    if not (foreign and ignored_abroad("amount_prorata", purchase)) and prorata < 0:
+        said.append(f"prorata {prorata:.2f} : un montant négatif n'est pas possible")
+    return said
+
+
 def save_settings(company_id, values, context):
     """Write ``values`` ({res.company field: value}) as the Configuration screen does, through a res.config.settings
     form whose fields are related to the dossier's. True when the dossier now holds them all (the cabinet's rights
@@ -281,16 +301,31 @@ def answer_number(invoice_id: int, answer: str = "") -> dict:
 def configure_cabinet(invoice_id: int) -> dict:
     """Fill the dossier settings a draft invoice needs to be posted, as Experio's own screens do: the taxes its TVA
     accounts call for, Configuration's « Détection automatique », then the switch and account of each amount
-    the invoice carries. Also numbers the invoice's import folder when it has no number.
+    the invoice carries. Also numbers the invoice's import folder when it has no number, and first fetches a
+    foreign invoice's missing exchange rate (fetch_rate), which Experio's check would otherwise stop on.
 
     Returns an ok or routine result when nothing blocks posting any more; else a stop result listing, apart, the
     settings the cabinet must set in Configuration and what Experio refuses on the invoice itself."""
     invoice = require_invoice(invoice_id, INVOICE_FIELDS)
     if invoice["state"] != "draft":
         return routine(f"Facture {invoice_id} : en état {invoice['state']}, rien à paramétrer.")
+    with refused(f"configure_cabinet {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier la facture."):
+        fetched = fetch_rate({**invoice, "id": invoice_id}, invoice_context(invoice))
+    if isinstance(fetched, dict):
+        return fetched
+    result = settings_of(invoice_id, invoice)
+    return {**with_done(result, [fetched]), "routine": False} if fetched else result
+
+
+def settings_of(invoice_id, invoice):
+    """configure_cabinet's work on draft ``invoice`` (read with INVOICE_FIELDS) once its exchange rate is there."""
     company_id, context = invoice["company_id"][0], invoice_context(invoice)
     if not (invoice["invoice_number"] or "").strip():  # Experio refuses to post it, and the scan gave none
         return question(number_asked(invoice))
+    if wrong := deductions_refused(invoice):
+        return stop(
+            f"Facture {invoice_id} : pas comptabilisable en l'état, à corriger sur la facture : {listed(wrong)}."
+        )
     with refused(f"configure_cabinet {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier la facture."):
         numbered = settle_folder_number(invoice_id, context)
         before = blocking(invoice_id, context)

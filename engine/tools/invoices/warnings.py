@@ -16,9 +16,12 @@ from engine.tools.core.app import ok, question, routine, step_tool, stop, wait
 from engine.tools.core.config import DOSSIER_DOMAIN, TEST_MODE
 from engine.tools.core.conversation import kept_yes_no, yes_no
 from engine.tools.core.experio import (
+    ExperioRefusal,
     dry_run,
+    experio_refusal,
     fill_invoice,
     invoice_context,
+    is_refusal,
     odoo_call,
     odoo_json,
     refresh,
@@ -48,6 +51,8 @@ FIELDS = [
     "detected_customer_ice",
     "detected_customer_if",
     "dismissed_warning_codes",
+    "exchange_rate",
+    "hide_exchange_rate",
 ]
 # Experio's checks, the exercice first (the others read the invoice's dates and rates).
 CHECKS = (
@@ -66,6 +71,8 @@ PRORATA = "prorata_vat_rate_not_applied_on_invoice"
 IS_IR_RATES = {"company": ("5", "10", "20", "30"), "person": ("10", "15", "20")}
 TYPE_LABEL = {"company": "une personne morale", "person": "une personne physique"}
 ROUNDS = 3  # each round fixes what it can, then everything is checked again
+RATE_WIZARD = "exp.invoice.exchange.rate.wizard"
+RATE_CHECKS = ("validate_end_of_month_exchange_rate", "validate_warning_today_exchange_rate")
 
 
 def dismissed(invoice):
@@ -224,6 +231,40 @@ def ice_warning(invoice, message, context):
         f"Facture {invoice_id} : elle est adressée à l'ICE/IF {number}, pas à celui du dossier `{company['name']}`."
         f"{elsewhere} Est-elle bien pour le dossier `{company['name']}` ? oui / non"
     )
+
+
+def fetch_rate(invoice, context):
+    """Fetch a foreign-currency invoice's missing exchange rate (0 or less, or 1: Experio refuses it at posting,
+    validate_amounts missing_exchange_rate) with Experio's own wizard (exp.invoice.exchange.rate.wizard
+    action_fetch_exchange_rates), then rebuild its lines: the wizard writes the rate plainly, and only the form's
+    onchange (_onchange_writing_values) or « Actualiser » rebuilds them. Return a French phrase, a stop result when no
+    rate came (Experio's reason, or none: a currency it does not quote, no date), the wait of Experio's own rate warning
+    when the rate is not published yet, or None when the rate is there. Run before configure_cabinet's check, which
+    Experio's missing_exchange_rate error would stop."""
+    invoice_id, rate = invoice["id"], invoice["exchange_rate"]
+    if invoice["hide_exchange_rate"] or (rate > 0 and rate != 1):
+        return None
+    if dry_run():
+        return f"{TEST_MODE}taux de change manquant, Experio le récupérerait"
+    why = "Experio ne le récupère pas pour cette devise ou cette date"
+    if rate == 0 or rate == 1:  # the wizard fetches only these (a negative rate is left as is)
+        wizard_id = odoo_call(RATE_WIZARD, "create", {"invoice_ids": [(6, 0, [invoice_id])]}, context=context)
+        try:
+            odoo_json(RATE_WIZARD, "action_fetch_exchange_rates", [wizard_id], context=context)
+        except ExperioRefusal as error:
+            if not is_refusal(error):
+                raise
+            why = f"Experio ne l'a pas trouvé : {experio_refusal(error)}"
+        rate = odoo_call("exp.invoice", "read", [invoice_id], fields=["exchange_rate"], context=context)[0]
+        rate = rate["exchange_rate"]
+    if rate <= 0 or rate == 1:
+        for check in RATE_CHECKS:  # a rate not published yet (month's average, today's) is waited for
+            message = warns(invoice_id, check, context)
+            if message:
+                return handle(check, invoice, message, context)
+        return stop(f"Facture {invoice_id} : taux de change manquant ({why}). À saisir par le cabinet sur la facture.")
+    refresh(invoice_id, context)
+    return f"taux de change manquant récupéré par Experio ({rate})"
 
 
 @step_tool

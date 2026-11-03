@@ -117,6 +117,8 @@ def test_the_transit_invoice_waits_for_the_invoices_it_paid_then_takes_them(monk
     def odoo_call(model, method, *args, **kw):
         if method == "read":
             return [transit]
+        if model == "exp.invoice.line":  # every débours covered by an invoice of the folder
+            return []
         if method == "write":
             state["written"].append(args[1])
             return True

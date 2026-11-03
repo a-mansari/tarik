@@ -517,3 +517,14 @@ def test_a_bill_whose_tva_is_not_its_rate_of_the_whole_base_keeps_the_rest_at_ze
     assert split == {"multi_tva": True, "amount_tva_20": 0.0, "amount_tva_10": 1.5, "amount_tva": 1.5}
     whole = {"amount_tva": 3.11, "tva_lines": [{"rate": 20.0, "amount_ht": 15.56, "amount_tva": 3.11}]}
     assert planned_changes(whole, [], {"multi_tva": False}) == {}  # coherent: one rate, nothing to do
+
+
+@pytest.mark.functionality
+def test_a_retenue_de_garantie_read_on_the_scan_is_written_over_experios(correcting):
+    from engine.tools.invoices import correct
+
+    correcting["read"] = {"amount_guarantee_holdback": 600.0}
+    correcting["bad"] = [flag("amount_guarantee_holdback", 0, 600.0)]
+    result = correct.correct_invoice(3)
+    assert correcting["filled"][0][1] == {"amount_guarantee_holdback": 600.0}
+    assert "retenue de garantie 600.0" in result["message"] and correcting["refreshed"]

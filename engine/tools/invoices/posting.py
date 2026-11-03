@@ -62,7 +62,8 @@ def disbursements_first(invoice):
     Experio links only posted ones. Otherwise links the posted ones it lacks as Experio's form does
     (_onchange_autofill_disbursement_invoices: same folder, posted, not a transit invoice, not linked to another
     transit invoice), refreshes the invoice so its writing gets one disbursement line per linked invoice, and returns
-    None. Returns None for any other invoice.
+    a French note when part of its débours has no invoice of the folder behind it (unbacked_disbursement), else None.
+    Returns None for any other invoice.
     """
     fields = ["invoice_type", "folder_id", "folder_type", "disbursement_invoice_ids", "company_id", "exercice_id"]
     found = odoo_call("exp.invoice", "read", [invoice["id"]], fields=fields)[0]
@@ -80,8 +81,8 @@ def disbursements_first(invoice):
         "exp.invoice", "search", [*folder, ("state", "in", ["post", "export"]), ("transit_invoice_id", "=", False)]
     )
     missing = [i for i in eligible if i not in found["disbursement_invoice_ids"]]
+    context = invoice_context(found)
     if missing and not dry_run():
-        context = invoice_context(found)
         odoo_call(
             "exp.invoice",
             "write",
@@ -90,7 +91,23 @@ def disbursements_first(invoice):
             context=context,
         )
         refresh(invoice["id"], context)  # its disbursement lines, one per linked invoice
+    left = unbacked_disbursement(invoice["id"], context)
+    if left:
+        return (
+            f"débours de {left:.2f} sans facture du dossier derrière (payée par le transitaire), passé au compte de "
+            "débours : à justifier par le cabinet"
+        )
     return None
+
+
+def unbacked_disbursement(invoice_id, context):
+    """Return the part of a transit invoice's débours that no linked invoice covers: Experio books it on the
+    dossier's débours account, on a disbursement line linked to no invoice (generate_tva_line_values, exp_invoice.py
+    6415-6432)."""
+    domain = [("invoice_id", "=", invoice_id), ("line_type", "=", "disbursement")]
+    domain.append(("linked_disbursement_invoice_id", "=", False))
+    lines = odoo_call("exp.invoice.line", "search_read", domain, fields=["amount_ht"], context=context)
+    return round(sum(line["amount_ht"] for line in lines), 2)
 
 
 def auto_merge(invoice):
@@ -145,8 +162,9 @@ def post_invoice(invoice_id: int) -> dict:
     if merged:
         return merged
     first = disbursements_first(invoice)
-    if first:
+    if isinstance(first, dict):
         return first
+    noted = f" Note : {first}." if first else ""
     role, told = missing_compte_tiers(invoice), ""
     if role:  # linked before its dossier had a series (a FEC loaded after): the dossier's series gives it now
         partner, kind, context = invoice["partner_id"][0], side_of(invoice), invoice_context(invoice)
@@ -189,7 +207,7 @@ def post_invoice(invoice_id: int) -> dict:
             return stop(f"Facture {invoice_id} : {CRASHED}")
         return stop(f"Facture {invoice_id} : Experio a refusé la comptabilisation : {experio_refusal(error)}")
     if after["state"] in POSTED:
-        return ok(f"Facture {invoice_id} : comptabilisée.{told}")
+        return ok(f"Facture {invoice_id} : comptabilisée.{told}{noted}")
     # A window instead of the posting (a closed earlier exercice, a move's confirmation): over RPC nobody answers.
     if isinstance(action, dict) and action.get("res_model"):
         log(f"post_invoice {invoice_id}: action_post opened {action.get('res_model')}")
