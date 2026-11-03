@@ -585,7 +585,10 @@ def resume_at(state: Run):
     # The invoice answered about goes on from its next step; back to its account step when the client gave it one.
     if answered in corrections and following in INVOICE_CHAIN and position(following) > position("assign_account"):
         following = "assign_account"
-    return [sent(answered, following), *fixes]
+    # Every message takes up the drafts Experio was still reading (« reprise à votre prochain message »), an answer
+    # too: the others are left to their own branch, never one invoice twice in a run.
+    skipped = {**state, "call": {**state["call"], "mode": "resume", "skip_invoices": sorted({answered, *corrections})}}
+    return [sent(answered, following), *fixes, Send("brouillons", skipped)]
 
 
 run = StateGraph(Run)

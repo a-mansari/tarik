@@ -23,6 +23,7 @@ from engine.tools.dossiers.setup import ask_banks, set_journal_bank
 from engine.tools.invoices import tpe
 from engine.tools.invoices.accounts import confirm_account, set_account
 from engine.tools.invoices.classify import SIDES, client_side
+from engine.tools.invoices.configuration import answer_number
 from engine.tools.invoices.exercice import settle_exercice
 from engine.tools.invoices.intake import BANK_QUESTION, client_kind, file_named, import_bank_statement, set_kind
 from engine.tools.invoices.prepaid import settle_prepaid
@@ -123,6 +124,7 @@ ANSWERS = {
     "settle_withholding": settle_withholding,
     "settle_prepaid": settle_prepaid,
     "settle_exercice": settle_exercice,
+    "configure_cabinet": answer_number,
     "settle_warnings": answer_warnings,
 }
 # The oui / non questions: they take the agent's decision, read from the client's answer, never a guess from it here.
@@ -334,10 +336,13 @@ HEAD = re.compile(r"[Ff]acture\b[^:\n]{0,150}? : ")  # « Facture 12 : », « Fa
 def named_for_client(text, key, labels, numbered=False):
     """Return ``text`` about invoice ``key`` headed by how the client knows it (labels_of), in place of the head the
     tool wrote (its draft number, or only the supplier): « Facture n° 277/25 (GECAFISC) : ... ». Without a label the
-    text is left as it is, or with ``numbered`` headed by the draft number when it lacks it. Other keys (a file, a
-    dossier's setup) are left as they are."""
-    if not key or key < 0:
+    text is left as it is, or with ``numbered`` headed by the draft number when it lacks it. A file (negative key) is
+    named in backticks when the text does not; a dossier's setup is left as it is."""
+    if not key:
         return text
+    if key < 0:
+        name = (labels or {}).get(key)
+        return f"{name} : {text}" if name and "`" not in text else text
     head = (labels or {}).get(key)
     if head:
         return f"{head} : {HEAD.sub('', text, count=1) if HEAD.match(text) else text}"
@@ -347,16 +352,16 @@ def named_for_client(text, key, labels, numbered=False):
 def labels_of(ids):
     """Return {invoice id: its head for the client}: « Facture n° 1583109664 JW (SRM-CS) », its own number and its
     supplier (or customer) without the account and IF Experio appends, « Facture de SRM-CS » without a number; only
-    what is known, {} when Experio can't tell."""
+    what is known, {} when Experio can't tell. A file (negative key) is its name in backticks."""
+    labels = file_labels(sorted({-i for i in ids if i and i < 0}))
     ids = sorted({i for i in ids if i and i > 0})
     if not ids:
-        return {}
+        return labels
     try:
         found = odoo_call("exp.invoice", "search_read", [("id", "in", ids)], fields=["invoice_number", "partner_id"])
     except Exception as error:  # a label is a comfort: the summary goes on with Tarik's numbers
         log(f"labels_of: {error}")
-        return {}
-    labels = {}
+        return labels
     for invoice in found:
         who = without_if(invoice["partner_id"][1].split(" - ")[0]) if invoice["partner_id"] else ""
         number = (invoice["invoice_number"] or "").strip()
@@ -365,6 +370,15 @@ def labels_of(ids):
         elif who:
             labels[invoice["id"]] = f"Facture de {who}"
     return labels
+
+
+def file_labels(ids):
+    """Return {-file id: its name in backticks} for the files ``ids``: an error on a file must say which."""
+    if not ids:
+        return {}
+    with cabinet_db() as db:
+        names = db.execute(Q.file_names_of, (ids,)).fetchall()
+    return {-file_id: f"`{name}`" for file_id, name in names}
 
 
 def with_problem(step, text):
@@ -445,15 +459,17 @@ def headline(outcomes):
     """Return the one line counting where the run's invoices and statements ended (« 3 factures comptabilisées, 21
     laissées en brouillon, 10 doublons, 5 à corriger, 4 questions »); "" when none to count. A dossier's setup is
     not counted."""
-    posted = held = reading = duplicates = problems = questions = statements = 0
+    posted = held = reading = duplicates = problems = questions = 0
+    # A statement's report is recorded under no file or invoice: counted wherever it stands.
+    statements = sum(
+        outcome[0] == "report_statement" and outcome[1] == "ok" for found in outcomes.values() for outcome in found
+    )
     for key, found in outcomes.items():
         if key is None:
             continue
         step, status = found[-1][:2]
         where = section_of(step, status)
-        if key < 0 and where == "done":  # a file: a statement taken as one when its report ended well
-            statements += any(outcome[0] == "report_statement" for outcome in found)
-        elif key < 0 and where in ("problem", "question"):
+        if key < 0 and where in ("problem", "question"):
             problems, questions = problems + (where == "problem"), questions + (where == "question")
         elif key < 0:
             continue
@@ -531,10 +547,13 @@ def sections_of(outcomes, labels=None):
     sections = {name: [] for name in SECTIONS}
     for key, found in outcomes.items():
         if key is None:  # a dossier's setup: each outcome in its own section, on its own line
-            for step, status, message, is_routine, _ in found:
+            for step, status, message, is_routine, is_noted in found:
                 if is_routine:
                     continue
                 text = summary_text(key, step, status, message, labels)
+                if is_noted and status == "ok" and step == "report_statement":  # recorded with no file: still to check
+                    sections["check"].append(bullet(text))
+                    continue
                 # A question is numbered by summary_sections, never bulleted too.
                 sections[section_of(step, status, message)].append(text if status == "question" else bullet(text))
             continue

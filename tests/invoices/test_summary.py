@@ -188,3 +188,34 @@ def test_a_noted_outcome_is_shown_to_check_whatever_the_invoice_ends_at(db_cabin
         "Bilan : 1 facture vérifiée laissée en brouillon. Dites-moi quand les comptabiliser."
         "\n\n**À vérifier**\n- `a.pdf` : facture d'achat d'après le scan."
     )
+
+
+@pytest.mark.communication
+def test_a_statements_report_recorded_with_no_file_is_counted_and_shown_to_check(db_cabinet):
+    """The pointing's report names the statement, not a file: it must still reach « À vérifier » and the headline."""
+    record_step(
+        "r", "s", "report_statement", {"status": "ok", "message": "Relevé n° 7 :\n- 3 à reclasser.", "note": True}
+    )
+    record_step(
+        "r", "s", "report_statement", {"status": "ok", "message": "Relevé n° 8 : rien à signaler.", "routine": True}
+    )
+    assert (
+        run_summary("r")["message"]
+        == "Bilan : 2 relevés traités.\n\n**À vérifier**\n- Relevé n° 7 :\n  - 3 à reclasser."
+    )
+
+
+@pytest.mark.communication
+def test_an_error_on_a_file_says_which_file(db_cabinet):
+    from engine.tools.core.cabinets import cabinet_db
+
+    with cabinet_db() as db:
+        (file_id,) = db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data) "
+            "values ('s', 'zip.zip › recu.pdf', 'application/pdf', %s) returning id",
+            (b"%PDF",),
+        ).fetchone()
+    error = {"status": "error", "message": "Identification du document : illisible.", "file_id": file_id}
+    record_step("r", "s", "identify_document", error)
+    assert "`zip.zip › recu.pdf` : Je n'ai pas pu" not in run_summary("r")["message"]  # the head is the step's own
+    assert "- `zip.zip › recu.pdf` : je n'ai pas pu identifier le document" in run_summary("r")["message"]

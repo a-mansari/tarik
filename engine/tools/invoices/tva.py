@@ -6,7 +6,8 @@ here: the question on the usual non-recoverable accounts, the cabinet's prorata,
 has none for (taxes.py), made before the refresh that would refuse that rate.
 """
 
-from engine.tools.core.app import ToolError, ok, question, routine, step_tool
+from engine.knowledge.cgnc import consult_cgnc
+from engine.tools.core.app import ToolError, log, noted, ok, question, routine, step_tool
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.conversation import kept_yes_no, yes_no
 from engine.tools.core.experio import (
@@ -20,6 +21,8 @@ from engine.tools.core.experio import (
     require_draft_invoice,
     test_mode_note,
 )
+from engine.tools.core.model import ask_model, tool_prompt
+from engine.tools.invoices.check import stored_check
 from engine.tools.invoices.classify import side_of
 from engine.tools.invoices.taxes import add_missing_taxes
 
@@ -28,24 +31,58 @@ NON_RECOVERABLE_ACCOUNTS = ("6142", "6143", "61223", "2340")  # travel, receptio
 # 61223 « Achats de combustibles » in Experio's chart (exp_account experio_history.py:477); 61251 is water, electricity.
 
 
-def _non_recoverable(invoice, answer):
-    """Decide whether a purchase's TVA is non-recoverable, from the client's ``answer`` or by asking.
+def deductibility(invoice, context):
+    """Return (non_recoverable, reason) for a purchase on one of NON_RECOVERABLE_ACCOUNTS: True or False as the model
+    decides, None when it cannot (the client is asked then). The model is shown the dossier's activity as far as
+    Experio holds it (its name, its « secteur d'activité »), what the invoice bills and the account, and the CGNC's
+    own words on that account: is this expense necessary to this company's activity, so its TVA deductible, or not."""
+    company = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=["name", "partner_id"])[0]
+    sector = ""
+    try:
+        sector = odoo_call("exp.partner", "read", [company["partner_id"][0]], fields=["activity_sector"])[0]
+        sector = sector.get("activity_sector") or ""
+    except Exception as error:  # the dossier's own partner may not be readable: the name still says what it does
+        log(f"deductibility {invoice['id']}: {error}")
+    check = stored_check(invoice["id"])
+    designation = (check[1].get("designation") if check else "") or "(not read)"
+    code = account_code(invoice)
+    instruction = (
+        f"Dossier (the company whose books these are): {company['name']}\n"
+        f"Its activity as Experio holds it: {sector or 'not given'}\n"
+        f"Supplier: {invoice['partner_id'][1] if invoice['partner_id'] else 'unknown'}\n"
+        f"The invoice bills: {designation}\nAccount: {code}\n\nWhat the CGNC says on this account:\n"
+        f"{consult_cgnc(code=code)}\n\n"
+        'Answer with only a JSON object: {"non_recoverable": true | false | null, "reason": "one short French '
+        'sentence"}'
+    )
+    answer = ask_model(tool_prompt("decide-tva-deductible"), [], instruction, "Récupération de la TVA")
+    decided = answer.get("non_recoverable")
+    return (decided if isinstance(decided, bool) else None), str(answer.get("reason") or "")
 
-    Returns (question, changes). question is a question result when the answer is not understood, or when there is
-    no answer and the account is one of NON_RECOVERABLE_ACCOUNTS; else None. changes is the invoice values « oui »
-    sets, {} otherwise.
+
+def _non_recoverable(invoice, answer):
+    """Decide whether a purchase's TVA is non-recoverable, from the client's ``answer``, else from the model (the
+    dossier's activity, what is billed, the CGNC), else by asking.
+
+    Returns (question, changes, reason). question is a question result when the answer is not understood, or when
+    there is no answer and the model cannot tell for an account in NON_RECOVERABLE_ACCOUNTS; else None. changes is the
+    invoice values « non récupérable » sets, {} otherwise; reason is the model's, "" when the client decided.
     """
     told = yes_no(answer) if answer else None
     if answer and told is None:
         return (
             question(f"Facture {invoice['id']} : réponse non comprise, la TVA est-elle non récupérable ? oui / non"),
             {},
+            "",
         )
     if told is None and account_code(invoice).startswith(NON_RECOVERABLE_ACCOUNTS):
+        decided, reason = deductibility(invoice, invoice_context(invoice))
+        if decided is not None:
+            return None, ({"amount_tax_non_recoverable": True, "multi_tva": False} if decided else {}), reason
         tier = f"`{invoice['partner_id'][1]}`" if invoice["partner_id"] else "ce fournisseur"
         asked = f"Facture de {tier} : la TVA est-elle non récupérable (voyage, carburant, véhicule de tourisme) ? "
-        return question(asked + "oui / non"), {}
-    return None, ({"amount_tax_non_recoverable": True, "multi_tva": False} if told else {})
+        return question(asked + "oui / non"), {}, ""
+    return None, ({"amount_tax_non_recoverable": True, "multi_tva": False} if told else {}), ""
 
 
 def _tax_lines(invoice_id, context):
@@ -66,7 +103,9 @@ def _tax_lines(invoice_id, context):
 def settle_tva(invoice_id: int, answer: str = "") -> dict:
     """Settle a draft invoice's TVA once its account is set: recoverable or not, prorata, and each line's tax.
 
-    A purchase on a usual non-recoverable account is asked about; a sale billing no TVA gets « TVA non facturée »;
+    A purchase on a usual non-recoverable account is decided from the dossier's activity, what is billed and the CGNC
+    (deductibility: shown to the client under « À vérifier »), asked only when the model cannot tell; a sale billing no
+    TVA gets « TVA non facturée »;
     a purchase of a dossier using a TVA prorata gets it. The dossier's missing taxes are added, then Experio's refresh
     picks each line's tax. When the result is a question (non-recoverable TVA?), ask the client and call again with
     ``answer`` "oui" (non-recoverable) or "non", as the agent read their reply.
@@ -84,10 +123,10 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
         )
     purchase = side_of(invoice) == "purchase"
     context = invoice_context(invoice)
-    changes, notes = {}, []
+    changes, notes, reason = {}, [], ""
     if purchase and not invoice["amount_tax_non_recoverable"] and invoice["amount_tva"]:
         answer, _ = kept_yes_no(invoice_id, "settle_tva", answer)  # asked before: its answer, not the question again
-        asked, changes = _non_recoverable(invoice, answer)
+        asked, changes, reason = _non_recoverable(invoice, answer)
         if asked:
             return asked
     # A sale billing no TVA (exonérée, hors champ): Experio's « TVA non facturée », one line at the TTC on its 0 %
@@ -122,5 +161,8 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
         body += "Pas encore de ligne de TVA."
     if taxes:
         body += " Taxes du dossier : " + " ; ".join(taxes) + "."
+    if reason:  # Tarik decided alone, from the dossier's activity and the CGNC: the client checks it
+        verdict = "non récupérable" if non_recoverable else "récupérable"
+        return noted(f"{body}Décidé par Tarik ({verdict}) : {reason} Dites-moi si c'est l'inverse.")
     told = non_recoverable or notes or taxes  # what the client should know: else routine
     return ok(body) if told else routine(body)

@@ -463,3 +463,24 @@ def test_a_sales_regional_tax_without_the_dossiers_account_is_left_as_experio_re
     correcting["bad"] = [flag("amount_regional_tax", None, 30)]
     result = correct.correct_invoice(3)
     assert "le dossier n'a pas de compte de taxe régionale" in result["message"] and correcting["filled"] == []
+
+
+@pytest.mark.functionality
+def test_a_split_over_rates_the_scan_never_shows_is_undone_for_the_one_rate_it_has():
+    """The scan has one line at 10 %; Experio read 20 % and 0 %: its lines never added up to the TVA."""
+    scan = {"amount_tva": 1.5, "tva_lines": [{"rate": 10.0, "amount_ht": 15.56, "amount_tva": 1.5}]}
+    invoice = {"multi_tva": True, "amount_tva_20": 1.92, "amount_tva_10": 0.0}
+    changes = planned_changes(scan, [], invoice)
+    assert changes == {"multi_tva": False, "amount_tva_20": 0.0, "amount_tva": 1.5}
+    assert list(changes)[0] == "multi_tva" and list(changes)[-1] == "amount_tva"  # off first, the one TVA last
+    # Not touched: an invoice Experio did not split, a scan whose lines do not add up to its TVA, several rates.
+    assert planned_changes(scan, [], {"multi_tva": False}) == {}
+    assert planned_changes({**scan, "amount_tva": 5.0}, [], invoice) == {}
+    two = {
+        "amount_tva": 3.0,
+        "tva_lines": [
+            {"rate": 20.0, "amount_ht": 5, "amount_tva": 1},
+            {"rate": 10.0, "amount_ht": 20, "amount_tva": 2},
+        ],
+    }
+    assert planned_changes(two, [], invoice)["multi_tva"] is True

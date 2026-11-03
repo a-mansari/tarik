@@ -17,6 +17,7 @@ from engine.tools.invoices.check import CAPTURED, HOTEL, stored_check
 from engine.tools.invoices.configuration import save_settings
 
 MULTI_TVA_RATES = {7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18, 20}  # the amount_tva_<rate> fields Experio has
+PER_RATE = [f"amount_tva_{rate}" for rate in sorted(MULTI_TVA_RATES)]
 
 PAYMENT_METHODS = {
     "especes": "Esp",
@@ -116,6 +117,11 @@ def planned_changes(extracted, bad_fields, invoice):
         changes["multi_tva"] = True
         changes.update({f"amount_tva_{rate}": amount for rate, amount in rates.items() if rate})
         changes["amount_tva"] = round(sum(rates.values()), 2)
+    elif len(rates) == 1 and trusted and invoice.get("multi_tva"):
+        # The scan has one rate and Experio read several (a split over rates the scan never shows): undone, the
+        # per-rate amounts it wrote zeroed, then the one TVA put back, so its lines add up to the TVA.
+        changes = {"multi_tva": False, **{f: 0.0 for f in PER_RATE if invoice.get(f)}, **changes}
+        changes["amount_tva"] = extracted["amount_tva"]
     return changes
 
 
@@ -249,6 +255,8 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         "amount_total",
         "amount_untaxed",
         "type",
+        "multi_tva",
+        *PER_RATE,
         *TAX_FIELDS,
         *HOTEL,
         *(f"should_use_{field.removeprefix('amount_')}" for field in HOTEL),
