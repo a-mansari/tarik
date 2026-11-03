@@ -84,9 +84,19 @@ def account():
     return current(), expected_uid(setting("ODOO_UID")), setting("ODOO_USER"), key
 
 
+# A cabinet's own Experio: https and its host (a port allowed), Odoo's RPC routes being at its root.
+OWN_EXPERIO: Final = re.compile(r"https://[A-Za-z0-9.-]+(:\d{1,5})?/?")
+
+
 def experio_url():
-    """Return the current cabinet's Experio address: its EXPERIO_URL, else ODOO_URL (the stack's)."""
-    return setting("EXPERIO_URL", ODOO_URL).rstrip("/")
+    """Return the current cabinet's Experio address: its EXPERIO_URL, else ODOO_URL (the stack's).
+
+    Raises PermissionError when EXPERIO_URL is not OWN_EXPERIO, wherever it was written (Vault, the seed): the
+    password is never sent over plain HTTP nor to a path."""
+    own = setting("EXPERIO_URL", "")
+    if own and not OWN_EXPERIO.fullmatch(own):
+        raise PermissionError(f"{current()}: EXPERIO_URL is not https and a host only")
+    return (own or ODOO_URL).rstrip("/")
 
 
 def dry_run():

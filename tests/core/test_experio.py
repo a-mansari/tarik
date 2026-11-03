@@ -210,6 +210,9 @@ def test_a_cabinet_reaches_its_own_experio_else_the_stacks(monkeypatch):
     monkeypatch.setattr(experio, "ODOO_URL", "https://stack.invalid")
     fake_settings(monkeypatch)
     assert experio_url() == "https://stack.invalid"
+    fake_settings(monkeypatch, EXPERIO_URL="http://own.invalid")
+    with pytest.raises(PermissionError):  # written straight into Vault: never used over plain HTTP
+        experio_url()
     fake_settings(monkeypatch, EXPERIO_URL="https://own.invalid/")
     assert experio_url() == "https://own.invalid"
     monkeypatch.setattr(experio, "experio_url", experio_url)
@@ -268,8 +271,7 @@ def test_a_crash_is_not_told_as_experio_reason(crash):
 
 @pytest.mark.technical
 def test_an_xml_rpc_connection_gives_up_after_the_timeout(monkeypatch):
-    monkeypatch.setattr(experio, "ODOO_URL", "https://experio.invalid")
-    transport = experio._timed_transport(experio.ODOO_URL)
+    transport = experio._timed_transport("https://experio.invalid")
     assert isinstance(transport, experio.xmlrpc.client.SafeTransport)
     assert transport.make_connection("experio.invalid").timeout == experio.RPC_TIMEOUT
 

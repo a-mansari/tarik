@@ -101,12 +101,10 @@ def test_no_tool_ever_shows_a_setting(schemas, monkeypatch, experio_mode):
         POSTGRES["password"],
     ]
     with contextlib.ExitStack() as stack:
-        url = (
-            "http://leak-odoo-url.invalid"
-            if experio_mode == "unreachable"
-            else stack.enter_context(fake_experio(experio_mode))
-        )
-        monkeypatch.setattr(experio, "ODOO_URL", url)
+        if experio_mode == "unreachable":  # the cabinet's own Experio, its address a marker too
+            monkeypatch.setenv(f"{A.upper()}__EXPERIO_URL", "https://leak-odoo-url.invalid")
+        else:  # the fake Experio is plain HTTP: the stack's
+            monkeypatch.setattr(experio, "ODOO_URL", stack.enter_context(fake_experio(experio_mode)))
         expected = {"unreachable": "injoignable", "empty": "Connecté", "fault": "refusée", "wrong_uid": "refusée"}[
             experio_mode
         ]
