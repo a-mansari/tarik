@@ -290,6 +290,18 @@ def test_a_foreign_suppliers_last_posted_rule_is_written_again(foreign):
     assert result["message"] == "Facture 3 : retenue étrangère à la charge de la société."
 
 
+@pytest.mark.functionality
+def test_an_email_answering_several_invoices_is_read_for_the_invoice_asked(db_cabinet, local, model):
+    local["partner"].update(expense_type=False)
+    local["invoice"]["account_id"] = [1, "61360000 Honoraires"]
+    reading, seen = model
+    reading.update(retenue=False, is_ir=None, tva=0)
+    email = "facture 3: sans retenue\nfacture 9: 10"
+    result = withholding.settle_withholding(3, email, answering=True)
+    assert result["status"] == "ok"
+    assert "invoice 3 of supplier BTP SARL only" in seen[0] and email in seen[0]
+
+
 @pytest.mark.communication
 def test_a_foreign_supplier_with_no_known_rule_is_asked_and_its_answer_written(foreign, model):
     asked = withholding.settle_withholding(3)
