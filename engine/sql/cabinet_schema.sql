@@ -95,6 +95,8 @@ create table if not exists tarik_setups (
 );
 -- A step outcome the client needn't read (engine.tools.core.app.routine): left out of the run's summary.
 alter table tarik_results add column if not exists routine boolean not null default false;
+-- A success the client should check (engine.tools.core.app.ok with note=True): the only ok outcome the summary shows.
+alter table tarik_results add column if not exists noted boolean not null default false;
 alter table tarik_results add column if not exists choices jsonb;
 alter table tarik_results add column if not exists journal_id integer; -- the bank journal a question (ask_banks) is about
 -- The questions waiting for the client, one per invoice.

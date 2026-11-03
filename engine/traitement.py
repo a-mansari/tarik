@@ -397,7 +397,13 @@ async def files(state: Run):
     # One saved by this run did arrive, even when a step took it as something else (a supplier's attestation).
     saved = any(outcome.get("files") for outcome in state["outcomes"][:1])
     asked = mentions_attachment(state["call"].get("client_message") or "") and not saved
-    result = await run_step(state, "files_to_process", session_id=state["call"]["session_id"], asked=asked)
+    result = await run_step(
+        state,
+        "files_to_process",
+        session_id=state["call"]["session_id"],
+        asked=asked,
+        client_message=state["call"].get("client_message") or "",
+    )
     return {"files": result.get("files", []), "outcomes": [result]}
 
 

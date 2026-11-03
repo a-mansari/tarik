@@ -26,7 +26,7 @@ from engine.tools.core.experio import (
     require_invoice,
     test_mode_note,
 )
-from engine.tools.core.words import ICE_WRITTEN, normalized, ranked, said
+from engine.tools.core.words import ICE_WRITTEN, normalized, ranked, said, tiers_key
 from engine.tools.invoices.check import stored_check
 from engine.tools.invoices.classify import side_of
 from engine.tools.invoices.duplicates import FIELDS as DUPLICATE_FIELDS
@@ -371,6 +371,9 @@ def same_name(invoice, name, kind):
     """
     found = dossier_tiers(invoice["company_id"][0])
     same = [p for p in found if normalized(p["name"]) == normalized(name)]
+    key = tiers_key(name)
+    if not same and key:  # only the legal form differs: « GNS Lighting LTD » is the tiers « GNS LIGHTING »
+        same = [p for p in found if tiers_key(p["name"]) == key]
     if len(same) != 1:
         return None
     result = link(invoice, same[0]["id"], kind)
@@ -383,7 +386,7 @@ def same_name(invoice, name, kind):
         f"de même nom `{same[0]['name']}` (id `{same[0]['id']}`).{warned} S'il n'est pas le bon, un collaborateur du "
         "cabinet le change dans Experio. "
     )
-    return {**result, "message": told + result["message"]}
+    return {**result, "message": told + result["message"], "note": True}
 
 
 def find_tiers(invoice_id, name, minimum=TIERS_MIN_SIMILARITY, ice=None):

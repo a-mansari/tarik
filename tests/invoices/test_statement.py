@@ -216,7 +216,8 @@ def experio(monkeypatch):
 
 def pointed(client_message=""):
     """Bank statement 40's pointing steps in the graph's order (engine.pointage), then its report: as the graph runs
-    them, the first step not ok ends it (its result returned), else the report's result."""
+    them, the first step not ok ends it (its result returned), else the report's result, its "message" followed by what
+    the steps said (the graph keeps those out of the reply) and its "report" alone."""
     done = []
     for tool in pointage.STEPS.values():
         words = {"client_message": client_message} if tool == "tie_cited_invoices" else {}
@@ -224,8 +225,9 @@ def pointed(client_message=""):
         if result["status"] != "ok":
             return result
         done.append(result)
-    said = [result["said"] for result in done if result.get("said")]
-    return statement.report_statement(40, said=said, notes=[result["note"] for result in done if result.get("note")])
+    report = statement.report_statement(40, notes=[result["note"] for result in done if result.get("note")])
+    said = [result["said"] for result in done if result.get("said")]  # what the steps did: never in the report
+    return {**report, "message": "\n".join([report["message"], *said]), "report": report["message"]}
 
 
 # The text rows of a statement's PDF, as model.pdf_text gives them.
@@ -386,8 +388,8 @@ def test_a_statement_is_pointed_by_experios_detection_and_its_blocked_lines_said
     result = pointed(client_message="")
     assert experio["applied"] == [[5]]  # Experio's « Auto Point », confirmed as its window's « Apply »
     assert "2 opérations ont été pointées par la détection d'Experio." in result["message"]
-    assert "1 est prête à comptabiliser" in result["message"]
     assert "- 2 opérations à compléter dans Experio : the partner is mandatory for this operation." in result["message"]
+    assert "prête" not in result["report"] and "pointées" not in result["report"]  # successes are never in the reply
 
 
 @pytest.mark.functionality
@@ -770,7 +772,7 @@ def test_a_posted_statement_is_neither_pointed_nor_posted_again(experio, monkeyp
         line["state"] = "post"
     monkeypatch.setattr(statement, "tie_tpe", lambda *a: pytest.fail("a posted statement is not tied"))
     result = pointed(client_message="facture FA-0012")
-    assert experio["applied"] == [] and experio["written"] == [] and "3 sont déjà comptabilisées" in result["message"]
+    assert experio["applied"] == [] and experio["written"] == [] and "rien à signaler" in result["report"]
     assert statement.post_statement(8)["message"] == "Relevé n° 40 : déjà comptabilisé."
 
 
@@ -1073,11 +1075,11 @@ def test_what_a_scan_read_that_is_no_operation_is_removed_and_its_balances_fille
     assert experio["balanced"] == [{"balance_start": 313453.76, "balance_end_real": 248080.25}]
     assert result["said"] == (
         "J'ai retiré 5 lignes qui ne sont pas des opérations : en-têtes, soldes et totaux.\n"
-        "2 opérations ont été pointées par la détection d'Experio."
+        "2 opérations ont été pointées par la détection d'Experio.\n"
+        "J'ai repris les soldes du relevé : 313453.76 au début, 248080.25 à la fin."
     )
     assert result["message"].startswith("Relevé n° 40 : j'ai retiré 5 lignes")  # lowercased after the colon
     assert result["note"] == (
-        "J'ai repris les soldes du relevé : 313453.76 au début, 248080.25 à la fin.\n"
         "1 ligne réunit deux opérations (« 24 09 25 PAIEMENT CHEQUE 7436903 … ») : séparez-les dans Experio."
     )
 
@@ -1109,12 +1111,12 @@ def test_test_mode_removes_and_fills_nothing_but_says_the_same(experio, monkeypa
 
 
 @pytest.mark.communication
-def test_what_tarik_did_is_told_before_what_does_not_hold(experio):
+def test_what_tarik_did_is_not_told_only_what_does_not_hold(experio):
     scanned(experio, *SCAN)
     said = statement.detect_statement_lines(40)
     experio["statement"].update(balance_start=313453.76, balance_end_real=248080.25, is_complete=False)
-    message = statement.report_statement(40, [said["said"]], [said["note"]])["message"]
-    assert message.index("J'ai repris les soldes") < message.index("ne correspond pas")
+    message = statement.report_statement(40, [said["note"]])["message"]
+    assert "J'ai repris les soldes" not in message and "ne correspond pas" in message  # what was done is not said
 
 
 @pytest.mark.security

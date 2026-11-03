@@ -18,10 +18,17 @@ def strip_tags(html, by=""):
     return TAG.sub(by, html or "")
 
 
+LIGATURES = str.maketrans({"œ": "oe", "Œ": "oe", "æ": "ae", "Æ": "ae", "ß": "ss", "ø": "o", "Ø": "o"})
+
+
 def normalized(text):
-    """Return ``text`` lowercased, without accents, words only: "Sté  Alliance-Génie" -> "ste alliance genie"."""
-    ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
-    return " ".join(re.sub(r"[^a-z0-9]+", " ", ascii_text).split())  # any run of non-alphanumerics is one space
+    """Return ``text`` lowercased, without accents, words only: "Sté  Alliance-Génie" -> "ste alliance genie".
+
+    Any character that is not a letter or digit is a space, whatever its script: the typographic apostrophe of an
+    email client (« d’achat ») separates words like the plain one, it never joins them (« dachat »)."""
+    decomposed = unicodedata.normalize("NFKD", text.translate(LIGATURES))
+    plain = "".join(char for char in decomposed if not unicodedata.combining(char)).lower()
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", plain).split())  # any run of non-alphanumerics is one space
 
 
 def said(phrase, words):
@@ -36,6 +43,9 @@ def without_if(name):
 
 
 LEGAL_FORMS = {"ste", "societe", "sarl", "sarlau", "sa", "sas", "au", "ets", "etablissements", "cie"}
+LEGAL_FORMS |= {"ltd", "limited", "llc", "inc", "corp", "corporation", "co", "company", "gmbh", "ag", "bv", "nv"}
+# Foreign suppliers' too: the scan prints them, the dossier's tiers may not.
+LEGAL_FORMS |= {"spa", "srl", "plc", "pte", "pvt", "pty", "sl"}
 
 
 def tiers_key(name):

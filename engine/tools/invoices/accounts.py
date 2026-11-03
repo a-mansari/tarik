@@ -38,7 +38,7 @@ from engine.tools.invoices.listing import SIDES
 CLASS = {"purchase": "6", "sale": "7"}
 # What the model classifies a purchase among: charges, and fixed assets (class 2, Experio then makes the asset at
 # posting: immobilisations' generate_asset_assets). No Experio rule tells one from the other: a class 2 it picks is
-# confirmed by the client first.
+# put on the draft and said (« À vérifier »), the client says if it is a charge; nothing is posted before they ask.
 MODEL_CLASSES = {"purchase": ("6", "2"), "sale": ("7",)}
 # The classes Experio posts without a warning (validate_warning_account_id): 2 and 6 for a purchase, 7 for a sale.
 WARNING_FREE = {"purchase": ("2", "6"), "sale": ("7",)}
@@ -233,13 +233,9 @@ def assign_account(
         reason = f"« {hint} » ne désigne aucun compte du dossier, choisi d'après vos mots et la facture : {reason}"
     if not account:
         return question(account_question(invoice, designation))
-    if account["code"].startswith("2"):  # an immobilisation: amortized, never a charge, on the client's word only
-        label = f"{account['code']} {account['name']}"
-        return question(
-            f"Facture {invoice['invoice_number'] or invoice_id} : « {designation} » ressemble à une immobilisation "
-            f"({reason}). Je la passe en compte `{label}` (immobilisée et amortie, pas en charge) ? oui / non",
-            choices={account["id"]: label},
-        )
+    if account["code"].startswith("2"):  # an immobilisation (amortized, not a charge): put on it, said, easy to refuse
+        why = f"immobilisée et amortie, pas en charge : {reason} ; dites-moi si c'est une charge"
+        return {**apply_account(invoice, account["id"], why), "note": True}
     return apply_account(invoice, account["id"], reason)
 
 

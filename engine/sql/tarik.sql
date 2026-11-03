@@ -158,7 +158,7 @@ select released from tarik_held where invoice_id = %s
 -- name: insert_result
 -- One step's outcome for a run.
 insert into tarik_results (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message,
-routine, choices, journal_id) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+routine, choices, journal_id, noted) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 
 -- name: upsert_pending
 -- An invoice's pending question, replacing an earlier one.
@@ -177,7 +177,7 @@ delete from tarik_pending where invoice_id = %s
 
 -- name: run_outcomes
 -- A run's outcomes, keyed by invoice (or minus the file id), in the order recorded.
-select coalesce(invoice_id, -file_id), step, status, message, routine from tarik_results
+select coalesce(invoice_id, -file_id), step, status, message, routine, noted from tarik_results
 where run_id = %s order by id
 
 -- name: statements_asked
@@ -235,8 +235,10 @@ values (%s, %s, %s, %s, %s) on conflict (session_id, source_id) do nothing retur
 
 -- name: files_to_process
 -- Whatever has no draft or statement yet, until it has: a file left uncut (its side wasn't given), one invoice
--- cut out of a PDF whose draft failed, a statement waiting for its bank account. A cut PDF is its parts.
-select id, file_name from tarik_files f where session_id = %s and invoice_id is null
+-- cut out of a PDF whose draft failed, a statement waiting for its bank account. A cut PDF is its parts. A file
+-- identified as neither an invoice nor a statement (kind other) is listed with its kind: it is taken up again only
+-- when the client's message names it.
+select id, file_name, kind from tarik_files f where session_id = %s and invoice_id is null
 and statement_id is null and twin_of is null and kind is distinct from 'entries'
 and kind is distinct from 'certificate' and kind is distinct from 'folder'
 and not exists (select 1 from tarik_files part where part.parent_id = f.id) order by id

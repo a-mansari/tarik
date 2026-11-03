@@ -365,7 +365,7 @@ def test_the_side_the_client_does_not_give_is_read_on_the_scan_and_said(db_cabin
     if expected is None:
         assert result["status"] == "question" and "achat ou de vente" in result["message"]
         return
-    assert result["status"] == "ok" and not result.get("routine") and result["tell"]  # recorded and told
+    assert result["status"] == "ok" and not result.get("routine") and result["note"]  # recorded and shown
     assert result["invoice_type"] == expected and result["files"] == [file_id]
     assert "d'après le scan" in result["message"] and "dites-le-moi si c'est" in result["message"]
 

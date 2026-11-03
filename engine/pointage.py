@@ -3,7 +3,8 @@ own detection, its reading checked against the statement's PDF, then what it lea
 open invoices, TPE remittances), then where the statement stands. Traitement runs it on a statement it imported,
 Relevés on each of a dossier's open statements.
 
-Each step's result is routine: its ``said`` and ``note`` go into the report's one line (report_statement). A step that
+Each step's result is routine: its ``note`` (what it left to check) goes into the report (report_statement);
+what it did stays in Experio's history, never in the reply. A step that
 is not ok ends the statement's pointing; the summary says where."""
 
 import operator
@@ -52,13 +53,12 @@ def pointing_step(tool):
 
 
 async def report(state: Statement):
-    """Graph node: say where the statement stands, with what the steps did (report_statement)."""
+    """Graph node: say what the statement still needs from the client or the cabinet (report_statement)."""
     done = state.get("outcomes") or []
     result = await run_step(
         state,
         "report_statement",
         statement_id=state["statement_id"],
-        said=[outcome["said"] for outcome in done if outcome.get("said")],
         notes=[outcome["note"] for outcome in done if outcome.get("note")],
     )
     return {"last": result, "outcomes": [result]}
