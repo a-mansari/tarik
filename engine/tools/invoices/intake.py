@@ -336,7 +336,7 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
             if not read:
                 return question(f"`{name}` : s'agit-il de factures d'achat ou de vente ? Rien n'a été créé.")
             kind, other = ("d'achat", "une vente") if read[0] == "achat" else ("de vente", "un achat")
-            side = {"invoice_type": read[0], "tell": True}  # told in the reply (QUIET_WHEN_OK records it then)
+            side = {"invoice_type": read[0], "note": True}  # to check in the reply (QUIET_WHEN_OK records it then)
             said_side = f"facture {kind} d'après le scan ({read[1]}) ; dites-le-moi si c'est {other}. "
         parts = db.execute(Q.cut_parts_of_file, (file_id,)).fetchall()
         if parts:

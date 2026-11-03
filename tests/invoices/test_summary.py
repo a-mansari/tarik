@@ -35,58 +35,50 @@ def test_the_same_failure_on_two_invoices_names_each_one(db_cabinet):
         assert any(
             line.startswith(f"- Facture {invoice_id} : ") and "Experio est injoignable" in line for line in problems
         )
-    assert "- Facture 13 : conforme." in summary.split("**À corriger**")[0]  # a message naming it is left as it is
+    assert summary.startswith("Bilan : 2 à corriger.") and "Facture 13" not in summary  # a success is never listed
 
 
 @pytest.mark.communication
 def test_a_long_run_s_summary_keeps_what_the_client_needs_and_drops_the_rest(db_cabinet):
     runs.record("new")
-    runs.record("old", routine=False)  # as before outcomes were marked: every one shown
-    new, old = run_summary("new")["message"], run_summary("old")["message"]
+    new = run_summary("new")["message"]
     for message in runs.kept():  # every question, stop and problem, word for word
         assert message in new, message
-    for invoice_id in range(21, 31):  # every invoice, with where it stands
-        assert f"facture {invoice_id} :" in new.lower()
+    assert new.startswith("Bilan : 6 factures comptabilisées, 1 doublon, 1 à corriger, 2 questions.")
     sections = [line for line in new.splitlines() if line.startswith("**")]
-    assert sections == ["**Fait**", "**Doublons, non traités**", "**À corriger**", "**Questions**"]
-    done, rest = new.split("**Doublons, non traités**")
-    done_lines = done.splitlines()
-    for invoice_id in runs.POSTED:  # its name, then one line each: who, which account, posted; the rest was routine
-        at = done_lines.index(f"- Facture {invoice_id} :")
-        assert done_lines[at + 1 : at + 4] == [
-            f"  - fournisseur {runs.TIERS[runs.POSTED.index(invoice_id)]}, Compte Tiers fournisseur 4411{invoice_id}.",
-            "  - compte 6125 Achats de fournitures de bureau (compte memorise pour ce tiers).",
-            "  - comptabilisee.",
-        ]
-    assert "Facture 27" in rest.split("**À corriger**")[0] and "Facture 27" not in done  # a duplicate, only there
+    assert sections == ["**À corriger**", "**Questions**", "**Doublons, non traités**"]  # what needs the client
+    done, rest = new.split("**À corriger**")
+    for invoice_id in runs.POSTED:  # a success is counted, never listed
+        assert f"Facture {invoice_id}" not in new
+    assert "Facture 27" in rest.split("**Doublons, non traités**")[1] and "Facture 27" not in done
     assert "Facture 30 : je n'ai pas pu vérifier la facture : " in rest.split("**Questions**")[0]
-    questions = rest.split("**Questions**\n")[1].splitlines()
+    questions = rest.split("**Questions**\n")[1].split("\n\n")[0].splitlines()
     assert [line[:3] for line in questions] == ["1. ", "2. "] and all("QUESTION : Facture" in q for q in questions)
-    assert "Facture 29" not in done  # where it stands: its question, not what was done before it
-    assert "TVA non recuperable" in new and "exercice 2025 cree" in new  # what changed is told
-    assert "conforme" not in new and "pas de doublon" not in new and "journal Achats" not in new
-    lines, old_lines = len(new.splitlines()), len(old.splitlines())
-    print(f"\nsummary: {old_lines} lines, {len(old)} characters before; {lines} lines, {len(new)} characters now")
-    assert lines <= 40 and len(new) <= len(old) / 2  # one line per outcome told, routine outcomes left out
+    for success in ("TVA non recuperable", "exercice 2025 cree", "conforme", "pas de doublon", "journal Achats"):
+        assert success not in new  # what was done is Experio's history's, not the reply's
+    said = sum(len(steps) for steps in runs.outcomes().values())  # the outcomes the run recorded
+    assert len(new.splitlines()) <= 14 and said > 100  # a headline and the problems out of over a hundred outcomes
 
 
 @pytest.mark.communication
 def test_a_draft_kept_until_the_client_says_to_post_it_waits_it_is_nothing_to_correct(db_cabinet):
     held = "Facture 14 : importée et vérifiée, laissée en brouillon. Dites-moi quand la comptabiliser."
     record_step("r", "s", "hold_posting", {"status": "stop", "message": held, "invoice_id": 14})
-    assert run_summary("r")["message"] == f"**En attente**\n- {held}"
+    assert run_summary("r")["message"] == (
+        "Bilan : 1 facture vérifiée laissée en brouillon. Dites-moi quand les comptabiliser."
+    )
 
 
 @pytest.mark.communication
 def test_an_outcome_s_sub_points_nest_under_its_own_bullet(db_cabinet):
     told = "`r.pdf` : relevé pointé.\n- 2 opérations lettrées.\n- 1 opération à reclasser."
-    record_step("r", "s", "report_statement", {"status": "ok", "message": told, "file_id": 1})
+    record_step("r", "s", "report_statement", {"status": "ok", "message": told, "file_id": 1, "note": True})
     record_step("r", "s", "post_statement", {"status": "ok", "message": "`r.pdf` : comptabilisé.", "file_id": 1})
     asked = {"status": "question", "message": "`f.pdf` : achat ?\n- ou vente ?", "file_id": 2}
     record_step("r", "s", "split_invoices", asked)
     assert run_summary("r")["message"] == (
-        "**Fait**\n- `r.pdf` :\n  - relevé pointé.\n    - 2 opérations lettrées.\n    - 1 opération à reclasser.\n"
-        "  - comptabilisé.\n\n**Questions**\n1. QUESTION : `f.pdf` : achat ?\n   - ou vente ?"
+        "Bilan : 1 relevé traité, 1 question.\n\n**Questions**\n1. QUESTION : `f.pdf` : achat ?\n   - ou vente ?\n\n"
+        "**À vérifier**\n- `r.pdf` : relevé pointé.\n  - 2 opérations lettrées.\n  - 1 opération à reclasser."
     )
 
 
@@ -97,9 +89,8 @@ def test_an_invoice_waits_on_one_question_its_latest(db_cabinet):
         "Facture 9 : « 6142 » ne désigne pas un seul compte.",
     ):
         record_step("r", "s", "assign_account", {"status": "question", "message": asked, "invoice_id": 9})
-    assert (
-        run_summary("r")["message"]
-        == "**Questions**\n1. QUESTION : Facture 9 : « 6142 » ne désigne pas un seul compte."
+    assert run_summary("r")["message"] == (
+        "Bilan : 1 question.\n\n**Questions**\n1. QUESTION : Facture 9 : « 6142 » ne désigne pas un seul compte."
     )
 
 
@@ -107,7 +98,7 @@ def test_an_invoice_waits_on_one_question_its_latest(db_cabinet):
 def test_a_twin_stopped_before_its_tiers_is_a_duplicate_too(db_cabinet):
     twin = "Facture 8 : doublon de la facture 7 (même numéro, date et montant), non traitée."
     record_step("r", "s", "link_tiers", {"status": "stop", "message": twin, "invoice_id": 8, "duplicate": True})
-    assert run_summary("r")["message"] == f"**Doublons, non traités**\n- {twin}"
+    assert run_summary("r")["message"] == f"Bilan : 1 doublon.\n\n**Doublons, non traités**\n- {twin}"
 
 
 @pytest.mark.communication
@@ -154,3 +145,46 @@ def test_what_tarik_did_is_noted_in_each_invoices_history_in_experio(db_cabinet,
     sent = notes[0][2]
     assert sent["subtype_xmlid"] == "mail.mt_note" and sent["message_type"] == "comment"  # internal note
     assert sent["body"] == "Tarik (traitement automatique) : Facture 7 : corrigée (TVA « 20 % »); comptabilisée."
+
+
+@pytest.mark.communication
+def test_an_invoice_is_named_by_its_number_and_supplier_never_by_the_draft_number(db_cabinet, monkeypatch):
+    from engine.tools.invoices import pipeline
+
+    monkeypatch.setattr(
+        pipeline, "labels_of", lambda outcomes: {5: "Facture n° 277/25 (SELMASSUR)", 6: "Facture de IFS"}
+    )
+    asked = "Facture 277/25 : elle couvre 13 mois. La répartir en charges constatés d'avance ? oui / non"
+    record_step("r", "s", "settle_prepaid", {"status": "question", "message": asked, "invoice_id": 5})
+    record_step(
+        "r",
+        "s",
+        "settle_withholding",
+        {"status": "question", "message": "Facture de `GECAFISC` : retenue ?", "invoice_id": 6},
+    )
+    summary = run_summary("r")["message"]
+    assert "2. QUESTION : Facture n° 277/25 (SELMASSUR) : elle couvre 13 mois." in summary  # the tool's head replaced
+    assert (
+        "1. QUESTION : Facture de IFS : retenue ?" in summary
+        and "GECAFISC" not in summary
+        and "Facture 5" not in summary
+    )
+
+
+@pytest.mark.communication
+def test_a_noted_outcome_is_shown_to_check_whatever_the_invoice_ends_at(db_cabinet):
+    record_step(
+        "r",
+        "s",
+        "split_invoices",
+        {"status": "ok", "message": "`a.pdf` : facture d'achat d'après le scan.", "file_id": 4, "note": True},
+    )
+    record_step("r", "s", "link_tiers", {"status": "ok", "message": "Facture 5 : fournisseur `X`.", "invoice_id": 5})
+    record_step(
+        "r", "s", "hold_posting", {"status": "stop", "message": "Facture 5 : laissée en brouillon.", "invoice_id": 5}
+    )
+    summary = run_summary("r")["message"]
+    assert summary == (
+        "Bilan : 1 facture vérifiée laissée en brouillon. Dites-moi quand les comptabiliser."
+        "\n\n**À vérifier**\n- `a.pdf` : facture d'achat d'après le scan."
+    )

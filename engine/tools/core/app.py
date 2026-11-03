@@ -45,6 +45,12 @@ def routine(message, **extra):
     return ok(message, routine=True, **extra)
 
 
+def noted(message, **extra):
+    """Return a result for an ok outcome the client should check (a tiers created from a label, a side taken from the
+    scan, a bank guessed from a name): the one kind of success the run's summary shows (run_summary, « À vérifier »)."""
+    return ok(message, note=True, **extra)
+
+
 def with_ids(function):
     """Decorator: copy the invoice_id, file_id and dossier_id a tool was called with into its dict result (keys it
     already has are kept), so every result names the invoice, file or dossier it is about."""

@@ -12,11 +12,12 @@ supplier with no known rule, local fees (6136) with no IS/IR rate.
 """
 
 import base64
+import json
 
 from engine.tools.core.app import ok, question, routine, step_tool, wait
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import POSTED, READING
-from engine.tools.core.conversation import instructed
+from engine.tools.core.conversation import instructed, keep_answer, kept_answer
 from engine.tools.core.experio import (
     account_code,
     dry_run,
@@ -71,12 +72,15 @@ def read_answer(kind, reply):
     )
 
 
-def about(invoice_id, tier, reply):
-    """Return ``reply`` introduced as the answer for one invoice: the agent hands over the client's whole email,
-    which often answers several invoices, and the model reads that as unclear (nothing it can apply to this one)."""
+def about(invoice, tier, reply):
+    """Return ``reply`` introduced as the answer for ``invoice`` (dict) of supplier ``tier``: the agent hands over the
+    client's whole email, which often answers several invoices, and the model reads that as unclear (nothing it can
+    apply to this one). The invoice is named as the client knows it, by its own number too."""
+    number = invoice.get("invoice_number")
+    named = f"invoice {number} (draft {invoice['id']})" if number else f"invoice {invoice['id']}"
     return (
-        f"[This answer is for invoice {invoice_id} of supplier {tier} only. The message may also answer other "
-        f"invoices: ignore those parts.]\n{reply}"
+        f"[This answer is for {named} of supplier {tier} only. The message may also answer other invoices or "
+        f"suppliers: ignore those parts.]\n{reply}"
     )
 
 
@@ -316,19 +320,52 @@ def _local(invoice, partner, answer):
     auto = bool(partner["expense_type"]) and (invoice["invoice_date"] or "") >= RAS_TVA_FROM
     values = {"retenue": True} if auto else {}
     if answer:
-        read = local_withholding_answer(about(invoice_id, tier, answer))
+        read = local_withholding_answer(about(invoice, tier, answer))
         if read is None:
             return question(f"Facture {invoice_id} : réponse non comprise, {QUESTIONS['local']}"), None
         read.pop("tax_withholding_percentage", None)  # Experio's rules set it, never the client's figure
         refusal = is_ir_refused(read, partner["type"])
         if refusal:
             return question(f"Facture {invoice_id} : {refusal}"), None
-        if not read["retenue"] and auto:  # « sans » IS/IR: the retenue stays on for Experio's RAS TVA
-            read = {"retenue": True, "local_withholding_percentage": False}
-        return None, {**values, **read}
+        keep_answer(invoice_id, "settle_withholding", json.dumps(read))  # the supplier's next invoices take it
+        return None, {**values, **applied(read, auto)}
     if invoice["retenue"] or not account_code(invoice).startswith(LOCAL_RAS_ACCOUNTS):
         return None, values
+    known = kept_rule(invoice, partner)
+    if known:
+        return None, {**values, **applied(known, auto)}
     return question(f"Facture de `{tier}` : {QUESTIONS['local']}"), None
+
+
+def applied(read, auto):
+    """Return the fields to write for the client's reading ``read`` of the local withholding: « sans » IS/IR leaves the
+    retenue on for Experio's RAS TVA when the supplier's activity type turned it on (``auto``)."""
+    if not read["retenue"] and auto:
+        return {"retenue": True, "local_withholding_percentage": False}
+    return read
+
+
+def kept_rule(invoice, partner):
+    """Return the IS/IR rule (read, as `_local` keeps it) the client gave for another invoice of the same supplier in
+    this dossier, the latest; None when there is none. Experio keeps a supplier's rule only once an invoice is posted
+    (memorize_partner_values): drafts, which is all Tarik makes before it is asked to post, are not asked the same
+    question again."""
+    others = odoo_call(
+        "exp.invoice",
+        "search",
+        [
+            ("partner_id", "=", partner["id"]),
+            ("company_id", "=", invoice["company_id"][0]),
+            ("id", "!=", invoice["id"]),
+        ],
+        order="id desc",
+        limit=50,
+    )
+    for other in others:
+        kept = kept_answer(other, "settle_withholding")
+        if kept:
+            return json.loads(kept)
+    return None
 
 
 def _foreign(invoice, answer):
@@ -338,7 +375,7 @@ def _foreign(invoice, answer):
     rule).
     """
     if answer:
-        values = withholding_answer(about(invoice["id"], invoice["partner_id"][1], answer))
+        values = withholding_answer(about(invoice, invoice["partner_id"][1], answer))
         if values is None:
             return question(f"Facture {invoice['id']} : réponse non comprise, {QUESTIONS['foreign']}"), None
         return None, values
@@ -359,7 +396,7 @@ def settle_withholding(invoice_id: int, answer: str = "", client_message: str = 
     if client_message:
         answer = instructed(answer, client_message)
     fields = ["state", "type", "is_local_invoice", "company_id", "exercice_id", "partner_id", "account_id"]
-    fields += ["invoice_date", *FIELDS["foreign"], *FIELDS["local"][1:]]
+    fields += ["invoice_number", "invoice_date", *FIELDS["foreign"], *FIELDS["local"][1:]]
     invoice = require_invoice(invoice_id, fields)
     if not invoice["partner_id"]:
         return routine(f"Facture {invoice_id} : pas de retenue à la source à régler ici (tiers absent).")

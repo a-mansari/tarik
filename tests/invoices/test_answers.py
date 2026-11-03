@@ -528,9 +528,13 @@ def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them
 def test_a_held_draft_of_the_conversation_is_posted_though_its_hold_was_recorded_in_another(db_cabinet, monkeypatch):
     # the same file sent in two threads: the hold kept under the first, the client asks to post in the second
     monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])
-    monkeypatch.setattr(
-        pipeline, "odoo_call", lambda model, method, domain, **kw: [] if domain[0][1] == "not in" else domain[0][2]
-    )
+
+    def odoo_call(model, method, domain, **kw):
+        if method == "search_read":  # the names a client may call a draft by: none here
+            return [{"id": i, "invoice_number": "", "partner_id": False} for i in domain[0][2]]
+        return [] if domain[0][1] == "not in" else domain[0][2]
+
+    monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
     pipeline.hold_posting(4, "first")
     pipeline.record_step(
         "R", "s", "hold_posting", {"status": "stop", "message": "laissée en brouillon", "invoice_id": 4}
@@ -745,3 +749,48 @@ def test_facturation_drafts_are_posted_only_when_the_client_asks_for_them(db_cab
     whole = "Comptabilisez toutes les factures du dossier."
     assert pipeline.waiting_drafts("s", held=True, dossier_id=5, client_message=whole)["facturation"] == [81]
     assert "facturation" not in pipeline.waiting_drafts("s", dossier_id=5, client_message=whole)  # not asked to post
+
+
+@pytest.mark.functionality
+def test_a_message_naming_invoices_takes_up_those_only(db_cabinet, monkeypatch):
+    """« comptabilisez la facture 112 » posts the 112, not every draft the conversation holds."""
+    monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])
+    drafts = {
+        112: {"id": 112, "invoice_number": "AB-12", "partner_id": [3, "ATLAS - 4411"]},
+        113: {"id": 113, "invoice_number": "CD-13", "partner_id": False},
+    }
+
+    def odoo_call(model, method, domain, **kw):
+        ids = [i for i in domain[0][2] if i in drafts]
+        return [drafts[i] for i in ids] if method == "search_read" else ids
+
+    monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
+    for invoice_id in drafts:
+        pipeline.hold_posting(invoice_id, "s")
+        held = {"status": "stop", "message": "laissée en brouillon", "invoice_id": invoice_id}
+        pipeline.record_step("R", "s", "hold_posting", held)
+    both = pipeline.waiting_drafts("s", held=True, dossier_id=5, client_message="comptabilisez-les")
+    assert both["invoices"] == [112, 113]
+    one = pipeline.waiting_drafts("s", held=True, dossier_id=5, client_message="comptabilisez la facture 112")
+    assert one["invoices"] == [112]
+    atlas = pipeline.waiting_drafts("s", held=True, dossier_id=5, client_message="comptabilisez celle d'Atlas")
+    assert atlas["invoices"] == [112]  # by its supplier too
+
+
+@pytest.mark.functionality
+def test_a_file_refused_as_no_document_is_not_taken_up_again_unless_named(db_cabinet):
+    """The Orange receipt was refused once: it must not come back at every message and keep the drafts from being
+    posted; « le recu orange est une facture » names it."""
+    from engine.tools.core.cabinets import cabinet_db
+
+    with cabinet_db() as db:
+        for name, kind in (("2025-04-07_purchase_75552.pdf", "other"), ("facture_atlas.pdf", "invoice")):
+            db.execute(
+                "insert into tarik_files (session_id, file_name, mime_type, data, kind) "
+                "values ('s-receipt', %s, 'application/pdf', %s, %s)",
+                (name, b"%PDF", kind),
+            )
+    listed = pipeline.files_to_process("s-receipt", client_message="comptabilisez les factures prêtes")
+    assert len(listed["files"]) == 1  # the invoice only
+    named = pipeline.files_to_process("s-receipt", client_message="2025-04-07_purchase_75552.pdf est une facture")
+    assert len(named["files"]) == 2

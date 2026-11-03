@@ -17,7 +17,7 @@ from engine.tools.core.conversation import chosen_among, client_messages, own_wo
 from engine.tools.core.experio import _form as experio_form
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, require_invoice
 from engine.tools.core.queries import Q
-from engine.tools.core.words import counted, normalized, said
+from engine.tools.core.words import counted, normalized, said, without_if
 from engine.tools.dossiers.people import check_sender
 from engine.tools.dossiers.setup import ask_banks, set_journal_bank
 from engine.tools.invoices import tpe
@@ -269,7 +269,7 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     with cabinet_db() as db:
         db.execute(
             Q.insert_result,
-            (*row, choices, result.get("journal_id")),
+            (*row, choices, result.get("journal_id"), bool(result.get("note") or result.get("tell"))),
         )
         if invoice_id:
             db.execute(Q.claim_invoices, ([invoice_id], run_id))  # still working on it: refreshed, never taken over
@@ -290,11 +290,12 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
 # draft kept until the client says to post it), the duplicates left aside, what failed or was stopped, then what
 # they must answer. Empty ones are left out.
 SECTIONS = {
-    "done": "**Fait**",
-    "wait": "**En attente**",
-    "duplicate": "**Doublons, non traités**",
+    "done": "**Fait**",  # a dossier's setup only: its steps are the request
+    "wait": "**En attente**",  # a dossier's setup only: an invoice that waits is counted in the headline
     "problem": "**À corriger**",
     "question": "**Questions**",
+    "duplicate": "**Doublons, non traités**",
+    "check": "**À vérifier**",  # what Tarik decided alone and may have got wrong (noted outcomes)
 }
 SECTION_OF = {"ok": "done", "wait": "wait", "stop": "problem", "question": "question"}  # any other status: a problem
 CODE = re.compile(r"`([^`\n]+)`")  # a name as the client reads it apart (`ATLAS`): the emails' own mark
@@ -314,18 +315,56 @@ def section_of(step, status, message=""):
     return SECTION_OF.get(status, "problem")
 
 
-def summary_text(key, step, status, message):
+def summary_text(key, step, status, message, labels=None):
     """Return one outcome's text for the summary, about ``key`` (an invoice id, None for a dossier's setup, or a
-    negative file id): « Facture N : » added when an invoice's message lacks its number, QUESTION_MARK before a
-    question, what Tarik could not do for an error (with_problem)."""
-    text = message.removeprefix(TEST_MODE)
-    if key and key > 0 and str(key) not in text:  # an error Experio gave without it: which invoice
-        text = f"Facture {key} : {text}"
+    negative file id): headed by the invoice (« Facture n° 12 (ATLAS) : ») whatever head the tool gave it, QUESTION_MARK
+    before a question, what Tarik could not do for an error (with_problem). ``labels`` (labels_of): the invoice is named
+    by its own number and supplier, never by the draft number Experio gave it."""
+    text = named_for_client(message.removeprefix(TEST_MODE), key, labels, numbered=True)
     if status == "question":
         return QUESTION_MARK + text
     if status not in SECTION_OF:
         return with_problem(step, text)
     return text
+
+
+HEAD = re.compile(r"[Ff]acture\b[^:\n]{0,150}? : ")  # « Facture 12 : », « Facture de `ATLAS` : », « Facture n° 5 : »
+
+
+def named_for_client(text, key, labels, numbered=False):
+    """Return ``text`` about invoice ``key`` headed by how the client knows it (labels_of), in place of the head the
+    tool wrote (its draft number, or only the supplier): « Facture n° 277/25 (GECAFISC) : ... ». Without a label the
+    text is left as it is, or with ``numbered`` headed by the draft number when it lacks it. Other keys (a file, a
+    dossier's setup) are left as they are."""
+    if not key or key < 0:
+        return text
+    head = (labels or {}).get(key)
+    if head:
+        return f"{head} : {HEAD.sub('', text, count=1) if HEAD.match(text) else text}"
+    return f"Facture {key} : {text}" if numbered and str(key) not in text else text
+
+
+def labels_of(ids):
+    """Return {invoice id: its head for the client}: « Facture n° 1583109664 JW (SRM-CS) », its own number and its
+    supplier (or customer) without the account and IF Experio appends, « Facture de SRM-CS » without a number; only
+    what is known, {} when Experio can't tell."""
+    ids = sorted({i for i in ids if i and i > 0})
+    if not ids:
+        return {}
+    try:
+        found = odoo_call("exp.invoice", "search_read", [("id", "in", ids)], fields=["invoice_number", "partner_id"])
+    except Exception as error:  # a label is a comfort: the summary goes on with Tarik's numbers
+        log(f"labels_of: {error}")
+        return {}
+    labels = {}
+    for invoice in found:
+        who = without_if(invoice["partner_id"][1].split(" - ")[0]) if invoice["partner_id"] else ""
+        number = (invoice["invoice_number"] or "").strip()
+        if number:
+            labels[invoice["id"]] = f"Facture n° {number}" + (f" ({who})" if who else "")
+        elif who:
+            labels[invoice["id"]] = f"Facture de {who}"
+    return labels
 
 
 def with_problem(step, text):
@@ -377,13 +416,14 @@ def released(run_id):
 
 @tool
 def run_summary(run_id: str) -> dict:
-    """Return what happened in run ``run_id``, for the client, as an ok result in sections: Fait, En attente, Doublons,
-    À corriger, Questions, empty ones left out (NOTHING when the run recorded nothing).
+    """Return what happened in run ``run_id``, for the client, as an ok result: a headline counting what ended where,
+    then the sections that need the client: À corriger, Questions, Doublons, À vérifier (what Tarik decided alone and
+    may have got wrong: the noted outcomes); empty ones left out (NOTHING when the run recorded nothing).
 
-    Each invoice (or file) is in the section of its furthest outcome: when done, its outcomes that say something (what
-    was set or changed); otherwise only what it waits on, the problem or the question. Routine outcomes are left out; a
-    dossier's setup keeps one line per outcome. Also frees the run's invoices for other runs and, outside test mode,
-    notes the run in each invoice's Experio history (note_in_history)."""
+    A success is never listed: only a problem, a question, a duplicate or a noted outcome. A dossier's setup keeps one
+    line per outcome (it is the request). Invoices are named by their own number and supplier (labels_of). Also frees
+    the run's invoices for other runs and, outside test mode, notes the run in each invoice's Experio history
+    (note_in_history), with all it did."""
     with cabinet_db() as db:
         rows = db.execute(
             Q.run_outcomes,
@@ -392,11 +432,56 @@ def run_summary(run_id: str) -> dict:
         db.execute(Q.release_invoices, (run_id,))  # the run is over: its invoices are free for another
     if not rows:
         return ok(NOTHING)
-    test = any(message.startswith(TEST_MODE) for _, _, _, message, _ in rows)
+    test = any(message.startswith(TEST_MODE) for _, _, _, message, _, _ in rows)
     if not test and not dry_run():
         note_in_history(rows)
-    text = summary_sections(sections_of(outcomes_by_key(rows)))
-    return ok((TEST_MODE + "\n\n" if test else "") + text)
+    outcomes = outcomes_by_key(rows)
+    sections = sections_of(outcomes, labels_of(outcomes))
+    parts = [headline(outcomes), summary_sections(sections)]
+    return ok((TEST_MODE + "\n\n" if test else "") + "\n\n".join(part for part in parts if part))
+
+
+def headline(outcomes):
+    """Return the one line counting where the run's invoices and statements ended (« 3 factures comptabilisées, 21
+    laissées en brouillon, 10 doublons, 5 à corriger, 4 questions »); "" when none to count. A dossier's setup is
+    not counted."""
+    posted = held = reading = duplicates = problems = questions = statements = 0
+    for key, found in outcomes.items():
+        if key is None:
+            continue
+        step, status = found[-1][:2]
+        where = section_of(step, status)
+        if key < 0 and where == "done":  # a file: a statement taken as one when its report ended well
+            statements += any(outcome[0] == "report_statement" for outcome in found)
+        elif key < 0 and where in ("problem", "question"):
+            problems, questions = problems + (where == "problem"), questions + (where == "question")
+        elif key < 0:
+            continue
+        elif any(outcome[0] == "post_invoice" and outcome[1] == "ok" for outcome in found) and where == "done":
+            posted += 1
+        elif where == "duplicate":
+            duplicates += 1
+        elif where == "problem":
+            problems += 1
+        elif where == "question":
+            questions += 1
+        elif step == "hold_posting":
+            held += 1
+        elif where == "wait":
+            reading += 1
+    counts = [
+        counted(statements, "{} relevé traité", "{} relevés traités"),
+        counted(posted, "{} facture comptabilisée", "{} factures comptabilisées"),
+        counted(held, "{} facture vérifiée laissée en brouillon", "{} factures vérifiées laissées en brouillon"),
+        counted(reading, "{} facture que Experio lit encore", "{} factures que Experio lit encore"),
+        counted(duplicates, "{} doublon", "{} doublons"),
+        counted(problems, "{} à corriger", "{} à corriger"),
+        counted(questions, "{} question", "{} questions"),
+    ]
+    counts = [count for count in counts if not count.startswith("0 ")]
+    if not counts:
+        return ""
+    return "Bilan : " + ", ".join(counts) + "." + (" Dites-moi quand les comptabiliser." if held else "")
 
 
 def note_in_history(rows):
@@ -408,7 +493,7 @@ def note_in_history(rows):
         if not key or key < 0:
             continue
         told = [
-            summary_text(key, step, status, message) for step, status, message, is_routine in found if not is_routine
+            summary_text(key, step, status, message) for step, status, message, is_routine, _ in found if not is_routine
         ]
         if not told:
             continue
@@ -424,34 +509,42 @@ def note_in_history(rows):
 
 
 def outcomes_by_key(rows):
-    """Return {key: [(step, status, message, routine)]}: each invoice's (or file's) outcomes of ``rows``, in the
+    """Return {key: [(step, status, message, routine, noted)]}: each invoice's (or file's) outcomes of ``rows``, in the
     sequence's order, each identical one once; a dossier's setup steps under the key None."""
     # In the sequence's order, whatever order the rows were recorded in (invoices of one run are interleaved).
     rows = sorted(rows, key=lambda row: position(row[1]))
     outcomes, seen = {}, set()
-    for key, step, status, message, is_routine in rows:
+    for key, step, status, message, is_routine, is_noted in rows:
         if step in SETUP_STEPS:
             key = None  # a dossier's setup is one block, its imports in it in order
         if (key, step, message) not in seen:
             seen.add((key, step, message))
-            outcomes.setdefault(key, []).append((step, status, message, is_routine))
+            outcomes.setdefault(key, []).append((step, status, message, is_routine, is_noted))
     return outcomes
 
 
-def sections_of(outcomes):
-    """Return {section: [lines]}: each invoice (or file) of ``outcomes`` in the section of its last outcome; a dossier's
-    setup outcome by outcome. An invoice shows only its latest question, a file each of its questions."""
+def sections_of(outcomes, labels=None):
+    """Return {section: [lines]}: each invoice (or file) of ``outcomes`` in the section of its last outcome, only when
+    that is a problem, a duplicate or a question; the outcomes Tarik noted (the client should check them) under
+    « À vérifier », whatever the invoice's end; a dossier's setup outcome by outcome. An invoice shows only its latest
+    question, a file each of its questions."""
     sections = {name: [] for name in SECTIONS}
     for key, found in outcomes.items():
-        shown = [outcome for outcome in found if not outcome[3] or outcome is found[-1]]
         if key is None:  # a dossier's setup: each outcome in its own section, on its own line
-            for step, status, message, _ in shown:
-                text = summary_text(key, step, status, message)
+            for step, status, message, is_routine, _ in found:
+                if is_routine:
+                    continue
+                text = summary_text(key, step, status, message, labels)
                 # A question is numbered by summary_sections, never bulleted too.
                 sections[section_of(step, status, message)].append(text if status == "question" else bullet(text))
             continue
         where = section_of(*found[-1][:3])
-        texts = [summary_text(key, *outcome[:3]) for outcome in shown if section_of(*outcome[:3]) == where]
+        checks = [summary_text(key, *outcome[:3], labels) for outcome in found if outcome[4] and outcome[1] == "ok"]
+        sections["check"] += listed(checks) if checks else []
+        if where in ("done", "wait"):  # a success or a wait: counted in the headline, never listed
+            continue
+        shown = [outcome for outcome in found if not outcome[3] or outcome is found[-1]]
+        texts = [summary_text(key, *outcome[:3], labels) for outcome in shown if section_of(*outcome[:3]) == where]
         # An invoice waits on one question, its latest (asked again in other words, it is still the one); a file may
         # wait on several different ones (how to cut it, which side): each is asked.
         if where != "question":
@@ -515,7 +608,10 @@ def waiting_on(session_id):
 
 def invoice_questions(invoices, drafts):
     """Return waiting_on's items for the pending questions ``invoices`` [(invoice_id, step, question, choices)], only
-    those of invoices still in ``drafts``."""
+    those of invoices still in ``drafts``. An invoice is listed and named the way the client knows it: its own number
+    and its supplier (labels_of), Tarik's draft number too."""
+    labels = labels_of(drafts)
+    names = invoice_names(drafts)
     items = []
     for i, step, text, choices in invoices:
         if i in drafts:
@@ -523,13 +619,27 @@ def invoice_questions(invoices, drafts):
                 {
                     "invoice_id": i,
                     "step": step,
-                    "question": text,
-                    "label": f"facture {i}",
-                    "names": {str(i)},
+                    "question": named_for_client(text, i, labels),
+                    "label": labels.get(i, f"facture {i}").lower(),
+                    "headed": i in labels,  # the question begins with that label already
+                    "names": {str(i), *names.get(i, ())},
                     "choices": choices,
                 }
             )
     return items
+
+
+def invoice_names(ids):
+    """Return {invoice id: the names a client may answer about it by}: its own number and its supplier's names."""
+    if not ids:
+        return {}
+    try:
+        domain = [("id", "in", sorted(ids))]
+        found = odoo_call("exp.invoice", "search_read", domain, fields=["invoice_number", "partner_id"])
+    except Exception as error:  # the draft number still names it
+        log(f"invoice_names: {error}")
+        return {}
+    return {draft["id"]: set(names_of(draft)) for draft in found}
 
 
 def statement_questions(statements):
@@ -598,7 +708,7 @@ def meant(waiting, about):
     a statement's name, as the questions are listed). None when unclear: the client is asked which."""
     if len(waiting) == 1:
         return waiting[0]
-    about = normalized(str(about or "")).removeprefix("facture ").removeprefix("relevé ")
+    about = normalized(str(about or "")).removeprefix("facture ").removeprefix("releve ").removeprefix("n ")
     named = [item for item in waiting if about and about in item["names"]]
     return named[0] if len(named) == 1 else None
 
@@ -789,7 +899,11 @@ def answer_pending(
         return result
     item = meant(waiting, about)
     if not item:
-        questions = "\n".join(f"- {entry['label']} : {entry['question']}" for entry in waiting)
+        # An invoice's question already begins with its number and supplier when Experio gave them.
+        questions = "\n".join(
+            f"- {entry['question']}" if entry.get("headed") else f"- {entry['label']} : {entry['question']}"
+            for entry in waiting
+        )
         return question(
             f"Plusieurs questions attendent votre réponse ; précisez la facture ou le relevé :\n{questions}",
             step="answer_pending",
@@ -932,18 +1046,25 @@ def canvas_file_named(session_id, name):
 
 
 @tool
-def files_to_process(session_id: str, entries: bool = False, asked: bool = False) -> dict:
+def files_to_process(session_id: str, entries: bool = False, asked: bool = False, client_message: str = "") -> dict:
     """Return the conversation's files not processed yet (``files``: their ids): its invoices and statements, or with
     ``entries`` its FEC and grand livre files. Picked here, not by the agent, which never sees the files' numbers.
 
     ``asked``: the client's message asked for files to be processed; when none is found, the result reports to the
-    client that the attachment did not arrive (NO_FILE)."""
+    client that the attachment did not arrive (NO_FILE).
+
+    A file identify_document found to be neither an invoice nor a statement (a payment receipt) was refused once and
+    said so: it is not listed again, which would re-run and re-refuse it at every message and keep the conversation's
+    drafts from being taken up. It is listed again only when ``client_message`` names it (« c'est une facture »)."""
     with cabinet_db() as db:
         rows = db.execute(
             Q.files_to_process,
             (session_id,),
         ).fetchall()
-    own = [i for i, name in rows if is_entries(i, name) == entries]
+    message = own_words(client_message)
+    own = [
+        i for i, name, kind in rows if is_entries(i, name) == entries and (kind != "other" or file_named(name, message))
+    ]
     if asked and not own:
         return ok(NO_FILE, files=[], tell=True)
     return ok(counted(len(own), "{} fichier à traiter.", "{} fichiers à traiter."), files=own)
@@ -1070,9 +1191,14 @@ def waiting_drafts(
         others = set(odoo_call("exp.invoice", "search", domain))
     asked = asked_among(others, dossier_id, client_message) if others else []
     waiting += asked
+    # A message naming invoices (Tarik's number, the invoice's own, its supplier) is about those only: nothing else of
+    # the conversation is taken up with them, however long it has been waiting.
+    named = []
+    if dossier_id and waiting and not asks_whole(client_message):
+        named = asked_among(waiting, dossier_id, client_message)
     # The dossier's drafts from Experio's own invoicing (Facturation), posted when the client asks for them: never
     # read nor checked by Tarik (no scan, accounts per line), they start at the dossier's settings.
-    billed = facturation_drafts(dossier_id, client_message) if held and dossier_id else []
+    billed = facturation_drafts(dossier_id, client_message) if held and dossier_id and not named else []
     elsewhere_left = len(others) - len(asked)
     if waiting:
         domain = [("id", "in", sorted(set(waiting))), ("state", "in", ["pending", "draft"])]
@@ -1080,6 +1206,8 @@ def waiting_drafts(
         if dossier_id and (held or stopped):
             domain.append(("company_id", "in", [dossier_id]))
         waiting = sorted(odoo_call("exp.invoice", "search", domain))
+    if named:
+        waiting = [i for i in waiting if i in named]
     waiting = transit_last(waiting)
     billed = [i for i in billed if i not in waiting]
     if (waiting or billed) and run_id:
@@ -1094,7 +1222,7 @@ def waiting_drafts(
             corrections=corrections,
             facturation=billed,
         )
-    statements = statements_to_resume(session_id, held)
+    statements = [] if named else statements_to_resume(session_id, held)
     if billed or statements:
         count = len(waiting) + len(billed)
         return ok(

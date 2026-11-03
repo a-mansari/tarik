@@ -105,7 +105,7 @@ def kept():
 def summary(routine=True):
     """run_summary of the run without a database: its rows as record_step stores them (``routine``: as record)."""
     rows = [
-        (key, step, status, message, unread and routine)
+        (key, step, status, message, unread and routine, False)
         for key, steps in outcomes().items()
         for step, status, message, unread in reversed(steps)
     ]

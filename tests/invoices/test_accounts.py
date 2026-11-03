@@ -2,6 +2,7 @@
 
 import pytest
 
+from engine.tools.core.app import ok
 from engine.tools.invoices import accounts
 from engine.tools.invoices.accounts import account_meant, resolve_account
 
@@ -118,8 +119,9 @@ def test_only_accounts_experios_field_offers_and_posts_without_warning_are_usabl
 
 
 @pytest.mark.security
-def test_an_immobilisation_the_model_picks_is_confirmed_by_the_client_first(monkeypatch):
-    """No Experio rule tells a fixed asset from a charge: a class 2 account the model picks is asked, never applied."""
+def test_an_immobilisation_the_model_picks_is_put_on_the_draft_and_said(monkeypatch):
+    """No Experio rule tells a fixed asset from a charge: a class 2 account the model picks is applied to the draft and
+    shown to the client to check, never asked about first."""
     invoice = {"id": 3, "state": "draft", "type": "purchase", "company_id": [5, "D"], "exercice_id": False}
     invoice.update(partner_id=False, account_id=False, invoice_number="F-9", amount_total=12000.0)
     chart = [
@@ -138,10 +140,13 @@ def test_an_immobilisation_the_model_picks_is_confirmed_by_the_client_first(monk
     monkeypatch.setattr(accounts, "stored_check", lambda i: (True, {"designation": "Ordinateur portable Dell"}, []))
     monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: searched.append(domain) or chart)
     monkeypatch.setattr(accounts, "ask_model", lambda *a: {"code": "23550000", "reason": "un ordinateur"})
-    monkeypatch.setattr(accounts, "apply_account", lambda *a: pytest.fail("never applied before the client confirms"))
-    asked = accounts.assign_account(3)
-    assert asked["status"] == "question" and asked["choices"] == {21: "23550000 Matériel informatique"}
-    assert "ressemble à une immobilisation" in asked["message"] and asked["message"].endswith("oui / non")
+    applied = []
+    monkeypatch.setattr(
+        accounts, "apply_account", lambda invoice, account_id, why: applied.append(account_id) or ok(why)
+    )
+    told = accounts.assign_account(3)
+    assert told["status"] == "ok" and applied == [21] and told["note"]  # put on the draft and shown « À vérifier »
+    assert "immobilisée et amortie" in told["message"] and "dites-moi si c'est une charge" in told["message"]
     assert searched[0] == ("|", ("code", "=like", "6%"), ("code", "=like", "2%"))  # classes 6 and 2 offered
 
 

@@ -87,6 +87,7 @@ def local(monkeypatch):
             "partner_id": [7, "BTP SARL"],
             "account_id": [1, "61330000 Entretien"],
             "invoice_date": "2026-10-15",
+            "invoice_number": "AB-7",
             "retenue": False,
             "foreign_withholding": False,
             "local_service": True,
@@ -113,6 +114,8 @@ def local(monkeypatch):
         if method == "create":
             state["created"].append(args[0])
             return 41
+        if (model, method) == ("exp.invoice", "search"):  # the supplier's other invoices
+            return state.get("siblings", [])
         return [{"state_msg": False, **c} for c in state["certificates"]]
 
     def fill_invoice(invoice_id, changes, context):
@@ -299,7 +302,7 @@ def test_an_email_answering_several_invoices_is_read_for_the_invoice_asked(db_ca
     email = "facture 3: sans retenue\nfacture 9: 10"
     result = withholding.settle_withholding(3, email, answering=True)
     assert result["status"] == "ok"
-    assert "invoice 3 of supplier BTP SARL only" in seen[0] and email in seen[0]
+    assert "invoice AB-7 (draft 3) of supplier BTP SARL only" in seen[0] and email in seen[0]
 
 
 @pytest.mark.communication
@@ -348,7 +351,7 @@ def test_an_unclear_is_ir_answer_is_asked_again(local, model):
 
 
 @pytest.mark.functionality
-def test_sans_is_ir_keeps_the_retenue_on_for_experios_ras_tva(local, model):
+def test_sans_is_ir_keeps_the_retenue_on_for_experios_ras_tva(db_cabinet, local, model):
     local["certificates"] = [
         {
             "regularity_date": "2026-01-01",
@@ -390,3 +393,17 @@ def test_in_test_mode_an_attestation_sent_is_awaited_never_uploaded(db_cabinet, 
     result = withholding.settle_withholding(3, "ci-joint", answering=True)
     assert result["status"] == "wait" and "« attestation.pdf »" in result["message"]
     assert local["created"] == []
+
+
+@pytest.mark.functionality
+def test_a_suppliers_answer_is_not_asked_again_on_its_next_invoice(db_cabinet, local, model):
+    local["partner"].update(expense_type=False)
+    local["invoice"]["account_id"] = [1, "61360000 Honoraires"]
+    assert "IS/IR" in withholding.settle_withholding(3)["message"]  # invoice 3: asked
+    model[0].update(retenue=False, is_ir=None, tva=0)
+    withholding.settle_withholding(3, "sans retenue", answering=True)  # the client answers
+    local["siblings"] = [3]  # invoice 4 of the same supplier in the dossier
+    local["invoice"]["id"] = 4
+    result = withholding.settle_withholding(4)
+    assert result["status"] == "ok" and "IS/IR" not in result["message"]  # taken from invoice 3's answer
+    assert local["written"][-1] == {"retenue": False, "local_withholding_percentage": False}

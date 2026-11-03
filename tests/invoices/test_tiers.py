@@ -252,7 +252,6 @@ def test_a_supplier_only_the_check_read_proposes_the_closest_tiers_never_creates
     [
         ([{"id": 7, "name": "Beta Services."}], 7),  # the same name, case and punctuation aside: linked
         ([{"id": 7, "name": "BETA SERVICES"}, {"id": 8, "name": "Beta-Services"}], None),  # two of that name: asked
-        ([{"id": 7, "name": "BETA SERVICE"}], None),  # close is not the same: asked
     ],
 )
 def test_only_a_tiers_of_the_very_same_name_is_linked_and_the_client_told(scanned, monkeypatch, tiers_found, linked):
@@ -268,6 +267,30 @@ def test_only_a_tiers_of_the_very_same_name_is_linked_and_the_client_told(scanne
         assert result["status"] == "ok" and f"(id `{linked}`)" in result["message"]
         assert "même nom" in result["message"] and "BETA SERVICES SARL" in result["message"]  # the lookalike named
     assert calls == []
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("printed", "tiers_found", "linked"),
+    [
+        ("BETA SERVICES", [{"id": 9, "name": "BETA SERVICES SARL"}], 9),  # only the legal form differs: linked
+        ("GNS Lighting LTD", [{"id": 4, "name": "GNS LIGHTING"}], 4),  # the scan prints a foreign form the tiers lacks
+        ("GNS Lighting Limited", [{"id": 4, "name": "GNS LIGHTING"}, {"id": 5, "name": "GNS LIGHTING LTD"}], None),
+        ("BETA SERVICES", [{"id": 7, "name": "BETA SERVICE"}], None),  # close is not the same: asked
+    ],
+)
+def test_a_legal_form_alone_does_not_make_another_tiers(scanned, monkeypatch, printed, tiers_found, linked):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice["supplier_name"] = printed
+    monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"ice": "", **p} for p in tiers_found])
+    result = tiers.link_tiers(4)
+    if linked is None:
+        assert result["status"] == "question"
+    else:
+        assert result["status"] == "ok" and f"id {linked}" in result["message"] and result["note"]
+    assert calls == []  # nothing created
 
 
 @pytest.mark.security
@@ -290,7 +313,7 @@ def test_a_detected_tiers_the_check_read_differently_is_asked_not_kept(scanned, 
     invoice.update(partner_id=[7, "WW"], detected_supplier_id=[7, "WW"], supplier_name=False)
     linked = []
     monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
-    monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: "ATLAS TRANSPORT SARL")
+    monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: "ATLAS TRANSPORTS")
     monkeypatch.setattr(tiers, "checked_values", lambda invoice_id: {"ice": ""})
     result = tiers.link_tiers(4)
     assert result["status"] == "question" and "Experio a pris « WW »" in result["message"]
@@ -315,7 +338,7 @@ def test_a_client_who_chose_the_detected_tiers_is_not_asked_again(scanned, monke
 
     invoice, calls = scanned
     invoice.update(partner_id=[7, "WW"], detected_supplier_id=[7, "WW"], supplier_name=False)
-    monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: "ATLAS TRANSPORT SARL")
+    monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: "ATLAS TRANSPORTS")
     monkeypatch.setattr(tiers, "checked_values", lambda invoice_id: {"ice": ""})
     assert tiers.link_tiers(4)["status"] == "question"
     tiers.choose_tiers(4, "7", "oui c'est bien WW", {"7": "WW"})  # the client picks the tiers Experio had taken

@@ -21,7 +21,7 @@ from datetime import date, timedelta
 
 import openpyxl
 
-from engine.tools.core.app import CRASHED, ToolError, log, ok, routine, step_tool, stop, wait
+from engine.tools.core.app import CRASHED, ToolError, log, noted, ok, routine, step_tool, stop, wait
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import (
@@ -1232,10 +1232,10 @@ def detect_statement_lines(statement_id: int) -> dict:
             "{} opération a été pointée par la détection d'Experio.",
             "{} opérations ont été pointées par la détection d'Experio.",
         )
-        notes = []
+        notes, took = [], ""
         if balances:
             start, end = balances
-            notes.append(
+            took = (
                 f"J'ai repris les soldes du relevé : {start:.2f} au début, {end:.2f} à la fin."
                 if end is not None
                 else f"J'ai repris le solde initial du relevé : {start:.2f}."
@@ -1246,7 +1246,7 @@ def detect_statement_lines(statement_id: int) -> dict:
                 counted(len(glued), "{} ligne réunit", "{} lignes réunissent")
                 + f" deux opérations (« {shown} … ») : séparez-les dans Experio."
             )
-        return "\n".join(filter(None, [cleared, pointed])), "\n".join(notes)
+        return "\n".join(filter(None, [cleared, pointed, took])), "\n".join(notes)
 
     return completing(statement_id, "detect_statement_lines", work)
 
@@ -1520,10 +1520,10 @@ def tie_owed_invoices(statement_id: int) -> dict:
         )
         note = sentence(
             ledger,
-            "Ce tiers vient d'une écriture citant le numéro du chèque ou du virement, ou d'une facture fournisseur "
-            "impayée de ce montant : le cabinet doit le vérifier.",
-            "Ces tiers viennent d'une écriture citant le numéro du chèque ou du virement, ou d'une facture "
-            "fournisseur impayée de ce montant : le cabinet doit les vérifier.",
+            "{} opération a reçu un tiers tiré d'une écriture qui cite le numéro de son chèque ou virement, ou d'une "
+            "facture fournisseur impayée de ce montant : le cabinet doit le vérifier.",
+            "{} opérations ont reçu un tiers tiré d'une écriture qui cite le numéro de leur chèque ou virement, ou "
+            "d'une facture fournisseur impayée de ce montant : le cabinet doit les vérifier.",
         )
         return "\n".join(filter(None, [said, also, found])), note
 
@@ -1552,31 +1552,24 @@ def tie_tpe_remittances(statement_id: int) -> dict:
 
 
 @step_tool
-def report_statement(statement_id: int, said: list[str] | None = None, notes: list[str] | None = None) -> dict:
-    """Say where bank statement ``statement_id`` stands after its pointing, for the client.
+def report_statement(statement_id: int, notes: list[str] | None = None) -> dict:
+    """Say what bank statement ``statement_id`` still needs after its pointing, for the client: problems only.
 
     Args:
         statement_id: the statement.
-        said: what the pointing steps did, their sentences one per line (« 18 opérations ont été pointées par la
-            détection d'Experio. »).
-        notes: what they left, the same way.
+        notes: what the pointing steps left to check, one sentence per line (« 3 opérations dont le libellé ne dit rien
+            sont en compte d'attente : le cabinet doit les reclasser. »).
 
-    A headline with how many operations were read, ready and posted, then one « - » line per sentence of ``said``,
-    per balance check (the statement's own, the journal's previous statement, the à-nouveau for the journal's first),
-    per sentence of ``notes``, and per reason Experio gives for lines it still blocks."""
+    One « - » line per sentence of ``notes``, per balance check (the statement's own, the journal's previous
+    statement, the à-nouveau for the journal's first), and per reason Experio gives for lines it still blocks, as a
+    noted result (run_summary shows it under « À vérifier »); « rien à signaler » (not shown) when there is none.
+    What the steps did, how many operations were read or ready, is never said: Experio's history has it."""
     statement = read_statement(statement_id)
     context = in_dossier(statement["company_id"][0])
     with refused(f"report_statement {statement_id}", f"Relevé n° {statement_id} : Experio a refusé ({{reason}})."):
-        reasons, ready, posted = blocked_reasons(statement, context)
+        reasons, _, _ = blocked_reasons(statement, context)
         opening = opening_note(statement, context)
-    read = counted(len(statement["line_ids"]), "{} opération", "{} opérations")
-    text = f"Relevé n° {statement_id} : j'ai lu {read}, " + (
-        counted(ready, "{} est prête à comptabiliser", "{} sont prêtes à comptabiliser")
-        if ready
-        else "aucune n'est prête à comptabiliser"
-    )
-    text += counted(posted, " et {} est déjà comptabilisée", " et {} sont déjà comptabilisées") if posted else ""
-    points = [line for done in [*(said or []), *(notes or [])] for line in done.splitlines()]  # done, then checks
+    points = [line for done in notes or [] for line in done.splitlines()]
     no_balances = not statement["balance_start"] and not statement["balance_end_real"]
     if no_balances:  # Excel's template has none; a scan Experio read no balance on
         points.append(
@@ -1595,8 +1588,11 @@ def report_statement(statement_id: int, said: list[str] | None = None, notes: li
         points.append("Le solde initial du relevé ne suit pas le solde final du relevé précédent de ce journal.")
     points += opening.split("\n") if opening else []
     points += reason_lines(reasons, "{} opération à compléter dans Experio", "{} opérations à compléter dans Experio")
-    text += "." + "".join(f"\n- {point}" for point in points)
-    return ok(f"{TEST_MODE if dry_run() else ''}{text}", statement_id=statement_id)
+    prefix = TEST_MODE if dry_run() else ""
+    if not points:
+        return ok(f"{prefix}Relevé n° {statement_id} : rien à signaler.", statement_id=statement_id)
+    text = f"Relevé n° {statement_id} :" + "".join(f"\n- {point}" for point in points)
+    return noted(f"{prefix}{text}", statement_id=statement_id)
 
 
 def tie_tpe(statement, context):
