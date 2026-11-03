@@ -25,14 +25,13 @@ from engine.tools.core.config import FILE_TYPES, READING
 from engine.tools.core.experio import main_company_id, odoo_call
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, strip_tags
-from engine.tools.dossiers.behaviour import MAX_MINUTES, behaviour
+from engine.tools.dossiers.behaviour import behaviour
 from engine.tools.dossiers.people import collaborator
 from engine.tools.dossiers.setup import setups_settled, waiting_setups
 from engine.tools.emails.sending import imap_session, recipient_allowed, send_email
 from engine.tools.invoices.pipeline import waiting_drafts
 
 LEASE_MINUTES = 30  # a run silent longer than this is taken as dead: the thread is picked up again
-assert MAX_MINUTES < LEASE_MINUTES  # a thread's run sends a progress email before it is taken as dead
 RENEW_MINUTES = 10  # how often a run still working renews its thread's lease (renew_lease)
 assert RENEW_MINUTES < LEASE_MINUTES
 # A run renews its lease this long after its claim at most: one stuck past it is taken as dead LEASE_MINUTES later.

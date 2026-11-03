@@ -102,10 +102,12 @@ def test_a_run_that_renews_its_lease_keeps_its_thread_and_one_gone_silent_loses_
     stored(mail(CHEF, "<m1@x>"))
     with cabinet_db() as db:
         [first] = inbox.claim(db)
-        db.execute("update tarik_mail_threads set claimed_at = now() - interval '45 minutes'")
-    inbox.renew_lease("<m1@x>")  # the run still works: claimed 45 minutes ago, renewed now
+        db.execute("update tarik_mail_threads set claimed_at = now() - interval '45 minutes', attempts = 3")
+    inbox.renew_lease("<m1@x>")  # the run still works: claimed 45 minutes ago, renewed now, on its last attempt
     with cabinet_db() as db:
         assert inbox.claim(db) == [] and not inbox.threads_waiting()
+        assert state_of("<m1@x>") == "in_progress"  # not set aside as failed while it works
+        db.execute("update tarik_mail_threads set attempts = 1")
         claimed = db.execute("select claimed_at from tarik_mail_threads").fetchone()[0]
         db.execute("update tarik_mail_threads set alive_at = now() - interval '31 minutes'")  # silent since
     assert inbox.threads_waiting()

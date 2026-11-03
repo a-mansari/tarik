@@ -154,12 +154,15 @@ async def kept_informed(cabinet, thread, work):
 
 
 async def kept_alive(cabinet, thread_id, deadline):
-    """Renew thread ``thread_id``'s lease (renew_lease) every RENEW_MINUTES until ``deadline``, so no other run takes
-    it up while this one works on it. A renewal that fails is skipped: the lease lasts until the next."""
-    while time.time() + RENEW_MINUTES * 60 < deadline:
-        await asyncio.sleep(RENEW_MINUTES * 60)
+    """Renew thread ``thread_id``'s lease (renew_lease) at once, then every RENEW_MINUTES until ``deadline``, so no
+    other run takes it up while this one works on it; at once, as the time before this step (its queue for a worker
+    among them) already used some of the lease. A renewal that fails is skipped: the lease lasts until the next."""
+    while True:
         with contextlib.suppress(Exception):  # a database hiccup: the next renewal comes before the lease ends
             await within(cabinet, renew_lease, thread_id)
+        if time.time() + RENEW_MINUTES * 60 >= deadline:
+            return
+        await asyncio.sleep(RENEW_MINUTES * 60)
 
 
 async def ask(state: Thread):

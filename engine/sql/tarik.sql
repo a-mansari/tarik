@@ -358,7 +358,8 @@ where state = 'in_progress' and attempts >= %s and greatest(claimed_at, alive_at
 -- Lock for this run each thread Tarik must answer: new, or taken by a run that died (its lease of LEASE_MINUTES
 -- since the claim or the run's last renewal is over), and each follow-up thread that is ready.
 update tarik_mail_threads set state = 'in_progress', claimed_at = now(), attempts = attempts + 1,
-updated_at = now() where state = 'new' or (state = 'in_progress' and greatest(claimed_at, alive_at) < now() - make_interval(mins => %s))
+updated_at = now() where state = 'new'
+or (state = 'in_progress' and greatest(claimed_at, alive_at) < now() - make_interval(mins => %s))
 or (state = 'follow_up' and thread_id = any(%s))
 returning thread_id, session_id, client_address, subject
 
@@ -391,7 +392,8 @@ select pg_try_advisory_lock(hashtext(%s))
 -- name: any_thread_waiting
 -- Whether a thread waits for Tarik: new, or taken by a run that died (its lease of LEASE_MINUTES is over).
 select 1 from tarik_mail_threads
-where state = 'new' or (state = 'in_progress' and greatest(claimed_at, alive_at) < now() - make_interval(mins => %s)) limit 1
+where state = 'new'
+or (state = 'in_progress' and greatest(claimed_at, alive_at) < now() - make_interval(mins => %s)) limit 1
 
 -- name: renew_thread_lease
 -- A run still working on its thread: its lease starts again (alive_at, never claimed_at: the run's refusals are read
