@@ -143,7 +143,7 @@ async def kept_informed(cabinet, thread, work):
             if (await asyncio.wait({task}, timeout=minutes * 60))[0]:
                 break
             with contextlib.suppress(Exception):  # not sent (whitelist, SMTP): the reply still comes
-                await within(cabinet, send_progress, thread["thread_id"])
+                await within(cabinet, send_progress, thread["thread_id"], len(thread["files"]))
         return await task
     finally:
         task.cancel()  # the thread's run cancelled: its agent too, waited for, so it ends as part of its tree

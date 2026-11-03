@@ -302,6 +302,20 @@ def test_a_progress_email_goes_in_the_thread_but_never_to_a_sender_already_refus
     assert inbox.send_progress("<inconnu@x>")["sent"] is False
 
 
+@pytest.mark.communication
+def test_a_progress_email_says_how_many_of_the_threads_documents_are_taken(mailbox, monkeypatch):
+    sent = []
+    monkeypatch.setattr(inbox, "send_email", lambda to, subject, body, *thread: sent.append(body) or {})
+    monkeypatch.setattr(inbox, "untaken", lambda session_id: 3)
+    stored(mail(CHEF, "<m1@x>"))
+    with cabinet_db() as db:
+        inbox.claim(db)
+    inbox.send_progress("<m1@x>", 5)  # 2 of 5 taken
+    inbox.send_progress("<m1@x>", 3)  # none taken yet
+    inbox.send_progress("<m1@x>", 1)  # one document: no count
+    assert sent == [inbox.PROGRESS_COUNTED.format(2, 5), inbox.PROGRESS, inbox.PROGRESS]
+
+
 class CutBox(Box):
     """The mailbox over IMAP, its connection lost while email 2 is fetched."""
 
