@@ -145,7 +145,7 @@ async def kept_informed(cabinet, thread, work):
             if (await asyncio.wait({task}, timeout=minutes * 60))[0]:
                 break
             with contextlib.suppress(Exception):  # not sent (whitelist, SMTP): the reply still comes
-                await within(cabinet, send_progress, thread["thread_id"])
+                await within(cabinet, send_progress, thread["thread_id"], thread["files"])
         return await task
     finally:
         renewing.cancel()

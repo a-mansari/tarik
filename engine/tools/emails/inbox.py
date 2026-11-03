@@ -13,6 +13,7 @@ it creates nothing in Experio."""
 import contextlib
 import hashlib
 import re
+from collections import Counter
 from email import message_from_bytes, policy
 from email.utils import parseaddr
 
@@ -44,6 +45,11 @@ ACKNOWLEDGEMENT = (
 )
 # Sent every « progress » minutes the cabinet chose (engine/tools/dossiers/behaviour.py) while Tarik still works on it.
 PROGRESS = "Je travaille toujours sur votre demande. Je vous réponds dans ce fil dès que c'est terminé."
+# The same, once some of the thread's documents are taken in charge: how many of how many.
+PROGRESS_COUNTED = (
+    "Je travaille toujours sur votre demande : j'ai pris en charge {} de vos {} documents. Je vous réponds dans ce "
+    "fil dès que c'est terminé."
+)
 
 # Where the client's own text stops and the quoted history begins: a line starting with "Le ... a écrit :",
 # "On ... wrote:", "-- Message d'origine" / "-- Original message", a quoted header ("De :", "From:", "Envoyé :"), or
@@ -585,18 +591,22 @@ def acknowledge_thread(thread_id: str) -> dict:
 
 
 @tool
-def send_progress(thread_id: str) -> dict:
-    """Tell the client, in their thread, that Tarik still works on it (PROGRESS): the Emails graph sends it every
-    « progress » minutes the cabinet chose while Tarik has not answered. A sender already refused in this run
-    (check_sender, as thread_refusal reads it) gets none: a refused sender gets nothing. Returns an ok result with
-    sent=True when sent, sent=False otherwise."""
+def send_progress(thread_id: str, files: list) -> dict:
+    """Tell the client, in their thread, that Tarik still works on it: the Emails graph sends it every « progress »
+    minutes the cabinet chose while Tarik has not answered. ``files``: the names of the files the thread brought when
+    it was claimed (its "files"); with several, some taken by a tool since, the email says how many of them
+    (PROGRESS_COUNTED), else it is PROGRESS. A file the client sent since the claim counts in neither. A sender
+    already refused in this run (check_sender, as thread_refusal reads it) gets none: a refused sender gets nothing.
+    Returns an ok result with sent=True when sent, sent=False otherwise."""
     with cabinet_db() as db:
         thread, refused = refusal_of(db, thread_id)
         if not thread or refused:
             return ok("Pas de point d'avancement : fil inconnu ou expéditeur refusé.", sent=False)
-        _, address, subject, _ = thread
+        session_id, address, subject, _ = thread
         reply = addressed(db, thread_id, address, subject)
-    sent_in_thread(thread_id, reply, PROGRESS)
+        left = Counter(name for (name,) in db.execute(Q.untaken_file_names, (session_id,)))
+    taken = (Counter(files) - left).total() if len(files) > 1 else 0  # one document: no count
+    sent_in_thread(thread_id, reply, PROGRESS_COUNTED.format(taken, len(files)) if taken else PROGRESS)
     return ok("Point d'avancement envoyé.", sent=True)
 
 
