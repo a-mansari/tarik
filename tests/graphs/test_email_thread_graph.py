@@ -51,10 +51,10 @@ def thread(steps, monkeypatch):
     monkeypatch.setattr(emails, "call", steps.call)
     monkeypatch.setattr(emails, "answered", answered)
 
-    async def within(cabinet, function, argument):  # the setting read, or the progress email sent as a step
+    async def within(cabinet, function, argument, *files):  # the setting read, or the progress email sent as a step
         if function is emails.behaviour:
             return resumed.get(argument, 0)
-        return await steps.call(cabinet, function.__name__, thread_id=argument)
+        return await steps.call(cabinet, function.__name__, thread_id=argument, files=files[0])
 
     monkeypatch.setattr(emails, "within", within)
     monkeypatch.setattr(runs, "nested", nested)
@@ -92,8 +92,9 @@ def test_an_acknowledgement_not_sent_leaves_the_answer_to_go_on(thread):
 def test_a_long_answer_tells_the_client_it_is_still_going_every_few_minutes(thread):
     thread.resumed.update(progress=0.001, seconds=0.2)  # 0.06 s between progress emails
     thread.answer("thread_refusal", {"refused": False})
-    out = fil(thread)
-    assert thread.names.count("send_progress") >= 2 and thread.args("send_progress")[0] == {"thread_id": "<m1@x>"}
+    out = fil(thread, files=["a.pdf", "b.pdf"])
+    assert thread.names.count("send_progress") >= 2
+    assert thread.args("send_progress")[0] == {"thread_id": "<m1@x>", "files": ["a.pdf", "b.pdf"]}
     assert thread.names[-3:] == ["thread_refusal", "send_email", "finish_thread"] and out["sent"]
 
 

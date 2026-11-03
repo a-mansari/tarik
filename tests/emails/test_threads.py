@@ -287,7 +287,7 @@ def test_a_progress_email_goes_in_the_thread_but_never_to_a_sender_already_refus
     stored(mail(CHEF, "<m1@x>"))
     with cabinet_db() as db:
         [item] = inbox.claim(db)
-    assert inbox.send_progress("<m1@x>")["sent"]
+    assert inbox.send_progress("<m1@x>", [])["sent"]
     assert sent == [(CHEF, "Re: Factures", inbox.PROGRESS, ("<m1@x>", ""))]
     with cabinet_db() as db:  # the client's reply to it joins this thread
         assert db.execute("select thread_id from tarik_mail_sent where message_id = '<p1@tarik>'").fetchone() == (
@@ -298,8 +298,31 @@ def test_a_progress_email_goes_in_the_thread_but_never_to_a_sender_already_refus
             "'stop', 'pas son dossier')",
             (item["session_id"],),
         )
-    assert inbox.send_progress("<m1@x>")["sent"] is False and len(sent) == 1
-    assert inbox.send_progress("<inconnu@x>")["sent"] is False
+    assert inbox.send_progress("<m1@x>", [])["sent"] is False and len(sent) == 1
+    assert inbox.send_progress("<inconnu@x>", [])["sent"] is False
+
+
+@pytest.mark.communication
+def test_a_progress_email_says_how_many_of_the_threads_documents_are_taken(mailbox, monkeypatch):
+    sent = []
+    monkeypatch.setattr(inbox, "send_email", lambda to, subject, body, *thread: sent.append(body) or {})
+
+    def with_pdfs(message, *names):
+        for name in names:
+            message.add_attachment(b"%PDF-1.4", maintype="application", subtype="pdf", filename=name)
+        return message
+
+    stored(with_pdfs(mail(CHEF, "<m1@x>"), "a.pdf", "b.pdf", "c.pdf"))
+    with cabinet_db() as db:
+        [item] = inbox.claim(db)
+    inbox.send_progress("<m1@x>", item["files"])  # none taken yet
+    with cabinet_db() as db:
+        db.execute("update tarik_files set kind = 'invoice' where file_name = 'a.pdf'")
+    stored(with_pdfs(mail(CHEF, "<m2@x>", replying_to="<m1@x>"), "d.pdf", "e.pdf"))  # sent since the claim
+    inbox.send_progress("<m1@x>", item["files"])
+    inbox.send_progress("<m1@x>", ["a.pdf"])  # one document: no count
+    assert item["files"] == ["a.pdf", "b.pdf", "c.pdf"]
+    assert sent == [inbox.PROGRESS, inbox.PROGRESS_COUNTED.format(1, 3), inbox.PROGRESS]
 
 
 class CutBox(Box):
