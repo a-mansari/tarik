@@ -44,6 +44,7 @@ def chosen(monkeypatch):
     monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: None)
     monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"ice": "", **p} for p in TIERS])
     monkeypatch.setattr(tiers, "side_of", lambda invoice: "purchase")
+    monkeypatch.setattr(tiers, "keep_answer", lambda invoice_id, step, answer: None)
     monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: {"status": "ok", "linked": partner_id})
     monkeypatch.setattr(tiers, "create_tiers", lambda invoice, name, kind: {"status": "ok", "created": name})
 
@@ -126,6 +127,9 @@ def scanned(monkeypatch):
     monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: None)
     monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"ice": "", **p} for p in TIERS])
     monkeypatch.setattr(tiers, "side_of", lambda invoice: "purchase")
+    kept = {}
+    monkeypatch.setattr(tiers, "keep_answer", lambda i, step, answer: kept.update({(i, step): answer}))
+    monkeypatch.setattr(tiers, "kept_answer", lambda invoice_id, step: kept.get((invoice_id, step), ""))
 
     def link(invoice, partner_id, kind):
         return {"status": "ok", "message": f"fournisseur `BETA SERVICES`, id {partner_id}"}
@@ -276,6 +280,46 @@ def test_a_tiers_already_set_is_kept_over_the_one_detected(scanned, monkeypatch)
     monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
     tiers.link_tiers(4)
     assert linked == [5] and calls == []
+
+
+@pytest.mark.security
+def test_a_detected_tiers_the_check_read_differently_is_asked_not_kept(scanned, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice.update(partner_id=[7, "WW"], detected_supplier_id=[7, "WW"], supplier_name=False)
+    linked = []
+    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
+    monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: "ATLAS TRANSPORT SARL")
+    monkeypatch.setattr(tiers, "checked_values", lambda invoice_id: {"ice": ""})
+    result = tiers.link_tiers(4)
+    assert result["status"] == "question" and "Experio a pris « WW »" in result["message"]
+    assert "ATLAS TRANSPORT" in result["message"] and linked == [] and calls == []
+
+
+@pytest.mark.security
+def test_a_detected_tiers_the_check_did_not_flag_is_kept(scanned, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice.update(partner_id=[7, "WW"], detected_supplier_id=[7, "WW"])
+    linked = []
+    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
+    tiers.link_tiers(4)
+    assert linked == [7] and calls == []
+
+
+@pytest.mark.functionality
+def test_a_client_who_chose_the_detected_tiers_is_not_asked_again(scanned, monkeypatch):
+    from engine.tools.invoices import tiers
+
+    invoice, calls = scanned
+    invoice.update(partner_id=[7, "WW"], detected_supplier_id=[7, "WW"], supplier_name=False)
+    monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: "ATLAS TRANSPORT SARL")
+    monkeypatch.setattr(tiers, "checked_values", lambda invoice_id: {"ice": ""})
+    assert tiers.link_tiers(4)["status"] == "question"
+    tiers.choose_tiers(4, "7", "oui c'est bien WW", {"7": "WW"})  # the client picks the tiers Experio had taken
+    assert tiers.link_tiers(4)["status"] == "ok"
 
 
 CONTEXT = {"allowed_company_ids": [778]}  # Experio's dossier of invoice 4, no exercice
