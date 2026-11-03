@@ -16,9 +16,12 @@ from engine.tools.core.app import ok, question, routine, step_tool, stop, wait
 from engine.tools.core.config import DOSSIER_DOMAIN, TEST_MODE
 from engine.tools.core.conversation import kept_yes_no, yes_no
 from engine.tools.core.experio import (
+    ExperioRefusal,
     dry_run,
+    experio_refusal,
     fill_invoice,
     invoice_context,
+    is_refusal,
     odoo_call,
     odoo_json,
     refresh,
@@ -48,6 +51,8 @@ FIELDS = [
     "detected_customer_ice",
     "detected_customer_if",
     "dismissed_warning_codes",
+    "exchange_rate",
+    "hide_exchange_rate",
 ]
 # Experio's checks, the exercice first (the others read the invoice's dates and rates).
 CHECKS = (
@@ -66,6 +71,7 @@ PRORATA = "prorata_vat_rate_not_applied_on_invoice"
 IS_IR_RATES = {"company": ("5", "10", "20", "30"), "person": ("10", "15", "20")}
 TYPE_LABEL = {"company": "une personne morale", "person": "une personne physique"}
 ROUNDS = 3  # each round fixes what it can, then everything is checked again
+RATE_WIZARD = "exp.invoice.exchange.rate.wizard"
 
 
 def dismissed(invoice):
@@ -226,6 +232,28 @@ def ice_warning(invoice, message, context):
     )
 
 
+def fetch_rate(invoice_id, invoice, context):
+    """Fetch a foreign-currency invoice's missing exchange rate (0 or 1, which Experio refuses at posting:
+    validate_amounts missing_exchange_rate) with Experio's own wizard (exp.invoice.exchange.rate.wizard
+    action_fetch_exchange_rates); return a French phrase, a stop result with Experio's reason when it finds none, or
+    None when the rate is there."""
+    if invoice["hide_exchange_rate"] or invoice["exchange_rate"] not in (0, 1):
+        return None
+    if dry_run():
+        return f"{TEST_MODE}taux de change manquant, Experio le récupérerait"
+    wizard_id = odoo_call(RATE_WIZARD, "create", {"invoice_ids": [(6, 0, [invoice_id])]}, context=context)
+    try:
+        odoo_json(RATE_WIZARD, "action_fetch_exchange_rates", [wizard_id], context=context)
+    except ExperioRefusal as error:
+        if not is_refusal(error):
+            raise
+        return stop(
+            f"Facture {invoice_id} : taux de change manquant, Experio ne l'a pas trouvé ({experio_refusal(error)}). "
+            "À saisir par le cabinet sur la facture."
+        )
+    return "taux de change manquant récupéré par Experio"
+
+
 @step_tool
 def settle_warnings(invoice_id: int) -> dict:
     """Handle each warning Experio gives on a draft invoice before it is posted.
@@ -241,6 +269,11 @@ def settle_warnings(invoice_id: int) -> dict:
     context = invoice_context(invoice)
     done, tried = [], set()
     with refused(f"settle_warnings {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier la facture."):
+        fetched = fetch_rate(invoice_id, invoice, context)
+        if isinstance(fetched, dict):
+            return fetched
+        if fetched:
+            done.append(fetched)
         for _ in range(ROUNDS):
             found = raised(invoice, context)
             if not found:

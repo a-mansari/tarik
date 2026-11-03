@@ -19,7 +19,7 @@ def experio(monkeypatch):
     }
     invoice = {"state": "draft", "company_id": [5, "D"], "exercice_id": False, "type": "purchase"}
     invoice.update(invoice_number="F-7", partner_id=[9, "ALPHA - 44110001"], invoice_date="2025-04-02")
-    invoice["is_local_invoice"] = True
+    invoice["is_local_invoice"], invoice["amount_total"] = True, 1200.0
     state["invoice"] = {**invoice, **dict.fromkeys(configuration.AMOUNTS, 0)}
     state["company"] = {}  # the dossier's switches and accounts: empty unless set
     monkeypatch.setattr(configuration, "require_invoice", lambda i, f: state["invoice"])
@@ -312,3 +312,22 @@ def test_an_invoice_without_a_number_asks_for_it_and_the_answer_is_written(monke
     assert again["status"] == "question" and written == [{"invoice_number": "2503-0702"}]
     monkeypatch.setattr(configuration, "ask_model", lambda *a: {"number": None})
     assert configuration.answer_number(3, "gecafisc: sans retenue")["status"] == "question"
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("holdback", [-60.0, 1200.0, 1500.0])
+def test_a_retenue_experio_would_let_through_unchecked_stops_before_posting(experio, holdback):
+    experio["invoice"].update(amount_guarantee_holdback=holdback)
+    result = configuration.configure_cabinet(3)
+    assert result["status"] == "stop" and f"retenue de garantie {holdback:.2f}" in result["message"]
+    assert experio["calls"] == []  # nothing asked of Experio, nothing set
+
+
+@pytest.mark.functionality
+def test_a_negative_prorata_stops_and_a_foreign_purchases_deductions_are_not_checked(experio):
+    experio["invoice"].update(amount_prorata=-5.0)
+    assert "prorata -5.00" in configuration.configure_cabinet(3)["message"]
+    experio["invoice"].update(is_local_invoice=False, amount_guarantee_holdback=-60.0)  # Experio ignores them abroad
+    assert configuration.deductions_refused(experio["invoice"]) == []
+    experio["invoice"].update(is_local_invoice=True, amount_prorata=0, amount_guarantee_holdback=120.0)
+    assert configuration.deductions_refused(experio["invoice"]) == []  # a usual retenue: Experio's to check
