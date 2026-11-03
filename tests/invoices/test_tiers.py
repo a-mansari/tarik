@@ -289,7 +289,7 @@ def test_a_legal_form_alone_does_not_make_another_tiers(scanned, monkeypatch, pr
     if linked is None:
         assert result["status"] == "question"
     else:
-        assert result["status"] == "ok" and f"id {linked}" in result["message"] and result["note"]
+        assert result["status"] == "ok" and f"(id `{linked}`)" in result["message"] and result["note"]
     assert calls == []  # nothing created
 
 
@@ -375,7 +375,7 @@ def linking(monkeypatch):
         return state["answers"][(model, method)](kw.get("fields"))
 
     monkeypatch.setattr(tiers, "odoo_call", odoo_call)
-    monkeypatch.setattr(tiers, "fill_invoice", lambda *a: state["filled"].append(a))
+    monkeypatch.setattr(tiers, "fill_invoice", lambda *a, **kw: state["filled"].append(a))
     monkeypatch.setattr(tiers, "odoo_json", lambda *a, **k: state["confirmed"].append((a, k)))
     monkeypatch.setattr(tiers, "dry_run", lambda: False)
     monkeypatch.setattr(tiers, "test_mode_note", lambda: "")
@@ -500,7 +500,7 @@ def test_why_experio_refused_to_link_a_tiers_is_said(linking, monkeypatch):
     from engine.tools.core.app import ToolError
     from engine.tools.invoices import tiers
 
-    def refuse(*args):
+    def refuse(*args, **kw):
         raise xmlrpc.client.Fault(2, "Ce tiers est archivé.")
 
     monkeypatch.setattr(tiers, "fill_invoice", refuse)
@@ -689,8 +689,19 @@ def test_a_name_only_the_check_read_is_linked_to_the_dossiers_tiers_of_that_very
     monkeypatch.setattr(tiers, "stored_check", lambda invoice_id: (True, {"tier": "Nova Telecom."}, []))
     monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"id": 9, "name": "NOVA TELECOM", "ice": ""}])
     result = tiers.link_tiers(4)
-    assert (
-        result["status"] == "ok"
-        and "relié au tiers du dossier de même nom `NOVA TELECOM` (id `9`)" in result["message"]
-    )
+    assert result["status"] == "ok" and "id 9" in result["message"] and not result.get("note")  # exact: quiet
     assert calls == []
+
+
+@pytest.mark.security
+def test_only_the_tiers_experio_itself_picked_and_the_check_contradicts_may_be_replaced(monkeypatch):
+    from engine.tools.invoices import tiers
+
+    monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: "ATLAS TRANSPORTS")
+    picked = {"id": 4, "partner_id": [7, "WW"], "detected_supplier_id": [7, "WW"]}
+    assert tiers.disputed(picked, "purchase") == "ATLAS TRANSPORTS"
+    by_hand = {"id": 4, "partner_id": [5, "SET BY HAND"], "detected_supplier_id": [7, "WW"]}
+    assert tiers.disputed(by_hand, "purchase") is None  # a tiers someone chose is never replaced
+    assert tiers.disputed({"id": 4, "partner_id": False, "detected_supplier_id": False}, "purchase") is None
+    monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: None)
+    assert tiers.disputed(picked, "purchase") is None  # the scan agrees with Experio

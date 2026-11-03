@@ -20,6 +20,11 @@ def routed(steps, route="files", files=(), **answers):
         steps.answer(tool, result)
 
 
+def without_resuming(steps):
+    """The steps run, less the take-up of the drafts Experio was still reading that every answer also starts."""
+    return [name for name in steps.names if name != "waiting_drafts"]
+
+
 def invoice_ids(steps, tool):
     return [a["invoice_id"] for a in steps.args(tool)]
 
@@ -266,7 +271,8 @@ def test_a_statement_not_pointed_is_not_posted(steps):
 def test_an_answer_resumes_the_sequence_at_its_next_step(steps, answered, following):
     routed(steps, "answer", answer_pending=answered, check_journal=STOP, identify_document=STOP)
     steps.run(graph, mode="answer", answer="oui")
-    assert steps.names == ["save_files", "route_message", "answer_pending", *following, "run_summary"]
+    names = steps.names if "waiting_drafts" in following else without_resuming(steps)  # it is the answer's own step
+    assert names == ["save_files", "route_message", "answer_pending", *following, "run_summary"]
 
 
 @pytest.mark.functionality
@@ -274,7 +280,7 @@ def test_an_account_given_for_another_invoice_with_the_answer_is_asked_to_be_con
     answered = {"status": "ok", "next_step": "settle_tva", "invoice_id": 5, "corrections": [[6, "6111"]]}
     routed(steps, "answer", answer_pending=answered, settle_tva=STOP, assign_account=STOP)
     steps.run(graph, mode="answer")
-    assert steps.names == [
+    assert without_resuming(steps) == [
         "save_files",
         "route_message",
         "answer_pending",
@@ -292,7 +298,7 @@ def test_the_invoice_answered_about_and_given_an_account_goes_back_to_its_accoun
     routed(steps, "answer", answer_pending={**answered, "invoice_id": 5, "corrections": [[5, "6111"]]})
     steps.answer("assign_account", STOP)
     steps.run(graph, mode="answer")
-    assert steps.names == ["save_files", "route_message", "answer_pending", "assign_account", "run_summary"]
+    assert without_resuming(steps) == ["save_files", "route_message", "answer_pending", "assign_account", "run_summary"]
     given = steps.args("assign_account")[0]
     assert (given["invoice_id"], given["answer"], given["confirm"]) == (5, "6111", False)
 
@@ -426,3 +432,14 @@ def test_a_message_without_a_side_asks_nothing_about_it(steps):
     routed(steps)
     steps.run(graph, mode="files", dossier="Alpha", comptabiliser="oui")
     assert "verified_side" not in steps.names
+
+
+@pytest.mark.functionality
+def test_an_answer_also_takes_up_the_drafts_experio_was_still_reading(steps):
+    """« reprise à votre prochain message »: an answer is a message too (the answered invoice keeps its own branch)."""
+    routed(
+        steps, "answer", answer_pending={"status": "ok", "next_step": "settle_tva", "invoice_id": 5}, check_journal=STOP
+    )
+    steps.run(graph, mode="answer", answer="oui")
+    taken = steps.args("waiting_drafts")[0]
+    assert taken["stopped"] is False  # only what waited or failed, not the stops a setting caused

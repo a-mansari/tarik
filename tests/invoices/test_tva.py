@@ -36,6 +36,7 @@ def experio(monkeypatch):
     monkeypatch.setattr(tva, "test_mode_note", lambda: "")
     monkeypatch.setattr(tva, "_tax_lines", lambda invoice_id, context: ["500.0 HT à 20.0 % (TVA 20%)"])
     monkeypatch.setattr(tva, "odoo_call", lambda *a, **k: [{"use_prorata": state["prorata"], "prorata_rate": 80}])
+    monkeypatch.setattr(tva, "deductibility", lambda invoice, context: (None, ""))  # the model cannot tell: asked
     kept = {}  # the answers kept per invoice and step (tarik_answers)
     monkeypatch.setattr(conversation, "kept_answer", lambda invoice_id, step: kept.get((invoice_id, step), ""))
     monkeypatch.setattr(
@@ -145,3 +146,45 @@ def test_experio_refusing_its_refresh_is_a_tool_error(experio, monkeypatch):
     monkeypatch.setattr(tva, "refresh", refresh)
     with pytest.raises(ToolError, match="Experio a refusé la mise à jour de la TVA"):
         tva.settle_tva(3)
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("decided", "kind", "written"), [(True, "non récupérable", True), (False, "récupérable", False)]
+)
+def test_the_model_decides_a_usual_non_recoverable_account_from_the_activity_and_says_so(
+    experio, monkeypatch, decided, kind, written
+):
+    monkeypatch.setattr(tva, "deductibility", lambda invoice, context: (decided, "Société de négoce : hôtel."))
+    result = tva.settle_tva(3)
+    assert result["status"] == "ok" and result["note"]  # shown under « À vérifier », not asked
+    assert f"TVA {kind}" in result["message"] and "Décidé par Tarik" in result["message"]
+    assert (experio["written"] == [{"amount_tax_non_recoverable": True, "multi_tva": False}]) is written
+
+
+@pytest.mark.functionality
+def test_the_model_is_shown_the_dossiers_activity_the_bill_and_the_cgnc(monkeypatch):
+    shown = []
+
+    def odoo_call(model, method, ids, fields, **kw):
+        return [{"name": "LED SOLUTIONS", "partner_id": [9, "LED"], "activity_sector": "Négoce d'éclairage"}]
+
+    monkeypatch.setattr(tva, "odoo_call", odoo_call)
+    monkeypatch.setattr(tva, "stored_check", lambda invoice_id: (True, {"designation": "Nuitée d'hôtel"}, []))
+    monkeypatch.setattr(tva, "account_code", lambda invoice: "61423000")
+    monkeypatch.setattr(tva, "consult_cgnc", lambda code: f"CGNC sur {code} : déplacements")
+    monkeypatch.setattr(tva, "tool_prompt", lambda name: name)
+
+    def ask_model(system, pages, instruction, what):
+        shown.append((system, instruction))
+        return {"non_recoverable": True, "reason": "Négoce : un hôtel n'est pas nécessaire à l'activité."}
+
+    monkeypatch.setattr(tva, "ask_model", ask_model)
+    invoice = {"id": 3, "company_id": [5, "D"], "partner_id": [7, "RIAD"]}
+    assert tva.deductibility(invoice, {}) == (True, "Négoce : un hôtel n'est pas nécessaire à l'activité.")
+    system, instruction = shown[0]
+    assert system == "decide-tva-deductible"
+    for fact in ("LED SOLUTIONS", "Négoce d'éclairage", "Nuitée d'hôtel", "RIAD", "61423000", "CGNC sur 61423000"):
+        assert fact in instruction
+    monkeypatch.setattr(tva, "ask_model", lambda *a: {"non_recoverable": None, "reason": ""})
+    assert tva.deductibility(invoice, {})[0] is None  # it cannot tell: the client is asked

@@ -16,19 +16,23 @@ itself (an amount, a field) is no setting. Either stops the invoice before it is
 warnings block nothing here: settle_warnings handles each.
 """
 
-from engine.tools.core.app import ok, routine, step_tool, stop
+from engine.tools.core.app import ok, question, routine, step_tool, stop
 from engine.tools.core.config import TEST_MODE
+from engine.tools.core.conversation import own_words
 from engine.tools.core.experio import (
     blocking,
     checked,
     dry_run,
+    fill_invoice,
     invoice_context,
     odoo_call,
     odoo_json,
     refused,
+    require_draft_invoice,
     require_invoice,
 )
-from engine.tools.core.words import counted
+from engine.tools.core.model import ask_model, tool_prompt
+from engine.tools.core.words import counted, normalized, said
 
 TVA_ACCOUNTS = ["|", ("code", "=like", "3455%"), ("code", "=like", "4455%")]
 # Per amount of the invoice: its name, then per side (purchase, sale) the dossier's switch (None: none), its
@@ -79,7 +83,17 @@ AMOUNTS = {
     ),
 }
 FOREIGN_IGNORED = {"amount_guarantee_holdback", "amount_prorata", "amount_insurance", "advance_amount"}
-INVOICE_FIELDS = ["state", "company_id", "exercice_id", "type", "is_local_invoice", *AMOUNTS]
+INVOICE_FIELDS = [
+    "state",
+    "company_id",
+    "exercice_id",
+    "type",
+    "is_local_invoice",
+    "invoice_number",
+    "partner_id",
+    "invoice_date",
+    *AMOUNTS,
+]
 
 
 ASSETS_MENU = "Configuration > Immobilisations > Catégories"
@@ -229,6 +243,40 @@ def save_settings(company_id, values, context):
     return all((held[k][0] if isinstance(held[k], list) else held[k]) == v for k, v in values.items())
 
 
+def number_asked(invoice):
+    """Return the question asked when an invoice has no number: the scan's was unreadable and Experio refuses to post
+    an invoice without one."""
+    who = invoice["partner_id"][1].split(" - ")[0] if invoice["partner_id"] else "ce fournisseur"
+    when = f" du {invoice['invoice_date']}" if invoice["invoice_date"] else ""
+    return f"Facture de `{who}`{when} : son numéro est illisible sur le scan. Quel est le numéro de cette facture ?"
+
+
+def answer_number(invoice_id: int, answer: str = "") -> dict:
+    """Write the invoice number the client gave in ``answer`` (maybe a message about several invoices) on the draft.
+
+    A model reads which number the client states for THIS invoice; it stands only when it is, word for word, in the
+    client's message (a model may not invent a number). Else the question is asked again.
+
+    Raises:
+        ToolError: Experio refuses to save the number."""
+    invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer son numéro")
+    words = own_words(answer)
+    read = ask_model(
+        tool_prompt("read-invoice-number"),
+        [],
+        f"The invoice: {invoice['partner_id'][1] if invoice['partner_id'] else 'unknown supplier'}, dated "
+        f"{invoice['invoice_date'] or 'unknown'} (draft {invoice_id}).\nClient's message: {words}\n\n"
+        'Answer with only a JSON object: {"number": "<the invoice number as written>" or null}',
+        "Lecture du numéro de facture",
+    )
+    number = str(read.get("number") or "").strip()
+    if not number or not said(normalized(number), normalized(words)):
+        return question(f"Réponse non comprise. {number_asked(invoice)}")
+    with refused(f"answer_number {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu enregistrer son numéro."):
+        fill_invoice(invoice_id, {"invoice_number": number}, invoice_context(invoice))
+    return ok(f"Facture {invoice_id} : numéro `{number}` enregistré.", invoice_id=invoice_id)
+
+
 @step_tool
 def configure_cabinet(invoice_id: int) -> dict:
     """Fill the dossier settings a draft invoice needs to be posted, as Experio's own screens do: the taxes its TVA
@@ -241,6 +289,8 @@ def configure_cabinet(invoice_id: int) -> dict:
     if invoice["state"] != "draft":
         return routine(f"Facture {invoice_id} : en état {invoice['state']}, rien à paramétrer.")
     company_id, context = invoice["company_id"][0], invoice_context(invoice)
+    if not (invoice["invoice_number"] or "").strip():  # Experio refuses to post it, and the scan gave none
+        return question(number_asked(invoice))
     with refused(f"configure_cabinet {invoice_id}", f"Facture {invoice_id} : Experio n'a pas pu vérifier la facture."):
         numbered = settle_folder_number(invoice_id, context)
         before = blocking(invoice_id, context)

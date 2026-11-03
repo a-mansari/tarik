@@ -132,6 +132,9 @@ def test_each_account_given_with_an_answer_goes_to_its_own_invoice(corrections, 
     last = {"status": "ok", "next_step": "check_journal", "invoice_id": 7, "corrections": corrections}
     state = {"call": {"session_id": "s", "compte": "x"}, "run_id": "r", "dossier_id": 5, "outcomes": [last]}
     sends = traitement.resume_at(state)
+    resuming = [s for s in sends if s.node == "brouillons"]  # the drafts Experio was reading, taken up with any answer
+    assert len(resuming) == 1 and resuming[0].arg["call"]["skip_invoices"] == sorted({7, *(c[0] for c in corrections)})
+    sends = [s for s in sends if s.node != "brouillons"]
     assert [(s.arg["invoice_id"], s.arg["entry"], s.arg["call"]["compte"]) for s in sends] == sent_to
     # Another invoice than the one answered: its account is to confirm; the answered one's is applied.
     assert all(s.arg["call"]["confirmer"] is (s.arg["invoice_id"] != 7) for s in sends)

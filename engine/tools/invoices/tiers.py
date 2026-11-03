@@ -176,7 +176,9 @@ def link(invoice, partner_id, kind):
         f"Facture {invoice['id']} : Experio a refusé le tiers `{name}` ({{reason}}).",
     ):
         if not invoice["partner_id"] or invoice["partner_id"][0] != partner_id:
-            fill_invoice(invoice["id"], {"partner_id": partner_id}, context)
+            fill_invoice(
+                invoice["id"], {"partner_id": partner_id}, context, replace_tiers=bool(disputed(invoice, kind))
+            )
         account = ensure_tiers_account(invoice["id"], partner_id, kind, context)
     return ok(f"{test_mode_note()}Facture {invoice['id']} : {SIDE[kind]['role']} `{name}`, {account}.")
 
@@ -252,6 +254,15 @@ def dossier_tiers(company_id):
     )
 
 
+def disputed(invoice, kind):
+    """Return the name the check read on the scan when it contradicts the tiers Experio itself picked for ``invoice``
+    (partner_id equal to what it detected), else None: the one tiers Tarik may replace. A tiers set by hand or by an
+    answer differs from the detected one and is never replaced."""
+    if not invoice.get("partner_id") or invoice["partner_id"] != invoice.get(SIDE[kind]["detected"]):
+        return None
+    return flagged_tier(invoice["id"])
+
+
 @step_tool
 def link_tiers(invoice_id: int) -> dict:
     """Give a draft invoice its tiers (the supplier of a purchase, the customer of a sale) and its Compte Tiers.
@@ -269,18 +280,18 @@ def link_tiers(invoice_id: int) -> dict:
     detected = invoice[SIDE[kind]["detected"]]
     # Experio's own pick (what it detected) that the check read differently on the scan, e.g. the customer's ICE taken
     # for the supplier's: not trusted, unless the client chose that very tiers when asked (choose_tiers keeps it).
-    disputed = bool(invoice["partner_id"]) and invoice["partner_id"] == detected and flagged_tier(invoice_id)
-    if disputed and kept_answer(invoice_id, "link_tiers") == str(invoice["partner_id"][0]):
-        disputed = None
-    if disputed:
-        same = same_name(invoice, disputed, kind)
+    dispute = disputed(invoice, kind)
+    if dispute and kept_answer(invoice_id, "link_tiers") == str(invoice["partner_id"][0]):
+        dispute = None
+    if dispute:
+        same = same_name(invoice, dispute, kind)
         if same:
             return same
         ice = checked_values(invoice_id).get("ice")
-        phrase, choices = find_tiers(invoice_id, disputed, TIERS_MIN_SIMILARITY, ice)
+        phrase, choices = find_tiers(invoice_id, dispute, TIERS_MIN_SIMILARITY, ice)
         ask = phrase if choices else f"{phrase} Faut-il le créer sous ce nom, ou est-ce un autre tiers (nom ou ICE) ?"
         return question(
-            f"Facture {invoice_id} : Experio a pris « {invoice['partner_id'][1]} », mais le scan indique « {disputed} »"
+            f"Facture {invoice_id} : Experio a pris « {invoice['partner_id'][1]} », mais le scan indique « {dispute} »"
             f" comme {role}. {ask}",
             choices=choices,
         )
@@ -371,6 +382,7 @@ def same_name(invoice, name, kind):
     """
     found = dossier_tiers(invoice["company_id"][0])
     same = [p for p in found if normalized(p["name"]) == normalized(name)]
+    exact = len(same) == 1
     key = tiers_key(name)
     if not same and key:  # only the legal form differs: « GNS Lighting LTD » is the tiers « GNS LIGHTING »
         same = [p for p in found if tiers_key(p["name"]) == key]
@@ -378,15 +390,17 @@ def same_name(invoice, name, kind):
         return None
     result = link(invoice, same[0]["id"], kind)
     near = [p["name"] for _, p in ranked(name, found, TIERS_MIN_SIMILARITY, top=4) if p["id"] != same[0]["id"]]
+    if exact and not near:  # the very same name and no lookalike: nothing for the client to check
+        return result
     warned = (
         f" Attention, tiers aux noms proches dans le dossier : {', '.join(f'`{n}`' for n in near)}." if near else ""
     )
     told = (
-        f"Facture {invoice['id']} : {SIDE[kind]['role']} « {name} » non reconnu par ICE/IF, relié au tiers du dossier "
-        f"de même nom `{same[0]['name']}` (id `{same[0]['id']}`).{warned} S'il n'est pas le bon, un collaborateur du "
-        "cabinet le change dans Experio. "
+        f"{SIDE[kind]['role'].capitalize()} « {name} » non reconnu par ICE/IF, relié au tiers du dossier de même nom "
+        f"`{same[0]['name']}` (id `{same[0]['id']}`).{warned} S'il n'est pas le bon, un collaborateur du cabinet le "
+        "change dans Experio."
     )
-    return {**result, "message": told + result["message"], "note": True}
+    return {**result, "message": f"Facture {invoice['id']} : {told}", "note": True}
 
 
 def find_tiers(invoice_id, name, minimum=TIERS_MIN_SIMILARITY, ice=None):

@@ -1590,7 +1590,7 @@ def report_statement(statement_id: int, notes: list[str] | None = None) -> dict:
     points += reason_lines(reasons, "{} opération à compléter dans Experio", "{} opérations à compléter dans Experio")
     prefix = TEST_MODE if dry_run() else ""
     if not points:
-        return ok(f"{prefix}Relevé n° {statement_id} : rien à signaler.", statement_id=statement_id)
+        return routine(f"{prefix}Relevé n° {statement_id} : rien à signaler.", statement_id=statement_id)
     text = f"Relevé n° {statement_id} :" + "".join(f"\n- {point}" for point in points)
     return noted(f"{prefix}{text}", statement_id=statement_id)
 

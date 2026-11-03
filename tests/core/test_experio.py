@@ -590,3 +590,30 @@ def test_another_dossiers_names_never_reach_the_client(refusal):
 def test_a_redirect_warning_message_on_several_lines_reads_on_one():
     fault = xmlrpc.client.Fault(2, str(("Compte manquant.\nConfigurez-le.", {"type": "x"}, "Voir", None)))
     assert experio.experio_refusal(fault) == "Compte manquant. Configurez-le."
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(("replace", "changes"), [(True, {"partner_id": 8}), (False, {"partner_id": 8})])
+def test_only_a_tiers_experio_picked_and_the_scan_contradicts_may_be_replaced(
+    db_cabinet, monkeypatch, replace, changes
+):
+    written = []
+
+    def odoo_call(model, method, *args, **kw):
+        if method == "fields_get":
+            return {"partner_id": {"type": "many2one", "store": True}}
+        if method == "read":
+            return [{"partner_id": [7, "ATLAS"]}]
+        written.append((method, args))
+
+    monkeypatch.setattr(experio, "odoo_call", odoo_call)
+    monkeypatch.setattr(experio, "odoo_json", lambda *a, **k: {"value": {}})
+    monkeypatch.setattr(experio, "dry_run", lambda: False)
+    monkeypatch.setattr(experio, "_forms", {})
+    if not replace:
+        with pytest.raises(experio.ToolError, match="ne le remplace pas"):
+            experio.fill_invoice(1, changes, {}, replace_tiers=replace)
+        assert written == []
+        return
+    experio.fill_invoice(1, changes, {}, replace_tiers=replace)
+    assert [method for method, _ in written] == ["write"]

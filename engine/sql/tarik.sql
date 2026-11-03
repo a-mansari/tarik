@@ -12,6 +12,10 @@ select message from tarik_client_messages where session_id = %s order by id desc
 -- Keep one client message of the conversation, word for word.
 insert into tarik_client_messages (session_id, message) values (%s, %s)
 
+-- name: file_names_of
+-- The names of files, to say which one an error is about.
+select id, file_name from tarik_files where id = any(%s)
+
 -- name: client_messages_of_session
 -- The conversation's client messages, oldest first.
 select message from tarik_client_messages where session_id = %s order by id

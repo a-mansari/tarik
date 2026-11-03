@@ -541,13 +541,15 @@ def type_in(model, record_id, values, name, types, context):
             values[key] = new.get("id") if isinstance(new, dict) else new
 
 
-def fill_invoice(invoice_id, changes, context, save=True):
+def fill_invoice(invoice_id, changes, context, save=True, replace_tiers=False):
     """Type ``changes`` ({field: value}) into invoice ``invoice_id``'s form one field at a time, as a user does:
     after each one, Experio's onchange fills in what it fills on screen (exchange rate, withholding...). Then save,
     except in test mode or when ``save`` is False (to see what Experio would fill).
 
     Returns {field: value} of every field that ends up changed, those Experio filled included. Raises ToolError
-    when saving would replace or clear a tiers (partner_id) already set: only the cabinet's staff change it."""
+    when saving would replace or clear a tiers (partner_id) already set: only the cabinet's staff change it, except
+    ``replace_tiers``: Experio's own detection that the scan contradicts (link_tiers), replaced by another tiers,
+    never cleared."""
     form = _form()
     types = form["types"]
     values = _form_values(invoice_id, types, context)
@@ -563,7 +565,8 @@ def fill_invoice(invoice_id, changes, context, save=True):
     }
     # A supplier or customer already set in Experio is never replaced nor cleared by Tarik, whatever the scan or an
     # onchange says: only the cabinet's staff change it, in Experio.
-    if save and start.get("partner_id") and values.get("partner_id") != start["partner_id"]:
+    replacing = replace_tiers and bool(values.get("partner_id"))
+    if save and start.get("partner_id") and values.get("partner_id") != start["partner_id"] and not replacing:
         log(f"fill_invoice {invoice_id}: partner {start['partner_id']} -> {values.get('partner_id')} refused")
         raise ToolError(
             f"Facture {invoice_id} : son tiers est déjà choisi dans Experio ; Tarik ne le remplace pas. "

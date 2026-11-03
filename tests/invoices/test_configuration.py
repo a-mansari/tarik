@@ -18,6 +18,7 @@ def experio(monkeypatch):
         "taxes": 2,
     }
     invoice = {"state": "draft", "company_id": [5, "D"], "exercice_id": False, "type": "purchase"}
+    invoice.update(invoice_number="F-7", partner_id=[9, "ALPHA - 44110001"], invoice_date="2025-04-02")
     invoice["is_local_invoice"] = True
     state["invoice"] = {**invoice, **dict.fromkeys(configuration.AMOUNTS, 0)}
     state["company"] = {}  # the dossier's switches and accounts: empty unless set
@@ -281,3 +282,33 @@ def test_a_folder_number_is_written_only_when_experios_rule_gives_one(folder, ch
 def test_in_test_mode_no_folder_number_is_written(folder, monkeypatch):
     monkeypatch.setattr(configuration, "dry_run", lambda: True)
     assert configuration.settle_folder_number(3, {}) == "" and folder["writes"] == []
+
+
+@pytest.mark.functionality
+def test_an_invoice_without_a_number_asks_for_it_and_the_answer_is_written(monkeypatch):
+    from engine.tools.invoices import configuration
+
+    invoice = {"id": 3, "state": "draft", "company_id": [5, "D"], "invoice_number": False}
+    invoice.update(partner_id=[9, "IFS NEUTRAL MARITIME - 44110002 - 4042"], invoice_date="2025-03-22")
+    monkeypatch.setattr(configuration, "require_invoice", lambda invoice_id, fields: invoice)
+    monkeypatch.setattr(configuration, "require_draft_invoice", lambda invoice_id, fields, what: invoice)
+    monkeypatch.setattr(configuration, "invoice_context", lambda invoice: {})
+    asked = configuration.configure_cabinet(3)
+    assert (
+        asked["status"] == "question"
+        and "IFS NEUTRAL MARITIME" in asked["message"]
+        and "2025-03-22" in asked["message"]
+    )
+    assert "44110002" not in asked["message"]  # the supplier as the client knows it, not its account and IF
+    written = []
+    monkeypatch.setattr(configuration, "fill_invoice", lambda invoice_id, changes, context: written.append(changes))
+    monkeypatch.setattr(configuration, "tool_prompt", lambda name: name)
+    email = "pour ZZ TEST. la facture IFS NEUTRAL MARITIME a le numéro 2503-0702. gecafisc: sans retenue"
+    monkeypatch.setattr(configuration, "ask_model", lambda *a: {"number": "2503-0702"})
+    done = configuration.answer_number(3, email)
+    assert done["status"] == "ok" and written == [{"invoice_number": "2503-0702"}]
+    monkeypatch.setattr(configuration, "ask_model", lambda *a: {"number": "9999"})  # a number the client never wrote
+    again = configuration.answer_number(3, email)
+    assert again["status"] == "question" and written == [{"invoice_number": "2503-0702"}]
+    monkeypatch.setattr(configuration, "ask_model", lambda *a: {"number": None})
+    assert configuration.answer_number(3, "gecafisc: sans retenue")["status"] == "question"
