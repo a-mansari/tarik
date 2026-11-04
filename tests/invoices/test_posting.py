@@ -286,6 +286,9 @@ def test_debours_no_invoice_of_the_folder_covers_is_told(transit):
     transit["unbacked"] = [350.0]
     note = posting.disbursements_first({"id": 3})
     assert note.startswith("débours de 350.00 sans facture du dossier derrière")
+    assert "aucune facture du dossier n'est marquée" not in note  # some are: the rest has no invoice behind it
+    transit.update(linked=[], posted=[])  # nothing marked « Payée par transitaire » in the folder
+    assert "aucune facture du dossier n'est marquée « Payée par transitaire »" in posting.disbursements_first({"id": 3})
 
 
 @pytest.mark.functionality

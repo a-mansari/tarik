@@ -222,7 +222,7 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
         )
     with refused(f"create_import_folder {dossier_id}", "Experio n'a pas pu créer le dossier d'import."):
         kinds = page_types()
-        rule = odoo_call("res.company", "read", [dossier_id], fields=["import_folder_number"])[0]
+        rule = odoo_call("res.company", "read", [dossier_id], fields=["import_folder_number", "exchange_rate"])[0]
         folders = make_folder(files, kinds, dossier, multiple)
         said, invoices = [], []
         for group, documents in folders:
@@ -247,6 +247,11 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
                 said.append(
                     "la DUM y est jointe sans être lue : Experio ne lit une DUM que déposée sur son écran « Imports »"
                 )
+                if rule["exchange_rate"] == "dum":  # Experio falls back on Bank Al-Maghrib's (exp_invoice.py:3286-3293)
+                    said.append(
+                        "le dossier prend ses taux de change de la DUM : tant qu'elle n'est pas lue dans Experio, les "
+                        "factures en devise du dossier d'import ont celui de Bank Al-Maghrib"
+                    )
     return ok(" ; ".join(said) + ".", invoices=invoices)
 
 

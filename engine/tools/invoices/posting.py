@@ -93,12 +93,16 @@ def disbursements_first(invoice):
         )
         refresh(invoice["id"], context)  # its disbursement lines, one per linked invoice
     left = unbacked_disbursement(invoice["id"], context)
-    if left:
-        return (
-            f"débours de {left:.2f} sans facture du dossier derrière (payée par le transitaire), passé au compte de "
-            "débours : à justifier par le cabinet"
-        )
-    return None
+    if not left:
+        return None
+    # Experio never marks an invoice « Payée par transitaire » itself (is_disbursement_invoice: by hand only).
+    none_marked = ""
+    if not (eligible or found["disbursement_invoice_ids"]):
+        none_marked = " (aucune facture du dossier n'est marquée « Payée par transitaire » dans Experio)"
+    return (
+        f"débours de {left:.2f} sans facture du dossier derrière (payée par le transitaire){none_marked}, passé au "
+        "compte de débours : à justifier par le cabinet"
+    )
 
 
 def unbacked_disbursement(invoice_id, context):

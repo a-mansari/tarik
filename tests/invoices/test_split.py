@@ -16,7 +16,7 @@ LINE = {
     "account_id": [31, "6111"],
 }
 DRAFT = {"id": 3, "state": "draft", "company_id": [5, "D"], "exercice_id": [2, "2026"], "type": "purchase"}
-DRAFT["invoice_type"] = "invoice"
+DRAFT["invoice_type"] = DRAFT["import_invoice_type"] = "invoice"
 
 
 @pytest.fixture
@@ -240,8 +240,11 @@ def test_a_split_leaves_a_part_on_the_account_the_invoice_is_on(stepping):
 
 @pytest.mark.functionality
 @pytest.mark.parametrize("kind", ["transit", "customs"])
-def test_a_transit_or_customs_invoice_is_never_split(stepping, monkeypatch, kind):
-    monkeypatch.setattr(split, "require_invoice", lambda *a: {**DRAFT, "invoice_type": kind})
+@pytest.mark.parametrize("in_folder", [True, False])
+def test_a_transit_or_customs_invoice_is_never_split(stepping, monkeypatch, kind, in_folder):
+    # Experio's invoice_type is set in a folder only; outside one the page's type (import_invoice_type) still says it
+    types = {"invoice_type": kind if in_folder else False, "import_invoice_type": kind}
+    monkeypatch.setattr(split, "require_invoice", lambda *a: {**DRAFT, **types})
     result = split.split_charges(3)
     assert stepping["made"] == [] and result["routine"] and kind in result["message"]
 

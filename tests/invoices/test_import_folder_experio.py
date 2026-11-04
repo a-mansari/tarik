@@ -30,8 +30,8 @@ def saved(name, data, session="imp", mime="application/pdf"):
 
 
 class Experio:
-    def __init__(self, rule="file_name", refusal=None):
-        self.calls, self.json, self.rule, self.refusal = [], [], rule, refusal
+    def __init__(self, rule="file_name", refusal=None, rate="bank_al_maghrib"):
+        self.calls, self.json, self.rule, self.refusal, self.rate = [], [], rule, refusal, rate
         self.ids, self.folders = iter(range(101, 120)), iter(range(9, 20))
 
     def call(self, model, method, *args, **kw):
@@ -41,7 +41,7 @@ class Experio:
                 raise self.refusal
             return {"import_invoice_type": {"selection": TYPES}}
         if model == "res.company":
-            return [{"import_folder_number": self.rule}]
+            return [{"import_folder_number": self.rule, "exchange_rate": self.rate}]
         if model == "exp.invoice.import":
             return 77
         if model == "exp.invoice":
@@ -127,6 +127,19 @@ def test_the_files_become_one_folder_its_drafts_kept_the_transit_invoice_last(ex
     with cabinet_db() as db:
         parts = db.execute("select parent_id, invoice_id from tarik_files where parent_id is not null order by id")
         assert parts.fetchall() == [(first, 101), (first, 102), (second, 103)]
+
+
+@pytest.mark.communication
+def test_a_dossier_taking_its_rates_from_the_dum_is_told_the_unread_dum_leaves_bank_al_maghribs(experio, monkeypatch):
+    pages = iter([("transit", True), ("customs", True), ("dum", True)] * 2)
+    monkeypatch.setattr(import_folder, "typed_page", lambda image, kinds, dossier, what: next(pages))
+    saved("imp mars.pdf", pdf(2)), saved("dum.pdf", pdf(1))
+    message = import_folder.create_import_folder("imp", 857, "Voici le dossier d'import")["message"]
+    assert "la DUM y est jointe sans être lue" in message and "taux de change de la DUM" not in message
+    experio.rate = "dum"
+    saved("imp avril.pdf", pdf(2), session="imp2"), saved("dum avril.pdf", pdf(1), session="imp2")
+    message = import_folder.create_import_folder("imp2", 857, "Voici le dossier d'import")["message"]
+    assert "le dossier prend ses taux de change de la DUM" in message
 
 
 @pytest.mark.functionality
