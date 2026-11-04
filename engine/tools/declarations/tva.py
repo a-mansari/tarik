@@ -52,6 +52,7 @@ FIELDS += ["count_imposable_ids", "error_msg", "warning_msg", "config_error_msg"
 FIELDS += ["declaration_type", "count_previous_deduction_ids"]
 MODES = {"monthly": "mensuelle", "quarterly": "trimestrielle"}
 EFFET = 5  # the « Effet » payment method's payment_id (exp_account/data/exp_payment_method_data.xml)
+SETTLED = ["blocked", "declared", "declared_manually", "no_recuperable_tva", "no_invoiced_tva"]  # exp_invoice.py:179
 SHOWN = 10  # the operations or tiers listed by name in the report, then how many others
 
 
@@ -183,36 +184,55 @@ def left_out(dossier_id, table, context):
             )
         )
     # A purchase's TVA is deducted from its lettered payment under either regime (get_deduction_values); under the débit
-    # regime an invoice paid by effet (payment_id 5) is declared on its date instead (get_effet_invoice_values).
-    unpaid = [("state", "in", ["post", "export"]), ("payment_state", "in", ["unpaid", "partial"])]
-    effet = ["|", ("payment_method_id", "=", False), ("payment_method_id.payment_id", "!=", EFFET)]
-    effet = [] if table["regime"] == "encaissement" else effet
-    count = odoo_call(
-        "exp.invoice", "search_count", [*period, *unpaid, ("type", "=", "purchase"), *effet], context=context
+    # regime an invoice paid by effet (payment_id 5) is declared on its date instead (get_effet_invoice_values). Left
+    # out as Experio does: declared, without TVA, set not to declare, deleted; a blocked invoice is already told above.
+    posted = [*period, ("state", "in", ["post", "export"]), ("do_not_declare", "!=", True), ("exp_deleted", "!=", True)]
+    posted += [("declaration_state", "not in", SETTLED)]
+    effet = (
+        []
+        if table["regime"] == "encaissement"
+        else ["|", ("payment_method_id", "=", False), ("payment_method_id.payment_id", "!=", EFFET)]
     )
+    count = unpaid_at_end([*posted, ("type", "=", "purchase"), *effet], table["end_date"], context)
     if count:
         said.append(
             counted(
                 count,
-                "{} facture d'achat n'est pas payée ou l'est en partie : sa TVA sera déductible quand son paiement "
-                "sera lettré",
-                "{} factures d'achat ne sont pas payées ou le sont en partie : leur TVA sera déductible quand leur "
-                "paiement sera lettré",
+                "{} facture d'achat n'était pas payée ou l'était en partie à la fin de la période : sa TVA se déduit "
+                "à la date de son paiement lettré",
+                "{} factures d'achat n'étaient pas payées ou l'étaient en partie à la fin de la période : leur TVA se "
+                "déduit à la date de leur paiement lettré",
             )
         )
     if table["regime"] == "encaissement":  # a sale's TVA is due when it is cashed (get_imposable_values)
-        count = odoo_call("exp.invoice", "search_count", [*period, *unpaid, ("type", "=", "sale")], context=context)
+        count = unpaid_at_end([*posted, ("type", "=", "sale")], table["end_date"], context)
         if count:
             said.append(
                 counted(
                     count,
-                    "{} facture de vente n'est pas encaissée ou l'est en partie : sa TVA sera due quand son "
-                    "encaissement sera lettré",
-                    "{} factures de vente ne sont pas encaissées ou le sont en partie : leur TVA sera due quand leur "
-                    "encaissement sera lettré",
+                    "{} facture de vente n'était pas encaissée ou l'était en partie à la fin de la période : sa TVA "
+                    "est due à la date de son encaissement lettré",
+                    "{} factures de vente n'étaient pas encaissées ou l'étaient en partie à la fin de la période : "
+                    "leur TVA est due à la date de leur encaissement lettré",
                 )
             )
     return said
+
+
+def unpaid_at_end(domain, end_date, context):
+    """Return how many invoices of ``domain`` were not fully paid at ``end_date``: unpaid or partial today, or paid
+    after it (payment_date, the last lettered payment's, is not stored so the paid ones' is read)."""
+    count = odoo_call(
+        "exp.invoice", "search_count", [*domain, ("payment_state", "in", ["unpaid", "partial"])], context=context
+    )
+    paid = odoo_call(
+        "exp.invoice",
+        "search_read",
+        [*domain, ("payment_state", "=", "paid")],
+        fields=["payment_date"],
+        context=context,
+    )
+    return count + sum(1 for invoice in paid if invoice["payment_date"] and invoice["payment_date"] > end_date)
 
 
 def declared_lines(table, context):
@@ -235,22 +255,20 @@ def declared_lines(table, context):
         ("exp_deleted", "=", False),
     ]
     fields = ["bank_statement_line_id", "line_type", "amount_tva_after_prorata"]
-    lines = odoo_call(LINE, "search_read", declared, fields=fields, context=context)
+    banked = ["|", ("bank_statement_line_id", "!=", False), ("line_type", "=", "bank_fee")]
+    lines = odoo_call(LINE, "search_read", banked + declared, fields=fields, context=context)
     inside = [line["bank_statement_line_id"][0] for line in lines if line["bank_statement_line_id"]]
     fees = [line for line in lines if line["line_type"] == "bank_fee"]
     return inside, round(sum(line["amount_tva_after_prorata"] or 0 for line in fees), 2), len(fees)
 
 
 def suspense_lines(dossier_id, table, inside, context):
-    """Return the period's bank operations Experio's coherence screen flags, as « libellé (date, montant) » phrases.
+    """Return (how many of the period's bank operations Experio's coherence screen flags, the first named).
 
     Same as get_bank_lines_in_suspense: unfinished, or posted without tiers, or a posted purchase/sale not reconciled,
     except the operations already in the declaration (``inside``).
     """
     domain = [
-        ("company_id", "=", dossier_id),
-        ("date", ">=", table["start_date"]),
-        ("date", "<=", table["end_date"]),
         "|",
         ("state", "in", ["draft", "ready", "suspense", "pending"]),
         "&",
@@ -263,28 +281,32 @@ def suspense_lines(dossier_id, table, inside, context):
         ("operation_type", "in", ["purchase", "sale"]),
         ("is_reconciled", "=", False),
     ]
-    return bank_lines(domain + [("id", "not in", inside)], context)
+    return bank_lines(dossier_id, table, inside, domain, context)
 
 
 def fees_left_out(dossier_id, table, inside, context):
-    """Return the period's posted bank fees (a fee with a tax: every one but « Taxe Bancaire », which posts nothing)
-    that are not in the declaration (``inside``): blocked for it, their TVA line lettered, or dated apart; as
-    phrases. Experio has no check of its own for them."""
-    domain = [("company_id", "=", dossier_id), ("date", ">=", table["start_date"]), ("date", "<=", table["end_date"])]
-    domain += [("operation_type", "=", "bank_fee"), ("operation_bank_type", "!=", "tax")]
-    domain += [("state", "in", ["post", "export"]), ("id", "not in", inside)]
-    return bank_lines(domain, context)
+    """Return the period's posted bank fees carrying TVA that are not in the declaration (``inside``) nor declared in
+    another one (« déductions suivantes »): blocked for it, their TVA line lettered, or dated apart. Experio has no
+    check of its own for them. Card-terminal fees (exp.monetary.statement.line) are not checked, and a fee taken by
+    another declaration still in draft (Experio's own fee dates, get_bank_fee_line_date) is listed too."""
+    domain = [("operation_type", "=", "bank_fee"), ("operation_bank_type", "!=", "tax"), ("total_tva", "!=", 0)]
+    domain += [("state", "in", ["post", "export"]), ("declaration_state", "!=", "declared")]
+    return bank_lines(dossier_id, table, inside, domain, context)
 
 
-def bank_lines(domain, context):
-    """Return the exp.bank.statement.line ``domain`` finds as « libellé (date, montant) » phrases, oldest first."""
+def bank_lines(dossier_id, table, inside, domain, context):
+    """Return (how many of the period's exp.bank.statement.line outside ``inside`` match ``domain``, the first SHOWN
+    as « libellé (date, montant) » phrases, oldest first)."""
+    period = [("company_id", "=", dossier_id), ("date", ">=", table["start_date"]), ("date", "<=", table["end_date"])]
+    domain = [*period, ("id", "not in", inside), *domain]
+    model = "exp.bank.statement.line"
+    total = odoo_call(model, "search_count", domain, context=context)
     fields = ["payment_ref", "date", "amount"]
-    found = odoo_call(
-        "exp.bank.statement.line", "search_read", domain, fields=fields, order="date, id", context=context
-    )
-    return [
+    found = odoo_call(model, "search_read", domain, fields=fields, order="date, id", limit=SHOWN, context=context)
+    shown = [
         f"{line['payment_ref'] or 'sans libellé'} ({line['date']}, {abs(line['amount'] or 0):.2f})" for line in found
     ]
+    return total, shown
 
 
 def unchecked_partners(table_id, context):
@@ -295,9 +317,9 @@ def unchecked_partners(table_id, context):
     return [p["name"] for p in odoo_call("exp.partner", "read", ids, fields=["name"], context=context)] if ids else []
 
 
-def listed(items):
-    """Return ``items`` (phrases) joined, the first SHOWN then how many others."""
-    more = len(items) - SHOWN
+def listed(items, total=None):
+    """Return ``items`` (phrases) joined, the first SHOWN then how many others of ``total`` (default: all items)."""
+    more = (len(items) if total is None else total) - min(len(items), SHOWN)
     return " ; ".join(items[:SHOWN]) + (counted(more, " ; et {} autre", " ; et {} autres") if more > 0 else "")
 
 
@@ -428,17 +450,17 @@ def prepare_tva_declaration(
             )
         missing = left_out(dossier_id, table, context)
         inside, fee_tva, fee_lines = declared_lines(table, context)
-        fees = fees_left_out(dossier_id, table, inside, context)
+        fees, fee_names = fees_left_out(dossier_id, table, inside, context)
         if fees:
             missing.append(
                 counted(
-                    len(fees),
+                    fees,
                     "{} frais bancaire comptabilisé de la période : ",
                     "{} frais bancaires comptabilisés de la période : ",
                 )
-                + listed(fees)
+                + listed(fee_names, fees)
             )
-        suspense = suspense_lines(dossier_id, table, inside, context)
+        suspense, suspense_names = suspense_lines(dossier_id, table, inside, context)
         partners = unchecked_partners(table_id, context)
         errors = line_errors(table_id, context)
         refusal = check(table_id, context)
@@ -453,11 +475,11 @@ def prepare_tva_declaration(
             text += (
                 "\n- "
                 + counted(
-                    len(suspense),
+                    suspense,
                     "{} opération bancaire de la période est en suspens ou sans tiers, à régler d'abord : ",
                     "{} opérations bancaires de la période sont en suspens ou sans tiers, à régler d'abord : ",
                 )
-                + listed(suspense)
+                + listed(suspense_names, suspense)
                 + "."
             )
         if partners:
