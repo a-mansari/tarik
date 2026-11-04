@@ -66,6 +66,7 @@ def test_an_email_is_dated_and_threaded(monkeypatch):
     message = sending.compose("tarik@cabinet.ma", ["chef@cabinet.ma"], "Re: Factures", "Bonjour", "<m1@x>", "")
     assert parsedate_to_datetime(message["Date"]).tzinfo is not None  # mail apps sort the thread by it
     assert message["In-Reply-To"] == "<m1@x>" and message["References"] == "<m1@x>"
+    assert message["From"] == "Tarik <tarik@cabinet.ma>"  # no SMTP_FROM: clients still see a name
 
 
 @pytest.mark.communication

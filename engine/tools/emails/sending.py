@@ -17,7 +17,7 @@ import smtplib
 import ssl
 import time
 from email.message import EmailMessage
-from email.utils import formatdate, getaddresses, make_msgid
+from email.utils import formataddr, formatdate, getaddresses, make_msgid
 
 from engine.tools.core.app import ToolError, log, ok, tool
 from engine.tools.core.cabinets import cabinet_db, current, setting
@@ -285,13 +285,14 @@ def compose(sender, recipients, subject, body, in_reply_to, references, files=()
     """Return the email (EmailMessage) from ``sender`` (the SMTP user) to ``recipients``, as plain text and HTML.
 
     Args:
-        sender: the SMTP user; From is SMTP_FROM when set, and the Message-ID uses this address's domain.
+        sender: the SMTP user; From is SMTP_FROM when set, else "Tarik <sender>", and the Message-ID uses this
+            address's domain.
         recipients: list of bare addresses.
         in_reply_to, references: the thread's message ids; when ``in_reply_to`` is set, the email is a reply in that
             thread.
         files: [(name, mime type, bytes)] to attach."""
     message = EmailMessage()
-    message["From"] = setting("SMTP_FROM", sender)
+    message["From"] = setting("SMTP_FROM", formataddr(("Tarik", sender)))
     message["To"] = ", ".join(recipients)
     message["Subject"] = subject
     message["Date"] = formatdate(localtime=True)  # mail apps sort by it; the Sent copy gets no other
