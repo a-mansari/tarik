@@ -243,6 +243,8 @@ def transit(monkeypatch):
         assert ("invoice_type", "!=", "transit") in domain
         if ("state", "in", ["pending", "draft"]) in domain:
             return state["waiting"]
+        if ("state", "!=", "cancel") in domain:  # any invoice of the folder marked « Payée par Transitaire »
+            return state.get("marked", state["posted"])
         assert ("transit_invoice_id", "=", False) in domain  # never one linked to another transit invoice
         return state["posted"]
 
@@ -286,6 +288,11 @@ def test_debours_no_invoice_of_the_folder_covers_is_told(transit):
     transit["unbacked"] = [350.0]
     note = posting.disbursements_first({"id": 3})
     assert note.startswith("débours de 350.00 sans facture du dossier derrière")
+    assert "aucune facture du dossier n'est marquée" not in note  # some are: the rest has no invoice behind it
+    transit.update(linked=[], posted=[], marked=[63])  # one marked, linked to another transit invoice
+    assert "aucune facture du dossier n'est marquée" not in posting.disbursements_first({"id": 3})
+    transit["marked"] = []  # nothing marked « Payée par Transitaire » in the folder
+    assert "aucune facture du dossier n'est marquée « Payée par Transitaire »" in posting.disbursements_first({"id": 3})
 
 
 @pytest.mark.functionality
