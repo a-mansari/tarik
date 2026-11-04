@@ -209,3 +209,6 @@ uses another one. A stack that edited one of these documents itself loses that e
   (no bank number to read: the question no longer lists Experio's banks; Tarik reads each journal's bank). Import it
   with the commit that asks every journal at once. Also `skills/nouveau-dossier.md`: Tarik's report is copied with its
   lists, one line per point, never merged into a paragraph.
+- `tarik-contenu-banques-copie-20261104.json` (and its `.diff`, against the banques export above): after a bank
+  journal's answer, `skills/reponse-question.md` copies Tarik's reply with its list, no recap of the other journals and
+  no request for files. Import it after the banques export.
