@@ -633,37 +633,56 @@ def journal_spots(journals, words):
     return sorted(spots, key=lambda spot: spot[0])
 
 
+# A line of contact details, as an email signature holds them: a link, an email address, a phone number.
+CONTACT = re.compile(
+    r"https?://|www\.|[\w.-]+@[\w-]+\.\w|\+\d{3}[\s\d]{6,}|(?<!\d)0[5-8](?:[\s.]?\d{2}){4}(?!\d)", re.I
+)
+
+
+def without_contacts(text):
+    """Return ``text`` without its last paragraph when that is a signature: 3 non-empty lines or more, 2 of them
+    contact details (CONTACT). Its words would read as banks (« experio.ma »: ZAZU (CHARI.MA))."""
+    head, _, last = (text or "").strip().rpartition("\n\n")
+    lines = [line for line in last.splitlines() if line.strip()]
+    signed = head.strip() and len(lines) >= 3 and sum(1 for line in lines if CONTACT.search(line)) >= 2
+    return head.strip() if signed else (text or "").strip()
+
+
 def answer_banks(dossier_id, answer, decision="", choices=None):
     """Set each bank journal still without a bank to the bank the client's ``answer`` gives it, then ask again for those
     left (ask_banks).
 
-    Each journal's bank is read in the part of its line after its name, up to the next journal's (« BNK1 attijari,
-    BNK2 bmce »): never in the lines below (a signature). An answer naming no journal gives the one bank its first
-    paragraph names to the only journal waiting, or to every journal when it says so (ALL: « tous chez Attijari »), and
-    with one journal only, the agent's ``decision`` among ``choices`` (chosen_among) comes first. A bank is read as
-    one_bank_named reads a client's words (« bp », « awb », « crédit du maroc »)."""
+    Each journal's bank is read on its line, after its name and up to the next journal's (« BNK1 attijari, BNK2 bmce »),
+    else on the next line when that names no journal (« BQ1 :\nCIH »). An answer naming no journal gives its one bank
+    to the only journal waiting, or to every journal when it says so (ALL: « tous chez Attijari »); with one journal
+    only, the agent's ``decision`` among ``choices`` (chosen_among) comes first. A signature is never read
+    (without_contacts). A bank is read as one_bank_named reads a client's words (« bp », « awb »)."""
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
     with refused(f"answer_banks {dossier_id}", f"Dossier `{dossier}` : Experio a refusé la banque d'un journal."):
         journals = bank_journals_without_bank(dossier_id)
         banks = odoo_call("res.bank", "search_read", [], fields=["name", "code"], order="name") if journals else []
-        given, named = {}, set()
-        for line in (answer or "").splitlines():
-            words = normalized(line)
-            spots = journal_spots([journal for journal in journals if journal["id"] not in named], words)
-            named.update(journal["id"] for _, _, journal in spots)
+        text = without_contacts(answer)
+        lines = [normalized(line) for line in text.splitlines() if line.strip()]
+        given, mentioned = {}, False
+        for i, words in enumerate(lines):
+            spots = journal_spots([journal for journal in journals if journal["id"] not in given], words)
+            mentioned = mentioned or bool(spots)
             for n, (_, end, journal) in enumerate(spots):
                 stop = spots[n + 1][0] if n + 1 < len(spots) else len(words)
                 bank = one_bank_named(words[end:stop], banks)
+                below = lines[i + 1] if i + 1 < len(lines) else ""
+                if not bank and n == len(spots) - 1 and below and not journal_spots(journals, below):
+                    bank = one_bank_named(below, banks)  # « BQ1 :\nCIH »
                 if bank:
                     given[journal["id"]] = (journal, bank)
-        words = normalized((answer or "").strip().split("\n\n")[0])  # its first paragraph: never a signature
-        if not named and (len(journals) == 1 or ALL.search(words)):
+        words = normalized(text)
+        if not mentioned and (len(journals) == 1 or ALL.search(words)):
             chosen = chosen_among(decision, choices) if len(journals) == 1 else None
             bank = next((b for b in banks if b["id"] == chosen), None) or one_bank_named(words, banks)
             given = {journal["id"]: (journal, bank) for journal in journals} if bank else {}
-        for journal, bank in given.values():
-            give_bank(dossier_id, journal, bank, context)
+    for journal, bank in given.values():
+        give_bank(dossier_id, journal, bank, context)
     done = "".join(f"\n- `{journal['name']}` : `{bank['name']}`" for journal, bank in given.values())
     done = f"{test_mode_note()}Dossier `{dossier}`, banque des journaux :{done}" if done else ""
     following = banks_question(dossier_id, skip=set(given))

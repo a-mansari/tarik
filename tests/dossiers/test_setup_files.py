@@ -119,6 +119,8 @@ def test_every_bank_journal_is_asked_its_bank_in_one_question_without_the_banks_
         ("bq2 : AWB\nbq1 c le cih", [4, 3]),  # in any order, as the client writes them
         ("tous chez attijari", [4, 4]),  # no journal named, one bank: every journal
         ("BQ1 cih, BQ2 BANQUE BP\n\nKarim Alami\n+212 610312891\nwww.experio.ma", [3, 5]),  # never the signature
+        ("BQ1 :\nCIH\nBQ2 :\nAWB", [3, 4]),  # each bank on the line below its journal
+        ("Pour BQ1 et BQ2 :\nBQ1 CIH, BQ2 AWB", [3, 4]),  # named first without their banks
     ],
 )
 def test_one_answer_gives_each_bank_journal_its_bank(experio, answer, written):
@@ -142,6 +144,20 @@ def test_journals_named_alike_each_get_their_own_bank(experio, monkeypatch, name
     monkeypatch.setattr(setup, "give_bank", lambda d, journal, bank, c: given.update({journal["id"]: bank["id"]}))
     setup.answer_banks(557, answer)
     assert given == written
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Bonjour,\n\nC'est la Banque Populaire.\n\nCordialement",  # past the greeting
+        "c'est BP\n\nKarim Alami\nwww.experio.ma\n+212 610312891",  # not the signature: experio.ma is no bank
+    ],
+)
+def test_the_one_journal_waiting_gets_the_bank_the_answer_names(experio, answer):
+    experio["journals"].pop()
+    setup.answer_banks(557, answer)
+    assert [values["bank_id"] for values in experio["written"]] == [5]
 
 
 @pytest.mark.functionality

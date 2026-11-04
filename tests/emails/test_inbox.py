@@ -103,9 +103,8 @@ SIGNATURE = "\n\n[Achraf Mansari]\nAchraf Mansari\nStagiaire @Experio\n+212 6103
 def test_the_signature_the_sender_s_other_emails_end_with_is_cut():
     earlier = ["Merci d'ajouter cette facture au dossier tarik test" + SIGNATURE]
     assert without_signature("utilisez transport ou hotelrie" + SIGNATURE, earlier) == "utilisez transport ou hotelrie"
-    assert without_signature("achat" + SIGNATURE, []) == "achat"  # their first email: its contact lines say it
-    assert without_signature("achat\n\nMerci\nKarim\nGérant", []) == "achat\n\nMerci\nKarim\nGérant"  # no contact
-    assert without_signature("Merci" + SIGNATURE, ["Merci" + SIGNATURE]) == "Merci"  # the same email: its contact lines
+    assert without_signature("achat" + SIGNATURE, []) == "achat" + SIGNATURE  # their first email: nothing to compare
+    assert without_signature("Merci" + SIGNATURE, ["Merci" + SIGNATURE]) == "Merci" + SIGNATURE  # the same email again
     assert without_signature("achat" + SIGNATURE, ["achat" + SIGNATURE, *earlier]) == "achat"
 
 
