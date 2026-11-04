@@ -243,3 +243,11 @@ def test_a_draft_given_its_account_by_the_client_says_so_with_its_number_and_amo
         "Elle reste en brouillon : dites-moi quand la comptabiliser."
     )
     assert pipeline.dirhams(1234.5) == "1 234,50 DH" and pipeline.dirhams(0) == ""
+    assert pipeline.dirhams(1200, "EUR") == "1 200 EUR"  # amount_total is in the invoice's own currency
+
+
+@pytest.mark.communication
+def test_a_draft_whose_hold_failed_is_not_said_to_wait(db_cabinet):
+    record_step("r", "s", "hold_posting", {"status": "error", "message": "Facture 14 : boom", "invoice_id": 14})
+    summary = run_summary("r")["message"]
+    assert "Elle reste en brouillon" not in summary and "**Fait**" not in summary

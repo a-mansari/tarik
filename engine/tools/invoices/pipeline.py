@@ -374,14 +374,15 @@ def labels_of(ids):
     if not ids:
         return labels
     try:
-        fields = ["invoice_number", "partner_id", "amount_total"]
+        fields = ["invoice_number", "partner_id", "amount_total", "currency_id"]
         found = odoo_call("exp.invoice", "search_read", [("id", "in", ids)], fields=fields)
     except Exception as error:  # a label is a comfort: the summary goes on with Tarik's numbers
         log(f"labels_of: {error}")
         return labels
     for invoice in found:
         who = without_if(invoice["partner_id"][1].split(" - ")[0]) if invoice["partner_id"] else ""
-        about = ", ".join(part for part in (who, dirhams(invoice.get("amount_total"))) if part)
+        currency = (invoice.get("currency_id") or [0, "MAD"])[1]
+        about = ", ".join(part for part in (who, dirhams(invoice.get("amount_total"), currency)) if part)
         number = (invoice["invoice_number"] or "").strip()
         if number:
             labels[invoice["id"]] = f"Facture n° {number}" + (f" ({about})" if about else "")
@@ -392,12 +393,13 @@ def labels_of(ids):
     return labels
 
 
-def dirhams(amount):
-    """Return ``amount`` as the client reads it, « 120 000 DH » or « 1 234,50 DH »; "" without one."""
+def dirhams(amount, currency="MAD"):
+    """Return ``amount`` in the invoice's ``currency`` as the client reads it: « 120 000 DH », « 1 234,50 EUR »;
+    "" without one. Experio's amount_total is in the invoice's own currency (amount_total_currency is in MAD)."""
     if not amount:
         return ""
     text = f"{amount:,.2f}".replace(",", " ").replace(".", ",").removesuffix(",00")
-    return f"{text} DH"
+    return f"{text} {'DH' if currency == 'MAD' else currency}"
 
 
 def file_labels(ids):
@@ -417,18 +419,6 @@ def with_problem(step, text):
     if sep and (head.lower().startswith("facture") or head.startswith("`")):
         return f"{head} : {problem} : {rest}"
     return f"{problem[0].upper()}{problem[1:]} : {text}"
-
-
-def joined(key, texts):
-    """Return an invoice's (or file's) outcome ``texts`` as one sentence: the first whole, the next ones without the «
-    Facture N : » they each start with."""
-    head = f"facture {key} : "
-    parts = texts[:1]
-    for text in texts[1:]:
-        if text.lower().startswith(head):
-            text = text[len(head) :]
-        parts.append(text)
-    return "; ".join(part.rstrip(". ") for part in parts) + "."
 
 
 def bullet(text, depth=0, mark="- "):
@@ -525,7 +515,7 @@ def headline(outcomes):
     counts = [count for count in counts if not count.startswith("0 ")]
     if not counts:
         return ""
-    told = held and held <= HELD_SHOWN  # each draft's own line says it (sections_of)
+    told = bool(held_drafts(outcomes))  # each draft's own line says it (sections_of): the same rule
     return "Bilan : " + ", ".join(counts) + "." + (" Dites-moi quand les comptabiliser." if held and not told else "")
 
 
@@ -544,7 +534,7 @@ def note_in_history(rows):
             continue
         # One line: Experio keeps a text body as one <span>, its line breaks unseen in the history. Its names in « »:
         # the history shows no Markdown, a `name`'s backticks would stay raw.
-        body = "Tarik (traitement automatique) : " + CODE.sub(r"« \1 »", joined(key, told))
+        body = "Tarik (traitement automatique) : " + CODE.sub(r"« \1 »", joined_for_client(told))
         try:
             odoo_json(
                 "exp.invoice", "message_post", [key], body=body, message_type="comment", subtype_xmlid="mail.mt_note"
@@ -617,7 +607,7 @@ HELD_SHOWN = 3  # drafts kept in one run that are each told what was done to the
 def held_drafts(outcomes):
     """Return the invoices of ``outcomes`` left as drafts for the client's word (hold_posting), when they are
     HELD_SHOWN or fewer; else none (the headline counts them)."""
-    held = {key for key, found in outcomes.items() if key and key > 0 and found[-1][0] == "hold_posting"}
+    held = {key for key, found in outcomes.items() if key and key > 0 and found[-1][:2] == ("hold_posting", "stop")}
     return held if len(held) <= HELD_SHOWN else set()
 
 
@@ -625,7 +615,7 @@ def joined_for_client(texts):
     """Return an invoice's outcome ``texts`` (each headed « Facture n° … : ») as one sentence under the first head."""
     head, sep, _ = texts[0].partition(" : ")
     rest = [text.partition(" : ")[2] if text.startswith(head + sep) else text for text in texts]
-    return f"{head} : " + " ; ".join(part.rstrip(". ") for part in rest) + "."
+    return f"{head} : " + "; ".join(part.rstrip(". ") for part in rest) + "."
 
 
 def summary_sections(sections):
