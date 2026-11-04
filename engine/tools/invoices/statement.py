@@ -1966,5 +1966,51 @@ def each_statement(dossier_id, step):
 @step_tool
 def post_dossier_statements(dossier_id: int) -> dict:
     """Post the ready operations of every bank statement of dossier ``dossier_id`` not posted yet, with Experio's own
-    validation, as post_statement posts one (posting); each statement's outcome said."""
-    return each_statement(dossier_id, posting)
+    validation, as post_statement posts one (posting); each statement's outcome said. Then the dossier's cash
+    statements (cash_posting)."""
+    result = each_statement(dossier_id, posting)
+    cash = cash_posting(dossier_id)
+    if not cash:
+        return result
+    if result.get("routine"):  # no bank statement: the cash alone
+        return ok(cash)
+    return {**result, "message": f"{result['message']}\n{cash}"}
+
+
+CASH = "exp.cash.statement"
+CASH_LINE = "exp.cash.statement.line"
+
+
+def cash_posting(dossier_id):
+    """Post the ready lines of dossier ``dossier_id``'s cash statements not posted yet (« Caisse », exp.cash.statement:
+    the cabinet imports them, Experio reads none) with Experio's own validation (action_post: its ready lines only),
+    and return a French sentence: how many lines were posted, how many are left and Experio's reason for each ("" when
+    the dossier has no open cash statement). Experio's refusal of one statement is said, the others still posted."""
+    context = in_dossier(dossier_id)
+    domain = [("company_id", "=", dossier_id), ("state", "in", ["pending", "draft", "partial"])]
+    found = odoo_call(CASH, "search", domain, order="id asc", context=context)
+    if not found:
+        return ""
+    if dry_run():
+        return f"{TEST_MODE}" + counted(
+            len(found),
+            "{} relevé de caisse : ses opérations prêtes seraient comptabilisées.",
+            "{} relevés de caisse : leurs opérations prêtes seraient comptabilisées.",
+        )
+    refused_here = []
+    for statement_id in found:
+        try:
+            odoo_json(CASH, "action_post", [statement_id], context=context)
+        except ExperioRefusal as error:
+            if not is_refusal(error):
+                raise
+            refused_here.append(f"relevé de caisse n° {statement_id} : {experio_refusal(error)}")
+    statements = odoo_call(CASH, "read", found, fields=["line_ids"], context=context)
+    ids = [line for statement in statements for line in statement["line_ids"]]
+    lines = odoo_call(CASH_LINE, "read", ids, fields=["state", "error_msg"], context=context)
+    posted = sum(1 for line in lines if line["state"] in POSTED)
+    left = Counter(plain(line["error_msg"] or "") or "à compléter" for line in lines if line["state"] not in POSTED)
+    text = "Caisse : " + counted(posted, "{} opération comptabilisée", "{} opérations comptabilisées") + "."
+    text += "".join(f"\n- {why}" for why in reason_lines(left, "{} opération", "{} opérations"))
+    text += "".join(f"\n- Experio refuse le {why}" for why in refused_here)
+    return text

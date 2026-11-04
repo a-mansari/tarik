@@ -71,7 +71,9 @@ its TVA line go to the HT bank fee and « Taxe Bancaire » operations; a payment
 them when they add up exactly to it; a « DGI » payment of a declared RAS goes to that RAS's account; foreign lines'
 missing exchange rates are fetched by Experio before posting. A payment posted in suspense is tied to its invoice once
 Tarik posts it (same tiers, exact amount). A BTI statement is refused (Experio does not read them); a duplicate
-statement Experio flags is left to the cabinet.
+statement Experio flags is left to the cabinet. Posting a dossier's statements also posts its cash statements
+(« Caisse », imported by the cabinet: Experio reads none) and says what is left with Experio's reason. An invoice paid
+in cash (« Espèces ») above the dossier's daily cash limit is pointed out.
 
 **TPE statements** (CMI, NAPS, AL BARID, VPS, ATTIJARI PAYMENT): recognised on their own header and imported
 through Experio's own TPE import, with their network (asked when it can't be read) and the journal of the last TPE

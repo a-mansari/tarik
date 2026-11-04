@@ -253,9 +253,11 @@ def _currency(code, changes, notes):
         notes.append(f"devise {code} inconnue dans Experio")
 
 
-def _payment_method(name, invoice, changes):
+def _payment_method(name, invoice, changes, notes):
     """Add the payment method ``name`` (especes, cheque..., from the client or the scan) to ``changes`` when the
-    invoice has none and Experio has a matching one."""
+    invoice has none and Experio has a matching one. Paid in cash above the dossier's own daily cash limit
+    (res.company purchase_daily_limit / sale_daily_limit, what Experio's cash payment checks:
+    exp_register_cash_payment.py validate_daily_and_monthly_limit), a note to ``notes``."""
     method = PAYMENT_METHODS.get((name or "").lower())
     if method and not invoice["payment_method_id"]:
         found = odoo_call(
@@ -263,6 +265,21 @@ def _payment_method(name, invoice, changes):
         )
         if found:
             changes["payment_method_id"] = found[0]["id"]
+            if method == "Esp":
+                notes.extend(cash_limit(invoice, changes.get("amount_total", invoice["amount_total"])))
+
+
+def cash_limit(invoice, total):
+    """Return [the French note] when ``total`` paid in cash is above the dossier's daily cash limit for the invoice's
+    side, else []."""
+    field = "purchase_daily_limit" if invoice["type"] == "purchase" else "sale_daily_limit"
+    limit = odoo_call("res.company", "read", [invoice["company_id"][0]], fields=[field])[0][field]
+    if not limit or (total or 0) <= limit:
+        return []
+    return [
+        f"payée en espèces ({total:.2f}) au-delà du plafond journalier d'espèces du dossier ({limit:.2f}) : "
+        "à vérifier par le cabinet"
+    ]
 
 
 @step_tool
@@ -323,7 +340,7 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         tax_settings(invoice, changes, notes)
         _currency((extracted.get("currency") or "MAD").upper(), changes, notes)
         told = instructed(payment_method, client_message)
-        _payment_method(told or extracted.get("payment_method"), invoice, changes)
+        _payment_method(told or extracted.get("payment_method"), invoice, changes, notes)
         noted = f" ({'; '.join(notes)})" if notes else ""
         if not changes:
             return routine(f"Facture {invoice_id} : rien à corriger.{noted}")

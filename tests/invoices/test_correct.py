@@ -195,6 +195,7 @@ def correcting(monkeypatch):
     state.update(
         calls=[], filled=[], refreshed=[], found={"res.currency": [{"id": 9}], "exp.payment.method": [{"id": 4}]}
     )
+    state["found"]["res.company"] = [{"purchase_daily_limit": 5000.0, "sale_daily_limit": 20000.0}]  # Experio's own
     state["changed"] = None  # what Experio says changed: the changes themselves unless set
 
     def odoo_call(model, method, domain, **kw):
@@ -271,6 +272,20 @@ def test_the_payment_method_the_client_wrote_is_taken_over_the_scans(correcting)
     correcting["calls"][:] = []
     correct.correct_invoice(3, payment_method="cheque", client_message="Voici la facture")  # not written: the scan's
     assert correcting["calls"][0][2] == [("name", "=ilike", "Esp%")]
+
+
+@pytest.mark.communication
+@pytest.mark.parametrize(("kind", "total", "told"), [("purchase", 8000.0, True), ("purchase", 1200.0, False)])
+@pytest.mark.parametrize("side_limit", ["purchase", "sale"])
+def test_a_cash_payment_above_the_dossiers_daily_limit_is_told(correcting, kind, total, told, side_limit):
+    from engine.tools.invoices import correct
+
+    correcting["invoice"].update(type=side_limit, amount_total=total if side_limit == "purchase" else total * 3)
+    correcting["read"] = {"payment_method": "especes"}
+    message = correct.correct_invoice(3)["message"]
+    assert ("au-delà du plafond journalier d'espèces du dossier" in message) is told
+    limit = "5000.00" if side_limit == "purchase" else "20000.00"  # each side its own limit
+    assert (f"({limit})" in message) is told
 
 
 @pytest.mark.functionality
@@ -393,6 +408,30 @@ def test_a_tourist_tax_counts_only_with_its_setting_and_its_account(
     assert ("amount_ts" in changes) is written
     if not account:
         assert "amount_stamp" not in changes  # Experio's stamp kept: the TTC stays balanced
+
+
+@pytest.mark.functionality
+def test_a_hotels_sale_gets_its_tourist_taxes_and_its_ht_parts(correcting, monkeypatch):
+    from engine.tools.invoices import correct
+
+    correcting["invoice"].update(type="sale", amount_untaxed=1000.0, amount_ts=0.0, amount_tsp=0.0)
+    correcting["invoice"].update(amount_ht_restauration=0.0, amount_ht_breakfast=0.0, amount_ht_blanchisserie=0.0)
+    correcting["invoice"].update(
+        should_use_ht_restauration=True, should_use_ht_breakfast=True, should_use_ht_blanchisserie=False
+    )
+    held = {"use_ts_tax": True, "ts_account_id": [44, "4457"], "use_tsp_tax": False, "tsp_account_id": [45, "4458"]}
+    correcting["found"]["res.company"] = [held]
+    turned = []
+    monkeypatch.setattr(correct, "save_settings", lambda company, values, context: turned.append(values) or True)
+    correcting["read"] = {"amount_untaxed": 1000.0, "amount_ts": 30.0, "amount_tsp": 12.0}
+    correcting["read"].update(amount_ht_restauration=250.0, amount_ht_breakfast=50.0)
+    correcting["bad"] = [flag("amount_ts", 0, 30.0), flag("amount_tsp", 0, 12.0)]
+    message = correct.correct_invoice(3)["message"]
+    changes = correcting["filled"][0][1]
+    assert changes["amount_ts"] == 30.0 and changes["amount_tsp"] == 12.0  # a sale's taxes, as on its bill
+    assert changes["amount_ht_restauration"] == 250.0 and changes["amount_ht_breakfast"] == 50.0
+    assert changes["amount_untaxed"] == 700.0  # Experio adds the parts back to the HT (get_actual_amount_ht)
+    assert turned == [{"use_tsp_tax": True}] and "taxe de promotion touristique activée" in message
 
 
 @pytest.mark.functionality

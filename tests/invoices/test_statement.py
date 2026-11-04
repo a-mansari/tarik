@@ -1107,6 +1107,50 @@ def test_a_dossiers_open_statements_are_listed_to_be_pointed_and_each_posted(exp
     assert posted["message"].count("j'ai comptabilisé") == 2 and "\n- Relevé n° 41 :" in posted["message"]
 
 
+@pytest.fixture
+def cash(monkeypatch):
+    """The dossier's open cash statements (« Caisse »): their lines' states after Experio's action_post, refusals."""
+    state = {"open": [7], "lines": [], "refused": {}, "posted": []}
+
+    def odoo_call(model, method, *args, **kw):
+        if model == statement.CASH and method == "search":
+            assert ("company_id", "=", 857) in args[0]
+            return list(state["open"])
+        if model == statement.CASH:
+            return [{"id": i, "line_ids": [line["id"] for line in state["lines"]]} for i in args[0]]
+        return [dict(line) for line in state["lines"]]
+
+    def odoo_json(model, method, ids, **kw):
+        if ids[0] in state["refused"]:
+            raise ExperioRefusal(state["refused"][ids[0]], "odoo.exceptions.UserError")
+        state["posted"] += ids
+
+    monkeypatch.setattr(statement, "odoo_call", odoo_call)
+    monkeypatch.setattr(statement, "odoo_json", odoo_json)
+    monkeypatch.setattr(statement, "dry_run", lambda: False)
+    return state
+
+
+@pytest.mark.functionality
+def test_the_dossiers_cash_statements_are_posted_and_what_is_left_said_with_experios_reason(cash):
+    cash["lines"] = [
+        {"id": 1, "state": "post", "error_msg": False},
+        {"id": 2, "state": "post", "error_msg": False},
+        {"id": 3, "state": "draft", "error_msg": "Le tiers est obligatoire."},
+    ]
+    said = statement.cash_posting(857)
+    assert cash["posted"] == [7] and said.startswith("Caisse : 2 opérations comptabilisées.")
+    assert "\n- 1 opération : le tiers est obligatoire." in said
+
+
+@pytest.mark.functionality
+def test_a_cash_statement_experio_refuses_is_said_and_no_open_one_says_nothing(cash):
+    cash["refused"] = {7: "It is not possible to validate an archived statement."}
+    assert "Experio refuse le relevé de caisse n° 7 : It is not possible" in statement.cash_posting(857)
+    cash["open"] = []
+    assert statement.cash_posting(857) == ""
+
+
 @pytest.mark.functionality
 def test_a_dossier_without_open_statement_says_so(experio):
     experio["open"] = []
