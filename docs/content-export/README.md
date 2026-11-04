@@ -197,3 +197,7 @@ uses another one. A stack that edited one of these documents itself loses that e
   lines (`charge_lines`: designation, HT, rate), and `labels.json` names and describes the step « Répartition des
   charges » (`split_charges`). Built on the taxes export above and the labels of 2026-10-29 16:18: import it after the
   taxes export, with the commit that adds `split_charges`; before, check.py finds no words for that step.
+- `tarik-contenu-debours-20261104.json` (and its `.diff`, against the stack's versions of 2026-11-04): the check reads
+  a transit agent's débours lines (`debours_lines`: designation, amount) in `tools/check-invoice*.md`, so its
+  invoice is linked to the folder invoices it paid. Import it with the commit that matches them; before, the check
+  reads none and only the invoices marked « Payée par Transitaire » are linked.

@@ -216,7 +216,7 @@ def transit(monkeypatch):
     state = {"invoice_type": "transit", "folder_type": "import", "linked": [61], "waiting": [], "posted": [61, 62]}
     state.update(writes=[], refreshed=[], dry=False, unbacked=[], lines=[], folder=[])
     monkeypatch.setattr(posting, "dry_run", lambda: state["dry"])
-    monkeypatch.setattr(posting, "stored_check", lambda invoice_id: (True, {"charge_lines": state["lines"]}, []))
+    monkeypatch.setattr(posting, "stored_check", lambda invoice_id: (True, {"debours_lines": state["lines"]}, []))
     monkeypatch.setattr(
         posting, "refresh", lambda invoice_id, context: state["refreshed"].append((invoice_id, context))
     )
@@ -305,9 +305,9 @@ def test_debours_no_invoice_of_the_folder_covers_is_told(transit):
 def test_a_transit_invoice_takes_the_folder_invoice_each_of_its_debours_lines_names_by_its_amount(transit):
     transit.update(marked=[], linked=[], posted=[70, 71, 72])
     transit["lines"] = [  # what Tarik read on the transit agent's scan
-        {"designation": "Droits de douane", "amount_ht": 1200.0, "rate": 0},
-        {"designation": "Honoraires", "amount_ht": 1200.0, "rate": 20},  # a fee, taxed: never a débours
-        {"designation": "Magasinage", "amount_ht": 300.0, "rate": 0},
+        {"designation": "Droits de douane", "amount": 1200.0},
+        {"designation": "Magasinage", "amount": 300.0},
+        {"designation": "Fret", "amount": None},  # unread: matches nothing
     ]
     transit["folder"] = [
         {"id": 70, "display_amount_total": 1200.0, "is_local_invoice": True, "exchange_rate": 1.0},

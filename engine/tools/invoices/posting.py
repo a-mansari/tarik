@@ -115,13 +115,13 @@ def disbursements_first(invoice):
 
 def paid_by_transit(transit_id, transit, others, context=None):
     """Return the ids of the folder invoices (``others``: the folder's domain) a transit invoice paid, matched on its
-    débours lines: each untaxed line Tarik read on its scan (check_invoice's charge_lines at 0 %) takes the one invoice
+    débours lines: each débours line Tarik read on its scan (check_invoice's debours_lines) takes the one invoice
     whose total is its amount, in MAD as Experio adds them up (validate_import_folder_settings: display_amount_total,
     times the exchange rate when foreign, exp_invoice.py:8864-8871). A line with no such invoice, or several, takes
     none. ``transit``: the transit invoice's is_local_invoice and exchange_rate."""
     check = stored_check(transit_id)
-    lines = (check[1].get("charge_lines") if check else None) or []
-    lines = [line["amount_ht"] for line in lines if line.get("rate") == 0 and (line.get("amount_ht") or 0) > 0]
+    lines = (check[1].get("debours_lines") if check else None) or []
+    lines = [line["amount"] for line in lines if (line.get("amount") or 0) > 0]
     if not lines:
         return []
     rate = 1.0 if transit["is_local_invoice"] else transit["exchange_rate"] or 1.0
