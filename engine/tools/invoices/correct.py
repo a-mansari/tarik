@@ -1,6 +1,7 @@
 """Correct a draft invoice: write what the scan shows over the fields Experio captured differently."""
 
 from engine.tools.core.app import ToolError, log, ok, routine, step_tool, stop
+from engine.tools.core.app import noted as to_check
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.conversation import instructed
 from engine.tools.core.experio import (
@@ -255,7 +256,7 @@ def _currency(code, changes, notes):
 
 def _payment_method(name, invoice, changes):
     """Add the payment method ``name`` (especes, cheque..., from the client or the scan) to ``changes`` when the
-    invoice has none and Experio has a matching one."""
+    invoice has none and Experio has a matching one. True when it is cash (« Espèces »)."""
     method = PAYMENT_METHODS.get((name or "").lower())
     if method and not invoice["payment_method_id"]:
         found = odoo_call(
@@ -263,6 +264,34 @@ def _payment_method(name, invoice, changes):
         )
         if found:
             changes["payment_method_id"] = found[0]["id"]
+            return method == "Esp"
+    return False
+
+
+def cash_limit(invoice_id, context):
+    """Return the French note when invoice ``invoice_id``, set paid in cash, goes past what Experio lets the dossier pay
+    or receive in cash without a penalty, else "". Experio's own figure (exp.invoice get_amount_without_penalty, what
+    its cash payment offers and checks: exp_register_cash_payment.py validate_daily_and_monthly_limit): for a purchase,
+    the dossier's daily and monthly limits less the cash already paid to that supplier that day and month; for a sale,
+    the limit per cash receipt (a 6 % penalty above). Compared in MAD, at the invoice's rate. A credit note, or an
+    invoice without a date, is left out."""
+    fields = ["type", "refund", "invoice_date", "amount_total", "exchange_rate", "hide_exchange_rate"]
+    invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=fields, context=context)[0]
+    if invoice["refund"] or not invoice["invoice_date"] or invoice["type"] not in ("purchase", "sale"):
+        return ""
+    total = round(invoice["amount_total"] * (1 if invoice["hide_exchange_rate"] else invoice["exchange_rate"]), 2)
+    limit = odoo_call("exp.invoice", "get_amount_without_penalty", [invoice_id], context=context)
+    if total <= limit:
+        return ""
+    if invoice["type"] == "purchase":
+        return (
+            f"payée en espèces ({total:.2f} MAD) au-delà de ce que le dossier peut encore payer en espèces à ce "
+            f"fournisseur ce jour et ce mois ({limit:.2f} MAD) : à vérifier par le cabinet"
+        )
+    return (
+        f"encaissée en espèces ({total:.2f} MAD) au-delà du plafond par encaissement en espèces du dossier "
+        f"({limit:.2f} MAD, pénalité de 6 % au-delà) : à vérifier par le cabinet"
+    )
 
 
 @step_tool
@@ -323,7 +352,7 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         tax_settings(invoice, changes, notes)
         _currency((extracted.get("currency") or "MAD").upper(), changes, notes)
         told = instructed(payment_method, client_message)
-        _payment_method(told or extracted.get("payment_method"), invoice, changes)
+        cash = _payment_method(told or extracted.get("payment_method"), invoice, changes)
         noted = f" ({'; '.join(notes)})" if notes else ""
         if not changes:
             return routine(f"Facture {invoice_id} : rien à corriger.{noted}")
@@ -332,6 +361,9 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         if not changed:
             return routine(f"Facture {invoice_id} : déjà a jour, rien à changer.{noted}")
         refresh(invoice_id, context)
+        if cash and not dry_run() and (over := cash_limit(invoice_id, context)):
+            notes.append(over)
+            noted = f" ({'; '.join(notes)})"
     texts = (change_text(field, changed.get(field, value)) for field, value in changes.items())
     shown = ", ".join(text for text in texts if text) or "montants"
     other = sorted(set(changed) - set(changes))
@@ -339,4 +371,5 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
         log(f"correct_invoice {invoice_id}: Experio also updated {', '.join(other)}")
     if dry_run():
         return ok(f"{TEST_MODE}Facture {invoice_id}, correction prévue : {shown}.{noted}")
-    return ok(f"Facture {invoice_id} : corrigée ({shown}).{noted}")
+    done = (to_check if cash and over else ok)(f"Facture {invoice_id} : corrigée ({shown}).{noted}")  # « À vérifier »
+    return done

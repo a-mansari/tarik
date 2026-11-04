@@ -1107,6 +1107,83 @@ def test_a_dossiers_open_statements_are_listed_to_be_pointed_and_each_posted(exp
     assert posted["message"].count("j'ai comptabilisé") == 2 and "\n- Relevé n° 41 :" in posted["message"]
 
 
+@pytest.fixture
+def cash(monkeypatch):
+    """The dossier's open cash statements (« Caisse »), their lines, its open exercices, what Experio's posting does."""
+    state = {"open": [7], "lines": [], "refused": {}, "posted": [], "window": None}
+    state["exercices"] = [{"date_start": "2026-01-01", "date_end": "2026-12-31"}]
+
+    def odoo_call(model, method, *args, **kw):
+        if model == statement.CASH:
+            assert ("company_id", "=", 857) in args[0]
+            return list(state["open"])
+        if model == "exp.fiscal.entries":
+            return list(state["exercices"])
+        domain = {t[0]: t[2] for t in args[0]}
+        if method == "search_count":
+            return sum(1 for line in state["lines"] if line["id"] in domain["id"] and line["state"] == "post")
+        wanted = [domain["state"]] if isinstance(domain["state"], str) else domain["state"]
+        return [dict(line) for line in state["lines"] if line["state"] in wanted]
+
+    def odoo_json(model, method, ids, **kw):
+        assert model == statement.CASH_LINE  # the lines' own posting: it returns Experio's window
+        statement_id = next(line["statement_id"][0] for line in state["lines"] if line["id"] == ids[0])
+        if statement_id in state["refused"]:
+            raise state["refused"][statement_id]
+        if state["window"]:
+            return state["window"]
+        for line in state["lines"]:
+            if line["id"] in ids:
+                line["state"] = "post"
+        state["posted"] += ids
+
+    monkeypatch.setattr(statement, "odoo_call", odoo_call)
+    monkeypatch.setattr(statement, "odoo_json", odoo_json)
+    monkeypatch.setattr(statement, "dry_run", lambda: False)
+    return state
+
+
+def cash_line(i, state, date="2026-10-15", error=False, statement_id=7):
+    return {"id": i, "state": state, "date": date, "error_msg": error, "statement_id": [statement_id, "CAISSE"]}
+
+
+@pytest.mark.functionality
+def test_the_ready_cash_lines_are_posted_and_what_is_left_said_with_experios_reason(cash):
+    cash["lines"] = [
+        cash_line(1, "post"),  # posted last month: not counted again
+        cash_line(2, "ready"),
+        cash_line(
+            3, "ready", date="2027-02-01"
+        ),  # no open exercice: never posted, Experio would leave its move unlinked
+        cash_line(4, "draft", error="Le tiers est obligatoire."),
+    ]
+    said = statement.cash_posting(857)
+    assert cash["posted"] == [2] and said.startswith("Caisse : 1 opération comptabilisée.")
+    assert "\n- 1 opération : le tiers est obligatoire." in said
+    assert "1 opération prête est datée hors des exercices ouverts du dossier" in said
+
+
+@pytest.mark.functionality
+def test_a_refusal_a_crash_or_a_window_on_one_cash_statement_is_said_the_others_posted(cash):
+    cash["open"] = [7, 8]
+    cash["lines"] = [cash_line(1, "ready"), cash_line(2, "ready", statement_id=8)]
+    cash["refused"] = {7: ExperioRefusal("Only ready lines can be posted.", "odoo.exceptions.UserError")}
+    said = statement.cash_posting(857)
+    assert "Relevé de caisse n° 7 : Experio refuse (Only ready lines can be posted.)" in said and cash["posted"] == [2]
+    cash["lines"], cash["posted"] = [cash_line(1, "ready")], []
+    cash["refused"] = {7: ExperioRefusal("'journal_id'", "builtins.KeyError")}  # a crash: never Experio's reason
+    said = statement.cash_posting(857)
+    assert "Relevé de caisse n° 7 : échec technique" in said and "journal_id" not in said
+    cash["refused"], cash["window"] = {}, {"res_model": "exp.fiscal.year.creation.wizard", "name": "Exercice"}
+    assert "Relevé de caisse n° 7 : Experio ouvre la fenêtre « Exercice »" in statement.cash_posting(857)
+
+
+@pytest.mark.functionality
+def test_no_open_cash_statement_says_nothing(cash):
+    cash["open"] = []
+    assert statement.cash_posting(857) == ""
+
+
 @pytest.mark.functionality
 def test_a_dossier_without_open_statement_says_so(experio):
     experio["open"] = []

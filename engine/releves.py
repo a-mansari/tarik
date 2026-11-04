@@ -36,9 +36,12 @@ async def statements(state: Run):
 
 @stops_at("resume")
 def each_statement(state: Run):
-    """Route: one pointing run per open statement; "resume" when the listing failed or found none."""
-    if state["outcomes"][-1].get("status") != "ok" or not state.get("statement_ids"):
+    """Route: one pointing run per open statement; "resume" when the listing failed or found none, unless the client
+    asked to post: the dossier's cash statements are still posted ("comptabilisation", post_dossier_statements)."""
+    if state["outcomes"][-1].get("status") != "ok":
         return "resume"
+    if not state.get("statement_ids"):
+        return after_pointing(state)
     given = {"call": state["call"], "run_id": state["run_id"]}
     return [Send("pointage", {**given, "statement_id": i}) for i in state["statement_ids"]]
 
@@ -64,7 +67,7 @@ run.add_node("resume", summary)
 run.add_edge(START, "debut")
 run.add_conditional_edges("debut", *ok_or_summary("expediteur"))  # a failed save goes no further
 run.add_conditional_edges("expediteur", *ok_or_summary("releves"))
-run.add_conditional_edges("releves", each_statement, ["pointage", "resume"])
+run.add_conditional_edges("releves", each_statement, ["pointage", "comptabilisation", "resume"])
 run.add_conditional_edges("pointage", after_pointing, ["comptabilisation", "resume"])
 run.add_edge("comptabilisation", "resume")
 run.add_edge("resume", END)

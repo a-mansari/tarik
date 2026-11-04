@@ -1966,5 +1966,99 @@ def each_statement(dossier_id, step):
 @step_tool
 def post_dossier_statements(dossier_id: int) -> dict:
     """Post the ready operations of every bank statement of dossier ``dossier_id`` not posted yet, with Experio's own
-    validation, as post_statement posts one (posting); each statement's outcome said."""
-    return each_statement(dossier_id, posting)
+    validation, as post_statement posts one (posting); each statement's outcome said. Then the dossier's cash
+    statements (cash_posting)."""
+    result = each_statement(dossier_id, posting)
+    cash = cash_posting(dossier_id)
+    if not cash:
+        return result
+    if result.get("routine"):  # no bank statement: the cash alone
+        return ok(cash)
+    return {**result, "message": f"{result['message']}\n{cash}"}
+
+
+CASH = "exp.cash.statement"
+CASH_LINE = "exp.cash.statement.line"
+
+
+def cash_posting(dossier_id):
+    """Post the ready lines of dossier ``dossier_id``'s open cash statements (« Caisse », exp.cash.statement: the
+    cabinet imports them, Experio reads none) and return a French sentence: how many were posted now, how many are left
+    and Experio's reason for each ("" when the dossier has no open cash statement).
+
+    Posted per statement through its lines' own action_post (exp.cash.statement's drops the window its lines return).
+    Only lines dated in an open exercice: Experio makes a line's move before asking for a missing exercice and leaves it
+    unlinked (cash_statement_line.py generate_move_ids); those are said for the cabinet. A refusal or a crash on one
+    statement is said, the others still posted."""
+    context = in_dossier(dossier_id)
+    domain = [("company_id", "=", dossier_id), ("state", "in", ["draft", "partial"])]
+    found = odoo_call(CASH, "search", domain, order="id asc", context=context)
+    if not found:
+        return ""
+    if dry_run():
+        return f"{TEST_MODE}" + counted(
+            len(found),
+            "{} relevé de caisse : ses opérations prêtes seraient comptabilisées.",
+            "{} relevés de caisse : leurs opérations prêtes seraient comptabilisées.",
+        )
+    ready = odoo_call(
+        CASH_LINE,
+        "search_read",
+        [("statement_id", "in", found), ("state", "=", "ready")],
+        fields=["statement_id", "date"],
+        context=context,
+    )
+    opens = odoo_call(
+        "exp.fiscal.entries",
+        "search_read",
+        [("company_id", "=", dossier_id), ("state", "=", "open")],
+        fields=["date_start", "date_end"],
+        context=context,
+    )
+    inside = [line for line in ready if any(o["date_start"] <= line["date"] <= o["date_end"] for o in opens)]
+    by_statement = defaultdict(list)
+    for line in inside:
+        by_statement[line["statement_id"][0]].append(line["id"])
+    said = []
+    for statement_id, ids in by_statement.items():
+        try:
+            with refused(
+                f"cash_posting {statement_id}", f"Relevé de caisse n° {statement_id} : Experio refuse ({{reason}})."
+            ):
+                action = odoo_json(CASH_LINE, "action_post", ids, context=context)
+        except ToolError as failure:
+            said.append(str(failure))
+            continue
+        if isinstance(action, dict) and action.get("res_model"):
+            window = f"la fenêtre « {action['name']} »" if action.get("name") else "une fenêtre de confirmation"
+            said.append(f"Relevé de caisse n° {statement_id} : Experio ouvre {window}, à valider par le cabinet.")
+    posted = (
+        odoo_call(
+            CASH_LINE,
+            "search_count",
+            [("id", "in", [line["id"] for line in inside]), ("state", "in", list(POSTED))],
+            context=context,
+        )
+        if inside
+        else 0
+    )
+    left = odoo_call(
+        CASH_LINE,
+        "search_read",
+        [("statement_id", "in", found), ("state", "in", ["draft", "pending"])],
+        fields=["state", "error_msg"],
+        context=context,
+    )
+    reasons, _, _ = tpe.blocked(left)
+    text = "Caisse : " + counted(posted, "{} opération comptabilisée", "{} opérations comptabilisées") + "."
+    text += "".join(f"\n- {why}" for why in reason_lines(reasons, "{} opération", "{} opérations"))
+    if len(ready) > len(inside):
+        text += counted(
+            len(ready) - len(inside),
+            "\n- {} opération prête est datée hors des exercices ouverts du dossier : comptabilisée une fois "
+            "l'exercice ouvert par le cabinet.",
+            "\n- {} opérations prêtes sont datées hors des exercices ouverts du dossier : comptabilisées une fois "
+            "l'exercice ouvert par le cabinet.",
+        )
+    text += "".join(f"\n- {why}" for why in said)
+    return text

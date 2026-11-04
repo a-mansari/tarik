@@ -213,6 +213,7 @@ def correcting(monkeypatch):
         correct, "refresh", lambda invoice_id, context: state["refreshed"].append((invoice_id, context))
     )
     monkeypatch.setattr(correct, "dry_run", lambda: False)
+    monkeypatch.setattr(correct, "cash_limit", lambda invoice_id, context: "")  # cash within its limit unless said
     return state
 
 
@@ -271,6 +272,64 @@ def test_the_payment_method_the_client_wrote_is_taken_over_the_scans(correcting)
     correcting["calls"][:] = []
     correct.correct_invoice(3, payment_method="cheque", client_message="Voici la facture")  # not written: the scan's
     assert correcting["calls"][0][2] == [("name", "=ilike", "Esp%")]
+
+
+@pytest.mark.communication
+def test_a_cash_payment_past_experios_limit_is_one_to_check(correcting, monkeypatch):
+    from engine.tools.invoices import correct
+
+    monkeypatch.setattr(correct, "cash_limit", lambda invoice_id, context: "payée en espèces au-delà")
+    correcting["read"] = {"payment_method": "especes"}
+    result = correct.correct_invoice(3)
+    assert result.get("note") and "payée en espèces au-delà" in result["message"]  # under « À vérifier »
+    monkeypatch.setattr(correct, "cash_limit", lambda invoice_id, context: "")
+    assert not correct.correct_invoice(3).get("note")
+
+
+@pytest.fixture
+def invoiced(monkeypatch):
+    """Invoice 3 as Experio holds it after the write, and Experio's get_amount_without_penalty for it."""
+    from engine.tools.invoices import correct
+
+    state = {"invoice": {"type": "purchase", "refund": False, "invoice_date": "2026-10-15", "amount_total": 2000.0}}
+    state["invoice"].update(exchange_rate=1.0, hide_exchange_rate=True)
+    state["limit"] = 1000.0  # 4 000 already paid today in cash to that supplier, of a 5 000 daily limit
+
+    def odoo_call(model, method, ids, **kw):
+        return state["limit"] if method == "get_amount_without_penalty" else [dict(state["invoice"])]
+
+    monkeypatch.setattr(correct, "odoo_call", odoo_call)
+    return state
+
+
+@pytest.mark.functionality
+def test_the_limit_is_experios_own_what_the_supplier_can_still_be_paid_in_cash(invoiced):
+    from engine.tools.invoices.correct import cash_limit
+
+    said = cash_limit(3, {})
+    assert "(2000.00 MAD)" in said and "à ce fournisseur ce jour et ce mois (1000.00 MAD)" in said
+    invoiced["limit"] = 5000.0
+    assert cash_limit(3, {}) == ""
+
+
+@pytest.mark.functionality
+def test_a_foreign_invoice_is_compared_in_mad_and_a_sale_against_its_per_receipt_limit(invoiced):
+    from engine.tools.invoices.correct import cash_limit
+
+    invoiced["invoice"].update(amount_total=1000.0, exchange_rate=10.8, hide_exchange_rate=False)  # 1 000 EUR
+    invoiced["limit"] = 5000.0
+    assert "(10800.00 MAD)" in cash_limit(3, {})
+    invoiced["invoice"].update(type="sale")
+    assert "pénalité de 6 %" in cash_limit(3, {})
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("change", [{"refund": True}, {"invoice_date": False}])
+def test_a_credit_note_or_an_undated_invoice_is_left_out(invoiced, change):
+    from engine.tools.invoices.correct import cash_limit
+
+    invoiced["invoice"].update(change)
+    assert cash_limit(3, {}) == ""
 
 
 @pytest.mark.functionality
@@ -393,6 +452,30 @@ def test_a_tourist_tax_counts_only_with_its_setting_and_its_account(
     assert ("amount_ts" in changes) is written
     if not account:
         assert "amount_stamp" not in changes  # Experio's stamp kept: the TTC stays balanced
+
+
+@pytest.mark.functionality
+def test_a_hotels_sale_gets_its_tourist_taxes_and_its_ht_parts(correcting, monkeypatch):
+    from engine.tools.invoices import correct
+
+    correcting["invoice"].update(type="sale", amount_untaxed=1000.0, amount_ts=0.0, amount_tsp=0.0)
+    correcting["invoice"].update(amount_ht_restauration=0.0, amount_ht_breakfast=0.0, amount_ht_blanchisserie=0.0)
+    correcting["invoice"].update(
+        should_use_ht_restauration=True, should_use_ht_breakfast=True, should_use_ht_blanchisserie=False
+    )
+    held = {"use_ts_tax": True, "ts_account_id": [44, "4457"], "use_tsp_tax": False, "tsp_account_id": [45, "4458"]}
+    correcting["found"]["res.company"] = [held]
+    turned = []
+    monkeypatch.setattr(correct, "save_settings", lambda company, values, context: turned.append(values) or True)
+    correcting["read"] = {"amount_untaxed": 1000.0, "amount_ts": 30.0, "amount_tsp": 12.0}
+    correcting["read"].update(amount_ht_restauration=250.0, amount_ht_breakfast=50.0)
+    correcting["bad"] = [flag("amount_ts", 0, 30.0), flag("amount_tsp", 0, 12.0)]
+    message = correct.correct_invoice(3)["message"]
+    changes = correcting["filled"][0][1]
+    assert changes["amount_ts"] == 30.0 and changes["amount_tsp"] == 12.0  # a sale's taxes, as on its bill
+    assert changes["amount_ht_restauration"] == 250.0 and changes["amount_ht_breakfast"] == 50.0
+    assert changes["amount_untaxed"] == 700.0  # Experio adds the parts back to the HT (get_actual_amount_ht)
+    assert turned == [{"use_tsp_tax": True}] and "taxe de promotion touristique activée" in message
 
 
 @pytest.mark.functionality
