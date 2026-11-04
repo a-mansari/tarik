@@ -1101,7 +1101,10 @@ def owed_invoices(statement, lines, context):
             unexplained.append((line, amount))
         if len(found) == 1:
             given += tied(line, [found.pop()], taken, context)
-    summed = sum(tied(line, summing(line, amount, taken, context), taken, context) for line, amount in unexplained)
+    free = {}
+    summed = sum(
+        tied(line, summing(line, amount, taken, free, context), taken, context) for line, amount in unexplained
+    )
     return given, only_tiers, summed
 
 
@@ -1120,19 +1123,24 @@ def tied(line, chosen, taken, context):
 MAX_OPEN = 12  # a tiers' open invoices searched for a set paying a line: 4096 sets at most
 
 
-def summing(line, amount, taken, context):
+def summing(line, amount, taken, free, context):
     """Return the one set of two or more open invoices of ``line``'s tiers (its invoice picker's, on no statement
     line, not in ``taken``) whose amounts owed add up exactly to ``amount``: the line pays them all (Experio spreads a
     line over its invoices, verify_selected_invoices, bank_statement_line.py:4545-4564). [] when no such set, several,
-    or more than MAX_OPEN invoices to try."""
-    domain = ast.literal_eval(line["invoice_ids_domain"]) + [("id", "not in", list(taken))]
-    owed = odoo_call("exp.invoice", "search_read", domain, fields=["amount_residual"], order="id", context=context)
-    if len(owed) < 2:
-        return []
-    ids = [invoice["id"] for invoice in owed]
-    used = odoo_call(LINE, "search_read", [("invoice_ids", "in", ids)], fields=["invoice_ids"], context=context)
-    used = {i for row in used for i in row["invoice_ids"]}
-    owed = [invoice for invoice in owed if invoice["id"] not in used]
+    or more than MAX_OPEN invoices to try.
+
+    ``free`` keeps each picker's invoices on no statement line for the statement's other lines: an invoice only gets on
+    a line here through ``taken``, so those are filtered out again for each line."""
+    key = line["invoice_ids_domain"]
+    if key not in free:
+        domain = ast.literal_eval(key)
+        owed = odoo_call("exp.invoice", "search_read", domain, fields=["amount_residual"], order="id", context=context)
+        ids = [invoice["id"] for invoice in owed]
+        used = [("invoice_ids", "in", ids)]
+        used = odoo_call(LINE, "search_read", used, fields=["invoice_ids"], context=context) if len(ids) > 1 else []
+        used = {i for row in used for i in row["invoice_ids"]}
+        free[key] = [invoice for invoice in owed if invoice["id"] not in used]
+    owed = [invoice for invoice in free[key] if invoice["id"] not in taken]
     if len(owed) > MAX_OPEN:  # every free invoice counted: a set is the only one among all of them
         return []
     cents = round(amount * 100)

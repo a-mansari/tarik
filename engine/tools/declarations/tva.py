@@ -293,23 +293,41 @@ def fees_left_out(dossier_id, table, inside, context):
     another one (« déductions suivantes »): blocked for it, their TVA line lettered, or dated apart. Experio has no
     check of its own for them. Bank statements' and card-terminal (TPE/CMI) statements' fees (fetch_bank_fee_lines
     takes both); a TPE fee Experio keeps out until reconciled (tpe_reconcile_only_reconciled) is listed, as is a fee
-    taken by another declaration still in draft or one Experio dates by its reconciled bank line in the next period
-    (Experio's own fee dates, get_bank_fee_line_date)."""
+    taken by another declaration still in draft. With that setting on, a reconciled TPE fee is dated by its bank line,
+    as Experio dates it (get_bank_fee_line_date, tpe_reconcile/models/exp_deduction_table.py)."""
     fee = [("operation_type", "=", "bank_fee"), ("operation_bank_type", "!=", "tax")]
     fee += [("state", "in", ["post", "export"]), ("declaration_state", "!=", "declared")]
     # a bank line's TVA is total_tva (stored); a monetary line has none: Experio posts its TVA when its tax has a rate
     # and it pays no invoice (monetary_statement_line.py:1284)
     bank = bank_lines(BANK, dossier_id, table, inside, [*fee, ("total_tva", "!=", 0)], context)
     card = [*fee, ("tax_id.rate", "!=", 0), ("invoice_ids", "=", False)]
-    card = bank_lines(MONETARY, dossier_id, table, inside, card, context)
+    dated = None
+    if by_bank_date(dossier_id, context):
+        dated = ["|", "&", ("bank_line_id", "=", False), *within("date", table)]
+        dated += ["&", ("bank_line_id", "!=", False), *within("bank_line_id.date", table)]
+    card = bank_lines(MONETARY, dossier_id, table, inside, card, context, dated)
     found = sorted(bank[1] + card[1], key=lambda line: (line["date"], line["id"]))[:SHOWN]
     return bank[0] + card[0], [operation_phrase(line, line["amount"]) for line in found]
 
 
-def bank_lines(model, dossier_id, table, inside, domain, context):
+def by_bank_date(dossier_id, context):
+    """True when the dossier's reconciled TPE fees are declared at their bank line's date: Experio's tpe_reconcile
+    module installed and its « Déclarer uniquement TPE rapprochées » (tpe_reconcile_only_reconciled) on."""
+    field = "tpe_reconcile_only_reconciled"
+    if field not in odoo_call("res.company", "fields_get", [field], attributes=["type"], context=context):
+        return False
+    return bool(odoo_call("res.company", "read", [dossier_id], fields=[field], context=context)[0][field])
+
+
+def within(field, table):
+    """Return the domain of ``field`` (a date) inside the declaration's period: one "&" with its two terms."""
+    return ["&", (field, ">=", table["start_date"]), (field, "<=", table["end_date"])]
+
+
+def bank_lines(model, dossier_id, table, inside, domain, context, dated=None):
     """Return (how many of the period's operations ``model`` outside ``inside`` match ``domain``, the first SHOWN of
-    them, oldest first: their label, date and amount)."""
-    period = [("company_id", "=", dossier_id), ("date", ">=", table["start_date"]), ("date", "<=", table["end_date"])]
+    them, oldest first: their label, date and amount). ``dated``: the period's domain when not on their own date."""
+    period = [("company_id", "=", dossier_id), *(dated or within("date", table))]
     domain = [*period, ("id", "not in", inside[model]), *domain]
     fields = ["payment_ref", "date", "amount"]
     found = odoo_call(model, "search_read", domain, fields=fields, order="date, id", limit=SHOWN, context=context)

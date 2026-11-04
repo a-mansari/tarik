@@ -434,3 +434,33 @@ def test_a_routine_makes_no_declaration_experio_would_refuse_nor_tells_of_one_ou
     assert result["status"] == "stop" and "pas d'IF" in result["message"] and methods(experio) == []
     company["declaration_mode"] = "out_of_field"
     assert tva.prepare_tva_declaration(857, new_only=True)["routine"]  # nothing due: nothing said in a report
+
+
+@pytest.mark.functionality
+def test_a_reconciled_tpe_fee_is_dated_by_its_bank_line_when_experio_declares_it_so(monkeypatch):
+    asked = []
+    company = {"fields": {}, "on": True}
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "res.company" and method == "fields_get":  # tpe_reconcile installed or not
+            return company["fields"]
+        if model == "res.company":
+            return [{"tpe_reconcile_only_reconciled": company["on"]}]
+        asked.append((model, args[0]))
+        return []
+
+    monkeypatch.setattr(tva, "odoo_call", odoo_call)
+    table = {"start_date": "2026-07-01", "end_date": "2026-09-30"}
+    inside = {tva.BANK: [], tva.MONETARY: []}
+    by_bank = ("bank_line_id.date", ">=", "2026-07-01")
+    assert tva.fees_left_out(857, table, inside, {}) == (0, [])
+    assert not any(by_bank in domain for _, domain in asked)  # no tpe_reconcile: the fee's own date
+    company["fields"] = {"tpe_reconcile_only_reconciled": {"type": "boolean"}}
+    asked.clear()
+    tva.fees_left_out(857, table, inside, {})
+    (card,) = [domain for model, domain in asked if model == tva.MONETARY]
+    assert by_bank in card and ("bank_line_id", "=", False) in card  # unreconciled: still its own date
+    company["on"] = False
+    asked.clear()
+    tva.fees_left_out(857, table, inside, {})
+    assert not any(by_bank in domain for _, domain in asked)

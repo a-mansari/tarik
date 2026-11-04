@@ -10,7 +10,7 @@ account.
 from engine.tools.core.app import ToolError, ok, question, routine, step_tool, stop
 from engine.tools.core.config import POSTED, TEST_MODE
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused, require_dossier
-from engine.tools.core.words import normalized
+from engine.tools.core.words import listed, normalized
 from engine.tools.dossiers.progress import PAYMENT_STATES
 
 WIZARD = "exp.invoice.difference.change"
@@ -34,9 +34,9 @@ def posted_invoice(dossier_id, facture):
             if normalized(invoice["invoice_number"] or "").replace(" ", "") == words
         ]
     if len(found) != 1:
-        listed = ", ".join(f"n° {i['id']} ({i['invoice_number']})" for i in found[:5])
+        names = listed([f"n° {i['id']} ({i['invoice_number']})" for i in found])
         why = (
-            f"plusieurs factures comptabilisées portent ce numéro : {listed}"
+            f"plusieurs factures comptabilisées portent ce numéro : {names}"
             if found
             else "aucune facture comptabilisée"
         )

@@ -75,7 +75,7 @@ def test_no_invoice_named_is_refused_before_asking_experio(experio, monkeypatch)
 def test_several_posted_invoices_with_that_number_are_listed_not_guessed(experio):
     experio["invoices"].append({**experio["invoices"][0], "id": 82})
     with pytest.raises(
-        ToolError, match=r"plusieurs factures comptabilisées portent ce numéro : n° 81 \(FV 12\), n° 82"
+        ToolError, match=r"plusieurs factures comptabilisées portent ce numéro : n° 81 \(FV 12\) ; n° 82"
     ):
         difference.settle_difference(5, "FV 12", client_confirmed=True)
     assert experio["calls"] == []
