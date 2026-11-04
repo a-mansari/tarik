@@ -111,6 +111,15 @@ def test_a_duplicate_is_refused_the_first_time_and_imported_when_the_client_insi
     assert again["status"] == "ok" and "n° F1 (ATLAS)" in again["message"] and experio["imported"]
 
 
+@pytest.mark.functionality
+def test_more_than_ten_duplicates_are_counted_not_cut(experio, monkeypatch):
+    monkeypatch.setattr(sheet, "twins", lambda *a: [f"n° F{i}" for i in range(12)])
+    first = sheet.import_invoice_sheet(857, 1, "achat")
+    assert "12 factures existent" in first["message"] and "n° F9 ; et 2 autres." in first["message"]
+    again = sheet.import_invoice_sheet(857, 1, "achat", keep_duplicates=True)
+    assert "n° F9 ; et 2 autres." in again["message"]
+
+
 @pytest.mark.security
 def test_the_same_invoice_twice_in_the_sheet_is_a_duplicate(experio, monkeypatch):
     monkeypatch.setattr(sheet, "table_text", lambda name, data: TEXT + "ATLAS;F2;2025-03-07;10;12\n")

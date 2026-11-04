@@ -11,7 +11,7 @@ owing exactly the credit note's amount. Any other case is listed for the cabinet
 from engine.tools.core.app import ok, routine, step_tool
 from engine.tools.core.config import POSTED, TEST_MODE
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused, require_invoice
-from engine.tools.core.words import normalized
+from engine.tools.core.words import listed, normalized
 from engine.tools.invoices.check import stored_check
 
 FIELDS = ["state", "refund", "company_id", "partner_id", "move_id", "amount_residual", "invoice_number"]
@@ -69,10 +69,10 @@ def apply_credit_note(invoice_id: int) -> dict:
     named = check[1].get("credit_note_of") if check else None
     line, why = chosen(candidates, named, amount)
     if not line:
-        listed = ", ".join(f"{c['journal_name']} ({c['amount']:.2f})" for c in candidates[:5])
+        names = listed([f"{c['journal_name']} ({c['amount']:.2f})" for c in candidates])
         return ok(
             f"Facture {invoice_id} : avoir de {amount:.2f} à imputer par le cabinet dans Experio (Crédits en attente), "
-            f"la facture n'étant pas certaine : {listed}."
+            f"la facture n'étant pas certaine : {names}."
         )
     if dry_run():
         return ok(f"{TEST_MODE}Facture {invoice_id} : l'avoir serait imputé sur {why}.")
