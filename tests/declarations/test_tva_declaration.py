@@ -64,7 +64,7 @@ def experio(monkeypatch):
             "count_previous_deduction_ids": 0,
         },
         "done_before": 0,
-        "counts": {"draft": 0, "blocked": 0, "unpaid": 0, "suspense": 0},
+        "counts": {"draft": 0, "blocked": 0, "unpaid": 0, "suspense": 0, "fees": 0},
         "written": [],
         "calls": [],
         "refusal": None,
@@ -95,12 +95,28 @@ def experio(monkeypatch):
                 return state["counts"]["draft"]
             if ("declaration_state", "=", "blocked") in domain:
                 return state["counts"]["blocked"]
+            state.setdefault("unpaid_domains", []).append(domain)
+            if method == "search_read":  # the paid ones, their last payment's date
+                return [{"payment_date": day} for day in state.get("paid_on", [])]
             return state["counts"]["unpaid"]
-        if model == "exp.bank.statement.line":
-            return state["counts"]["suspense"]
+        if model == "exp.bank.statement.line":  # the period's operations in suspense, or its fees not declared
+            fees = ("operation_type", "=", "bank_fee") in args[0]
+            many = state["counts"]["fees" if fees else "suspense"]
+            if method == "search_count":
+                return many
+            return [
+                {"payment_ref": f"OP {i}", "date": "2026-08-0" + str(i % 9 + 1), "amount": -10.0}
+                for i in range(min(many, kw["limit"]))
+            ]
+        if model == "exp.deduction.table.line" and kw.get("fields") and "line_type" in kw["fields"]:
+            return [dict(line) for line in state.get("declared", [])]
+        if model == "exp.partner":
+            return [{"name": "ATLAS"}]
         return []
 
     def odoo_json(model, method, ids, **kw):
+        if method == "get_partner_verification_line_values":  # the coherence screen's ICE/IF finding
+            return state.get("unchecked", [])
         state["calls"].append((method, kw.get("context", {}).get("exp_skip_coherence_check")))
         if method == "action_refresh":
             state["table"]["tva_en_rouge"] = 0.0  # Experio writes 0 on a first declaration
@@ -150,11 +166,11 @@ def test_the_carried_credit_given_is_written_after_experios_refresh(experio):
 @pytest.mark.functionality
 def test_what_the_declaration_leaves_out_is_told(experio):
     experio["done_before"] = 1  # a later declaration: Experio carries the credit
-    experio["counts"] = {"draft": 2, "blocked": 1, "unpaid": 4, "suspense": 3}
+    experio["counts"] = {"draft": 2, "blocked": 1, "unpaid": 4, "suspense": 3, "fees": 0}
     message = tva.prepare_tva_declaration(857)["message"]
     assert "2 factures de la période sont encore en brouillon" in message
     assert "1 facture est bloquée" in message
-    assert "4 factures d'achat ne sont pas payées" in message
+    assert "4 factures d'achat n'étaient pas payées" in message
     assert "3 opérations bancaires de la période sont en suspens" in message
     assert "payée avant la période" not in message
 
@@ -311,21 +327,60 @@ def test_experio_unreachable_says_the_tva_declaration_could_not_be_prepared(expe
 
 
 @pytest.mark.functionality
-def test_operations_already_in_the_declaration_are_not_counted_in_suspense(monkeypatch):
+def test_operations_already_in_the_declaration_are_not_listed_in_suspense(monkeypatch):
     asked = {}
 
     def odoo_call(model, method, domain, **kw):
         if model == "exp.deduction.table.line":
             asked["lines"] = domain
-            return [{"bank_statement_line_id": [31, "VIR"]}, {"bank_statement_line_id": False}]
+            fee = {"bank_statement_line_id": [31, "FRAIS"], "line_type": "bank_fee", "amount_tva_after_prorata": 2.5}
+            return [
+                fee,
+                {"bank_statement_line_id": [32, "VIR"], "line_type": "invoice", "amount_tva_after_prorata": 20.0},
+            ]
         asked["operations"] = domain
-        return 2
+        if method == "search_count":
+            return 1
+        return [{"payment_ref": "VIR ATLAS", "date": "2026-08-03", "amount": -200.0}]
 
     monkeypatch.setattr(tva, "odoo_call", odoo_call)
     table = {"id": 50, "start_date": "2026-07-01", "end_date": "2026-09-30"}
-    assert tva.suspense_count(857, table, {}) == 2
+    inside, fee_tva, fee_lines = tva.declared_lines(table, {})
+    assert (inside, fee_tva, fee_lines) == ([31, 32], 2.5, 1)
     assert ("deduction_id", "=", 50) in asked["lines"] and ("imposable_id", "=", 50) in asked["lines"]
-    assert asked["operations"][-1] == ("id", "not in", [31])
+    assert asked["lines"][:3] == ["|", ("bank_statement_line_id", "!=", False), ("line_type", "=", "bank_fee")]
+    assert tva.suspense_lines(857, table, inside, {}) == (1, ["VIR ATLAS (2026-08-03, 200.00)"])
+    assert ("id", "not in", [31, 32]) in asked["operations"]
+
+
+@pytest.mark.functionality
+def test_the_coherence_screens_findings_and_the_bank_fees_are_told(experio):
+    experio["done_before"] = 1
+    experio["counts"].update(suspense=12, fees=1)
+    experio["declared"] = [
+        {"bank_statement_line_id": [7, "F"], "line_type": "bank_fee", "amount_tva_after_prorata": 4.0}
+    ]
+    experio["unchecked"] = [{"partner_id": 9, "source": "deduction"}, {"partner_id": 9, "source": "ras_tva_client"}]
+    message = tva.prepare_tva_declaration(857)["message"]
+    assert "1 frais bancaire : TVA déduite 4.00" in message
+    assert "1 frais bancaire comptabilisé de la période : OP 0 (2026-08-01, 10.00)" in message  # not declared
+    assert "12 opérations bancaires de la période sont en suspens" in message and "; et 2 autres." in message
+    assert "Tiers dont la vérification ICE/IF est désactivée dans Experio : ATLAS." in message
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(("regime", "sales"), [("encaissement", True), ("debit", False)])
+def test_unpaid_purchases_are_told_under_both_regimes_unpaid_sales_under_encaissement(experio, regime, sales):
+    experio["done_before"] = 1
+    experio["table"]["regime"] = regime
+    experio["counts"]["unpaid"] = 1
+    experio["paid_on"] = ["2026-09-30", "2026-10-05"]  # paid in the period, paid after it
+    message = tva.prepare_tva_declaration(857)["message"]
+    assert "2 factures d'achat n'étaient pas payées" in message
+    assert ("2 factures de vente n'étaient pas encaissées" in message) is sales
+    effet = ("payment_method_id.payment_id", "!=", tva.EFFET)  # under débit an effet invoice is declared on its date
+    assert any(effet in domain for domain in experio["unpaid_domains"]) is not sales
+    assert all(("declaration_state", "not in", tva.SETTLED) in domain for domain in experio["unpaid_domains"])
 
 
 @pytest.mark.security
