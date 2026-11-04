@@ -231,8 +231,7 @@ def transit(monkeypatch):
                     "disbursement_invoice_ids": state["linked"],
                     "company_id": [5, "D"],
                     "exercice_id": [9, "2026"],
-                    "is_local_invoice": True,
-                    "exchange_rate": 1.0,
+                    "is_local_invoice": state.get("is_local", True),
                 }
             ]
         if method == "write":
@@ -244,6 +243,7 @@ def transit(monkeypatch):
         domain = args[0]
         if method == "search_read":  # the folder's invoices, matched on the transit invoice's débours lines
             assert ("folder_id", "=", 40) in domain and ("invoice_type", "!=", "transit") in domain
+            state["matched_in"] = domain
             return state["folder"]
         if ("is_disbursement_invoice", "=", True) in domain:  # those marked « Payée par Transitaire »
             assert ("folder_id", "=", 40) in domain and ("invoice_type", "!=", "transit") in domain
@@ -303,23 +303,25 @@ def test_debours_no_invoice_of_the_folder_covers_is_told(transit):
 
 @pytest.mark.functionality
 def test_a_transit_invoice_takes_the_folder_invoice_each_of_its_debours_lines_names_by_its_amount(transit):
-    transit.update(marked=[], linked=[], posted=[70, 71, 72])
+    transit.update(marked=[], linked=[], posted=[70, 71, 72, 73, 74])
     transit["lines"] = [  # what Tarik read on the transit agent's scan
         {"designation": "Droits de douane", "amount": 1200.0},
-        {"designation": "Magasinage", "amount": 300.0},
+        {"designation": "Magasinage", "amount": 300.0},  # one line, two invoices of 300: neither
+        {"designation": "Acconage", "amount": 50.0},  # two lines, two invoices of 50: both
+        {"designation": "Acconage", "amount": 50.0},
         {"designation": "Fret", "amount": None},  # unread: matches nothing
     ]
-    transit["folder"] = [
-        {"id": 70, "display_amount_total": 1200.0, "is_local_invoice": True, "exchange_rate": 1.0},
-        {"id": 71, "display_amount_total": 100.0, "is_local_invoice": False, "exchange_rate": 3.0},  # 300 in MAD
-        {"id": 72, "display_amount_total": 300.0, "is_local_invoice": True, "exchange_rate": 1.0},
-    ]
+    transit["folder"] = [{"id": i, "display_amount_total": a} for i, a in [(70, 1200), (71, 300), (72, 300)]]
+    transit["folder"] += [{"id": 73, "display_amount_total": 50.0}, {"id": 74, "display_amount_total": 50.0}]
     assert posting.disbursements_first({"id": 3}) is None
-    # 1200: one invoice, linked; 300: two invoices of that amount, neither (left to the cabinet)
-    assert [write[1] for write in transit["writes"]] == [{"disbursement_invoice_ids": [(4, 70)]}]
-    transit.update(posted=[71, 72], waiting=[70], writes=[])  # the one it paid is not posted yet: it waits
+    assert [write[1] for write in transit["writes"]] == [{"disbursement_invoice_ids": [(4, 70), (4, 73), (4, 74)]}]
+    assert ("is_local_invoice", "=", True) in transit["matched_in"]  # Experio books its total unconverted
+    assert ("payment_state", "=", "unpaid") in transit["matched_in"]  # one already paid would be paid twice
+    transit.update(posted=[71, 72, 73, 74], waiting=[70], writes=[])  # the one it paid is not posted yet: it waits
     result = posting.disbursements_first({"id": 3})
     assert result["status"] == "stop" and "(70)" in result["message"] and transit["writes"] == []
+    transit.update(waiting=[], is_local=False)  # a foreign transit invoice: Experio books no débours lines on it
+    assert posting.disbursements_first({"id": 3}) is None and transit["writes"] == []
 
 
 @pytest.mark.functionality

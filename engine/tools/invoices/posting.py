@@ -7,6 +7,7 @@ Posting also saves the invoice's account, non-recoverable TVA and RAS settings o
 """
 
 import time
+from collections import Counter
 
 from engine.tools.core.app import CRASHED, log, ok, routine, step_tool, stop
 from engine.tools.core.config import POSTED, TEST_MODE
@@ -69,7 +70,7 @@ def disbursements_first(invoice):
     (unbacked_disbursement), else None. Returns None for any other invoice.
     """
     fields = ["invoice_type", "folder_id", "folder_type", "disbursement_invoice_ids", "company_id", "exercice_id"]
-    fields += ["is_local_invoice", "exchange_rate"]
+    fields.append("is_local_invoice")
     found = odoo_call("exp.invoice", "read", [invoice["id"]], fields=fields)[0]
     if found["invoice_type"] != "transit" or not found["folder_id"] or found["folder_type"] != "import":
         return None
@@ -115,29 +116,25 @@ def disbursements_first(invoice):
 
 def paid_by_transit(transit_id, transit, others, context=None):
     """Return the ids of the folder invoices (``others``: the folder's domain) a transit invoice paid, matched on its
-    débours lines: each débours line Tarik read on its scan (check_invoice's debours_lines) takes the one invoice
-    whose total is its amount, in MAD as Experio adds them up (validate_import_folder_settings: display_amount_total,
-    times the exchange rate when foreign, exp_invoice.py:8864-8871). A line with no such invoice, or several, takes
-    none. ``transit``: the transit invoice's is_local_invoice and exchange_rate."""
+    débours lines: each débours line Tarik read on its scan (check_invoice's debours_lines) takes the invoice whose
+    total (display_amount_total) is its amount; an amount on as many lines as invoices takes them all, else none.
+
+    Only in MAD and unpaid: Experio books a linked invoice's débours line at its total unconverted, and books no
+    débours lines on a foreign transit invoice (generate_tva_line_values, exp_invoice.py:6390-6403); an invoice
+    already paid would be settled twice. ``transit``: the transit invoice's is_local_invoice."""
     check = stored_check(transit_id)
     lines = (check[1].get("debours_lines") if check else None) or []
-    lines = [line["amount"] for line in lines if (line.get("amount") or 0) > 0]
-    if not lines:
+    debours = Counter(round(line["amount"], 2) for line in lines if (line.get("amount") or 0) > 0)
+    if not debours or not transit["is_local_invoice"]:
         return []
-    rate = 1.0 if transit["is_local_invoice"] else transit["exchange_rate"] or 1.0
-    debours = [round(amount * rate, 2) for amount in lines]
-    fields = ["display_amount_total", "is_local_invoice", "exchange_rate"]
-    invoices = odoo_call("exp.invoice", "search_read", others, fields=fields, context=context)
-    total = {
-        i["id"]: round(i["display_amount_total"] * (1.0 if i["is_local_invoice"] else i["exchange_rate"] or 1.0), 2)
-        for i in invoices
-    }
-    taken = []
-    for amount in debours:
-        hits = [i for i, value in total.items() if abs(value - amount) <= 0.01 and i not in taken]
-        if len(hits) == 1:
-            taken.append(hits[0])
-    return taken
+    domain = [*others, ("is_local_invoice", "=", True), ("payment_state", "=", "unpaid")]
+    invoices = odoo_call("exp.invoice", "search_read", domain, fields=["display_amount_total"], context=context)
+    by_amount = {}
+    for invoice in invoices:
+        by_amount.setdefault(round(invoice["display_amount_total"], 2), []).append(invoice["id"])
+    return [
+        i for amount, count in debours.items() if len(by_amount.get(amount, [])) == count for i in by_amount[amount]
+    ]
 
 
 def unbacked_disbursement(invoice_id, context):
