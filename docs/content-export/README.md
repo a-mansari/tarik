@@ -204,3 +204,8 @@ uses another one. A stack that edited one of these documents itself loses that e
   a transit agent's débours lines (`debours_lines`: designation, amount) in `tools/check-invoice*.md`, so its
   invoice is linked to the folder invoices it paid. Import it with the commit that matches them; before, the check
   reads none and only the invoices marked « Payée par Transitaire » are linked.
+- `tarik-contenu-banques-20261104.json` (and its `.diff`, against the stack's version of 2026-11-04): in
+  `skills/reponse-question.md`, the client's answer to the bank journals' question goes whole to `Experio_repondre`
+  (no bank number to read: the question no longer lists Experio's banks; Tarik reads each journal's bank). Import it
+  with the commit that asks every journal at once. Also `skills/nouveau-dossier.md`: Tarik's report is copied with its
+  lists, one line per point, never merged into a paragraph.

@@ -157,10 +157,7 @@ def statused(monkeypatch, states, onboarding=False, stale=()):
 @pytest.mark.functionality
 def test_a_dossier_waits_until_experio_processed_its_lines(experio, monkeypatch):
     _, answer = statused(monkeypatch, {"done": 90, "pending": 10})
-    assert (
-        "10 lignes sont encore en traitement chez Experio : demandez-moi l'état du dossier plus tard."
-        in answer["message"]
-    )
+    assert "Experio traite encore les écritures : demandez-moi l'état du dossier plus tard." in answer["message"]
     assert setup.waiting_setups("s")["dossiers"] == [557]
     statused(monkeypatch, {"done": 100})
     assert setup.waiting_setups("s")["dossiers"] == []  # every line processed: the follow-up has said it all
@@ -246,12 +243,9 @@ def test_the_stepper_is_walked_to_its_end_with_the_dossiers_journals_and_prefixe
 
 
 @pytest.mark.functionality
-def test_a_finished_setup_says_how_many_lines_went_to_experio(stepper):
+def test_a_finished_setup_leaves_the_lines_count_to_the_status_that_follows(stepper):
     answer = setup.finish_setup(557)
-    assert answer["message"] == (
-        "Dossier `Gecafisc` : l'intégration est terminée.\n"
-        "- 40 lignes d'écritures sont transmises au traitement d'Experio."
-    )
+    assert answer["message"] == "Dossier `Gecafisc` : l'intégration est terminée."  # setup_status counts them
     assert stepper[-1][0] == "complete_onboarding"
 
 

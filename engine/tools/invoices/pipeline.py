@@ -19,7 +19,7 @@ from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json,
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, normalized, said, without_if
 from engine.tools.dossiers.people import check_sender
-from engine.tools.dossiers.setup import ask_banks, set_journal_bank
+from engine.tools.dossiers.setup import answer_banks
 from engine.tools.invoices import tpe
 from engine.tools.invoices.accounts import confirm_account, set_account
 from engine.tools.invoices.classify import SIDES, client_side
@@ -281,11 +281,11 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     invoice_id, file_id, dossier_id = result.get("invoice_id"), result.get("file_id"), result.get("dossier_id")
     choices = json.dumps(result["choices"]) if result.get("choices") else None  # {id: name} a question proposed
     row = (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, result.get("routine") is True)
+    noted = bool(result.get("note") or result.get("tell"))
     with cabinet_db() as db:
-        db.execute(
-            Q.insert_result,
-            (*row, choices, result.get("journal_id"), bool(result.get("note") or result.get("tell"))),
-        )
+        # A question on several bank journals (ask_banks) waits once per journal; any other result is one row.
+        for journal_id in result.get("journal_ids") or [result.get("journal_id")]:
+            db.execute(Q.insert_result, (*row, choices, journal_id, noted))
         if invoice_id:
             db.execute(Q.claim_invoices, ([invoice_id], run_id))  # still working on it: refreshed, never taken over
         if invoice_id and status == "question":
@@ -787,11 +787,8 @@ def apply_answer(item, answer, decision):
         given = tpe.answer_client(item["file_id"], answer, decision)
         next_step = {"next_step": "settle_statement"} if given["status"] == "ok" else {}
         return {**given, "step": "settle_statement", "file_id": item["file_id"], **next_step}
-    if item["step"] == "ask_banks":
-        bank = chosen_among(decision, item["choices"])
-        if not bank:
-            return {**ask_banks(item["dossier_id"]), "step": "ask_banks"}  # asked again, the same journal first
-        return {**set_journal_bank(item["dossier_id"], item["journal_id"], bank), "step": "ask_banks"}
+    if item["step"] == "ask_banks":  # every journal the answer gives a bank, the others asked again
+        return {**answer_banks(item["dossier_id"], answer, decision, item["choices"]), "step": "ask_banks"}
     result = answer_invoice(item, answer, decision)
     if result["status"] == "ok":
         result["next_step"] = ORDER[position(item["step"]) + 1]
@@ -952,7 +949,9 @@ def answer_pending(
         if fixes:
             result["corrections"] = as_pairs(fixes)
         return result
-    items = meant_all(waiting, about)
+    # Bank journals asked together are answered together (answer_banks reads each journal's bank in the answer).
+    journals = {(entry["step"], entry.get("dossier_id")) for entry in waiting}
+    items = waiting[:1] if len(journals) == 1 and waiting[0]["step"] == "ask_banks" else meant_all(waiting, about)
     item = items[0] if items else None
     if not item:
         # An invoice's question already begins with its number and supplier when Experio gave them.
