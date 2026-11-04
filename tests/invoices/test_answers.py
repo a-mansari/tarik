@@ -357,6 +357,10 @@ def test_bank_journals_asked_together_wait_one_by_one_and_are_answered_together(
     ]
     unbanked.pop(11)  # given its bank since
     assert [item["label"] for item in pipeline.waiting_on("s")] == ["journal BQ2"]
+    pipeline.record_step(
+        "r", "s", "ask_banks", {"status": "ok", "message": "…", "dossier_id": 557, "settled_ids": [12]}
+    )
+    assert pipeline.waiting_on("s") == []  # closed by its own row, even with no bank in Experio (test mode)
 
 
 @pytest.mark.functionality

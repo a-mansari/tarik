@@ -572,23 +572,30 @@ def ask_banks(dossier_id: int) -> dict:
         - otherwise a question result, one line per journal left (``journal_ids``; ``journal_id`` the first), with
           Experio's banks as ``choices`` ({bank_id: name}) but not in its text: the client names banks as they like
           and answer_banks reads them.
+    Both carry ``settled_ids``: the journals given a bank here, their question closed (record_step).
     """
+    return banks_question(dossier_id)
+
+
+def banks_question(dossier_id, skip=()):
+    """ask_banks, the journals in ``skip`` (just given a bank by answer_banks) left out: in test mode they keep none."""
     dossier = require_dossier(dossier_id)
     with refused(f"ask_banks {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu lire les journaux de banque."):
-        journals = bank_journals_without_bank(dossier_id)
+        journals = [journal for journal in bank_journals_without_bank(dossier_id) if journal["id"] not in skip]
         banks = odoo_call("res.bank", "search_read", [], fields=["name", "code"], order="name") if journals else []
-        told, left = [], []
+        told, left, settled = [], [], []
         for journal in journals:
             found, how = journal_bank(journal, banks)
             if found and not dry_run():  # « BMCE », a RIB at 007: one bank only, set and told
                 give_bank(dossier_id, journal, found, in_dossier(dossier_id))
+                settled.append(journal["id"])
                 told.append(f"`{journal['name']}` : `{found['name']}` (d'après {how} ; dites-le-moi si c'est faux)")
             else:
                 left.append(journal)
     done = f"Dossier `{dossier}`, banque des journaux :" + "".join(f"\n- {line}" for line in told) if told else ""
     if not left:
         return (
-            ok(done, dossier_id=dossier_id)
+            ok(done, dossier_id=dossier_id, settled_ids=settled)
             if told
             else routine(f"Dossier `{dossier}` : chaque journal de banque a sa banque.")
         )
@@ -604,10 +611,25 @@ def ask_banks(dossier_id: int) -> dict:
         choices={bank["id"]: bank["name"] for bank in banks},
         journal_id=left[0]["id"],
         journal_ids=[journal["id"] for journal in left],
+        settled_ids=settled,
     )
 
 
-ALL = re.compile(r"(?<![a-z0-9])(tous|toutes|tout|les (deux|trois|quatre|2|3|4))(?![a-z0-9])")  # normalized words
+# « tous chez Attijari »: one bank for every journal waiting (normalized words; never « du tout »)
+ALL = re.compile(r"(?<![a-z0-9])(tous|toutes|les (deux|trois|quatre|2|3|4))(?![a-z0-9])")
+
+
+def journal_spots(journals, words):
+    """Return [(start, end, journal)] where each of ``journals`` is named in ``words`` (normalized), by position: whole
+    names only, the longest first, never twice on the same words (« bq10 » is not « bq1 »)."""
+    spots = []
+    for journal in sorted(journals, key=lambda j: -len(normalized(j["name"]))):
+        name = re.escape(normalized(journal["name"]))
+        for found in re.finditer(rf"(?<![a-z0-9]){name}(?![a-z0-9])", words):
+            if not any(start < found.end() and found.start() < end for start, end, _ in spots):
+                spots.append((found.start(), found.end(), journal))
+                break
+    return sorted(spots, key=lambda spot: spot[0])
 
 
 def answer_banks(dossier_id, answer, decision="", choices=None):
@@ -625,11 +647,11 @@ def answer_banks(dossier_id, answer, decision="", choices=None):
         journals = bank_journals_without_bank(dossier_id)
         banks = odoo_call("res.bank", "search_read", [], fields=["name", "code"], order="name") if journals else []
         words = normalized(answer or "")
-        spots = sorted((words.find(normalized(j["name"])), j) for j in journals if said(normalized(j["name"]), words))
+        spots = journal_spots(journals, words)
         given = {}
-        for n, (start, journal) in enumerate(spots):
+        for n, (_, end, journal) in enumerate(spots):
             stop = spots[n + 1][0] if n + 1 < len(spots) else len(words)
-            bank = one_bank_named(words[start + len(normalized(journal["name"])) : stop], banks)
+            bank = one_bank_named(words[end:stop], banks)
             if bank:
                 given[journal["id"]] = (journal, bank)
         if not spots and (len(journals) == 1 or ALL.search(words)):
@@ -640,10 +662,12 @@ def answer_banks(dossier_id, answer, decision="", choices=None):
             give_bank(dossier_id, journal, bank, context)
     done = "".join(f"\n- `{journal['name']}` : `{bank['name']}`" for journal, bank in given.values())
     done = f"{test_mode_note()}Dossier `{dossier}`, banque des journaux :{done}" if done else ""
-    following = ask_banks(dossier_id)
+    following = banks_question(dossier_id, skip=set(given))
+    settled = [*given, *following.get("settled_ids", [])]
     if following["status"] == "question":
-        return {**following, "message": f"{done}\n\n{following['message']}" if done else following["message"]}
-    return ok(done or following["message"], dossier_id=dossier_id)
+        message = f"{done}\n\n{following['message']}" if done else following["message"]
+        return {**following, "message": message, "settled_ids": settled}
+    return ok(done or following["message"], dossier_id=dossier_id, settled_ids=settled)
 
 
 # --- Finishing the onboarding ---

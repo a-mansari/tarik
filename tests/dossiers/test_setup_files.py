@@ -126,6 +126,37 @@ def test_one_answer_gives_each_bank_journal_its_bank(experio, answer, written):
 
 
 @pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("names", "answer", "written"),
+    [
+        (["BQ1", "BQ10"], "BQ10 bmce, BQ1 cih", {12: 7, 11: 3}),  # « bq1 » is not read inside « bq10 »
+        (["Banque", "Banque 2"], "Banque 2 : CIH, Banque : BMCE", {12: 3, 11: 7}),
+    ],
+)
+def test_journals_named_alike_each_get_their_own_bank(experio, monkeypatch, names, answer, written):
+    for journal, name in zip(experio["journals"], names, strict=True):
+        journal["name"] = name
+    given = {}
+    monkeypatch.setattr(setup, "give_bank", lambda d, journal, bank, c: given.update({journal["id"]: bank["id"]}))
+    setup.answer_banks(557, answer)
+    assert given == written
+
+
+@pytest.mark.functionality
+def test_one_bank_for_all_only_when_the_client_says_all(experio):
+    result = setup.answer_banks(557, "je ne sais pas du tout, BMCE je pense")  # not « tous »: nothing guessed
+    assert experio["written"] == [] and result["journal_ids"] == [11, 12]
+
+
+@pytest.mark.security
+def test_in_test_mode_the_journals_answered_are_not_asked_again(experio, monkeypatch):
+    monkeypatch.setattr(setup, "dry_run", lambda: True)
+    result = setup.answer_banks(557, "BQ1 cih")  # nothing written: BQ1 still has no bank in Experio
+    assert result["settled_ids"] == [11] and result["journal_ids"] == [12]  # its question closed, BQ2 asked
+    assert setup.answer_banks(557, "tous chez cih")["settled_ids"] == [11, 12]
+
+
+@pytest.mark.functionality
 def test_a_journal_the_answer_gives_no_clear_bank_is_asked_again(experio):
     result = setup.answer_banks(557, "BQ1 cih, BQ2 je sais plus")
     assert [values["bank_id"] for values in experio["written"]] == [3]

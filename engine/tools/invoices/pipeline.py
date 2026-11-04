@@ -283,9 +283,12 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
     row = (run_id, session_id, file_id, invoice_id, dossier_id, step, status, message, result.get("routine") is True)
     noted = bool(result.get("note") or result.get("tell"))
     with cabinet_db() as db:
-        # A question on several bank journals (ask_banks) waits once per journal; any other result is one row.
+        # A question on several bank journals (ask_banks) waits once per journal; any other result is one row. The
+        # journals given a bank meanwhile (settled_ids) get a closing row: their question ends even in test mode.
         for journal_id in result.get("journal_ids") or [result.get("journal_id")]:
             db.execute(Q.insert_result, (*row, choices, journal_id, noted))
+        for journal_id in result.get("settled_ids") or []:
+            db.execute(Q.insert_result, (*row[:6], "ok", *row[7:], None, journal_id, noted))
         if invoice_id:
             db.execute(Q.claim_invoices, ([invoice_id], run_id))  # still working on it: refreshed, never taken over
         if invoice_id and status == "question":
@@ -955,10 +958,13 @@ def answer_pending(
     item = items[0] if items else None
     if not item:
         # An invoice's question already begins with its number and supplier when Experio gave them.
-        questions = "\n".join(
-            f"- {entry['question']}" if entry.get("headed") else f"- {entry['label']} : {entry['question']}"
+        lines = (  # bank journals asked together share one question: listed once
+            f"- {entry['question']}"
+            if entry.get("headed") or entry["step"] == "ask_banks"
+            else f"- {entry['label']} : {entry['question']}"
             for entry in waiting
         )
+        questions = "\n".join(dict.fromkeys(lines))
         return question(
             f"Plusieurs questions attendent votre réponse ; précisez la facture ou le relevé :\n{questions}",
             step="answer_pending",
