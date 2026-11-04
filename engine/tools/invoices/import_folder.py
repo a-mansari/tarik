@@ -9,10 +9,11 @@ jointe...), then:
 - creates the folder from those drafts (create_folder_from_js, which sends their reading);
 - sends the DUM pages to be read on their own (bluejay_create_dum_tokens_from_javascript);
 - attaches the attachment pages to the folder (action_attach_pages_from_javascript).
-Tarik does the same, each page typed by the model among Experio's own types, except that it attaches the DUM unread:
-Experio's DUM reading needs the screen's web request (exp_folder_import.py:305). The drafts made then go through the
-invoice's usual steps.
-Used only on the client's own words: « dossier d'import », and « plusieurs dossiers » for one folder per file."""
+Tarik does the same, each page typed by the model among Experio's own types, except that it attaches the DUM and
+reads it itself (dum_values), then writes what Experio's own DUM reading writes (write_dum): Experio's reading needs
+the screen's web request (exp_folder_import.py:305). The drafts made then go through the invoice's usual steps.
+Made on the client's words (« dossier d'import », and « plusieurs dossiers » for one folder per file), or when the
+files just sent look like one (looks_like_folder: a DUM, or a transit invoice with a customs document)."""
 
 import base64
 import re
