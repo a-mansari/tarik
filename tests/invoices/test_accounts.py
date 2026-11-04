@@ -451,7 +451,8 @@ def test_words_naming_no_account_guide_the_choice_and_are_said(experio, monkeypa
 
     def choice(invoice, kind, designation):
         picked.append(designation)
-        return {"id": 9, "code": "61241000", "name": "Achats de carburants"}, "du gasoil pour les véhicules"
+        account = {"id": 9, "code": "61241000", "name": "Achats de carburants"}
+        return {"account": account, "reason": "du gasoil pour les véhicules", "close": [], "new": None}
 
     monkeypatch.setattr(accounts, "model_choice", choice)
     monkeypatch.setattr(accounts, "_memorized", lambda *a: pytest.fail("the client's words come before the memory"))
@@ -461,3 +462,87 @@ def test_words_naming_no_account_guide_the_choice_and_are_said(experio, monkeypa
         return
     assert picked and f"le client précise : « {words} »" in picked[0]
     assert result["status"] == "ok" and f"« {words} » ne désigne aucun compte du dossier" in result["message"]
+
+
+CHART7 = [
+    {"id": 1, "code": "71240000", "name": "Ventes de services produits au Maroc"},
+    {"id": 2, "code": "71241000", "name": "Travaux"},
+    {"id": 3, "code": "71243000", "name": "Prestations de services"},
+]
+INVOICE = {"id": 5, "invoice_number": "20240310", "partner_id": [9, "ITM"], "amount_total": 120000.0}
+INVOICE["company_id"] = [920, "M"]
+
+
+@pytest.mark.functionality
+def test_the_models_near_accounts_and_new_one_are_kept_from_the_chart_only(monkeypatch):
+    monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: CHART7)
+    monkeypatch.setattr(accounts, "tool_prompt", lambda name: "prompt")
+    answer = {"code": None, "close": ["71241000", "99999999", 71243000]}
+    answer["new"] = {"parent": "71240000", "name": " Terrassement "}
+    monkeypatch.setattr(accounts, "ask_model", lambda *a, **k: {**answer, "reason": "x"})
+    chosen = accounts.model_choice(INVOICE, "sale", "Terrassement")
+    assert chosen["account"] is None and [a["code"] for a in chosen["close"]] == ["71241000", "71243000"]
+    assert chosen["new"] == {"parent": CHART7[0], "name": "Terrassement"}
+    answer["new"] = {"parent": "70000000", "name": "X"}  # a parent outside the chart: no new account
+    assert accounts.model_choice(INVOICE, "sale", "Terrassement")["new"] is None
+
+
+@pytest.mark.functionality
+def test_a_new_account_takes_the_first_free_code_under_its_parent():
+    assert accounts.free_code(CHART7[0], CHART7, 8) == "71242000"  # 71241000 and 71243000 taken, 71242000 free
+    assert accounts.free_code({"code": "6145"}, [], 8) == "61451000"  # the dossier's length, not the parent's
+    full = [{"code": f"7124{n}000"} for n in range(1, 10)]
+    assert accounts.free_code(CHART7[0], full, 8) is None
+    assert accounts.free_code({"code": "61400000"}, [], 8) is None  # 6141 would be CGNC's Transports
+
+
+@pytest.mark.communication
+def test_without_a_choice_the_client_gets_the_near_accounts_or_a_new_one_to_create(monkeypatch):
+    monkeypatch.setattr(accounts, "usable", lambda invoice_id, found: found)
+    monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: CHART7)
+    monkeypatch.setattr(accounts, "chart_length", lambda company_id, code: 8)
+    several = accounts.proposals(INVOICE, "Terrassement", {"close": CHART7[1:], "new": None})
+    assert "Les plus proches : `71241000 Travaux`, `71243000 Prestations de services`." in several["message"]
+    assert several["choices"] == {2: "71241000 Travaux", 3: "71243000 Prestations de services"}
+    one = accounts.proposals(INVOICE, "Terrassement", {"close": CHART7[1:2], "new": None})
+    assert one["message"].endswith("je la passe en compte `71241000 Travaux` ? oui / non")
+    assert one["choices"] == {2: "71241000 Travaux"}
+    new = {"parent": CHART7[0], "name": "Terrassement"}
+    asked = accounts.proposals(INVOICE, "Terrassement", {"close": [], "new": new})["message"]
+    assert "Je crée le compte `71242000 Terrassement` (sous `71240000 Ventes de services produits au Maroc`)" in asked
+    assert asked.startswith("Facture 20240310 (`ITM`, 120000.0 DH TTC)") and "fichier n°" not in asked
+    choices = accounts.proposals(INVOICE, "Terrassement", {"close": [], "new": new})["choices"]
+    assert choices == {"new 71240000": "71242000 Terrassement"}  # the code is taken again at the oui
+
+
+@pytest.mark.security
+def test_a_new_account_is_created_only_on_the_clients_yes(monkeypatch):
+    calls, chart = [], list(CHART7)
+    monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a: INVOICE)
+    monkeypatch.setattr(accounts, "invoice_context", lambda invoice: {"allowed_company_ids": [920]})
+    monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: chart)
+    monkeypatch.setattr(accounts, "chart_length", lambda company_id, code: 8)
+    monkeypatch.setattr(accounts, "odoo_call", lambda *a, **k: calls.append(a) or 77)
+    monkeypatch.setattr(accounts, "apply_account", lambda invoice, account_id, why: {"account": account_id, "why": why})
+    monkeypatch.setattr(accounts, "dry_run", lambda: False)
+    assert accounts.create_account(5, "71240000", "71242000 Terrassement", False)["status"] == "question" and not calls
+    chart.append({"id": 4, "code": "71242000", "name": "Etudes"})  # taken since the question: the next free code
+    done = accounts.create_account(5, "71240000", "71242000 Terrassement", True)
+    made = {"code": "71244000", "name": "Terrassement", "company_id": 920}
+    assert done["account"] == 77 and calls == [("exp.account", "create", made)]
+    chart.append({"id": 8, "code": "71244000", "name": "Terrassement"})  # another invoice's oui made it
+    calls.clear()
+    assert accounts.create_account(5, "71240000", "71242000 Terrassement", True)["account"] == 8 and not calls
+    assert "immobilisé" in accounts.create_account(5, "23550000", "23551000 Serveur", True)["why"]  # class 2: said
+    monkeypatch.setattr(accounts, "dry_run", lambda: True)
+    calls.clear()
+    assert "serait créé" in accounts.create_account(5, "71240000", "x Autre", True)["message"] and not calls
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("answer", "picked"), [("le deuxième", 3), ("71241000", 2), ("travaux svp", 2), ("aucun", None)]
+)
+def test_the_client_picks_among_the_near_accounts_listed(answer, picked):
+    choices = {"2": "71241000 Travaux", "3": "71243000 Prestations de services"}
+    assert (accounts.among(choices, answer) or {}).get("id") == picked

@@ -367,7 +367,7 @@ def test_the_side_the_client_does_not_give_is_read_on_the_scan_and_said(db_cabin
         return
     assert result["status"] == "ok" and not result.get("routine") and result["note"]  # recorded and shown
     assert result["invoice_type"] == expected and result["files"] == [file_id]
-    assert "d'après le scan" in result["message"] and "dites-le-moi si c'est" in result["message"]
+    assert "(lue sur le scan) ; dites-le-moi si c'est" in result["message"] and "fichier n°" not in result["message"]
 
 
 @pytest.mark.functionality
