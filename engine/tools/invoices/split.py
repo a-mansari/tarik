@@ -161,7 +161,7 @@ def parts_of(invoice, kind, lines, untaxed_ht, keep):
     accounts = {}  # designation -> account {id, code, name}
     for designation, _ in lines:
         if designation not in accounts:
-            account, _reason = model_choice(invoice, kind, designation)
+            account = model_choice(invoice, kind, designation)["account"]
             if not account:
                 return None, f"aucun compte sûr pour « {designation} »"
             if account["code"].startswith("2"):

@@ -157,7 +157,7 @@ def identified(name, file_id, kind, reason=""):
             kind=kind,
             file_id=file_id,
         )
-    return routine(f"`{name}` : {KIND_LABEL[kind]} (fichier n° {file_id}).", kind=kind)
+    return routine(f"`{name}` : {KIND_LABEL[kind]}.", kind=kind)
 
 
 @step_tool
@@ -257,8 +257,8 @@ def pages_of(first, last):
 
 
 def listed(files):
-    """Return [(file id, label)] as "fichier n° 12 (label), fichier n° 13 (label)"."""
-    return ", ".join(f"fichier n° {file_id} ({label})" for file_id, label in files)
+    """Return [(file id, label)] as the client reads them: "pages 1-2, page 3" (Tarik's file ids are never shown)."""
+    return ", ".join(label for _, label in files)
 
 
 def save_parts(db, session_id, name, file_id, documents):
@@ -347,7 +347,7 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
                 return question(f"`{name}` : s'agit-il de factures d'achat ou de vente ? Rien n'a été créé.")
             kind, other = ("d'achat", "une vente") if read[0] == "achat" else ("de vente", "un achat")
             side = {"invoice_type": read[0], "note": True}  # to check in the reply (QUIET_WHEN_OK records it then)
-            said_side = f"facture {kind} d'après le scan ({read[1]}) ; dites-le-moi si c'est {other}. "
+            said_side = f"facture {kind} (lue sur le scan) ; dites-le-moi si c'est {other}. "
         parts = db.execute(Q.cut_parts_of_file, (file_id,)).fetchall()
         if parts:
             return ok(
@@ -356,24 +356,20 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
                 **side,
             )
         told = ok if said_side else routine  # a side read on the scan is told, never left out of the summary
-        one = told(f"`{name}` : {said_side}1 facture, fichier n° {file_id}.", files=[file_id], **side)
+        one = told(f"`{name}` : {said_side}1 facture.", files=[file_id], **side)
         if invoice_id or parent_id or mime != "application/pdf":  # parent_id: already one invoice cut out of a PDF
             return one
         try:
             count = pdfium(pdfs.count, bytes(data))
         except pypdfium2.PdfiumError:
-            return ok(
-                f"`{name}` : {said_side}PDF illisible, 1 document, fichier n° {file_id}.", files=[file_id], **side
-            )
+            return ok(f"`{name}` : {said_side}PDF illisible, 1 document.", files=[file_id], **side)
         if count == 1:
             return one
         choice = split_choice(messages)
         if choice is None:
             return question(SPLIT_QUESTION.format(name=name, count=count))
         if choice == "by_document":
-            return told(
-                f"`{name}` : {said_side}1 facture sur {count} pages, fichier n° {file_id}.", files=[file_id], **side
-            )
+            return told(f"`{name}` : {said_side}1 facture sur {count} pages.", files=[file_id], **side)
         made = save_parts(db, session_id, name, file_id, split_pdf(bytes(data), range(1, count + 1)))
     return ok(
         f"`{name}` : {said_side}{len(made)} factures, une par page : {listed(made)}.",

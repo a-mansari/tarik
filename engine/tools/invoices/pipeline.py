@@ -21,7 +21,7 @@ from engine.tools.core.words import counted, normalized, said, without_if
 from engine.tools.dossiers.people import check_sender
 from engine.tools.dossiers.setup import answer_banks
 from engine.tools.invoices import tpe
-from engine.tools.invoices.accounts import confirm_account, set_account
+from engine.tools.invoices.accounts import confirm_account, create_account, set_account
 from engine.tools.invoices.classify import SIDES, client_side
 from engine.tools.invoices.configuration import answer_number
 from engine.tools.invoices.exercice import settle_exercice
@@ -845,10 +845,13 @@ def answer_invoice(item, answer, decision):
     step = item["step"]
     apply = ANSWERS[step]
     proposed = item.get("choices") or {}
-    if step == "assign_account" and len(proposed) == 1:  # an account to confirm (set_account, confirm)
+    if step == "assign_account" and len(proposed) == 1:  # an account to confirm, or a new one to create (proposals)
         settled = yes_no(decision) if yes_no(decision) is not None else yes_no(answer)
+        key, label = next(iter(proposed.items()))
+        if settled is not None and str(key).startswith("new "):
+            return create_account(item["invoice_id"], label, settled)
         if settled is not None:
-            return confirm_account(item["invoice_id"], int(next(iter(proposed))), settled)
+            return confirm_account(item["invoice_id"], int(key), settled)
     if step == "link_tiers":
         return apply(item["invoice_id"], decision, answer, item["choices"])  # the tiers the question proposed
     if step in ("settle_exercice", "settle_warnings"):  # their words, and what the agent read in them

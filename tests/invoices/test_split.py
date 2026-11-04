@@ -160,7 +160,9 @@ def stepping(monkeypatch):
     monkeypatch.setattr(split, "invoice_context", lambda invoice: {})
     monkeypatch.setattr(split, "dry_run", lambda: False)
     monkeypatch.setattr(split, "test_mode_note", lambda: "")
-    monkeypatch.setattr(split, "model_choice", lambda invoice, kind, designation: (accounts.get(designation), "x"))
+    monkeypatch.setattr(
+        split, "model_choice", lambda invoice, kind, designation: {"account": accounts.get(designation)}
+    )
 
     def made(invoice_id, by_rate):
         state["made"].append(by_rate)
@@ -249,7 +251,7 @@ def test_a_transit_or_customs_invoice_is_never_split(stepping, monkeypatch, kind
 @pytest.mark.functionality
 def test_too_many_different_lines_stay_on_one_account_without_asking_the_model(stepping, monkeypatch):
     asked = []
-    monkeypatch.setattr(split, "model_choice", lambda *a: asked.append(a) or (None, None))
+    monkeypatch.setattr(split, "model_choice", lambda *a: asked.append(a) or {"account": None})
     stepping["charges"] = charges(*((f"ligne {i}", 100, 20) for i in range(10)))
     stepping["untaxed"][0]["amount_ht"] = 1000.0
     result = split.split_charges(3)

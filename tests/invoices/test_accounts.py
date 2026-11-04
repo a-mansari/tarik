@@ -451,7 +451,8 @@ def test_words_naming_no_account_guide_the_choice_and_are_said(experio, monkeypa
 
     def choice(invoice, kind, designation):
         picked.append(designation)
-        return {"id": 9, "code": "61241000", "name": "Achats de carburants"}, "du gasoil pour les véhicules"
+        account = {"id": 9, "code": "61241000", "name": "Achats de carburants"}
+        return {"account": account, "reason": "du gasoil pour les véhicules", "close": [], "new": None}
 
     monkeypatch.setattr(accounts, "model_choice", choice)
     monkeypatch.setattr(accounts, "_memorized", lambda *a: pytest.fail("the client's words come before the memory"))
@@ -461,3 +462,87 @@ def test_words_naming_no_account_guide_the_choice_and_are_said(experio, monkeypa
         return
     assert picked and f"le client précise : « {words} »" in picked[0]
     assert result["status"] == "ok" and f"« {words} » ne désigne aucun compte du dossier" in result["message"]
+
+
+CHART7 = [
+    {"id": 1, "code": "71240000", "name": "Ventes de services produits au Maroc"},
+    {"id": 2, "code": "71241000", "name": "Travaux"},
+    {"id": 3, "code": "71243000", "name": "Prestations de services"},
+]
+INVOICE = {
+    "id": 5,
+    "invoice_number": "20240310",
+    "partner_id": [9, "ITM"],
+    "amount_total": 120000.0,
+    "company_id": [920, "M"],
+}
+
+
+@pytest.mark.functionality
+def test_the_models_near_accounts_and_new_one_are_kept_from_the_chart_only(monkeypatch):
+    monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: CHART7)
+    monkeypatch.setattr(accounts, "tool_prompt", lambda name: "prompt")
+    answer = {
+        "code": None,
+        "close": ["71241000", "99999999", 71243000],
+        "new": {"parent": "71240000", "name": " Terrassement "},
+    }
+    monkeypatch.setattr(accounts, "ask_model", lambda *a, **k: {**answer, "reason": "x"})
+    chosen = accounts.model_choice(INVOICE, "sale", "Terrassement")
+    assert chosen["account"] is None and [a["code"] for a in chosen["close"]] == ["71241000", "71243000"]
+    assert chosen["new"] == {"parent": CHART7[0], "name": "Terrassement"}
+    answer["new"] = {"parent": "70000000", "name": "X"}  # a parent outside the chart: no new account
+    assert accounts.model_choice(INVOICE, "sale", "Terrassement")["new"] is None
+
+
+@pytest.mark.functionality
+def test_a_new_account_takes_the_first_free_code_under_its_parent():
+    assert accounts.free_code(CHART7[0], CHART7) == "71242000"  # 71241000 and 71243000 taken, 71242000 free
+    full = [{"code": f"7124{n}000"} for n in range(1, 10)]
+    assert accounts.free_code(CHART7[0], full) is None
+
+
+@pytest.mark.communication
+def test_without_a_choice_the_client_gets_the_near_accounts_or_a_new_one_to_create(monkeypatch):
+    monkeypatch.setattr(accounts, "usable", lambda invoice_id, found: found)
+    monkeypatch.setattr(accounts, "chart", lambda company_id, *domain: CHART7)
+    several = accounts.proposals(INVOICE, "Terrassement", {"close": CHART7[1:], "new": None})
+    assert "Les plus proches : `71241000 Travaux`, `71243000 Prestations de services`." in several["message"]
+    assert several["choices"] == {2: "71241000 Travaux", 3: "71243000 Prestations de services"}
+    one = accounts.proposals(INVOICE, "Terrassement", {"close": CHART7[1:2], "new": None})
+    assert one["message"].endswith("je la passe en compte `71241000 Travaux` ? oui / non") and one["choices"] == {
+        2: "71241000 Travaux"
+    }
+    new = accounts.proposals(
+        INVOICE, "Terrassement", {"close": [], "new": {"parent": CHART7[0], "name": "Terrassement"}}
+    )
+    assert (
+        "Je crée le compte `71242000 Terrassement` (sous `71240000 Ventes de services produits au Maroc`) ? oui / non"
+        in new["message"]
+    )
+    assert new["choices"] == {"new 71242000": "71242000 Terrassement"}
+    assert "fichier n°" not in new["message"] and new["message"].startswith("Facture 20240310 (`ITM`, 120000.0 DH TTC)")
+
+
+@pytest.mark.security
+def test_a_new_account_is_created_only_on_the_clients_yes(monkeypatch):
+    calls = []
+    monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a: INVOICE)
+    monkeypatch.setattr(accounts, "invoice_context", lambda invoice: {"allowed_company_ids": [920]})
+    monkeypatch.setattr(accounts, "odoo_call", lambda *a, **k: calls.append((a, k)) or 77)
+    monkeypatch.setattr(
+        accounts,
+        "apply_account",
+        lambda invoice, account_id, why: {"status": "ok", "account": account_id, "message": why},
+    )
+    monkeypatch.setattr(accounts, "dry_run", lambda: False)
+    assert accounts.create_account(5, "71242000 Terrassement", False)["status"] == "question" and not calls
+    done = accounts.create_account(5, "71242000 Terrassement", True)
+    assert done["account"] == 77 and calls[0][0] == (
+        "exp.account",
+        "create",
+        {"code": "71242000", "name": "Terrassement", "company_id": 920},
+    )
+    monkeypatch.setattr(accounts, "dry_run", lambda: True)
+    calls.clear()
+    assert "serait créé" in accounts.create_account(5, "71242000 Terrassement", True)["message"] and not calls

@@ -212,3 +212,7 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-banques-copie-20261104.json` (and its `.diff`, against the banques export above): after a bank
   journal's answer, `skills/reponse-question.md` copies Tarik's reply with its list, no recap of the other journals and
   no request for files. Import it after the banques export.
+- `tarik-contenu-comptes-20261104.json` (and its `.diff`, against the stack's version of 2026-11-04): in
+  `tools/choose-account.md`, an account the model is unsure of gives the nearest ones (`close`), and none near gives
+  the parent and label of a new one (`new`), created only on the client's oui. Import it with the commit that reads
+  them.
