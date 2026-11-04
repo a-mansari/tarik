@@ -195,7 +195,6 @@ def correcting(monkeypatch):
     state.update(
         calls=[], filled=[], refreshed=[], found={"res.currency": [{"id": 9}], "exp.payment.method": [{"id": 4}]}
     )
-    state["found"]["res.company"] = [{"purchase_daily_limit": 5000.0, "sale_daily_limit": 20000.0}]  # Experio's own
     state["changed"] = None  # what Experio says changed: the changes themselves unless set
 
     def odoo_call(model, method, domain, **kw):
@@ -214,6 +213,7 @@ def correcting(monkeypatch):
         correct, "refresh", lambda invoice_id, context: state["refreshed"].append((invoice_id, context))
     )
     monkeypatch.setattr(correct, "dry_run", lambda: False)
+    monkeypatch.setattr(correct, "cash_limit", lambda invoice_id, context: "")  # cash within its limit unless said
     return state
 
 
@@ -275,17 +275,61 @@ def test_the_payment_method_the_client_wrote_is_taken_over_the_scans(correcting)
 
 
 @pytest.mark.communication
-@pytest.mark.parametrize(("kind", "total", "told"), [("purchase", 8000.0, True), ("purchase", 1200.0, False)])
-@pytest.mark.parametrize("side_limit", ["purchase", "sale"])
-def test_a_cash_payment_above_the_dossiers_daily_limit_is_told(correcting, kind, total, told, side_limit):
+def test_a_cash_payment_past_experios_limit_is_one_to_check(correcting, monkeypatch):
     from engine.tools.invoices import correct
 
-    correcting["invoice"].update(type=side_limit, amount_total=total if side_limit == "purchase" else total * 3)
+    monkeypatch.setattr(correct, "cash_limit", lambda invoice_id, context: "payée en espèces au-delà")
     correcting["read"] = {"payment_method": "especes"}
-    message = correct.correct_invoice(3)["message"]
-    assert ("au-delà du plafond journalier d'espèces du dossier" in message) is told
-    limit = "5000.00" if side_limit == "purchase" else "20000.00"  # each side its own limit
-    assert (f"({limit})" in message) is told
+    result = correct.correct_invoice(3)
+    assert result.get("note") and "payée en espèces au-delà" in result["message"]  # under « À vérifier »
+    monkeypatch.setattr(correct, "cash_limit", lambda invoice_id, context: "")
+    assert not correct.correct_invoice(3).get("note")
+
+
+@pytest.fixture
+def invoiced(monkeypatch):
+    """Invoice 3 as Experio holds it after the write, and Experio's get_amount_without_penalty for it."""
+    from engine.tools.invoices import correct
+
+    state = {"invoice": {"type": "purchase", "refund": False, "invoice_date": "2026-10-15", "amount_total": 2000.0}}
+    state["invoice"].update(exchange_rate=1.0, hide_exchange_rate=True)
+    state["limit"] = 1000.0  # 4 000 already paid today in cash to that supplier, of a 5 000 daily limit
+
+    def odoo_call(model, method, ids, **kw):
+        return state["limit"] if method == "get_amount_without_penalty" else [dict(state["invoice"])]
+
+    monkeypatch.setattr(correct, "odoo_call", odoo_call)
+    return state
+
+
+@pytest.mark.functionality
+def test_the_limit_is_experios_own_what_the_supplier_can_still_be_paid_in_cash(invoiced):
+    from engine.tools.invoices.correct import cash_limit
+
+    said = cash_limit(3, {})
+    assert "(2000.00 MAD)" in said and "à ce fournisseur ce jour et ce mois (1000.00 MAD)" in said
+    invoiced["limit"] = 5000.0
+    assert cash_limit(3, {}) == ""
+
+
+@pytest.mark.functionality
+def test_a_foreign_invoice_is_compared_in_mad_and_a_sale_against_its_per_receipt_limit(invoiced):
+    from engine.tools.invoices.correct import cash_limit
+
+    invoiced["invoice"].update(amount_total=1000.0, exchange_rate=10.8, hide_exchange_rate=False)  # 1 000 EUR
+    invoiced["limit"] = 5000.0
+    assert "(10800.00 MAD)" in cash_limit(3, {})
+    invoiced["invoice"].update(type="sale")
+    assert "pénalité de 6 %" in cash_limit(3, {})
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize("change", [{"refund": True}, {"invoice_date": False}])
+def test_a_credit_note_or_an_undated_invoice_is_left_out(invoiced, change):
+    from engine.tools.invoices.correct import cash_limit
+
+    invoiced["invoice"].update(change)
+    assert cash_limit(3, {}) == ""
 
 
 @pytest.mark.functionality

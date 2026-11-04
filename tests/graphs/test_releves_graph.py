@@ -55,11 +55,18 @@ def test_the_statements_are_posted_when_the_client_asks(steps):
 
 
 @pytest.mark.functionality
-@pytest.mark.parametrize("result", [{"status": "error"}, {"status": "ok", "routine": True, "statement_ids": []}])
-def test_nothing_is_pointed_nor_posted_after_a_failed_listing_or_without_statements(steps, result):
-    steps.answer("list_open_statements", result)
+def test_nothing_is_pointed_nor_posted_after_a_failed_listing(steps):
+    steps.answer("list_open_statements", {"status": "error"})
     steps.run(graph, dossier_id=5, comptabiliser="oui")
     assert steps.names == ["save_files", "check_sender", "list_open_statements", "run_summary"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(("asked", "posted"), [("oui", True), ("", False)])
+def test_without_bank_statement_the_cash_is_still_posted_when_the_client_asks(steps, asked, posted):
+    steps.answer("list_open_statements", {"status": "ok", "routine": True, "statement_ids": []})
+    steps.run(graph, dossier_id=5, comptabiliser=asked)
+    assert ("post_dossier_statements" in steps.names) is posted and "detect_statement_lines" not in steps.names
 
 
 @pytest.mark.security
