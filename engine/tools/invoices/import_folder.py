@@ -247,11 +247,15 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
                 said.append(
                     "la DUM y est jointe sans être lue : Experio ne lit une DUM que déposée sur son écran « Imports »"
                 )
-                if rule["exchange_rate"] == "dum":  # Experio falls back on Bank Al-Maghrib's (exp_invoice.py:3286-3293)
-                    said.append(
-                        "le dossier prend ses taux de change de la DUM : tant qu'elle n'est pas lue dans Experio, les "
-                        "factures en devise du dossier d'import ont celui de Bank Al-Maghrib"
-                    )
+
+    if rule["exchange_rate"] == "dum" and not dry_run():
+        # Without a DUM read, Experio takes Bank Al-Maghrib's rate (exp_invoice.py:3286-3304); reading it later
+        # changes only the folder's drafts (exp_import_folder.py:884-898).
+        said.append(
+            "le dossier prend ses taux de change de la DUM : tant qu'aucune DUM n'est lue dans Experio (écran "
+            "« Imports »), les factures en devise du dossier d'import ont le taux de « Banque Al Maghrib », et celles "
+            "comptabilisées avant la lecture le gardent"
+        )
     return ok(" ; ".join(said) + ".", invoices=invoices)
 
 

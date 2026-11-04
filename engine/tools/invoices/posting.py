@@ -95,10 +95,10 @@ def disbursements_first(invoice):
     left = unbacked_disbursement(invoice["id"], context)
     if not left:
         return None
-    # Experio never marks an invoice « Payée par transitaire » itself (is_disbursement_invoice: by hand only).
+    # Experio never marks an invoice « Payée par Transitaire » itself (is_disbursement_invoice: by hand only).
     none_marked = ""
-    if not (eligible or found["disbursement_invoice_ids"]):
-        none_marked = " (aucune facture du dossier n'est marquée « Payée par transitaire » dans Experio)"
+    if not odoo_call("exp.invoice", "search", [*folder, ("state", "!=", "cancel")], limit=1):
+        none_marked = " (aucune facture du dossier n'est marquée « Payée par Transitaire » dans Experio)"
     return (
         f"débours de {left:.2f} sans facture du dossier derrière (payée par le transitaire){none_marked}, passé au "
         "compte de débours : à justifier par le cabinet"

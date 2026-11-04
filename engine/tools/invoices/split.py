@@ -192,14 +192,11 @@ def split_charges(invoice_id: int) -> dict:
     merged. An ok result says the split made; a routine one that the invoice stays on its one account (one line, all
     lines on one account, lines not read in full, an immobilisation among them, a draft already split, a posted
     invoice). A refusal by Experio leaves the invoice on its one account, and says so."""
-    fields = ["state", "type", "invoice_type", "import_invoice_type", "company_id", "exercice_id"]
-    invoice = require_invoice(invoice_id, fields)
+    invoice = require_invoice(invoice_id, ["state", "type", "invoice_type", "company_id", "exercice_id"])
     if invoice["state"] != "draft":
         return routine(f"Facture {invoice_id} : pas un brouillon, rien à répartir.")
-    # invoice_type is Experio's for a folder's invoice only; import_invoice_type is the page's type, folder or not.
-    kind = invoice["invoice_type"] or invoice["import_invoice_type"]
-    if kind in NOT_SPLIT:
-        return routine(f"Facture {invoice_id} : facture de {kind}, un seul compte.")
+    if invoice["invoice_type"] in NOT_SPLIT:
+        return routine(f"Facture {invoice_id} : facture de {invoice['invoice_type']}, un seul compte.")
     check = stored_check(invoice_id)
     charge_lines = (check[1].get("charge_lines") if check else None) or []
     if len(charge_lines) < 2:

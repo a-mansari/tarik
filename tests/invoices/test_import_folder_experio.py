@@ -138,8 +138,9 @@ def test_a_dossier_taking_its_rates_from_the_dum_is_told_the_unread_dum_leaves_b
     assert "la DUM y est jointe sans être lue" in message and "taux de change de la DUM" not in message
     experio.rate = "dum"
     saved("imp avril.pdf", pdf(2), session="imp2"), saved("dum avril.pdf", pdf(1), session="imp2")
-    message = import_folder.create_import_folder("imp2", 857, "Voici le dossier d'import")["message"]
-    assert "le dossier prend ses taux de change de la DUM" in message
+    message = import_folder.create_import_folder("imp2", 857, "plusieurs dossiers d'import")["message"]
+    assert message.count("le dossier prend ses taux de change de la DUM") == 1  # once, whatever the folders
+    assert "celles comptabilisées avant la lecture le gardent" in message
 
 
 @pytest.mark.functionality
