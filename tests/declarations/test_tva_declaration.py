@@ -64,7 +64,7 @@ def experio(monkeypatch):
             "count_previous_deduction_ids": 0,
         },
         "done_before": 0,
-        "counts": {"draft": 0, "blocked": 0, "unpaid": 0, "suspense": 0, "fees": 0},
+        "counts": {"draft": 0, "blocked": 0, "unpaid": 0, "suspense": 0, "fees": 0, "card_fees": 0},
         "written": [],
         "calls": [],
         "refusal": None,
@@ -99,13 +99,20 @@ def experio(monkeypatch):
             if method == "search_read":  # the paid ones, their last payment's date
                 return [{"payment_date": day} for day in state.get("paid_on", [])]
             return state["counts"]["unpaid"]
-        if model == "exp.bank.statement.line":  # the period's operations in suspense, or its fees not declared
+        if model in (tva.BANK, tva.MONETARY):  # the period's operations in suspense, or its fees not declared
             fees = ("operation_type", "=", "bank_fee") in args[0]
-            many = state["counts"]["fees" if fees else "suspense"]
+            state.setdefault("operations", []).append((model, args[0]))
+            many = state["counts"]["card_fees" if model == tva.MONETARY else "fees" if fees else "suspense"]
             if method == "search_count":
                 return many
+            first = 0 if model == tva.BANK else 50  # a card terminal's fee is told apart by its id
             return [
-                {"payment_ref": f"OP {i}", "date": "2026-08-0" + str(i % 9 + 1), "amount": -10.0}
+                {
+                    "id": first + i,
+                    "payment_ref": f"OP {first + i}",
+                    "date": "2026-08-0" + str(i % 9 + 1),
+                    "amount": -10.0,
+                }
                 for i in range(min(many, kw["limit"]))
             ]
         if model == "exp.deduction.table.line" and kw.get("fields") and "line_type" in kw["fields"]:
@@ -166,7 +173,7 @@ def test_the_carried_credit_given_is_written_after_experios_refresh(experio):
 @pytest.mark.functionality
 def test_what_the_declaration_leaves_out_is_told(experio):
     experio["done_before"] = 1  # a later declaration: Experio carries the credit
-    experio["counts"] = {"draft": 2, "blocked": 1, "unpaid": 4, "suspense": 3, "fees": 0}
+    experio["counts"] = {"draft": 2, "blocked": 1, "unpaid": 4, "suspense": 3, "fees": 0, "card_fees": 0}
     message = tva.prepare_tva_declaration(857)["message"]
     assert "2 factures de la période sont encore en brouillon" in message
     assert "1 facture est bloquée" in message
@@ -333,22 +340,23 @@ def test_operations_already_in_the_declaration_are_not_listed_in_suspense(monkey
     def odoo_call(model, method, domain, **kw):
         if model == "exp.deduction.table.line":
             asked["lines"] = domain
-            fee = {"bank_statement_line_id": [31, "FRAIS"], "line_type": "bank_fee", "amount_tva_after_prorata": 2.5}
+            bank = {"bank_statement_line_id": [31, "FRAIS"], "monetary_statement_line_id": False}
+            card = {"bank_statement_line_id": False, "monetary_statement_line_id": [41, "CMI"]}
+            paid = {"bank_statement_line_id": [32, "VIR"], "monetary_statement_line_id": False}
             return [
-                fee,
-                {"bank_statement_line_id": [32, "VIR"], "line_type": "invoice", "amount_tva_after_prorata": 20.0},
+                {**bank, "line_type": "bank_fee", "amount_tva_after_prorata": 2.5},
+                {**card, "line_type": "bank_fee", "amount_tva_after_prorata": 1.5},
+                {**paid, "line_type": "invoice", "amount_tva_after_prorata": 20.0},
             ]
         asked["operations"] = domain
-        if method == "search_count":
-            return 1
-        return [{"payment_ref": "VIR ATLAS", "date": "2026-08-03", "amount": -200.0}]
+        return [{"id": 5, "payment_ref": "VIR ATLAS", "date": "2026-08-03", "amount": -200.0}]
 
     monkeypatch.setattr(tva, "odoo_call", odoo_call)
     table = {"id": 50, "start_date": "2026-07-01", "end_date": "2026-09-30"}
     inside, fee_tva, fee_lines = tva.declared_lines(table, {})
-    assert (inside, fee_tva, fee_lines) == ([31, 32], 2.5, 1)
+    assert (inside, fee_tva, fee_lines) == ({tva.BANK: [31, 32], tva.MONETARY: [41]}, 4.0, 2)
     assert ("deduction_id", "=", 50) in asked["lines"] and ("imposable_id", "=", 50) in asked["lines"]
-    assert asked["lines"][:3] == ["|", ("bank_statement_line_id", "!=", False), ("line_type", "=", "bank_fee")]
+    assert ("monetary_statement_line_id", "!=", False) in asked["lines"][:6]
     assert tva.suspense_lines(857, table, inside, {}) == (1, ["VIR ATLAS (2026-08-03, 200.00)"])
     assert ("id", "not in", [31, 32]) in asked["operations"]
 
@@ -356,14 +364,22 @@ def test_operations_already_in_the_declaration_are_not_listed_in_suspense(monkey
 @pytest.mark.functionality
 def test_the_coherence_screens_findings_and_the_bank_fees_are_told(experio):
     experio["done_before"] = 1
-    experio["counts"].update(suspense=12, fees=1)
+    experio["counts"].update(suspense=12, fees=1, card_fees=1)
     experio["declared"] = [
-        {"bank_statement_line_id": [7, "F"], "line_type": "bank_fee", "amount_tva_after_prorata": 4.0}
+        {
+            "bank_statement_line_id": [7, "F"],
+            "monetary_statement_line_id": False,
+            "line_type": "bank_fee",
+            "amount_tva_after_prorata": 4.0,
+        }
     ]
     experio["unchecked"] = [{"partner_id": 9, "source": "deduction"}, {"partner_id": 9, "source": "ras_tva_client"}]
     message = tva.prepare_tva_declaration(857)["message"]
     assert "1 frais bancaire : TVA déduite 4.00" in message
-    assert "1 frais bancaire comptabilisé de la période : OP 0 (2026-08-01, 10.00)" in message  # not declared
+    # not declared: a bank statement's fee and a card terminal's, the latter's TVA told by its tax
+    assert "2 frais bancaires comptabilisés de la période : OP 0 (2026-08-01, 10.00) ; OP 50 (2026-08-01" in message
+    (card,) = [domain for model, domain in experio["operations"] if model == tva.MONETARY]  # under 10: not counted
+    assert ("tax_id.rate", "!=", 0) in card and ("invoice_ids", "=", False) in card and ("id", "not in", []) in card
     assert "12 opérations bancaires de la période sont en suspens" in message and "; et 2 autres." in message
     assert "Tiers dont la vérification ICE/IF est désactivée dans Experio : ATLAS." in message
 

@@ -41,7 +41,17 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.model import ask_model, pdf_text, tool_prompt
 from engine.tools.core.queries import Q
-from engine.tools.core.words import LEGAL_FORMS, as_number, counted, normalized, reason, said, tiers_key
+from engine.tools.core.words import (
+    LEGAL_FORMS,
+    as_number,
+    counted,
+    listed,
+    normalized,
+    operation_phrase,
+    reason,
+    said,
+    tiers_key,
+)
 from engine.tools.core.words import reasons as reason_lines
 from engine.tools.declarations.ras import KINDS as RAS_KINDS
 from engine.tools.dossiers.banks import bank_of_rib
@@ -640,8 +650,11 @@ def ras_paid(amount, context):
         )
         withheld = next(field for field, name in spec["sums"].items() if name == "Retenue")
         fields = [withheld, "withholding_percentage"] if kind == "tva" else [withheld]
+        ids = [i for table in tables for i in table[spec["lines"]]]
+        lines = odoo_call(spec["line"], "read", ids, fields=fields, context=context) if ids else []
+        read = {line["id"]: line for line in lines}
         for table in tables:
-            lines = odoo_call(spec["line"], "read", table[spec["lines"]], fields=fields, context=context)
+            lines = [read[i] for i in table[spec["lines"]] if i in read]
             if lines and abs(round(sum(line[withheld] or 0 for line in lines), 2) - amount) <= 0.005:
                 rates = {line["withholding_percentage"] for line in lines} if kind == "tva" else {kind}
                 found.append(RAS_ACCOUNTS.get(rates.pop()) if len(rates) == 1 else None)
@@ -1113,12 +1126,15 @@ def summing(line, amount, taken, context):
     line over its invoices, verify_selected_invoices, bank_statement_line.py:4545-4564). [] when no such set, several,
     or more than MAX_OPEN invoices to try."""
     domain = ast.literal_eval(line["invoice_ids_domain"]) + [("id", "not in", list(taken))]
-    free = set(odoo_call("exp.invoice", "search", domain, context=context))
-    used = odoo_call(LINE, "search_read", [("invoice_ids", "in", list(free))], fields=["invoice_ids"], context=context)
-    free -= {i for row in used for i in row["invoice_ids"]}
-    if len(free) > MAX_OPEN:  # every free invoice counted: a set is the only one among all of them
+    owed = odoo_call("exp.invoice", "search_read", domain, fields=["amount_residual"], order="id", context=context)
+    if len(owed) < 2:
         return []
-    owed = odoo_call("exp.invoice", "read", sorted(free), fields=["amount_residual"], context=context)
+    ids = [invoice["id"] for invoice in owed]
+    used = odoo_call(LINE, "search_read", [("invoice_ids", "in", ids)], fields=["invoice_ids"], context=context)
+    used = {i for row in used for i in row["invoice_ids"]}
+    owed = [invoice for invoice in owed if invoice["id"] not in used]
+    if len(owed) > MAX_OPEN:  # every free invoice counted: a set is the only one among all of them
+        return []
     cents = round(amount * 100)
     sets = [
         [invoice["id"] for invoice in chosen]
@@ -1894,12 +1910,12 @@ def suspense(statement, context):
     none).
 
     Purchase, sale and their advance operations with payment_state unpaid or partial and not reconciled, as Experio's
-    « Suspense » screen lists them: « libellé (montant) », the first 10 then how many others.
+    « Suspense » screen lists them: « libellé (date, montant) », the first 10 then how many others.
     """
-    fields = ["state", "operation_type", "payment_state", "payment_ref", "debit", "credit", "is_reconciled"]
+    fields = ["state", "operation_type", "payment_state", "payment_ref", "date", "debit", "credit", "is_reconciled"]
     lines = odoo_call(LINE, "read", statement["line_ids"], fields=fields, context=context)
     left = [
-        f"{line['payment_ref']} ({abs((line['credit'] or 0) - (line['debit'] or 0)):.2f})"
+        operation_phrase(line, (line["credit"] or 0) - (line["debit"] or 0))
         for line in lines
         if line["state"] in POSTED
         and line.get("operation_type") in ("purchase", "sale", "purchase_advance", "sale_advance")
@@ -1908,13 +1924,12 @@ def suspense(statement, context):
     ]
     if not left:
         return ""
-    listed = ", ".join(left[:10]) + (counted(len(left) - 10, " et {} autre", " et {} autres") if len(left) > 10 else "")
     said = counted(
         len(left),
         "{} opération comptabilisée reste en suspens, payée sans facture rapprochée : ",
         "{} opérations comptabilisées restent en suspens, payées sans facture rapprochée : ",
     )
-    return f"{said}{listed}."
+    return f"{said}{listed(left)}."
 
 
 # A dossier's statements already in Experio (imported by the cabinet, or by Tarik earlier): those not posted yet, read

@@ -136,6 +136,21 @@ def counted(count, one, many):
     return (one if count <= 1 else many).format(count)
 
 
+SHOWN = 10  # the items a report names before saying how many others
+
+
+def listed(items, total=None):
+    """Return ``items`` (phrases) joined by « ; », the first SHOWN then how many others of ``total`` (default: all
+    items): listed(["A", "B"], 12) -> "A ; B ; et 10 autres"."""
+    more = (len(items) if total is None else total) - min(len(items), SHOWN)
+    return " ; ".join(items[:SHOWN]) + (counted(more, " ; et {} autre", " ; et {} autres") if more > 0 else "")
+
+
+def operation_phrase(line, amount):
+    """Return a bank operation as a report names it: « libellé (date, montant) », « sans libellé » when it has none."""
+    return f"{line['payment_ref'] or 'sans libellé'} ({line['date']}, {abs(amount or 0):.2f})"
+
+
 def reason(why):
     """Return Experio's reason ``why`` as read after a colon: its first letter lowercased unless an acronym (« TVA »,
     « IF »; « L'opération » is not one), without its final "."."""

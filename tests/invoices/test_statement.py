@@ -134,9 +134,7 @@ def experio(monkeypatch):
             return [{**row, named[0][0]: row["invoice_number"]} for row in state["labelled"]]
         if model == "exp.invoice" and ("id", "not in") in [t[:2] for t in args[0] if isinstance(t, tuple)]:
             excluded = next(t[2] for t in args[0] if isinstance(t, tuple) and t[:2] == ("id", "not in"))
-            return [row["id"] for row in state["open_invoices"] if row["id"] not in excluded]  # a tiers' (summing)
-        if model == "exp.invoice" and method == "read" and kw.get("fields") == ["amount_residual"]:
-            return [dict(row) for row in state["open_invoices"] if row["id"] in args[0]]
+            return [dict(row) for row in state["open_invoices"] if row["id"] not in excluded]  # a tiers' (summing)
         if model == "exp.invoice" and method == "read":  # an invoice's tiers
             return [{"id": i, "partner_id": state["owner"].get(i, [9, "ATLAS"])} for i in args[0]]
         if model == "exp.invoice":
@@ -612,7 +610,7 @@ def test_posting_takes_the_ready_lines_and_lists_whats_in_suspense(experio):
         result["status"] == "ok"
         and "j'ai comptabilisé 1 opération.\n- 2 opérations restent à compléter" in result["message"]
     )
-    assert "reste en suspens" in result["message"] and "VIR 1 (200.00)" in result["message"]
+    assert "reste en suspens" in result["message"] and "VIR 1 (2026-03-15, 200.00)" in result["message"]
 
 
 @pytest.mark.functionality
@@ -1584,7 +1582,8 @@ def ras_tables(monkeypatch):
             return [{field: accounts.get(field, False) for field in kw["fields"]}]
         if model == "exp.account":
             return [{"code": {31: "44570000", 32: "44558100", 33: "44558200"}[args[0][0]]}]
-        return state["lines"][model]
+        state["reads"] = state.get("reads", 0) + 1  # one read of lines per kind, all its tables'
+        return [dict(line, id=i) for i, line in zip(args[0], state["lines"][model], strict=False)]
 
     monkeypatch.setattr(statement, "odoo_call", odoo_call)
     return state
@@ -1599,6 +1598,10 @@ def test_a_payment_equal_to_one_declared_ras_names_its_account(ras_tables):
     ras_tables["lines"]["exp.withholding.table.line"] = [{"amount_withholding": 120.0}, {"amount_withholding": 80.0}]
     assert statement.ras_paid(200.0, CONTEXT_857) == "44570000"
     assert statement.ras_paid(150.0, CONTEXT_857) is None  # no declaration of that total
+    ras_tables["tables"]["exp.withholding.table"].append({"type": "is", "is_withholding_ids": [3]})
+    ras_tables["lines"]["exp.withholding.table.line"].append({"amount_withholding": 50.0})
+    ras_tables["reads"] = 0
+    assert statement.ras_paid(50.0, CONTEXT_857) == "44570000" and ras_tables["reads"] == 1  # two tables, one read
     ras_tables["accounts"]["withholding_account_id"] = [34, "44571"]  # foreign RAS IS elsewhere: the cabinet's
     assert statement.ras_paid(200.0, CONTEXT_857) is None
 
