@@ -216,3 +216,6 @@ uses another one. A stack that edited one of these documents itself loses that e
   `tools/choose-account.md`, an account the model is unsure of gives the nearest ones (`close`), and none near gives
   the parent and label of a new one (`new`), created only on the client's oui. Import it with the commit that reads
   them.
+- `tarik-contenu-conclusion-20261104.json` (and its `.diff`, against the stack's versions of 2026-11-04): in
+  `skills/traitement-documents.md` and `skills/reponse-question.md`, no closing sentence (« Tout est fait ») when
+  nothing is left to do.

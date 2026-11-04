@@ -2,8 +2,10 @@
 
 from engine.tools.core import words
 from engine.tools.core.app import ToolError, log, ok, routine, step_tool, stop, tool
+from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import DOSSIER_DOMAIN, MIN_SIMILARITY
 from engine.tools.core.experio import login, odoo_call
+from engine.tools.core.queries import Q
 
 UNAVAILABLE = "Experio n'a pas pu donner la liste des dossiers."
 
@@ -89,14 +91,14 @@ def find_dossier(name: str) -> str:
 
 
 @step_tool
-def resolve_dossier(name: str) -> dict:
+def resolve_dossier(name: str, session_id: str = "") -> dict:
     """Pick the dossier a run works in from the ``name`` the client gave (even misspelled or partial), among those
     Tarik may open first (closest_or_none).
 
     Returns:
         - a routine result with ``dossier_id`` when exactly one dossier matches at 100 %;
         - an ok result with ``dossier_id`` (and tell=True, so the choice is reported to the client) when only
-          one dossier is close;
+          one dossier is close; a routine one when conversation ``session_id`` already worked in it (told before);
         - otherwise a stop result for the client: no name given, none close, or the closest ones to choose
           among (the client's next message gives the name).
 
@@ -116,6 +118,10 @@ def resolve_dossier(name: str) -> dict:
         return routine(f"Dossier `{exact[0]['name']}`.", dossier_id=exact[0]["id"])
     if len(close) == 1:  # the only dossier near the name: taken, and the client told which
         dossier = close[0][1]
+        if session_id:
+            with cabinet_db() as db:
+                if db.execute(Q.dossier_worked_in_session, (session_id, dossier["id"])).fetchone():
+                    return routine(f"Dossier `{dossier['name']}`.", dossier_id=dossier["id"])
         return ok(
             f"Dossier `{dossier['name']}` retenu : le seul proche de « {name} ».", dossier_id=dossier["id"], tell=True
         )
