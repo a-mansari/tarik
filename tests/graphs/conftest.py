@@ -50,4 +50,11 @@ def steps(monkeypatch):
     faked = Steps()
     monkeypatch.setattr(calls, "call", faked.call)
     monkeypatch.setattr(traitement, "run_tool", faked.call)
+    faked.folder = False  # whether the new files look like an import folder (looks_like_folder)
+    monkeypatch.setattr(traitement, "looks_like_folder", lambda session_id, dossier_id, new: faked.folder)
+
+    async def within(cabinet, function, *args):  # the faked steps need no cabinet
+        return function(*args)
+
+    monkeypatch.setattr(traitement, "within", within)
     return faked

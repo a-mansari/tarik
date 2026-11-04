@@ -151,6 +151,9 @@ def test_no_activity_type_no_retenue_and_none_before_july_2024(db_cabinet, local
     local["partner"]["expense_type"] = "travaux"
     local["invoice"]["invoice_date"] = "2024-06-30"  # Experio's RAS TVA applies from 2024-07-01
     assert withholding.settle_withholding(3)["routine"] and local["written"] == []
+    local["invoice"]["invoice_date"] = "2026-06-30"
+    local["partner"]["expense_type"] = "loyer"  # Experio declares rent RAS from its rent fiches, not invoices
+    assert withholding.settle_withholding(3)["routine"] and local["written"] == []
 
 
 @pytest.mark.functionality

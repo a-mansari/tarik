@@ -33,6 +33,8 @@ class Experio:
     def __init__(self, rule="file_name", refusal=None, rate="bank_al_maghrib"):
         self.calls, self.json, self.rule, self.refusal, self.rate = [], [], rule, refusal, rate
         self.ids, self.folders = iter(range(101, 120)), iter(range(9, 20))
+        self.dum, self.written = {}, []  # what Tarik reads on a DUM (dum_values), what it writes in Experio
+        self.customs = {"customs_invoice_number": "num_liquidation", "customs_date": "date_liquidation"}
 
     def call(self, model, method, *args, **kw):
         self.calls.append((model, method))
@@ -41,12 +43,20 @@ class Experio:
                 raise self.refusal
             return {"import_invoice_type": {"selection": TYPES}}
         if model == "res.company":
-            return [{"import_folder_number": self.rule, "exchange_rate": self.rate}]
+            return [{"import_folder_number": self.rule, "exchange_rate": self.rate, **self.customs}]
         if model == "exp.invoice.import":
             return 77
+        if model == "exp.invoice" and method == "write":
+            self.written.append(("customs", args[0], args[1]))
+            return True
+        if model == "exp.invoice" and ("import_invoice_type", "=", "customs") in args[0]:
+            return [i for i in args[0][0][2] if i == 102]  # the customs one
         if model == "exp.invoice":
             assert method == "search" and args[0][1] == import_folder.TRANSIT
             return [i for i in args[0][0][2] if i == 101]  # the transit agent's
+        if model == "exp.import.folder" and method == "write":
+            self.written.append((args[0], args[1]))
+            return True
         raise AssertionError(f"unexpected {model}.{method}")
 
     def post(self, model, method, *args, **kw):
@@ -67,6 +77,7 @@ def experio(db_cabinet, monkeypatch):
     monkeypatch.setattr(import_folder, "require_dossier", lambda dossier_id: "ATLAS")
     monkeypatch.setattr(import_folder, "dry_run", lambda: False)
     monkeypatch.setattr(import_folder, "typed_page", lambda image, kinds, dossier, what: next(pages))
+    monkeypatch.setattr(import_folder, "dum_values", lambda pdf, dossier, name: dict(fake.dum))
     return fake
 
 
@@ -131,17 +142,106 @@ def test_the_files_become_one_folder_its_drafts_kept_the_transit_invoice_last(ex
 
 
 @pytest.mark.communication
-def test_a_dossier_taking_its_rates_from_the_dum_is_told_the_unread_dum_leaves_bank_al_maghribs(experio, monkeypatch):
-    pages = iter([("transit", True), ("customs", True), ("dum", True)] * 2)
+def test_the_dum_tarik_reads_sets_the_folders_rate_and_an_unread_one_leaves_bank_al_maghribs(experio, monkeypatch):
+    pages = iter([("transit", True), ("customs", True), ("dum", True)] * 3)
     monkeypatch.setattr(import_folder, "typed_page", lambda image, kinds, dossier, what: next(pages))
+    experio.dum = {"rate": 10.8523, "date": "2026-03-02", "number": "301-77"}
+    experio.customs = {"customs_invoice_number": "num_dum", "customs_date": "date_liquidation"}
     saved("imp mars.pdf", pdf(2)), saved("dum.pdf", pdf(1))
-    message = import_folder.create_import_folder("imp", 857, "Voici le dossier d'import")["message"]
-    assert "la DUM y est jointe sans être lue" in message and "taux de change de la DUM" not in message
     experio.rate = "dum"
+    message = import_folder.create_import_folder("imp", 857, "Voici le dossier d'import")["message"]
+    assert "taux de change de la DUM lu et écrit sur le dossier : 10.8523" in message
+    assert experio.written == [
+        ([9], {"exchange_rate_dum": 10.8523, "date_dum": "2026-03-02"}),
+        ("customs", [102], {"invoice_number": "301-77"}),  # the dossier numbers its customs invoices by DUM
+    ]
+    assert "Banque Al Maghrib" not in message  # every folder has its DUM's rate
+    experio.dum, experio.written = {"date": "2026-04-01"}, []  # a DUM whose rate could not be read
     saved("imp avril.pdf", pdf(2), session="imp2"), saved("dum avril.pdf", pdf(1), session="imp2")
     message = import_folder.create_import_folder("imp2", 857, "plusieurs dossiers d'import")["message"]
+    assert message.count("je n'ai pas pu lire son taux de change") == 1  # the folder with the DUM
+    error = "Le système n'a pas pu détecter le taux de change depuis la DUM."  # flagged as Experio's reading does
+    assert experio.written[0][1] == {"date_dum": "2026-04-01", "error_msg": error}
     assert message.count("le dossier prend ses taux de change de la DUM") == 1  # once, whatever the folders
-    assert "celles comptabilisées avant la lecture le gardent" in message
+    assert "« Banque Al Maghrib », et celles comptabilisées avant le gardent" in message
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("answer", "read"),
+    [
+        (
+            {"exchange_rate": 10.85, "date": "2026-03-02", "amount_declared": 1200.5, "number": " 301-2026-77 "},
+            {"rate": 10.85, "date": "2026-03-02", "amount": 1200.5, "number": "301-2026-77"},
+        ),
+        ({"exchange_rate": None, "date": "02/03/2026", "number": "301"}, {"number": "301"}),  # only what is clear
+        ({"exchange_rate": "10,85", "amount_declared": True}, {}),  # never a figure not given as a number
+    ],
+)
+def test_a_dum_gives_only_what_the_model_read_clearly(monkeypatch, answer, read):
+    monkeypatch.setattr(import_folder, "tool_prompt", lambda name: "prompt")
+    monkeypatch.setattr(import_folder, "pdf_pages", lambda raw, limit: [b"png"])
+    monkeypatch.setattr(import_folder, "ask_model", lambda system, pages, instruction, what, think: answer)
+    assert import_folder.dum_values(b"%PDF", "ATLAS", "dum.pdf") == read
+
+
+@pytest.mark.functionality
+def test_a_dum_numbers_the_folder_and_dates_its_customs_invoices_as_the_dossier_says(experio):
+    rule = {"import_folder_number": "dum_invoice", "exchange_rate": "bank_al_maghrib"}
+    rule.update(customs_invoice_number="num_liquidation", customs_date="date_dum")
+    read = {"rate": 10.85, "amount": 1200.5, "number": "301-77", "date": "2026-03-02"}
+    assert import_folder.write_dum(9, [101, 102], read, rule, {}) == 10.85
+    folder = {"exchange_rate_dum": 10.85, "amount_dum_declared": 1200.5, "date_dum": "2026-03-02"}
+    assert experio.written == [
+        ([9], {**folder, "folder_number": "301-77"}),
+        ("customs", [102], {"invoice_date": "2026-03-02"}),
+    ]
+
+
+@pytest.mark.functionality
+def test_a_dum_the_model_cannot_read_is_left_to_the_cabinet(monkeypatch):
+    def failing(*a, **k):
+        raise ToolError("le modèle ne répond pas")
+
+    monkeypatch.setattr(import_folder, "tool_prompt", lambda name: "prompt")
+    monkeypatch.setattr(import_folder, "pdf_pages", lambda raw, limit: [b"png"])
+    monkeypatch.setattr(import_folder, "ask_model", failing)
+    assert import_folder.dum_values(b"%PDF", "ATLAS", "dum.pdf") == {}
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("files", "first_pages", "found", "calls"),
+    [
+        (["a.pdf", "b.pdf"], ["supplier", "dum"], True, 2),  # a DUM among them
+        (["a.pdf", "b.pdf", "c.pdf"], ["transit", "customs", "other"], True, 2),  # stops once found
+        (["a.pdf", "b.pdf"], ["transit", "supplier"], False, 2),  # a transit agent's invoice alone: not enough
+        (["a.pdf"], ["dum"], False, 0),  # one file is never a folder unnamed: not even looked at
+    ],
+)
+def test_new_files_looking_like_an_import_folder_are_found(experio, monkeypatch, files, first_pages, found, calls):
+    typed = iter(first_pages)
+    asked = []
+    monkeypatch.setattr(import_folder, "pdf_pages", lambda raw, limit: [b"png"])
+
+    def typed_page(image, kinds, dossier, what):
+        asked.append(what)
+        return next(typed), True
+
+    monkeypatch.setattr(import_folder, "typed_page", typed_page)
+    new = [saved(name, pdf(1)) for name in files]
+    assert import_folder.looks_like_folder("imp", 857, new) is found
+    assert len(asked) == calls  # one quick look at each file's first page, at most
+
+
+@pytest.mark.functionality
+def test_only_files_just_sent_and_never_beside_another_kind_are_looked_at(experio, monkeypatch):
+    monkeypatch.setattr(import_folder, "typed_page", lambda *a: pytest.fail("no model call"))
+    earlier = [saved("dum.pdf", pdf(1)), saved("transit.pdf", pdf(1))]
+    assert not import_folder.looks_like_folder("imp", 857, [])  # files from an earlier message: not again
+    new = [saved("c.pdf", pdf(1)), saved("d.pdf", pdf(1))]
+    saved("releve.xlsx", b"x", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    assert not import_folder.looks_like_folder("imp", 857, [*earlier, *new])  # a folder would refuse the sheet
 
 
 @pytest.mark.functionality

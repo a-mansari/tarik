@@ -309,6 +309,14 @@ def is_ir_refused(values, kind):
     return f"le taux IS/IR de {rate} % ne vaut pas pour {label} (Experio prend {allowed} %) : lequel appliquer ?"
 
 
+def automatic(partner, invoice):
+    """True when Tarik turns the retenue on itself: the tiers has an activity type and the invoice is dated from
+    RAS_TVA_FROM. Not for rent: Experio leaves « loyer » out of the RAS TVA (exp_tax_withholding_table_line.py:234)
+    and declares rent RAS from its rent fiches (declaration_ras_loyer, exp.loyer.fiche), not from invoices."""
+    kind = partner["expense_type"]
+    return bool(kind) and kind != "loyer" and (invoice["invoice_date"] or "") >= RAS_TVA_FROM
+
+
 def _local(invoice, partner, answer):
     """Decide the local withholding to write (Experio's fields; the RAS TVA rate is left to Experio).
 
@@ -317,7 +325,7 @@ def _local(invoice, partner, answer):
     is dated from RAS_TVA_FROM; fees accounts (6136) without a retenue are asked their IS/IR rate.
     """
     invoice_id, tier = invoice["id"], partner["name"]
-    auto = bool(partner["expense_type"]) and (invoice["invoice_date"] or "") >= RAS_TVA_FROM
+    auto = automatic(partner, invoice)
     values = {"retenue": True} if auto else {}
     if answer:
         read = local_withholding_answer(about(invoice, tier, answer))
@@ -425,8 +433,8 @@ def settle_withholding(invoice_id: int, answer: str = "", client_message: str = 
             known = described({name: invoice[name] for name in FIELDS["local"]})
             return ok(f"Facture {invoice_id} : {known} (règle connue du tiers).")
         return routine(f"Facture {invoice_id} : sans retenue à la source.")
-    automatic = "retenue" in values and not invoice["retenue"] and partner["expense_type"]
-    why = f" (activité du fournisseur : {EXPENSE_LABEL[partner['expense_type']]})" if automatic else ""
+    turned_on = "retenue" in values and not invoice["retenue"] and partner["expense_type"]
+    why = f" (activité du fournisseur : {EXPENSE_LABEL[partner['expense_type']]})" if turned_on else ""
     return write(invoice, values, why)
 
 
@@ -443,9 +451,9 @@ def sale_withholding(invoice, answer, answering):
     waiting = certificate_step(invoice, partner, answer if answering else None)
     if waiting:
         return waiting
-    if partner["expense_type"] and (invoice["invoice_date"] or "") >= RAS_TVA_FROM:
-        automatic = "" if invoice["retenue"] else f" (activité du client : {EXPENSE_LABEL[partner['expense_type']]})"
-        return write(invoice, {"retenue": True}, automatic)
+    if automatic(partner, invoice):
+        why = "" if invoice["retenue"] else f" (activité du client : {EXPENSE_LABEL[partner['expense_type']]})"
+        return write(invoice, {"retenue": True}, why)
     if invoice["retenue"]:
         known = described({name: invoice[name] for name in FIELDS["local"]})
         return ok(f"Facture {invoice_id} : {known} (règle connue du client).")

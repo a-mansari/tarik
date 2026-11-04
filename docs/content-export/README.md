@@ -197,3 +197,6 @@ uses another one. A stack that edited one of these documents itself loses that e
   lines (`charge_lines`: designation, HT, rate), and `labels.json` names and describes the step « Répartition des
   charges » (`split_charges`). Built on the taxes export above and the labels of 2026-10-29 16:18: import it after the
   taxes export, with the commit that adds `split_charges`; before, check.py finds no words for that step.
+- `tarik-contenu-dum-20261104.json`: the new prompt `tools/read-dum.md` (the DUM of an import folder read by Tarik:
+  its exchange rate, date, declared value and number, written on the folder as Experio's own DUM reading does). A new
+  document, no diff: import it with the commit that reads the DUM; before, check.py finds no `tools/read-dum.md`.
