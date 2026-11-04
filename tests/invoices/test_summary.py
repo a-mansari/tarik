@@ -3,6 +3,7 @@ sections the client reads in order (Fait, En attente, Doublons, À corriger, Que
 
 import pytest
 
+from engine.tools.invoices import pipeline
 from engine.tools.invoices.pipeline import record_step, run_summary
 from tests import runs
 
@@ -64,8 +65,14 @@ def test_a_long_run_s_summary_keeps_what_the_client_needs_and_drops_the_rest(db_
 def test_a_draft_kept_until_the_client_says_to_post_it_waits_it_is_nothing_to_correct(db_cabinet):
     held = "Facture 14 : importée et vérifiée, laissée en brouillon. Dites-moi quand la comptabiliser."
     record_step("r", "s", "hold_posting", {"status": "stop", "message": held, "invoice_id": 14})
+    assert run_summary("r")["message"] == (  # one draft: its own line says to tell when to post it
+        "Bilan : 1 facture vérifiée laissée en brouillon.\n\n**Fait**\n"
+        "- Facture 14 : importée et vérifiée, laissée en brouillon. Dites-moi quand la comptabiliser."
+    )
+    for invoice_id in (15, 16, 17):  # four drafts: only counted
+        record_step("r", "s", "hold_posting", {"status": "stop", "message": held, "invoice_id": invoice_id})
     assert run_summary("r")["message"] == (
-        "Bilan : 1 facture vérifiée laissée en brouillon. Dites-moi quand les comptabiliser."
+        "Bilan : 4 factures vérifiées laissées en brouillon. Dites-moi quand les comptabiliser."
     )
 
 
@@ -185,7 +192,8 @@ def test_a_noted_outcome_is_shown_to_check_whatever_the_invoice_ends_at(db_cabin
     )
     summary = run_summary("r")["message"]
     assert summary == (
-        "Bilan : 1 facture vérifiée laissée en brouillon. Dites-moi quand les comptabiliser."
+        "Bilan : 1 facture vérifiée laissée en brouillon."
+        "\n\n**Fait**\n- Facture 5 : fournisseur `X`. Elle reste en brouillon : dites-moi quand la comptabiliser."
         "\n\n**À vérifier**\n- `a.pdf` : facture d'achat d'après le scan."
     )
 
@@ -219,3 +227,27 @@ def test_an_error_on_a_file_says_which_file(db_cabinet):
     record_step("r", "s", "identify_document", error)
     assert "`zip.zip › recu.pdf` : Je n'ai pas pu" not in run_summary("r")["message"]  # the head is the step's own
     assert "- `zip.zip › recu.pdf` : je n'ai pas pu identifier le document" in run_summary("r")["message"]
+
+
+@pytest.mark.communication
+def test_a_draft_given_its_account_by_the_client_says_so_with_its_number_and_amount(db_cabinet, monkeypatch):
+    label = {304998: "Facture n° 20240310 (INFORMATION TECHNOLOGY OF MOROCCO, 120 000 DH)"}
+    monkeypatch.setattr(pipeline, "labels_of", lambda outcomes: label)
+    told = "Facture 304998 : compte `71241000 Travaux` appliqué."
+    record_step("r", "s", "assign_account", {"status": "ok", "message": told, "invoice_id": 304998})
+    held = "Facture 304998 : importée et vérifiée, laissée en brouillon. Dites-moi quand la comptabiliser."
+    record_step("r", "s", "hold_posting", {"status": "stop", "message": held, "invoice_id": 304998})
+    assert run_summary("r")["message"] == (
+        "Bilan : 1 facture vérifiée laissée en brouillon.\n\n**Fait**\n"
+        "- Facture n° 20240310 (INFORMATION TECHNOLOGY OF MOROCCO, 120 000 DH) : compte `71241000 Travaux` appliqué. "
+        "Elle reste en brouillon : dites-moi quand la comptabiliser."
+    )
+    assert pipeline.dirhams(1234.5) == "1 234,50 DH" and pipeline.dirhams(0) == ""
+    assert pipeline.dirhams(1200, "EUR") == "1 200 EUR"  # amount_total is in the invoice's own currency
+
+
+@pytest.mark.communication
+def test_a_draft_whose_hold_failed_is_not_said_to_wait(db_cabinet):
+    record_step("r", "s", "hold_posting", {"status": "error", "message": "Facture 14 : boom", "invoice_id": 14})
+    summary = run_summary("r")["message"]
+    assert "Elle reste en brouillon" not in summary and "**Fait**" not in summary
