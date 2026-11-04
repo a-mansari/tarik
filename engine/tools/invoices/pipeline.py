@@ -25,6 +25,7 @@ from engine.tools.invoices.accounts import confirm_account, set_account
 from engine.tools.invoices.classify import SIDES, client_side
 from engine.tools.invoices.configuration import answer_number
 from engine.tools.invoices.exercice import settle_exercice
+from engine.tools.invoices.import_folder import transit_last
 from engine.tools.invoices.intake import BANK_QUESTION, client_kind, file_named, import_bank_statement, set_kind
 from engine.tools.invoices.prepaid import settle_prepaid
 from engine.tools.invoices.statement import is_canvas
@@ -1266,7 +1267,8 @@ def waiting_drafts(
         waiting = sorted(odoo_call("exp.invoice", "search", domain))
     if named:
         waiting = [i for i in waiting if i in named]
-    waiting = transit_last(waiting)
+    transit = [("id", "in", waiting), ("import_invoice_type", "=", "transit")]
+    waiting = transit_last(waiting, set(odoo_call("exp.invoice", "search", transit)) if waiting else set())
     billed = [i for i in billed if i not in waiting]
     if (waiting or billed) and run_id:
         with cabinet_db() as db:
@@ -1330,18 +1332,6 @@ def statements_to_resume(session_id, held):
         open_ids = set(odoo_call(model, "search", domain))
         waiting += [f for f, statement_id in mine.items() if statement_id in open_ids and f not in waiting]
     return sorted(waiting)
-
-
-def transit_last(ids):
-    """Return ``ids`` with the import folders' transit invoices last: a transit invoice takes the folder's invoices it
-    paid only once those are posted (Experio's _onchange_autofill_disbursement_invoices links posted or exported ones
-    only, exp_invoice.py:2698)."""
-    if not ids:
-        return ids
-    transit = set(
-        odoo_call("exp.invoice", "search", [("id", "in", list(ids)), ("import_invoice_type", "=", "transit")])
-    )
-    return sorted(ids, key=lambda i: i in transit)
 
 
 def facturation_drafts(dossier_id, client_message):

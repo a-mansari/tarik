@@ -172,14 +172,13 @@ def pages_pdf_all(raws):
     return pdfium(pdfs.merged, raws)
 
 
-def transit_last(made, kinds_of):
-    """Return ``made`` ([(file_id, name, invoice_id)]) with the transit agent's invoice last; ``kinds_of`` is
-    {invoice_id: import_invoice_type}.
+def transit_last(ids, transit):
+    """Return invoices ``ids`` with the import folders' transit invoices (``transit``) last.
 
     The transit invoice must come after the folder's other drafts are posted: Experio fills a transit invoice's
     disbursement invoices only with the folder's posted or exported ones
     (exp.invoice._onchange_autofill_disbursement_invoices, exp_invoice.py:2698)."""
-    return sorted(made, key=lambda item: kinds_of.get(item[2]) == "transit")
+    return sorted(ids, key=lambda i: i in transit)
 
 
 @step_tool
@@ -240,8 +239,9 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
                         Q.insert_cut_invoice_file, (session_id, name, "application/pdf", b"", file_id)
                     ).fetchone()
                     db.execute(Q.set_file_invoice, (invoice_id, part_id))
-            kinds_of = {i["id"]: i["import_invoice_type"] for i in folder_invoices([m[2] for m in made])}
-            invoices += [invoice_id for _, _, invoice_id in transit_last(made, kinds_of)]
+            ids = [invoice_id for _, _, invoice_id in made]
+            transit = {i["id"] for i in folder_invoices(ids) if i["import_invoice_type"] == "transit"}
+            invoices += transit_last(ids, transit)
             said.append(f"dossier d'import n° {folder_id} créé dans le dossier `{dossier}` : {listed}")
             if any(kind == "dum" for _, _, kind, _ in documents):
                 said.append(

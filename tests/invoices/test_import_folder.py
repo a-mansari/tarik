@@ -78,12 +78,7 @@ def test_experios_own_folder_import_sequence(monkeypatch):
 
 @pytest.mark.functionality
 def test_the_transit_agents_invoice_comes_last():
-    made = [(1, "t", 11), (1, "c", 12), (1, "s", 13)]
-    assert import_folder.transit_last(made, {11: "transit", 12: "customs"}) == [
-        (1, "c", 12),
-        (1, "s", 13),
-        (1, "t", 11),
-    ]
+    assert import_folder.transit_last([11, 12, 13], {11}) == [12, 13, 11]
 
 
 @pytest.mark.functionality
