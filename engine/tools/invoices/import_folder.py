@@ -18,7 +18,7 @@ import base64
 import re
 
 from engine.tools.core import pdfs
-from engine.tools.core.app import ToolError, ok, question, step_tool, stop
+from engine.tools.core.app import ToolError, log, ok, question, step_tool, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused, require_dossier
@@ -38,6 +38,30 @@ def folder_mode(words):
     (« dossier d'import »), and whether for one folder per file (« plusieurs dossiers », « un dossier par fichier »)."""
     words = normalized(words or "")
     return bool(FOLDER_WORDS.search(words)), bool(MULTIPLE_WORDS.search(words))
+
+
+SIGNS = ("dum", "transit", "customs")  # pages only an import folder holds
+
+
+def looks_like_folder(session_id, dossier_id):
+    """True when the conversation's new files are an import folder the client did not name: two files or more, and
+    the first page of one is a DUM, a transit agent's invoice or a customs document. One quick model call per file's
+    first page, stopping at the first sign; False on any failure: each file then goes its usual way."""
+    with cabinet_db() as db:
+        rows = db.execute(Q.folder_files_of_session, (session_id,)).fetchall()
+    rows = [row for row in rows if row[2] == "application/pdf" or row[2].startswith("image/")]
+    if len(rows) < 2:
+        return False
+    try:
+        kinds, dossier = page_types(), require_dossier(dossier_id)
+        for _, name, mime, data in rows:
+            raw = to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
+            what = f"Dossier d'import ? `{name}` page 1"
+            if typed_page(pdf_pages(raw, limit=1)[0], kinds, dossier, what)[0] in SIGNS:
+                return True
+    except Exception as error:  # a guess only: any failure leaves the files to their usual way
+        log(f"looks_like_folder {session_id}: {error!r}")
+    return False
 
 
 def page_types():
@@ -120,22 +144,27 @@ def make_folder(files, kinds, dossier, multiple):
     return folders
 
 
-def create_in_experio(dossier_id, group, documents, number_rule):
+def create_in_experio(dossier_id, dossier, group, documents, number_rule):
     """Create one import folder in Experio the way its « Imports » screen does; return (folder_id, made).
 
     Args:
         dossier_id: the dossier.
+        dossier: its name, for the model reading the DUM.
         group: the folder's files [(file_id, name, raw PDF)]: all their pages make the folder's own PDF.
         documents: [(file_id, part name, type, PDF bytes)] from make_folder.
         number_rule: the dossier's import_folder_number (res.company); "file_name" numbers the folder after the first
             file, any other rule leaves the number to Experio's reading.
 
-    Returns (folder_id, made): ``made`` is the drafts created, [(file_id, part name, invoice_id)].
+    ``made`` is the drafts created, [(file_id, part name, invoice_id)].
 
     Each document that is not a DUM or attachment (NOT_DOCUMENTS) becomes a draft through exp.invoice.import's
     action_add_documents_from_javascript, with defer_bluejay_send so its reading waits for the folder;
     create_folder_from_js links the drafts to the new folder and sends their reading (exp_import_folder.py:786). The DUM
-    and attachment pages are attached to the folder as files (action_attach_pages_from_javascript), the DUM unread."""
+    and attachment pages are attached to the folder as files (action_attach_pages_from_javascript); the DUM is then
+    read by Tarik (dum_values) and what it says written on the folder.
+
+    Returns (folder_id, made, rate): ``rate`` is the DUM's rate written, None when the folder has no DUM or its rate
+    could not be read."""
     context = {**in_dossier(dossier_id), "default_folder_type": "import"}
     wizard = odoo_call("exp.invoice.import", "create", {"type": "purchase"}, context=context)
     made = []
@@ -158,13 +187,54 @@ def create_in_experio(dossier_id, group, documents, number_rule):
     }
     folder_id = odoo_json("exp.import.folder", "create_folder_from_js", values, context=context)
     # Experio reads a DUM only from its screen: its call reads the web request's address (exp_folder_import.py:305),
-    # which an RPC call has not ("object is not bound"). The DUM is joined to the folder like an attachment page.
+    # which an RPC call has not ("object is not bound"). The DUM is joined to the folder like an attachment page,
+    # and Tarik reads it.
     attached = [{"name": name, "datas": b64(pdf)} for _, name, kind, pdf in documents if kind in ("dum", "attachment")]
     if attached:
         odoo_json(
             "exp.folder.import", "action_attach_pages_from_javascript", [wizard], attached, folder_id, context=context
         )
-    return folder_id, made
+    dums = [(name, pdf) for _, name, kind, pdf in documents if kind == "dum"]
+    values = dum_values(dums[0][1], dossier, dums[0][0], number_rule) if dums else {}
+    if values:
+        odoo_call("exp.import.folder", "write", [folder_id], values, context=context)
+    return folder_id, made, values.get("exchange_rate_dum")
+
+
+DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def dum_values(pdf, dossier, name, number_rule):
+    """Read DUM ``pdf`` with the model and return what Experio's own DUM reading writes on the folder
+    (exp_bluejay_job.py:812-834): its exchange rate, date and declared amount, and its number as the folder's when the
+    dossier numbers folders by DUM (``number_rule`` « dum_invoice »). {} when no rate could be read: the model failed
+    or read none. Writing the rate before the folder's drafts are read is enough: an invoice of a folder takes its DUM
+    rate on reading when the dossier's rule is the DUM's (_onchange_exchange_rate_values, exp_invoice.py:3291), and
+    Experio passes a new rate to the folder's drafts itself (exp.import.folder.write, exp_import_folder.py:884)."""
+    instruction = (
+        f"The importer is « {dossier} ». Answer with only a JSON object: "
+        '{"exchange_rate": <number or null>, "date": "YYYY-MM-DD" or null, "amount_declared": <number or null>, '
+        '"number": "<the DUM\'s number>" or null}'
+    )
+    try:
+        answer = ask_model(
+            tool_prompt("read-dum"), pdf_pages(pdf, limit=2), instruction, f"DUM de `{name}`", think=False
+        )
+    except ToolError as error:
+        log(f"read-dum {name}: {error}")
+        return {}
+    rate = answer.get("exchange_rate")
+    if not isinstance(rate, (int, float)) or isinstance(rate, bool) or rate <= 0:
+        return {}
+    values = {"exchange_rate_dum": float(rate)}
+    if isinstance(answer.get("date"), str) and DATE.fullmatch(answer["date"]):
+        values["date_dum"] = answer["date"]
+    amount = answer.get("amount_declared")
+    if isinstance(amount, (int, float)) and not isinstance(amount, bool) and amount > 0:
+        values["amount_dum_declared"] = float(amount)
+    if number_rule == "dum_invoice" and isinstance(answer.get("number"), str) and answer["number"].strip():
+        values["folder_number"] = answer["number"].strip()
+    return values
 
 
 def pages_pdf_all(raws):
@@ -188,8 +258,8 @@ def transit_last(ids, transit):
 def create_import_folder(session_id: str, dossier_id: int, client_message: str = "") -> dict:
     """Make the conversation's new files into an import folder in Experio, as Experio's « Imports » screen does: each
     page typed among Experio's own types (transit, douane, DUM, fournisseur, pièce jointe...), each document a draft of
-    the folder, the DUM and attachment pages attached to the folder (the DUM unread: Experio reads a DUM only from its
-    own screen).
+    the folder, the DUM and attachment pages attached to the folder, the DUM read by Tarik (Experio reads a DUM only
+    from its own screen) and its rate written on the folder.
 
     One folder for all the files, or one per file when ``client_message`` (the client's own words) says « plusieurs
     dossiers ».
@@ -226,14 +296,15 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
         kinds = page_types()
         rule = odoo_call("res.company", "read", [dossier_id], fields=["import_folder_number", "exchange_rate"])[0]
         folders = make_folder(files, kinds, dossier, multiple)
-        said, invoices = [], []
+        said, invoices, unrated = [], [], False
         for group, documents in folders:
             listed = ", ".join(f"{kinds[kind]}" for _, _, kind, _ in documents)
             if dry_run():
                 pieces = counted(len(documents), "{} pièce", "{} pièces")
                 said.append(f"{TEST_MODE}dossier d'import de {pieces} : {listed}")
                 continue
-            folder_id, made = create_in_experio(dossier_id, group, documents, rule["import_folder_number"])
+            number_rule = rule["import_folder_number"]
+            folder_id, made, rate = create_in_experio(dossier_id, dossier, group, documents, number_rule)
             with cabinet_db() as db:
                 for file_id, _, _ in group:
                     db.execute(Q.set_file_folder, (folder_id, file_id))
@@ -245,18 +316,19 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
             ids = [invoice_id for _, _, invoice_id in made]
             invoices += transit_last(ids, odoo_call("exp.invoice", "search", [("id", "in", ids), TRANSIT]))
             said.append(f"dossier d'import n° {folder_id} créé dans le dossier `{dossier}` : {listed}")
-            if any(kind == "dum" for _, _, kind, _ in documents):
-                said.append(
-                    "la DUM y est jointe sans être lue : Experio ne lit une DUM que déposée sur son écran « Imports »"
-                )
+            if rate:
+                said.append(f"taux de change de la DUM lu et écrit sur le dossier : {rate:g}")
+            elif any(kind == "dum" for _, _, kind, _ in documents):
+                said.append("la DUM y est jointe, mais je n'ai pas pu lire son taux de change : à saisir dans Experio")
+            unrated = unrated or not rate
 
-    if rule["exchange_rate"] == "dum" and not dry_run():
+    if rule["exchange_rate"] == "dum" and unrated:
         # Without a DUM read, Experio takes Bank Al-Maghrib's rate (exp_invoice.py:3286-3304); reading it later
         # changes only the folder's drafts (exp_import_folder.py:884-898).
         said.append(
-            "le dossier prend ses taux de change de la DUM : tant qu'aucune DUM n'est lue dans Experio (écran "
-            "« Imports »), les factures en devise du dossier d'import ont le taux de « Banque Al Maghrib », et celles "
-            "comptabilisées avant la lecture le gardent"
+            "le dossier prend ses taux de change de la DUM : tant que le taux d'une DUM n'est pas sur le dossier "
+            "d'import, ses factures en devise ont le taux de « Banque Al Maghrib », et celles comptabilisées avant le "
+            "gardent"
         )
     return ok(" ; ".join(said) + ".", invoices=invoices)
 

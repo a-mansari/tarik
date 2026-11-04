@@ -64,6 +64,15 @@ def test_the_words_dossier_dimport_make_the_files_one_import_folder_first(steps)
 
 
 @pytest.mark.functionality
+def test_files_looking_like_an_import_folder_make_one_without_the_clients_words(steps):
+    steps.folder = True
+    routed(steps, files=[11, 12], create_import_folder={"status": "ok", "invoices": [31]}, wait_until_read=STOP)
+    steps.run(graph, mode="files")
+    assert steps.names == [*FRONT, "create_import_folder", "wait_until_read", "run_summary"]
+    assert "identify_document" not in steps.names
+
+
+@pytest.mark.functionality
 @pytest.mark.parametrize(
     "made, following",
     [({"status": "ok", "invoices": []}, ["waiting_drafts"]), ({"status": "error"}, [])],

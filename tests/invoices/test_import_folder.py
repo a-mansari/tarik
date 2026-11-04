@@ -66,8 +66,10 @@ def test_experios_own_folder_import_sequence(monkeypatch):
         (1, "s.pdf", "supplier", pdf(1)),
         (1, "bl.pdf", "attachment", pdf(1)),
     ]
-    folder_id, made = import_folder.create_in_experio(5, [(1, "f.pdf", pdf(4))], documents, "transit_invoice")
-    assert folder_id == 9 and [m[2] for m in made] == [101, 102]
+    monkeypatch.setattr(import_folder, "dum_values", lambda pdf, dossier, name, rule: {"exchange_rate_dum": 10.8})
+    group = [(1, "f.pdf", pdf(4))]
+    folder_id, made, rate = import_folder.create_in_experio(5, "ATLAS", group, documents, "transit_invoice")
+    assert folder_id == 9 and [m[2] for m in made] == [101, 102] and rate == 10.8
     assert calls == [
         ("exp.invoice.import", "action_add_documents_from_javascript", True),  # reading held until the folder
         ("exp.invoice.import", "action_add_documents_from_javascript", True),

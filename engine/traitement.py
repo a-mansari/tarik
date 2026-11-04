@@ -11,6 +11,7 @@ One subgraph per document (a file received, or a draft taken up again) and one p
 visible node by node. They run one at a time, so two invoices of one message never race on the same tiers or
 duplicate check."""
 
+import asyncio
 import operator
 from typing import Annotated, TypedDict
 
@@ -21,7 +22,7 @@ from engine.calls import call as run_tool
 from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, stops_at, summary
 from engine.pointage import POINTING
 from engine.tools.core.conversation import mentions_attachment
-from engine.tools.invoices.import_folder import folder_mode
+from engine.tools.invoices.import_folder import folder_mode, looks_like_folder
 from engine.tools.invoices.pipeline import INVOICE_CHAIN, position
 
 INPUTS = [
@@ -59,6 +60,7 @@ class Run(Outcomes, total=False):
     route: str  # where route_message sent the message: files, answer, resume or both
     dossier_id: int  # the dossier found from the name the client gave (resolve_dossier)
     files: list
+    folder: bool  # the new files look like an import folder the client did not name (looks_like_folder)
     folder_invoices: list  # the drafts an import folder made (create_import_folder), transit agent's last
     statements: list  # the conversation's statement files to take up again (waiting_drafts)
     invoices: list
@@ -447,14 +449,22 @@ async def files(state: Run):
         asked=asked,
         client_message=state["call"].get("client_message") or "",
     )
-    return {"files": result.get("files", []), "outcomes": [result]}
+    found = result.get("files", [])
+    named = folder_mode(state["call"].get("client_message") or "")[0]
+    folder = (
+        len(found) > 1
+        and not named
+        and await asyncio.to_thread(looks_like_folder, state["call"]["session_id"], state["dossier_id"])
+    )
+    return {"files": found, "folder": folder, "outcomes": [result]}
 
 
 @stops_at("resume")
 def after_files(state: Run):
     """Route to "dossier_import" when there are new files and the client's message asks for an import folder
-    (« dossier d'import »); else route as each_file does."""
-    if not failed(state) and state["files"] and folder_mode(state["call"].get("client_message") or "")[0]:
+    (« dossier d'import ») or they look like one (looks_like_folder); else route as each_file does."""
+    named = folder_mode(state["call"].get("client_message") or "")[0]
+    if not failed(state) and state["files"] and (named or state.get("folder")):
         return "dossier_import"
     return each_file(state)
 

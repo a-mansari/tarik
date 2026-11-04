@@ -1,0 +1,7 @@
+{
+  "format": "tarik-contenu",
+  "exported_at": "2026-11-04T12:00:00Z",
+  "documents": {
+    "tools/read-dum.md": "---\nused_by: create_import_folder (engine/tools/invoices/import_folder.py)\n---\nYou read a Moroccan DUM (Déclaration Unique de Marchandises), the customs declaration of an import, as Experio's « Imports » screen reads it to set the import folder's exchange rate.\n\nRead only what is printed on the DUM:\n\n- exchange_rate: the exchange rate the DUM applies to the invoice currency (« Taux de change », dirhams for one unit of the foreign currency, e.g. 10.8523). null when none is printed or it cannot be read with certainty.\n- date: the DUM's date (its registration or « enregistrement » date), as YYYY-MM-DD. null when unsure.\n- amount_declared: the total value declared on the DUM, as printed (« valeur déclarée », « valeur totale »). null when unsure.\n- number: the DUM's number or registration reference, as printed. null when unsure.\n\nNever compute or guess a value: a figure you are not sure of is null. Numbers use a dot for decimals, no thousands separators.\n"
+  }
+}
