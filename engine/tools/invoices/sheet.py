@@ -19,7 +19,7 @@ from engine.tools.core.app import ok, question, step_tool, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, require_dossier
-from engine.tools.core.words import as_number, counted, normalized
+from engine.tools.core.words import as_number, counted, listed, normalized
 from engine.tools.dossiers.setup import (
     IMPORT_OPTIONS,
     Refused,
@@ -200,7 +200,7 @@ def import_invoice_sheet(
         if same and not keep_duplicates:
             return question(
                 f"`{name}` : {counted(len(same), '{} facture existe', '{} factures existent')} déjà dans le dossier "
-                f"`{dossier}` (ou deux fois dans le fichier) : {', '.join(same[:10])}. Je n'ai rien importé. Dites-moi "
+                f"`{dossier}` (ou deux fois dans le fichier) : {listed(same)}. Je n'ai rien importé. Dites-moi "
                 "de les importer quand même si vous le voulez.",
                 file_id=file_id,
             )
@@ -222,7 +222,7 @@ def import_invoice_sheet(
         return stop(str(refusal), file_id=file_id)
     taken(file_id)
     ids = result.get("ids") or []
-    note = f" Déjà présentes, importées à votre demande : {', '.join(same[:10])}." if same else ""
+    note = f" Déjà présentes, importées à votre demande : {listed(same)}." if same else ""
     return ok(
         f"{LABEL} `{name}` : {counted(len(ids), '{} brouillon créé', '{} brouillons créés')} dans le dossier "
         f"`{dossier}`. Colonnes lues : {used}.{note}",

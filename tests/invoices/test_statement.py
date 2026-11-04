@@ -132,9 +132,9 @@ def experio(monkeypatch):
         named = [t for t in args[0] if isinstance(t, tuple) and t[0] in by_label and t[1] == "ilike"]
         if model == "exp.invoice" and method == "search_read" and named:  # the invoices a label's number names
             return [{**row, named[0][0]: row["invoice_number"]} for row in state["labelled"]]
-        if model == "exp.invoice" and ("id", "not in") in [t[:2] for t in args[0] if isinstance(t, tuple)]:
-            excluded = next(t[2] for t in args[0] if isinstance(t, tuple) and t[:2] == ("id", "not in"))
-            return [dict(row) for row in state["open_invoices"] if row["id"] not in excluded]  # a tiers' (summing)
+        if model == "exp.invoice" and kw.get("fields") == ["amount_residual"]:  # a tiers' open invoices (summing)
+            state["summing_reads"] = state.get("summing_reads", 0) + 1
+            return [dict(row) for row in state["open_invoices"]]
         if model == "exp.invoice" and method == "read":  # an invoice's tiers
             return [{"id": i, "partner_id": state["owner"].get(i, [9, "ATLAS"])} for i in args[0]]
         if model == "exp.invoice":
@@ -1644,6 +1644,7 @@ def test_a_line_paying_several_invoices_of_its_tiers_gets_the_one_set_adding_up_
     ]
     pointed()
     assert ([2], {"invoice_ids": [(4, 71), (4, 72)]}) in experio["written"]
+    assert experio["summing_reads"] == 1  # both lines' tiers picker: its invoices read once for the statement
 
 
 @pytest.mark.functionality
