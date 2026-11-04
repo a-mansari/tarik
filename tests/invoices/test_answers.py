@@ -851,13 +851,12 @@ def test_a_suppliers_answer_goes_to_each_of_its_invoices_asking_the_same_thing()
 @pytest.mark.functionality
 def test_a_yes_to_a_new_account_creates_it_and_a_yes_to_an_account_confirms_it(monkeypatch):
     made = []
-    monkeypatch.setattr(
-        pipeline, "create_account", lambda i, label, yes: made.append(("new", i, label, yes)) or ok("créé")
-    )
-    monkeypatch.setattr(
-        pipeline, "confirm_account", lambda i, a, yes: made.append(("confirm", i, a, yes)) or ok("confirmé")
-    )
-    item = {"step": "assign_account", "invoice_id": 5, "choices": {"new 71242000": "71242000 Terrassement"}}
+    monkeypatch.setattr(pipeline, "create_account", lambda i, parent, label, yes: made.append(("new", i, parent, yes)))
+    monkeypatch.setattr(pipeline, "confirm_account", lambda i, a, yes: made.append(("confirm", i, a, yes)))
+    monkeypatch.setattr(pipeline, "set_account", lambda i, answer, choices=None: made.append(("set", i, choices)))
+    item = {"step": "assign_account", "invoice_id": 5, "choices": {"new 71240000": "71242000 Terrassement"}}
     pipeline.answer_invoice(item, "oui", "")
     pipeline.answer_invoice({**item, "choices": {"2": "71241000 Travaux"}}, "ok", "oui")
-    assert made == [("new", 5, "71242000 Terrassement", True), ("confirm", 5, 2, True)]
+    several = {"2": "71241000 Travaux", "3": "71243000 Prestations de services"}
+    pipeline.answer_invoice({**item, "choices": several}, "le deuxième", "")
+    assert made == [("new", 5, "71240000", True), ("confirm", 5, 2, True), ("set", 5, several)]

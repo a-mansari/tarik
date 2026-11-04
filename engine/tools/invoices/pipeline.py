@@ -849,9 +849,11 @@ def answer_invoice(item, answer, decision):
         settled = yes_no(decision) if yes_no(decision) is not None else yes_no(answer)
         key, label = next(iter(proposed.items()))
         if settled is not None and str(key).startswith("new "):
-            return create_account(item["invoice_id"], label, settled)
+            return create_account(item["invoice_id"], str(key).removeprefix("new "), label, settled)
         if settled is not None:
             return confirm_account(item["invoice_id"], int(key), settled)
+    if step == "assign_account" and len(proposed) > 1:  # the near accounts listed: picked among them first
+        return set_account(item["invoice_id"], answer, choices=proposed)
     if step == "link_tiers":
         return apply(item["invoice_id"], decision, answer, item["choices"])  # the tiers the question proposed
     if step in ("settle_exercice", "settle_warnings"):  # their words, and what the agent read in them

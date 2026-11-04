@@ -183,21 +183,28 @@ def model_choice(invoice, kind, designation):
     }
 
 
-def free_code(parent, accounts):
-    """Return the first code free under account ``parent`` ({code}) in ``accounts`` (the chart), at its length: its
-    code without the trailing zeros, one digit more (71240000 -> 71241000, 71242000...); None when all nine are
-    taken."""
-    stem, length = parent["code"].rstrip("0") or parent["code"], len(parent["code"])
+def chart_length(company_id, code):
+    """Return the length of the dossier's account codes (accounts_chart_length), else that of ``code``."""
+    found = odoo_call("res.company", "read", [company_id], fields=["accounts_chart_length"])[0]
+    return found["accounts_chart_length"] or len(code)
+
+
+def free_code(parent, accounts, length):
+    """Return the first code free under account ``parent`` ({code}) in ``accounts`` (the chart): its code without the
+    trailing zeros and one digit more, at the dossier's ``length`` (71240000 -> 71241000, 71242000...). None when all
+    nine are taken, or when the parent is too broad (under 4 digits: 6140 + 1 would be 6141, CGNC's Transports)."""
+    stem = parent["code"].rstrip("0")
+    if len(stem) < 4:
+        return None
     taken = {a["code"] for a in accounts}
-    return next(
-        (f"{stem}{n}".ljust(length, "0") for n in range(1, 10) if f"{stem}{n}".ljust(length, "0") not in taken), None
-    )
+    codes = (f"{stem}{n}".ljust(length, "0") for n in range(1, 10))
+    return next((code for code in codes if code not in taken), None)
 
 
 def proposals(invoice, designation, chosen):
     """Return the question result when the model chose no account: the near accounts the invoice can take to choose
     from (one: oui / non), else a new account under the right parent to create on the client's oui (choices
-    {"new <code>": "<code> <name>"}: create_account), else the plain question."""
+    {"new <parent code>": "<code> <name>"}: create_account), else the plain question."""
     facture = invoice_named(invoice)
     near = usable(invoice["id"], chosen["close"]) if chosen["close"] else []
     if len(near) == 1:
@@ -209,32 +216,65 @@ def proposals(invoice, designation, chosen):
             f"{facture} : quel compte pour « {designation} » ? Les plus proches : {listed}.",
             choices={a["id"]: f"{a['code']} {a['name']}" for a in near},
         )
-    new = chosen["new"]
-    code = new and free_code(new["parent"], chart(invoice["company_id"][0]))
+    new, company = chosen["new"], invoice["company_id"][0]
+    code = new and free_code(new["parent"], chart(company), chart_length(company, new["parent"]["code"]))
     if code:
         label = f"{code} {new['name']}"
         return question(
             f"{facture} : aucun compte du dossier ne convient à « {designation} ». Je crée le compte `{label}` "
             f"(sous `{new['parent']['code']} {new['parent']['name']}`) ? oui / non",
-            choices={f"new {code}": label},
+            choices={f"new {new['parent']['code']}": label},
         )
     return question(account_question(invoice, designation))
 
 
-def create_account(invoice_id, proposed, confirmed):
-    """Apply the client's oui / non to the new account proposals asked to create (``proposed``: "<code> <name>"): oui
-    creates it in the dossier as Experio's form does (exp.account create: code, name, dossier; Experio sets its type
-    and group from the code) and puts it on the invoice; non asks which account to use instead."""
+def create_account(invoice_id, parent_code, proposed, confirmed):
+    """Apply the client's oui / non to the new account proposals asked to create (``proposed``: "<code> <name>", under
+    account ``parent_code``): oui creates it in the dossier as Experio's form does (exp.account create: code, name,
+    dossier; Experio sets its type and group from the code) and puts it on the invoice; non asks which account to use
+    instead. The chart is read again first: an account of that name under the parent, made since (another invoice's
+    oui), is taken as it is, and a code taken since gives the next free one."""
     if not confirmed:
         return question(f"Facture {invoice_id} : quel compte utiliser alors (code ou intitulé) ?")
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
-    code, _, name = proposed.partition(" ")
+    company = invoice["company_id"][0]
+    name = proposed.partition(" ")[2]
+    accounts = chart(company)
+    stem = parent_code.rstrip("0")
+    made = next((a for a in accounts if a["code"].startswith(stem) and a["name"] == name), None)
+    parent = next((a for a in accounts if a["code"] == parent_code), {"code": parent_code})
+    code = made["code"] if made else free_code(parent, accounts, chart_length(company, parent_code))
+    if not code:
+        return question(f"Facture {invoice_id} : plus de code libre sous `{parent_code}`. Quel compte utiliser ?")
+    why = "compte créé à votre demande"
+    if code.startswith("2"):  # an immobilisation, as assign_account says it
+        why += " ; immobilisé et amorti, pas en charge : dites-moi si c'est une charge"
     if dry_run():
-        return ok(f"{TEST_MODE}Facture {invoice_id} : le compte `{proposed}` serait créé et appliqué.")
-    with refused(f"create_account {code}", f"Facture {invoice_id} : Experio a refusé de créer le compte `{proposed}`."):
-        values = {"code": code, "name": name, "company_id": invoice["company_id"][0]}
+        return ok(f"{TEST_MODE}Facture {invoice_id} : le compte `{code} {name}` serait créé et appliqué.")
+    if made:
+        return apply_account(invoice, made["id"], why)
+    with refused(f"create_account {code}", f"Facture {invoice_id} : Experio a refusé de créer le compte `{code}`."):
+        values = {"code": code, "name": name, "company_id": company}
         account_id = odoo_call("exp.account", "create", values, context=invoice_context(invoice))
-    return apply_account(invoice, account_id, "compte créé à votre demande")
+    return apply_account(invoice, account_id, why)
+
+
+POSITIONS = {"premier": 0, "1er": 0, "deuxieme": 1, "second": 1, "2e": 1, "troisieme": 2, "3e": 2}
+
+
+def among(choices, answer):
+    """Return the account of ``choices`` ({id: "<code> <name>"}, those a question listed) the client's ``answer``
+    picks: by its place (« le deuxième »), its code or its name; None when it names none of them alone."""
+    listed = [
+        {"id": int(i), "code": label.split(" ", 1)[0], "name": label.partition(" ")[2]} for i, label in choices.items()
+    ]
+    words = normalized(answer).split()
+    places = {POSITIONS[w] for w in words if w in POSITIONS} | ({len(listed) - 1} if "dernier" in words else set())
+    if len(places) == 1 and min(places) < len(listed):
+        return listed[min(places)]
+    return resolve_account(listed, answer) or next(
+        (a for a in listed if normalized(a["name"]) in normalized(answer)), None
+    )
 
 
 @step_tool
@@ -393,19 +433,21 @@ def account_meant(accounts, answer):
 
 
 @with_ids
-def set_account(invoice_id, answer, confirm=False):
+def set_account(invoice_id, answer, confirm=False, choices=None):
     """Put the account the client asked for on a draft invoice (their reply to assign_account's question).
 
     ``answer``: a code ("6111", "61110000") or a label ("achats de marchandises") on its own, else a sentence the
     model reads; only accounts Experio offers without a warning count (usable). Returns an ok result once applied,
     or a question result asking again when it names no single account. ``confirm``: the account was given for
     this invoice while answering about another: a question result asks the client to confirm it (oui / non), never
-    applied on their sentence alone. Raises ToolError when ``answer`` is empty."""
+    applied on their sentence alone. ``choices``: the near accounts the question listed ({id: label}), read first
+    (« le deuxième », « travaux »). Raises ToolError when ``answer`` is empty."""
     if not (answer or "").strip():
         raise ToolError("answer manquant : le code ou l'intitulé donne par le client.")
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     accounts = usable(invoice_id, chart(invoice["company_id"][0]))
-    account = resolve_account(accounts, answer) or account_meant(accounts, answer)
+    picked = among(choices, answer) if choices else None  # the near accounts the question listed (proposals)
+    account = picked or resolve_account(accounts, answer) or account_meant(accounts, answer)
     if account and confirm:
         label = f"{account['code']} {account['name']}"
         return question(
