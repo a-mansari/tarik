@@ -30,6 +30,7 @@ from engine.tools.invoices.exercice import with_fiscal_year
 from engine.tools.invoices.tiers import ensure_tiers_account
 
 RETRIES, PAUSE = 3, 1.0  # the check can lag right after a refresh
+BANK_LINE = "exp.bank.statement.line"
 ACCOUNT = {
     "purchase": ("third_party_supplier_account", "fournisseur"),
     "sale": ("third_party_customer_account", "client"),
@@ -108,6 +109,28 @@ def unbacked_disbursement(invoice_id, context):
     domain.append(("linked_disbursement_invoice_id", "=", False))
     lines = odoo_call("exp.invoice.line", "search_read", domain, fields=["amount_ht"], context=context)
     return round(sum(line["amount_ht"] for line in lines), 2)
+
+
+def paid_before(invoice_id, context):
+    """Tie invoice ``invoice_id``, just posted, to the one posted bank payment waiting for it: a purchase (or sale)
+    operation of its tiers, of exactly its amount, with no invoice and unpaid (in suspense, as Experio's « Suspense »
+    screen lists them). Writing its invoice_ids reconciles them, posted or not (bank_statement_line.py write ->
+    reconcile_invoice_ids). Return a French phrase, "" when none or several (left to the cabinet). A credit note is
+    left out (its payment goes the other way)."""
+    fields = ["type", "refund", "partner_id", "amount_residual", "company_id"]
+    invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=fields, context=context)[0]
+    if invoice["refund"] or not invoice["partner_id"] or invoice["type"] not in ("purchase", "sale"):
+        return ""
+    amount, way = round(invoice["amount_residual"], 2), "debit" if invoice["type"] == "purchase" else "credit"
+    domain = [("company_id", "=", invoice["company_id"][0]), ("state", "in", list(POSTED))]
+    domain += [("operation_type", "=", invoice["type"]), ("partner_id", "=", invoice["partner_id"][0])]
+    domain += [("invoice_ids", "=", False), ("payment_state", "=", "unpaid"), (way, "=", amount)]
+    found = odoo_call(BANK_LINE, "search_read", domain, fields=["payment_ref", "date"], context=context)
+    if len(found) != 1 or not amount:
+        return ""
+    if not dry_run():
+        odoo_call(BANK_LINE, "write", [found[0]["id"]], {"invoice_ids": [(4, invoice_id)]}, context=context)
+    return f"rapprochée du paiement déjà comptabilisé « {found[0]['payment_ref']} » du {found[0]['date']}"
 
 
 def auto_merge(invoice):
@@ -207,7 +230,13 @@ def post_invoice(invoice_id: int) -> dict:
             return stop(f"Facture {invoice_id} : {CRASHED}")
         return stop(f"Facture {invoice_id} : Experio a refusé la comptabilisation : {experio_refusal(error)}")
     if after["state"] in POSTED:
-        return ok(f"Facture {invoice_id} : comptabilisée.{told}{noted}")
+        try:  # posted already: a payment that cannot be tied stays the cabinet's, the posting stands
+            tied = paid_before(invoice_id, context)
+        except Exception as error:
+            log(f"post_invoice {invoice_id}: paid_before: {error}")
+            tied = ""
+        tied = f" Elle est {tied}." if tied else ""
+        return ok(f"Facture {invoice_id} : comptabilisée.{told}{noted}{tied}")
     # A window instead of the posting (a closed earlier exercice, a move's confirmation): over RPC nobody answers.
     if isinstance(action, dict) and action.get("res_model"):
         log(f"post_invoice {invoice_id}: action_post opened {action.get('res_model')}")

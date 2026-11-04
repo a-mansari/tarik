@@ -19,6 +19,7 @@ import re
 import time
 from collections import Counter, defaultdict
 from datetime import date, timedelta
+from itertools import combinations
 
 import openpyxl
 
@@ -226,7 +227,7 @@ def named_invoices(statement, words, context):
         for c in offered:
             if len(accepted) > 1:
                 break  # two the form accepts: the line gets none, no need to try more
-            values, reason = typed_in(line, c["id"], context)
+            values, reason = typed_in(line, [c["id"]], context)
             if values:
                 accepted.append((c["id"], values))
             else:
@@ -309,7 +310,7 @@ def label_invoices(statement, lines, context):
         if len(found) != 1:
             continue
         invoice_id = found.pop()
-        values, _ = typed_in(line, invoice_id, context)
+        values, _ = typed_in(line, [invoice_id], context)
         if values:
             if not dry_run():
                 odoo_call(LINE, "write", [line["id"]], values, context=context)
@@ -379,8 +380,8 @@ def label(line):
     return line["payment_ref"] or f"{line['date']} {abs((line['credit'] or 0) - (line['debit'] or 0)):.2f}"
 
 
-def typed_in(line, invoice_id, context):
-    """Choose invoice ``invoice_id`` in statement ``line``'s form; saves nothing.
+def typed_in(line, invoice_ids, context):
+    """Choose invoices ``invoice_ids`` (a list) in statement ``line``'s form; saves nothing.
 
     Experio's onchange on invoice_ids (_onchange_invoice_ids, bank/models/bank_statement_line.py:2138-2160) runs
     verify_selected_invoices (:4478-4596: the invoice's account matches the operation's, it is posted, it goes the
@@ -391,14 +392,14 @@ def typed_in(line, invoice_id, context):
     onchange, and a purchase/sale line without tiers stays draft) and "", or None and Experio's reason when its form
     refuses the invoice. Raises Experio's other errors (ExperioRefusal), which are not a refusal of the invoice.
     """
-    form = {"invoice_ids": [(6, 0, [invoice_id])]}
+    form = {"invoice_ids": [(6, 0, invoice_ids)]}
     try:
         type_in(LINE, line["id"], form, "invoice_ids", ("invoice_ids", "partner_id"), context)
     except ExperioRefusal as refusal:
         if refusal.name not in CHECK_REFUSALS:
             raise
         return None, experio_refusal(refusal)
-    values = {"invoice_ids": [(4, invoice_id)]}
+    values = {"invoice_ids": [(4, i) for i in invoice_ids]}
     if not line["partner_id"] and form.get("partner_id"):
         values["partner_id"] = form["partner_id"]
     return values, ""
@@ -545,6 +546,50 @@ RAS_ACCOUNTS = {
 RAS_RECENT = 6  # the dossier's latest declared tables of each kind a payment may settle
 
 
+def fee_pairs(lines, operations):
+    """Return {line id: (operation, TVA to write or None)} for the bank's fee lines and their TVA lines among ``lines``.
+
+    A bank prints a commission and its TVA as two lines of one date (« COMMISSION SUR VIREMENT » 20.00, « TVA SUR
+    COMMISSION » 2.00). As on a TPE statement (tpe.py, Experio's own table): the commission takes the dossier's HT bank
+    fee operation (6147, frais_without_tax, with its 10 % tax: Experio books the TVA on top, get_tax_debit_and_credit),
+    its TVA written as printed (the line's tax_amount, over the rate's rounding); the TVA line takes « Taxe Bancaire »
+    (bank_fee, tax), which posts nothing (should_generate_move). A TVA line pairs only with the one fee line of its date
+    whose 10 % it is; the dossier needs both operations."""
+    fee = next(
+        (
+            o
+            for o in operations.values()
+            if o["type"] == "bank_fee"
+            and o.get("bank_type") == "frais_without_tax"
+            and o.get("tax_id")
+            and o["account_id"]
+            and o["account_id"][1].startswith("6147")
+        ),
+        None,
+    )
+    tax = next((o for o in operations.values() if o["type"] == "bank_fee" and o.get("bank_type") == "tax"), None)
+    if not (fee and tax):
+        return {}
+    paid = [line for line in lines if side(line) == "outbound" and line["payment_ref"]]
+    is_tva = {line["id"]: said("tva", normalized(line["payment_ref"])) for line in paid}
+    found = {}
+    for line in paid:
+        words = normalized(line["payment_ref"])
+        if not is_tva[line["id"]] or said("dgi", words):
+            continue
+        tva = amount_of_line(line)
+        fees = [
+            other
+            for other in paid
+            if not is_tva[other["id"]]
+            and other["date"] == line["date"]
+            and abs(round(amount_of_line(other) * 0.1, 2) - tva) <= 0.02
+        ]
+        if len(fees) == 1 and fees[0]["id"] not in found:
+            found[line["id"]], found[fees[0]["id"]] = (tax, None), (fee, tva)
+    return found
+
+
 def ras_paid(amount, context):
     """Return the account code of the one declared RAS of the dossier whose total withheld is ``amount``, None when
     none or several. Only Experio's declared tables (state done), the RAS_RECENT latest of each kind; a RAS TVA whose
@@ -678,9 +723,11 @@ def chosen_operations(statement, lines, context):
             "operation": operation if operation in operations else None,
             "payment_method": method if method in methods else None,
         }
-    ruled = {}  # what the label's own words settle (label_operation), before the model is asked
-    for line in asked:
-        if not line["operation_id"] and not memorized[line["id"]]["operation"]:
+    unsettled = [line for line in asked if not line["operation_id"] and not memorized[line["id"]]["operation"]]
+    pairs = fee_pairs(unsettled, operations)  # a bank fee and its TVA line
+    ruled = {i: (operation, None) for i, (operation, _) in pairs.items()}  # what the label's own words settle
+    for line in unsettled:
+        if line["id"] not in ruled:
             found, tiers = label_operation(line, operations, context)
             if found:
                 ruled[line["id"]] = (found, tiers)
@@ -748,6 +795,8 @@ def chosen_operations(statement, lines, context):
             }
             if label_tiers and "partner_id" not in values:
                 values["partner_id"] = label_tiers
+            if pairs.get(line["id"], (None, None))[1] and operation is pairs[line["id"]][0]:
+                values["tax_amount"] = pairs[line["id"]][1]  # the TVA as the bank printed it
         kind = operation["type"] if values else line["operation_type"]
         if kind == "purchase" and (values or not line["exp_payment_method_id"]):
             method = choice.get("payment_method")
@@ -975,7 +1024,8 @@ def owed_invoices(statement, lines, context):
     is searched among every tiers' invoices, and the invoice gives it its tiers (a cheque line names none). Two such
     invoices: none (the detection takes the first; Tarik leaves it to the cabinet), except that a line with no tiers
     yet still gets the tiers when all those invoices are one tiers' (a cheque paying one of three equal invoices of
-    the same supplier names the supplier). The line's form must accept it (typed_in).
+    the same supplier names the supplier). A line of a known tiers that no one invoice explains gets the one set of
+    its open invoices adding up exactly to its amount (summing). The line's form must accept it (typed_in).
 
     Returns (how many lines got an invoice, how many only a tiers), counted also in test mode, where nothing is
     written.
@@ -998,16 +1048,50 @@ def owed_invoices(statement, lines, context):
                 if not dry_run():
                     odoo_call(LINE, "write", [line["id"]], {"partner_id": owners.pop()}, context=context)
                 only_tiers += 1
-        if len(found) != 1:
+        if len(found) == 1:
+            chosen = [found.pop()]
+        elif not found and line["partner_id"]:
+            chosen = summing(line, amount, taken, context)
+        else:
             continue
-        invoice_id = found.pop()
-        values, _ = typed_in(line, invoice_id, context)
+        if not chosen:
+            continue
+        values, _ = typed_in(line, chosen, context)
         if values:
             if not dry_run():
                 odoo_call(LINE, "write", [line["id"]], values, context=context)
-            taken.add(invoice_id)
+            taken.update(chosen)
             given += 1
     return given, only_tiers
+
+
+MAX_OPEN = 12  # a tiers' open invoices searched for a set paying a line: 4096 sets at most
+
+
+def summing(line, amount, taken, context):
+    """Return the one set of two or more open invoices of ``line``'s tiers (its invoice picker's, on no statement
+    line, not in ``taken``) whose amounts owed add up exactly to ``amount``: the line pays them all (Experio spreads a
+    line over its invoices, verify_selected_invoices, bank_statement_line.py:4545-4564). [] when no such set, several,
+    or more than MAX_OPEN invoices to try."""
+    domain = ast.literal_eval(line["invoice_ids_domain"]) + [("id", "not in", list(taken))]
+    owed = odoo_call(
+        "exp.invoice", "search_read", domain, fields=["amount_residual"], limit=MAX_OPEN + 1, context=context
+    )
+    used = odoo_call(
+        LINE, "search_read", [("invoice_ids", "in", [i["id"] for i in owed])], fields=["invoice_ids"], context=context
+    )
+    busy = {i for row in used for i in row["invoice_ids"]}
+    owed = [i for i in owed if i["id"] not in busy]
+    if len(owed) > MAX_OPEN:
+        return []
+    cents = round(amount * 100)
+    sets = [
+        [invoice["id"] for invoice in chosen]
+        for size in range(2, len(owed) + 1)
+        for chosen in combinations(owed, size)
+        if sum(round(invoice["amount_residual"] * 100) for invoice in chosen) == cents
+    ]
+    return sets[0] if len(sets) == 1 else []
 
 
 LEDGER_DAYS = 400  # how far back a supplier entry still explains a payment

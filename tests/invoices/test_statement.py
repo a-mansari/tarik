@@ -72,6 +72,7 @@ def experio(monkeypatch):
         "post": None,
     }
     state.update(
+        open_invoices=[],
         history=[],
         open=[40],
         owed=[],
@@ -129,6 +130,8 @@ def experio(monkeypatch):
         named = [t for t in args[0] if isinstance(t, tuple) and t[0] in by_label and t[1] == "ilike"]
         if model == "exp.invoice" and method == "search_read" and named:  # the invoices a label's number names
             return [{**row, named[0][0]: row["invoice_number"]} for row in state["labelled"]]
+        if model == "exp.invoice" and method == "search_read" and kw.get("limit"):  # a tiers' open invoices (summing)
+            return [dict(row) for row in state["open_invoices"]]
         if model == "exp.invoice" and method == "read":  # an invoice's tiers
             return [{"id": i, "partner_id": state["owner"].get(i, [9, "ATLAS"])} for i in args[0]]
         if model == "exp.invoice":
@@ -911,8 +914,50 @@ def unpointed(experio, **line):
         {"id": 13156, "name": "Frais bancaires", "type": "bank_fee", "payment_type": False, "account_id": [3, "6147"]},
     ]
     for operation in experio["operations"]:
-        operation["error_msg"] = False
+        operation.update(error_msg=False, bank_type=False, tax_id=False)
     return experio["lines"][1]
+
+
+def with_fee_operations(experio):
+    """The dossier's HT bank fee operation (61473, 10 % on top) and « Taxe Bancaire », as Experio's table makes them."""
+    experio["operations"] += [
+        {"id": 5101, "name": "Frais Bancaire (HT)", "type": "bank_fee", "payment_type": "outbound"}
+        | {"bank_type": "frais_without_tax", "tax_id": [52, "TVA 10%"], "account_id": [6, "614730000 FRAIS"]}
+        | {"error_msg": False},
+        {"id": 5102, "name": "Taxe Bancaire", "type": "bank_fee", "payment_type": "outbound"}
+        | {"bank_type": "tax", "tax_id": False, "account_id": False, "error_msg": False},
+    ]
+
+
+@pytest.mark.functionality
+def test_a_bank_commission_and_its_tva_line_take_the_ht_fee_and_the_bank_tax(experio):
+    unpointed(experio, payment_ref="COMMISSION SUR VIREMENT", debit=20.0, date="2026-03-15")
+    experio["lines"][2].update(operation_id=False, operation_type=False, exp_payment_method_id=False)
+    experio["lines"][2].update(payment_ref="TVA SUR COMMISSION", debit=2.01, credit=0.0, date="2026-03-15")
+    with_fee_operations(experio)
+    pointed()
+    assert ([2], {"operation_id": 5101, "tax_amount": 2.01}) in experio["written"]  # the TVA as printed
+    assert ([3], {"operation_id": 5102}) in experio["written"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "tva_line",
+    [
+        {"debit": 5.0},  # not 10 % of the commission
+        {"date": "2026-03-16"},  # another day
+        {"payment_ref": "TVA DGI MARS"},  # a tax paid, not a fee's TVA
+    ],
+)
+def test_a_tva_line_pairs_only_with_the_fee_it_is_ten_percent_of_that_day(experio, tva_line):
+    unpointed(experio, payment_ref="COMMISSION SUR VIREMENT", debit=20.0, date="2026-03-15")
+    experio["lines"][2].update(operation_id=False, operation_type=False, exp_payment_method_id=False)
+    experio["lines"][2].update(payment_ref="TVA SUR COMMISSION", debit=2.0, credit=0.0, date="2026-03-15")
+    experio["lines"][2].update(tva_line)
+    with_fee_operations(experio)
+    experio["answer"] = {"lines": []}
+    pointed()
+    assert not [w for w in experio["written"] if w[1].get("operation_id") in (5101, 5102)]
 
 
 @pytest.mark.functionality
@@ -1473,6 +1518,29 @@ def test_two_declared_ras_of_the_same_total_name_none(ras_tables):
         {"amount_withholding": 200.0, "withholding_percentage": "75"}
     ]
     assert statement.ras_paid(200.0, CONTEXT_857) is None
+
+
+@pytest.mark.functionality
+def test_a_line_paying_several_invoices_of_its_tiers_gets_the_one_set_adding_up_to_it(experio):
+    experio["lines"] = experio["lines"][:2]
+    experio["lines"][1].update(partner_id=[9, "ATLAS"])  # 200.00 paid, no single invoice of that amount
+    experio["open_invoices"] = [
+        {"id": 71, "amount_residual": 120.0},
+        {"id": 72, "amount_residual": 80.0},
+        {"id": 73, "amount_residual": 95.5},
+    ]
+    pointed()
+    assert ([2], {"invoice_ids": [(4, 71), (4, 72)]}) in experio["written"]
+
+
+@pytest.mark.functionality
+def test_two_sets_adding_up_to_the_line_tie_nothing(experio):
+    experio["lines"] = experio["lines"][:2]
+    experio["lines"][1].update(partner_id=[9, "ATLAS"])
+    experio["open_invoices"] = [{"id": i, "amount_residual": a} for i, a in [(71, 120.0), (72, 80.0), (73, 100.0)]]
+    experio["open_invoices"].append({"id": 74, "amount_residual": 100.0})  # 120+80 and 100+100: the cabinet's
+    pointed()
+    assert not [w for w in experio["written"] if "invoice_ids" in w[1] and w[0] == [2]]
 
 
 @pytest.mark.functionality
