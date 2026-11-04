@@ -41,7 +41,17 @@ from engine.tools.core.experio import (
 )
 from engine.tools.core.model import ask_model, pdf_text, tool_prompt
 from engine.tools.core.queries import Q
-from engine.tools.core.words import LEGAL_FORMS, as_number, counted, normalized, reason, said, tiers_key
+from engine.tools.core.words import (
+    LEGAL_FORMS,
+    as_number,
+    counted,
+    listed,
+    normalized,
+    operation_named,
+    reason,
+    said,
+    tiers_key,
+)
 from engine.tools.core.words import reasons as reason_lines
 from engine.tools.declarations.ras import KINDS as RAS_KINDS
 from engine.tools.dossiers.banks import bank_of_rib
@@ -1900,12 +1910,12 @@ def suspense(statement, context):
     none).
 
     Purchase, sale and their advance operations with payment_state unpaid or partial and not reconciled, as Experio's
-    « Suspense » screen lists them: « libellé (montant) », the first 10 then how many others.
+    « Suspense » screen lists them: « libellé (date, montant) », the first 10 then how many others.
     """
-    fields = ["state", "operation_type", "payment_state", "payment_ref", "debit", "credit", "is_reconciled"]
+    fields = ["state", "operation_type", "payment_state", "payment_ref", "date", "debit", "credit", "is_reconciled"]
     lines = odoo_call(LINE, "read", statement["line_ids"], fields=fields, context=context)
     left = [
-        f"{line['payment_ref']} ({abs((line['credit'] or 0) - (line['debit'] or 0)):.2f})"
+        operation_named(line, (line["credit"] or 0) - (line["debit"] or 0))
         for line in lines
         if line["state"] in POSTED
         and line.get("operation_type") in ("purchase", "sale", "purchase_advance", "sale_advance")
@@ -1914,13 +1924,12 @@ def suspense(statement, context):
     ]
     if not left:
         return ""
-    listed = ", ".join(left[:10]) + (counted(len(left) - 10, " et {} autre", " et {} autres") if len(left) > 10 else "")
     said = counted(
         len(left),
         "{} opération comptabilisée reste en suspens, payée sans facture rapprochée : ",
         "{} opérations comptabilisées restent en suspens, payées sans facture rapprochée : ",
     )
-    return f"{said}{listed}."
+    return f"{said}{listed(left)}."
 
 
 # A dossier's statements already in Experio (imported by the cabinet, or by Tarik earlier): those not posted yet, read

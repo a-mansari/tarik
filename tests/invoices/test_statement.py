@@ -610,7 +610,7 @@ def test_posting_takes_the_ready_lines_and_lists_whats_in_suspense(experio):
         result["status"] == "ok"
         and "j'ai comptabilisé 1 opération.\n- 2 opérations restent à compléter" in result["message"]
     )
-    assert "reste en suspens" in result["message"] and "VIR 1 (200.00)" in result["message"]
+    assert "reste en suspens" in result["message"] and "VIR 1 (2026-03-15, 200.00)" in result["message"]
 
 
 @pytest.mark.functionality
