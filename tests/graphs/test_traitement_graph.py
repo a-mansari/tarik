@@ -64,6 +64,25 @@ def test_the_words_dossier_dimport_make_the_files_one_import_folder_first(steps)
 
 
 @pytest.mark.functionality
+def test_files_looking_like_an_import_folder_make_one_without_the_clients_words(steps):
+    steps.folder = True
+    sent = {"status": "ok", "files": [{"id": 11, "file_name": "dum.pdf"}, {"id": 12, "file_name": "transit.pdf"}]}
+    made = {"status": "ok", "invoices": [31]}
+    routed(steps, files=[11, 12], save_files=sent, create_import_folder=made, wait_until_read=STOP)
+    steps.run(graph, mode="files")
+    assert steps.names == [*FRONT, "create_import_folder", "wait_until_read", "run_summary"]
+    assert steps.args("create_import_folder")[0]["guessed"] is True  # the client is told it was recognised
+
+
+@pytest.mark.functionality
+def test_files_waiting_from_earlier_are_never_looked_at_again(steps):
+    steps.folder = True  # they would look like a folder, but none came with this message
+    routed(steps, files=[11, 12], identify_document=STOP)
+    steps.run(graph, mode="files")
+    assert "create_import_folder" not in steps.names
+
+
+@pytest.mark.functionality
 @pytest.mark.parametrize(
     "made, following",
     [({"status": "ok", "invoices": []}, ["waiting_drafts"]), ({"status": "error"}, [])],
