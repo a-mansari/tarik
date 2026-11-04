@@ -292,7 +292,7 @@ def compose(sender, recipients, subject, body, in_reply_to, references, files=()
             thread.
         files: [(name, mime type, bytes)] to attach."""
     message = EmailMessage()
-    message["From"] = setting("SMTP_FROM", "") or formataddr(("Tarik", sender))
+    message["From"] = setting("SMTP_FROM", formataddr(("Tarik", sender)))
     message["To"] = ", ".join(recipients)
     message["Subject"] = subject
     message["Date"] = formatdate(localtime=True)  # mail apps sort by it; the Sent copy gets no other
