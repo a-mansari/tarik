@@ -303,8 +303,9 @@ def fees_left_out(dossier_id, table, inside, context):
     card = [*fee, ("tax_id.rate", "!=", 0), ("invoice_ids", "=", False)]
     dated = None
     if by_bank_date(dossier_id, context):
-        dated = ["|", "&", ("bank_line_id", "=", False), *within("date", table)]
-        dated += ["&", ("bank_line_id", "!=", False), *within("bank_line_id.date", table)]
+        # its own date when not reconciled or its bank line is undated (``bank_line_id.date or result``)
+        dated = ["|", "&", "|", ("bank_line_id", "=", False), ("bank_line_id.date", "=", False), *within("date", table)]
+        dated += within("bank_line_id.date", table)
     card = bank_lines(MONETARY, dossier_id, table, inside, card, context, dated)
     found = sorted(bank[1] + card[1], key=lambda line: (line["date"], line["id"]))[:SHOWN]
     return bank[0] + card[0], [operation_phrase(line, line["amount"]) for line in found]

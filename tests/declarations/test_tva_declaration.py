@@ -459,7 +459,10 @@ def test_a_reconciled_tpe_fee_is_dated_by_its_bank_line_when_experio_declares_it
     asked.clear()
     tva.fees_left_out(857, table, inside, {})
     (card,) = [domain for model, domain in asked if model == tva.MONETARY]
-    assert by_bank in card and ("bank_line_id", "=", False) in card  # unreconciled: still its own date
+    own = ["&", ("date", ">=", "2026-07-01"), ("date", "<=", "2026-09-30")]
+    undated = ["|", ("bank_line_id", "=", False), ("bank_line_id.date", "=", False)]  # its own date
+    bank = ["&", by_bank, ("bank_line_id.date", "<=", "2026-09-30")]
+    assert card[1:12] == ["|", "&", *undated, *own, *bank]
     company["on"] = False
     asked.clear()
     tva.fees_left_out(857, table, inside, {})
