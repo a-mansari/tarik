@@ -119,14 +119,15 @@ def paid_before(invoice_id, context):
     left out (its payment goes the other way)."""
     fields = ["type", "refund", "partner_id", "amount_residual", "company_id"]
     invoice = odoo_call("exp.invoice", "read", [invoice_id], fields=fields, context=context)[0]
-    if invoice["refund"] or not invoice["partner_id"] or invoice["type"] not in ("purchase", "sale"):
-        return ""
     amount, way = round(invoice["amount_residual"], 2), "debit" if invoice["type"] == "purchase" else "credit"
+    if invoice["refund"] or not invoice["partner_id"] or invoice["type"] not in ("purchase", "sale") or not amount:
+        return ""
     domain = [("company_id", "=", invoice["company_id"][0]), ("state", "in", list(POSTED))]
     domain += [("operation_type", "=", invoice["type"]), ("partner_id", "=", invoice["partner_id"][0])]
-    domain += [("invoice_ids", "=", False), ("payment_state", "=", "unpaid"), (way, "=", amount)]
+    domain += [("invoice_ids", "=", False), ("payment_state", "=", "unpaid"), ("is_reconciled", "=", False)]
+    domain.append((way, "=", amount))
     found = odoo_call(BANK_LINE, "search_read", domain, fields=["payment_ref", "date"], context=context)
-    if len(found) != 1 or not amount:
+    if len(found) != 1:
         return ""
     if not dry_run():
         odoo_call(BANK_LINE, "write", [found[0]["id"]], {"invoice_ids": [(4, invoice_id)]}, context=context)
