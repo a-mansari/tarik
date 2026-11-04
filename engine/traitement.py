@@ -11,7 +11,6 @@ One subgraph per document (a file received, or a draft taken up again) and one p
 visible node by node. They run one at a time, so two invoices of one message never race on the same tiers or
 duplicate check."""
 
-import asyncio
 import operator
 from typing import Annotated, TypedDict
 
@@ -19,7 +18,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
 from engine.calls import call as run_tool
-from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, stops_at, summary
+from engine.calls import failed, ok_or_summary, run_step, sender_checked, started, stops_at, summary, within
 from engine.pointage import POINTING
 from engine.tools.core.conversation import mentions_attachment
 from engine.tools.invoices.import_folder import folder_mode, looks_like_folder
@@ -451,11 +450,11 @@ async def files(state: Run):
     )
     found = result.get("files", [])
     named = folder_mode(state["call"].get("client_message") or "")[0]
-    folder = (
-        len(found) > 1
-        and not named
-        and await asyncio.to_thread(looks_like_folder, state["call"]["session_id"], state["dossier_id"])
-    )
+    new = [file["id"] for outcome in state["outcomes"][:1] for file in outcome.get("files") or []]  # sent just now
+    folder = len(found) > 1 and len(new) > 1 and not named
+    if folder:
+        call = state["call"]
+        folder = await within(call["cabinet"], looks_like_folder, call["session_id"], state["dossier_id"], new)
     return {"files": found, "folder": folder, "outcomes": [result]}
 
 
@@ -479,6 +478,7 @@ async def import_folder(state: Run):
         session_id=state["call"]["session_id"],
         dossier_id=state["dossier_id"],
         client_message=message,
+        guessed=bool(state.get("folder")),
     )
     return {"files": [], "folder_invoices": made.get("invoices", []), "outcomes": [made]}
 

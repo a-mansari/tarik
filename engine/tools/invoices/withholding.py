@@ -311,7 +311,7 @@ def is_ir_refused(values, kind):
 
 def automatic(partner, invoice):
     """True when Tarik turns the retenue on itself: the tiers has an activity type and the invoice is dated from
-    RAS_TVA_FROM. Not for rent: Experio leaves « loyer » out of the RAS TVA (exp_tax_withholding_table_line.py:231)
+    RAS_TVA_FROM. Not for rent: Experio leaves « loyer » out of the RAS TVA (exp_tax_withholding_table_line.py:234)
     and declares rent RAS from its rent fiches (declaration_ras_loyer, exp.loyer.fiche), not from invoices."""
     kind = partner["expense_type"]
     return bool(kind) and kind != "loyer" and (invoice["invoice_date"] or "") >= RAS_TVA_FROM
