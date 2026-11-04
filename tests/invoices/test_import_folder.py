@@ -124,6 +124,7 @@ def test_the_transit_invoice_waits_for_the_invoices_it_paid_then_takes_them(monk
         return state["drafts"] if states.get("state") == ["pending", "draft"] else state["posted"]
 
     monkeypatch.setattr(posting, "odoo_call", odoo_call)
+    monkeypatch.setattr(posting, "stored_check", lambda invoice_id: None)  # no débours line read on its scan
     monkeypatch.setattr(posting, "dry_run", lambda: False)
     monkeypatch.setattr(posting, "invoice_context", lambda invoice: {})
     monkeypatch.setattr(posting, "refresh", lambda i, c: state.__setitem__("refreshed", state["refreshed"] + 1))

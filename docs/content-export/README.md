@@ -200,3 +200,7 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-dum-20261104.json`: the new prompt `tools/read-dum.md` (the DUM of an import folder read by Tarik:
   its exchange rate, date, declared value and number, written on the folder as Experio's own DUM reading does). A new
   document, no diff: import it with the commit that reads the DUM; before, check.py finds no `tools/read-dum.md`.
+- `tarik-contenu-debours-20261104.json` (and its `.diff`, against the stack's versions of 2026-11-04): the check reads
+  a transit agent's débours lines (`debours_lines`: designation, amount) in `tools/check-invoice*.md`, so its
+  invoice is linked to the folder invoices it paid. Import it with the commit that matches them; before, the check
+  reads none and only the invoices marked « Payée par Transitaire » are linked.

@@ -272,7 +272,7 @@ def test_a_conforming_check_is_stored_and_routine(checking, db_cabinet):
     assert result["routine"] and "conforme" in result["message"]
     assert check.stored_check(3) == (
         True,
-        {"invoice_date_language": "fr", "tva_lines": [], "charge_lines": [], "invoice_date": None},
+        {"invoice_date_language": "fr", "tva_lines": [], "charge_lines": [], "debours_lines": [], "invoice_date": None},
         [],
     )
     assert check.stored_check(4) is None
@@ -409,6 +409,14 @@ def test_the_scan_s_charge_lines_are_read_as_numbers_or_refused():
     report["extracted"]["charge_lines"] = "loyer"
     with pytest.raises(ValueError, match="charge_lines is not a list"):
         resolve_report(report, {})
+
+
+@pytest.mark.functionality
+def test_a_transit_agents_debours_lines_are_read_as_numbers():
+    report = {"readable": True, "extracted": {"invoice_date_language": "fr"}}
+    report["extracted"]["debours_lines"] = [{"designation": "Droits de douane", "amount": "12 345,60"}, "bruit"]
+    lines = resolve_report(report, {})["extracted"]["debours_lines"]
+    assert lines == [{"designation": "Droits de douane", "amount": 12345.6}]
 
 
 @pytest.mark.functionality

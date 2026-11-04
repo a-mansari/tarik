@@ -214,8 +214,9 @@ def test_no_compte_tiers_is_looked_for_without_a_tiers_or_a_side(monkeypatch):
 def transit(monkeypatch):
     """A fake Experio: a transit agent's import invoice, its folder's invoices paid by the agent, every write."""
     state = {"invoice_type": "transit", "folder_type": "import", "linked": [61], "waiting": [], "posted": [61, 62]}
-    state.update(writes=[], refreshed=[], dry=False, unbacked=[])
+    state.update(writes=[], refreshed=[], dry=False, unbacked=[], lines=[], folder=[])
     monkeypatch.setattr(posting, "dry_run", lambda: state["dry"])
+    monkeypatch.setattr(posting, "stored_check", lambda invoice_id: (True, {"debours_lines": state["lines"]}, []))
     monkeypatch.setattr(
         posting, "refresh", lambda invoice_id, context: state["refreshed"].append((invoice_id, context))
     )
@@ -230,6 +231,7 @@ def transit(monkeypatch):
                     "disbursement_invoice_ids": state["linked"],
                     "company_id": [5, "D"],
                     "exercice_id": [9, "2026"],
+                    "is_local_invoice": state.get("is_local", True),
                 }
             ]
         if method == "write":
@@ -239,14 +241,19 @@ def transit(monkeypatch):
             assert ("linked_disbursement_invoice_id", "=", False) in args[0]
             return [{"amount_ht": amount} for amount in state["unbacked"]]
         domain = args[0]
-        assert ("folder_id", "=", 40) in domain and ("is_disbursement_invoice", "=", True) in domain
-        assert ("invoice_type", "!=", "transit") in domain
+        if method == "search_read":  # the folder's invoices, matched on the transit invoice's débours lines
+            assert ("folder_id", "=", 40) in domain and ("invoice_type", "!=", "transit") in domain
+            state["matched_in"] = domain
+            return state["folder"]
+        if ("is_disbursement_invoice", "=", True) in domain:  # those marked « Payée par Transitaire »
+            assert ("folder_id", "=", 40) in domain and ("invoice_type", "!=", "transit") in domain
+            assert ("transit_invoice_id", "in", [False, 3]) in domain  # never one linked to another transit invoice
+            return state.get("marked", state["posted"] + state["waiting"])
+        chosen = next(term[2] for term in domain if term[0] == "id")
         if ("state", "in", ["pending", "draft"]) in domain:
-            return state["waiting"]
-        if ("state", "!=", "cancel") in domain:  # any invoice of the folder marked « Payée par Transitaire »
-            return state.get("marked", state["posted"])
-        assert ("transit_invoice_id", "=", False) in domain  # never one linked to another transit invoice
-        return state["posted"]
+            return [i for i in state["waiting"] if i in chosen]
+        assert ("transit_invoice_id", "=", False) in domain
+        return [i for i in state["posted"] if i in chosen]
 
     monkeypatch.setattr(posting, "odoo_call", odoo_call)
     return state
@@ -288,11 +295,33 @@ def test_debours_no_invoice_of_the_folder_covers_is_told(transit):
     transit["unbacked"] = [350.0]
     note = posting.disbursements_first({"id": 3})
     assert note.startswith("débours de 350.00 sans facture du dossier derrière")
-    assert "aucune facture du dossier n'est marquée" not in note  # some are: the rest has no invoice behind it
-    transit.update(linked=[], posted=[], marked=[63])  # one marked, linked to another transit invoice
-    assert "aucune facture du dossier n'est marquée" not in posting.disbursements_first({"id": 3})
-    transit["marked"] = []  # nothing marked « Payée par Transitaire » in the folder
-    assert "aucune facture du dossier n'est marquée « Payée par Transitaire »" in posting.disbursements_first({"id": 3})
+    none = "aucune facture du dossier ne correspond à ses lignes de débours ni n'est marquée « Payée par Transitaire »"
+    assert none not in note  # some are: the rest has no invoice behind it
+    transit.update(linked=[], posted=[], marked=[])  # nothing marked, nothing matching
+    assert none in posting.disbursements_first({"id": 3})
+
+
+@pytest.mark.functionality
+def test_a_transit_invoice_takes_the_folder_invoice_each_of_its_debours_lines_names_by_its_amount(transit):
+    transit.update(marked=[], linked=[], posted=[70, 71, 72, 73, 74])
+    transit["lines"] = [  # what Tarik read on the transit agent's scan
+        {"designation": "Droits de douane", "amount": 1200.0},
+        {"designation": "Magasinage", "amount": 300.0},  # one line, two invoices of 300: neither
+        {"designation": "Acconage", "amount": 50.0},  # two lines, two invoices of 50: both
+        {"designation": "Acconage", "amount": 50.0},
+        {"designation": "Fret", "amount": None},  # unread: matches nothing
+    ]
+    transit["folder"] = [{"id": i, "display_amount_total": a} for i, a in [(70, 1200), (71, 300), (72, 300)]]
+    transit["folder"] += [{"id": 73, "display_amount_total": 50.0}, {"id": 74, "display_amount_total": 50.0}]
+    assert posting.disbursements_first({"id": 3}) is None
+    assert [write[1] for write in transit["writes"]] == [{"disbursement_invoice_ids": [(4, 70), (4, 73), (4, 74)]}]
+    assert ("is_local_invoice", "=", True) in transit["matched_in"]  # Experio books its total unconverted
+    assert ("payment_state", "=", "unpaid") in transit["matched_in"]  # one already paid would be paid twice
+    transit.update(posted=[71, 72, 73, 74], waiting=[70], writes=[])  # the one it paid is not posted yet: it waits
+    result = posting.disbursements_first({"id": 3})
+    assert result["status"] == "stop" and "(70)" in result["message"] and transit["writes"] == []
+    transit.update(waiting=[], is_local=False)  # a foreign transit invoice: Experio books no débours lines on it
+    assert posting.disbursements_first({"id": 3}) is None and transit["writes"] == []
 
 
 @pytest.mark.functionality
