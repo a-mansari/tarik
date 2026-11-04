@@ -308,7 +308,7 @@ def record_step(run_id: str, session_id: str, origin: str, result: dict) -> dict
 # draft kept until the client says to post it), the duplicates left aside, what failed or was stopped, then what
 # they must answer. Empty ones are left out.
 SECTIONS = {
-    "done": "**Fait**",  # a dossier's setup only: its steps are the request
+    "done": "**Fait**",  # a dossier's setup (its steps are the request), and a few drafts kept: what was done to them
     "wait": "**En attente**",  # a dossier's setup only: an invoice that waits is counted in the headline
     "problem": "**À corriger**",
     "question": "**Questions**",
@@ -374,18 +374,30 @@ def labels_of(ids):
     if not ids:
         return labels
     try:
-        found = odoo_call("exp.invoice", "search_read", [("id", "in", ids)], fields=["invoice_number", "partner_id"])
+        fields = ["invoice_number", "partner_id", "amount_total"]
+        found = odoo_call("exp.invoice", "search_read", [("id", "in", ids)], fields=fields)
     except Exception as error:  # a label is a comfort: the summary goes on with Tarik's numbers
         log(f"labels_of: {error}")
         return labels
     for invoice in found:
         who = without_if(invoice["partner_id"][1].split(" - ")[0]) if invoice["partner_id"] else ""
+        about = ", ".join(part for part in (who, dirhams(invoice.get("amount_total"))) if part)
         number = (invoice["invoice_number"] or "").strip()
         if number:
-            labels[invoice["id"]] = f"Facture n° {number}" + (f" ({who})" if who else "")
+            labels[invoice["id"]] = f"Facture n° {number}" + (f" ({about})" if about else "")
         elif who:
-            labels[invoice["id"]] = f"Facture de {who}"
+            labels[invoice["id"]] = f"Facture de {who}" + (
+                f" ({about.removeprefix(who).lstrip(', ')})" if about != who else ""
+            )
     return labels
+
+
+def dirhams(amount):
+    """Return ``amount`` as the client reads it, « 120 000 DH » or « 1 234,50 DH »; "" without one."""
+    if not amount:
+        return ""
+    text = f"{amount:,.2f}".replace(",", " ").replace(".", ",").removesuffix(",00")
+    return f"{text} DH"
 
 
 def file_labels(ids):
@@ -513,7 +525,8 @@ def headline(outcomes):
     counts = [count for count in counts if not count.startswith("0 ")]
     if not counts:
         return ""
-    return "Bilan : " + ", ".join(counts) + "." + (" Dites-moi quand les comptabiliser." if held else "")
+    told = held and held <= HELD_SHOWN  # each draft's own line says it (sections_of)
+    return "Bilan : " + ", ".join(counts) + "." + (" Dites-moi quand les comptabiliser." if held and not told else "")
 
 
 def note_in_history(rows):
@@ -561,6 +574,7 @@ def sections_of(outcomes, labels=None):
     « À vérifier », whatever the invoice's end; a dossier's setup outcome by outcome. An invoice shows only its latest
     question, a file each of its questions."""
     sections = {name: [] for name in SECTIONS}
+    held = held_drafts(outcomes)
     for key, found in outcomes.items():
         if key is None:  # a dossier's setup: each outcome in its own section, on its own line
             for step, status, message, is_routine, is_noted in found:
@@ -576,6 +590,11 @@ def sections_of(outcomes, labels=None):
         where = section_of(*found[-1][:3])
         checks = [summary_text(key, *outcome[:3], labels) for outcome in found if outcome[4] and outcome[1] == "ok"]
         sections["check"] += listed(checks) if checks else []
+        if key in held:  # a draft kept for the client's word: what was done to it, then that it waits for it
+            done = [outcome for outcome in found if outcome[1] == "ok" and not outcome[3] and not outcome[4]]
+            texts = [summary_text(key, *outcome[:3], labels) for outcome in done]
+            line = f"{joined_for_client(texts)} {HELD}" if texts else summary_text(key, *found[-1][:3], labels)
+            sections["done"].append(bullet(line))
         if where in ("done", "wait"):  # a success or a wait: counted in the headline, never listed
             continue
         shown = [outcome for outcome in found if not outcome[3] or outcome is found[-1]]
@@ -589,6 +608,24 @@ def sections_of(outcomes, labels=None):
         else:
             sections[where] += texts
     return sections
+
+
+HELD = "Elle reste en brouillon : dites-moi quand la comptabiliser."
+HELD_SHOWN = 3  # drafts kept in one run that are each told what was done to them; more: only counted
+
+
+def held_drafts(outcomes):
+    """Return the invoices of ``outcomes`` left as drafts for the client's word (hold_posting), when they are
+    HELD_SHOWN or fewer; else none (the headline counts them)."""
+    held = {key for key, found in outcomes.items() if key and key > 0 and found[-1][0] == "hold_posting"}
+    return held if len(held) <= HELD_SHOWN else set()
+
+
+def joined_for_client(texts):
+    """Return an invoice's outcome ``texts`` (each headed « Facture n° … : ») as one sentence under the first head."""
+    head, sep, _ = texts[0].partition(" : ")
+    rest = [text.partition(" : ")[2] if text.startswith(head + sep) else text for text in texts]
+    return f"{head} : " + " ; ".join(part.rstrip(". ") for part in rest) + "."
 
 
 def summary_sections(sections):

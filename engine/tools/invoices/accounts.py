@@ -102,14 +102,16 @@ def listing(accounts):
     return "\n".join(f"{a['code']} {a['name']}" for a in accounts)
 
 
-def apply_account(invoice, account_id, why):
+def apply_account(invoice, account_id, why=""):
     """Put account ``account_id`` on ``invoice`` through Experio's form, then run Experio's refresh, which carries
-    it onto the HT lines. Returns an ok result naming the account and ``why`` it was chosen."""
+    it onto the HT lines. Returns an ok result naming the account and ``why`` it was chosen (« appliqué » alone when
+    the client gave it: nothing to explain)."""
     invoice_id, context = invoice["id"], invoice_context(invoice)
     with refused(f"apply_account {invoice_id} -> {account_id}", f"Facture {invoice_id} : Experio a refusé le compte."):
         fill_invoice(invoice_id, {"account_id": account_id}, context)
         refresh(invoice_id, context)
-    return ok(f"{test_mode_note()}Facture {invoice_id} : compte `{account_label(account_id)}` ({why}).")
+    said = f"({why})" if why else "appliqué"
+    return ok(f"{test_mode_note()}Facture {invoice_id} : compte `{account_label(account_id)}` {said}.")
 
 
 def account_code_of(account_id):
@@ -456,7 +458,7 @@ def set_account(invoice_id, answer, confirm=False, choices=None):
             choices={account["id"]: label},
         )
     if account:
-        return apply_account(invoice, account["id"], f"demande du client : {answer.strip()}")
+        return apply_account(invoice, account["id"])  # the client's own account: « appliqué »
     return question(
         f"Facture {invoice_id} : « {without_subject(answer)} » ne désigne pas un seul compte du dossier. "
         "Quel compte utiliser (code ou intitulé) ?"
@@ -470,4 +472,4 @@ def confirm_account(invoice_id, account_id, confirmed):
     if not confirmed:
         return question(f"Facture {invoice_id} : quel compte utiliser alors (code ou intitulé) ?")
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
-    return apply_account(invoice, account_id, "confirmé par le client")
+    return apply_account(invoice, account_id)

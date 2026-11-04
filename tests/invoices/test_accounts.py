@@ -409,7 +409,7 @@ def test_a_confirmed_account_is_applied_and_a_non_asks_which(experio):
         == "Facture 3 : quel compte utiliser alors (code ou intitulé) ?"
     )
     assert experio["filled"] == []
-    assert "confirmé par le client" in accounts.confirm_account(3, 61, True)["message"]
+    assert accounts.confirm_account(3, 61, True)["message"].endswith("appliqué.")  # the client's own: no reason
     assert experio["filled"] == [(3, {"account_id": 61}, CONTEXT)]
 
 
