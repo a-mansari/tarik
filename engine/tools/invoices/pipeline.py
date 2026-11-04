@@ -25,7 +25,7 @@ from engine.tools.invoices.accounts import confirm_account, set_account
 from engine.tools.invoices.classify import SIDES, client_side
 from engine.tools.invoices.configuration import answer_number
 from engine.tools.invoices.exercice import settle_exercice
-from engine.tools.invoices.import_folder import transit_last
+from engine.tools.invoices.import_folder import TRANSIT, transit_last
 from engine.tools.invoices.intake import BANK_QUESTION, client_kind, file_named, import_bank_statement, set_kind
 from engine.tools.invoices.prepaid import settle_prepaid
 from engine.tools.invoices.statement import is_canvas
@@ -1267,8 +1267,8 @@ def waiting_drafts(
         waiting = sorted(odoo_call("exp.invoice", "search", domain))
     if named:
         waiting = [i for i in waiting if i in named]
-    transit = [("id", "in", waiting), ("import_invoice_type", "=", "transit")]
-    waiting = transit_last(waiting, set(odoo_call("exp.invoice", "search", transit)) if waiting else set())
+    transit = odoo_call("exp.invoice", "search", [("id", "in", waiting), TRANSIT]) if waiting else []
+    waiting = transit_last(waiting, set(transit))
     billed = [i for i in billed if i not in waiting]
     if (waiting or billed) and run_id:
         with cabinet_db() as db:

@@ -45,7 +45,8 @@ class Experio:
         if model == "exp.invoice.import":
             return 77
         if model == "exp.invoice":
-            return [{"id": i, "import_invoice_type": "transit" if i == 101 else "customs"} for i in args[0]]
+            assert method == "search" and args[0][1] == import_folder.TRANSIT
+            return [i for i in args[0][0][2] if i == 101]  # the transit agent's
         raise AssertionError(f"unexpected {model}.{method}")
 
     def post(self, model, method, *args, **kw):
@@ -198,9 +199,3 @@ def test_experio_refusing_the_folder_says_so(experio):
     saved("imp.pdf", pdf(1))
     with pytest.raises(ToolError, match="n'a pas pu créer le dossier d'import"):
         import_folder.create_import_folder("imp", 857)
-
-
-@pytest.mark.functionality
-def test_no_draft_reads_no_invoice(monkeypatch):
-    monkeypatch.setattr(import_folder, "odoo_call", lambda *a, **k: pytest.fail("nothing to read"))
-    assert import_folder.folder_invoices([]) == []

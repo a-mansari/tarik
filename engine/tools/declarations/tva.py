@@ -39,7 +39,7 @@ from engine.tools.core.experio import (
     require_dossier,
 )
 from engine.tools.core.outbox import keep_record_file
-from engine.tools.core.words import SHOWN, as_number, counted, listed, normalized, operation_named, reasons
+from engine.tools.core.words import SHOWN, as_number, counted, listed, normalized, operation_phrase, reasons
 
 TABLE = "exp.deduction.table"
 LINE = "exp.deduction.table.line"
@@ -284,7 +284,8 @@ def suspense_lines(dossier_id, table, inside, context):
         ("operation_type", "in", ["purchase", "sale"]),
         ("is_reconciled", "=", False),
     ]
-    return bank_lines(BANK, dossier_id, table, inside, domain, context)
+    total, found = bank_lines(BANK, dossier_id, table, inside, domain, context)
+    return total, [operation_phrase(line, line["amount"]) for line in found]
 
 
 def fees_left_out(dossier_id, table, inside, context):
@@ -292,24 +293,28 @@ def fees_left_out(dossier_id, table, inside, context):
     another one (« déductions suivantes »): blocked for it, their TVA line lettered, or dated apart. Experio has no
     check of its own for them. Bank statements' and card-terminal (TPE/CMI) statements' fees (fetch_bank_fee_lines
     takes both); a TPE fee Experio keeps out until reconciled (tpe_reconcile_only_reconciled) is listed, as is a fee
-    taken by another declaration still in draft (Experio's own fee dates, get_bank_fee_line_date)."""
+    taken by another declaration still in draft or one Experio dates by its reconciled bank line in the next period
+    (Experio's own fee dates, get_bank_fee_line_date)."""
     fee = [("operation_type", "=", "bank_fee"), ("operation_bank_type", "!=", "tax")]
     fee += [("state", "in", ["post", "export"]), ("declaration_state", "!=", "declared")]
-    # a bank line's TVA is total_tva (stored); a monetary line has none, its tax_id says it bears TVA
+    # a bank line's TVA is total_tva (stored); a monetary line has none: Experio posts its TVA when its tax has a rate
+    # and it pays no invoice (monetary_statement_line.py:1284)
     bank = bank_lines(BANK, dossier_id, table, inside, [*fee, ("total_tva", "!=", 0)], context)
-    card = bank_lines(MONETARY, dossier_id, table, inside, [*fee, ("tax_id", "!=", False)], context)
-    return bank[0] + card[0], (bank[1] + card[1])[:SHOWN]
+    card = [*fee, ("tax_id.rate", "!=", 0), ("invoice_ids", "=", False)]
+    card = bank_lines(MONETARY, dossier_id, table, inside, card, context)
+    found = sorted(bank[1] + card[1], key=lambda line: (line["date"], line["id"]))[:SHOWN]
+    return bank[0] + card[0], [operation_phrase(line, line["amount"]) for line in found]
 
 
 def bank_lines(model, dossier_id, table, inside, domain, context):
-    """Return (how many of the period's operations ``model`` outside ``inside`` match ``domain``, the first SHOWN as
-    « libellé (date, montant) » phrases, oldest first)."""
+    """Return (how many of the period's operations ``model`` outside ``inside`` match ``domain``, the first SHOWN of
+    them, oldest first: their label, date and amount)."""
     period = [("company_id", "=", dossier_id), ("date", ">=", table["start_date"]), ("date", "<=", table["end_date"])]
     domain = [*period, ("id", "not in", inside[model]), *domain]
-    total = odoo_call(model, "search_count", domain, context=context)
     fields = ["payment_ref", "date", "amount"]
     found = odoo_call(model, "search_read", domain, fields=fields, order="date, id", limit=SHOWN, context=context)
-    return total, [operation_named(line, line["amount"]) for line in found]
+    total = len(found) if len(found) < SHOWN else odoo_call(model, "search_count", domain, context=context)
+    return total, found
 
 
 def unchecked_partners(table_id, context):

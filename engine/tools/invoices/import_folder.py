@@ -172,8 +172,11 @@ def pages_pdf_all(raws):
     return pdfium(pdfs.merged, raws)
 
 
+TRANSIT = ("import_invoice_type", "=", "transit")  # an import folder's transit agent invoice
+
+
 def transit_last(ids, transit):
-    """Return invoices ``ids`` with the import folders' transit invoices (``transit``) last.
+    """Return invoices ``ids`` with the import folders' transit invoices (``transit``, found with TRANSIT) last.
 
     The transit invoice must come after the folder's other drafts are posted: Experio fills a transit invoice's
     disbursement invoices only with the folder's posted or exported ones
@@ -240,8 +243,7 @@ def create_import_folder(session_id: str, dossier_id: int, client_message: str =
                     ).fetchone()
                     db.execute(Q.set_file_invoice, (invoice_id, part_id))
             ids = [invoice_id for _, _, invoice_id in made]
-            transit = {i["id"] for i in folder_invoices(ids) if i["import_invoice_type"] == "transit"}
-            invoices += transit_last(ids, transit)
+            invoices += transit_last(ids, odoo_call("exp.invoice", "search", [("id", "in", ids), TRANSIT]))
             said.append(f"dossier d'import n° {folder_id} créé dans le dossier `{dossier}` : {listed}")
             if any(kind == "dum" for _, _, kind, _ in documents):
                 said.append(
@@ -271,7 +273,3 @@ def folder_twins(dossier_id, files):
                     db.execute(Q.set_file_folder, (folder_id, file_id))
                     break
     return found
-
-
-def folder_invoices(ids):
-    return odoo_call("exp.invoice", "read", ids, fields=["import_invoice_type"]) if ids else []

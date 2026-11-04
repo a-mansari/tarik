@@ -47,7 +47,7 @@ from engine.tools.core.words import (
     counted,
     listed,
     normalized,
-    operation_named,
+    operation_phrase,
     reason,
     said,
     tiers_key,
@@ -1915,7 +1915,7 @@ def suspense(statement, context):
     fields = ["state", "operation_type", "payment_state", "payment_ref", "date", "debit", "credit", "is_reconciled"]
     lines = odoo_call(LINE, "read", statement["line_ids"], fields=fields, context=context)
     left = [
-        operation_named(line, (line["credit"] or 0) - (line["debit"] or 0))
+        operation_phrase(line, (line["credit"] or 0) - (line["debit"] or 0))
         for line in lines
         if line["state"] in POSTED
         and line.get("operation_type") in ("purchase", "sale", "purchase_advance", "sale_advance")

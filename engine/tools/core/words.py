@@ -146,7 +146,7 @@ def listed(items, total=None):
     return " ; ".join(items[:SHOWN]) + (counted(more, " ; et {} autre", " ; et {} autres") if more > 0 else "")
 
 
-def operation_named(line, amount):
+def operation_phrase(line, amount):
     """Return a bank operation as a report names it: « libellé (date, montant) », « sans libellé » when it has none."""
     return f"{line['payment_ref'] or 'sans libellé'} ({line['date']}, {abs(amount or 0):.2f})"
 

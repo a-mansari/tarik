@@ -105,8 +105,14 @@ def experio(monkeypatch):
             many = state["counts"]["card_fees" if model == tva.MONETARY else "fees" if fees else "suspense"]
             if method == "search_count":
                 return many
+            first = 0 if model == tva.BANK else 50  # a card terminal's fee is told apart by its id
             return [
-                {"payment_ref": f"OP {i}", "date": "2026-08-0" + str(i % 9 + 1), "amount": -10.0}
+                {
+                    "id": first + i,
+                    "payment_ref": f"OP {first + i}",
+                    "date": "2026-08-0" + str(i % 9 + 1),
+                    "amount": -10.0,
+                }
                 for i in range(min(many, kw["limit"]))
             ]
         if model == "exp.deduction.table.line" and kw.get("fields") and "line_type" in kw["fields"]:
@@ -343,9 +349,7 @@ def test_operations_already_in_the_declaration_are_not_listed_in_suspense(monkey
                 {**paid, "line_type": "invoice", "amount_tva_after_prorata": 20.0},
             ]
         asked["operations"] = domain
-        if method == "search_count":
-            return 1
-        return [{"payment_ref": "VIR ATLAS", "date": "2026-08-03", "amount": -200.0}]
+        return [{"id": 5, "payment_ref": "VIR ATLAS", "date": "2026-08-03", "amount": -200.0}]
 
     monkeypatch.setattr(tva, "odoo_call", odoo_call)
     table = {"id": 50, "start_date": "2026-07-01", "end_date": "2026-09-30"}
@@ -373,9 +377,9 @@ def test_the_coherence_screens_findings_and_the_bank_fees_are_told(experio):
     message = tva.prepare_tva_declaration(857)["message"]
     assert "1 frais bancaire : TVA déduite 4.00" in message
     # not declared: a bank statement's fee and a card terminal's, the latter's TVA told by its tax
-    assert "2 frais bancaires comptabilisés de la période : OP 0 (2026-08-01, 10.00) ; OP 0" in message
-    card = [domain for model, domain in experio["operations"] if model == tva.MONETARY]
-    assert len(card) == 2 and ("tax_id", "!=", False) in card[0] and ("id", "not in", []) in card[0]
+    assert "2 frais bancaires comptabilisés de la période : OP 0 (2026-08-01, 10.00) ; OP 50 (2026-08-01" in message
+    (card,) = [domain for model, domain in experio["operations"] if model == tva.MONETARY]  # under 10: not counted
+    assert ("tax_id.rate", "!=", 0) in card and ("invoice_ids", "=", False) in card and ("id", "not in", []) in card
     assert "12 opérations bancaires de la période sont en suspens" in message and "; et 2 autres." in message
     assert "Tiers dont la vérification ICE/IF est désactivée dans Experio : ATLAS." in message
 
