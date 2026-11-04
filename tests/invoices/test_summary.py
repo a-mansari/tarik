@@ -264,3 +264,15 @@ def test_an_invoice_posted_is_named_in_the_reply(db_cabinet, monkeypatch):
         "Bilan : 1 facture comptabilisée.\n\n**Fait**\n"
         "- Facture n° 20240310 (INFORMATION TECHNOLOGY OF MOROCCO, 120 000 DH) : comptabilisée."
     )
+
+
+@pytest.mark.communication
+def test_invoices_posted_never_hide_the_draft_kept_beside_them(db_cabinet):
+    for invoice_id in (21, 22, 23, 24):  # four posted: only counted
+        posted = {"status": "ok", "message": f"Facture {invoice_id} : comptabilisée.", "invoice_id": invoice_id}
+        record_step("r", "s", "post_invoice", posted)
+    held = "Facture 14 : importée et vérifiée, laissée en brouillon. Dites-moi quand la comptabiliser."
+    record_step("r", "s", "hold_posting", {"status": "stop", "message": held, "invoice_id": 14})
+    assert run_summary("r")["message"] == (
+        "Bilan : 4 factures comptabilisées, 1 facture vérifiée laissée en brouillon.\n\n**Fait**\n- " + held
+    )
