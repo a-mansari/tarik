@@ -580,11 +580,16 @@ def sections_of(outcomes, labels=None):
         where = section_of(*found[-1][:3])
         checks = [summary_text(key, *outcome[:3], labels) for outcome in found if outcome[4] and outcome[1] == "ok"]
         sections["check"] += listed(checks) if checks else []
-        if key in held:  # a draft kept for the client's word: what was done to it, then that it waits for it
+        if key in held:  # posted, or kept for the client's word: what was done to it (then that it waits)
             done = [outcome for outcome in found if outcome[1] == "ok" and not outcome[3] and not outcome[4]]
             texts = [summary_text(key, *outcome[:3], labels) for outcome in done]
-            line = f"{joined_for_client(texts)} {HELD}" if texts else summary_text(key, *found[-1][:3], labels)
-            sections["done"].append(bullet(line))
+            if not is_held(found):  # posted: what was done, its posting the last of it
+                sections["done"].append(
+                    bullet(joined_for_client(texts) if texts else summary_text(key, *found[-1][:3], labels))
+                )
+            else:
+                line = f"{joined_for_client(texts)} {HELD}" if texts else summary_text(key, *found[-1][:3], labels)
+                sections["done"].append(bullet(line))
         if where in ("done", "wait"):  # a success or a wait: counted in the headline, never listed
             continue
         shown = [outcome for outcome in found if not outcome[3] or outcome is found[-1]]
@@ -601,14 +606,24 @@ def sections_of(outcomes, labels=None):
 
 
 HELD = "Elle reste en brouillon : dites-moi quand la comptabiliser."
-HELD_SHOWN = 3  # drafts kept in one run that are each told what was done to them; more: only counted
+HELD_SHOWN = 3  # invoices posted or kept in one run that are each told what was done to them; more: only counted
+
+
+def is_held(found):
+    """True when an invoice's outcomes ``found`` end with it kept as a draft for the client's word (hold_posting)."""
+    return found[-1][:2] == ("hold_posting", "stop")
+
+
+def is_posted(found):
+    """True when an invoice's outcomes ``found`` include its posting (post_invoice ok) and end well."""
+    return any(outcome[:2] == ("post_invoice", "ok") for outcome in found) and section_of(*found[-1][:3]) == "done"
 
 
 def held_drafts(outcomes):
-    """Return the invoices of ``outcomes`` left as drafts for the client's word (hold_posting), when they are
-    HELD_SHOWN or fewer; else none (the headline counts them)."""
-    held = {key for key, found in outcomes.items() if key and key > 0 and found[-1][:2] == ("hold_posting", "stop")}
-    return held if len(held) <= HELD_SHOWN else set()
+    """Return the invoices of ``outcomes`` posted or kept as drafts for the client's word, when they are HELD_SHOWN or
+    fewer: each gets its own line (sections_of); else none (the headline counts them)."""
+    told = {key for key, found in outcomes.items() if key and key > 0 and (is_held(found) or is_posted(found))}
+    return told if len(told) <= HELD_SHOWN else set()
 
 
 def joined_for_client(texts):

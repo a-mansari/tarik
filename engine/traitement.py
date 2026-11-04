@@ -425,7 +425,8 @@ def with_dossier(state: Run):
 async def dossier_found(state: Run):
     """Graph node: find the dossier the client named (resolve_dossier) and set "dossier_id". The agent never sees ids,
     so it is resolved here; a name matching no single dossier ends the run and the summary asks the client."""
-    result = await run_step(state, "resolve_dossier", name=state["call"].get("dossier") or "")
+    call = state["call"]
+    result = await run_step(state, "resolve_dossier", name=call.get("dossier") or "", session_id=call["session_id"])
     return {"dossier_id": result.get("dossier_id", 0), "outcomes": [result]}
 
 

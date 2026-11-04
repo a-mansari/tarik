@@ -251,3 +251,16 @@ def test_a_draft_whose_hold_failed_is_not_said_to_wait(db_cabinet):
     record_step("r", "s", "hold_posting", {"status": "error", "message": "Facture 14 : boom", "invoice_id": 14})
     summary = run_summary("r")["message"]
     assert "Elle reste en brouillon" not in summary and "**Fait**" not in summary
+
+
+@pytest.mark.communication
+def test_an_invoice_posted_is_named_in_the_reply(db_cabinet, monkeypatch):
+    label = {304998: "Facture n° 20240310 (INFORMATION TECHNOLOGY OF MOROCCO, 120 000 DH)"}
+    monkeypatch.setattr(pipeline, "labels_of", lambda outcomes: label)
+    record_step(
+        "r", "s", "post_invoice", {"status": "ok", "message": "Facture 304998 : comptabilisée.", "invoice_id": 304998}
+    )
+    assert run_summary("r")["message"] == (
+        "Bilan : 1 facture comptabilisée.\n\n**Fait**\n"
+        "- Facture n° 20240310 (INFORMATION TECHNOLOGY OF MOROCCO, 120 000 DH) : comptabilisée."
+    )

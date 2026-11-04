@@ -107,6 +107,10 @@ select post_asked from tarik_files where id = %s
 -- Tarik's last question in the conversation.
 select message from tarik_results where session_id = %s and status = 'question' order by id desc limit 1
 
+-- name: dossier_worked_in_session
+-- Whether this conversation already worked in a dossier: a step recorded with it.
+select 1 from tarik_results where session_id = %s and dossier_id = %s limit 1
+
 -- name: dossiers_created_in_session
 -- The dossiers this conversation already created.
 select distinct dossier_id from tarik_results where session_id = %s and

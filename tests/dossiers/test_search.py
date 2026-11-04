@@ -86,6 +86,17 @@ def test_the_only_close_dossier_is_taken_and_the_client_told_which(resolve):
 
 
 @pytest.mark.communication
+def test_a_dossier_the_conversation_already_works_in_is_not_told_again(resolve, db_cabinet):
+    from engine.tools.invoices.pipeline import record_step
+
+    assert not resolve("benali", "s1").get("routine")  # first time in this conversation: told
+    record_step("r", "s1", "resolve_dossier", {"status": "ok", "message": "Dossier retenu.", "dossier_id": 5})
+    again = resolve("benali", "s1")
+    assert again["routine"] and again["dossier_id"] == 5  # its next message: not told again
+    assert not resolve("benali", "s2").get("routine")  # another conversation: told
+
+
+@pytest.mark.communication
 def test_dossiers_are_counted_by_state_their_names_only_when_asked(monkeypatch):
     from engine.tools.dossiers import search
 
