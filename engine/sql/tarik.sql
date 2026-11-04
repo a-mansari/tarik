@@ -203,10 +203,11 @@ where r.session_id = %s and r.step = 'settle_statement' and f.tpe_type is not nu
 order by r.file_id, r.id desc) latest where status = 'question'
 
 -- name: banks_asked
--- Each dossier of a conversation whose last bank question (ask_banks) is still a question.
-select dossier_id, journal_id, message, choices from (select distinct on (dossier_id) dossier_id, journal_id,
-status, message, choices from tarik_results where session_id = %s and step = 'ask_banks'
-order by dossier_id, id desc) latest where status = 'question'
+-- Each bank journal of a conversation whose last bank question (ask_banks) is still a question: a question on
+-- several journals is one row per journal.
+select dossier_id, journal_id, message, choices from (select distinct on (dossier_id, journal_id) dossier_id,
+journal_id, status, message, choices from tarik_results where session_id = %s and step = 'ask_banks'
+order by dossier_id, journal_id, id desc) latest where status = 'question'
 
 -- name: pending_of_session
 -- The conversation's pending invoice questions, oldest first.

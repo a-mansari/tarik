@@ -1,0 +1,22 @@
+--- a/skills/reponse-question.md
++++ b/skills/reponse-question.md
+@@ -19,7 +19,7 @@
+    - La question porte sur l'exercice (« … ou je crée un nouvel exercice … (répondez « nouveau ») ? ») → decision = « nouveau » si le client veut un nouvel exercice, ou le nom de l'exercice ouvert qu'il choisit, recopié tel que la question l'écrit (« Exercice 2025 »). Un refus (« pas besoin de créer un exercice ») n'est pas « nouveau ». « La plus récente » est celui qui finit le plus tard, « la plus ancienne » celui qui commence le plus tôt. Quand la question liste plusieurs exercices ouverts, « dans l'exercice ouvert », « dans un des exercices » ou « comme facture antérieure » sans en nommer un ne désignent aucun exercice → decision vide ; ne prends jamais le premier de la liste par défaut.
+    - La question demande le compte bancaire d'un relevé (« … lequel ? NOM - BANQUE (n° 41), … ») → decision = le numéro du compte qu'il choisit, le nombre après « n° », seul. Il le désigne par son nom, sa banque (« Attijari », « AWB », « la Banque Populaire ») ou sa place ; un autre nombre dans sa phrase (« j'ai 7 relevés ») n'est pas ce numéro. Une banque qui n'est pas dans la liste, ou deux comptes possibles → decision vide.
+    - À la question du compte bancaire d'un relevé, le client répond que ce n'est pas un relevé (« c'est une facture d'achat ») → decision vide : son message suffit.
+-   - La question demande à quelle banque est un journal (« le journal BQ est a quelle banque ? NOM (n° 3), … ») → decision = le numéro de la banque qu'il désigne, le nombre après « n° », seul. Il la nomme par son nom, son sigle (« CIH », « AWB », « BP », « BMCE ») ou son ancien nom ; une banque qui n'est pas dans la liste → decision vide.
++   - La question demande à quelle banque sont un ou plusieurs journaux (« à quelle banque est chacun de ces journaux ? - `BQ1` : … ») → decision vide et about vide : Tarik lit lui-même dans sa réponse la banque de chaque journal (« BQ1 cih, BQ2 attijari », « tous chez AWB »). Appelle Experio_repondre une seule fois avec toute sa réponse.
+    - Toute autre question (un compte, une retenue, la date d'une facture) → decision vide : son message suffit.
+    - Le client donne en plus un compte à une facture (« nouveau, et mettez-la en frais de péage », « oui, et la 272471 en 61425000 ») → une entrée dans corrections par facture : facture = comme il la nomme, vide pour celle à laquelle il répond ; compte = ses mots. Pas un montant (« réglée en 3000 DH »). Il demande aussi de comptabiliser → comptabiliser = « oui ». S'il répond à la question du compte elle-même, corrections reste vide (son message suffit) et about reste obligatoire quand plusieurs questions attendent.
+    - Plusieurs questions attendent (plusieurs lignes « QUESTION : », ou Experio_repondre demande de quelle facture il s'agit) → about est obligatoire : about = la facture à laquelle le client répond, comme les questions la nomment : son numéro propre (« facture n° 277/25 (GECAFISC) » → 277/25) ou son fournisseur (« Pour Station Service : non » → STATION SERVICE), le nom du relevé, ou le nom du journal de banque. Il la désigne par l'un d'eux, ou seulement par ce qu'il répond : alors déduis la facture du genre de sa réponse, un compte (« Compte 6125 ») répond à la question du compte, un oui ou un non (« Non, elle est récupérable ») à la question oui / non, et mets ce numéro dans about même si le client ne l'écrit pas ; about reste vide seulement si deux questions attendent le même genre de réponse. Une seule question → about vide.
+--- a/skills/nouveau-dossier.md
++++ b/skills/nouveau-dossier.md
+@@ -35,7 +35,7 @@
+ - Le client veut le dossier sans vérification → rappelle Experio_parametrer_dossier avec skip_ice_if_check : true et client_confirmed : false. Il pose alors une question de confirmation : pose-la telle quelle. Si le client répond clairement oui, rappelle-le avec les mêmes paramètres et client_confirmed : true.
+ - Il dit qu'une information manque et le client l'a donnée → rappelle-le tout de suite, paramètres remplis.
+ - Il signale des erreurs dans les écritures importées → dis-le au client : le nombre de lignes en erreur et les motifs d'Experio, puis qu'il corrige ces lignes dans son fichier et le renvoie.
+-- Sinon → recopie sa réponse mot pour mot.
++- Sinon → recopie sa réponse mot pour mot, avec ses titres et ses listes : une ligne par point, comme elle les écrit ; ne les fusionne jamais en un paragraphe.
+ 
+ NE JAMAIS :
+ - demander l'ICE, l'IF ou une confirmation avant d'appeler Experio_parametrer_dossier ;

@@ -324,34 +324,43 @@ def test_a_reading_stuck_over_an_hour_is_sent_again_once_an_hour(monkeypatch):
 
 
 @pytest.mark.functionality
-def test_a_bank_journals_answer_sets_its_bank_then_asks_the_next(db_cabinet, monkeypatch):
+def test_bank_journals_asked_together_wait_one_by_one_and_are_answered_together(db_cabinet, monkeypatch):
     pipeline.record_step(
         "r",
         "s",
         "ask_banks",
         {
             "status": "question",
-            "message": "Dossier Gecafisc : le journal BQ1 est a quelle banque ? CIH (n° 3), BP (n° 5).",
+            "message": "Dossier Gecafisc : à quelle banque est chacun de ces journaux ?\n- `BQ1` :\n- `BQ2` :",
             "dossier_id": 557,
             "journal_id": 11,
+            "journal_ids": [11, 12],
             "choices": {3: "CIH", 5: "BP"},
         },
     )
-    monkeypatch.setattr(pipeline, "journal_name", lambda journal_id: "BQ1")
+    unbanked = {11: "BQ1", 12: "BQ2"}
+    monkeypatch.setattr(pipeline, "journal_name", lambda journal_id: unbanked.get(journal_id))
     monkeypatch.setattr(pipeline, "check_sender", lambda session_id, dossier_id, invoice_id: {"status": "ok"})
     monkeypatch.setattr(pipeline, "odoo_call", lambda *a, **k: [])
-    set_calls = []
-    monkeypatch.setattr(
-        pipeline, "set_journal_bank", lambda d, j, b: set_calls.append((d, j, b)) or ok("Dossier Gecafisc : BQ1 a CIH.")
-    )
-    monkeypatch.setattr(pipeline, "ask_banks", lambda d: {"status": "question", "message": "again"})
+    answered = []
+
+    def answer_banks(dossier_id, answer, decision, choices):
+        answered.append((dossier_id, answer, decision, choices))
+        return ok("Dossier Gecafisc, banque des journaux : …")
+
+    monkeypatch.setattr(pipeline, "answer_banks", answer_banks)
     waiting = pipeline.waiting_on("s")
-    assert [item["label"] for item in waiting] == ["journal BQ1"] and waiting[0]["choices"] == {"3": "CIH", "5": "BP"}
-    assert pipeline.answer_pending("s", "c'est le CIH", "3")["message"] == "Dossier Gecafisc : BQ1 a CIH."
-    assert set_calls == [(557, 11, 3)]
-    assert pipeline.answer_pending("s", "je ne sais plus", "")["message"] == "again"  # asked again
-    monkeypatch.setattr(pipeline, "journal_name", lambda journal_id: None)  # given its bank since
-    assert pipeline.waiting_on("s") == []
+    assert [item["label"] for item in waiting] == ["journal BQ1", "journal BQ2"]  # one question each
+    result = pipeline.answer_pending("s", "BQ1 cih, BQ2 banque populaire")  # no « about »: both at once
+    assert result["step"] == "ask_banks" and answered == [
+        (557, "BQ1 cih, BQ2 banque populaire", "", {"3": "CIH", "5": "BP"})
+    ]
+    unbanked.pop(11)  # given its bank since
+    assert [item["label"] for item in pipeline.waiting_on("s")] == ["journal BQ2"]
+    pipeline.record_step(
+        "r", "s", "ask_banks", {"status": "ok", "message": "…", "dossier_id": 557, "settled_ids": [12]}
+    )
+    assert pipeline.waiting_on("s") == []  # closed by its own row, even with no bank in Experio (test mode)
 
 
 @pytest.mark.functionality

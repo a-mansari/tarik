@@ -95,17 +95,81 @@ def experio(monkeypatch):
 
 
 @pytest.mark.communication
-def test_each_bank_journal_is_asked_its_bank_in_turn(experio):
+def test_every_bank_journal_is_asked_its_bank_in_one_question_without_the_banks_list(experio):
     asked = setup.ask_banks(557)
-    assert asked["status"] == "question" and asked["journal_id"] == 11 and asked["choices"][3].startswith("CREDIT")
-    assert "à quelle banque est le journal `BQ1`" in asked["message"]
-    assert "Il reste ensuite 1 autre journal à renseigner." in asked["message"]
-    following = setup.set_journal_bank(557, 11, 3)
-    assert experio["written"] == [{"bank_id": 3, "partner_id": 99}]  # the bank, and the tiers named after it
-    assert following["status"] == "question" and following["journal_id"] == 12  # the next one, in the same reply
-    assert following["message"].startswith("Dossier `Gecafisc` : journal `BQ1` a la banque `CREDIT")
+    assert (
+        asked["status"] == "question" and asked["journal_ids"] == [11, 12] and asked["choices"][3].startswith("CREDIT")
+    )
+    assert asked["message"] == (
+        "Dossier `Gecafisc` : à quelle banque est chacun de ces journaux ?\n- `BQ1` :\n- `BQ2` :\n"
+        "(par exemple : Attijariwafa, BMCE, Banque Populaire, CIH)"
+    )
+    experio["journals"].pop()
+    assert "à quelle banque est le journal `BQ1` ?" in setup.ask_banks(557)["message"]  # one left: one line
     experio["journals"].clear()
     assert setup.ask_banks(557)["routine"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("answer", "written"),
+    [
+        ("BQ1 cih, BQ2 attijari", [3, 4]),  # each journal its bank
+        ("bq2 : AWB\nbq1 c le cih", [4, 3]),  # in any order, as the client writes them
+        ("tous chez attijari", [4, 4]),  # no journal named, one bank: every journal
+    ],
+)
+def test_one_answer_gives_each_bank_journal_its_bank(experio, answer, written):
+    done = setup.answer_banks(557, answer)
+    assert [values["bank_id"] for values in experio["written"]] == written
+    assert done["status"] == "ok" and "banque des journaux" in done["message"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("names", "answer", "written"),
+    [
+        (["BQ1", "BQ10"], "BQ10 bmce, BQ1 cih", {12: 7, 11: 3}),  # « bq1 » is not read inside « bq10 »
+        (["Banque", "Banque 2"], "Banque 2 : CIH, Banque : BMCE", {12: 3, 11: 7}),
+    ],
+)
+def test_journals_named_alike_each_get_their_own_bank(experio, monkeypatch, names, answer, written):
+    for journal, name in zip(experio["journals"], names, strict=True):
+        journal["name"] = name
+    given = {}
+    monkeypatch.setattr(setup, "give_bank", lambda d, journal, bank, c: given.update({journal["id"]: bank["id"]}))
+    setup.answer_banks(557, answer)
+    assert given == written
+
+
+@pytest.mark.functionality
+def test_one_bank_for_all_only_when_the_client_says_all(experio):
+    result = setup.answer_banks(557, "je ne sais pas du tout, BMCE je pense")  # not « tous »: nothing guessed
+    assert experio["written"] == [] and result["journal_ids"] == [11, 12]
+
+
+@pytest.mark.security
+def test_in_test_mode_the_journals_answered_are_not_asked_again(experio, monkeypatch):
+    monkeypatch.setattr(setup, "dry_run", lambda: True)
+    result = setup.answer_banks(557, "BQ1 cih")  # nothing written: BQ1 still has no bank in Experio
+    assert result["settled_ids"] == [11] and result["journal_ids"] == [12]  # its question closed, BQ2 asked
+    assert setup.answer_banks(557, "tous chez cih")["settled_ids"] == [11, 12]
+
+
+@pytest.mark.functionality
+def test_a_journal_the_answer_gives_no_clear_bank_is_asked_again(experio):
+    result = setup.answer_banks(557, "BQ1 cih, BQ2 je sais plus")
+    assert [values["bank_id"] for values in experio["written"]] == [3]
+    assert result["status"] == "question" and result["journal_ids"] == [12]
+    assert "- `BQ1` : `CREDIT IMMOBILIER ET HOTELIER (CIH)`" in result["message"]
+    assert "à quelle banque est le journal `BQ2` ?" in result["message"]
+
+
+@pytest.mark.functionality
+def test_with_one_journal_left_the_agents_choice_among_the_banks_counts(experio):
+    experio["journals"].pop()
+    assert setup.answer_banks(557, "la 3", "3", {"3": "CIH"})["status"] == "ok"
+    assert experio["written"] == [{"bank_id": 3, "partner_id": 99}]  # the bank, and the tiers named after it
 
 
 @pytest.mark.communication
@@ -114,8 +178,8 @@ def test_a_bank_the_journals_name_says_is_set_and_said_not_asked(experio, name):
     experio["journals"][0]["name"] = name
     result = setup.ask_banks(557)
     assert experio["written"] == [{"bank_id": 4, "partner_id": 99}]
-    assert "a la banque `ATTIJARIWAFA BANK` (d'après son nom" in result["message"]
-    assert result["status"] == "question" and result["journal_id"] == 12  # BQ2 names none: asked
+    assert f"`{name}` : `ATTIJARIWAFA BANK` (d'après son nom" in result["message"]
+    assert result["status"] == "question" and result["journal_ids"] == [12]  # BQ2 names none: asked
 
 
 @pytest.mark.communication
@@ -123,7 +187,7 @@ def test_a_bank_the_journals_rib_says_is_set_even_over_its_name(experio):
     experio["journals"][0].update(name="Banque CIH", rib="007 780 00 00082000020894 21")
     result = setup.ask_banks(557)
     assert experio["written"] == [{"bank_id": 4, "partner_id": 99}]  # Attijariwafa's RIB, whatever the name says
-    assert "a la banque `ATTIJARIWAFA BANK` (d'après son RIB" in result["message"]
+    assert "`Banque CIH` : `ATTIJARIWAFA BANK` (d'après son RIB" in result["message"]
 
 
 @pytest.mark.functionality
@@ -155,45 +219,15 @@ def test_without_entries_the_onboarding_waits_for_the_clients_files(monkeypatch)
 
 
 @pytest.mark.security
-def test_a_journal_of_another_dossier_is_never_given_a_bank(experio, monkeypatch):
-    real = setup.odoo_call
-
-    def odoo_call(model, method, *args, **kw):
-        if model == "exp.journal" and method == "read":
-            return [{"name": "BQ9", "company_id": [25, "CAFE EPSOM"], "partner_id": False}]
-        return real(model, method, *args, **kw)
-
-    monkeypatch.setattr(setup, "odoo_call", odoo_call)
-    monkeypatch.setattr(banks, "odoo_call", odoo_call)
-    monkeypatch.setattr(banks, "dry_run", lambda: setup.dry_run())  # as the test sets it, now or later
-    with pytest.raises(ToolError, match="n'est pas un journal du dossier `Gecafisc`"):
-        setup.set_journal_bank(557, 31, 3)
-    assert experio["written"] == []
+def test_only_the_dossiers_own_bank_journals_are_given_a_bank(experio):
+    result = setup.answer_banks(557, "BQ9 cih")  # BQ9 is no journal of this dossier waiting for its bank
+    assert experio["written"] == [] and result["journal_ids"] == [11, 12]  # nothing set: both asked again
 
 
 @pytest.mark.functionality
-def test_the_last_journals_bank_ends_the_questions(experio):
-    experio["journals"].pop()
-    done = setup.set_journal_bank(557, 11, 3)
-    assert done["status"] == "ok" and done["dossier_id"] == 557
-    assert done["message"] == "Dossier `Gecafisc` : journal `BQ1` a la banque `CREDIT IMMOBILIER ET HOTELIER (CIH)`."
-
-
-@pytest.mark.functionality
-def test_a_journal_with_its_tiers_keeps_it(experio, monkeypatch):
-    real = setup.odoo_call
-
-    def odoo_call(model, method, *args, **kw):
-        if model == "exp.partner":
-            pytest.fail("tiers looked for")
-        if model == "exp.journal" and method == "read":
-            return [{"name": "BQ1", "company_id": [557, "Gecafisc"], "partner_id": [8, "CIH"]}]
-        return real(model, method, *args, **kw)
-
-    monkeypatch.setattr(setup, "odoo_call", odoo_call)
-    monkeypatch.setattr(banks, "odoo_call", odoo_call)
-    monkeypatch.setattr(banks, "dry_run", lambda: setup.dry_run())  # as the test sets it, now or later
-    setup.set_journal_bank(557, 11, 3)
+def test_a_journal_with_its_tiers_keeps_it(experio):
+    experio["journals"][0]["partner_id"] = [8, "CIH"]
+    setup.answer_banks(557, "BQ1 cih")
     assert experio["written"] == [{"bank_id": 3}]
 
 
@@ -201,10 +235,8 @@ def test_a_journal_with_its_tiers_keeps_it(experio, monkeypatch):
 def test_in_test_mode_the_bank_is_only_said(experio, monkeypatch):
     monkeypatch.setattr(setup, "dry_run", lambda: True)
     monkeypatch.setattr(setup, "test_mode_note", lambda: TEST_MODE)
-    following = setup.set_journal_bank(557, 11, 3)
-    assert experio["written"] == [] and following["message"].startswith(
-        f"{TEST_MODE}Dossier `Gecafisc` : journal `BQ1`"
-    )
+    following = setup.answer_banks(557, "BQ1 cih")
+    assert experio["written"] == [] and following["message"].startswith(f"{TEST_MODE}Dossier `Gecafisc`, banque")
 
 
 @pytest.mark.communication
@@ -212,5 +244,5 @@ def test_experio_not_giving_the_bank_journals_is_said(experio, monkeypatch):
     monkeypatch.setattr(setup, "odoo_call", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("timeout")))
     with pytest.raises(ToolError, match="`Gecafisc` : Experio n'a pas pu lire les journaux de banque"):
         setup.ask_banks(557)
-    with pytest.raises(ToolError, match="`Gecafisc` : Experio a refusé la banque du journal"):
-        setup.set_journal_bank(557, 11, 3)
+    with pytest.raises(ToolError, match="`Gecafisc` : Experio a refusé la banque d'un journal"):
+        setup.answer_banks(557, "BQ1 cih")

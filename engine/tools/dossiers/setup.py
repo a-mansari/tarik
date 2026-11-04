@@ -32,6 +32,7 @@ import openpyxl
 from engine.tools.core.app import CRASHED, ToolError, log, ok, question, routine, step_tool, stop, tool, wait
 from engine.tools.core.cabinets import cabinet_db, current
 from engine.tools.core.config import ENTRY_FILES, TEST_MODE
+from engine.tools.core.conversation import chosen_among
 from engine.tools.core.experio import (
     GatewayError,
     dossier_lock,
@@ -50,7 +51,7 @@ from engine.tools.core.experio import (
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, normalized, said
 from engine.tools.core.words import reasons as reason_lines
-from engine.tools.dossiers.banks import bank_named, give_bank, journal_bank, padded
+from engine.tools.dossiers.banks import bank_named, give_bank, journal_bank, one_bank_named, padded
 from engine.tools.invoices.exercice import open_exercice
 from engine.tools.invoices.intake import file_row
 from engine.tools.invoices.journal import SET, set_journal
@@ -547,78 +548,126 @@ def created_note(before, after):
 
 
 def bank_journals_without_bank(dossier_id):
-    """Return the dossier's bank journals whose Banque (bank_id) is still empty, as [{id, name, rib}] by name.
+    """Return the dossier's bank journals whose Banque (bank_id) is still empty, as [{id, name, rib, partner_id}] by
+    name.
     A FEC or a grand livre names no bank, and a statement can't be imported into a journal without one."""
     return odoo_call(
         "exp.journal",
         "search_read",
         [("company_id", "=", dossier_id), ("type", "=", "bank"), ("bank_id", "=", False)],
-        fields=["id", "name", "rib"],
+        fields=["id", "name", "rib", "partner_id"],
         order="name",
     )
 
 
 @step_tool
 def ask_banks(dossier_id: int) -> dict:
-    """Ask which bank each of the dossier's bank journals is at, one journal at a time (a FEC names no bank).
+    """Ask which bank each of the dossier's bank journals is at, all of them in one question (a FEC names no bank).
+
+    A journal whose RIB or name says one bank (journal_bank: « 007 780 … », « Banque ATTIJARIWAFA BANK », « BMCE ») gets
+    it first, outside test mode, and the client is told to correct it if wrong.
 
     Returns:
-        - a routine ok result when every bank journal has its bank;
-        - the result of set_journal_bank when the first journal's RIB or name says one bank only (journal_bank:
-          « 007 780 … », « Banque ATTIJARIWAFA BANK », « BMCE »), outside test mode: set, and the client told
-          to correct it if wrong;
-        - otherwise a question result listing Experio's banks (``choices``: {bank_id: name}) with the
-          ``journal_id`` asked about; the client's answer goes to set_journal_bank (answer_pending).
+        - an ok result naming the banks set that way, or a routine ok result, when every bank journal has its bank;
+        - otherwise a question result, one line per journal left (``journal_ids``; ``journal_id`` the first), with
+          Experio's banks as ``choices`` ({bank_id: name}) but not in its text: the client names banks as they like
+          and answer_banks reads them.
+    Both carry ``settled_ids``: the journals given a bank here, their question closed (record_step).
     """
+    return banks_question(dossier_id)
+
+
+def banks_question(dossier_id, skip=()):
+    """ask_banks, the journals in ``skip`` (just given a bank by answer_banks) left out: in test mode they keep none."""
     dossier = require_dossier(dossier_id)
     with refused(f"ask_banks {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu lire les journaux de banque."):
-        journals = bank_journals_without_bank(dossier_id)
+        journals = [journal for journal in bank_journals_without_bank(dossier_id) if journal["id"] not in skip]
         banks = odoo_call("res.bank", "search_read", [], fields=["name", "code"], order="name") if journals else []
-    if not journals:
-        return routine(f"Dossier `{dossier}` : chaque journal de banque a sa banque.")
-    journal = journals[0]
-    found, how = journal_bank(journal, banks)
-    if found and not dry_run():  # « BMCE », a RIB at 007: one bank only, set and told
-        return set_journal_bank(dossier_id, journal["id"], found["id"], read_from=how)
-    listed = ", ".join(f"`{bank['name']}` (n° `{bank['id']}`)" for bank in banks)
-    left = len(journals) - 1
-    others = counted(
-        left, " Il reste ensuite {} autre journal à renseigner.", " Il reste ensuite {} autres journaux à renseigner."
+        told, left, settled = [], [], []
+        for journal in journals:
+            found, how = journal_bank(journal, banks)
+            if found and not dry_run():  # « BMCE », a RIB at 007: one bank only, set and told
+                give_bank(dossier_id, journal, found, in_dossier(dossier_id))
+                settled.append(journal["id"])
+                told.append(f"`{journal['name']}` : `{found['name']}` (d'après {how} ; dites-le-moi si c'est faux)")
+            else:
+                left.append(journal)
+    done = f"Dossier `{dossier}`, banque des journaux :" + "".join(f"\n- {line}" for line in told) if told else ""
+    if not left:
+        return (
+            ok(done, dossier_id=dossier_id, settled_ids=settled)
+            if told
+            else routine(f"Dossier `{dossier}` : chaque journal de banque a sa banque.")
+        )
+    asked = f"Dossier `{dossier}` : " + (
+        f"à quelle banque est le journal `{left[0]['name']}` ?"
+        if len(left) == 1
+        else "à quelle banque est chacun de ces journaux ?"
     )
+    lines = "".join(f"\n- `{journal['name']}` :" for journal in left) if len(left) > 1 else ""
+    text = f"{asked}{lines}\n(par exemple : Attijariwafa, BMCE, Banque Populaire, CIH)"
     return question(
-        f"Dossier `{dossier}` : à quelle banque est le journal `{journal['name']}` ? Les banques d'Experio : "
-        f"{listed}.{others if left else ''}",
+        f"{done}\n\n{text}" if done else text,
         choices={bank["id"]: bank["name"] for bank in banks},
-        journal_id=journal["id"],
+        journal_id=left[0]["id"],
+        journal_ids=[journal["id"] for journal in left],
+        settled_ids=settled,
     )
 
 
-def set_journal_bank(dossier_id, journal_id, bank_id, read_from=""):
-    """Set the bank journal's Banque to ``bank_id``, as the journal form does, then ask about the next journal.
+# « tous chez Attijari »: one bank for every journal waiting (normalized words; never « du tout »)
+ALL = re.compile(r"(?<![a-z0-9])(tous|toutes|les (deux|trois|quatre|2|3|4))(?![a-z0-9])")
 
-    When the journal has no tiers bancaire (partner_id), it also gets the dossier's tiers named after the bank,
-    if one exists. ``read_from``: what of the journal Tarik read the bank from ("son RIB", "son nom"); the reply
-    says it and asks the client to correct it if wrong. Returns the next journal's question result (ask_banks) with
-    this change prefixed, or an ok result when no journal is left.
 
-    Raises:
-        ToolError: the journal is not one of the dossier's.
-    """
+def journal_spots(journals, words):
+    """Return [(start, end, journal)] where each of ``journals`` is named in ``words`` (normalized), by position: whole
+    names only, the longest first, never twice on the same words (« bq10 » is not « bq1 »)."""
+    spots = []
+    for journal in sorted(journals, key=lambda j: -len(normalized(j["name"]))):
+        name = re.escape(normalized(journal["name"]))
+        for found in re.finditer(rf"(?<![a-z0-9]){name}(?![a-z0-9])", words):
+            if not any(start < found.end() and found.start() < end for start, end, _ in spots):
+                spots.append((found.start(), found.end(), journal))
+                break
+    return sorted(spots, key=lambda spot: spot[0])
+
+
+def answer_banks(dossier_id, answer, decision="", choices=None):
+    """Set each bank journal still without a bank to the bank the client's ``answer`` gives it, then ask again for those
+    left (ask_banks).
+
+    Each journal's bank is read in the part of the answer after its name, up to the next journal's (« BNK1 attijari,
+    BNK2 bmce »); an answer naming no journal gives its one bank to the only journal waiting, or to every journal when
+    it says so (ALL: « tous chez Attijari »), and with one journal only, the agent's ``decision`` among ``choices``
+    (chosen_among) comes first. A bank is read as
+    one_bank_named reads a client's words (« bp », « awb », « crédit du maroc »)."""
     dossier = require_dossier(dossier_id)
     context = in_dossier(dossier_id)
-    with refused(f"set_journal_bank {journal_id}", f"Dossier `{dossier}` : Experio a refusé la banque du journal."):
-        bank = odoo_call("res.bank", "read", [bank_id], fields=["name"])[0]
-        journal = odoo_call("exp.journal", "read", [journal_id], fields=["name", "company_id", "partner_id"])[0]
-        if journal["company_id"][0] != dossier_id:
-            raise ToolError(f"Le journal n° `{journal_id}` n'est pas un journal du dossier `{dossier}`.")
-        give_bank(dossier_id, {**journal, "id": journal_id}, {**bank, "id": bank_id}, context)
-    done = test_mode_note()
-    done += f"Dossier `{dossier}` : journal `{journal['name']}` a la banque `{bank['name']}`"
-    done += f" (d'après {read_from} ; dites-le-moi si ce n'est pas la bonne)." if read_from else "."
-    following = ask_banks(dossier_id)
+    with refused(f"answer_banks {dossier_id}", f"Dossier `{dossier}` : Experio a refusé la banque d'un journal."):
+        journals = bank_journals_without_bank(dossier_id)
+        banks = odoo_call("res.bank", "search_read", [], fields=["name", "code"], order="name") if journals else []
+        words = normalized(answer or "")
+        spots = journal_spots(journals, words)
+        given = {}
+        for n, (_, end, journal) in enumerate(spots):
+            stop = spots[n + 1][0] if n + 1 < len(spots) else len(words)
+            bank = one_bank_named(words[end:stop], banks)
+            if bank:
+                given[journal["id"]] = (journal, bank)
+        if not spots and (len(journals) == 1 or ALL.search(words)):
+            chosen = chosen_among(decision, choices) if len(journals) == 1 else None
+            bank = next((b for b in banks if b["id"] == chosen), None) or one_bank_named(words, banks)
+            given = {journal["id"]: (journal, bank) for journal in journals} if bank else {}
+        for journal, bank in given.values():
+            give_bank(dossier_id, journal, bank, context)
+    done = "".join(f"\n- `{journal['name']}` : `{bank['name']}`" for journal, bank in given.values())
+    done = f"{test_mode_note()}Dossier `{dossier}`, banque des journaux :{done}" if done else ""
+    following = banks_question(dossier_id, skip=set(given))
+    settled = [*given, *following.get("settled_ids", [])]
     if following["status"] == "question":
-        return {**following, "message": f"{done} {following['message']}"}
-    return ok(done, dossier_id=dossier_id)
+        message = f"{done}\n\n{following['message']}" if done else following["message"]
+        return {**following, "message": message, "settled_ids": settled}
+    return ok(done or following["message"], dossier_id=dossier_id, settled_ids=settled)
 
 
 # --- Finishing the onboarding ---
@@ -796,16 +845,7 @@ def finish_setup(dossier_id: int, seconds_left: int = 0, finish: bool = False) -
         if is_refusal(error.__context__):  # refused() keeps the failure as context; a crash keeps the wait, retried
             setup_waits(dossier_id)
         raise
-    waiting = entries_count(dossier_id, context)
-    notes.append(
-        counted(
-            waiting,
-            "{} ligne d'écritures est transmise au traitement d'Experio.",
-            "{} lignes d'écritures sont transmises au traitement d'Experio.",
-        )
-        if waiting
-        else "Aucune écriture n'a été importée."
-    )
+    # The lines sent on are told by setup_status, which always follows a finished onboarding (engine/dossier.py)
     listed = "".join(f"\n- {n}" for n in notes)
     return ok(f"Dossier `{dossier}` : l'intégration est terminée.{listed}{welcome}")
 
@@ -973,13 +1013,7 @@ def setup_status(dossier_id: int) -> dict:
         # No result promised: the follow-up ends after FOLLOW_UP_MINUTES, and Experio processes the lines with no
         # time bound, a stuck one re-sent only by « Re-send » (exp_account experio_history.py action_resend), as
         # resend_stale does at a later status, past STALE_MINUTES
-        parts.append(
-            counted(
-                still,
-                "{} ligne est encore en traitement chez Experio : demandez-moi l'état du dossier plus tard.",
-                "{} lignes sont encore en traitement chez Experio : demandez-moi l'état du dossier plus tard.",
-            )
-        )
+        parts.append("Experio traite encore les écritures : demandez-moi l'état du dossier plus tard.")
     return ok(f"Dossier `{dossier}` : état du paramétrage." + "".join(f"\n- {part}" for part in parts))
 
 
