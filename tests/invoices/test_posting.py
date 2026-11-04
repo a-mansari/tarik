@@ -39,6 +39,7 @@ def experio(monkeypatch):
     monkeypatch.setattr(posting, "odoo_json", odoo_json)
     monkeypatch.setattr(experio_calls, "odoo_json", odoo_json)  # its check, shared with configuration
     monkeypatch.setattr(posting, "odoo_call", lambda *a, **k: [{"state": state["after"], "error_msg": "<p>Bloque</p>"}])
+    monkeypatch.setattr(posting, "paid_before", lambda invoice_id, context: state.get("tied", ""))
     return state
 
 
@@ -285,3 +286,55 @@ def test_debours_no_invoice_of_the_folder_covers_is_told(transit):
     transit["unbacked"] = [350.0]
     note = posting.disbursements_first({"id": 3})
     assert note.startswith("débours de 350.00 sans facture du dossier derrière")
+
+
+@pytest.mark.functionality
+def test_a_payment_already_posted_in_suspense_is_tied_to_the_invoice_posted_for_it(experio):
+    experio["tied"] = "rapprochée du paiement déjà comptabilisé « VIR ATLAS » du 2026-03-15"
+    message = posting.post_invoice(3)["message"]
+    assert message == "Facture 3 : comptabilisée. Elle est " + experio["tied"] + "."
+
+
+@pytest.fixture
+def suspended(monkeypatch):
+    """Invoice 3 just posted (a purchase of 1200 owed by tiers 9) and the posted bank lines a search finds."""
+    state = {"invoice": {"type": "purchase", "refund": False, "partner_id": [9, "ATLAS"], "amount_residual": 1200.0}}
+    state["invoice"]["company_id"] = [5, "D"]
+    state.update(found=[{"id": 81, "payment_ref": "VIR ATLAS", "date": "2026-03-15"}], written=[], searched=[])
+
+    def odoo_call(model, method, *args, **kw):
+        if model == "exp.invoice":
+            return [state["invoice"]]
+        if method == "search_read":
+            state["searched"].append(args[0])
+            return state["found"]
+        state["written"].append((args[0], args[1]))
+        return True
+
+    monkeypatch.setattr(posting, "odoo_call", odoo_call)
+    monkeypatch.setattr(posting, "dry_run", lambda: False)
+    return state
+
+
+@pytest.mark.functionality
+def test_the_one_unpaid_payment_of_the_tiers_and_amount_gets_the_invoice(suspended):
+    assert "« VIR ATLAS » du 2026-03-15" in posting.paid_before(3, {})
+    assert suspended["written"] == [([81], {"invoice_ids": [(4, 3)]})]  # Experio reconciles on this write
+    domain = suspended["searched"][0]
+    assert ("partner_id", "=", 9) in domain and ("debit", "=", 1200.0) in domain
+    assert ("invoice_ids", "=", False) in domain and ("payment_state", "=", "unpaid") in domain
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"found": []},  # nothing waits
+        {"found": [{"id": 81, "payment_ref": "A", "date": "d"}, {"id": 82, "payment_ref": "B", "date": "d"}]},  # two
+        {"invoice": {"refund": True}},  # a credit note: its payment goes the other way
+    ],
+)
+def test_no_payment_or_two_or_a_credit_note_tie_nothing(suspended, change):
+    suspended["invoice"].update(change.pop("invoice", {}))
+    suspended.update(change)
+    assert posting.paid_before(3, {}) == "" and suspended["written"] == []

@@ -7,8 +7,9 @@
   method and tiers from past posted lines, and an open posted invoice of exactly that tiers and amount, and shows them
   in a window to confirm; Tarik confirms them (the window's action_apply). A line the client ties to an invoice by its
   number gets that invoice when the amount owed is exactly the line's.
-- Posting: Experio's own validation of the statement (action_post), which posts its ready lines only. A window it
-  opens instead (duplicate, out of the period, exchange rate) stops for the cabinet.
+- Posting: Experio's own validation of the statement (action_post), which posts its ready lines only. Its « Missing
+  Exchange Rate » window (foreign lines at rate 1) is answered with its own button, then the posting tried again; any
+  other window it opens instead (duplicate, out of the period) stops for the cabinet.
 """
 
 import ast
@@ -18,6 +19,7 @@ import re
 import time
 from collections import Counter, defaultdict
 from datetime import date, timedelta
+from itertools import combinations
 
 import openpyxl
 
@@ -41,6 +43,7 @@ from engine.tools.core.model import ask_model, pdf_text, tool_prompt
 from engine.tools.core.queries import Q
 from engine.tools.core.words import LEGAL_FORMS, as_number, counted, normalized, reason, said, tiers_key
 from engine.tools.core.words import reasons as reason_lines
+from engine.tools.declarations.ras import KINDS as RAS_KINDS
 from engine.tools.dossiers.banks import bank_of_rib
 from engine.tools.invoices import tpe
 from engine.tools.invoices.check import resolve_date
@@ -224,7 +227,7 @@ def named_invoices(statement, words, context):
         for c in offered:
             if len(accepted) > 1:
                 break  # two the form accepts: the line gets none, no need to try more
-            values, reason = typed_in(line, c["id"], context)
+            values, reason = typed_in(line, [c["id"]], context)
             if values:
                 accepted.append((c["id"], values))
             else:
@@ -307,7 +310,7 @@ def label_invoices(statement, lines, context):
         if len(found) != 1:
             continue
         invoice_id = found.pop()
-        values, _ = typed_in(line, invoice_id, context)
+        values, _ = typed_in(line, [invoice_id], context)
         if values:
             if not dry_run():
                 odoo_call(LINE, "write", [line["id"]], values, context=context)
@@ -377,8 +380,8 @@ def label(line):
     return line["payment_ref"] or f"{line['date']} {abs((line['credit'] or 0) - (line['debit'] or 0)):.2f}"
 
 
-def typed_in(line, invoice_id, context):
-    """Choose invoice ``invoice_id`` in statement ``line``'s form; saves nothing.
+def typed_in(line, invoice_ids, context):
+    """Choose invoices ``invoice_ids`` (a list) in statement ``line``'s form; saves nothing.
 
     Experio's onchange on invoice_ids (_onchange_invoice_ids, bank/models/bank_statement_line.py:2138-2160) runs
     verify_selected_invoices (:4478-4596: the invoice's account matches the operation's, it is posted, it goes the
@@ -389,14 +392,14 @@ def typed_in(line, invoice_id, context):
     onchange, and a purchase/sale line without tiers stays draft) and "", or None and Experio's reason when its form
     refuses the invoice. Raises Experio's other errors (ExperioRefusal), which are not a refusal of the invoice.
     """
-    form = {"invoice_ids": [(6, 0, [invoice_id])]}
+    form = {"invoice_ids": [(6, 0, invoice_ids)]}
     try:
         type_in(LINE, line["id"], form, "invoice_ids", ("invoice_ids", "partner_id"), context)
     except ExperioRefusal as refusal:
         if refusal.name not in CHECK_REFUSALS:
             raise
         return None, experio_refusal(refusal)
-    values = {"invoice_ids": [(4, invoice_id)]}
+    values = {"invoice_ids": [(4, i) for i in invoice_ids]}
     if not line["partner_id"] and form.get("partner_id"):
         values["partner_id"] = form["partner_id"]
     return values, ""
@@ -426,7 +429,7 @@ def operations_of(dossier_id, context):
     check_company, bank/models/bank_statement_line.py:177-181), without an error of their own (a line on one stays
     draft, :4031-4035; validate_operation_fields, bank/models/bank_operation_type.py:176-216)."""
     domain = ["|", ("company_id", "=", dossier_id), ("company_id", "=", False)]
-    fields = ["name", "type", "payment_type", "account_id", "error_msg", "bank_type"]
+    fields = ["name", "type", "payment_type", "account_id", "error_msg", "bank_type", "tax_id"]
     found = odoo_call("bank.operation.type", "search_read", domain, fields=fields, context=context)
     return {o["id"]: o for o in found if not o["error_msg"]}
 
@@ -489,6 +492,26 @@ def operation_on(operations, account, **where):
     return None
 
 
+def untaxed_fee(operations, context):
+    """Return the dossier's « HT » bank fee operation on 61473 whose tax is at 0 %, None when none: Experio requires a
+    purchase tax on a fee operation (bank_operation_type.py validate_operation_tax_and_code_compatibility) and adds
+    nothing when its rate is 0 (get_tax_debit_and_credit)."""
+    fees = [
+        o
+        for o in operations.values()
+        if o["type"] == "bank_fee"
+        and o["bank_type"] == "frais_without_tax"
+        and o["tax_id"]
+        and o["account_id"]
+        and o["account_id"][1].startswith("61473")
+    ]
+    if not fees:
+        return None
+    rates = odoo_call("exp.tax", "read", [o["tax_id"][0] for o in fees], fields=["rate"], context=context)
+    zero = {tax["id"] for tax in rates if not tax["rate"]}
+    return next((o for o in fees if o["tax_id"][0] in zero), None)
+
+
 def label_operation(line, operations, context):
     """Return (operation, tiers id or None) the line's label settles, (None, None) when it settles none.
 
@@ -500,9 +523,12 @@ def label_operation(line, operations, context):
     stamp-duty operation (account 6167). The cabinets' dossiers do it on 90% of such lines (a pharmacy's 233 of 233);
     a model reading it as a bank tax was the commonest error of a test copy.
 
-    « SECURICARTE » is the bank's card insurance: bank charges (61473), without TVA, as insurance is exempt. « DGI »
-    on money paid is the TVA due when a TVA declaration of the dossier owes exactly that amount (its tva_due_unsigned,
-    exp.deduction.table), to the TVA due account (4456); any other tax payment is for the cabinet.
+    « SECURICARTE » is the bank's card insurance: bank charges (61473), without TVA, as insurance is exempt
+    (untaxed_fee), else the dossier's untyped 61473 operation: never Experio's standard « Frais Bancaire (HT) », whose
+    10 % Experio adds on top of the amount (bank_statement_line.py get_tax_debit_and_credit).
+    « DGI » on money paid is the TVA due when a TVA declaration of the dossier owes exactly that amount (its
+    tva_due_unsigned, exp.deduction.table), to the TVA due account (4456); else a declared RAS of exactly that total
+    (ras_paid); any other tax payment is for the cabinet.
     """
     words = normalized(line["payment_ref"])
     company = [("company_id", "=", context["allowed_company_ids"][0])]
@@ -515,13 +541,119 @@ def label_operation(line, operations, context):
     if said("timbre", words):  # the stamp duty on a deposit: the stamp-duty operation (6167), not a bank tax
         return operation_on(operations, "6167", type=False), None
     if said("securicarte", words):
-        return operation_on(operations, "61473", type="bank_fee", bank_type="frais_without_tax"), None
+        return untaxed_fee(operations, context) or operation_on(operations, "61473", type=False), None
     amount = round(abs((line["credit"] or 0) - (line["debit"] or 0)), 2)
     if said("dgi", words):
         owed = [("tva_due_unsigned", ">=", amount - 0.005), ("tva_due_unsigned", "<=", amount + 0.005)]
         if odoo_call("exp.deduction.table", "search_count", [*company, *owed], context=context):
             return operation_on(operations, "4456"), None
+        account = ras_paid(amount, context)
+        if account:
+            return operation_on(operations, account), None
     return None, None
+
+
+# The dossier's account each declared RAS is paid from (res.company, invoice/models/res_company.py), per declaration
+# kind (declarations.ras.KINDS); RAS TVA by its lines' rate (withholding_percentage).
+RAS_ACCOUNTS = {
+    "is": "local_withholding_account_id",
+    "ir": "local_ir_withholding_account_id",
+    "non_resident": "withholding_account_id",
+    "non_resident_yearly": "withholding_account_id",
+    "75": "local_tax_withholding_account_id",
+    "100": "local_tax_withholding_account_id_100",
+}
+RAS_RECENT = 6  # the dossier's latest declared tables of each kind a payment may settle
+
+
+FEE_WORDS = ("commission", "commissions", "com", "frais")  # a bank fee's label, as banks print it
+
+
+def fee_pairs(lines, unsettled, operations):
+    """Return {line id: (operation, TVA to write or None)} for the bank's fee lines and their TVA lines among ``lines``
+    (all the statement's open lines), both among ``unsettled`` (ids of the lines no operation settles yet).
+
+    A bank prints a commission and its TVA as two lines of one date (« COMMISSION SUR VIREMENT » 20.00, « TVA SUR
+    COMMISSION » 2.00). As on a TPE statement (tpe.py, Experio's own table): the commission takes the dossier's HT bank
+    fee operation (6147, frais_without_tax, with its 10 % tax: Experio books the TVA on top, get_tax_debit_and_credit),
+    its TVA written as printed (the line's tax_amount, over the rate's rounding); the TVA line takes « Taxe Bancaire »
+    (bank_fee, tax), which posts nothing (should_generate_move). A TVA line pairs only with the one line of its date
+    whose 10 % it is, pointed or not, and only when that line's label says a fee (FEE_WORDS: not a card insurance nor
+    a stamp duty); the dossier needs both operations."""
+    fee = next(
+        (
+            o
+            for o in operations.values()
+            if o["type"] == "bank_fee"
+            and o.get("bank_type") == "frais_without_tax"
+            and o.get("tax_id")
+            and o["account_id"]
+            and o["account_id"][1].startswith("6147")
+        ),
+        None,
+    )
+    tax = next((o for o in operations.values() if o["type"] == "bank_fee" and o.get("bank_type") == "tax"), None)
+    if not (fee and tax):
+        return {}
+    paid = [line for line in lines if side(line) == "outbound" and line["payment_ref"]]
+    is_tva = {line["id"]: said("tva", normalized(line["payment_ref"])) for line in paid}
+    found = {}
+    for line in paid:
+        words = normalized(line["payment_ref"])
+        if not is_tva[line["id"]] or said("dgi", words):
+            continue
+        tva = amount_of_line(line)
+        fees = [
+            other
+            for other in paid
+            if not is_tva[other["id"]]
+            and other["date"] == line["date"]
+            and abs(round(amount_of_line(other) * 0.1, 2) - tva) <= 0.02
+        ]
+        if (
+            len(fees) == 1
+            and fees[0]["id"] not in found
+            and {line["id"], fees[0]["id"]} <= unsettled
+            and any(said(word, normalized(fees[0]["payment_ref"])) for word in FEE_WORDS)
+        ):
+            found[line["id"]], found[fees[0]["id"]] = (tax, None), (fee, tva)
+    return found
+
+
+def ras_paid(amount, context):
+    """Return the account code of the one declared RAS of the dossier whose total withheld is ``amount``, None when
+    none or several. Only Experio's declared tables (state done), the RAS_RECENT latest of each kind; a RAS TVA whose
+    lines are at both 75 % and 100 % is paid from two accounts: the cabinet splits it."""
+    dossier = context["allowed_company_ids"][0]
+    found = []
+    for kind, spec in RAS_KINDS.items():
+        domain = [("company_id", "=", dossier), ("state", "=", "done")]
+        domain += [("type", "=", spec["type"])] if "type" in spec else []
+        tables = odoo_call(
+            spec["model"],
+            "search_read",
+            domain,
+            fields=[spec["lines"]],
+            order="id desc",
+            limit=RAS_RECENT,
+            context=context,
+        )
+        withheld = next(field for field, name in spec["sums"].items() if name == "Retenue")
+        fields = [withheld, "withholding_percentage"] if kind == "tva" else [withheld]
+        for table in tables:
+            lines = odoo_call(spec["line"], "read", table[spec["lines"]], fields=fields, context=context)
+            if lines and abs(round(sum(line[withheld] or 0 for line in lines), 2) - amount) <= 0.005:
+                rates = {line["withholding_percentage"] for line in lines} if kind == "tva" else {kind}
+                found.append(RAS_ACCOUNTS.get(rates.pop()) if len(rates) == 1 else None)
+    if len(found) != 1 or not found[0]:
+        return None
+    # A RAS IS table also holds foreign invoices' withholdings, booked on withholding_account_id
+    # (exp_withholding_table.py:334-347): answered only when both accounts are one.
+    fields = [found[0], "withholding_account_id"]
+    held = odoo_call("res.company", "read", [dossier], fields=fields, context=context)[0]
+    if not held[found[0]] or found[0] == "local_withholding_account_id" and held[found[0]] != held[fields[1]]:
+        return None
+    return odoo_call("exp.account", "read", [held[found[0]][0]], fields=["code"], context=context)[0]["code"]
 
 
 def is_suspense(operation):
@@ -626,9 +758,11 @@ def chosen_operations(statement, lines, context):
             "operation": operation if operation in operations else None,
             "payment_method": method if method in methods else None,
         }
-    ruled = {}  # what the label's own words settle (label_operation), before the model is asked
-    for line in asked:
-        if not line["operation_id"] and not memorized[line["id"]]["operation"]:
+    unsettled = [line for line in asked if not line["operation_id"] and not memorized[line["id"]]["operation"]]
+    pairs = fee_pairs(lines, {line["id"] for line in unsettled}, operations)  # a bank fee and its TVA line
+    ruled = {i: (operation, None) for i, (operation, _) in pairs.items()}  # what the label's own words settle
+    for line in unsettled:
+        if line["id"] not in ruled:
             found, tiers = label_operation(line, operations, context)
             if found:
                 ruled[line["id"]] = (found, tiers)
@@ -696,6 +830,8 @@ def chosen_operations(statement, lines, context):
             }
             if label_tiers and "partner_id" not in values:
                 values["partner_id"] = label_tiers
+            if pairs.get(line["id"], (None, None))[1] and operation is pairs[line["id"]][0]:
+                values["tax_amount"] = pairs[line["id"]][1]  # the TVA as the bank printed it
         kind = operation["type"] if values else line["operation_type"]
         if kind == "purchase" and (values or not line["exp_payment_method_id"]):
             method = choice.get("payment_method")
@@ -923,12 +1059,14 @@ def owed_invoices(statement, lines, context):
     is searched among every tiers' invoices, and the invoice gives it its tiers (a cheque line names none). Two such
     invoices: none (the detection takes the first; Tarik leaves it to the cabinet), except that a line with no tiers
     yet still gets the tiers when all those invoices are one tiers' (a cheque paying one of three equal invoices of
-    the same supplier names the supplier). The line's form must accept it (typed_in).
+    the same supplier names the supplier). A line of a known tiers that no one invoice explains gets the one set of
+    its open invoices adding up exactly to its amount (summing). The line's form must accept it (typed_in).
 
-    Returns (how many lines got an invoice, how many only a tiers), counted also in test mode, where nothing is
-    written.
+    Returns (how many lines got an invoice, how many only a tiers, how many a set of invoices), counted also in test
+    mode, where nothing is written. The sets come after every line's own invoice: a sure one-invoice match is never
+    taken by a set.
     """
-    given, only_tiers, taken = 0, 0, set()
+    given, only_tiers, taken, unexplained = 0, 0, set(), []
     for line in lines:
         amount = amount_of(line)
         if not amount:
@@ -946,16 +1084,49 @@ def owed_invoices(statement, lines, context):
                 if not dry_run():
                     odoo_call(LINE, "write", [line["id"]], {"partner_id": owners.pop()}, context=context)
                 only_tiers += 1
-        if len(found) != 1:
-            continue
-        invoice_id = found.pop()
-        values, _ = typed_in(line, invoice_id, context)
-        if values:
-            if not dry_run():
-                odoo_call(LINE, "write", [line["id"]], values, context=context)
-            taken.add(invoice_id)
-            given += 1
-    return given, only_tiers
+        if not found and line["partner_id"]:
+            unexplained.append((line, amount))
+        if len(found) == 1:
+            given += tied(line, [found.pop()], taken, context)
+    summed = sum(tied(line, summing(line, amount, taken, context), taken, context) for line, amount in unexplained)
+    return given, only_tiers, summed
+
+
+def tied(line, chosen, taken, context):
+    """Give ``line`` the invoices ``chosen`` when its form accepts them (typed_in), added to ``taken``; 1 when given,
+    else 0 (none chosen, or refused)."""
+    values, _ = typed_in(line, chosen, context) if chosen else (None, "")
+    if not values:
+        return 0
+    if not dry_run():
+        odoo_call(LINE, "write", [line["id"]], values, context=context)
+    taken.update(chosen)
+    return 1
+
+
+MAX_OPEN = 12  # a tiers' open invoices searched for a set paying a line: 4096 sets at most
+
+
+def summing(line, amount, taken, context):
+    """Return the one set of two or more open invoices of ``line``'s tiers (its invoice picker's, on no statement
+    line, not in ``taken``) whose amounts owed add up exactly to ``amount``: the line pays them all (Experio spreads a
+    line over its invoices, verify_selected_invoices, bank_statement_line.py:4545-4564). [] when no such set, several,
+    or more than MAX_OPEN invoices to try."""
+    domain = ast.literal_eval(line["invoice_ids_domain"]) + [("id", "not in", list(taken))]
+    free = set(odoo_call("exp.invoice", "search", domain, context=context))
+    used = odoo_call(LINE, "search_read", [("invoice_ids", "in", list(free))], fields=["invoice_ids"], context=context)
+    free -= {i for row in used for i in row["invoice_ids"]}
+    if len(free) > MAX_OPEN:  # every free invoice counted: a set is the only one among all of them
+        return []
+    owed = odoo_call("exp.invoice", "read", sorted(free), fields=["amount_residual"], context=context)
+    cents = round(amount * 100)
+    sets = [
+        [invoice["id"] for invoice in chosen]
+        for size in range(2, len(owed) + 1)
+        for chosen in combinations(owed, size)
+        if sum(round(invoice["amount_residual"] * 100) for invoice in chosen) == cents
+    ]
+    return sets[0] if len(sets) == 1 else []
 
 
 LEDGER_DAYS = 400  # how far back a supplier entry still explains a payment
@@ -1501,7 +1672,7 @@ def tie_owed_invoices(statement_id: int) -> dict:
     the supplier the ledger names for a payment still without one (ledger_tiers)."""
 
     def work(statement, context):
-        tied, only_tiers = owed_invoices(statement, open_lines(statement, context), context)
+        tied, only_tiers, summed = owed_invoices(statement, open_lines(statement, context), context)
         ledger = ledger_tiers(statement, open_lines(statement, context), context)
         said = sentence(
             tied,
@@ -1512,6 +1683,12 @@ def tie_owed_invoices(statement_id: int) -> dict:
             only_tiers,
             "{} opération a reçu le tiers des factures ouvertes de son montant, qui sont toutes de lui.",
             "{} opérations ont reçu le tiers des factures ouvertes de leur montant, qui sont toutes de lui.",
+        )
+        sets = sentence(
+            summed,
+            "{} opération a reçu plusieurs factures ouvertes de son tiers, dont le total fait exactement son montant.",
+            "{} opérations ont reçu plusieurs factures ouvertes de leur tiers, dont le total fait exactement leur "
+            "montant.",
         )
         found = sentence(
             ledger,
@@ -1525,7 +1702,7 @@ def tie_owed_invoices(statement_id: int) -> dict:
             "{} opérations ont reçu un tiers tiré d'une écriture qui cite le numéro de leur chèque ou virement, ou "
             "d'une facture fournisseur impayée de ce montant : le cabinet doit les vérifier.",
         )
-        return "\n".join(filter(None, [said, also, found])), note
+        return "\n".join(filter(None, [said, sets, also, found])), note
 
     return completing(statement_id, "tie_owed_invoices", work)
 
@@ -1655,6 +1832,11 @@ def post_statement(file_id: int) -> dict:
     return posting(read_statement(statement_id))
 
 
+# Experio's window when foreign-currency lines are at rate 1 (bank_statement_line.py action_post); its one button
+# fetches their rates (exp_bank_exchange_rate_wizard.py action_fetch_exchange_rate).
+RATE_WINDOW = "exp.bank.exchange.rate.wizard"
+
+
 def posting(statement):
     """Post bank ``statement`` (read with FIELDS): post_statement's result."""
     statement_id = statement["id"]
@@ -1663,8 +1845,15 @@ def posting(statement):
     context = in_dossier(statement["company_id"][0])
     if dry_run():
         return ok(f"{TEST_MODE}Relevé n° {statement_id} : ses opérations prêtes seraient comptabilisées.")
+    fetched = False
     try:
         action = with_fiscal_year(odoo_json(STATEMENT, "action_post", [statement_id], context=context), context)
+        if isinstance(action, dict) and action.get("res_model") == RATE_WINDOW:  # its button, then posted again
+            odoo_json(RATE_WINDOW, "action_fetch_exchange_rate", [action["res_id"]], context=context)
+            ids = odoo_call(RATE_WINDOW, "read", [action["res_id"]], fields=["line_ids"], context=context)[0]
+            rows = odoo_call(LINE, "read", ids["line_ids"], fields=["exp_need_exchange_rate"], context=context)
+            fetched = sum(1 for row in rows if not row["exp_need_exchange_rate"]), len(rows)
+            action = with_fiscal_year(odoo_json(STATEMENT, "action_post", [statement_id], context=context), context)
     except Exception as error:  # Experio's refusal (complete validation required, exact duplicate): its own words
         log(f"post_statement {statement_id}: {error}")
         if not is_refusal(error):
@@ -1680,6 +1869,14 @@ def posting(statement):
     reasons, ready, posted = blocked_reasons(statement, context)
     pending = suspense(statement, context)
     text = f"Relevé n° {statement_id} : j'ai comptabilisé {counted(posted, '{} opération', '{} opérations')}."
+    if fetched and fetched[0]:
+        text += "\n- Taux de change des opérations en devise récupéré par Experio avant de comptabiliser."
+    if fetched and fetched[0] < fetched[1]:  # no rate yet for its date: Experio's own job fetches it again
+        text += counted(
+            fetched[1] - fetched[0],
+            "\n- {} opération en devise attend son taux de change, qu'Experio récupère de lui-même.",
+            "\n- {} opérations en devise attendent leur taux de change, qu'Experio récupère de lui-même.",
+        )
     left = sum(reasons.values())
     if left:
         text += counted(

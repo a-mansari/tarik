@@ -66,8 +66,12 @@ sent twice makes one folder.
 **Bank statements**: once imported (a PDF, a photo, or Experio's Excel template; several files of one statement
 merged when you say « le même relevé »), Tarik waits for Experio's reading, checks its balances, points its operations
 with Experio's own automatic detection (and the invoice you name for a payment), and says what remains to complete;
-« comptabilisez » posts its ready operations with Experio's validation and lists those left in suspense. A BTI statement
-is refused (Experio does not read them); a duplicate statement Experio flags is left to the cabinet.
+« comptabilisez » posts its ready operations with Experio's validation and lists those left in suspense. A bank fee and
+its TVA line go to the HT bank fee and « Taxe Bancaire » operations; a payment of several invoices of one tiers gets
+them when they add up exactly to it; a « DGI » payment of a declared RAS goes to that RAS's account; foreign lines'
+missing exchange rates are fetched by Experio before posting. A payment posted in suspense is tied to its invoice once
+Tarik posts it (same tiers, exact amount). A BTI statement is refused (Experio does not read them); a duplicate
+statement Experio flags is left to the cabinet.
 
 **TPE statements** (CMI, NAPS, AL BARID, VPS, ATTIJARI PAYMENT): recognised on their own header and imported
 through Experio's own TPE import, with their network (asked when it can't be read) and the journal of the last TPE
