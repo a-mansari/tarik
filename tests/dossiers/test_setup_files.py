@@ -100,6 +100,7 @@ def test_every_bank_journal_is_asked_its_bank_in_one_question_without_the_banks_
     assert (
         asked["status"] == "question" and asked["journal_ids"] == [11, 12] and asked["choices"][3].startswith("CREDIT")
     )
+    assert asked["dossier_id"] == 557  # recorded with its dossier, whatever step asked
     assert asked["message"] == (
         "Dossier `Gecafisc` : à quelle banque est chacun de ces journaux ?\n- `BQ1` :\n- `BQ2` :\n"
         "(par exemple : Attijariwafa, BMCE, Banque Populaire, CIH)"
@@ -117,6 +118,7 @@ def test_every_bank_journal_is_asked_its_bank_in_one_question_without_the_banks_
         ("BQ1 cih, BQ2 attijari", [3, 4]),  # each journal its bank
         ("bq2 : AWB\nbq1 c le cih", [4, 3]),  # in any order, as the client writes them
         ("tous chez attijari", [4, 4]),  # no journal named, one bank: every journal
+        ("BQ1 cih, BQ2 BANQUE BP\n\nKarim Alami\n+212 610312891\nwww.experio.ma", [3, 5]),  # never the signature
     ],
 )
 def test_one_answer_gives_each_bank_journal_its_bank(experio, answer, written):

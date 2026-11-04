@@ -139,12 +139,27 @@ def same_ending(lines, theirs):
     return same
 
 
-def without_signature(text, earlier):
-    """Return ``text`` without the signature it shares with one of the sender's ``earlier`` emails (list of str).
+# A line of contact details, as signatures hold them: a link, an email address, a phone number, a social network.
+CONTACT = re.compile(
+    r"https?://|www\.|[\w.-]+@[\w-]+\.\w|\+\d{3}[\s\d]{6,}|(?<!\d)0[5-8](?:[\s.]?\d{2}){4}(?!\d)|linkedin|instagram",
+    re.IGNORECASE,
+)
 
-    The signature is the longest run of trailing lines that ``text`` and an earlier email have in common (name,
-    title, phone, links). It is cut only when it holds at least SIGNATURE_LINES non-empty lines and leaves some text;
-    otherwise ``text`` is returned unchanged. An earlier email identical to ``text`` is ignored."""
+
+def contact_block(lines):
+    """True when ``lines`` (a paragraph) look like a signature: SIGNATURE_LINES non-empty lines or more, two of them
+    contact details (CONTACT)."""
+    filled = [line for line in lines if line.strip()]
+    return len(filled) >= SIGNATURE_LINES and sum(1 for line in filled if CONTACT.search(line)) >= 2
+
+
+def without_signature(text, earlier):
+    """Return ``text`` without its signature: the one it shares with one of the sender's ``earlier`` emails (list of
+    str), else its last paragraph when that looks like one (contact_block: their first signed email).
+
+    The shared signature is the longest run of trailing lines that ``text`` and an earlier email have in common (name,
+    title, phone, links). Either is cut only when it holds at least SIGNATURE_LINES non-empty lines and leaves some
+    text; otherwise ``text`` is returned unchanged. An earlier email identical to ``text`` is ignored."""
     lines = text.splitlines()
     shared = 0
     for other in earlier:
@@ -154,6 +169,9 @@ def without_signature(text, earlier):
     cut = len(lines) - shared
     kept, signature = lines[:cut], lines[cut:]
     if sum(1 for line in signature if line.strip()) < SIGNATURE_LINES or not "".join(kept).strip():
+        last = text.strip().rsplit("\n\n", 1)
+        if len(last) == 2 and last[0].strip() and contact_block(last[1].splitlines()):
+            return last[0].strip()
         return text
     return "\n".join(kept).strip()
 
