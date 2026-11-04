@@ -24,6 +24,7 @@ from engine.tools.core.experio import (
     require_invoice,
 )
 from engine.tools.dossiers.progress import STATES
+from engine.tools.invoices.check import stored_check
 from engine.tools.invoices.classify import side_of
 from engine.tools.invoices.configuration import assets_text, assets_without_category
 from engine.tools.invoices.exercice import with_fiscal_year
@@ -58,20 +59,25 @@ def missing_compte_tiers(invoice):
 def disbursements_first(invoice):
     """Link a transit agent's invoice to the folder's invoices it paid, before it is posted.
 
-    Only for a transit invoice (invoice_type "transit") of an import folder. Returns a stop result while some
-    invoices of the folder paid by the transit agent (« Payée par transitaire ») are still draft or pending, because
-    Experio links only posted ones. Otherwise links the posted ones it lacks as Experio's form does
-    (_onchange_autofill_disbursement_invoices: same folder, posted, not a transit invoice, not linked to another
-    transit invoice), refreshes the invoice so its writing gets one disbursement line per linked invoice, and returns
-    a French note when part of its débours has no invoice of the folder behind it (unbacked_disbursement), else None.
-    Returns None for any other invoice.
+    Only for a transit invoice (invoice_type "transit") of an import folder. The invoices it paid are those of the
+    folder marked « Payée par transitaire » (is_disbursement_invoice, by hand) and those matching one of its débours
+    lines (paid_by_transit). Returns a stop result while some are still draft or pending, because Experio links only
+    posted ones. Otherwise links the posted ones it lacks as a user picks them on its form (disbursement_invoice_ids:
+    same folder, posted, not a transit invoice; not linked to another transit invoice, as
+    _onchange_autofill_disbursement_invoices), refreshes the invoice so its writing gets one disbursement line per
+    linked invoice, and returns a French note when part of its débours has no invoice of the folder behind it
+    (unbacked_disbursement), else None. Returns None for any other invoice.
     """
     fields = ["invoice_type", "folder_id", "folder_type", "disbursement_invoice_ids", "company_id", "exercice_id"]
+    fields += ["is_local_invoice", "exchange_rate"]
     found = odoo_call("exp.invoice", "read", [invoice["id"]], fields=fields)[0]
     if found["invoice_type"] != "transit" or not found["folder_id"] or found["folder_type"] != "import":
         return None
-    folder = [("folder_id", "=", found["folder_id"][0]), ("is_disbursement_invoice", "=", True)]
-    folder.append(("invoice_type", "!=", "transit"))
+    others = [("folder_id", "=", found["folder_id"][0]), ("invoice_type", "!=", "transit")]
+    others += [("transit_invoice_id", "in", [False, invoice["id"]]), ("state", "!=", "cancel")]
+    marked = odoo_call("exp.invoice", "search", [*others, ("is_disbursement_invoice", "=", True)])
+    chosen = sorted({*marked, *paid_by_transit(invoice["id"], found, others)})
+    folder = [("id", "in", chosen)]
     waiting = odoo_call("exp.invoice", "search", [*folder, ("state", "in", ["pending", "draft"])])
     if waiting:
         return stop(
@@ -95,14 +101,43 @@ def disbursements_first(invoice):
     left = unbacked_disbursement(invoice["id"], context)
     if not left:
         return None
-    # Experio never marks an invoice « Payée par Transitaire » itself (is_disbursement_invoice: by hand only).
     none_marked = ""
-    if not odoo_call("exp.invoice", "search", [*folder, ("state", "!=", "cancel")], limit=1):
-        none_marked = " (aucune facture du dossier n'est marquée « Payée par Transitaire » dans Experio)"
+    if not chosen:
+        none_marked = (
+            " (aucune facture du dossier ne correspond à ses lignes de débours ni n'est marquée « Payée par "
+            "Transitaire » dans Experio)"
+        )
     return (
         f"débours de {left:.2f} sans facture du dossier derrière (payée par le transitaire){none_marked}, passé au "
         "compte de débours : à justifier par le cabinet"
     )
+
+
+def paid_by_transit(transit_id, transit, others, context=None):
+    """Return the ids of the folder invoices (``others``: the folder's domain) a transit invoice paid, matched on its
+    débours lines: each untaxed line Tarik read on its scan (check_invoice's charge_lines at 0 %) takes the one invoice
+    whose total is its amount, in MAD as Experio adds them up (validate_import_folder_settings: display_amount_total,
+    times the exchange rate when foreign, exp_invoice.py:8864-8871). A line with no such invoice, or several, takes
+    none. ``transit``: the transit invoice's is_local_invoice and exchange_rate."""
+    check = stored_check(transit_id)
+    lines = (check[1].get("charge_lines") if check else None) or []
+    lines = [line["amount_ht"] for line in lines if line.get("rate") == 0 and (line.get("amount_ht") or 0) > 0]
+    if not lines:
+        return []
+    rate = 1.0 if transit["is_local_invoice"] else transit["exchange_rate"] or 1.0
+    debours = [round(amount * rate, 2) for amount in lines]
+    fields = ["display_amount_total", "is_local_invoice", "exchange_rate"]
+    invoices = odoo_call("exp.invoice", "search_read", others, fields=fields, context=context)
+    total = {
+        i["id"]: round(i["display_amount_total"] * (1.0 if i["is_local_invoice"] else i["exchange_rate"] or 1.0), 2)
+        for i in invoices
+    }
+    taken = []
+    for amount in debours:
+        hits = [i for i, value in total.items() if abs(value - amount) <= 0.01 and i not in taken]
+        if len(hits) == 1:
+            taken.append(hits[0])
+    return taken
 
 
 def unbacked_disbursement(invoice_id, context):
