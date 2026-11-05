@@ -125,6 +125,11 @@ the dossier's 6585 account with Experio's own tool, after you confirm the amount
 **Create a dossier**, from its name alone; ICE, IF and type when you give them. It refuses an ICE or IF
 another dossier already has, and asks first when a dossier has a very similar name. It can copy the
 configuration of a dossier you name, and import its FEC or grand livre.
+Once it is created, Tarik gives the client a link to a short form (valid 7 days, used once) to choose the dossier's
+type, ICE, IF, TVA frequency and regime, and whether verified invoices are posted at once, instead of asking
+each by email; the choices are written to Experio. The Comportement page sets what the form proposes (the cabinet's
+"Réglages des dossiers"), apart from the settings that hold for the whole cabinet. Without a public address
+(`PUBLIC_URL`), or if the client prefers to reply by email, Tarik asks as before.
 
 **Answer its questions.** When processing stops at a question (which account, recoverable TVA,
 withholding, fiscal year, which tiers, which bank account for a statement), just answer in the same

@@ -168,8 +168,8 @@ insert into tarik_held (invoice_id, session_id, released) values (%s, %s, %s)
 on conflict (invoice_id) do update set released = excluded.released
 
 -- name: insert_held
--- An invoice held at its verified draft, unless a choice is already kept for it.
-insert into tarik_held (invoice_id, session_id) values (%s, %s) on conflict do nothing
+-- An invoice held at its verified draft (released when its dossier posts unasked), unless a choice is already kept for it.
+insert into tarik_held (invoice_id, session_id, released) values (%s, %s, %s) on conflict do nothing
 
 -- name: held_released
 -- Whether the client asked to post a held invoice.
@@ -666,3 +666,34 @@ select key, value, changed_by, changed_at from tarik_behaviour
 -- One behaviour setting, as the page or a conversation sets it.
 insert into tarik_behaviour (key, value, changed_by) values (%s, %s, %s)
 on conflict (key) do update set value = excluded.value, changed_by = excluded.changed_by, changed_at = now()
+
+-- name: dossier_behaviour_listed
+-- A dossier's own behaviour settings: key, value.
+select key, value from tarik_dossier_behaviour where dossier_id = %s
+
+-- name: dossier_behaviour_set
+-- One setting of one dossier, as its form sets it.
+insert into tarik_dossier_behaviour (dossier_id, key, value, changed_by) values (%s, %s, %s, %s)
+on conflict (dossier_id, key) do update set value = excluded.value, changed_by = excluded.changed_by, changed_at = now()
+
+-- name: form_made
+-- A dossier's new form: its token, valid for the days given.
+insert into tarik_dossier_forms (token, dossier_id, session_id, expires_at)
+values (%s, %s, %s, now() + make_interval(days => %s))
+
+-- name: form_open
+-- The form of a token when still open (not filled, not expired): dossier and conversation.
+select dossier_id, session_id from tarik_dossier_forms where token = %s and filled_at is null and expires_at > now()
+
+-- name: form_filled
+-- A form claimed, taken once: a row back only for the first to take it.
+update tarik_dossier_forms set filled_at = now() where token = %s and filled_at is null and expires_at > now()
+returning dossier_id
+
+-- name: form_released
+-- A form claimed but not applied (Experio refused): open again.
+update tarik_dossier_forms set filled_at = null where token = %s
+
+-- name: dossier_behaviour_on
+-- Whether any dossier has its own setting on (a flag kept as true).
+select exists (select 1 from tarik_dossier_behaviour where key = %s and value = 'true'::jsonb)

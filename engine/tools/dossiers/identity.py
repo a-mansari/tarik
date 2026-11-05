@@ -12,6 +12,7 @@ from engine.tools.core.conversation import client_messages, own_words
 from engine.tools.core.experio import dry_run, main_dossier_context, odoo_call, odoo_json, refused, require_dossier
 from engine.tools.core.queries import Q
 from engine.tools.core.words import ICE_WRITTEN, as_number, normalized, said, similarity, written_numbers
+from engine.tools.dossiers.form_link import FORM_DAYS, form_link
 from engine.tools.dossiers.people import attach_user
 from engine.tools.dossiers.search import dossiers
 
@@ -25,6 +26,13 @@ SKIP_QUESTION = (
 SIMILAR_QUESTION = (
     "Un dossier au nom très proche existe déjà ({names}). Faut-il quand même créer un nouveau dossier `{name}` ? "
     "oui / non"
+)
+
+# Told with a new dossier when its form has a link (form_link): the client chooses the dossier's settings there at once.
+FORM_NOTE = (
+    "Formulaire des réglages du dossier : {link} (valable {days} jours). Donnez ce lien au client dans votre réponse, "
+    "tel quel, pour qu'il choisisse le type, l'ICE, l'IF, la TVA et la comptabilisation d'un coup : ne lui posez pas "
+    "ces questions une à une. S'il préfère répondre par email, posez-les-lui alors."
 )
 
 # What a client may change in a dossier: the fields of Experio's dossier form, before its tabs (the
@@ -325,7 +333,9 @@ def create_dossier(
         attach_user(None, dossier_id)  # Tarik works in it from here on
     unchecked = " ICE et IF non vérifiés : la vérification a été ignorée, à la demande du client."
     unchecked = unchecked if skip_ice_if_check else ""
-    return ok(f"Dossier `{name}` créé dans Experio.{unchecked}{not_taken}", dossier_id=dossier_id)
+    link = form_link(dossier_id, session_id)
+    form = f"\n{FORM_NOTE.format(link=link, days=FORM_DAYS)}" if link else ""
+    return ok(f"Dossier `{name}` créé dans Experio.{unchecked}{not_taken}{form}", dossier_id=dossier_id)
 
 
 # --- Changing a dossier ---
