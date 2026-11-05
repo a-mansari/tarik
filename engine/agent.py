@@ -353,6 +353,8 @@ async def modifier_dossier(
     street2: str = "",
     city: str = "",
     zip: str = "",
+    declaration_mode: str = "",
+    regime_type: str = "",
     skip_ice_if_check: bool = False,
     client_confirmed: bool = False,
 ) -> str:
@@ -372,6 +374,8 @@ async def modifier_dossier(
         "street2": street2,
         "city": city,
         "zip": zip,
+        "declaration_mode": declaration_mode,
+        "regime_type": regime_type,
         "skip_ice_if_check": skip_ice_if_check,
         "client_confirmed": client_confirmed,
     }

@@ -25,9 +25,7 @@ def experio(db_cabinet, monkeypatch):
     monkeypatch.setattr(
         form, "odoo_json", lambda model, method, ids, values: writes.append((model, method, ids, values))
     )
-    monkeypatch.setattr(
-        form, "changes_to", lambda dossier_id, asked: ({}, {"ice": asked["ice"]} if "ice" in asked else {})
-    )
+    monkeypatch.setattr(identity, "odoo_call", lambda model, method, ids, **kw: [HAVE])  # changes_to reads it
     monkeypatch.setattr(form, "conflict", lambda dossier_id, name, changes: None)
     monkeypatch.setattr(form, "sender_of", lambda session_id: "client@societe.ma")
     return writes
@@ -113,7 +111,6 @@ def test_a_wrong_answer_writes_nothing_and_leaves_the_form_open(experio, answers
     with pytest.raises(ToolError):
         form.fill_form(token, {"declaration_mode": "monthly", **answers})
     assert experio == [] and form.open_form(token)[0] == 7
-    assert behaviour.dossier_behaviour(7, "declaration_mode") == "quarterly"
 
 
 @pytest.mark.security

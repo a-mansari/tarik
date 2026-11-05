@@ -21,6 +21,8 @@ CURRENT = {
     "street2": False,
     "city": "CASABLANCA",
     "zip": False,
+    "declaration_mode": "quarterly",
+    "regime_type": "encaissement",
 }
 
 
@@ -157,3 +159,30 @@ def test_experio_refusing_the_change_gives_its_reason(experio, monkeypatch):
     )
     with pytest.raises(ToolError, match=r"^Dossier `Gecafisc` : Experio refuse de le modifier \(RC deja pris\)\.$"):
         onboarding.update_dossier(557, rc="331245", client_message="RC 331245")
+
+
+@pytest.mark.functionality
+def test_the_tva_frequency_and_regime_are_changed_in_experio_only_when_the_client_wrote_them(experio):
+    result = onboarding.update_dossier(
+        557,
+        declaration_mode="monthly",
+        regime_type="debit",
+        client_message="Pour Gecafisc : passez la TVA en mensuelle, sur les débits.",
+    )
+    assert experio["write"] == [{"declaration_mode": "monthly", "regime_type": "debit"}]
+    assert "déclaration de TVA : trimestrielle -> mensuelle" in result["message"]
+    assert "régime de TVA : encaissement -> debit" not in result["message"]  # said in words
+    assert "régime de TVA : encaissements -> débits" in result["message"]
+    experio["write"].clear()
+    result = onboarding.update_dossier(
+        557, declaration_mode="monthly", client_message="Pour Gecafisc : le capital est de 100 000 DH."
+    )
+    assert experio["write"] == [] and "Non modifié, car le client ne l'a pas écrit" in result["message"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(("key", "value"), [("declaration_mode", "out_of_field"), ("regime_type", "n'importe")])
+def test_a_tva_setting_that_is_not_one_of_the_choices_is_refused_before_anything_is_written(experio, key, value):
+    with pytest.raises(ToolError, match="TVA"):
+        onboarding.update_dossier(557, **{key: value}, client_message=f"TVA {value}")
+    assert experio["write"] == []

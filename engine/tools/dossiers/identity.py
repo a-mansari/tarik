@@ -51,6 +51,8 @@ EDITABLE = {
     "street2": ("street2", "complément d'adresse"),
     "city": ("city", "ville"),
     "zip": ("zip", "code postal"),
+    "declaration_mode": ("declaration_mode", "déclaration de TVA"),
+    "regime_type": ("regime_type", "régime de TVA"),
 }
 IDENTIFIERS = {"ice", "if_number", "rc", "patente", "tsc", "cnss", "zip"}  # checked digit for digit
 # Between a label and its number, only punctuation and a few linking words ("le RC est 331245", "RC : 331245",
@@ -69,6 +71,19 @@ def labelled(label):
 # An ICE is told apart by its 15 digits alone.
 IF_WRITTEN: Final = labelled(r"I\.?F\.?")
 LABELLED = {"ice": ICE_WRITTEN, "if_number": IF_WRITTEN, "rc": labelled(r"R\.?C\.?")}
+# A dossier's TVA settings, Experio's own (res.company declaration_mode and regime_type, declaration addon):
+# what each may be set to, and the words a client writes for it. "Hors champ" is not offered: Experio flags the
+# dossier's draft purchases when it is chosen, which the cabinet does on Experio's screen.
+CHOICES = {
+    "declaration_mode": {"monthly": "mensuelle", "quarterly": "trimestrielle"},
+    "regime_type": {"encaissement": "encaissements", "debit": "débits"},
+}
+CHOICE_WORDS = {
+    "monthly": ("mensuelle", "mensuel"),
+    "quarterly": ("trimestrielle", "trimestriel"),
+    "encaissement": ("encaissement", "encaissements"),
+    "debit": ("debit", "debits"),
+}
 # "societe" alone is not a type: "l'adresse de ma societe" changes no dossier into a company. (A spreadsheet's Type
 # column is another matter: there it is one, management.TYPE_WORDS.)
 TYPE_WORDS = {
@@ -140,6 +155,8 @@ def client_wrote(key, value, words):
         return number.isdigit() and number in found
     if key == "folder_type":
         return any(said(word, normalized(words)) for word in TYPE_WORDS.get(value, ()))
+    if key in CHOICES:
+        return any(said(word, normalized(words)) for word in CHOICE_WORDS.get(value, ()))
     return said(normalized(value), normalized(words))
 
 
@@ -189,6 +206,14 @@ def require_folder_type(folder_type):
     """Raise ToolError unless ``folder_type`` is one of FOLDER_TYPES."""
     if folder_type not in FOLDER_TYPES:
         raise ToolError(f"Type de dossier inconnu : {', '.join(FOLDER_TYPES)}.")
+
+
+def require_choice(key, value):
+    """Raise ToolError unless ``value`` is one of CHOICES[``key``] (``key``: declaration_mode or regime_type)."""
+    if value not in CHOICES[key]:
+        extra = " « Hors champ » se règle dans Experio." if key == "declaration_mode" else ""
+        label = EDITABLE[key][1]
+        raise ToolError(f"{label[0].upper()}{label[1:]} : {', '.join(CHOICES[key])}.{extra}")
 
 
 # --- Creating a dossier ---
@@ -415,6 +440,8 @@ def update_dossier(
     street2: str = "",
     city: str = "",
     zip: str | int = "",
+    declaration_mode: str = "",
+    regime_type: str = "",
     skip_ice_if_check: bool = False,
     client_confirmed: bool = False,
     client_message: str = "",
@@ -432,7 +459,8 @@ def update_dossier(
     result to confirm skipping the check; an ok result listing each change (in test mode, without writing).
 
     Raises:
-        ToolError: no field given, or an unknown ``folder_type``.
+        ToolError: no field given, an unknown ``folder_type``, or a ``declaration_mode`` (monthly, quarterly) or
+            ``regime_type`` (encaissement, debit) that is not one: Experio's own TVA settings of the dossier.
     """
     client_message = own_words(client_message)
     dossier = require_dossier(dossier_id)
@@ -451,6 +479,8 @@ def update_dossier(
             "street2": street2,
             "city": city,
             "zip": zip,
+            "declaration_mode": declaration_mode,
+            "regime_type": regime_type,
         }
     )
     if not asked:  # MiniMax sometimes calls with no fields: told how to call again, it does
@@ -464,6 +494,8 @@ def update_dossier(
             asked[key] = written_id(asked[key], pattern, words)
     if asked.get("folder_type"):
         require_folder_type(asked["folder_type"])
+    for key in CHOICES.keys() & asked.keys():
+        require_choice(key, asked[key])
     written = {key: value for key, value in asked.items() if client_wrote(key, value, words)}
     not_written = [EDITABLE[key][1] for key in asked if key not in written]
     unchanged = f" Non modifié, car le client ne l'a pas écrit : {', '.join(not_written)}." if not_written else ""
@@ -481,7 +513,9 @@ def update_dossier(
     for key in written:
         field, label = EDITABLE[key]
         if field in changes:
-            each.append(f"{label} : {current.get(field) or 'vide'} -> {changes[field]}")
+            names = CHOICES.get(key, {})  # a TVA setting in words, not Experio's keys
+            old, new = current.get(field) or "vide", changes[field]
+            each.append(f"{label} : {names.get(old, old)} -> {names.get(new, new)}")
     shown = " ; ".join(each)
     if dry_run():
         return ok(f"{TEST_MODE}Le dossier `{dossier}` serait modifié : {shown}.{unchanged}")

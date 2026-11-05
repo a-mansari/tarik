@@ -60,6 +60,8 @@ INPUTS = [
     "street2",
     "city",
     "zip",
+    "declaration_mode",
+    "regime_type",
     "facture",
     "attachments",
     "cabinet",

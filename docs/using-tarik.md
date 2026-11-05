@@ -126,10 +126,10 @@ the dossier's 6585 account with Experio's own tool, after you confirm the amount
 another dossier already has, and asks first when a dossier has a very similar name. It can copy the
 configuration of a dossier you name, and import its FEC or grand livre.
 Once it is created, Tarik gives the client a link to a short form (valid 7 days, used once) to choose the dossier's
-type, ICE, IF, TVA frequency and regime, and whether verified invoices are posted at once, instead of asking
-each by email; the choices are written to Experio. The Comportement page sets what the form proposes (the cabinet's
-"Réglages des dossiers"), apart from the settings that hold for the whole cabinet. Without a public address
-(`PUBLIC_URL`), or if the client prefers to reply by email, Tarik asks as before.
+type, ICE, IF, TVA frequency and regime, and whether verified invoices are posted at once, instead of asking each by
+email. The form shows what Experio has and writes back only what the client changed. The Comportement page sets what
+Tarik does by default (the cabinet's "Réglages des dossiers": posting), apart from the settings that hold for the whole
+cabinet. Without a public address (`PUBLIC_URL`), or if the client prefers to reply by email, Tarik asks as before.
 
 **Answer its questions.** When processing stops at a question (which account, recoverable TVA,
 withholding, fiscal year, which tiers, which bank account for a statement), just answer in the same
@@ -150,7 +150,10 @@ journals, tiers, exercices), refuses a file it already imported into that dossie
 until Experio has processed every line, its errors told.
 
 **Modify a dossier**: its name, type (société or personne physique), ICE, IF, RC, patente, T.S.C,
-capital, CNSS number or address. Only the fields you ask for change, only to the values you write.
+capital, CNSS number, address, or its TVA: monthly or quarterly declaration, and the regime (on encaissements or on
+débits). Only the fields you ask for change, only to the values you write. The TVA settings live in Experio alone:
+Tarik reads and writes them there and keeps no copy. « Hors champ » and the payment delays stay on Experio's own
+screens.
 
 ## Not yet
 
