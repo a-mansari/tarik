@@ -87,11 +87,18 @@ def admin_only(method, path):
     """True when the call (``method``, ``path``) needs an admin.
 
     Admin-only: the cabinets' settings (reading too: they show logins, mailboxes, the whitelist), behaviour and
-    routines, the accounts, the Journal, a change to the content, a change to a canvas's layout, and a run started or
-    stopped by hand. Discussion stays open to every member."""
+    routines, the accounts, the Journal, the WhatsApp page, a change to the content, a change to a canvas's layout, and
+    a run started or stopped by hand. Discussion stays open to every member."""
     return (
         path.startswith(
-            ("/ui/api/settings", "/ui/api/comportement", "/ui/api/routines", "/ui/api/comptes", "/ui/api/logs-serveur")
+            (
+                "/ui/api/settings",
+                "/ui/api/comportement",
+                "/ui/api/routines",
+                "/ui/api/comptes",
+                "/ui/api/logs-serveur",
+                "/ui/api/whatsapp",
+            )
         )
         or (method == "POST" and path.startswith(("/ui/api/tarik-prompts", "/runs/", "/ui/api/executions/")))
         or (method in ("PUT", "DELETE") and path.startswith("/graphs/"))
@@ -419,6 +426,7 @@ app = Starlette(
         Route("/ui/api/logs-serveur", api.journal.journal_page),
         Route("/ui/live", changes),
         Route("/ui/api/settings", api.settings.cabinet_page, methods=["GET", "POST"]),
+        Route("/ui/api/whatsapp", api.enrollment.enrollment_page, methods=["GET", "POST"]),
         Route("/ui/api/comportement", api.behaviour.behaviour_page, methods=["GET", "POST"]),
         Route("/ui/api/routines", api.routines.routines_page, methods=["GET", "POST"]),
         Route("/ui/api/tarik-prompts", api.content.contents_page),

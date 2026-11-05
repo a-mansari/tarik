@@ -1,0 +1,13 @@
+--- labels.json (avant)
++++ labels.json (après)
+@@ -538,7 +538,9 @@
+     "cabinet_created": "Cabinet créé (Experio)",
+     "cabinet_reactivated": "Cabinet réactivé (Experio)",
+     "cabinet_closed": "Cabinet désactivé (Experio)",
+-    "routine_saved": "Routine modifiée"
++    "routine_saved": "Routine modifiée",
++    "whatsapp_enrolled": "Collaborateur activé sur WhatsApp",
++    "whatsapp_removed": "Collaborateur retiré de WhatsApp"
+   },
+   "_audit": "Le nom de chaque action dans le Journal.",
+   "conversation_states": {

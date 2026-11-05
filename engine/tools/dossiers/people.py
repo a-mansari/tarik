@@ -12,7 +12,7 @@ import re
 
 from engine.tools.core.app import routine, stop, tool
 from engine.tools.core.cabinets import cabinet_db
-from engine.tools.core.experio import login, odoo_call, refused, require_dossier, require_invoice
+from engine.tools.core.experio import login, main_company_id, odoo_call, refused, require_dossier, require_invoice
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted
 
@@ -209,6 +209,34 @@ def sender_of(session_id):
     with cabinet_db() as db:
         row = db.execute(Q.sender_of_session, (session_id, session_id)).fetchone()
     return row[0] if row else None
+
+
+def whatsapp_candidates():
+    """Return the cabinet's collaborators as Experio lists them (employee_type "employee", not an agent account;
+    deactivated ones left out by Experio's own ``active`` filter) as [{login, name, phone}] by name: ``phone`` is their
+    user's phone field, "" when empty."""
+    users = odoo_call(
+        "res.users",
+        "search_read",
+        [("employee_type", "=", "employee"), ("is_agent", "=", False)],
+        order="name",
+        fields=["name", "login", "phone"],
+    )
+    return [{"login": user["login"], "name": user["name"], "phone": user["phone"] or ""} for user in users]
+
+
+def person_to_enroll(login):
+    """Return {login, name, phone, cabinet_name} of the collaborator ``login`` (one of whatsapp_candidates, the login's
+    case ignored), ready to enroll for WhatsApp: ``phone`` as typed in Experio, ``cabinet_name`` the cabinet's own
+    company's name. Raises ValueError, in plain French, when they are no collaborator of this cabinet or have no
+    phone."""
+    found = next((who for who in whatsapp_candidates() if who["login"].lower() == login.strip().lower()), None)
+    if not found:
+        raise ValueError(f"{login} n'est pas un collaborateur de ce cabinet")
+    if not found["phone"]:
+        raise ValueError(f"{found['name']} n'a pas de numéro de téléphone dans Experio")
+    company = odoo_call("res.company", "read", [main_company_id()], fields=["name"])[0]
+    return {**found, "cabinet_name": company["name"]}
 
 
 def remember_whatsapp_sender(session_id, email):

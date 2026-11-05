@@ -230,3 +230,47 @@ def test_only_who_experio_lets_manage_users_manages_access(monkeypatch, who, lev
 
     monkeypatch.setattr(people, "odoo_call", odoo_call)
     assert (people.check_manager("s")["status"] == "ok") is allowed
+
+
+@pytest.mark.functionality
+def test_the_candidates_for_whatsapp_are_the_collaborators_with_their_users_phone_agents_left_out(monkeypatch):
+    asked = []
+
+    def odoo_call(model, method, domain, **kwargs):
+        asked.append((model, method, domain, kwargs["fields"]))
+        return [
+            {"name": "Amal", "login": "amal@cabinet.ma", "phone": "0600600600"},
+            {"name": "Karim", "login": "karim@cabinet.ma", "phone": False},
+        ]
+
+    monkeypatch.setattr(people, "odoo_call", odoo_call)
+    assert people.whatsapp_candidates() == [
+        {"login": "amal@cabinet.ma", "name": "Amal", "phone": "0600600600"},
+        {"login": "karim@cabinet.ma", "name": "Karim", "phone": ""},
+    ]
+    domain = [("employee_type", "=", "employee"), ("is_agent", "=", False)]  # as Experio's own Collaborateurs list
+    assert asked == [("res.users", "search_read", domain, ["name", "login", "phone"])]
+
+
+@pytest.mark.security
+def test_only_one_of_the_cabinet_s_collaborators_with_a_phone_can_be_enrolled(monkeypatch):
+    monkeypatch.setattr(
+        people,
+        "whatsapp_candidates",
+        lambda: [
+            {"login": "amal@cabinet.ma", "name": "Amal", "phone": "0600600600"},
+            {"login": "karim@cabinet.ma", "name": "Karim", "phone": ""},
+        ],
+    )
+    monkeypatch.setattr(people, "main_company_id", lambda: 1)
+    monkeypatch.setattr(people, "odoo_call", lambda model, method, ids, fields: [{"name": "Cabinet Alami"}])
+    assert people.person_to_enroll(" Amal@Cabinet.ma ") == {
+        "login": "amal@cabinet.ma",
+        "name": "Amal",
+        "phone": "0600600600",
+        "cabinet_name": "Cabinet Alami",
+    }
+    with pytest.raises(ValueError, match="pas un collaborateur"):
+        people.person_to_enroll("staff@experio.ma")  # Experio's staff, a client contact, an agent: not in the list
+    with pytest.raises(ValueError, match="pas de numéro"):
+        people.person_to_enroll("karim@cabinet.ma")

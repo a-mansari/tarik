@@ -23,6 +23,8 @@ from server import server
         ("POST", "/ui/api/executions/r1/stop"),
         ("GET", "/ui/api/comptes"),
         ("GET", "/ui/api/logs-serveur"),
+        ("GET", "/ui/api/whatsapp"),
+        ("POST", "/ui/api/whatsapp"),
     ],
 )
 def test_what_changes_everyone_s_tarik_is_an_admin_s(method, path):
