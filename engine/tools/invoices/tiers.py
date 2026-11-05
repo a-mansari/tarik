@@ -158,10 +158,11 @@ def ensure_tiers_account(invoice_id, partner_id, kind, context):
     return f"compte tiers `{code}` {note}"
 
 
-def link(invoice, partner_id, kind):
+def link(invoice, partner_id, kind, quiet=False):
     """Put tiers ``partner_id`` on ``invoice`` (dict) and make sure it has its Compte Tiers: an ok result.
 
     The tiers is set through Experio's form, so its onchange fills the memorized account, withholding... as on screen.
+    ``quiet``: the tiers already on the invoice, kept as it is: a routine result when its account was there too.
 
     Raises:
         ToolError: the tiers does not belong to the invoice's dossier.
@@ -179,11 +180,10 @@ def link(invoice, partner_id, kind):
             fill_invoice(
                 invoice["id"], {"partner_id": partner_id}, context, replace_tiers=bool(disputed(invoice, kind))
             )
-        kept = invoice["partner_id"] and invoice["partner_id"][0] == partner_id
         account = ensure_tiers_account(invoice["id"], partner_id, kind, context)
     said = f"{test_mode_note()}Facture {invoice['id']} : {SIDE[kind]['role']} `{name}`, {account}."
-    # the tiers Experio read, with its account already there: nothing done, nothing to tell (its name heads the line)
-    unchanged = kept and account.startswith("compte tiers `") and account.endswith("`")
+    # Experio's own tiers kept, its account already there: nothing done, nothing to tell (its name heads the line)
+    unchanged = quiet and account.startswith("compte tiers `") and account.endswith("`")
     return routine(said) if unchanged else ok(said)
 
 
@@ -300,7 +300,7 @@ def link_tiers(invoice_id: int) -> dict:
             choices=choices,
         )
     if invoice["partner_id"]:  # already set in Experio (by hand, by an answer): kept, whatever was detected
-        return link(invoice, invoice["partner_id"][0], kind)
+        return link(invoice, invoice["partner_id"][0], kind, quiet=True)
     if detected:
         return link(invoice, detected[0], kind)
     if invoice.get("import_invoice_type") == "customs":  # Experio has no customs tiers of its own: the dossier's

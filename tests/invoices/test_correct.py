@@ -619,10 +619,12 @@ def test_a_retenue_de_garantie_read_on_the_scan_is_written_over_experios(correct
     ("words", "named"),
     [
         ("morosoft, facture en euro", "EUR"),
-        ("ci joint, 1200 €", "EUR"),
+        ("c'est en €", "EUR"),
         ("en dollars", "USD"),
         ("facture", None),
-        ("euro ou dollar ?", None),
+        ("en euro ou en dollar ?", None),
+        ("payée 1 200 DH par carte", None),  # the amount paid, not the invoice's currency
+        ("1200dh", None),
     ],
 )
 def test_the_currency_a_client_names_is_read(words, named):
@@ -632,8 +634,10 @@ def test_the_currency_a_client_names_is_read(words, named):
 @pytest.mark.communication
 def test_a_currency_the_client_named_that_is_not_the_scans_is_said_and_the_scan_wins(monkeypatch):
     monkeypatch.setattr(correct, "odoo_call", lambda *a, **k: [{"id": 2}])
+    monkeypatch.setattr(correct, "alone_in_conversation", lambda invoice_id: invoice_id == 3)
     changes, notes = {}, []
-    assert correct._currency("USD", changes, notes, "morosoft, facture en euro") is True
+    assert correct._currency("USD", changes, notes, "morosoft, facture en euro", 3) is True
     assert changes == {"currency_id": 2}
     assert notes == ["facture en USD, pas en EUR comme dans votre message : j'ai suivi la facture"]
-    assert correct._currency("USD", {}, [], "facture en dollars") is False  # the same: nothing said
+    assert correct._currency("USD", {}, [], "facture en dollars", 3) is False  # the same: nothing said
+    assert correct._currency("MAD", {}, [], "celle d'Amazon est en dollars", 4) is False  # several files: not about it

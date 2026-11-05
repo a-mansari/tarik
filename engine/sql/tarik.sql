@@ -107,6 +107,11 @@ select post_asked from tarik_files where id = %s
 -- Tarik's last question in the conversation.
 select message from tarik_results where session_id = %s and status = 'question' order by id desc limit 1
 
+-- name: invoices_of_invoice_session
+-- How many invoices the conversation of an invoice made: one, its client's message is about it.
+select count(distinct invoice_id) from tarik_files where invoice_id is not null
+and session_id = (select session_id from tarik_files where invoice_id = %s limit 1)
+
 -- name: dossier_worked_in_session
 -- Whether this conversation already worked in a dossier: a step recorded with it.
 select 1 from tarik_results where session_id = %s and dossier_id = %s limit 1

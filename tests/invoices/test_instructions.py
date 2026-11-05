@@ -71,7 +71,7 @@ def test_the_payment_method_the_client_gave_wins_over_the_scan(monkeypatch):
         lambda *a, **k: {"refund": False, "payment_method_id": False, "type": "purchase"},
     )
     monkeypatch.setattr(correct, "stored_check", lambda invoice_id: (True, {"payment_method": "especes"}, []))
-    monkeypatch.setattr(correct, "_currency", lambda code, changes, notes, words: False)
+    monkeypatch.setattr(correct, "_currency", lambda code, changes, notes, words, invoice_id: False)
     monkeypatch.setattr(correct, "_payment_method", lambda name, invoice, changes: seen.append(name))
     correct.correct_invoice(3, "virement", "reglee par virement")
     correct.correct_invoice(3, "virement", "reglee en especes")  # the agent's word is not the client's: the scan's
