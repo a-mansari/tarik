@@ -1,5 +1,5 @@
-<!-- The Comportement page: how Tarik behaves for the cabinet picked in the sidebar, each switch, delay or choice saved at
-once, in two parts: the cabinet's own settings, and those of its dossiers (what a new dossier's form offers first).
+<!-- The Comportement page: how Tarik behaves for the cabinet picked in the sidebar, each switch or delay saved at
+once, in two parts: the cabinet's own settings, and those of its dossiers.
 A manager can ask Tarik for the same changes in a conversation; the page shows who changed each one last. -->
 <script setup>
 import { computed, ref } from "vue";
@@ -12,7 +12,7 @@ const { data, status, loading } = usePage(() => "/comportement");
 const busy = ref(false);
 const SCOPES = [
   { scope: "cabinet", title: "Réglages du cabinet", what: "Valent pour tous les clients du cabinet." },
-  { scope: "dossier", title: "Réglages des dossiers", what: "Valeur proposée dans le formulaire envoyé au client pour un nouveau dossier ; le client choisit ensuite pour son dossier. Seule la comptabilisation automatique est suivie par les dossiers qui n'ont pas rempli le formulaire (la TVA reste celle d'Experio)." },
+  { scope: "dossier", title: "Réglages des dossiers", what: "Valent pour chaque dossier qui n'a pas son propre choix, fait dans le formulaire envoyé au client pour un nouveau dossier. La TVA du dossier n'est pas ici : elle reste dans Experio." },
 ];
 const parts = computed(() => SCOPES.map((part) => ({ ...part, settings: data.value.settings.filter((s) => s.scope === part.scope) })));
 const shown = ref(0); // bumped to draw the controls again as saved, after a refusal
@@ -44,12 +44,6 @@ async function save(setting, value) {
             <input type="checkbox" role="switch" :checked="setting.value" :disabled="busy"
               @change="save(setting, $event.target.checked ? 1 : 0)">
             <b>{{ setting.name }}</b>
-          </label>
-          <label v-else-if="setting.kind === 'choice'" class="field">
-            <b>{{ setting.name }}</b>
-            <select :value="setting.value" :disabled="busy" @change="save(setting, $event.target.value)">
-              <option v-for="(label, value) in setting.choices" :key="value" :value="value">{{ label }}</option>
-            </select>
           </label>
           <label v-else class="field">
             <b>{{ setting.name }}</b>

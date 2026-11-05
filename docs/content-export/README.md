@@ -225,3 +225,7 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-whatsapp-20261105.json` (and its `.diff`): the two Journal entries « Collaborateur activé sur
   WhatsApp » and « Collaborateur retiré de WhatsApp » (`labels.json`). Import it once the stack runs the commit that adds
   the WhatsApp page: before it, `check.py` finds no words for the new Journal actions.
+- `tarik-contenu-tva-dossier-20261105.json`: `Experio_modifier_dossier` takes `declaration_mode` and `regime_type`
+  (`agent.json`), and the two inputs are named in `labels.json` (which also holds the WhatsApp Journal entries of the
+  export above: import that one first or this one alone, never the older after this). Import it once the stack runs
+  the commit that adds the two arguments: before, the import is refused (the tool lacks them).

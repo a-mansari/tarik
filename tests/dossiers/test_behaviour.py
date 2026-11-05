@@ -102,15 +102,16 @@ def test_a_chat_runs_writer_reaches_the_tool_from_the_run_never_from_the_model()
 
 
 @pytest.mark.functionality
-def test_each_setting_is_the_cabinet_s_or_a_dossier_s_and_a_choice_takes_only_its_own_values(by_email, journal):
+def test_a_setting_is_the_cabinet_s_or_a_dossier_s_and_what_experio_keeps_has_no_copy_here(by_email, journal):
     assert {found["scope"] for found in behaviour.settings()} == {"cabinet", "dossier"}
-    assert behaviour.checked("declaration_mode", " Monthly ") == "monthly"
-    assert behaviour.manage_behaviour("s1", "update", "regime_type", "debit")["message"].endswith("TVA : débits.")
-    assert behaviour.dossier_behaviour(7, "regime_type") == "debit"  # a dossier without its own follows the cabinet's
-    behaviour.set_for_dossier(7, "regime_type", "encaissement", "client@societe.ma")
-    assert (
-        behaviour.dossier_behaviour(7, "regime_type") == "encaissement"
-        and behaviour.behaviour("regime_type") == "debit"
-    )
-    with pytest.raises(ToolError):
-        behaviour.change("regime_type", "mensuel", "chef@cabinet.ma")
+    assert [found["key"] for found in behaviour.settings() if found["scope"] == "dossier"] == ["post_invoices"]
+    for key in ("declaration_mode", "regime_type"):  # a dossier's TVA is Experio's: no setting, default or journal line
+        with pytest.raises(ToolError, match="réglage inconnu"):
+            behaviour.change(key, "monthly", "chef@cabinet.ma")
+        assert behaviour.manage_behaviour("s1", "update", key, "debit")["status"] == "stop"
+    assert journal == []
+    assert behaviour.dossier_behaviour(7, "post_invoices") is False  # a dossier without its own follows the cabinet's
+    behaviour.manage_behaviour("s1", "update", "post_invoices", "oui")
+    assert behaviour.dossier_behaviour(7, "post_invoices") is True
+    behaviour.set_for_dossier(7, "post_invoices", False, "client@societe.ma")
+    assert behaviour.dossier_behaviour(7, "post_invoices") is False and behaviour.behaviour("post_invoices") is True

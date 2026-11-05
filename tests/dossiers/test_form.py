@@ -11,6 +11,7 @@ from engine.tools.dossiers.form_link import form_link
 from engine.tools.invoices import pipeline
 
 URL = "https://tarik.example"
+declarations = []  # the dossier's TVA declarations in the fake Experio
 HAVE = {"folder_type": "company", "ice": "", "vat": "", "declaration_mode": "quarterly", "regime_type": "encaissement"}
 
 
@@ -25,8 +26,11 @@ def experio(db_cabinet, monkeypatch):
     monkeypatch.setattr(
         form, "odoo_json", lambda model, method, ids, values: writes.append((model, method, ids, values))
     )
-    monkeypatch.setattr(
-        form, "changes_to", lambda dossier_id, asked: ({}, {"ice": asked["ice"]} if "ice" in asked else {})
+    declarations.clear()  # no TVA declaration yet; a test adds one
+    monkeypatch.setattr(  # changes_to reads the dossier, frequency_closed counts its declarations
+        identity,
+        "odoo_call",
+        lambda model, method, ids, **kw: len(declarations) if method == "search_count" else [HAVE],
     )
     monkeypatch.setattr(form, "conflict", lambda dossier_id, name, changes: None)
     monkeypatch.setattr(form, "sender_of", lambda session_id: "client@societe.ma")
@@ -59,9 +63,9 @@ def test_a_dossier_s_link_names_its_cabinet_and_a_token_that_opens_its_form(expe
         "",
         "inchangé",
     )  # what Experio has, never the cabinet's
-    monkeypatch.setitem(HAVE, "declaration_mode", "out_of_field")  # not a choice the form offers: left as it is
-    again = form.form_spec(token_of(link))["fields"]
-    assert next(item for item in again if item["key"] == "declaration_mode")["value"] == ""
+    monkeypatch.setitem(HAVE, "declaration_mode", "out_of_field")  # not a choice the form offers: shown, not editable
+    again = next(i for i in form.form_spec(token_of(link))["fields"] if i["key"] == "declaration_mode")
+    assert again["kind"] == "fixed" and again["value"] == "hors champ"
 
 
 @pytest.mark.functionality
@@ -113,7 +117,6 @@ def test_a_wrong_answer_writes_nothing_and_leaves_the_form_open(experio, answers
     with pytest.raises(ToolError):
         form.fill_form(token, {"declaration_mode": "monthly", **answers})
     assert experio == [] and form.open_form(token)[0] == 7
-    assert behaviour.dossier_behaviour(7, "declaration_mode") == "quarterly"
 
 
 @pytest.mark.security
@@ -239,3 +242,17 @@ def test_a_dossier_with_its_own_value_keeps_it_unless_the_client_picks_another(e
     behaviour.set_for_dossier(7, "post_invoices", own, "client@societe.ma")
     form.fill_form(token_of(form_link(7, "s")), {"post_invoices": picked})
     assert behaviour.dossier_behaviour(7, "post_invoices") is kept
+
+
+@pytest.mark.functionality
+def test_a_frequency_closed_in_experio_is_shown_as_it_is_and_refused_on_submit(experio, monkeypatch):
+    declarations.append(1)  # a TVA declaration exists: changing the frequency would falsify it
+    token = token_of(form_link(7, "s"))
+    mode = next(item for item in form.form_spec(token)["fields"] if item["key"] == "declaration_mode")
+    assert mode["kind"] == "fixed" and mode["value"] == "trimestrielle"
+    with pytest.raises(ToolError, match="Experio, pas ici"):
+        form.fill_form(token, {"declaration_mode": "monthly", "regime_type": "debit"})
+    assert experio == [] and form.open_form(token)  # nothing written, still open
+    monkeypatch.setitem(HAVE, "declaration_mode", "out_of_field")
+    shown = next(i for i in form.form_spec(token)["fields"] if i["key"] == "declaration_mode")
+    assert shown["kind"] == "fixed" and shown["value"] == "hors champ"

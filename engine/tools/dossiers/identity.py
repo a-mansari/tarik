@@ -51,6 +51,8 @@ EDITABLE = {
     "street2": ("street2", "complément d'adresse"),
     "city": ("city", "ville"),
     "zip": ("zip", "code postal"),
+    "declaration_mode": ("declaration_mode", "déclaration de TVA"),
+    "regime_type": ("regime_type", "régime de TVA"),
 }
 IDENTIFIERS = {"ice", "if_number", "rc", "patente", "tsc", "cnss", "zip"}  # checked digit for digit
 # Between a label and its number, only punctuation and a few linking words ("le RC est 331245", "RC : 331245",
@@ -69,13 +71,25 @@ def labelled(label):
 # An ICE is told apart by its 15 digits alone.
 IF_WRITTEN: Final = labelled(r"I\.?F\.?")
 LABELLED = {"ice": ICE_WRITTEN, "if_number": IF_WRITTEN, "rc": labelled(r"R\.?C\.?")}
-# "societe" alone is not a type: "l'adresse de ma societe" changes no dossier into a company. (A spreadsheet's Type
-# column is another matter: there it is one, management.TYPE_WORDS.)
-TYPE_WORDS = {
+# A dossier's TVA settings, Experio's own (res.company declaration_mode and regime_type, declaration addon): what each
+# may be set to. "Hors champ" is not offered: Experio flags the dossier's draft purchases when it is chosen, and does
+# not unflag them when it is left (res_company.py write): the cabinet does it on Experio's screen.
+CHOICES = {
+    "declaration_mode": {"monthly": "mensuelle", "quarterly": "trimestrielle"},
+    "regime_type": {"encaissement": "encaissements", "debit": "débits"},
+}
+# The words a client writes for a type or a TVA setting's value (normalized, whole words). "societe" alone is not a
+# type: "l'adresse de ma societe" changes no dossier into a company. (A spreadsheet's Type column is another matter:
+# there it is one, management.TYPE_WORDS.)
+WORDS = {
     "person": ("personne physique", "physique"),
     "company": ("personne morale", "morale"),
     "cpu": ("cpu",),
     "st": ("sole trader", "commercant", "entreprise individuelle"),
+    "monthly": ("mensuelle", "mensuel"),
+    "quarterly": ("trimestrielle", "trimestriel"),
+    "encaissement": ("encaissement", "encaissements"),
+    "debit": ("debit", "debits"),
 }
 
 
@@ -122,7 +136,7 @@ def client_wrote(key, value, words):
     """True when the client wrote the new ``value`` for field ``key`` themselves in ``words``: a model may not
     choose nor "correct" one. An identifier must be one of their numbers digit for digit (an ICE as a 15-digit
     number, an IF or RC after its label, a placeholder 1111/2222 as a whole word); the capital one of their
-    amounts, decimals kept (100 000,50); the type one of its TYPE_WORDS; a text, whole words of theirs."""
+    amounts, decimals kept (100 000,50); the type or a TVA setting one of its WORDS; a text, whole words of theirs."""
     if key == "capital":
         try:
             amount = as_number(value)
@@ -139,7 +153,12 @@ def client_wrote(key, value, words):
             found = re.findall(r"\d+", joined(words, " .,  "))
         return number.isdigit() and number in found
     if key == "folder_type":
-        return any(said(word, normalized(words)) for word in TYPE_WORDS.get(value, ()))
+        return any(said(word, normalized(words)) for word in WORDS.get(value, ()))
+    if (
+        key in CHOICES
+    ):  # one value of the two only: "trimestrielle, pas mensuelle" or "mensuelle ou trimestrielle" is none
+        named = [choice for choice in CHOICES[key] if any(said(w, normalized(words)) for w in WORDS[choice])]
+        return named == [value]
     return said(normalized(value), normalized(words))
 
 
@@ -189,6 +208,33 @@ def require_folder_type(folder_type):
     """Raise ToolError unless ``folder_type`` is one of FOLDER_TYPES."""
     if folder_type not in FOLDER_TYPES:
         raise ToolError(f"Type de dossier inconnu : {', '.join(FOLDER_TYPES)}.")
+
+
+def sentence(text):
+    """Return ``text`` with its first letter capitalised, the rest as it is (« déclaration de TVA »)."""
+    return text[:1].upper() + text[1:]
+
+
+def require_choice(key, value):
+    """Raise ToolError unless ``value`` is one of CHOICES[``key``] (``key``: declaration_mode or regime_type)."""
+    if value not in CHOICES[key]:
+        extra = " « Hors champ » se règle dans Experio." if key == "declaration_mode" else ""
+        raise ToolError(f"{sentence(EDITABLE[key][1])} : {', '.join(CHOICES[key])}.{extra}")
+
+
+def frequency_closed(dossier_id, mode):
+    """Return why dossier ``dossier_id``, now at declaration ``mode``, can't have its TVA frequency changed here, or "".
+
+    Experio keeps each TVA declaration's mode as the company's (exp.deduction.table.mode_type, stored, related to
+    company_id.declaration_mode) and refuses to declare a period of another mode (check_declaration_values): changing
+    the frequency of a dossier that has declarations breaks them. Leaving "hors champ" leaves its draft purchases
+    flagged non-recoverable (res_company.py write only flags on entering it). Both are the cabinet's to do in Experio.
+    """
+    if mode == "out_of_field":
+        return "il est hors champ de la TVA : cela se règle dans Experio."
+    if odoo_call("exp.deduction.table", "search_count", [("company_id", "=", dossier_id)]):
+        return "il a déjà des déclarations de TVA, que ce changement fausserait : cela se règle dans Experio."
+    return ""
 
 
 # --- Creating a dossier ---
@@ -415,6 +461,8 @@ def update_dossier(
     street2: str = "",
     city: str = "",
     zip: str | int = "",
+    declaration_mode: str = "",
+    regime_type: str = "",
     skip_ice_if_check: bool = False,
     client_confirmed: bool = False,
     client_message: str = "",
@@ -432,7 +480,8 @@ def update_dossier(
     result to confirm skipping the check; an ok result listing each change (in test mode, without writing).
 
     Raises:
-        ToolError: no field given, or an unknown ``folder_type``.
+        ToolError: no field given, an unknown ``folder_type``, or a ``declaration_mode`` (monthly, quarterly) or
+            ``regime_type`` (encaissement, debit) that is not one: Experio's own TVA settings of the dossier.
     """
     client_message = own_words(client_message)
     dossier = require_dossier(dossier_id)
@@ -451,6 +500,8 @@ def update_dossier(
             "street2": street2,
             "city": city,
             "zip": zip,
+            "declaration_mode": declaration_mode,
+            "regime_type": regime_type,
         }
     )
     if not asked:  # MiniMax sometimes calls with no fields: told how to call again, it does
@@ -464,10 +515,17 @@ def update_dossier(
             asked[key] = written_id(asked[key], pattern, words)
     if asked.get("folder_type"):
         require_folder_type(asked["folder_type"])
+    for key in CHOICES.keys() & asked.keys():
+        asked[key] = asked[key].lower()
+        require_choice(key, asked[key])
     written = {key: value for key, value in asked.items() if client_wrote(key, value, words)}
     not_written = [EDITABLE[key][1] for key in asked if key not in written]
     unchanged = f" Non modifié, car le client ne l'a pas écrit : {', '.join(not_written)}." if not_written else ""
     current, changes = changes_to(dossier_id, written)
+    closed = frequency_closed(dossier_id, current["declaration_mode"]) if "declaration_mode" in changes else ""
+    if closed:
+        del changes["declaration_mode"]
+        unchanged += f" Fréquence de TVA non modifiée : {closed}"
     if not changes:
         return stop(f"Dossier `{dossier}` : rien à modifier.{unchanged}")
     refusal = conflict(dossier_id, dossier, changes)
@@ -481,10 +539,14 @@ def update_dossier(
     for key in written:
         field, label = EDITABLE[key]
         if field in changes:
-            each.append(f"{label} : {current.get(field) or 'vide'} -> {changes[field]}")
+            names = {**CHOICES.get(key, {}), "out_of_field": "hors champ"}  # a TVA setting in words, not Experio's keys
+            old, new = current.get(field) or "vide", changes[field]
+            each.append(f"{label} : {names.get(old, old)} -> {names.get(new, new)}")
     shown = " ; ".join(each)
     if dry_run():
         return ok(f"{TEST_MODE}Le dossier `{dossier}` serait modifié : {shown}.{unchanged}")
     with refused(f"update_dossier {dossier_id}", f"Dossier `{dossier}` : Experio refuse de le modifier ({{reason}})."):
         odoo_json("res.company", "write", [dossier_id], changes)
+    if "regime_type" in changes:  # Experio sets it again from each declaration it validates (sync_regime_to_company)
+        unchanged += " Le régime vaut pour les prochaines déclarations : une déclaration déjà ouverte garde le sien."
     return ok(f"Dossier `{dossier}` modifié : {shown}.{unchanged}")
