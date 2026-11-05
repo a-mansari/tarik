@@ -356,7 +356,7 @@ def split_invoices(file_id: int, invoice_type: str = "", client_message: str = "
                 **side,
             )
         told = ok if said_side else routine  # a side read on the scan is told, never left out of the summary
-        one = told(f"`{name}` : {said_side}1 facture.", files=[file_id], **side)
+        one = told(f"`{name}` : {said_side.strip() or '1 facture.'}", files=[file_id], **side)
         if invoice_id or parent_id or mime != "application/pdf":  # parent_id: already one invoice cut out of a PDF
             return one
         try:

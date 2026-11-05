@@ -130,6 +130,15 @@ def written_numbers(text):
     return values
 
 
+def dirhams(amount, currency="MAD"):
+    """Return ``amount`` in the invoice's ``currency`` as the client reads it: « 120 000 DH », « 1 234,50 EUR »;
+    "" without one. Experio's amount_total is in the invoice's own currency (amount_total_currency is in MAD)."""
+    if not amount:
+        return ""
+    text = f"{amount:,.2f}".replace(",", " ").replace(".", ",").removesuffix(",00")
+    return f"{text} {'DH' if currency == 'MAD' else currency}"
+
+
 def counted(count, one, many):
     """Return the phrase that agrees with ``count`` (French: 0 and 1 singular), its "{}" the count: counted(3,
     "{} opération lue", "{} opérations lues") -> "3 opérations lues"; never "opération(s)"."""

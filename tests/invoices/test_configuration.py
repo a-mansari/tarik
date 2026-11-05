@@ -60,8 +60,7 @@ def test_experios_own_detection_runs_only_when_its_check_blocks(experio):
     assert [c[1] for c in experio["calls"]].count("create_tax_ids") == 1
     assert ("res.company", "auto_detect_settings") in experio["calls"]
     assert result["message"] == (
-        "Facture 3 : j'ai lancé la détection automatique des paramètres du dossier. Elle a créé 3 taxes. "
-        "Plus rien ne bloque la comptabilisation."
+        "Facture 3 : j'ai créé 3 taxes dans le dossier. Plus rien ne bloque la comptabilisation."
     )
     experio["before"], experio["calls"] = [], []
     assert configuration.configure_cabinet(3)["routine"] and len(experio["calls"]) == 1  # nothing missing: one read
@@ -76,8 +75,8 @@ def test_what_still_blocks_stops_the_invoice_the_dossier_s_settings_apart_from_t
     result = configuration.configure_cabinet(3)
     assert result["status"] == "stop"
     assert result["message"].endswith(
-        "La facture n'est pas comptabilisable en l'état. À régler par le cabinet dans la Configuration du dossier : "
-        "The configuration of local supplier journal is not defined. Sur la facture elle-même, Experio signale : "
+        "Pas comptabilisable en l'état. À régler par le cabinet dans la Configuration du dossier : "
+        "The configuration of local supplier journal is not defined. Sur la facture : "
         "Le montant TTC de la facture doit être strictement positif."
     )
 

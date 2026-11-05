@@ -617,3 +617,18 @@ def test_only_a_tiers_experio_picked_and_the_scan_contradicts_may_be_replaced(
         return
     experio.fill_invoice(1, changes, {}, replace_tiers=replace)
     assert [method for method, _ in written] == ["write"]
+
+
+@pytest.mark.communication
+def test_experios_english_tax_code_errors_reach_the_client_in_french_each_apart():
+    from engine.tools.core.experio import in_french
+
+    two = (
+        "The invoice line with account Travaux (VAT 0%) must have a tax code. "
+        "The invoice line with account Ventes (VAT 20%) must have a tax code."
+    )
+    assert in_french(two) == (
+        "la ligne à 0 % (compte Travaux) n'a pas de code de taxe : à renseigner par le cabinet dans Experio. "
+        "la ligne à 20 % (compte Ventes) n'a pas de code de taxe : à renseigner par le cabinet dans Experio."
+    )
+    assert in_french("Le montant TTC doit être positif.") == "Le montant TTC doit être positif."

@@ -32,6 +32,7 @@ def experio(monkeypatch):
     monkeypatch.setattr(tva, "side_of", lambda invoice: invoice["type"])
     monkeypatch.setattr(tva, "fill_invoice", lambda invoice_id, changes, context: state["written"].append(changes))
     monkeypatch.setattr(tva, "refresh", lambda invoice_id, context: None)
+    monkeypatch.setattr(tva, "rate_mismatch", lambda invoice_id: state.get("mismatch"))  # the scan's rate agrees
     monkeypatch.setattr(tva, "add_missing_taxes", lambda invoice_id, context: [])
     monkeypatch.setattr(tva, "test_mode_note", lambda: "")
     monkeypatch.setattr(tva, "_tax_lines", lambda invoice_id, context: ["500.0 HT à 20.0 % (TVA 20%)"])
@@ -188,3 +189,70 @@ def test_the_model_is_shown_the_dossiers_activity_the_bill_and_the_cgnc(monkeypa
         assert fact in instruction
     monkeypatch.setattr(tva, "ask_model", lambda *a: {"non_recoverable": None, "reason": ""})
     assert tva.deductibility(invoice, {})[0] is None  # it cannot tell: the client is asked
+
+
+@pytest.fixture
+def mismatched(experio, monkeypatch):
+    """The scan prints 20 % on 3 611,11 HT with a TVA of 650 (18 %); the client's answers kept per question."""
+    experio["mismatch"] = (20, 3611.11, 650.0)
+    kept = {}
+
+    def kept_yes_no(invoice_id, step, answer):
+        answer = answer or kept.get(step, "")
+        if tva.yes_no(answer) is not None:
+            kept[step] = answer
+        return answer, tva.yes_no(answer)
+
+    monkeypatch.setattr(tva, "kept_answer", lambda invoice_id, step: kept.get(step, ""))
+    monkeypatch.setattr(tva, "keep_answer", lambda invoice_id, step, answer: kept.__setitem__(step, answer))
+    monkeypatch.setattr(tva, "kept_yes_no", kept_yes_no)
+    return experio
+
+
+@pytest.mark.communication
+def test_a_printed_rate_its_tva_is_not_of_is_always_asked_first_part_at_0(mismatched):
+    asked = tva.settle_tva(3)["message"]
+    assert "le taux imprimé est 20 %, mais la TVA (650 DH) fait 18 % du HT (3 611,11 DH)" in asked
+    assert "(3 250 DH à 20 % et 361,11 DH à 0 %) ? oui / non" in asked and not mismatched["written"]
+    mismatched["invoice"].update(type="sale", account_id=[2, "71241000 Travaux"])  # nothing else to ask
+    done = tva.settle_tva(3, "oui")  # part of the HT bears no TVA: Experio's split stays
+    assert done["status"] == "ok" and "une partie du HT à 0 %" in done["message"]
+    assert tva.settle_tva(3, "oui")["status"] == "ok"  # the answer kept: never asked again, never read twice
+
+
+@pytest.mark.communication
+def test_a_rate_that_is_no_moroccan_rate_makes_the_invoice_one_to_correct(mismatched):
+    tva.settle_tva(3)
+    stopped = tva.settle_tva(3, "non")
+    assert (
+        stopped["status"] == "stop"
+        and "18 % n'est pas un taux marocain : la facture est à corriger" in stopped["message"]
+    )
+
+
+@pytest.mark.functionality
+def test_the_rate_the_amounts_give_is_applied_only_on_the_clients_oui(mismatched):
+    mismatched["mismatch"] = (20, 3611.11, 505.56)  # 14 % of the HT: a Moroccan rate
+    tva.settle_tva(3)
+    second = tva.settle_tva(3, "non")  # not a part at 0 %: the rate the amounts give is asked, never applied
+    assert second["status"] == "question" and second["message"].endswith("J'applique 14 % ? oui / non")
+    assert not mismatched["written"]
+    tva.settle_tva(3, "oui")
+    assert mismatched["written"][0]["amount_tva_14"] == 505.56 and mismatched["written"][0]["amount_tva_20"] == 0.0
+
+
+@pytest.mark.functionality
+def test_the_rate_answer_is_never_read_again_from_a_later_answer(mismatched):
+    mismatched["mismatch"] = (20, 3611.11, 505.56)  # a purchase on fuel: the non-recoverable question comes next
+    tva.settle_tva(3)
+    tva.settle_tva(3, "non")
+    asked = tva.settle_tva(3, "oui")  # 14 % applied; now the non-recoverable question
+    assert asked["status"] == "question" and len(mismatched["written"]) == 1
+    after = tva.settle_tva(3, "non")  # recoverable: never read as « don't apply 14 % »
+    assert after["status"] != "stop" and len(mismatched["written"]) >= 1
+
+
+@pytest.mark.functionality
+def test_a_tva_above_the_printed_rate_is_never_asked_as_a_part_at_0(mismatched):
+    mismatched["mismatch"] = (14, 3611.11, 722.22)  # 20 % of the HT, printed 14 %
+    assert tva.settle_tva(3)["message"].endswith("J'applique 20 % ? oui / non")
