@@ -110,11 +110,12 @@ def digits(text, label, size=None):
     raise ToolError(f"{label} : des chiffres seulement{f', {size}' if size else ''}.")
 
 
-def read(answers, have):
+def read(answers, have, now):
     """Return (identity, kept, own, lines) for the form's ``answers`` ({field key: text}) over the dossier as it is,
-    ``have``: the identity to change ({tool argument: value}), the Experio settings that differ ({res.company field:
-    value}), Tarik's own ({key: value}), and what the client chose, one line each. Raises ToolError for a value no
-    field takes."""
+    ``have`` in Experio and ``now`` for Tarik's settings (dossier_values): the identity to change ({tool argument:
+    value}), the Experio settings that differ ({res.company field: value}), Tarik's own that differ ({key: value}: one
+    left as shown is not kept, so the dossier goes on following the cabinet's), and what the client chose, one line
+    each. Raises ToolError for a value no field takes."""
     identity, kept, own, lines = {}, {}, {}, []
     if answers.get("folder_type"):
         require_folder_type(answers["folder_type"])
@@ -131,7 +132,8 @@ def read(answers, have):
         value = checked(key, answers[key])
         lines.append(f"{about['name']} : {about['choices'][value] if about['kind'] == 'choice' else answers[key]}")
         if not about.get("experio"):
-            own[key] = value
+            if now[key] != value:
+                own[key] = value
         elif have[about["experio"]] != value:
             kept[about["experio"]] = value
     return identity, kept, own, lines
@@ -147,7 +149,7 @@ def fill_form(token, answers):
     dossier_id, session_id = open_form(token)
     dossier = require_dossier(dossier_id)
     have = company(dossier_id)
-    identity, kept, own, lines = read(answers, have)
+    identity, kept, own, lines = read(answers, have, dossier_values(dossier_id))
     _, changes = changes_to(dossier_id, identity)
     if changes and conflict(dossier_id, dossier, changes):
         raise ToolError(TAKEN)
