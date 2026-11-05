@@ -35,6 +35,8 @@ def experio(monkeypatch):
             return [{k: v for k, v in CURRENT.items() if k in kw["fields"]}]
         if method == "search_read":
             return calls["others"]
+        if method == "search_count":  # the dossier's TVA declarations: none
+            return 0
         raise AssertionError(method)
 
     monkeypatch.setattr(onboarding, "odoo_call", odoo_call)
@@ -186,3 +188,32 @@ def test_a_tva_setting_that_is_not_one_of_the_choices_is_refused_before_anything
     with pytest.raises(ToolError, match="TVA"):
         onboarding.update_dossier(557, **{key: value}, client_message=f"TVA {value}")
     assert experio["write"] == []
+
+
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "said",
+    ["Passez la TVA en trimestrielle, pas mensuelle.", "TVA mensuelle ou trimestrielle ? Je ne sais pas.", "TVA ?"],
+)
+def test_a_tva_value_counts_only_when_the_client_wrote_that_one_alone(experio, said):
+    result = onboarding.update_dossier(557, declaration_mode="monthly", client_message=said)
+    assert experio["write"] == [] and "rien à modifier" in result["message"]
+
+
+@pytest.mark.functionality
+def test_a_value_in_capitals_is_accepted_and_a_dossier_with_declarations_keeps_its_frequency(experio, monkeypatch):
+    onboarding.update_dossier(557, regime_type="Debit", client_message="Pour Gecafisc : régime débit.")
+    assert experio["write"] == [{"regime_type": "debit"}]
+    experio["write"].clear()
+    monkeypatch.setattr(onboarding, "frequency_closed", lambda dossier_id, mode: "il a déjà des déclarations.")
+    result = onboarding.update_dossier(557, declaration_mode="monthly", client_message="Pour Gecafisc : TVA mensuelle.")
+    assert experio["write"] == [] and "Fréquence de TVA non modifiée : il a déjà des déclarations." in result["message"]
+
+
+@pytest.mark.functionality
+def test_a_frequency_is_closed_for_a_dossier_out_of_field_or_with_declarations(monkeypatch):
+    counts = []
+    monkeypatch.setattr(onboarding, "odoo_call", lambda model, method, domain: counts.append(domain) or len(counts) - 1)
+    assert "hors champ" in onboarding.frequency_closed(557, "out_of_field") and counts == []
+    assert onboarding.frequency_closed(557, "quarterly") == ""  # no declaration yet: Experio's count is 0
+    assert "déclarations" in onboarding.frequency_closed(557, "quarterly")  # one now

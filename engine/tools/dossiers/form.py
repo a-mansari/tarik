@@ -11,10 +11,11 @@ form_spec says what the page shows, fill_form applies an answer. The token is ta
 Experio's refusal gives it back. The page is open to anyone holding the link: what it says back never names another
 dossier nor repeats Experio's reason.
 
-Left to Experio's own screens: "hors champ" (it flags the dossier's draft purchases non-recoverable, res_company.py
-write) and the payment delays (set from the turnover, res_config_settings.py execute). The model dossier's configuration
-is not on the form: that copy must come before any import (setup.py), which the form can't promise. Tarik's duplicate
-check of an ICE or IF is stricter than Experio's, which a cabinet may switch off (ignore_partner_duplicated_ice_if)."""
+Left to Experio's own screens: "hors champ" and the TVA frequency of a dossier that has declarations
+(identity.frequency_closed), and the payment delays (set from the turnover, res_config_settings.py execute). The model
+dossier's configuration is not on the form: that copy must come before any import (setup.py), which the form can't
+promise. Tarik's duplicate check of an ICE or IF is stricter than Experio's, which a cabinet may switch off
+(ignore_partner_duplicated_ice_if)."""
 
 from engine.tools.core.app import ToolError
 from engine.tools.core.cabinets import cabinet_db
@@ -29,23 +30,22 @@ from engine.tools.dossiers.identity import (
     PLACEHOLDER_IDS,
     changes_to,
     conflict,
+    frequency_closed,
     require_choice,
     require_folder_type,
+    sentence,
 )
 from engine.tools.dossiers.people import sender_of
 
 YES, NO, KEEP = "oui", "non", ""
 FIELDS = ("folder_type", "ice", "if_number", "declaration_mode", "regime_type")  # Experio's, in the form's order
-LABELS = {
+LABELS = {key: sentence(EDITABLE[key][1]) for key in FIELDS} | {
     "folder_type": "Type de dossier",
-    "ice": f"{EDITABLE['ice'][1]} (15 chiffres)",
-    "if_number": "IF",
-    "declaration_mode": "Déclaration de TVA",
-    "regime_type": "Régime de TVA",
+    "ice": "ICE (15 chiffres)",
 }
 GONE = "Ce formulaire n'existe pas, a expiré ou a déjà été rempli : demandez-en un nouveau à Tarik."
 TAKEN = "Cet ICE ou cet IF est déjà utilisé par un autre dossier : écrivez à Tarik pour le régler."
-REFUSED = "Experio a refusé ces réglages : vérifiez l'ICE et l'IF, ou écrivez à Tarik."
+REFUSED = "Experio a refusé ces réglages : vérifiez les valeurs choisies, ou écrivez à Tarik."
 
 
 def open_form(token):
@@ -81,23 +81,18 @@ def form_spec(token):
     have = company(dossier_id)
     fields = []
     for key in FIELDS:
-        item = {"key": key, "label": LABELS[key], "value": have[key]}
+        item = {"key": key, "label": LABELS[key]}
         if key == "folder_type":
-            fields.append(
-                {**item, "kind": "choice", "options": list(FOLDER_TYPES.items()), "value": have[key] or "company"}
-            )
+            options, value = list(FOLDER_TYPES.items()), have[key] or "company"
+            fields.append({**item, "kind": "choice", "options": options, "value": value})
+        elif key == "declaration_mode" and frequency_closed(dossier_id, have[key]):
+            fields.append({**item, "kind": "fixed", "value": CHOICES[key].get(have[key], "hors champ")})
         elif key in CHOICES:
             options = [(KEEP, "inchangé"), *CHOICES[key].items()]
-            fields.append(
-                {
-                    **item,
-                    "kind": "choice",
-                    "options": options,
-                    "value": have[key] if have[key] in CHOICES[key] else KEEP,
-                }
-            )
+            value = have[key] if have[key] in CHOICES[key] else KEEP
+            fields.append({**item, "kind": "choice", "options": options, "value": value})
         else:
-            fields.append({**item, "kind": "fixed" if locked(have, key) else "text"})
+            fields.append({**item, "kind": "fixed" if locked(have, key) else "text", "value": have[key]})
     about = SETTINGS["post_invoices"]
     follows = dossier_values(dossier_id)["post_invoices"]
     fields.append(
@@ -161,7 +156,9 @@ def fill_form(token, answers):
     dossier_id, session_id = open_form(token)
     dossier = require_dossier(dossier_id)
     identity, own, lines = read(answers, company(dossier_id), dossier_values(dossier_id))
-    _, changes = changes_to(dossier_id, identity)
+    current, changes = changes_to(dossier_id, identity)
+    if "declaration_mode" in changes and frequency_closed(dossier_id, current["declaration_mode"]):
+        raise ToolError(f"{LABELS['declaration_mode']} : cela se règle dans Experio, pas ici.")
     if changes and conflict(dossier_id, dossier, changes):
         raise ToolError(TAKEN)
     if dry_run():
