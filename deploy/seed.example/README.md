@@ -11,7 +11,8 @@ in `.env`. The `vault-init` container loads each file into Vault when its path d
 
 Name each cabinet's file with the cabinet's **exact Experio database name**, and drop the example's placeholder
 file. At least one cabinet is needed: the server does not start without. The keys are those of `.env.example`'s last
-block. Values are JSON strings. Every `CHANGE_ME` must be replaced or its line deleted.
+block. Values are JSON strings. Every `CHANGE_ME` must be replaced or its line deleted: the three `SPARROW_*` lines (the
+WhatsApp channel: Sparrow's address, Experio's one sender id, its master token) go if the stack has no WhatsApp.
 
 Later changes go through the Experio API or the Cabinets page (they are kept: a path already in Vault is never
 overwritten). To push a changed `orchestrator.json` or `shared.json` anyway, run the stack once with
