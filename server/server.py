@@ -74,7 +74,7 @@ OPEN = (
     "/invitation/",
     "/ui/api/invitation/",
     "/gladden/",
-    "/sparrow/",
+    "/sparrow/handler",
 )
 # an invitation's page, a Gladden callback and Sparrow's handler: their token (one-time, or the recipient's) is its key
 COOKIE = "tarik_session"
