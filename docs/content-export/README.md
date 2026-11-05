@@ -222,3 +222,6 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-repetition-20261105.json` (and its `.diff`, against the stack's versions of 2026-11-05): in
   `skills/traitement-documents.md` and `skills/reponse-question.md`, the reply never repeats at its end a question or a
   request its lines already make.
+- `tarik-contenu-whatsapp-20261105.json` (and its `.diff`): the two Journal entries « Collaborateur activé sur
+  WhatsApp » and « Collaborateur retiré de WhatsApp » (`labels.json`). Import it once the stack runs the commit that adds
+  the WhatsApp page: before it, `check.py` finds no words for the new Journal actions.

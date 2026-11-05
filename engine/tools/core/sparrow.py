@@ -52,6 +52,15 @@ def digits(phone):
     return re.sub(r"\D+", "", str(phone))
 
 
+def moroccan(phone):
+    """Return ``phone`` as Sparrow takes it (212 and 9 digits) from its international (+212..., 00212...) or local
+    (06...) form; None for any other number."""
+    number = digits(phone).removeprefix("00")
+    if re.fullmatch(r"0\d{9}", number):
+        number = "212" + number[1:]
+    return number if re.fullmatch(r"212\d{9}", number) else None
+
+
 def known(recipient_id):
     """Return ``recipient_id`` when it has the form Sparrow makes, else raise SparrowError: it goes into a URL."""
     if not RECIPIENT_ID.fullmatch(str(recipient_id)):
@@ -96,11 +105,12 @@ def enroll(phone, host_uri, user_name, cabinet_name):
     recipient_id. Sparrow sends the person its default welcome template, ``user_name`` and ``cabinet_name`` filling it.
 
     Raises PhoneTaken when the phone already is a recipient, SparrowError for any other refusal (a number that is not
-    212 and 9 digits is a 422). Sparrow saves the recipient before it sends the welcome: when the call then fails, the
-    recipient Tarik just made is removed, so a retry is not refused as PhoneTaken with no recipient_id to remove."""
-    phone = digits(phone)
-    if not phone:
-        raise SparrowError("no phone number")
+    Moroccan, see moroccan, is refused before any call). Sparrow saves the recipient before it sends the welcome: when
+    the call then fails, the recipient Tarik just made is removed, so a retry is not refused as PhoneTaken with no
+    recipient_id to remove."""
+    phone = moroccan(phone)
+    if phone is None:
+        raise SparrowError("not a Moroccan phone number")
     if lookup(phone):
         raise PhoneTaken(f"{phone} is already a Sparrow recipient")
     try:

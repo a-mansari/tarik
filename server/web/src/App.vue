@@ -37,6 +37,7 @@ const cabinetPages = computed(() => {
     links.push(
       { href: "/ui/routines", icon: "clock", words: "Routines" },
       { href: "/ui/comportement", icon: "toggle", words: "Comportement" },
+      { href: "/ui/whatsapp", icon: "chat", words: "WhatsApp" },
       { href: "/ui/settings", icon: "settings", words: "Réglages" },
     );
   }

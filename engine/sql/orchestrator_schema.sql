@@ -125,6 +125,11 @@ create table if not exists whatsapp_recipients (
     phone text not null,
     session_id text not null unique
 );
+-- One row per person in a cabinet; their conversation is one of the form wa-<uuid> (never a mail thread's id:
+-- people.sender_of reads both).
+create unique index if not exists whatsapp_recipients_person on whatsapp_recipients (cabinet, email);
+alter table whatsapp_recipients drop constraint if exists whatsapp_recipients_session_check;
+alter table whatsapp_recipients add constraint whatsapp_recipients_session_check check (session_id like 'wa-%');
 -- WhatsApp's id of each message taken, so Sparrow sending one twice runs it once.
 -- shortcut: kept forever, a row of 40 bytes each; prune the old ones when it grows.
 create table if not exists whatsapp_messages (

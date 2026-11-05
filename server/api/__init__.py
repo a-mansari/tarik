@@ -4,13 +4,14 @@ runs.py: the runs, the workflows, the LLM calls and what every page shares; chat
 dashboard; harness.py: the dashboard's map of Tarik's harness; content.py: Tarik's capabilities; settings.py: each
 cabinet's settings; behaviour.py: how Tarik behaves for each; routines.py: each cabinet's routines; accounts.py: the
 accounts and invitations; journal.py: the Logs serveur page; whatsapp.py: Sparrow's forward of a
-collaborator's WhatsApp message."""
+collaborator's WhatsApp message; enrollment.py: the WhatsApp page, who writes to Tarik that way."""
 
 from server.api import (  # noqa: F401 -- reached as pages.<name>
     accounts,
     behaviour,
     chat,
     content,
+    enrollment,
     harness,
     journal,
     routines,

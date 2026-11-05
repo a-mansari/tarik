@@ -327,3 +327,17 @@ select cabinet, email, session_id from whatsapp_recipients where recipient_id = 
 -- name: whatsapp_message_taken
 -- Takes the message: returns its id the first time, nothing when Sparrow sent it before.
 insert into whatsapp_messages (message_id) values (%s) on conflict do nothing returning message_id
+
+-- name: whatsapp_enrolled
+-- A cabinet's enrolled people: login and phone.
+select email, phone from whatsapp_recipients where cabinet = %s order by email
+
+-- name: whatsapp_person
+-- The recipient_id of a person enrolled in a cabinet.
+select recipient_id from whatsapp_recipients where cabinet = %s and email = %s
+
+-- name: whatsapp_enrolling
+insert into whatsapp_recipients (recipient_id, cabinet, email, phone, session_id) values (%s, %s, %s, %s, %s)
+
+-- name: whatsapp_unenrolled
+delete from whatsapp_recipients where recipient_id = %s

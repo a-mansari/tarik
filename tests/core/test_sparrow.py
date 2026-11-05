@@ -159,3 +159,27 @@ def test_a_sparrow_left_unset_is_an_error_to_catch_not_a_missing_key(relay, monk
     monkeypatch.delenv("SPARROW_URL")
     with pytest.raises(sparrow.SparrowError, match="not set up"):
         sparrow.send(RECIPIENT, "Bonjour")
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("typed", "found"),
+    [
+        ("+212 600-600600", "212600600600"),
+        ("00212600600600", "212600600600"),
+        ("0600600600", "212600600600"),
+        ("212600600600", "212600600600"),
+        ("+33 6 12 34 56 78", None),
+        ("060060060", None),
+        ("", None),
+    ],
+)
+def test_a_phone_is_taken_in_its_international_or_local_form_or_not_at_all(typed, found):
+    assert sparrow.moroccan(typed) == found
+
+
+@pytest.mark.functionality
+def test_a_foreign_number_is_refused_before_anything_is_asked_of_sparrow(relay):
+    with pytest.raises(sparrow.SparrowError, match="Moroccan"):
+        sparrow.enroll("+33 6 12 34 56 78", HOST, "Amal", "Cabinet Alami")
+    assert relay.sent == []
