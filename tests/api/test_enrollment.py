@@ -238,13 +238,23 @@ def test_the_page_lists_each_collaborator_as_ready_enrolled_or_without_a_usable_
 
 
 @pytest.mark.functionality
-def test_tarik_s_public_host_is_the_gladden_callbacks(monkeypatch):
+def test_tarik_s_public_host_is_public_url_s_else_the_gladden_callbacks(monkeypatch):
     monkeypatch.setattr(cabinets, "CABINETS", frozenset({"cabinet_a"}))
-    monkeypatch.setenv("GLADDEN_CALLBACK_URL", "https://tarik.example/gladden")
+    monkeypatch.delenv("PUBLIC_URL", raising=False)
+    monkeypatch.setenv("GLADDEN_CALLBACK_URL", "https://old.example/gladden")
     with cabinets.using("cabinet_a"):
+        assert enrollment.public_host() == "old.example"  # a stack set up before PUBLIC_URL
+        monkeypatch.setenv("PUBLIC_URL", "https://tarik.example/")
         assert enrollment.public_host() == "tarik.example"  # no scheme, no path: Sparrow adds https:// and the route
         monkeypatch.delenv("GLADDEN_CALLBACK_URL")
-        with pytest.raises(ValueError, match="adresse publique"):
+        assert enrollment.public_host() == "tarik.example"  # PUBLIC_URL alone is enough
+        monkeypatch.setenv("PUBLIC_URL", "https://user:pw@Tarik.Example:8443/x")
+        assert enrollment.public_host() == "tarik.example:8443"  # no login, lower case, the port kept
+        monkeypatch.setenv("PUBLIC_URL", "tarik.example")  # set, but no scheme: said, not taken for unset
+        with pytest.raises(ValueError, match="pas une adresse complète"):
+            enrollment.public_host()
+        monkeypatch.delenv("PUBLIC_URL")
+        with pytest.raises(ValueError, match="PUBLIC_URL"):
             enrollment.public_host()
 
 

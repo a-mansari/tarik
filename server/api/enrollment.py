@@ -2,7 +2,7 @@
 remove one (engine/tools/core/sparrow.py, handled by server/api/whatsapp.py).
 
 A collaborator is enrolled with the phone number of their Experio user, the one the page showed the admin: Sparrow
-registers it with Tarik's own public host (the Gladden callback's, the one the funnel already opens), a welcome message
+registers it with Tarik's own public host (PUBLIC_URL's, else the Gladden callback's), a welcome message
 goes to the person, and the recipient_id Sparrow made is kept for the cabinet and the person (whatsapp_recipients). The
 conversation of their messages is a new one, wa-<uuid>. Experio's own staff are not enrolled here: only the cabinet's
 collaborators the page lists.
@@ -29,7 +29,7 @@ from server import audit
 from server.api.accounts import form_of
 from server.api.runs import chosen, page
 
-NO_HOST = "L'adresse publique de Tarik n'est pas réglée (GLADDEN_CALLBACK_URL) : Sparrow ne saurait où lui écrire."
+NO_HOST = "L'adresse publique de Tarik n'est pas réglée (PUBLIC_URL) : Sparrow ne saurait où lui écrire."
 TAKEN = "Ce numéro est déjà enregistré chez Sparrow : sans doute le WhatsApp d'un dossier ou d'un collaborateur."
 WELCOME_REFUSED = "WhatsApp a refusé le message de bienvenue : le numéro n'a peut-être pas WhatsApp."
 UNEXPECTED = "Sparrow n'a pas répondu comme attendu : réessayez dans un instant."
@@ -38,15 +38,22 @@ LOCKS = collections.defaultdict(asyncio.Lock)
 
 
 def public_host():
-    """Return the public host Sparrow calls Tarik on (``host_uri``: no scheme, no path), taken from the Gladden callback
-    URL; raises ValueError when it is not set. Runs in the cabinet (settings are read there)."""
-    try:
-        host = urlparse(setting("GLADDEN_CALLBACK_URL")).netloc
-    except KeyError:
-        host = ""
-    if not host:
-        raise ValueError(NO_HOST)
-    return host
+    """Return the public host Sparrow calls Tarik on (``host_uri``: no scheme, no path): that of PUBLIC_URL (this server
+    as clients reach it), else of the Gladden callback URL, which stacks set up before PUBLIC_URL have; raises
+    ValueError when neither is set, or the one set is no full address (``tarik.example`` without https://). It must be a
+    host that serves /sparrow/handler to the outside: Sparrow calls it there. Runs in the cabinet (settings are read
+    there)."""
+    for key in ("PUBLIC_URL", "GLADDEN_CALLBACK_URL"):
+        address = setting(key, "")
+        if not address:
+            continue
+        host = urlparse(address).netloc.rpartition("@")[2].lower()  # never a login put in the address
+        if not host:
+            raise ValueError(
+                f"{key} n'est pas une adresse complète (https://…) : Sparrow ne saurait où écrire à Tarik."
+            )
+        return host
+    raise ValueError(NO_HOST)
 
 
 def refusal(error):
