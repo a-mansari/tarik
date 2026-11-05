@@ -63,7 +63,12 @@
   prev.addEventListener('click', function () { show(at - 1); });
   next.addEventListener('click', function () { show(at + 1); });
   form.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type === 'text') { e.preventDefault(); show(at + 1); }
+    // Enter on any field goes to the next step, never sends the form (a recap's own button does)
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); if (at < steps.length) show(at + 1); }
   });
-  show(0);
+  try {
+    show(form.hasAttribute('data-error') ? steps.length : 0);  // after a refusal, the recap: every answer, each editable
+  } catch (e) {
+    document.documentElement.classList.remove('js');  // no wizard, but the whole form is there
+  }
 })();

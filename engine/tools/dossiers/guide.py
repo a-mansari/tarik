@@ -12,17 +12,18 @@ from engine.tools.core.app import ToolError
 
 NOTE_SIZE, OTHER_SIZE = 500, 200
 KEY = "guide_"  # what a question's id is prefixed with in tarik_dossier_behaviour
-POST_CLEAR = ("validate_alone", "post_clear")  # the question and the option that is post_invoices
+POST_QUESTION, POST_OPTION = "validate_alone", "post_clear"  # the question and the option that is post_invoices
 
 SECTIONS = {
-    "A": ("Règles de comptabilisation", "Où Tarik range les écritures de ce dossier."),
-    "B": ("Banque et rapprochement", "Comment Tarik traite les relevés."),
-    "C": ("Cas douteux", "Quand une pièce ou un montant paraît anormal."),
-    "D": ("Autonomie et validation", "Les limites de ce que Tarik peut faire sans vous."),
+    "A": "Règles de comptabilisation",
+    "B": "Banque et rapprochement",
+    "C": "Cas douteux",
+    "D": "Autonomie et validation",
 }
 
-# Each: id (the key it is kept under), section, name (short, for the recap), q, why, type ("one" or "many"), options
-# [{key, label, code, desc, other (the placeholder of its free field), num (that field is a number), exclusive}].
+# Each: id (the key it is kept under), section (a SECTIONS letter: its tag and title on the form), name (short, for the
+# recap), q, why (optional), type ("one" or "many"), options [{key, label, and optionally code, desc, other (the
+# placeholder of its free field), num (that field is a number), exclusive (it goes with no other option)}].
 QUESTIONS = [
     {
         "id": "sales_accounts",
@@ -276,6 +277,11 @@ def as_list(value):
     return value if isinstance(value, list) else [value]
 
 
+def first(answers, key):
+    """Return the one text posted for ``key`` in ``answers`` ("" when none)."""
+    return (as_list(answers.get(key)) or [""])[0].strip()
+
+
 def option_label(option, other=""):
     """Return an option as the recap says it: its label, its account code, what an "other" option was filled with."""
     code = f" ({option['code']})" if option.get("code") else ""
@@ -284,15 +290,23 @@ def option_label(option, other=""):
 
 
 def read(answers, stored):
-    """Return (kept, lines) for the guide's part of the form's ``answers`` ({question id: option key(s), "<id>__other":
-    text, "<id>__note": text}) over what ``stored`` ({id: value}) holds: the answers to keep ({id: value}: those that
-    differ from what is stored), and what was chosen, one line per answered question. A question left blank is not
-    kept. Raises ToolError, naming the question's number only, for an option it lacks, two options of a single
-    question, "nothing" with another option, or an "other" option left empty (or not a number where it is one)."""
-    kept, lines = {}, []
+    """Return (kept, lines, picked) for the guide's part of the form's ``answers`` ({question id: option key(s),
+    "<id>__other": text, "<id>__note": text, "<id>__seen": a question of several choices was on the page}) over what
+    ``stored`` ({id: value}) holds: the answers to keep ({id: value}: those that differ from what is stored), what was
+    chosen, one line per question answered or cleared, and the options chosen ({id: [keys]}, [] for a cleared one).
+
+    A question is answered when an option is chosen; a precision alone is kept without an answer; a question of several
+    choices posted with none ticked (its "seen" mark) is cleared; any other blank question changes nothing (a radio
+    cannot be unticked). Raises ToolError, naming the question's number only, for an option it lacks, two options of a
+    single question, an exclusive option with another, or an "other" option left empty (or not a number where it is
+    one)."""
+    kept, lines, picked = {}, [], {}
     for number, question in enumerate(QUESTIONS, 1):
-        chosen = [key for key in as_list(answers.get(question["id"])) if key]
-        if not chosen:
+        name = question["id"]
+        chosen = list(dict.fromkeys(key for key in as_list(answers.get(name)) if key))
+        note = first(answers, f"{name}__note")[:NOTE_SIZE]
+        cleared = not chosen and f"{name}__seen" in answers and name in stored
+        if not (chosen or note or cleared):
             continue
         options = {option["key"]: option for option in question["options"]}
         where = f"Question {number}"
@@ -301,16 +315,16 @@ def read(answers, stored):
         alone = next((options[key] for key in chosen if options[key].get("exclusive")), None)
         if alone and len(chosen) > 1:
             raise ToolError(f"{where} : « {alone['label']} » ne va pas avec un autre choix.")
-        other = str((as_list(answers.get(f"{question['id']}__other")) or [""])[0]).strip()[:OTHER_SIZE]
+        other = first(answers, f"{name}__other")[:OTHER_SIZE]
         wants_other = [options[key] for key in chosen if options[key].get("other")]
         if wants_other and not other:
             raise ToolError(f"{where} : précisez votre réponse.")
         if wants_other and wants_other[0].get("num") and not other.isdigit():
             raise ToolError(f"{where} : un montant en chiffres seulement.")
-        note = str((as_list(answers.get(f"{question['id']}__note")) or [""])[0]).strip()[:NOTE_SIZE]
         value = {"sel": chosen, "other": other if wants_other else "", "note": note}
-        if stored.get(question["id"]) != value:
-            kept[question["id"]] = value
-        said = " ; ".join(option_label(options[key], other) for key in chosen)
+        picked[name] = chosen
+        if stored.get(name) != value:
+            kept[name] = value
+        said = " ; ".join(option_label(options[key], other) for key in chosen) or "pas de réponse"
         lines.append(f"{question['name']} : {said}" + (f" ({note})" if note else ""))
-    return kept, lines
+    return kept, lines, picked

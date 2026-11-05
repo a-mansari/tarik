@@ -60,7 +60,7 @@ def test_a_dossier_s_link_names_its_cabinet_and_a_token_that_opens_its_form(expe
     assert link.startswith(f"{URL}/formulaire/{db_cabinet}/") and len(token_of(link)) >= 30
     spec = form.form_spec(token_of(link))
     assert spec["dossier"] == "ALPHA"
-    assert [step["id"] for step in spec["steps"]][:2] == ["identite", "tva"]
+    assert [step["title"] for step in spec["steps"]][:2] == ["Le dossier", "TVA"]
     assert [c["key"] for c in spec["steps"][0]["controls"]] == ["folder_type", "ice", "if_number"]
     assert len(spec["steps"]) == 2 + len(guide.QUESTIONS)  # Experio's two, then the twelve questions
     asked = controls(spec)
@@ -374,3 +374,69 @@ def test_a_refused_page_comes_back_filled_as_posted_and_escapes_the_client_s_wor
     assert "<script>x" not in back.text and "&lt;script&gt;x" in back.text and "<img src=x>" not in back.text
     assert back.text.count(" checked>") == 3  # the two sales accounts and the "draft" option, as posted
     assert 'value="12ab"' in back.text
+
+
+@pytest.mark.functionality
+def test_a_question_of_several_choices_posted_with_none_ticked_is_cleared_and_a_precision_alone_is_kept(experio):
+    form.fill_form(token_of(form_link(7, "s")), {"validate_alone": ["draft", "post_clear"], "report": "daily"})
+    assert behaviour.dossier_behaviour(7, "post_invoices") is True
+    lines = form.fill_form(token_of(form_link(7, "s")), {"validate_alone__seen": "1", "report__note": "Le lundi"})
+    assert behaviour.dossier_behaviour(7, "post_invoices") is False  # nothing ticked on the page: no autonomous posting
+    assert stored()["guide_validate_alone"] == {"sel": [], "other": "", "note": ""}
+    assert stored()["guide_report"] == {"sel": [], "other": "", "note": "Le lundi"}  # a precision alone is kept
+    assert "Validation seul : pas de réponse" in lines
+    form.fill_form(token_of(form_link(7, "s")), {"reconcile": "all"})  # a question not on the page changes nothing
+    assert stored()["guide_validate_alone"]["sel"] == []
+
+
+@pytest.mark.technical
+def test_a_duplicated_option_is_kept_once(experio):
+    form.fill_form(token_of(form_link(7, "s")), {"validate_alone": ["draft", "draft", "post_clear"]})
+    assert stored()["guide_validate_alone"]["sel"] == ["draft", "post_clear"]
+
+
+@pytest.mark.security
+def test_a_body_too_long_or_with_too_many_fields_is_refused_with_the_form_still_open_never_taken_as_empty(
+    experio, db_cabinet
+):
+    from server.server import app
+
+    client = TestClient(app)
+    token = token_of(form_link(7, "s"))
+    for body in ("reconcile__note=" + "é" * 60_000, "&".join(f"a{n}=1" for n in range(120))):
+        refused = client.post(f"/formulaire/{db_cabinet}/{token}", content=body)
+        assert refused.status_code == 400 and "trop long" in refused.text and "Merci" not in refused.text
+        assert form.open_form(token)  # the link is not burned
+
+
+@pytest.mark.security
+def test_a_guessed_link_never_takes_one_of_the_cabinet_s_call_slots(experio, db_cabinet, monkeypatch):
+    from server.api import form as page
+    from server.server import app
+
+    async def never(*args):
+        raise AssertionError("a slot was taken")
+
+    monkeypatch.setattr(page, "limited", never)
+    client = TestClient(app)
+    assert client.get(f"/formulaire/{db_cabinet}/devine").status_code == 404
+    assert client.post(f"/formulaire/{db_cabinet}/devine", content="reconcile=all").status_code == 404
+    assert client.get("/formulaire/autre_cabinet/devine").status_code == 404
+
+
+@pytest.mark.functionality
+def test_a_refused_page_ticks_the_radio_that_changes_nothing_again_and_opens_on_the_recap(experio, db_cabinet):
+    from server.server import app
+
+    client = TestClient(app)
+    token = token_of(form_link(7, "s"))
+    back = client.post(
+        f"/formulaire/{db_cabinet}/{token}", content="declaration_mode=&threshold=other&threshold__other=x"
+    )
+    assert back.status_code == 400 and "Question 6" in back.text and "data-error" in back.text
+    mode = back.text.split('name="declaration_mode" value=""')[1][:30]
+    assert " checked" in mode  # "inchangé" is ticked again, not left empty
+    assert "base-uri 'none'" in back.headers["content-security-policy"]
+    assert "'unsafe-inline'" not in back.headers["content-security-policy"]
+    nonce = back.headers["content-security-policy"].split("'nonce-")[1].split("'")[0]
+    assert f'<style nonce="{nonce}">' in back.text

@@ -86,10 +86,16 @@ def behaviour(key):
     return next(found["value"] for found in settings() if found["key"] == key)
 
 
-def dossier_values(dossier_id):
-    """Return {key: value} of every dossier setting for dossier ``dossier_id``: its own, else the cabinet's."""
+def dossier_rows(dossier_id):
+    """Return everything kept for dossier ``dossier_id`` in tarik_dossier_behaviour: {key: value}."""
     with cabinet_db() as db:
-        own = dict(db.execute(Q.dossier_behaviour_listed, (dossier_id,)).fetchall())
+        return dict(db.execute(Q.dossier_behaviour_listed, (dossier_id,)).fetchall())
+
+
+def dossier_values(dossier_id, own=None):
+    """Return {key: value} of every dossier setting for dossier ``dossier_id``: its own (``own``: its dossier_rows, read
+    when not given), else the cabinet's."""
+    own = dossier_rows(dossier_id) if own is None else own
     return {found["key"]: own.get(found["key"], found["value"]) for found in settings() if found["scope"] == "dossier"}
 
 
@@ -102,6 +108,14 @@ def set_for_dossier(dossier_id, key, value, author):
     """Keep ``value`` (already checked) as dossier ``dossier_id``'s own value of setting ``key``, for ``author``."""
     with cabinet_db() as db:
         db.execute(Q.dossier_behaviour_set, (dossier_id, key, Jsonb(value), author))
+
+
+def set_many_for_dossier(dossier_id, values, author):
+    """Keep each of ``values`` ({key: value}, already checked) as dossier ``dossier_id``'s own, for ``author``, all or
+    none: one connection, one transaction."""
+    rows = [(dossier_id, key, Jsonb(value), author) for key, value in values.items()]
+    with cabinet_db() as db, db.cursor() as cursor:
+        cursor.executemany(Q.dossier_behaviour_set, rows)
 
 
 def change(key, value, author, via="page"):
