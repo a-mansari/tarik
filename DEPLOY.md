@@ -32,8 +32,8 @@ configuration) and in the seed files (secrets, loaded into Vault once). `.env.ex
    - `orchestrator.json`: `MODEL_API_KEY`, and `EXPERIO_API_KEY` (the key the Experio app sends to `/api/`; leave it
      out and Vault makes a random one, which only Vault shows).
    - `shared.json`: the mail servers (`IMAP_HOST`, `IMAP_PORT`, `IMAP_FOLDER`, `SMTP_HOST`, `SMTP_PORT`,
-     `MAIL_CERT_SHA256`), optionally `GLADDEN_URL` and `GLADDEN_CALLBACK_URL`, and `SPARROW_TOKEN` (Sparrow's
-     master token, for the WhatsApp channel).
+     `MAIL_CERT_SHA256`), optionally `GLADDEN_URL` and `GLADDEN_CALLBACK_URL`, and, for the WhatsApp channel, `SPARROW_URL`,
+     `SPARROW_SENDER_ID` and `SPARROW_TOKEN` (Sparrow's address, Experio's one WhatsApp sender, its master token).
    - `cabinets/<cabinet's exact Experio database name>.json`, **at least one** (the server does not start without):
      the cabinet's Experio login (`ODOO_UID`, `ODOO_USER`, `ODOO_PASSWORD` or `ODOO_API_KEY`), its mailbox
      (`IMAP_USER`, `IMAP_PASSWORD`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`), `MAIL_ALLOWED_RECIPIENTS`,
