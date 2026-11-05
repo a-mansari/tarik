@@ -125,11 +125,17 @@ the dossier's 6585 account with Experio's own tool, after you confirm the amount
 **Create a dossier**, from its name alone; ICE, IF and type when you give them. It refuses an ICE or IF
 another dossier already has, and asks first when a dossier has a very similar name. It can copy the
 configuration of a dossier you name, and import its FEC or grand livre.
-Once it is created, Tarik gives the client a link to a short form (valid 7 days, used once) to choose the dossier's
-type, ICE, IF, TVA frequency and regime, and whether verified invoices are posted at once, instead of asking each by
-email. The form shows what Experio has and writes back only what the client changed. The Comportement page sets what
-Tarik does by default (the cabinet's "Réglages des dossiers": posting), apart from the settings that hold for the whole
-cabinet. Without a public address (`PUBLIC_URL`), or if the client prefers to reply by email, Tarik asks as before.
+Once it is created, Tarik gives the client a link to a form (valid 7 days, used once), instead of asking each thing by
+email. It is a short wizard, one question at a time with a recap before sending, and one plain page where scripts are
+off. It starts with what Experio keeps for the dossier (type, ICE, IF, TVA frequency and regime), shown as Experio has
+it and written back only when the client changes it. Then come twelve questions on how Tarik should work on this
+dossier: the sales accounts, mixed invoices, unknown tiers; the bank (what to reconcile, a movement without a document,
+the amount above which Tarik asks); doubtful documents; and what Tarik may validate, change or delete alone and when it
+reports. All are optional, each takes a free precision, and the answers are kept for the dossier. For now only one
+acts: ticking « Comptabiliser les pièces claires » is the dossier's setting to post its verified invoices unasked; the
+others are recorded preferences that Tarik will follow as each is built. The Comportement page sets the cabinet-wide
+defaults (« Réglages des dossiers »: posting). Without a public address (`PUBLIC_URL`), or if the client prefers to
+reply by email, Tarik asks as before.
 
 **Answer its questions.** When processing stops at a question (which account, recoverable TVA,
 withholding, fiscal year, which tiers, which bank account for a statement), just answer in the same

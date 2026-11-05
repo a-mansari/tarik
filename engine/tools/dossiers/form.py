@@ -22,7 +22,8 @@ from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import dry_run, odoo_call, odoo_json, refused, require_dossier
 from engine.tools.core.queries import Q
-from engine.tools.dossiers.behaviour import SETTINGS, checked, dossier_values, set_for_dossier
+from engine.tools.dossiers import guide
+from engine.tools.dossiers.behaviour import dossier_values, set_for_dossier
 from engine.tools.dossiers.identity import (
     CHOICES,
     EDITABLE,
@@ -37,7 +38,7 @@ from engine.tools.dossiers.identity import (
 )
 from engine.tools.dossiers.people import sender_of
 
-YES, NO, KEEP = "oui", "non", ""
+KEEP = ""  # the TVA choice that changes nothing
 FIELDS = ("folder_type", "ice", "if_number", "declaration_mode", "regime_type")  # Experio's, in the form's order
 LABELS = {key: sentence(EDITABLE[key][1]) for key in FIELDS} | {
     "folder_type": "Type de dossier",
@@ -71,41 +72,83 @@ def locked(have, key):
     return bool(have[key]) and have[key] not in PLACEHOLDER_IDS
 
 
-def form_spec(token):
-    """Return what the form of ``token`` shows: {dossier: its name, fields: [{key, label, kind: "choice", "text" or
-    "fixed", options: [(value, label)], value}]}: Experio's FIELDS as the dossier has them (KEEP, "inchangé", for a TVA
-    setting that is none of the choices; an ICE or IF it has is "fixed"), then the dossier's own post_invoices (what
-    it follows). Raises ToolError as open_form does."""
-    dossier_id, _ = open_form(token)
-    name = require_dossier(dossier_id)
-    have = company(dossier_id)
-    fields = []
+def stored_guide(dossier_id):
+    """Return the guide's answers kept for dossier ``dossier_id``: {question id: value}."""
+    with cabinet_db() as db:
+        rows = db.execute(Q.dossier_behaviour_listed, (dossier_id,)).fetchall()
+    return {key.removeprefix(guide.KEY): value for key, value in rows if key.startswith(guide.KEY)}
+
+
+def experio_step(dossier_id, have):
+    """Return the form's two first steps, what Experio keeps for the dossier: its identity, then its TVA."""
+    who = {"id": "identite", "tag": "", "title": "Le dossier", "hint": "Ce que contient Experio pour ce dossier."}
+    tva = {"id": "tva", "tag": "", "title": "TVA", "hint": "Les réglages de TVA se changent dans Experio."}
+    controls = []
     for key in FIELDS:
         item = {"key": key, "label": LABELS[key]}
         if key == "folder_type":
-            options, value = list(FOLDER_TYPES.items()), have[key] or "company"
-            fields.append({**item, "kind": "choice", "options": options, "value": value})
+            options = [{"key": value, "label": label} for value, label in FOLDER_TYPES.items()]
+            control = {**item, "kind": "one", "options": options, "selected": [have[key] or "company"]}
         elif key == "declaration_mode" and frequency_closed(dossier_id, have[key]):
-            fields.append({**item, "kind": "fixed", "value": CHOICES[key].get(have[key], "hors champ")})
+            control = {**item, "kind": "fixed", "value": CHOICES[key].get(have[key], "hors champ")}
         elif key in CHOICES:
-            options = [(KEEP, "inchangé"), *CHOICES[key].items()]
-            value = have[key] if have[key] in CHOICES[key] else KEEP
-            fields.append({**item, "kind": "choice", "options": options, "value": value})
+            options = [{"key": KEEP, "label": "inchangé"}] + [{"key": v, "label": w} for v, w in CHOICES[key].items()]
+            control = {
+                **item,
+                "kind": "one",
+                "options": options,
+                "selected": [have[key] if have[key] in CHOICES[key] else KEEP],
+            }
         else:
-            fields.append({**item, "kind": "fixed" if locked(have, key) else "text", "value": have[key]})
-    about = SETTINGS["post_invoices"]
-    follows = dossier_values(dossier_id)["post_invoices"]
-    fields.append(
-        {
-            "key": "post_invoices",
-            "label": about["name"],
-            "help": about["description"],
-            "kind": "choice",
-            "options": [(YES, YES), (NO, NO)],
-            "value": YES if follows else NO,
+            control = {**item, "kind": "fixed" if locked(have, key) else "text", "value": have[key]}
+        controls.append(control)
+    return [{**who, "controls": controls[:3]}, {**tva, "controls": controls[3:]}]
+
+
+def guide_steps(dossier_id):
+    """Return the guide's steps, one per question, each holding what the dossier has kept (post_invoices, when on,
+    counts as its "post_clear" option)."""
+    stored, follows = stored_guide(dossier_id), dossier_values(dossier_id)["post_invoices"]
+    steps = []
+    for number, question in enumerate(guide.QUESTIONS, 1):
+        title, hint = guide.SECTIONS[question["section"]]
+        kept = stored.get(question["id"], {"sel": [], "other": "", "note": ""})
+        selected = [key for key in kept["sel"] if (question["id"], key) != guide.POST_CLEAR]
+        if (question["id"], guide.POST_CLEAR[1]) == guide.POST_CLEAR and follows:
+            selected.append(guide.POST_CLEAR[1])
+        control = {
+            "key": question["id"],
+            "label": question["q"],
+            "why": question.get("why", ""),
+            "kind": question["type"],
+            "options": question["options"],
+            "selected": selected,
+            "other": kept["other"],
+            "note": kept["note"],
         }
-    )
-    return {"dossier": name, "fields": fields}
+        steps.append(
+            {
+                "id": question["id"],
+                "tag": question["section"],
+                "number": number,
+                "title": title,
+                "hint": hint,
+                "controls": [control],
+            }
+        )
+    return steps
+
+
+def form_spec(token):
+    """Return what the form of ``token`` shows: {dossier: its name, steps: [{id, tag, title, hint, controls}]}. A
+    control is {key, label, kind: "one", "many", "text" or "fixed", options: [{key, label, ...}], selected: [keys],
+    value (text and fixed), other, note}. First Experio's: the dossier's identity and TVA as Experio has them (KEEP,
+    "inchangé", for a TVA setting that is none of the choices; an ICE or IF it has, or a frequency Experio keeps
+    closed, is "fixed"), then the guide's questions at what the dossier has kept. Raises ToolError as open_form does."""
+    dossier_id, _ = open_form(token)
+    name = require_dossier(dossier_id)
+    have = company(dossier_id)
+    return {"dossier": name, "steps": [*experio_step(dossier_id, have), *guide_steps(dossier_id)]}
 
 
 def digits(text, label, size=None):
@@ -117,45 +160,54 @@ def digits(text, label, size=None):
     raise ToolError(f"{label} : des chiffres seulement{f', {size}' if size else ''}.")
 
 
-def read(answers, have, now):
-    """Return (identity, own, lines) for the form's ``answers`` ({field key: text}) over the dossier as Experio has it,
-    ``have``, and Tarik's setting as it follows, ``now`` (dossier_values): the Experio fields to change ({tool argument:
-    value}, for changes_to to keep those that differ), Tarik's own setting when it differs ({key: value}: one left as
-    shown is not kept, so the dossier goes on following the cabinet's), and what the client chose, one line each. Raises
-    ToolError for a value no field takes."""
+def first(answers, key):
+    """Return the one text posted for ``key`` ("" when none)."""
+    return (guide.as_list(answers.get(key)) or [""])[0]
+
+
+def read(answers, have, now, stored):
+    """Return (identity, own, lines) for the form's ``answers`` ({field key: text or list}) over the dossier as Experio
+    has it, ``have``, Tarik's setting as it follows, ``now`` (dossier_values), and the guide's answers kept, ``stored``:
+    the Experio fields to change ({tool argument: value}, for changes_to to keep those that differ), what Tarik keeps
+    for the dossier ({key: value}: the guide's answers that differ, and post_invoices when the question on what it may
+    validate alone says otherwise than the dossier follows), and what the client chose, one line each. Raises ToolError
+    for a value no field takes."""
     identity, own, lines = {}, {}, []
-    if answers.get("folder_type"):
-        require_folder_type(answers["folder_type"])
-        identity["folder_type"] = answers["folder_type"]
-        lines.append(f"{LABELS['folder_type']} : {FOLDER_TYPES[answers['folder_type']]}")
+    if first(answers, "folder_type"):
+        require_folder_type(first(answers, "folder_type"))
+        identity["folder_type"] = first(answers, "folder_type")
+        lines.append(f"{LABELS['folder_type']} : {FOLDER_TYPES[identity['folder_type']]}")
     for key, size in (("ice", 15), ("if_number", None)):
-        value = digits(answers.get(key), LABELS[key], size)
+        value = digits(first(answers, key), LABELS[key], size)
         if value and not locked(have, key):
             identity[key] = value
             lines.append(f"{EDITABLE[key][1]} : {value}")
     for key in CHOICES:
-        if answers.get(key):
-            require_choice(key, answers[key])
-            identity[key] = answers[key]
-            lines.append(f"{LABELS[key]} : {CHOICES[key][answers[key]]}")
-    if answers.get("post_invoices"):
-        value = checked("post_invoices", answers["post_invoices"])
-        lines.append(f"{SETTINGS['post_invoices']['name']} : {YES if value else NO}")
-        if now["post_invoices"] != value:
-            own["post_invoices"] = value
+        if first(answers, key):
+            require_choice(key, first(answers, key))
+            identity[key] = first(answers, key)
+            lines.append(f"{LABELS[key]} : {CHOICES[key][identity[key]]}")
+    kept, said = guide.read(answers, stored)
+    own.update({f"{guide.KEY}{question}": value for question, value in kept.items()})
+    lines += said
+    validated = [key for key in guide.as_list(answers.get(guide.POST_CLEAR[0])) if key]
+    if validated and now["post_invoices"] != (guide.POST_CLEAR[1] in validated):  # that question answered
+        own["post_invoices"] = guide.POST_CLEAR[1] in validated
     return identity, own, lines
 
 
 def fill_form(token, answers):
-    """Apply ``answers`` ({field key: text}, as the page posts them) to the dossier of the form of ``token``, then close
-    the form. Returns what the client chose, one line each, in plain French (in test mode, nothing written nor closed).
+    """Apply ``answers`` ({field key: text, or a list of texts for a question of several choices}, as the page posts
+    them) to the dossier of the form of ``token``, then close the form. Returns what the client chose, one line each,
+    in plain French (in test mode, nothing written nor closed).
 
     Every answer is checked before anything is written; the form is then taken (once), Experio written with what
     differs, and the form given back when Experio refuses. Raises ToolError when the form is not open, a value is not
     one the field takes, another dossier has that ICE or IF, or Experio refuses."""
     dossier_id, session_id = open_form(token)
     dossier = require_dossier(dossier_id)
-    identity, own, lines = read(answers, company(dossier_id), dossier_values(dossier_id))
+    stored = stored_guide(dossier_id)
+    identity, own, lines = read(answers, company(dossier_id), dossier_values(dossier_id), stored)
     current, changes = changes_to(dossier_id, identity)
     if "declaration_mode" in changes and frequency_closed(dossier_id, current["declaration_mode"]):
         raise ToolError(f"{LABELS['declaration_mode']} : cela se règle dans Experio, pas ici.")
