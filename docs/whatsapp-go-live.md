@@ -84,8 +84,10 @@ logged, its text only on the server).
 ## 5. Going back
 
 - **One person:** Retirer on the WhatsApp page (Sparrow first, then the row).
-- **The whole channel:** remove every row (or unset `SPARROW_TOKEN`): the route answers 401 to everyone and nothing else
-  changes. Emails and the Discussions page are untouched.
+- **The whole channel:** Retirer every enrolled person (each is removed at Sparrow, so it stops forwarding). A row
+  deleted at Tarik alone leaves Sparrow forwarding to a route that answers 401. Unsetting `SPARROW_TOKEN` does not stop
+  incoming messages (they need only the rows); it stops enrollment and replies. Emails and the Discussions page are
+  untouched.
 - **An orphan at Sparrow** (a server stopped between Sparrow's registration and the row): the phone is then refused as
   taken, and the recipient is removed by hand with the master token (`DELETE /recipients/{recipient_id}`).
 
