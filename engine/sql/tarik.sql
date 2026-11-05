@@ -127,8 +127,15 @@ select file_name from tarik_files where session_id = %s and parent_id is null
 
 -- name: sender_of_session
 -- === engine/tools/dossiers/people.py ===
--- Who wrote, for an email conversation.
+-- Who wrote, for an email conversation or a WhatsApp one.
 select client_address from tarik_mail_threads where session_id = %s
+union all
+select email from tarik_whatsapp_senders where session_id = %s
+
+-- name: upsert_whatsapp_sender
+-- The collaborator writing in a WhatsApp conversation, kept for the tools' checks (sender_of).
+insert into tarik_whatsapp_senders (session_id, email) values (%s, %s)
+on conflict (session_id) do update set email = excluded.email
 
 -- name: file_taken_as_entries
 -- The file is done with, imported or refused: a corrected file comes as a new one.

@@ -186,6 +186,14 @@ def test_the_sender_is_the_email_threads_client(db_cabinet):
 
 
 @pytest.mark.security
+def test_the_sender_of_a_whatsapp_conversation_is_its_collaborator_so_the_tools_check_them(db_cabinet):
+    assert people.sender_of("wa-1") is None  # no sender known: it would be taken for the chat, with Tarik's own reach
+    people.remember_whatsapp_sender("wa-1", "amal@cabinet.ma")
+    people.remember_whatsapp_sender("wa-1", "Amal@cabinet.ma")  # kept as the latest message says
+    assert people.sender_of("wa-1") == "Amal@cabinet.ma" and people.sender_of("wa-2") is None
+
+
+@pytest.mark.security
 def test_work_on_an_invoice_is_checked_against_its_dossier(monkeypatch):
     monkeypatch.setattr(people, "require_invoice", lambda invoice_id, fields: {"company_id": [9, "BETA"]})
     monkeypatch.setattr(people, "require_dossier", lambda dossier_id: {9: "BETA"}[dossier_id])

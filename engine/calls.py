@@ -93,6 +93,13 @@ async def within(cabinet, function, /, *args):
     return await asyncio.get_running_loop().run_in_executor(POOL, contextvars.copy_context().run, run)
 
 
+async def limited(cabinet, function, /, *args):
+    """As within, under the cabinet's call slot (at most PER_CABINET at once, as call): a cabinet whose Experio or
+    mailbox hangs holds its own slots, never the pool's threads of the others."""
+    async with SLOTS.setdefault(cabinet, asyncio.Semaphore(PER_CABINET)):
+        return await within(cabinet, function, *args)
+
+
 async def step(cabinet, run_id, session, tool, /, **arguments):  # positional: a tool may take a run_id of its own
     """Call ``tool`` with keyword ``arguments`` as one step of run ``run_id`` and return its step result.
 
