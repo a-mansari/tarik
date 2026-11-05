@@ -39,7 +39,9 @@ def test_the_account_the_client_named_goes_on_the_invoice_first(monkeypatch):
     assert applied == ["6125"]
     monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: {"account_id": [1, "6111 Achats"]})
     monkeypatch.setattr(accounts, "account_label", lambda account_id: "61110000 Achats de marchandises")
-    assert "déjà renseigné" in accounts.assign_account(3, "", "comptabilisez-la")["message"]  # the usual path
+    assert accounts.assign_account(3, "", "comptabilisez-la")["message"].startswith(
+        "Facture 3 : compte `"
+    )  # usual path
     # An account the client's words don't hold: asked about, never skipped (the invoice would be posted on another).
     asked = accounts.assign_account(3, "6125", "comptabilisez-la")
     assert asked["status"] == "question" and "« 6125 »" in asked["message"]
@@ -69,7 +71,7 @@ def test_the_payment_method_the_client_gave_wins_over_the_scan(monkeypatch):
         lambda *a, **k: {"refund": False, "payment_method_id": False, "type": "purchase"},
     )
     monkeypatch.setattr(correct, "stored_check", lambda invoice_id: (True, {"payment_method": "especes"}, []))
-    monkeypatch.setattr(correct, "_currency", lambda code, changes, notes: None)
+    monkeypatch.setattr(correct, "_currency", lambda code, changes, notes, words: False)
     monkeypatch.setattr(correct, "_payment_method", lambda name, invoice, changes: seen.append(name))
     correct.correct_invoice(3, "virement", "reglee par virement")
     correct.correct_invoice(3, "virement", "reglee en especes")  # the agent's word is not the client's: the scan's

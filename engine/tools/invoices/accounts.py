@@ -314,7 +314,7 @@ def assign_account(
         )
     invoice = require_draft_invoice(invoice_id, INVOICE_FIELDS, "changer de compte")
     if invoice["account_id"]:
-        return ok(f"Facture {invoice_id} : compte déjà renseigné, `{account_label(invoice['account_id'][0])}`.")
+        return ok(f"Facture {invoice_id} : compte `{account_label(invoice['account_id'][0])}`.")
     # Without the dossier's own journal Experio cannot propose any account, and says so obscurely: an invoice made
     # before the dossier had journals still sits on another dossier's, which check_journal moves to its own.
     refusal = journal_stop(invoice_id, require_invoice(invoice_id, JOURNAL_FIELDS))

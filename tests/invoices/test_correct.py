@@ -2,6 +2,7 @@
 
 import pytest
 
+from engine.tools.invoices import correct
 from engine.tools.invoices.check import CAPTURED
 from engine.tools.invoices.correct import planned_changes
 from tests.fakes import flag
@@ -611,3 +612,28 @@ def test_a_retenue_de_garantie_read_on_the_scan_is_written_over_experios(correct
     result = correct.correct_invoice(3)
     assert correcting["filled"][0][1] == {"amount_guarantee_holdback": 600.0}
     assert "retenue de garantie 600.0" in result["message"] and correcting["refreshed"]
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("words", "named"),
+    [
+        ("morosoft, facture en euro", "EUR"),
+        ("ci joint, 1200 €", "EUR"),
+        ("en dollars", "USD"),
+        ("facture", None),
+        ("euro ou dollar ?", None),
+    ],
+)
+def test_the_currency_a_client_names_is_read(words, named):
+    assert correct.said_currency(words) == named
+
+
+@pytest.mark.communication
+def test_a_currency_the_client_named_that_is_not_the_scans_is_said_and_the_scan_wins(monkeypatch):
+    monkeypatch.setattr(correct, "odoo_call", lambda *a, **k: [{"id": 2}])
+    changes, notes = {}, []
+    assert correct._currency("USD", changes, notes, "morosoft, facture en euro") is True
+    assert changes == {"currency_id": 2}
+    assert notes == ["facture en USD, pas en EUR comme dans votre message : j'ai suivi la facture"]
+    assert correct._currency("USD", {}, [], "facture en dollars") is False  # the same: nothing said

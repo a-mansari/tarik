@@ -9,7 +9,7 @@ scan (its name, ICE and IF), as the invoice screen's "Créer" does; a name close
 
 import re
 
-from engine.tools.core.app import CRASHED, ToolError, log, ok, question, step_tool
+from engine.tools.core.app import CRASHED, ToolError, log, ok, question, routine, step_tool
 from engine.tools.core.config import TIERS_MIN_SIMILARITY
 from engine.tools.core.conversation import chosen_among, keep_answer, kept_answer
 from engine.tools.core.experio import (
@@ -179,8 +179,12 @@ def link(invoice, partner_id, kind):
             fill_invoice(
                 invoice["id"], {"partner_id": partner_id}, context, replace_tiers=bool(disputed(invoice, kind))
             )
+        kept = invoice["partner_id"] and invoice["partner_id"][0] == partner_id
         account = ensure_tiers_account(invoice["id"], partner_id, kind, context)
-    return ok(f"{test_mode_note()}Facture {invoice['id']} : {SIDE[kind]['role']} `{name}`, {account}.")
+    said = f"{test_mode_note()}Facture {invoice['id']} : {SIDE[kind]['role']} `{name}`, {account}."
+    # the tiers Experio read, with its account already there: nothing done, nothing to tell (its name heads the line)
+    unchanged = kept and account.startswith("compte tiers `") and account.endswith("`")
+    return routine(said) if unchanged else ok(said)
 
 
 # Experio checks a new tiers' name, ICE and IF against the official registry; this is its answer when the registry

@@ -374,7 +374,14 @@ def labels_of(ids):
     if not ids:
         return labels
     try:
-        fields = ["invoice_number", "partner_id", "amount_total", "currency_id"]
+        fields = [
+            "invoice_number",
+            "partner_id",
+            "amount_total",
+            "currency_id",
+            "amount_total_currency",
+            "exchange_rate",
+        ]
         found = odoo_call("exp.invoice", "search_read", [("id", "in", ids)], fields=fields)
     except Exception as error:  # a label is a comfort: the summary goes on with Tarik's numbers
         log(f"labels_of: {error}")
@@ -382,7 +389,11 @@ def labels_of(ids):
     for invoice in found:
         who = without_if(invoice["partner_id"][1].split(" - ")[0]) if invoice["partner_id"] else ""
         currency = (invoice.get("currency_id") or [0, "MAD"])[1]
-        about = ", ".join(part for part in (who, dirhams(invoice.get("amount_total"), currency)) if part)
+        total = dirhams(invoice.get("amount_total"), currency)
+        if currency != "MAD" and total and invoice.get("amount_total_currency") and invoice.get("exchange_rate"):
+            rate = f"{invoice['exchange_rate']:g}".replace(".", ",")
+            total += f", soit {dirhams(invoice['amount_total_currency'])} au taux de {rate}"  # what is booked, in MAD
+        about = ", ".join(part for part in (who, total) if part)
         number = (invoice["invoice_number"] or "").strip()
         if number:
             labels[invoice["id"]] = f"Facture n° {number}" + (f" ({about})" if about else "")
