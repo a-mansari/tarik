@@ -244,6 +244,7 @@ SHARED_SETTINGS = frozenset(
         "EXPERIO_API_KEY",  # secret/tarik/orchestrator: what the Experio app shows to create, change or close cabinets
         "GLADDEN_URL",  # optional: Experio's Gladden classifier (its runner's /gladden)
         "GLADDEN_CALLBACK_URL",  # optional: this server's /gladden as Gladden reaches it
+        "PUBLIC_URL",  # optional: this server as clients reach it (a new dossier's form link, dossiers/form_link.py)
         "SPARROW_URL",  # Experio's WhatsApp relay (Sparrow)
         "SPARROW_SENDER_ID",  # Experio's one WhatsApp sender, at Sparrow
         "SPARROW_TOKEN",  # Sparrow's master token

@@ -214,6 +214,9 @@ Covers what a deployment needs: nothing hard-coded, everything in `.env.example`
 
 ## 5. dossiers
 
+### tests/dossiers/test_form.py
+A new dossier's form: its one-time link (none without PUBLIC_URL), what filling it writes to Experio and keeps per dossier, refusals that leave it open, expiry, test mode, new invoices posted unasked for a dossier set to, and the open page (cabinet isolation, escaping).
+
 ### tests/dossiers/test_management.py
 Covers dossier lists, people and archiving, written only on the client's yes.
 - `test_the_rows_as_written_and_what_is_wrong_with_them` [functionality]: list rows are read back with their problems named.

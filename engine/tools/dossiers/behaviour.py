@@ -2,6 +2,11 @@
 (server/api/behaviour.py), or an admin asks for in a conversation (the Dossier graph's mode behaviour, after
 check_manager: manage_behaviour).
 
+Two scopes. A "cabinet" setting holds for every client of the cabinet. A "dossier" setting is the cabinet's value for a
+dossier that has none of its own. A dossier's own values live in tarik_dossier_behaviour (dossier_behaviour). Tarik's
+own (post_invoices) is followed by every dossier without a value of its own; a setting with an "experio" field is kept
+by Experio itself (res.company) and the cabinet's value only pre-fills a new dossier's form (dossiers/form.py).
+
 They live in each cabinet's own schema (tarik_behaviour): one cabinet's choice never reaches another. A setting never
 changed has its default (SETTINGS), read at each use, so a change applies to the next email. Each change, wherever it
 is made, goes in the Journal."""
@@ -16,20 +21,49 @@ from engine.tools.core.experio import refused
 from engine.tools.core.queries import Q
 from engine.tools.dossiers.people import RANK, sender_of, sender_reach
 
-# Each setting: its kind (flag: on or off; minutes: 0 to MAX_MINUTES, 0 being never), default, name and what it does.
+# Each setting: its scope (cabinet or dossier), kind (flag: on or off; minutes: 0 to MAX_MINUTES, 0 being never;
+# choice: one of "choices", {value: label}), default, name and what it does. "experio": the dossier field Experio keeps
+# it in.
 SETTINGS = {
     "acknowledge": {
+        "scope": "cabinet",
         "kind": "flag",
         "default": True,
         "name": "Accusé de réception",
         "description": "Répondre aussitôt à un nouvel email que le message est reçu, avant de le traiter.",
     },
     "progress": {
+        "scope": "cabinet",
         "kind": "minutes",
         "default": 0,
         "name": "Point d'avancement (minutes)",
         "description": "Pendant un long traitement, écrire au client toutes les N minutes qu'il est toujours en cours "
         "(0 : jamais).",
+    },
+    "post_invoices": {
+        "scope": "dossier",
+        "kind": "flag",
+        "default": False,
+        "name": "Comptabiliser les factures vérifiées",
+        "description": "Comptabiliser chaque facture dès qu'elle est vérifiée, sans attendre que le client le demande.",
+    },
+    "declaration_mode": {
+        "scope": "dossier",
+        "kind": "choice",
+        "choices": {"monthly": "mensuelle", "quarterly": "trimestrielle"},  # hors champ flags drafts: Experio's screen
+        "experio": "declaration_mode",
+        "default": "quarterly",
+        "name": "Déclaration de TVA",
+        "description": "Fréquence de la déclaration de TVA du dossier.",
+    },
+    "regime_type": {
+        "scope": "dossier",
+        "kind": "choice",
+        "choices": {"encaissement": "encaissements", "debit": "débits"},
+        "experio": "regime_type",
+        "default": "encaissement",
+        "name": "Régime de TVA",
+        "description": "TVA déclarée sur les encaissements ou sur les débits.",
     },
 }
 MAX_MINUTES = 25  # a long run tells the client at least this often
@@ -37,15 +71,20 @@ ON, OFF = {"1", "true", "oui", "on", "activer"}, {"0", "false", "non", "off", "d
 
 
 def checked(key, value):
-    """Return ``value`` as setting ``key`` keeps it (a flag a bool, minutes an int); raise ToolError, in plain French,
-    when it is not one (the page and the agent both send text)."""
+    """Return ``value`` as setting ``key`` keeps it (a flag a bool, minutes an int, a choice its key); raise ToolError,
+    in plain French, when it is not one (the page and the agent both send text)."""
     if key not in SETTINGS:
         raise ToolError(f"réglage inconnu : {key} (connus : {', '.join(SETTINGS)})")
     word = str(value).strip().lower()
-    if SETTINGS[key]["kind"] == "flag":
+    kind = SETTINGS[key]["kind"]
+    if kind == "flag":
         if word in ON | OFF:
             return word in ON
         raise ToolError(f"{SETTINGS[key]['name']} : oui ou non")
+    if kind == "choice":
+        if word in SETTINGS[key]["choices"]:
+            return word
+        raise ToolError(f"{SETTINGS[key]['name']} : {', '.join(SETTINGS[key]['choices'])}")
     if word.isdecimal() and int(word) <= MAX_MINUTES:
         return int(word)
     raise ToolError(f"{SETTINGS[key]['name']} : un nombre de minutes de 0 à {MAX_MINUTES}")
@@ -69,6 +108,24 @@ def settings():
 def behaviour(key):
     """Return the current cabinet's value of setting ``key``: its own, else its default."""
     return next(found["value"] for found in settings() if found["key"] == key)
+
+
+def dossier_values(dossier_id):
+    """Return {key: value} of every dossier setting for dossier ``dossier_id``: its own, else the cabinet's."""
+    with cabinet_db() as db:
+        own = dict(db.execute(Q.dossier_behaviour_listed, (dossier_id,)).fetchall())
+    return {found["key"]: own.get(found["key"], found["value"]) for found in settings() if found["scope"] == "dossier"}
+
+
+def dossier_behaviour(dossier_id, key):
+    """Return dossier ``dossier_id``'s value of dossier setting ``key``: its own, else the cabinet's."""
+    return dossier_values(dossier_id)[key]
+
+
+def set_for_dossier(dossier_id, key, value, author):
+    """Keep ``value`` (already checked) as dossier ``dossier_id``'s own value of setting ``key``, for ``author``."""
+    with cabinet_db() as db:
+        db.execute(Q.dossier_behaviour_set, (dossier_id, key, Jsonb(value), author))
 
 
 def change(key, value, author, via="page"):
@@ -112,6 +169,8 @@ def said(found):
     value = found["value"]
     if found["kind"] == "flag":
         return f"{found['name']} : {'oui' if value else 'non'}"
+    if found["kind"] == "choice":
+        return f"{found['name']} : {found['choices'][value]}"
     return f"{found['name']} : {value or 'jamais'}"
 
 
@@ -120,7 +179,8 @@ def manage_behaviour(
     session_id: str, action: str = "list", key: str = "", value: str = "", writer_of_chat: dict | None = None
 ) -> dict:
     """List the cabinet's behaviour settings (action "list"), or change one (action "update": ``key`` one of SETTINGS,
-    ``value`` oui/non for a switch, a number of minutes for a delay). A setting holds for every client of the cabinet:
+    ``value`` oui/non for a switch, a number of minutes for a delay, one of its choices for a choice). A setting holds
+    for every client of the cabinet (a dossier setting: for each dossier without its own):
     only those writer() allows change one (``writer_of_chat``: the chat run's writer, from the run, never the model).
 
     Returns an ok result saying the settings, or the one changed; a stop result when the key or value is wrong or the

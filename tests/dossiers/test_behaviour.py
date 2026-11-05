@@ -36,7 +36,8 @@ def test_an_admin_changes_a_setting_by_email_and_the_journal_says_so(by_email, j
     assert behaviour.manage_behaviour("s1", "update", "progress", "10")["status"] == "ok"
     assert behaviour.manage_behaviour("s1", "update", "acknowledge", "non")["message"].endswith("réception : non.")
     assert behaviour.behaviour("progress") == 10 and behaviour.behaviour("acknowledge") is False
-    assert {found["changed_by"] for found in behaviour.settings()} == {"chef@cabinet.ma"}
+    changed = {found["key"] for found in behaviour.settings() if found["changed_by"]}
+    assert changed == {"progress", "acknowledge"}
     assert journal == [("chef@cabinet.ma", key, "conversation s1") for key in ("progress", "acknowledge")]
     listed = behaviour.manage_behaviour("s1")["message"]
     assert "Accusé de réception : non" in listed and "Point d'avancement (minutes) : 10" in listed
@@ -98,3 +99,18 @@ def test_a_chat_runs_writer_reaches_the_tool_from_the_run_never_from_the_model()
     finally:
         runs.WRITER.reset(token)
     assert "writer" not in runs.configurable_of("c", "s", None)
+
+
+@pytest.mark.functionality
+def test_each_setting_is_the_cabinet_s_or_a_dossier_s_and_a_choice_takes_only_its_own_values(by_email, journal):
+    assert {found["scope"] for found in behaviour.settings()} == {"cabinet", "dossier"}
+    assert behaviour.checked("declaration_mode", " Monthly ") == "monthly"
+    assert behaviour.manage_behaviour("s1", "update", "regime_type", "debit")["message"].endswith("TVA : débits.")
+    assert behaviour.dossier_behaviour(7, "regime_type") == "debit"  # a dossier without its own follows the cabinet's
+    behaviour.set_for_dossier(7, "regime_type", "encaissement", "client@societe.ma")
+    assert (
+        behaviour.dossier_behaviour(7, "regime_type") == "encaissement"
+        and behaviour.behaviour("regime_type") == "debit"
+    )
+    with pytest.raises(ToolError):
+        behaviour.change("regime_type", "mensuel", "chef@cabinet.ma")

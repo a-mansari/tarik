@@ -315,6 +315,24 @@ create table if not exists tarik_behaviour (
     changed_by text not null,
     changed_at timestamptz not null default now()
 );
+-- A dossier's own behaviour settings (engine/tools/dossiers/form.py): what its form or the Comportement page set for it
+-- alone, over the cabinet's value in tarik_behaviour.
+create table if not exists tarik_dossier_behaviour (
+    dossier_id integer not null,
+    key text not null,
+    value jsonb not null,
+    changed_by text not null,
+    changed_at timestamptz not null default now(),
+    primary key (dossier_id, key)
+);
+-- The form sent to a client for a dossier just created: its one-time link's token, open until it expires or is filled.
+create table if not exists tarik_dossier_forms (
+    token text primary key,
+    dossier_id integer not null,
+    session_id text not null,
+    expires_at timestamptz not null,
+    filled_at timestamptz
+);
 -- A thread's emails, read by thread at every claim and progress email.
 create index if not exists tarik_mail_messages_thread on tarik_mail_messages (thread_id);
 -- A sender's latest emails (emails_of_sender, their signature), read at every claim.
