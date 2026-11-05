@@ -233,7 +233,7 @@ def test_only_who_experio_lets_manage_users_manages_access(monkeypatch, who, lev
 
 
 @pytest.mark.functionality
-def test_the_candidates_for_whatsapp_are_the_collaborators_with_their_users_phone(monkeypatch):
+def test_the_candidates_for_whatsapp_are_the_collaborators_with_their_users_phone_agents_left_out(monkeypatch):
     asked = []
 
     def odoo_call(model, method, domain, **kwargs):
@@ -248,29 +248,29 @@ def test_the_candidates_for_whatsapp_are_the_collaborators_with_their_users_phon
         {"login": "amal@cabinet.ma", "name": "Amal", "phone": "0600600600"},
         {"login": "karim@cabinet.ma", "name": "Karim", "phone": ""},
     ]
-    assert asked == [("res.users", "search_read", [("employee_type", "=", "employee")], ["name", "login", "phone"])]
+    domain = [("employee_type", "=", "employee"), ("is_agent", "=", False)]  # as Experio's own Collaborateurs list
+    assert asked == [("res.users", "search_read", domain, ["name", "login", "phone"])]
 
 
 @pytest.mark.security
-def test_only_a_collaborator_or_staff_member_with_a_phone_can_be_enrolled(monkeypatch):
-    users = {"amal@cabinet.ma": {"id": 5, "phone": "0600600600"}, "nophone@cabinet.ma": {"id": 6, "phone": False}}
-    monkeypatch.setattr(people, "collaborator", lambda who: {"id": users[who]["id"]} if who in users else None)
+def test_only_one_of_the_cabinet_s_collaborators_with_a_phone_can_be_enrolled(monkeypatch):
+    monkeypatch.setattr(
+        people,
+        "whatsapp_candidates",
+        lambda: [
+            {"login": "amal@cabinet.ma", "name": "Amal", "phone": "0600600600"},
+            {"login": "karim@cabinet.ma", "name": "Karim", "phone": ""},
+        ],
+    )
     monkeypatch.setattr(people, "main_company_id", lambda: 1)
-
-    def odoo_call(model, method, ids, fields):
-        if model == "res.company":
-            return [{"name": "Cabinet Alami"}]
-        user = next(u for u in users.items() if u[1]["id"] == ids[0])
-        return [{"name": user[0].split("@")[0].title(), "login": user[0], "phone": user[1]["phone"]}]
-
-    monkeypatch.setattr(people, "odoo_call", odoo_call)
-    assert people.person_to_enroll("amal@cabinet.ma") == {
+    monkeypatch.setattr(people, "odoo_call", lambda model, method, ids, fields: [{"name": "Cabinet Alami"}])
+    assert people.person_to_enroll(" Amal@Cabinet.ma ") == {
         "login": "amal@cabinet.ma",
         "name": "Amal",
         "phone": "0600600600",
         "cabinet_name": "Cabinet Alami",
     }
-    with pytest.raises(ValueError, match="ni collaborateur"):
-        people.person_to_enroll("client@societe.ma")  # a client contact, or anyone Experio does not know as staff
+    with pytest.raises(ValueError, match="pas un collaborateur"):
+        people.person_to_enroll("staff@experio.ma")  # Experio's staff, a client contact, an agent: not in the list
     with pytest.raises(ValueError, match="pas de numéro"):
-        people.person_to_enroll("nophone@cabinet.ma")
+        people.person_to_enroll("karim@cabinet.ma")

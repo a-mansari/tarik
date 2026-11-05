@@ -53,11 +53,13 @@ def digits(phone):
 
 
 def moroccan(phone):
-    """Return ``phone`` as Sparrow takes it (212 and 9 digits) from its international (+212..., 00212...) or local
-    (06...) form; None for any other number."""
+    """Return ``phone`` as Sparrow takes it (212 and 9 digits) from its international (+212..., 00212..., +212 (0)6...)
+    or local (06...) form; None for any other number."""
     number = digits(phone).removeprefix("00")
     if re.fullmatch(r"0\d{9}", number):
         number = "212" + number[1:]
+    elif re.fullmatch(r"2120\d{9}", number):  # "+212 (0)6 12 34 56 78": the trunk 0 kept after the country code
+        number = "212" + number[4:]
     return number if re.fullmatch(r"212\d{9}", number) else None
 
 

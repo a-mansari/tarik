@@ -334,7 +334,7 @@ select email, phone from whatsapp_recipients where cabinet = %s order by email
 
 -- name: whatsapp_person
 -- The recipient_id of a person enrolled in a cabinet.
-select recipient_id from whatsapp_recipients where cabinet = %s and email = %s
+select recipient_id from whatsapp_recipients where cabinet = %s and lower(email) = lower(%s)
 
 -- name: whatsapp_enrolling
 insert into whatsapp_recipients (recipient_id, cabinet, email, phone, session_id) values (%s, %s, %s, %s, %s)

@@ -5,6 +5,7 @@ import asyncio
 import json
 
 import pytest
+from psycopg.errors import UniqueViolation
 from starlette.requests import Request
 
 from engine.tools.core import cabinets
@@ -15,6 +16,7 @@ from server.api import enrollment
 
 AMAL = {"login": "amal@cabinet.ma", "name": "Amal", "phone": "0600600600", "cabinet_name": "Cabinet Alami"}
 ME = {"email": "admin@experio.ma", "role": "admin"}
+ENROLL = {"action": "enroll", "login": "amal@cabinet.ma", "phone": "0600600600"}  # the phone the page showed
 
 
 class Database:
@@ -22,7 +24,8 @@ class Database:
 
     def __init__(self):
         self.rows = []
-        self.fail_insert = False
+        self.events = []  # "row deleted"
+        self.fail_insert = None  # the exception the insert raises
 
     def connection(self):
         return self
@@ -36,15 +39,16 @@ class Database:
     async def execute(self, query, params=()):
         rows = []
         if query == Q.whatsapp_person:
-            rows = [(r[0],) for r in self.rows if (r[1], r[2]) == params]
+            rows = [(r[0],) for r in self.rows if (r[1], r[2].lower()) == (params[0], params[1].lower())]
         elif query == Q.whatsapp_enrolled:
             rows = [(r[2], r[3]) for r in self.rows if r[1] == params[0]]
         elif query == Q.whatsapp_enrolling:
             if self.fail_insert:
-                raise RuntimeError("database down")
+                raise self.fail_insert
             self.rows.append(tuple(params))
         elif query == Q.whatsapp_unenrolled:
             self.rows = [r for r in self.rows if r[0] != params[0]]
+            self.events.append("row deleted")
         else:
             raise AssertionError(query)
         return Result(rows)
@@ -67,8 +71,11 @@ class World:
         self.person = dict(AMAL)
         self.candidates = [{k: AMAL[k] for k in ("login", "name", "phone")}]
         self.sparrow = None  # an exception sparrow.enroll/remove raise
+        self.remove_error = None  # an exception only sparrow.remove raises
+        self.listing_fails = False
         self.calls = []  # ("enroll", phone, host, name, cabinet_name) ("remove", recipient_id)
         self.audited = []
+        self.events = self.db.events
 
 
 @pytest.fixture
@@ -80,10 +87,12 @@ def world(monkeypatch):
     async def limited(cabinet, function, /, *args):
         assert cabinet == "cabinet_a"
         if function is people.whatsapp_candidates:
+            if world.listing_fails:
+                raise RuntimeError("Experio down")
             return world.candidates
         if function is enrollment.person_to_enroll:
             if world.person is None:
-                raise ValueError(f"{args[0]} n'est ni collaborateur du cabinet ni de l'équipe Experio")
+                raise ValueError(f"{args[0]} n'est pas un collaborateur de ce cabinet")
             return world.person
         if function is enrollment.public_host:
             return "tarik.example"
@@ -94,8 +103,9 @@ def world(monkeypatch):
             return "r" * 16
         if function is enrollment.sparrow.remove:
             world.calls.append(("remove", *args))
-            if world.sparrow:
-                raise world.sparrow
+            world.events.append("sparrow remove")
+            if world.sparrow or world.remove_error:
+                raise world.sparrow or world.remove_error
             return None
         raise AssertionError(function)
 
@@ -107,7 +117,7 @@ def world(monkeypatch):
     return world
 
 
-def posted(form, cabinet="cabinet_a", shown=None):
+async def posted_async(form, cabinet="cabinet_a", shown=None):
     """``form`` posted by an admin's page of ``shown`` (default ``cabinet``), ``cabinet`` picked in the sidebar."""
     body = json.dumps({"cabinet": shown or cabinet, **form}).encode()
 
@@ -116,8 +126,12 @@ def posted(form, cabinet="cabinet_a", shown=None):
 
     headers = [(b"cookie", f"tarik_cabinet={cabinet}".encode())]
     scope = {"type": "http", "method": "POST", "headers": headers, "state": {"user": ME}}
-    answer = asyncio.run(enrollment.enrollment_page(Request(scope, receive)))
+    answer = await enrollment.enrollment_page(Request(scope, receive))
     return answer.status_code, json.loads(answer.body)
+
+
+def posted(form, cabinet="cabinet_a", shown=None):
+    return asyncio.run(posted_async(form, cabinet, shown))
 
 
 def listed(cabinet="cabinet_a"):
@@ -128,7 +142,7 @@ def listed(cabinet="cabinet_a"):
 
 @pytest.mark.functionality
 def test_a_collaborator_is_enrolled_with_their_experio_phone_at_tarik_s_own_host(world):
-    status, body = posted({"action": "enroll", "login": "amal@cabinet.ma"})
+    status, body = posted(ENROLL)
     assert status == 200 and "Amal peut écrire à Tarik" in body["done"]
     assert world.calls == [("enroll", "212600600600", "tarik.example", "Amal", "Cabinet Alami")]
     ((recipient_id, cabinet, login, phone, session),) = world.db.rows
@@ -140,19 +154,19 @@ def test_a_collaborator_is_enrolled_with_their_experio_phone_at_tarik_s_own_host
 
 @pytest.mark.functionality
 def test_someone_already_enrolled_is_not_enrolled_twice(world):
-    posted({"action": "enroll", "login": "amal@cabinet.ma"})
+    posted(ENROLL)
     world.calls.clear()
-    status, body = posted({"action": "enroll", "login": "amal@cabinet.ma"})
+    status, body = posted(ENROLL)
     assert status == 400 and "déjà activé" in body["error"] and world.calls == []
 
 
 @pytest.mark.security
 def test_nothing_reaches_sparrow_for_someone_who_is_no_collaborator_or_has_no_usable_phone(world):
     world.person = None
-    status, body = posted({"action": "enroll", "login": "client@societe.ma"})
-    assert status == 400 and "ni collaborateur" in body["error"]
+    status, body = posted({**ENROLL, "login": "client@societe.ma"})
+    assert status == 400 and "pas un collaborateur" in body["error"]
     world.person = {**AMAL, "phone": "+33 6 12 34 56 78"}
-    status, body = posted({"action": "enroll", "login": "amal@cabinet.ma"})
+    status, body = posted(ENROLL)
     assert status == 400 and "pas un numéro marocain" in body["error"]
     assert world.calls == [] and world.db.rows == [] and world.audited == []
 
@@ -160,24 +174,25 @@ def test_nothing_reaches_sparrow_for_someone_who_is_no_collaborator_or_has_no_us
 @pytest.mark.functionality
 def test_a_phone_sparrow_already_holds_is_told_in_words_and_nothing_is_kept(world):
     world.sparrow = enrollment.sparrow.PhoneTaken("212600600600 is already a Sparrow recipient")
-    status, body = posted({"action": "enroll", "login": "amal@cabinet.ma"})
+    status, body = posted(ENROLL)
     assert status == 400 and "déjà enregistré chez Sparrow" in body["error"]
     assert world.db.rows == [] and world.audited == []
 
 
 @pytest.mark.functionality
 def test_what_sparrow_registered_is_removed_again_when_the_row_cannot_be_kept(world):
-    world.db.fail_insert = True
+    world.db.fail_insert = RuntimeError("database down")
     with pytest.raises(RuntimeError):
-        posted({"action": "enroll", "login": "amal@cabinet.ma"})
+        posted(ENROLL)
     assert world.calls[-1] == ("remove", "r" * 16) and world.audited == []
 
 
 @pytest.mark.functionality
 def test_a_person_is_removed_from_sparrow_before_their_row_goes(world):
-    posted({"action": "enroll", "login": "amal@cabinet.ma"})
+    posted(ENROLL)
     status, body = posted({"action": "remove", "login": "amal@cabinet.ma"})
     assert status == 200 and world.calls[-1] == ("remove", "r" * 16) and world.db.rows == []
+    assert world.events == ["sparrow remove", "row deleted"]  # Sparrow first, the row after
     assert world.audited[-1][1] == "whatsapp_removed"
     status, body = posted({"action": "remove", "login": "amal@cabinet.ma"})
     assert status == 400 and "n'est pas activé" in body["error"]
@@ -185,7 +200,7 @@ def test_a_person_is_removed_from_sparrow_before_their_row_goes(world):
 
 @pytest.mark.functionality
 def test_a_person_sparrow_cannot_remove_keeps_their_row(world):
-    posted({"action": "enroll", "login": "amal@cabinet.ma"})
+    posted(ENROLL)
     world.sparrow = enrollment.sparrow.SparrowError("Sparrow answered 500", 500)
     status, body = posted({"action": "remove", "login": "amal@cabinet.ma"})
     assert status == 400 and len(world.db.rows) == 1 and world.audited[-1][1] == "whatsapp_enrolled"
@@ -193,7 +208,7 @@ def test_a_person_sparrow_cannot_remove_keeps_their_row(world):
 
 @pytest.mark.security
 def test_a_page_of_another_cabinet_than_the_one_picked_changes_nothing(world):
-    status, body = posted({"action": "enroll", "login": "amal@cabinet.ma"}, "cabinet_a", shown="cabinet_b")
+    status, body = posted(ENROLL, "cabinet_a", shown="cabinet_b")
     assert status == 400 and "autre cabinet" in body["error"]
     assert world.calls == [] and world.db.rows == []
 
@@ -231,3 +246,50 @@ def test_tarik_s_public_host_is_the_gladden_callbacks(monkeypatch):
         monkeypatch.delenv("GLADDEN_CALLBACK_URL")
         with pytest.raises(ValueError, match="adresse publique"):
             enrollment.public_host()
+
+
+@pytest.mark.security
+def test_a_phone_changed_in_experio_since_the_page_was_shown_is_never_enrolled(world):
+    world.person = {**AMAL, "phone": "0611111111"}  # someone edited the user between the page and the click
+    status, body = posted(ENROLL)
+    assert status == 400 and "a changé dans Experio" in body["error"]
+    assert posted({**ENROLL, "phone": ""})[0] == 400  # no phone posted: nothing guessed
+    assert world.calls == [] and world.db.rows == []
+
+
+@pytest.mark.functionality
+def test_two_clicks_at_once_enroll_the_person_once(world):
+    async def both():
+        return await asyncio.gather(posted_async(ENROLL), posted_async(ENROLL))
+
+    first, second = asyncio.run(both())
+    assert sorted(status for status, _ in (first, second)) == [200, 400]
+    assert [call[0] for call in world.calls] == ["enroll"] and len(world.db.rows) == 1
+    assert "déjà activé" in next(body["error"] for status, body in (first, second) if status == 400)
+
+
+@pytest.mark.functionality
+def test_a_person_enrolled_by_another_server_meanwhile_is_told_and_what_was_made_is_removed(world):
+    world.db.fail_insert = UniqueViolation("whatsapp_recipients_person")
+    status, body = posted(ENROLL)
+    assert status == 400 and "déjà activé" in body["error"]
+    assert world.calls[-1] == ("remove", "r" * 16) and world.audited == []
+    world.db.fail_insert = RuntimeError("database down")
+    world.remove_error = enrollment.sparrow.SparrowError("Sparrow answered 500", 500)
+    with pytest.raises(RuntimeError, match="database down"):  # the cleanup failing never hides the first error
+        posted(ENROLL)
+
+
+@pytest.mark.functionality
+def test_a_person_is_found_whatever_the_case_of_the_login(world):
+    posted(ENROLL)
+    status, body = posted({"action": "remove", "login": "Amal@Cabinet.ma"})
+    assert status == 200 and world.db.rows == []
+
+
+@pytest.mark.functionality
+def test_an_action_done_is_still_told_when_experio_cannot_be_read_afterwards(world):
+    world.listing_fails = True
+    status, body = posted(ENROLL)
+    assert status == 503 and body["unreachable"] and "Amal peut écrire" in body["done"]
+    assert len(world.db.rows) == 1  # it was done: the admin is not left to click again
