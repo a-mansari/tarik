@@ -22,7 +22,7 @@ READS = {"search_read", "search_count", "read", "read_group", "fields_get", "nam
 # Experio's client dossiers (engine/tools/core/config.py DOSSIER_DOMAIN) and its posted, undeleted journal items
 # (the FEC's domain, engine/tools/dossiers/export.py).
 DOSSIERS = [["enabled", "=", True], ["id", "!=", 1], ["is_deleted", "=", False]]
-POSTED = [["parent_state", "in", ["post", "export"]], ["exp_deleted", "=", False], ["move_id.exp_deleted", "=", False]]
+POSTED = [["parent_state", "in", ["posted", "exported"]], ["exp_deleted", "=", False], ["move_id.exp_deleted", "=", False]]
 
 mcp = FastMCP("experio")
 _uids = {}  # cabinet -> uid: one login per cabinet
@@ -174,9 +174,9 @@ def export_csv(
 
 @mcp.tool()
 def list_dossiers(cabinet: str, query: str = "") -> dict:
-    """The cabinet's client dossiers (id, name, ICE, IF) matching ``query`` in their name. ``dossier_id`` elsewhere."""
+    """The cabinet's client dossiers (id, name, ICE, RC) matching ``query`` in their name. ``dossier_id`` elsewhere."""
     domain = [*DOSSIERS, *([["name", "ilike", query]] if query else [])]
-    return _read(cabinet, "res.company", domain, ["name", "ice", "if_number"], limit=MAX_ROWS, order="name")
+    return _read(cabinet, "res.company", domain, ["name", "ice", "rc"], limit=MAX_ROWS, order="name")
 
 
 @mcp.tool()
@@ -276,24 +276,26 @@ def journal_totals(cabinet: str, dossier_id: int, date_from: str = "", date_to: 
 @mcp.tool()
 def invoices(cabinet: str, dossier_id: int, date_from: str = "", date_to: str = "", state: str = "",
              unpaid_only: bool = False, limit: int = 200, offset: int = 0) -> dict:
-    """Invoices (exp.invoice) of a dossier by ``invoice_date``: number, date, total, residual, payment state, state.
-    ``state`` "post"/"export" (posted) or "draft"; ``unpaid_only`` keeps amount_residual > 0. Use describe_model
-    "exp.invoice" for more columns (partner, type...) and search_read to fetch them."""
+    """Invoices (exp.invoice) of a dossier by ``invoice_date``: number, date, partner, type, untaxed, VAT, total,
+    residual, payment state (unpaid/partial/paid), state. ``state``: draft, pending, post, export, cancel;
+    ``unpaid_only`` keeps amount_residual > 0. Use search_read for other columns."""
     domain = [["company_id", "=", dossier_id], *_dates("invoice_date", date_from, date_to),
               *([["state", "=", state]] if state else []), *([["amount_residual", ">", 0]] if unpaid_only else [])]
-    fields = ["invoice_number", "invoice_date", "display_amount_total", "amount_residual", "payment_state", "state"]
+    fields = ["invoice_number", "invoice_date", "partner_id", "type", "amount_untaxed", "amount_tva", "amount_total",
+              "amount_residual", "payment_state", "state"]
     return _read(cabinet, "exp.invoice", domain, fields, dossier_id, limit, offset, "invoice_date desc, id desc")
 
 
 @mcp.tool()
 def invoice_totals(cabinet: str, dossier_id: int, date_from: str = "", date_to: str = "", period: str = "month") -> list:
-    """Invoice count, total and unpaid residual per ``period`` (day/week/month/quarter/year) of invoice_date, posted
-    invoices only."""
+    """Untaxed, VAT, total and unpaid residual per ``period`` (day/week/month/quarter/year) of invoice_date and
+    invoice ``type``, posted invoices only."""
     domain = [["company_id", "=", dossier_id], ["state", "in", ["post", "export"]],
               *_dates("invoice_date", date_from, date_to)]
     group = f"invoice_date:{period}"
-    return _call(cabinet, "exp.invoice", "read_group", domain, ["display_amount_total:sum", "amount_residual:sum"],
-                 [group], lazy=False, orderby=group, dossier_id=dossier_id)
+    fields = ["amount_untaxed:sum", "amount_tva:sum", "amount_total:sum", "amount_residual:sum"]
+    return _call(cabinet, "exp.invoice", "read_group", domain, fields, [group, "type"], lazy=False, orderby=group,
+                 dossier_id=dossier_id)
 
 
 @mcp.tool()
