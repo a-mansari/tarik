@@ -22,7 +22,7 @@ run against the real Sparrow. This is what to set up and how to test it with one
 
   | Key | Value |
   | --- | --- |
-  | `GLADDEN_CALLBACK_URL` | this server's public `/gladden` address; **its host is the host Sparrow calls Tarik on** |
+  | `PUBLIC_URL` | this server as clients reach it (`https://…`); **its host is the host Sparrow calls Tarik on**. It must reach `/sparrow/handler` from the outside: Sparrow writes to Tarik there, and an enrollment succeeds even when that host doesn't route it, the messages then never arrive. A stack that has only `GLADDEN_CALLBACK_URL` (its public `/gladden` address) works too: its host is used when `PUBLIC_URL` is not set |
   | `SPARROW_URL` | `https://sparrow.experioservices.com` (also Experio's own default) |
   | `SPARROW_SENDER_ID` | `SM3DpyJAXOQNG2kR`, the sender of Experio's WhatsApp number `212781220229` (see « Proven on 2026-11-05 ») |
   | `SPARROW_TOKEN` | Sparrow's master token |

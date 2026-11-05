@@ -32,7 +32,7 @@ configuration) and in the seed files (secrets, loaded into Vault once). `.env.ex
    - `orchestrator.json`: `MODEL_API_KEY`, and `EXPERIO_API_KEY` (the key the Experio app sends to `/api/`; leave it
      out and Vault makes a random one, which only Vault shows).
    - `shared.json`: the mail servers (`IMAP_HOST`, `IMAP_PORT`, `IMAP_FOLDER`, `SMTP_HOST`, `SMTP_PORT`,
-     `MAIL_CERT_SHA256`), optionally `GLADDEN_URL` and `GLADDEN_CALLBACK_URL`, `PUBLIC_URL` (this server as clients reach it: a new dossier's form link;
+     `MAIL_CERT_SHA256`), optionally `GLADDEN_URL` and `GLADDEN_CALLBACK_URL`, `PUBLIC_URL` (this server as clients reach it: a new dossier's form link, and the host Sparrow calls Tarik on for WhatsApp (`/sparrow/handler` must be reachable there from outside);
      without it Tarik asks the settings by email). A form's link is a one-time key in the address (`/formulaire/<cabinet>/<token>`): keep that path out of long-lived proxy or funnel logs, and, for the WhatsApp channel, `SPARROW_URL`,
      `SPARROW_SENDER_ID` and `SPARROW_TOKEN` (Sparrow's address, Experio's one WhatsApp sender, its master token).
    - `cabinets/<cabinet's exact Experio database name>.json`, **at least one** (the server does not start without):
