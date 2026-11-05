@@ -18,6 +18,7 @@ from engine.tools.core.experio import _form as experio_form
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, require_invoice
 from engine.tools.core.queries import Q
 from engine.tools.core.words import counted, dirhams, normalized, said, without_if
+from engine.tools.dossiers.behaviour import behaviour, dossier_behaviour
 from engine.tools.dossiers.people import check_sender
 from engine.tools.dossiers.setup import answer_banks
 from engine.tools.invoices import tpe
@@ -232,6 +233,16 @@ def split_off(invoice_id):
     return [other for other in others if other not in taken]
 
 
+def posts_unasked(invoice_id):
+    """True when the invoice's dossier posts its verified invoices without being asked (its own post_invoices, else the
+    cabinet's). Experio is asked for the dossier only when some cabinet or dossier setting is on."""
+    with cabinet_db() as db:
+        some = db.execute(Q.dossier_behaviour_on, ("post_invoices",)).fetchone()[0]
+    if not (some or behaviour("post_invoices")):
+        return False
+    return dossier_behaviour(require_invoice(invoice_id, ["company_id"])["company_id"][0], "post_invoices")
+
+
 @step_tool
 def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
     """Stop an invoice at its verified draft unless the client asked to post it.
@@ -239,7 +250,11 @@ def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
     ``answer``: "oui" records the client's request to post it, "non" takes that back, empty keeps what was recorded (an
     invoice never asked about is held). The choice is kept per invoice, since later runs don't carry the answer.
 
+    A dossier set to post its verified invoices (post_invoices) releases each new one at once: the client's later "non"
+    still holds it.
+
     Returns a stop result while the invoice is held, else a routine result: go on to posting."""
+    auto = answer == "" and posts_unasked(invoice_id)  # decided first: a failure leaves nothing held for good
     with cabinet_db() as db:
         if answer in ("oui", "non"):
             db.execute(
@@ -249,7 +264,7 @@ def hold_posting(invoice_id: int, session_id: str, answer: str = "") -> dict:
         else:
             db.execute(
                 Q.insert_held,
-                (invoice_id, session_id),
+                (invoice_id, session_id, auto),
             )
         released = db.execute(Q.held_released, (invoice_id,)).fetchone()[0]
     if not released:
