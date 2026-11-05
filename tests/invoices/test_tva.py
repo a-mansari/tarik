@@ -239,3 +239,20 @@ def test_the_rate_the_amounts_give_is_applied_only_on_the_clients_oui(mismatched
     assert not mismatched["written"]
     tva.settle_tva(3, "oui")
     assert mismatched["written"][0]["amount_tva_14"] == 505.56 and mismatched["written"][0]["amount_tva_20"] == 0.0
+
+
+@pytest.mark.functionality
+def test_the_rate_answer_is_never_read_again_from_a_later_answer(mismatched):
+    mismatched["mismatch"] = (20, 3611.11, 505.56)  # a purchase on fuel: the non-recoverable question comes next
+    tva.settle_tva(3)
+    tva.settle_tva(3, "non")
+    asked = tva.settle_tva(3, "oui")  # 14 % applied; now the non-recoverable question
+    assert asked["status"] == "question" and len(mismatched["written"]) == 1
+    after = tva.settle_tva(3, "non")  # recoverable: never read as « don't apply 14 % »
+    assert after["status"] != "stop" and len(mismatched["written"]) >= 1
+
+
+@pytest.mark.functionality
+def test_a_tva_above_the_printed_rate_is_never_asked_as_a_part_at_0(mismatched):
+    mismatched["mismatch"] = (14, 3611.11, 722.22)  # 20 % of the HT, printed 14 %
+    assert tva.settle_tva(3)["message"].endswith("J'applique 20 % ? oui / non")

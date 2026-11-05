@@ -25,7 +25,7 @@ from engine.tools.core.model import ask_model, tool_prompt
 from engine.tools.core.words import dirhams
 from engine.tools.invoices.check import stored_check
 from engine.tools.invoices.classify import side_of
-from engine.tools.invoices.correct import PER_RATE, rates_read
+from engine.tools.invoices.correct import MULTI_TVA_RATES, PER_RATE, rates_read
 from engine.tools.invoices.taxes import add_missing_taxes
 
 # CGI art. 106: a confirmer par le comptable avant usage en production.
@@ -134,7 +134,9 @@ def rate_settled(invoice, mismatch, answer, context):
         f"Facture {invoice_id} : le taux imprimé est {rate} %, mais la TVA ({dirhams(tva)}) fait {shown} % du HT "
         f"({dirhams(base)})."
     )
-    part = kept_answer(invoice_id, "settle_tva_part")
+    # « part of the HT at 0 % » only when the TVA is below the printed rate's, at a rate Experio splits on (correct.py)
+    partial = tva < round(base * rate / 100, 2) and rate in MULTI_TVA_RATES
+    part = kept_answer(invoice_id, "settle_tva_part") if partial else "non"
     if not part:
         if yes_no(answer) is None:
             taxed = round(tva * 100 / rate, 2)
@@ -148,12 +150,18 @@ def rate_settled(invoice, mismatch, answer, context):
         return None, "une partie du HT à 0 %, comme vous l'avez dit"
     if legal is None:
         return stop(f"{facts} {shown} % n'est pas un taux marocain : la facture est à corriger, puis à renvoyer."), None
-    applied, told = kept_yes_no(invoice_id, "settle_tva_rate", answer)
+    applied = kept_answer(invoice_id, "settle_tva_rate")  # once given, never read again from a later answer
+    told = yes_no(applied or answer)
     if told is None:
         return question(f"{facts} J'applique {legal} % ? oui / non"), None
+    if not applied:
+        keep_answer(invoice_id, "settle_tva_rate", answer)
     if not told:
         return stop(f"{facts} La facture est à corriger, puis à renvoyer."), None
-    fill_invoice(invoice_id, {"multi_tva": True, **dict.fromkeys(PER_RATE, 0.0), f"amount_tva_{legal}": tva}, context)
+    if not applied:  # written once, when the client says it
+        fill_invoice(
+            invoice_id, {"multi_tva": True, **dict.fromkeys(PER_RATE, 0.0), f"amount_tva_{legal}": tva}, context
+        )
     return None, f"taux de {legal} % appliqué à votre demande (le taux imprimé était {rate} %)"
 
 

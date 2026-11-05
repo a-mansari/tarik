@@ -408,24 +408,22 @@ def misplaced_journals(company_id, fields):
     return misplaced
 
 
-# Experio messages that reach Tarik untranslated (written in English, with no French in Experio's own .po), in French.
+# Experio messages that reach Tarik in English (the cabinets' Experio gives no French for them), in French: each
+# occurrence apart, Experio joining several in one message.
 IN_FRENCH = [
     (
         re.compile(
-            r"The invoice line with account (?P<account>.+?) \(VAT (?P<rate>[\d.,]+)%\) must have a tax code\.?"
+            r"The invoice line with account (?P<account>[^()]+?) \(VAT (?P<rate>[\d.,]+)%\) must have a tax code\.?"
         ),
-        "la ligne à {rate} % (compte {account}) n'a pas de code de taxe : son motif d'exonération est à "
-        "renseigner par le cabinet dans Experio",
+        "la ligne à {rate} % (compte {account}) n'a pas de code de taxe : à renseigner par le cabinet dans Experio.",
     ),
 ]
 
 
 def in_french(text):
-    """Return Experio's message ``text`` in French when it is one Experio gives in English (IN_FRENCH), else as is."""
+    """Return Experio's message ``text`` with each part Experio gives in English (IN_FRENCH) in French."""
     for pattern, french in IN_FRENCH:
-        found = pattern.fullmatch(text.strip())
-        if found:
-            return french.format(**found.groupdict())
+        text = pattern.sub(lambda found, said=french: said.format(**found.groupdict()), text)
     return text
 
 
