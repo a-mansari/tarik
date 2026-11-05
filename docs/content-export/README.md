@@ -219,3 +219,6 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-conclusion-20261104.json` (and its `.diff`, against the stack's versions of 2026-11-04): in
   `skills/traitement-documents.md` and `skills/reponse-question.md`, no closing sentence (« Tout est fait ») when
   nothing is left to do.
+- `tarik-contenu-repetition-20261105.json` (and its `.diff`, against the stack's versions of 2026-11-05): in
+  `skills/traitement-documents.md` and `skills/reponse-question.md`, the reply never repeats at its end a question or a
+  request its lines already make.

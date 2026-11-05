@@ -45,7 +45,7 @@ def chosen(monkeypatch):
     monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [{"ice": "", **p} for p in TIERS])
     monkeypatch.setattr(tiers, "side_of", lambda invoice: "purchase")
     monkeypatch.setattr(tiers, "keep_answer", lambda invoice_id, step, answer: None)
-    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: {"status": "ok", "linked": partner_id})
+    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind, **kw: {"status": "ok", "linked": partner_id})
     monkeypatch.setattr(tiers, "create_tiers", lambda invoice, name, kind: {"status": "ok", "created": name})
 
     def choose(decision, answer):
@@ -131,7 +131,7 @@ def scanned(monkeypatch):
     monkeypatch.setattr(tiers, "keep_answer", lambda i, step, answer: kept.update({(i, step): answer}))
     monkeypatch.setattr(tiers, "kept_answer", lambda invoice_id, step: kept.get((invoice_id, step), ""))
 
-    def link(invoice, partner_id, kind):
+    def link(invoice, partner_id, kind, **kw):
         return {"status": "ok", "message": f"fournisseur `BETA SERVICES`, id {partner_id}"}
 
     def odoo_call(model, method, values, **kw):
@@ -300,7 +300,9 @@ def test_a_tiers_already_set_is_kept_over_the_one_detected(scanned, monkeypatch)
     invoice, calls = scanned
     invoice.update(partner_id=[5, "SET BY HAND"], detected_supplier_id=[6, "DETECTED"])
     linked = []
-    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
+    monkeypatch.setattr(
+        tiers, "link", lambda invoice, partner_id, kind, **kw: linked.append(partner_id) or {"status": "ok"}
+    )
     tiers.link_tiers(4)
     assert linked == [5] and calls == []
 
@@ -312,7 +314,9 @@ def test_a_detected_tiers_the_check_read_differently_is_asked_not_kept(scanned, 
     invoice, calls = scanned
     invoice.update(partner_id=[7, "WW"], detected_supplier_id=[7, "WW"], supplier_name=False)
     linked = []
-    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
+    monkeypatch.setattr(
+        tiers, "link", lambda invoice, partner_id, kind, **kw: linked.append(partner_id) or {"status": "ok"}
+    )
     monkeypatch.setattr(tiers, "flagged_tier", lambda invoice_id: "ATLAS TRANSPORTS")
     monkeypatch.setattr(tiers, "checked_values", lambda invoice_id: {"ice": ""})
     result = tiers.link_tiers(4)
@@ -327,7 +331,9 @@ def test_a_detected_tiers_the_check_did_not_flag_is_kept(scanned, monkeypatch):
     invoice, calls = scanned
     invoice.update(partner_id=[7, "WW"], detected_supplier_id=[7, "WW"])
     linked = []
-    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
+    monkeypatch.setattr(
+        tiers, "link", lambda invoice, partner_id, kind, **kw: linked.append(partner_id) or {"status": "ok"}
+    )
     tiers.link_tiers(4)
     assert linked == [7] and calls == []
 
@@ -559,7 +565,9 @@ def test_the_tiers_experio_detected_is_linked(scanned, monkeypatch):
     invoice, calls = scanned
     invoice["detected_supplier_id"] = [6, "DETECTED"]
     linked = []
-    monkeypatch.setattr(tiers, "link", lambda invoice, partner_id, kind: linked.append(partner_id) or {"status": "ok"})
+    monkeypatch.setattr(
+        tiers, "link", lambda invoice, partner_id, kind, **kw: linked.append(partner_id) or {"status": "ok"}
+    )
     tiers.link_tiers(4)
     assert linked == [6] and calls == []
 
@@ -581,7 +589,9 @@ def test_a_customs_invoice_gets_the_dossiers_one_customs_tiers_or_asks_among_sev
     invoice["import_invoice_type"] = "customs"
     monkeypatch.setattr(tiers, "dossier_tiers", lambda company_id: [*found, {"id": 9, "name": "ATLAS"}])
     monkeypatch.setattr(
-        tiers, "link", lambda invoice, partner_id, kind: {"status": "ok", "message": f"fournisseur id {partner_id}"}
+        tiers,
+        "link",
+        lambda invoice, partner_id, kind, **kw: {"status": "ok", "message": f"fournisseur id {partner_id}"},
     )
     result = tiers.link_tiers(4)
     assert result["status"] == status

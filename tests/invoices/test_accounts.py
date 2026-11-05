@@ -321,7 +321,7 @@ def test_experio_failing_while_proposing_an_account_is_said(experio, monkeypatch
 def test_an_invoice_with_its_account_already_is_left_as_it_is(experio, monkeypatch):
     monkeypatch.setattr(accounts, "require_draft_invoice", lambda *a, **k: {**DRAFT, "account_id": [61, "6125"]})
     result = accounts.assign_account(3)
-    assert result["message"] == "Facture 3 : compte déjà renseigné, `61250000 Achats de fournitures`."
+    assert result["message"] == "Facture 3 : compte `61250000 Achats de fournitures`."
     assert experio["filled"] == []
 
 

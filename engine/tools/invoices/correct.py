@@ -1,7 +1,10 @@
 """Correct a draft invoice: write what the scan shows over the fields Experio captured differently."""
 
+import re
+
 from engine.tools.core.app import ToolError, log, ok, routine, step_tool, stop
 from engine.tools.core.app import noted as to_check
+from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.conversation import instructed
 from engine.tools.core.experio import (
@@ -13,6 +16,7 @@ from engine.tools.core.experio import (
     refused,
     require_draft_invoice,
 )
+from engine.tools.core.queries import Q
 from engine.tools.core.words import normalized
 from engine.tools.invoices.check import CAPTURED, HOTEL, stored_check
 from engine.tools.invoices.configuration import save_settings
@@ -242,16 +246,42 @@ def hotel_parts(extracted, invoice, changes):
         changes["amount_untaxed"] = rest
 
 
-def _currency(code, changes, notes):
+# « facture en euro », « en € »: the currency a client says an invoice is in (never « payée 1 200 DH par carte »).
+SAID_IN = re.compile(r"(?<![a-z])en\s+(euros?|eur|€|dollars?|usd|\$|dirhams?|dhs?|mad)(?![a-z])")
+CURRENCY_WORDS = {"euro": "EUR", "euros": "EUR", "eur": "EUR", "€": "EUR", "dollar": "USD", "dollars": "USD"}
+CURRENCY_WORDS |= {"usd": "USD", "$": "USD", "dirham": "MAD", "dirhams": "MAD", "dh": "MAD", "dhs": "MAD", "mad": "MAD"}
+
+
+def said_currency(client_message):
+    """Return the one currency (ISO) the client's own words say an invoice is in (« facture en euro »), None when none
+    or several."""
+    named = {CURRENCY_WORDS[word] for word in SAID_IN.findall((client_message or "").lower())}
+    return named.pop() if len(named) == 1 else None
+
+
+def alone_in_conversation(invoice_id):
+    """True when invoice ``invoice_id`` is the only one its conversation made: the client's message is about it."""
+    with cabinet_db() as db:
+        count = db.execute(Q.invoices_of_invoice_session, (invoice_id,)).fetchone()[0]
+    return count <= 1
+
+
+def _currency(code, changes, notes, client_message="", invoice_id=0):
     """Add the currency ``code`` (ISO) the scan shows to ``changes`` (nothing for MAD), or a note to ``notes`` when
-    Experio has no such currency."""
+    Experio has no such currency. The scan wins over the client's words: a currency they named that is not the
+    scan's is said (``notes``), and True is returned (the outcome is one to check)."""
+    named = said_currency(client_message)
+    other = bool(named and named != code and alone_in_conversation(invoice_id))  # several files: maybe another's
+    if other:
+        notes.append(f"facture en {code}, pas en {named} comme dans votre message : j'ai suivi la facture")
     if code == "MAD":
-        return
+        return other
     currency = odoo_call("res.currency", "search_read", [("name", "=", code)], fields=["id"], limit=1)
     if currency:
         changes["currency_id"] = currency[0]["id"]  # Experio fetches the rate for the invoice date itself
     else:
         notes.append(f"devise {code} inconnue dans Experio")
+    return other
 
 
 def _payment_method(name, invoice, changes):
@@ -350,16 +380,17 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
     hotel_parts(extracted, invoice, changes)
     with refused(f"correct_invoice {invoice_id}", f"Facture {invoice_id} : Experio a refusé la correction."):
         tax_settings(invoice, changes, notes)
-        _currency((extracted.get("currency") or "MAD").upper(), changes, notes)
+        currency = (extracted.get("currency") or "MAD").upper()
+        other = _currency(currency, changes, notes, client_message, invoice_id)
         told = instructed(payment_method, client_message)
         cash = _payment_method(told or extracted.get("payment_method"), invoice, changes)
         noted = f" ({'; '.join(notes)})" if notes else ""
         if not changes:
-            return routine(f"Facture {invoice_id} : rien à corriger.{noted}")
+            return (to_check if other else routine)(f"Facture {invoice_id} : rien à corriger.{noted}")
         context = invoice_context(invoice)
         changed = fill_invoice(invoice_id, changes, context)
         if not changed:
-            return routine(f"Facture {invoice_id} : déjà a jour, rien à changer.{noted}")
+            return (to_check if other else routine)(f"Facture {invoice_id} : déjà a jour, rien à changer.{noted}")
         refresh(invoice_id, context)
         if cash and not dry_run() and (over := cash_limit(invoice_id, context)):
             notes.append(over)
@@ -370,6 +401,6 @@ def correct_invoice(invoice_id: int, payment_method: str = "", client_message: s
     if other:  # what Experio recomputed by itself (rate, its own codes): for the team, not the client
         log(f"correct_invoice {invoice_id}: Experio also updated {', '.join(other)}")
     if dry_run():
-        return ok(f"{TEST_MODE}Facture {invoice_id}, correction prévue : {shown}.{noted}")
-    done = (to_check if cash and over else ok)(f"Facture {invoice_id} : corrigée ({shown}).{noted}")  # « À vérifier »
+        return (to_check if other else ok)(f"{TEST_MODE}Facture {invoice_id}, correction prévue : {shown}.{noted}")
+    done = (to_check if (cash and over) or other else ok)(f"Facture {invoice_id} : corrigée ({shown}).{noted}")
     return done

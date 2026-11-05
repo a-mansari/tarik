@@ -276,3 +276,20 @@ def test_invoices_posted_never_hide_the_draft_kept_beside_them(db_cabinet):
     assert run_summary("r")["message"] == (
         "Bilan : 4 factures comptabilisées, 1 facture vérifiée laissée en brouillon.\n\n**Fait**\n- " + held
     )
+
+
+@pytest.mark.functionality
+def test_a_foreign_invoice_is_named_with_what_it_books_in_dirhams(monkeypatch):
+    found = [
+        {
+            "id": 7,
+            "invoice_number": "20240101",
+            "partner_id": [9, "ITM - 34210517 - 1"],
+            "amount_total": 12000.0,
+            "currency_id": [1, "USD"],
+            "amount_total_currency": 116695.2,
+            "exchange_rate": 9.7246,
+        },
+    ]
+    monkeypatch.setattr(pipeline, "odoo_call", lambda *a, **k: found)
+    assert pipeline.labels_of([7]) == {7: "Facture n° 20240101 (ITM, 12 000 USD, soit 116 695,20 DH au taux de 9,7246)"}
