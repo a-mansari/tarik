@@ -204,11 +204,17 @@ ROUTINE_SESSION = "routine-"
 
 def sender_of(session_id):
     """Return the sender's address of an email conversation (a routine's too, once its report was sent: the
-    recipient replying); None in the chat and during a routine's period, where nobody writes: Tarik's own Experio
-    account's reach applies."""
+    recipient replying) or of a WhatsApp one (the collaborator's login); None in the chat and during a routine's
+    period, where nobody writes: Tarik's own Experio account's reach applies."""
     with cabinet_db() as db:
-        row = db.execute(Q.sender_of_session, (session_id,)).fetchone()
+        row = db.execute(Q.sender_of_session, (session_id, session_id)).fetchone()
     return row[0] if row else None
+
+
+def remember_whatsapp_sender(session_id, email):
+    """Keep ``email``, the collaborator writing in WhatsApp conversation ``session_id``, as its sender (sender_of)."""
+    with cabinet_db() as db, db.transaction():
+        db.execute(Q.upsert_whatsapp_sender, (session_id, email))
 
 
 @tool

@@ -7,6 +7,8 @@ The tools (engine/tools/) run in this process, each in its cabinet's schema of t
 
   GET  /ok                        the server is up, and its graphs
   POST /gladden/{token}           Gladden's callback (engine/tools/core/gladden.py), open: its random token is its key
+  POST /sparrow/handler           Sparrow's forward of a collaborator's WhatsApp message (server/api/whatsapp.py), open:
+                                  the recipient_id it comes with, enrolled in whatsapp_recipients, is its key
   POST /runs/{graph}              {input, thread_id?, cabinet?, session_id?, wait?}: wait (default) answers the run
                                   with its output; wait=false answers its run_id at once, the run going on meanwhile
   GET  /runs                      the latest runs (?cabinet=, ?graph=, ?limit=)
@@ -23,8 +25,8 @@ The tools (engine/tools/) run in this process, each in its cabinet's schema of t
   GET  /ui/..., /login            the team's pages: the Vue app built from server/web/ (into server/web/dist), the
                                   same for each address
 
-Every call except /ok, the login, an invitation, Gladden's callbacks and the pages' files needs a session (the
-login's cookie; accounts are made on the Comptes page or with server/users.py) or, for scripts (run.py),
+Every call except /ok, the login, an invitation, Gladden's callbacks, Sparrow's handler and the pages' files needs a
+session (the login's cookie; accounts are made on the Comptes page or with server/users.py) or, for scripts (run.py),
 TARIK_GRAPH_TOKEN as a bearer token. A change (POST, PUT, DELETE) made with a session must come from these pages
 themselves (its Origin or Referer), so another site cannot make it in someone's name. Changes that affect everyone's
 Tarik need an admin's session (admin_only); a member reads and talks to Tarik."""
@@ -64,8 +66,17 @@ TOKEN = os.getenv("TARIK_GRAPH_TOKEN", "")
 DATABASE = make_conninfo(**POSTGRES)  # the tools' own Postgres settings
 
 
-OPEN = ("/ok", "/login", "/ui/api/login", "/ui/assets/", "/invitation/", "/ui/api/invitation/", "/gladden/")  # an
-# invitation's page and a Gladden callback: their one-time token is their key
+OPEN = (
+    "/ok",
+    "/login",
+    "/ui/api/login",
+    "/ui/assets/",
+    "/invitation/",
+    "/ui/api/invitation/",
+    "/gladden/",
+    "/sparrow/",
+)
+# an invitation's page, a Gladden callback and Sparrow's handler: their token (one-time, or the recipient's) is its key
 COOKIE = "tarik_session"
 
 
@@ -382,6 +393,7 @@ app = Starlette(
     routes=[
         Route("/ok", ok),
         Route("/gladden/{token}", gladden_callback, methods=["POST"]),
+        Route("/sparrow/handler", api.whatsapp.handler, methods=["POST"]),
         Route("/api/cabinets", experio_api.listing),
         Route("/api/cabinets", experio_api.create, methods=["POST"]),
         Route("/api/cabinets/{name}", experio_api.one, methods=["GET", "PATCH", "DELETE"]),

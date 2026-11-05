@@ -319,3 +319,10 @@ create table if not exists tarik_behaviour (
 create index if not exists tarik_mail_messages_thread on tarik_mail_messages (thread_id);
 -- A sender's latest emails (emails_of_sender, their signature), read at every claim.
 create index if not exists tarik_mail_messages_sender on tarik_mail_messages (from_address, received_at desc);
+
+-- Who writes in a WhatsApp conversation (server/api/whatsapp.py): the collaborator's login, set at each message, which
+-- the tools check as they check an email's sender (engine/tools/dossiers/people.py sender_of).
+create table if not exists tarik_whatsapp_senders (
+    session_id text primary key,
+    email text not null
+);

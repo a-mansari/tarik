@@ -317,3 +317,13 @@ with recursive up (id, parent_id) as (
     select r.id, r.parent_id from runs r join up on r.id = up.parent_id
 )
 select id::text from up where parent_id is null
+
+-- === WhatsApp through Sparrow (server/api/whatsapp.py) ===
+
+-- name: whatsapp_recipient
+-- Who Sparrow's recipient_id stands for: their cabinet, login and conversation.
+select cabinet, email, session_id from whatsapp_recipients where recipient_id = %s
+
+-- name: whatsapp_message_taken
+-- Takes the message: returns its id the first time, nothing when Sparrow sent it before.
+insert into whatsapp_messages (message_id) values (%s) on conflict do nothing returning message_id

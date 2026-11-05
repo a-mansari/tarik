@@ -114,3 +114,20 @@ create table if not exists audit (
     detail jsonb not null default '{}'
 );
 create index if not exists audit_at on audit (id desc);
+
+-- === WhatsApp through Sparrow (server/api/whatsapp.py, engine/tools/core/sparrow.py) ===
+-- Who is enrolled: Sparrow's recipient_id (the bearer it calls /sparrow/handler with), the cabinet and the
+-- collaborator's login it stands for, their phone and the conversation of their messages.
+create table if not exists whatsapp_recipients (
+    recipient_id text primary key,
+    cabinet text not null,
+    email text not null,
+    phone text not null,
+    session_id text not null unique
+);
+-- WhatsApp's id of each message taken, so Sparrow sending one twice runs it once.
+-- shortcut: kept forever, a row of 40 bytes each; prune the old ones when it grows.
+create table if not exists whatsapp_messages (
+    message_id text primary key,
+    received_at timestamptz not null default now()
+);
