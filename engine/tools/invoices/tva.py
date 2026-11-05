@@ -7,9 +7,9 @@ has none for (taxes.py), made before the refresh that would refuse that rate.
 """
 
 from engine.knowledge.cgnc import consult_cgnc
-from engine.tools.core.app import ToolError, log, noted, ok, question, routine, step_tool
+from engine.tools.core.app import ToolError, log, noted, ok, question, routine, step_tool, stop
 from engine.tools.core.config import TEST_MODE
-from engine.tools.core.conversation import kept_yes_no, yes_no
+from engine.tools.core.conversation import keep_answer, kept_answer, kept_yes_no, yes_no
 from engine.tools.core.experio import (
     account_code,
     dry_run,
@@ -22,8 +22,10 @@ from engine.tools.core.experio import (
     test_mode_note,
 )
 from engine.tools.core.model import ask_model, tool_prompt
+from engine.tools.core.words import dirhams
 from engine.tools.invoices.check import stored_check
 from engine.tools.invoices.classify import side_of
+from engine.tools.invoices.correct import PER_RATE, rates_read
 from engine.tools.invoices.taxes import add_missing_taxes
 
 # CGI art. 106: a confirmer par le comptable avant usage en production.
@@ -99,6 +101,62 @@ def _tax_lines(invoice_id, context):
     ]
 
 
+MOROCCAN_RATES = (7, 10, 14, 20)  # the TVA rates in force (CGI art. 98-100)
+
+
+def rate_mismatch(invoice_id):
+    """Return (printed rate, HT, TVA) when the scan prints one TVA rate that its TVA is not of its HT (« 20 % » with a
+    TVA of 650 on 3 611,11: 18 %); None when they agree, or the scan's TVA lines were not read in full."""
+    check = stored_check(invoice_id)
+    extracted = check[1] if check else {}
+    lines, rates, trusted = rates_read(extracted)
+    if len(rates) != 1 or not trusted:
+        return None
+    (rate,) = rates
+    base, tva = round(sum(line["amount_ht"] for line in lines), 2), extracted["amount_tva"]
+    if not rate or not base or abs(round(base * rate / 100, 2) - tva) <= 0.02:
+        return None
+    return rate, base, tva
+
+
+def rate_settled(invoice, mismatch, answer, context):
+    """Settle a scan whose printed rate is not its TVA's (rate_mismatch), asking the client each time, never deciding:
+    first whether part of its HT bears no TVA (oui: Experio's split stays, that part at 0 %); if not, whether to apply
+    the rate its amounts give when it is a Moroccan rate (oui: the TVA put on that rate), else the invoice is to
+    correct. Returns (a question or stop result, None) while it is not settled, (None, note) once it is; the client's
+    ``answer`` is read by the question it answers, never by the next one."""
+    invoice_id = invoice["id"]
+    rate, base, tva = mismatch
+    actual = round(tva / base * 100, 2)
+    legal = next((r for r in MOROCCAN_RATES if abs(actual - r) <= 0.05), None)
+    shown = f"{actual:g}".replace(".", ",")
+    facts = (
+        f"Facture {invoice_id} : le taux imprimé est {rate} %, mais la TVA ({dirhams(tva)}) fait {shown} % du HT "
+        f"({dirhams(base)})."
+    )
+    part = kept_answer(invoice_id, "settle_tva_part")
+    if not part:
+        if yes_no(answer) is None:
+            taxed = round(tva * 100 / rate, 2)
+            return question(
+                f"{facts} Est-ce qu'une partie du HT n'est pas soumise à la TVA ({dirhams(taxed)} à {rate} % et "
+                f"{dirhams(round(base - taxed, 2))} à 0 %) ? oui / non"
+            ), None
+        part, answer = answer, ""  # read: the next question waits for its own answer
+        keep_answer(invoice_id, "settle_tva_part", part)
+    if yes_no(part):
+        return None, "une partie du HT à 0 %, comme vous l'avez dit"
+    if legal is None:
+        return stop(f"{facts} {shown} % n'est pas un taux marocain : la facture est à corriger, puis à renvoyer."), None
+    applied, told = kept_yes_no(invoice_id, "settle_tva_rate", answer)
+    if told is None:
+        return question(f"{facts} J'applique {legal} % ? oui / non"), None
+    if not told:
+        return stop(f"{facts} La facture est à corriger, puis à renvoyer."), None
+    fill_invoice(invoice_id, {"multi_tva": True, **dict.fromkeys(PER_RATE, 0.0), f"amount_tva_{legal}": tva}, context)
+    return None, f"taux de {legal} % appliqué à votre demande (le taux imprimé était {rate} %)"
+
+
 @step_tool
 def settle_tva(invoice_id: int, answer: str = "") -> dict:
     """Settle a draft invoice's TVA once its account is set: recoverable or not, prorata, and each line's tax.
@@ -124,6 +182,14 @@ def settle_tva(invoice_id: int, answer: str = "") -> dict:
     purchase = side_of(invoice) == "purchase"
     context = invoice_context(invoice)
     changes, notes, reason = {}, [], ""
+    mismatch = rate_mismatch(invoice_id)
+    if mismatch:  # the printed rate is not the TVA's: asked, never decided (answered here, never read again below)
+        with refused(f"settle_tva {invoice_id}", f"Facture {invoice_id} : Experio a refusé le taux de TVA."):
+            stopped, note = rate_settled({**invoice, "id": invoice_id}, mismatch, answer, context)
+        if stopped:
+            return stopped
+        notes.append(note)
+        answer = ""
     if purchase and not invoice["amount_tax_non_recoverable"] and invoice["amount_tva"]:
         answer, _ = kept_yes_no(invoice_id, "settle_tva", answer)  # asked before: its answer, not the question again
         asked, changes, reason = _non_recoverable(invoice, answer)

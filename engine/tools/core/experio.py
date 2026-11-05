@@ -408,12 +408,33 @@ def misplaced_journals(company_id, fields):
     return misplaced
 
 
+# Experio messages that reach Tarik untranslated (written in English, with no French in Experio's own .po), in French.
+IN_FRENCH = [
+    (
+        re.compile(
+            r"The invoice line with account (?P<account>.+?) \(VAT (?P<rate>[\d.,]+)%\) must have a tax code\.?"
+        ),
+        "la ligne à {rate} % (compte {account}) n'a pas de code de taxe : son motif d'exonération est à "
+        "renseigner par le cabinet dans Experio",
+    ),
+]
+
+
+def in_french(text):
+    """Return Experio's message ``text`` in French when it is one Experio gives in English (IN_FRENCH), else as is."""
+    for pattern, french in IN_FRENCH:
+        found = pattern.fullmatch(text.strip())
+        if found:
+            return french.format(**found.groupdict())
+    return text
+
+
 def checked(invoice_id, context):
     """Return Experio's own check of invoice ``invoice_id`` (exp.invoice collect_validation_messages, the one
     « Comptabiliser » runs first) as [(level, plain text)]. Levels: "cgnc" for the dossier's settings, "error" for
     the invoice's own fields and amounts, "warning" for warnings not dismissed on the invoice."""
     messages = odoo_json("exp.invoice", "collect_validation_messages", [invoice_id], context=context) or []
-    return [(level, plain(text)) for level, text in messages]
+    return [(level, in_french(plain(text))) for level, text in messages]
 
 
 def blocking(invoice_id, context):

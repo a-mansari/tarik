@@ -17,7 +17,7 @@ from engine.tools.core.conversation import chosen_among, own_words, yes_no
 from engine.tools.core.experio import _form as experio_form
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, require_invoice
 from engine.tools.core.queries import Q
-from engine.tools.core.words import counted, normalized, said, without_if
+from engine.tools.core.words import counted, dirhams, normalized, said, without_if
 from engine.tools.dossiers.people import check_sender
 from engine.tools.dossiers.setup import answer_banks
 from engine.tools.invoices import tpe
@@ -391,15 +391,6 @@ def labels_of(ids):
                 f" ({about.removeprefix(who).lstrip(', ')})" if about != who else ""
             )
     return labels
-
-
-def dirhams(amount, currency="MAD"):
-    """Return ``amount`` in the invoice's ``currency`` as the client reads it: « 120 000 DH », « 1 234,50 EUR »;
-    "" without one. Experio's amount_total is in the invoice's own currency (amount_total_currency is in MAD)."""
-    if not amount:
-        return ""
-    text = f"{amount:,.2f}".replace(",", " ").replace(".", ",").removesuffix(",00")
-    return f"{text} {'DH' if currency == 'MAD' else currency}"
 
 
 def file_labels(ids):

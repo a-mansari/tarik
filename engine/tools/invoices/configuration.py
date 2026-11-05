@@ -356,21 +356,21 @@ def settings_of(invoice_id, invoice):
         if values and not save_settings(company_id, values, context):
             cabinet, names = [*names, *cabinet], []
         after = checked(invoice_id, context)
-    done = f"Facture {invoice_id} : j'ai lancé la détection automatique des paramètres du dossier"
+    done = f"Facture {invoice_id} : "  # what the detection changed, only when it changed something
     if made:
-        done += f". {counted(made, 'Elle a créé {} taxe', 'Elle a créé {} taxes')}"
+        done += counted(made, "j'ai créé {} taxe dans le dossier. ", "j'ai créé {} taxes dans le dossier. ")
     if names:
-        done += f". J'ai activé dans le dossier : {', '.join(names)}"
+        done += f"J'ai activé dans le dossier : {', '.join(names)}. "
     settings = [text for level, text in after if level == "cgnc"]
     settings += [f"{name} : compte à choisir" for name in cabinet]
     if assets_without_category(invoice_id, context):
         settings.append(assets_text(assets_without_category(invoice_id, context)))
     refused_here = [text for level, text in after if level == "error"]  # warnings: settle_warnings' own
     if not (settings or refused_here):
-        return ok(f"{done}. Plus rien ne bloque la comptabilisation.")
+        return ok(f"{done}Plus rien ne bloque la comptabilisation.")
     told = []
     if settings:
         told.append("À régler par le cabinet dans la Configuration du dossier : " + listed(settings))
     if refused_here:
-        told.append("Sur la facture elle-même, Experio signale : " + listed(refused_here))
-    return stop(f"{done}. La facture n'est pas comptabilisable en l'état. " + " ".join(told))
+        told.append("Sur la facture : " + listed(refused_here))
+    return stop(f"{done}Pas comptabilisable en l'état. " + " ".join(told))
