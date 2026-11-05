@@ -218,3 +218,24 @@ def test_the_open_page_serves_only_its_own_cabinet_s_open_form_and_escapes_what_
     done = client.post(f"/formulaire/{db_cabinet}/{token}", content="declaration_mode=monthly&post_invoices=oui")
     assert done.status_code == 200 and "Merci" in done.text
     assert client.get(f"/formulaire/{db_cabinet}/{token}").status_code == 404  # used
+
+
+@pytest.mark.functionality
+def test_a_setting_left_as_shown_is_not_kept_so_the_dossier_goes_on_following_the_cabinet(experio):
+    token = token_of(form_link(7, "s"))
+    form.fill_form(token, {"post_invoices": "non", "regime_type": "encaissement"})  # as the form showed them
+    with cabinet_db() as db:
+        assert db.execute("select count(*) from tarik_dossier_behaviour").fetchone()[0] == 0
+    behaviour.change("post_invoices", "oui", "chef@cabinet.ma")  # the cabinet turns it on later
+    assert behaviour.dossier_behaviour(7, "post_invoices") is True
+    other = token_of(form_link(8, "s"))
+    form.fill_form(other, {"post_invoices": "non"})  # a client who really chooses against the cabinet's value
+    assert behaviour.dossier_behaviour(8, "post_invoices") is False
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(("own", "picked", "kept"), [(True, "non", False), (False, "non", False), (True, "oui", True)])
+def test_a_dossier_with_its_own_value_keeps_it_unless_the_client_picks_another(experio, own, picked, kept):
+    behaviour.set_for_dossier(7, "post_invoices", own, "client@societe.ma")
+    form.fill_form(token_of(form_link(7, "s")), {"post_invoices": picked})
+    assert behaviour.dossier_behaviour(7, "post_invoices") is kept
