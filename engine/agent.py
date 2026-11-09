@@ -190,47 +190,31 @@ async def query_data(
     )
 
 
+async def report(tool_name, runtime, **arguments):
+    """Read a dossier's books with the report ``tool_name``: the one place that sets the conversation (never the
+    model's)."""
+    return await reading(runtime, tool_name, session_id=session_of(runtime.config), **arguments)
+
+
 async def trial_balance(dossier_id: int, runtime: ToolRuntime, year: int = 0, account_prefix: str = "") -> str:
-    return await reading(
-        runtime,
-        "trial_balance",
-        dossier_id=dossier_id,
-        session_id=session_of(runtime.config),
-        year=year,
-        account_prefix=account_prefix,
-    )
+    return await report("trial_balance", runtime, dossier_id=dossier_id, year=year, account_prefix=account_prefix)
 
 
 async def monthly_totals(dossier_id: int, account_prefix: str, runtime: ToolRuntime, year: int = 0) -> str:
-    return await reading(
-        runtime,
-        "monthly_totals",
-        dossier_id=dossier_id,
-        session_id=session_of(runtime.config),
-        account_prefix=account_prefix,
-        year=year,
-    )
+    return await report("monthly_totals", runtime, dossier_id=dossier_id, account_prefix=account_prefix, year=year)
 
 
 async def partner_balances(dossier_id: int, account_prefix: str, runtime: ToolRuntime, year: int = 0) -> str:
-    return await reading(
-        runtime,
-        "partner_balances",
-        dossier_id=dossier_id,
-        session_id=session_of(runtime.config),
-        account_prefix=account_prefix,
-        year=year,
-    )
+    return await report("partner_balances", runtime, dossier_id=dossier_id, account_prefix=account_prefix, year=year)
 
 
 async def account_ledger(
     dossier_id: int, account_prefix: str, runtime: ToolRuntime, year: int = 0, partner_id: int = 0, limit: int = 50
 ) -> str:
-    return await reading(
-        runtime,
+    return await report(
         "account_ledger",
+        runtime,
         dossier_id=dossier_id,
-        session_id=session_of(runtime.config),
         account_prefix=account_prefix,
         year=year,
         partner_id=partner_id,

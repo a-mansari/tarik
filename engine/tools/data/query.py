@@ -233,7 +233,7 @@ def allowed(session_id, dossier_id, name):
     if address is None:
         if own_dossier(session_id, dossier_id):
             return ""
-        return f"Cette conversation ne porte pas sur le dossier `{name}` : ouvrez-en une autre pour celui-ci."
+        return "Cette conversation ne porte pas sur ce dossier : ouvrez-en une autre pour celui-ci."  # no name: a probe
     result = allowed_on(address, dossier_id, name)
     return result["message"] if result["status"] == "stop" else ""
 

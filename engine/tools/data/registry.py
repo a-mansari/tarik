@@ -12,7 +12,12 @@ Experio's own definitions each entry stands on (../experio_app, addons/):
 - exp.move.line: parent_state is the entry's state (related, stored), exp_account/models/exp_move.py:3345; exp_deleted
   (deleted lines are out of the totals), :3350. The base terms are the FEC's own (dossiers/export.py fec_lines), and
   Experio's balance report leaves the closure entries out (move_category "cloture", exp_account/models/exp_move.py:
-  205-222, account_reports/models/exp_report_balance.py:658-678): a closed year's revenue would read 0 with them.
+  205-222, account_reports/models/exp_report_balance.py:658-678): a closed year's revenue would read 0 with them, and
+  it drops the lines of deleted journals (:664-665): not copied, a dotted journal term would also drop the items without
+  a journal. An opening (à-nouveau) entry is move_category "carry_forward"
+  (exp_report_balance.py:660-663); the journal category below is the dynamic balance sheet's test and can differ in
+  imported data. amount_residual is the stored amount still open on a line, zero once reconciled (exp_move.py:3480-3487,
+  :3780-3802); Experio's own "still open" filter is amount_residual != 0 (:526-527).
 - exp.journal: journal_category, exp_account/models/exp_journal.py:48 (normal, a_nouveau, cloture).
 - exp.fiscal.entries: state, exp_account/models/exp_fiscal_entries.py:405; close is set by action_close (:797-802), shut
   once the closure entries are generated (:1601-1604).
@@ -96,7 +101,8 @@ MODELS: Final = {
         order="invoice_date desc, id desc",
     ),
     "exp.move.line": Source(
-        "Lignes d'écritures comptables comptabilisées ou exportées (grand livre ; débit et crédit en MAD). "
+        "Lignes d'écritures comptables comptabilisées ou exportées (grand livre ; débit et crédit dans la devise du "
+        "dossier, MAD en général). "
         "Écritures de clôture exclues, à-nouveaux (ouvertures) compris : pour un résultat, les comptes 6 et 7 de "
         "l'exercice ; pour un bilan, le cumul depuis l'origine",
         {
@@ -109,7 +115,8 @@ MODELS: Final = {
             "name": c(TEXT, "libellé"),
             "debit": c(NUMBER, "débit"),
             "credit": c(NUMBER, "crédit"),
-            "reconciled": c(FLAG, "lettrée (rapprochée)"),
+            "reconciled": c(FLAG, "lettrée (rapprochée) en totalité"),
+            "amount_residual": c(NUMBER, "reste à lettrer, signé comme débit moins crédit ; non nul : élément ouvert"),
         },
         base=(
             ("parent_state", "in", ["posted", "exported"]),
