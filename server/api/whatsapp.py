@@ -30,6 +30,7 @@ from engine.tools.core.app import log
 from engine.tools.core.archives import unpacked
 from engine.tools.core.cabinets import CABINETS
 from engine.tools.core.config import FILE_TYPES
+from engine.tools.core.outbox import send_unsent
 from engine.tools.core.queries import Q
 from engine.tools.dossiers.people import collaborator, remember_whatsapp_sender
 from server.api.chat import ACCEPTED, MAX_FILE, MAX_FILES, MAX_TEXT, digest, megabytes, problems
@@ -38,6 +39,7 @@ ERROR = "Tarik n'a pas pu répondre pour le moment. Renvoyez votre message dans 
 BUSY = "Un souci technique m'a arrêté. Renvoyez votre message dans un instant."
 STOPPED = "Votre demande a été interrompue. Renvoyez votre message pour la reprendre."
 TOO_LARGE = f"Message trop lourd : un fichier de {megabytes(MAX_FILE)} au plus par message. Envoyez-le compressé."
+NOT_SENT = "Je n'ai pas pu vous envoyer ces fichiers par WhatsApp (redemandez-les, ou demandez-les par email) : "
 UNREADABLE = "Je n'ai pas pu lire votre message. Renvoyez-le."
 BYTES = 3 * MAX_FILE  # what one gathered message may hold in files: its pages, not a whole folder
 TOO_MUCH = (
@@ -217,6 +219,9 @@ async def answer(cabinet, email, session, recipient_id, text, files):
         if reply is None:
             reply = await run_of(cabinet, session, email, text, files, skipped)
         await limited(cabinet, sparrow.send, recipient_id, reply)
+        failed = await limited(cabinet, send_unsent, session, recipient_id)  # the files Tarik made, after its words
+        if failed:
+            await tell(cabinet, recipient_id, NOT_SENT + ", ".join(failed))
     except sparrow.SparrowError as error:
         log(f"whatsapp: {cabinet} {session}: the reply: {error}")
         if not error.sent:  # nothing reached them: a refusal of the 24 h window too, told if it can be

@@ -15,6 +15,7 @@ Calls carry the master token, which can message any recipient: use only a recipi
 ``host_uri`` from Tarik's own settings, never from a client or the model. The calls are blocking: from async code,
 run them in a thread."""
 
+import base64
 import contextlib
 import re
 from typing import Final
@@ -221,3 +222,14 @@ def send(recipient_id, text):
         except KeyError:
             raise SparrowError("Sparrow's answer has no message_id") from None
     return ids
+
+
+def send_file(recipient_id, name, mime, data):
+    """Send file ``name`` (``mime``, bytes ``data``) to the recipient as a WhatsApp document, within the 24 h window.
+    Returns its WhatsApp id. Raises SparrowError."""
+    known(recipient_id)
+    body = {"recipient_id": recipient_id, "filename": name, "mimetype": mime, "file": base64.b64encode(data).decode()}
+    try:
+        return call("POST", "/messages/send_file", json=body, timeout=httpx.Timeout(60, connect=5))["message_id"]
+    except KeyError:
+        raise SparrowError("Sparrow's answer has no message_id") from None

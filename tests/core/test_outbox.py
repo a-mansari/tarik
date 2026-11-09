@@ -59,3 +59,20 @@ def test_nothing_is_kept_without_a_stored_file_or_a_conversation(db_cabinet, mon
     fake_record(monkeypatch, {"xml_file": data, "xml_name": "a.xml"})
     assert outbox.keep_record_file(session_id, "exp.tva", 4, "xml_file", "xml_name", {}) == ""
     assert kept("s1") == [] and kept("") == []
+
+
+@pytest.mark.functionality
+def test_the_waiting_files_go_by_whatsapp_one_each_and_a_refused_one_stays_for_an_email(db_cabinet, monkeypatch):
+    sent = []
+
+    def send_file(recipient_id, name, mime, data):
+        if name == "b.pdf":
+            raise outbox.sparrow.SparrowError("Sparrow answered 502", 502)
+        sent.append((recipient_id, name, mime, data))
+
+    monkeypatch.setattr(outbox.sparrow, "send_file", send_file)
+    for name in ("a.docx", "b.pdf"):
+        outbox.keep_file("s1", name, b"data")
+    assert outbox.send_unsent("s1", "r" * 16) == ["b.pdf"]
+    assert sent == [("r" * 16, "a.docx", outbox.MIMES["docx"], b"data")]
+    assert [row[0] for row in kept("s1")] == ["b.pdf"]  # a.docx is sent, b.pdf waits for the next reply

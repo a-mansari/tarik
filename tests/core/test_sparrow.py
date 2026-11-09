@@ -250,3 +250,20 @@ def test_a_long_or_crafted_reply_never_stalls_the_rewrite():
     for crafted in ("   \n" * 2500, "\n" * 9999, "[" * 9999, "a *b " * 1999, "#" * 9999):
         sparrow.whatsapp_text(crafted)
     assert time.monotonic() - started < 3  # each is linear or capped, never minutes
+
+
+@pytest.mark.functionality
+def test_a_file_is_sent_as_one_document_with_its_bytes_in_base64(relay):
+    relay.answers = {"POST /messages/send_file": (200, {"message_id": "wamid"})}
+    assert sparrow.send_file(RECIPIENT, "r.xlsx", "application/x", b"abc") == "wamid"
+    assert relay.sent[-1][3] == {
+        "recipient_id": RECIPIENT,
+        "filename": "r.xlsx",
+        "mimetype": "application/x",
+        "file": "YWJj",
+    }
+    with pytest.raises(sparrow.SparrowError):
+        sparrow.send_file("not a recipient", "r.xlsx", "application/x", b"abc")  # it goes into no URL, no body
+    relay.answers = {"POST /messages/send_file": (502, {"detail": "window closed"})}
+    with pytest.raises(sparrow.SparrowError):
+        sparrow.send_file(RECIPIENT, "r.xlsx", "application/x", b"abc")

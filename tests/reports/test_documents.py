@@ -147,7 +147,7 @@ def test_the_tool_keeps_each_file_in_the_conversations_outbox_and_says_so(db_cab
         and kept[2][1] == "application/pdf"
         and all(size > 0 for *_, size in kept)
     )
-    assert text.startswith("Fichiers prêts : rapport-d-ete-2026.docx (") and "joints à ma prochaine réponse" in text
+    assert text.startswith("Fichiers prêts : rapport-d-ete-2026.docx (") and "joints à ma réponse" in text
     assert outbox("s2") == []  # another conversation never sees them
     files.make_document("s1", "T", [], ["md", "tex"], "", "Mon Fichier!")
     assert [n for n, _, _ in outbox("s1")][-2:] == ["mon-fichier.md", "mon-fichier.tex"]

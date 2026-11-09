@@ -75,8 +75,8 @@ def written(session_id, document, formats, filename=""):
         keep_file(session_id, name, data)
     files = ", ".join(f"{name} ({size_of(data)})" for name, data in made)
     text = (
-        f"Fichiers prêts : {files}. Ils seront joints à ma prochaine réponse par email, "
-        "et téléchargeables dans la discussion."
+        f"Fichiers prêts : {files}. Ils seront joints à ma réponse (en pièces jointes d'un email, en documents "
+        "WhatsApp) et téléchargeables dans la discussion."
     )
     return text + "".join(f"\n- {note}" for note in dict.fromkeys(notes))
 

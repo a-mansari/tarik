@@ -31,6 +31,8 @@ class World:
         self.send_error = None  # what every send raises
         self.events = []  # ("save", names) ("start", message, writer) ("end", message) ("send", recipient, text)
         self.remembered = []
+        self.documents = []  # (session, recipient) the waiting files were sent to
+        self.unsent = []  # the names of the files Sparrow refused
 
 
 @pytest.fixture
@@ -58,6 +60,8 @@ def world(monkeypatch):
             return world.collaborator
         if function is people.remember_whatsapp_sender:
             return world.remembered.append(args)
+        if function is whatsapp.send_unsent:
+            return world.documents.append(args) or world.unsent
         if function is whatsapp.sparrow.send:
             await asyncio.sleep(world.send_pause)
             if world.send_error:
@@ -332,3 +336,12 @@ def test_a_message_too_heavy_or_unreadable_is_told_in_words_since_sparrow_sends_
     assert sent(world) == [whatsapp.UNREADABLE] * 7
     assert [event for event in world.events if event[0] in ("start", "save")] == []
     assert world.taken == set()
+
+
+@pytest.mark.functionality
+def test_the_files_tarik_made_follow_its_reply_and_a_refused_one_is_told(world):
+    assert forward(text("m1")) == [200]
+    assert world.documents == [("wa-session", RECIPIENT)] and sent(world) == ["Bonjour Amal"]
+    world.unsent = ["rapport.docx"]
+    assert forward(text("m2")) == [200]
+    assert sent(world)[-1] == whatsapp.NOT_SENT + "rapport.docx"
