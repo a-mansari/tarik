@@ -701,3 +701,7 @@ select exists (select 1 from tarik_dossier_behaviour where key = %s and value = 
 -- name: thread_reply_basics
 -- Who a thread's replies go to and its subject (the client's address and subject of its first email).
 select client_address, subject from tarik_mail_threads where thread_id = %s
+
+-- name: outbox_waiting
+-- What a conversation's outbox holds that no reply has sent yet: how many files and how many bytes.
+select count(*), coalesce(sum(length(data)), 0) from tarik_outbox where session_id = %s and sent_at is null

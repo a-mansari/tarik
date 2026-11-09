@@ -102,8 +102,8 @@ def dropped():
     agent.run_workflow = handing
     try:
         for tool in agent.TOOLS:
-            if not tool.coroutine or tool.coroutine.__name__ in agent.READ_TOOLS:
-                continue  # load_skill, and the read tools: no workflow
+            if not tool.coroutine or tool.coroutine.__name__ in (*agent.READ_TOOLS, *agent.DIRECT_TOOLS):
+                continue  # load_skill, the read tools and the direct ones: no workflow
             arguments = sample_arguments(tool.coroutine)
             asyncio.run(tool.coroutine(runtime=runtime, **arguments))
             name, inputs = handed[-1]

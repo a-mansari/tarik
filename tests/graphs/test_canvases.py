@@ -91,7 +91,8 @@ def test_each_workflow_tool_runs_its_own_workflow_with_its_inputs(monkeypatch):
 
     monkeypatch.setattr(agent, "run_workflow", run_workflow)
     runtime = SimpleNamespace(state={"messages": []}, config={"configurable": {}})
-    tools = [tool for tool in agent.TOOLS if tool.coroutine and tool.coroutine.__name__ not in agent.READ_TOOLS]
+    own = (*agent.READ_TOOLS, *agent.DIRECT_TOOLS)  # no workflow behind them
+    tools = [tool for tool in agent.TOOLS if tool.coroutine and tool.coroutine.__name__ not in own]
     expected = {
         "declaration_tva": "declarations",
         "declaration_ras": "declarations",
