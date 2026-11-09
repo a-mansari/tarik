@@ -53,7 +53,7 @@ async def me(request: Request):
 
 
 CHOSEN = "tarik_cabinet"  # the cookie holding the cabinet the pages show
-NAMES, TRIED = {}, {}  # cabinet: its name in Experio; cabinet: when Experio last failed to give it
+TRIED = {}  # cabinet: when Experio last failed to give its name
 RETRY_SECONDS = 300
 
 
@@ -63,18 +63,18 @@ def failed_lately(cabinet):
 
 
 def display_name(cabinet):
-    """Return the cabinet's name in Experio (its company), cached once read; "" while Experio cannot give it.
+    """Return the cabinet's name (cabinet_name(): its CABINET_NAME setting, else its Experio company), "" while
+    Experio cannot give it.
 
-    After a failure, Experio is asked again only RETRY_SECONDS later, so a page never waits on Experio twice in a
-    row."""
-    if cabinet in CABINETS and cabinet not in NAMES and not failed_lately(cabinet):
-        with using(cabinet):
-            found = cabinet_name()
-        if found:
-            NAMES[cabinet] = found
-        else:
-            TRIED[cabinet] = time.monotonic()
-    return NAMES.get(cabinet, "")
+    Read at each call, so a changed CABINET_NAME shows at once; cabinet_name() keeps Experio's answer itself. After a
+    failure, Experio is asked again only RETRY_SECONDS later, so a page never waits on Experio twice in a row."""
+    if cabinet not in CABINETS or failed_lately(cabinet):
+        return ""
+    with using(cabinet):
+        found = cabinet_name()
+    if not found:
+        TRIED[cabinet] = time.monotonic()
+    return found
 
 
 def warm_names():

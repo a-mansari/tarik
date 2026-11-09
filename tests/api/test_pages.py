@@ -3,6 +3,7 @@ thread as its sender, subject and message, and nothing internal."""
 
 import asyncio
 import json
+from contextlib import nullcontext
 
 import pytest
 
@@ -203,3 +204,19 @@ def test_the_server_serves_the_pages_built_from_its_own_web_folder():
     from server import api
 
     assert (api.runs.WEB.parent / "package.json").exists()  # web/dist is built beside the app's own sources
+
+
+def test_the_sidebar_name_follows_a_changed_cabinet_name_and_asks_experio_again_only_after_a_failure(monkeypatch):
+    from server.api import runs
+
+    answers = iter(["", "Cabinet A", "Cabinet A bis"])
+    monkeypatch.setattr(runs, "CABINETS", frozenset({"cab_a"}))
+    monkeypatch.setattr(runs, "TRIED", {})
+    monkeypatch.setattr(runs, "using", lambda cabinet: nullcontext())
+    monkeypatch.setattr(runs, "cabinet_name", lambda: next(answers))
+    assert runs.display_name("cab_a") == ""  # Experio failed
+    assert runs.display_name("cab_a") == ""  # not asked again at once
+    monkeypatch.setitem(runs.TRIED, "cab_a", -runs.RETRY_SECONDS)
+    assert runs.display_name("cab_a") == "Cabinet A"
+    assert runs.display_name("cab_a") == "Cabinet A bis"  # read at each call: an edit shows at once
+    assert runs.display_name("other") == ""
