@@ -5,13 +5,19 @@ per person, attachment or setting is listed). Each model is read inside one doss
 query, never asked), with its ``base`` terms always added.
 
 Experio's own definitions each entry stands on (../experio_app, addons/):
-- exp.invoice: state, addons/invoice/models/exp_invoice.py:2199; payment_state, :2263; type, :1999; the soft-delete
-  flag exp_deleted, :13120.
+- exp.invoice: state, addons/invoice/models/exp_invoice.py:2199; payment_state, :2263; type, :1999. Amounts are in the
+  invoice's currency and a credit note's are positive (display_amount_total negates them, :2623-2630). The soft-delete
+  flag exp_deleted comes from exp.base.model (invoice/models/exp_base_model.py:128): Experio's _search already adds
+  it to every model that has it, so the base term below is only needed where it is a path (exp.move.line).
 - exp.move.line: parent_state is the entry's state (related, stored), exp_account/models/exp_move.py:3345; exp_deleted
-  (deleted lines are out of the totals), :3350. The base terms are the FEC's own (dossiers/export.py fec_lines).
+  (deleted lines are out of the totals), :3350. The base terms are the FEC's own (dossiers/export.py fec_lines), and
+  Experio's balance report leaves the closure entries out (move_category "cloture", exp_account/models/exp_move.py:
+  205-222, account_reports/models/exp_report_balance.py:658-678): a closed year's revenue would read 0 with them.
 - exp.journal: journal_category, exp_account/models/exp_journal.py:48 (normal, a_nouveau, cloture).
-- exp.fiscal.entries: state, exp_account/models/exp_fiscal_entries.py:405.
-- exp.bank.statement.line: state, bank/models/bank_statement_line.py:430."""
+- exp.fiscal.entries: state, exp_account/models/exp_fiscal_entries.py:405; close is set by action_close (:797-802), shut
+  once the closure entries are generated (:1601-1604).
+- exp.bank.statement.line: state, bank/models/bank_statement_line.py:430; debit is the outgoing amount and credit the
+  incoming one, in the statement's currency (:286-306); pending waits for the exchange rate (:442)."""
 
 from dataclasses import dataclass, field
 from typing import Final
@@ -22,12 +28,13 @@ ID, LINK, TEXT, NUMBER, DATE, CHOICE, FLAG = "id", "link", "text", "number", "da
 OPERATORS: Final = {
     ID: ("=", "in"),
     LINK: ("=", "!=", "in"),
-    TEXT: ("=", "ilike", "in"),
+    TEXT: ("=", "!=", "ilike", "in"),
     NUMBER: ("=", "!=", "<", "<=", ">", ">="),
-    DATE: ("=", "<", "<=", ">", ">="),
+    DATE: ("=", "!=", "<", "<=", ">", ">="),
     CHOICE: ("=", "!=", "in"),
     FLAG: ("=",),
 }
+UNSET: Final = (LINK, DATE, TEXT)  # kinds that may be asked for unset (false) with = or !=
 GROUPABLE: Final = (LINK, DATE, CHOICE, FLAG)
 SORTABLE: Final = (ID, TEXT, NUMBER, DATE, CHOICE, FLAG)  # a link sorts by another model's name: not offered
 
@@ -57,7 +64,8 @@ def c(kind, label, **values):
 
 MODELS: Final = {
     "exp.invoice": Source(
-        "Factures d'achat et de vente (brouillons compris, supprimées exclues)",
+        "Factures d'achat et de vente (brouillons compris, abandonnées et supprimées exclues). Montants dans la devise "
+        "de la facture (regrouper par currency_id) ; un avoir (refund vrai) a des montants positifs, à retrancher",
         {
             "id": c(ID, "numéro de la facture"),
             "invoice_number": c(TEXT, "numéro de facture du document"),
@@ -68,13 +76,13 @@ MODELS: Final = {
             "state": c(
                 CHOICE,
                 "statut dans Experio",
-                cancel="abandonnée",
                 pending="en cours de lecture",
                 draft="brouillon",
                 post="comptabilisée",
                 export="exportée",
             ),  # fmt: skip
             "payment_state": c(CHOICE, "paiement", unpaid="impayée", partial="payée en partie", paid="payée"),
+            "currency_id": c(LINK, "devise des montants"),
             "partner_id": c(LINK, "tiers (fournisseur ou client)"),
             "partner_name": c(TEXT, "nom du tiers lu sur le document"),
             "partner_ice": c(TEXT, "ICE du tiers"),
@@ -84,11 +92,13 @@ MODELS: Final = {
             "amount_total": c(NUMBER, "montant TTC"),
             "amount_residual": c(NUMBER, "reste dû TTC"),
         },
-        base=(("exp_deleted", "=", False),),
+        base=(("exp_deleted", "=", False), ("state", "!=", "cancel")),
         order="invoice_date desc, id desc",
     ),
     "exp.move.line": Source(
-        "Lignes d'écritures comptables comptabilisées ou exportées (grand livre ; débit et crédit en MAD)",
+        "Lignes d'écritures comptables comptabilisées ou exportées (grand livre ; débit et crédit en MAD). "
+        "Écritures de clôture exclues, à-nouveaux (ouvertures) compris : pour un résultat, les comptes 6 et 7 de "
+        "l'exercice ; pour un bilan, le cumul depuis l'origine",
         {
             "id": c(ID, "numéro de la ligne"),
             "date": c(DATE, "date de l'écriture"),
@@ -105,6 +115,7 @@ MODELS: Final = {
             ("parent_state", "in", ["posted", "exported"]),
             ("exp_deleted", "=", False),
             ("move_id.exp_deleted", "=", False),
+            ("move_id.move_category", "!=", "cloture"),
         ),
         order="date, id",
     ),
@@ -156,26 +167,33 @@ MODELS: Final = {
             "name": c(TEXT, "nom"),
             "date_start": c(DATE, "début"),
             "date_end": c(DATE, "fin"),
-            "state": c(CHOICE, "statut", draft="brouillon", open="ouvert", close="clôturé", shut="clôture en cours"),
+            "state": c(
+                CHOICE,
+                "statut",
+                draft="brouillon",
+                open="ouvert",
+                close="comptes arrêtés, écritures de clôture non générées",
+                shut="clôture faite (écritures de clôture et à-nouveaux générés)",
+            ),
         },
         order="date_end desc",
     ),
     "exp.bank.statement.line": Source(
-        "Opérations des relevés bancaires (supprimées exclues)",
+        "Opérations des relevés bancaires (supprimées exclues), dans la devise du relevé",
         {
             "id": c(ID, "numéro de l'opération"),
             "date": c(DATE, "date"),
             "payment_ref": c(TEXT, "libellé"),
             "amount": c(NUMBER, "montant (négatif : sortie)"),
-            "debit": c(NUMBER, "débit"),
-            "credit": c(NUMBER, "crédit"),
+            "debit": c(NUMBER, "débit du relevé (sortie d'argent)"),
+            "credit": c(NUMBER, "crédit du relevé (entrée d'argent)"),
             "state": c(
                 CHOICE,
                 "statut dans Experio",
-                pending="en attente",
+                pending="en attente du taux de change",
                 draft="brouillon",
                 ready="prête",
-                suspense="en suspens",
+                suspense="ancien statut hérité de la migration (rare)",
                 post="comptabilisée",
                 export="exportée",
             ),  # fmt: skip

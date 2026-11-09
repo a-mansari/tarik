@@ -86,6 +86,13 @@ create table if not exists tarik_results (
     choices jsonb, -- {id: name} a question proposed, for the client's answer
     created_at timestamptz not null default now()
 );
+-- The one dossier a conversation without a sender (the chat, a routine's period) reads with query_data: the first it
+-- asked for (engine/tools/data/query.py). A conversation by email or WhatsApp is checked against its sender instead.
+create table if not exists tarik_session_dossiers (
+    session_id text primary key,
+    dossier_id integer not null,
+    created_at timestamptz not null default now()
+);
 -- A dossier whose entries were imported and whose onboarding is not finished yet (finish_setup waits on
 -- Experio): an email follow-up finishes it when the client's run could not.
 create table if not exists tarik_setups (

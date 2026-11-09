@@ -29,6 +29,7 @@ from engine.settings import cabinet_of, session_of
 from engine.tools.core import usage
 from engine.tools.core.cabinets import setting, using
 from engine.tools.core.model import MODEL_URL, adapter
+from engine.tools.data.query import DEFAULT_LIMIT
 
 
 def model(cabinet):
@@ -155,6 +156,40 @@ def fixed(runtime):
     }
 
 
+async def describe_data(runtime: ToolRuntime, model: str = "") -> str:
+    return await reading(runtime, "describe_data", model=model)
+
+
+async def query_data(
+    dossier_id: int,
+    model: str,
+    runtime: ToolRuntime,
+    domain: list[list] | None = None,
+    fields: list[str] | None = None,
+    group_by: list[str] | None = None,
+    sums: list[str] | None = None,
+    order: str = "",
+    limit: int = DEFAULT_LIMIT,
+) -> str:
+    return await reading(
+        runtime,
+        "query_data",
+        dossier_id=dossier_id,
+        model=model,
+        session_id=session_of(runtime.config),  # never the model's: the conversation's own
+        domain=domain,
+        fields=fields,
+        group_by=group_by,
+        sums=sums,
+        order=order,
+        limit=limit,
+    )
+
+
+# The general read tools take more arguments than the others: defined apart, read_tool hands them out by name.
+GENERAL_READS = {"describe_data": describe_data, "query_data": query_data}
+
+
 def read_tool(tool_name):
     """Return the agent tool "Experio_<tool_name>" for the read tool ``tool_name`` (one of READ_TOOLS).
 
@@ -186,35 +221,7 @@ def read_tool(tool_name):
     async def consult_cgnc(runtime: ToolRuntime, code: str = "", words: str = "") -> str:
         return await reading(runtime, tool_name, code=code, words=words)
 
-    async def describe_data(runtime: ToolRuntime, model: str = "") -> str:
-        return await reading(runtime, tool_name, model=model)
-
-    async def query_data(
-        dossier_id: int,
-        model: str,
-        runtime: ToolRuntime,
-        domain: list | None = None,
-        fields: list | None = None,
-        group_by: list | None = None,
-        sums: list | None = None,
-        order: str = "",
-        limit: int = 50,
-    ) -> str:
-        return await reading(
-            runtime,
-            tool_name,
-            dossier_id=dossier_id,
-            model=model,
-            session_id=session_of(runtime.config),
-            domain=domain,
-            fields=fields,
-            group_by=group_by,
-            sums=sums,
-            order=order,
-            limit=limit,
-        )
-
-    function = locals()[tool_name]
+    function = GENERAL_READS.get(tool_name) or locals()[tool_name]
     # Described by the tool's own docstring (engine/tools/), kept in content/agent.json to be edited.
     return tool(f"Experio_{tool_name}", description=DESCRIBED_LATER)(function)
 

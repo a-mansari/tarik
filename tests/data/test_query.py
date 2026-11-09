@@ -6,26 +6,28 @@ import pytest
 
 from engine import agent
 from engine.tools.core.app import ToolError
+from engine.tools.core.cabinets import cabinet_db
 from engine.tools.data import query, registry
 from engine.tools.data.query import describe_data, query_data
 
 DOSSIER = 5
-ALLOWED = {"status": "ok", "message": "ok"}
 
 
 class Experio:
     """A fake Experio: records every call, answers rows to a read and a count to a count."""
 
-    def __init__(self, monkeypatch, rows=None, allowed=ALLOWED):
+    def __init__(self, monkeypatch, rows=None, refusal=""):
         self.calls = []
         self.rows = rows if rows is not None else []
         monkeypatch.setattr(query, "require_dossier", lambda dossier_id: "ALPHA")
-        monkeypatch.setattr(query, "check_sender", lambda session_id, dossier_id: allowed)
+        monkeypatch.setattr(query, "allowed", lambda session_id, dossier_id, name: refusal)
         monkeypatch.setattr(query, "odoo_call", self.call)
 
     def call(self, model, method, domain, *more, **kw):
         self.calls.append((model, method, domain, kw))
-        return len(self.rows) if method == "search_count" else self.rows
+        if method == "search_count":
+            return len(self.rows)
+        return self.rows[: kw["limit"]] if "limit" in kw else self.rows
 
 
 @pytest.fixture
@@ -46,7 +48,7 @@ def test_every_read_is_pinned_to_the_dossier_in_its_domain_and_context(experio):
     ask(model="exp.move.line", group_by=["account_id"], sums=["debit"])
     for _model, _method, domain, kw in experio.calls:
         assert domain[0] == ("company_id", "=", DOSSIER)
-        assert kw["context"] == {"allowed_company_ids": [DOSSIER]}
+        assert kw["context"] == {"allowed_company_ids": [DOSSIER], "skip_fiscal_year_filter": True}
 
 
 @pytest.mark.security
@@ -66,6 +68,16 @@ def test_a_model_keeps_its_base_terms_whatever_the_filters(experio):
     assert ("move_id.exp_deleted", "=", False) in domain
 
 
+@pytest.mark.functionality
+def test_the_closure_entries_and_the_abandoned_invoices_are_left_out(experio):
+    ask(model="exp.move.line")
+    ask()
+    assert ("move_id.move_category", "!=", "cloture") in experio.calls[0][2]
+    assert ("state", "!=", "cancel") in experio.calls[1][2]
+    with pytest.raises(ToolError, match="inconnu"):
+        ask(domain=[["state", "=", "cancel"]])
+
+
 @pytest.mark.security
 def test_only_a_read_is_ever_made(experio):
     ask()
@@ -75,11 +87,41 @@ def test_only_a_read_is_ever_made(experio):
 
 
 @pytest.mark.security
-def test_a_sender_who_may_not_work_on_the_dossier_reads_nothing(monkeypatch):
-    experio = Experio(monkeypatch, allowed={"status": "stop", "message": "Le dossier n'est pas à vous."})
+def test_a_conversation_that_may_not_read_the_dossier_reads_nothing(monkeypatch):
+    experio = Experio(monkeypatch, refusal="Le dossier n'est pas à vous.")
     with pytest.raises(ToolError, match="pas à vous"):
         ask()
     assert experio.calls == []
+
+
+@pytest.mark.security
+def test_a_sender_is_checked_as_check_sender_does(monkeypatch):
+    monkeypatch.setattr(query, "sender_of", lambda session_id: "a@b.ma")
+    answers = {"stop": {"status": "stop", "message": "Pas votre dossier."}, "ok": {"status": "ok", "message": "oui"}}
+    for status, refusal in (("stop", "Pas votre dossier."), ("ok", "")):
+        monkeypatch.setattr(query, "allowed_on", lambda address, dossier_id, name, status=status: answers[status])
+        assert query.allowed("s1", DOSSIER, "ALPHA") == refusal
+
+
+@pytest.mark.security
+def test_a_conversation_without_a_sender_reads_its_own_dossier_only(monkeypatch, db_cabinet):
+    monkeypatch.setattr(query, "sender_of", lambda session_id: None)
+    assert query.allowed("chat-1", 5, "ALPHA") == ""  # the first one it asks for is its own
+    assert query.allowed("chat-1", 5, "ALPHA") == ""
+    assert "ne porte pas sur le dossier `BETA`" in query.allowed("chat-1", 6, "BETA")
+    assert query.allowed("chat-2", 6, "BETA") == ""  # another conversation, another dossier
+
+
+@pytest.mark.security
+def test_a_conversation_that_worked_in_a_dossier_reads_that_one_only(monkeypatch, db_cabinet):
+    monkeypatch.setattr(query, "sender_of", lambda session_id: None)
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_results (run_id, session_id, dossier_id, step, status, message) "
+            "values ('r', 'chat-3', 5, 'create_dossier', 'ok', 'fait')"
+        )
+    assert query.allowed("chat-3", 6, "BETA")  # not its own: it never binds a second
+    assert query.allowed("chat-3", 5, "ALPHA") == ""
 
 
 @pytest.mark.security
@@ -197,6 +239,46 @@ def test_a_filter_of_the_wrong_shape_operator_or_value_is_refused(experio, domai
     assert experio.calls == []
 
 
+@pytest.mark.security
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"domain": [[["state"], "=", "post"]]},
+        {"domain": [["state", "=", ["post"]]]},
+        {"domain": [["state", "in", [["post"]]]]},
+        {"domain": [{"state": "post"}]},
+        {"fields": [["id"]]},
+        {"fields": [1]},
+        {"group_by": [1], "sums": []},
+        {"group_by": [["type"]], "sums": []},
+        {"group_by": ["type"], "sums": [["amount_total"]]},
+        {"order": ["id"]},
+    ],
+)
+def test_json_of_the_wrong_type_is_refused_never_a_crash(experio, arguments):
+    with pytest.raises(ToolError) as refused:
+        ask(**arguments)
+    assert "technique" not in str(refused.value)
+    assert experio.calls == []
+
+
+@pytest.mark.functionality
+def test_a_value_not_set_is_asked_with_false_and_only_with_equal_or_not_equal(experio):
+    ask(domain=[["partner_id", "=", False], ["invoice_date", "!=", False], ["partner_name", "=", False]])
+    unset = [("partner_id", "=", False), ("invoice_date", "!=", False), ("partner_name", "=", False)]
+    assert experio.calls[0][2][-3:] == unset
+    for refused in ([["invoice_date", "<", False]], [["amount_total", "=", False]], [["refund", "=", None]]):
+        with pytest.raises(ToolError):
+            ask(domain=refused)
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("day", ["20260101", "2026-W01-1", "2026-1-1", "2026-01-01T00:00:00"])
+def test_only_a_plain_date_is_taken(experio, day):
+    with pytest.raises(ToolError, match="date"):
+        ask(domain=[["invoice_date", ">=", day]])
+
+
 # --- Records and groups ---
 
 
@@ -217,6 +299,31 @@ def test_the_limit_is_capped_and_a_bad_one_refused(experio):
             ask(limit=bad)
 
 
+@pytest.mark.technical
+def test_the_total_is_counted_only_when_the_page_is_full(monkeypatch):
+    experio = Experio(monkeypatch, rows=[{"id": n} for n in range(3)])
+    ask(limit=10)
+    assert [method for _, method, _, _ in experio.calls] == ["search_read"]
+    experio.calls.clear()
+    assert json.loads(ask(limit=3))["total"] == 3
+    assert [method for _, method, _, _ in experio.calls] == ["search_read", "search_count"]
+
+
+@pytest.mark.functionality
+def test_a_grouped_read_says_when_more_groups_exist_than_shown(monkeypatch):
+    experio = Experio(monkeypatch, rows=[{"type": "sale", "__count": n} for n in range(4)])
+    answer = json.loads(ask(group_by=["type"], sums=[], limit=3))
+    assert experio.calls[0][3]["limit"] == 4  # one more than shown: the way to know
+    assert len(answer["groups"]) == 3 and answer["truncated"] is True
+    assert json.loads(ask(group_by=["type"], sums=[], limit=10))["truncated"] is False
+
+
+@pytest.mark.functionality
+def test_a_grouped_read_can_be_ordered_by_count(experio):
+    ask(group_by=["partner_id"], sums=[], order="count desc")
+    assert experio.calls[0][3]["orderby"] == "__count desc"
+
+
 @pytest.mark.functionality
 def test_a_grouped_read_groups_sums_and_counts(monkeypatch):
     found = [{"invoice_date:month": "janvier 2026", "type": "sale", "__count": 3, "amount_untaxed": 100.0,
@@ -227,10 +334,11 @@ def test_a_grouped_read_groups_sums_and_counts(monkeypatch):
     )
     model, method, domain, kw = experio.calls[0]
     assert method == "read_group" and kw["lazy"] is False and kw["orderby"] == "amount_untaxed desc"
-    assert domain and kw["context"] == {"allowed_company_ids": [DOSSIER]}
+    assert domain and kw["context"] == {"allowed_company_ids": [DOSSIER], "skip_fiscal_year_filter": True}
     assert answer["groups"] == [
         {"invoice_date:month": "janvier 2026", "type": "sale", "count": 3, "amount_untaxed": 100.0}
     ]
+    assert answer["truncated"] is False
 
 
 @pytest.mark.security
@@ -282,6 +390,7 @@ def test_describe_data_lists_the_models_then_one_models_columns():
     assert all(model in listed for model in registry.MODELS)
     detail = describe_data("exp.invoice")
     assert "state [choice]" in detail and "post = comptabilisée" in detail and "amount_total [number]" in detail
+    assert "false = non renseigné" in detail
     assert "company_id" not in detail
     with pytest.raises(ToolError, match="non lisible"):
         describe_data("res.users")

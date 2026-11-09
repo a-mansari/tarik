@@ -29,7 +29,8 @@ links to its run, step by step. No sender check there: whoever is logged in writ
 - The cabinet's collaborators: role, manager or not, number of dossiers.
 - Any figure or list in a dossier's data, however it is asked (invoices by month and tier, journal items by account, bank
   operations in suspense, the chart of accounts, exercices...): read only, one dossier at a time, never anything outside
-  the models listed in `engine/tools/data/registry.py`, and only for a sender allowed on that dossier.
+  the models listed in `engine/tools/data/registry.py`, and only for a sender allowed on that dossier. In the chat, where
+  nobody is checked, a conversation reads one dossier (the first it asks for): another dossier is another conversation.
 
 **Process invoices and bank statements.** An invoice is a purchase (received from a supplier) or a
 sale (issued by the dossier to its own customer): say which, or Tarik asks before anything is made. For
