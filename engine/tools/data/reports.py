@@ -111,8 +111,9 @@ def domain_of(dossier_id, exercice, extra, since_origin=False):
 
 def totals(dossier_id, exercice, context, extra, groupby, values=("debit", "credit"), **more):
     """Return the sums of ``values`` (journal item fields) of the items grouped by ``groupby`` (Experio's read_group
-    rows), at most MAX_GROUPS + 1. ``more``: orderby, since_origin."""
+    rows), at most MAX_GROUPS + 1 unless ``more`` gives a ``limit``. ``more``: orderby, since_origin, limit."""
     since_origin = more.pop("since_origin", False)
+    limit = more.pop("limit", MAX_GROUPS + 1)
     with refused("reports totals", "Experio n'a pas pu lire les écritures : {reason}"):
         return odoo_call(
             "exp.move.line",
@@ -121,10 +122,21 @@ def totals(dossier_id, exercice, context, extra, groupby, values=("debit", "cred
             [f"{value}:sum" for value in values],
             groupby,
             lazy=False,
-            limit=MAX_GROUPS + 1,
+            limit=limit,
             context=context,
             **more,
         )
+
+
+def open_amounts(dossier_id, exercice, context, prefix, opening, groupby=("partner_id",), **more):
+    """Return the open amounts (Experio's residual of the items not fully reconciled) of the accounts starting with
+    ``prefix``, as read_group rows grouped by ``groupby`` (none: one row for the whole): from the exercice's start when
+    it holds opening entries (``opening``), else from the origin. The one rule of partner_balances and of the accounts
+    report. ``more``: orderby, limit."""
+    extra = [("account_id.code", "=like", f"{prefix}%"), ("amount_residual", "!=", 0)]
+    return totals(
+        dossier_id, exercice, context, extra, list(groupby), ("amount_residual",), since_origin=not opening, **more
+    )
 
 
 def has_opening(dossier_id, exercice, context, prefix):
@@ -252,10 +264,9 @@ def partner_balances(dossier_id: int, session_id: str, account_prefix: str, year
     Raises:
         ToolError: the dossier is unknown or not the conversation's, ``year`` has no exercice, ``account_prefix`` is
             missing or too short, or Experio can't answer."""
-    name, context, exercice, terms = start("partner_balances", dossier_id, session_id, year, account_prefix, True, 3)
+    name, context, exercice, _ = start("partner_balances", dossier_id, session_id, year, account_prefix, True, 3)
     opening = has_opening(dossier_id, exercice, context, account_prefix)
-    extra = [*terms, ("amount_residual", "!=", 0)]
-    rows = totals(dossier_id, exercice, context, extra, ["partner_id"], ("amount_residual",), since_origin=not opening)
+    rows = open_amounts(dossier_id, exercice, context, account_prefix, opening)
     lines = [
         heading(name, exercice),
         f"Comptes {account_prefix}…, éléments non lettrés à ce jour, "
