@@ -31,6 +31,13 @@ def test_a_new_dossier_takes_its_models_configuration_then_its_files_then_is_onb
 
 
 @pytest.mark.functionality
+def test_a_dossier_the_test_mode_does_not_create_goes_no_further_than_the_summary(steps):
+    steps.answer("create_dossier", {"status": "ok", "message": "Le dossier `Alpha` serait créé."})  # no dossier_id
+    steps.run(graph, name="Alpha", model_dossier_id=3)
+    assert steps.names == ["save_files", "check_creator", "create_dossier", "run_summary"]
+
+
+@pytest.mark.functionality
 @pytest.mark.parametrize("given", [{}, {"model_dossier_id": 3, "reused": True}])
 def test_without_a_model_or_with_a_reused_dossier_no_configuration_is_copied(steps, given):
     steps.answer("create_dossier", {"status": "ok", "dossier_id": 7, "reused": given.get("reused", False)})

@@ -374,6 +374,7 @@ button.primary:has(.icon) { display: inline-flex; align-items: center; gap: .4re
 .switch input:disabled { opacity: .5; cursor: progress; }
 .talk .files { margin: .3rem 0 0; padding: 0; list-style: none; font-size: .9rem; color: var(--muted); }
 .talk .files li { border: 0; padding: 0; }
+.talk .made-files { margin-top: .5rem; }
 .made { margin-top: 1rem; }
 .made h3 { font-size: .95rem; margin: 0 0 .3rem; }
 .chat-form { display: grid; gap: .5rem; margin-top: 1rem; }
