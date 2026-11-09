@@ -38,7 +38,7 @@ async function save(setting, value) {
     <section v-for="part in parts" :key="part.scope">
       <h2>{{ part.title }}</h2>
       <p class="what">{{ part.what }}</p>
-      <article v-for="setting in part.settings" :key="`${setting.key}-${shown}`" class="panel card">
+      <article v-for="setting in part.settings" :key="`${setting.key}-${shown}`" class="panel card setting">
         <div class="card-body">
           <label v-if="setting.kind === 'flag'" class="switch">
             <input type="checkbox" role="switch" :checked="setting.value" :disabled="busy"
@@ -51,10 +51,17 @@ async function save(setting, value) {
               @change="save(setting, $event.target.value)">
           </label>
           <p class="muted">{{ setting.description }}</p>
-          <p class="muted"><template v-if="setting.changed_by">Changé par {{ setting.changed_by }} le
-            <span class="num">{{ setting.changed_at }}</span></template><template v-else>Réglage par défaut</template></p>
+          <p v-if="setting.changed_by" class="muted">Changé par {{ setting.changed_by }} le
+            <span class="num">{{ setting.changed_at }}</span></p>
         </div>
       </article>
     </section>
   </template>
 </template>
+
+<style scoped>
+/* One padding per card (the body's, not the panel's on top of it), a gap between cards, and the lines of a card close. */
+.setting { padding: 0; }
+.setting + .setting { margin-top: .75rem; }
+.setting .card-body { gap: .35rem; padding: .85rem 1.15rem; }
+</style>
