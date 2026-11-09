@@ -76,6 +76,11 @@ READ_TOOLS = (
 )
 
 
+# Agent tools that call a tool of their own directly: no workflow, so check.py and the canvas tests leave them out of
+# what a workflow tool hands over (their names are the functions').
+DIRECT_TOOLS = ("document",)
+
+
 def skills():
     """Return every skill as (name, description, instructions), from the latest content/skills/ documents."""
     found = []
@@ -466,6 +471,25 @@ async def reglages(runtime: ToolRuntime, action: str = "list", setting: str = ""
     return await run_workflow("dossier", runtime, inputs)
 
 
+@tool("Tarik_document", description=DESCRIBED_LATER)
+async def document(
+    title: str, blocks: list[dict], formats: list[str], runtime: ToolRuntime, subtitle: str = "", filename: str = ""
+) -> str:
+    try:
+        return await call(
+            cabinet_of(runtime.config),
+            "make_document",
+            session_id=session_of(runtime.config),
+            title=title,
+            blocks=blocks,
+            formats=formats,
+            subtitle=subtitle,
+            filename=filename,
+        )
+    except ToolFailure as failure:
+        return str(failure)
+
+
 @tool("Experio_archiver_dossier", description=DESCRIBED_LATER)
 async def archiver_dossier(dossier_id: int, runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
@@ -674,6 +698,7 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     gerer_acces,
     routine,
     reglages,
+    document,
     archiver_dossier,
     solder_ecart,
     declaration_tva,

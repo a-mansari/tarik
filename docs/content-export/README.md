@@ -229,3 +229,6 @@ uses another one. A stack that edited one of these documents itself loses that e
   (`agent.json`), and the two inputs are named in `labels.json` (which also holds the WhatsApp Journal entries of the
   export above: import that one first or this one alone, never the older after this). Import it once the stack runs
   the commit that adds the two arguments: before, the import is refused (the tool lacks them).
+- `tarik-contenu-documents-20261109.json`: the agent's description of the new tool `Tarik_document` (`agent.json`,
+  `own_tools`): reports and analyses as Word, Excel, PDF, Markdown or LaTeX files. Import it once the stack runs the
+  commit that adds the tool: before, the import is refused (the tool is unknown).

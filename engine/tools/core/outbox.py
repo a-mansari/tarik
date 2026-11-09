@@ -13,6 +13,10 @@ MIMES = {
     "txt": "text/plain",
     "csv": "text/csv",
     "xml": "application/xml",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pdf": "application/pdf",
+    "md": "text/markdown",
+    "tex": "application/x-tex",
 }
 
 

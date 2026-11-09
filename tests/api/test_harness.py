@@ -35,7 +35,8 @@ def test_the_harness_map_links_tarik_to_each_tool_and_each_tool_to_where_it_acts
     assert all(("tarik", f"skill:{name}", "uses") in edges for name, _, _ in agent.skills())
     leads = {source: target for source, target, kind in edges if kind == "leads"}
     assert len(leads) == len(tools) and leads.pop("tool:Experio_consult_cgnc") == "rag"
-    assert leads.pop("tool:Tarik_routine") == leads.pop("tool:Tarik_reglages") == "base"  # never Experio
+    base = {leads.pop(f"tool:Tarik_{name}") for name in ("routine", "reglages", "document")}
+    assert base == {"base"}  # Tarik's own base (its routines, its settings, its outbox), never Experio
     assert set(leads.values()) == {"experio"}  # every other tool acts in Experio
     family = {name: nodes[f"tool:{name}"]["group"] for name in tools}
     read = {f"Experio_{name}" for name in agent.READ_TOOLS}
