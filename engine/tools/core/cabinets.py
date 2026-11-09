@@ -213,6 +213,7 @@ def using(name):
 # Each cabinet's own: Vault secret/tarik/cabinets/<cabinet> (the tests: env <CABINET>__<KEY>).
 CABINET_SETTINGS = frozenset(
     [
+        "CABINET_NAME",  # optional: the cabinet's name, to tell cabinets apart in Vault and on the Cabinets page
         "EXPERIO_URL",  # optional: this cabinet's Experio, when not ODOO_URL's
         "ODOO_UID",
         "ODOO_USER",
