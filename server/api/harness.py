@@ -1,5 +1,5 @@
-"""Serve the dashboard's map of Tarik's harness, read live from the code and the cabinet chosen in the sidebar: who
-writes to him through which channel and conversation (and back), what he reaches himself (his model, his skills, his
+"""Serve the Architecture page's map of Tarik's harness, read live from the code and the cabinet chosen in the sidebar:
+who writes to him through which channel and conversation (and back), what he reaches himself (his model, his skills, his
 tools, by family: his read tools, each workflow's, his own base's) and where the tools act: Experio, the CGNC (his
 RAG) or his own base.
 
@@ -60,6 +60,7 @@ def harness(cabinet, admin=False):
     with using(cabinet):
         chosen_model = adapter()
         mailbox = bool(setting("IMAP_USER", ""))
+        whatsapp = all(setting(name, "") for name in ("SPARROW_URL", "SPARROW_SENDER_ID", "SPARROW_TOKEN"))
         testing = dry_run()
         routines = routines_of_cabinet()
     described = content.LABELS["descriptions"]["graphs"]
@@ -78,15 +79,24 @@ def harness(cabinet, admin=False):
         edge(source, target, "request")
         edge(target, source, "reply")
 
-    # Clients and the team alike write by email or on the Discussion page; a routine starts at its schedule. Tarik
-    # only talks in conversations: each channel's message joins one, his reply going back the way it came (a
-    # routine's report: by email).
+    # Clients and the team alike write by email, by WhatsApp or on the Discussion page; a routine starts at its
+    # schedule. Tarik only talks in conversations: each channel's message joins one, his reply going back the way it
+    # came (a routine's report: by email).
     node("clients", "source", "Clients", "Les clients du cabinet.")
     node("team", "source", "Équipe Experio", "Les membres de l'équipe Experio.")
     node("clock", "source", "Horaire", "L'horaire de chaque routine (page Routines).")
     no_mailbox = "" if mailbox else " Aucune boîte configurée pour ce cabinet."
     node("email", "channel", graph_name("emails"), f"{described.get('emails', '')}{no_mailbox}", off=not mailbox)
     node("chat", "channel", graph_name("discussion"), described.get("discussion"))
+    node(
+        "whatsapp",
+        "channel",
+        "WhatsApp",
+        "Un collaborateur du cabinet écrit à Tarik sur WhatsApp (par Sparrow) : même discussion que la page "
+        "Discussion, réponse par WhatsApp, avec en documents les fichiers que Tarik a fabriqués."
+        + ("" if whatsapp else " WhatsApp n'est pas réglé pour ce cabinet."),
+        off=not whatsapp,
+    )
     titles = "; ".join(title_of(r["id"], r["kind"], r["name"]) for r in routines) if admin else str(len(routines))
     listed = f" Routines du cabinet : {titles or 'aucune pour l’instant'}."
     node("routine", "channel", graph_name("routine"), f"{described.get('routine', '')}{listed}")
@@ -101,8 +111,9 @@ def harness(cabinet, admin=False):
     for source in ("clients", "team"):
         both(source, "email")
         both(source, "chat")
+        both(source, "whatsapp")
     edge("clock", "routine", "request")
-    for channel in ("email", "chat", "routine"):
+    for channel in ("email", "chat", "whatsapp", "routine"):
         both(channel, "conversations")
     both("conversations", "tarik")
 
@@ -117,7 +128,10 @@ def harness(cabinet, admin=False):
     # in Experio but the CGNC's (searched in Tarik's database) and the Tarik_ tools (his routines, his behaviour).
     families = {
         "read": (PART_NAMES["outils/lecture"], "Les outils de Tarik qui lisent, sans rien changer."),
-        "own": (PART_NAMES["outils/base"], "Les outils qui changent ses routines et son comportement."),
+        "own": (
+            PART_NAMES["outils/base"],
+            "Les outils qui changent ses routines et son comportement, ou fabriquent un document ou un rapport.",
+        ),
     }
     for found in agent.described():
         if found.name == "load_skill":  # drawn as the skills themselves
@@ -143,8 +157,8 @@ def harness(cabinet, admin=False):
         "base",
         "end",
         "Base de Tarik",
-        "Les routines et le comportement de Tarik pour ce cabinet. Le mode test ne s'y applique pas : ce qui y est "
-        "changé l'est vraiment.",
+        "Les routines, le comportement de Tarik pour ce cabinet et les fichiers qu'il fabrique avant de les envoyer. "
+        "Le mode test ne s'y applique pas : ce qui y est changé l'est vraiment.",
     )
     return {"nodes": nodes, "edges": edges}
 

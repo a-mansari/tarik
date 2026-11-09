@@ -1,4 +1,4 @@
-<!-- The cabinet picked: its last days in five numbers (the model calls' cost, each model's tokens below them), read again at each change of the cabinet as runs happen, the map of Tarik's harness, and a
+<!-- The cabinet picked: its last days in five numbers (the model calls' cost, each model's tokens below them), read again at each change of the cabinet as runs happen, and a
 message to Tarik that opens a new conversation: once sent, the page becomes that conversation's (its address too, the
 back button back here). -->
 <script setup>
@@ -8,7 +8,6 @@ import { pickedCabinet, usePage } from "../api.js";
 import { useLive } from "../live.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import ChatForm from "../components/ChatForm.vue";
-import HarnessMap from "../components/HarnessMap.vue";
 import ModelUsage from "../components/ModelUsage.vue";
 import PageState from "../components/PageState.vue";
 
@@ -45,7 +44,6 @@ const opened = (answer) =>
         </li>
       </ul>
     </section>
-    <HarnessMap />
     <section class="panel chat-start">
       <h2 class="ask">Écrire à Tarik</h2>
       <ChatForm
