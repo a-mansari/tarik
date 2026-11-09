@@ -237,6 +237,18 @@ def paragraph(latin, text, style):
     return Paragraph(xml_escape(latin(text)).replace("\n", "<br/>"), style)
 
 
+def column_widths(block, width):
+    """Return the PDF widths of table ``block``'s columns, ``width`` in all: each as wide as its longest word asks, the
+    rest shared by how much text the column holds."""
+    weights = []
+    for column, header in enumerate(block["headers"]):
+        texts = [header] + [row[column] for row in block["rows"][:200]]
+        longest = max(len(word) for text in texts for word in text.split() or [""])
+        average = sum(len(t) for t in texts) / len(texts)
+        weights.append(max(longest + 2, min(average, 28)))
+    return [width * weight / sum(weights) for weight in weights]
+
+
 def render_pdf(document):
     latin = Latin()
     sheet = getSampleStyleSheet()
@@ -269,7 +281,7 @@ def render_pdf(document):
                 story.append(paragraph(latin, block["caption"], sheet["Heading4"]))
             data = [[paragraph(latin, cell, bold) for cell in block["headers"]]]
             data += [[paragraph(latin, cell, small) for cell in row] for row in block["rows"]]
-            table = Table(data, colWidths=[width / len(block["headers"])] * len(block["headers"]), repeatRows=1)
+            table = Table(data, colWidths=column_widths(block, width), repeatRows=1)
             table.setStyle(
                 TableStyle(
                     [

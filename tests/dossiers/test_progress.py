@@ -3,11 +3,13 @@ many dossiers read at once as each alone."""
 
 import operator
 import xmlrpc.client
+from datetime import date
 
 import pytest
 
 from engine.tools.core.app import ToolError
 from engine.tools.dossiers import progress
+from engine.tools.reports import status
 
 NAMES = {5: "BETA", 6: "GAMMA", 7: "DELTA"}
 OPS = {"=": operator.eq, "!=": operator.ne, "in": lambda a, b: a in b, ">=": operator.ge, "<=": operator.le}
@@ -201,3 +203,85 @@ def test_a_year_named_reads_its_exercice_or_says_there_is_none(experio):
     assert "- Factures de vente : 1, dont 1 comptabilisée" in progress.dossier_progress(5, 2025)
     with pytest.raises(ToolError, match="pas d'exercice 2026"):
         progress.dossier_progress(6, 2026)
+
+
+def table(document, caption):
+    return next(b for b in document.blocks if b["type"] == "table" and b["caption"] == caption)
+
+
+@pytest.mark.functionality
+def test_the_status_report_sets_the_same_counts_in_tables_and_names_what_is_left(experio):
+    found = {**progress.status_of(5), "id": 5}
+    doc = status.status_document(found, date(2026, 11, 9))
+    assert doc.title == "État du dossier BETA" and doc.subtitle == "Exercice 2026, du 01/01/2026 au 31/12/2026"
+    assert table(doc, "Chiffres clés (tous exercices)")["rows"][:2] == [
+        ["Avancement selon Experio", "50 %"],
+        ["Pièces comptabilisées", "8 sur 16"],
+    ]
+    invoices = table(doc, "Factures de l'exercice (les paiements : parmi les comptabilisées, hors exportées)")
+    assert invoices["headers"] == [
+        "Factures",
+        "Total",
+        "En brouillon",
+        "Comptabilisées",
+        "Exportées",
+        "dont payées",
+    ]
+    assert invoices["rows"] == [["Achats", "8", "3", "5", "0", "5"], ["Ventes", "2", "0", "0", "2", "0"]]
+    assert table(doc, "Banque de l'exercice")["rows"] == [
+        ["Relevés bancaires", "1", "0", "10", "8"],
+        ["Relevés TPE", "0", "0", "0", "0"],
+    ]
+    assert table(doc, "Périodes de l'année")["rows"] == [
+        ["TVA", "Trimestre 1", "déclarée"],
+        ["TVA", "T2", "en brouillon"],
+    ]
+    points = next(b for b in doc.blocks if b["type"] == "bullets")["items"]
+    assert points == [
+        "L'avancement est de 50 % : des pièces ou des opérations restent à comptabiliser.",
+        "3 factures d'achat en brouillon, à vérifier.",
+        "4 opérations bancaires comptabilisées non lettrées (en attente ou lettrées en partie).",
+        "TVA : T2 en brouillon.",
+    ]
+    assert (
+        doc.blocks[-1]["type"] == "note"
+        and "le 09/11/2026" in doc.blocks[-1]["text"]
+        and "à valider" in doc.blocks[-1]["text"]
+    )
+
+
+@pytest.mark.functionality
+def test_a_dossier_with_nothing_to_flag_and_one_without_an_exercice_still_make_a_report(experio, monkeypatch):
+    clean = {
+        "id": 5,
+        "name": "BETA",
+        "exercice": {"name": "E", "date_start": "2026-01-01", "date_end": "2026-12-31"},
+        "progress": (100, 4, 4, 2, 2),
+        "states": {("purchase", "post"): 4},
+        "payments": {("purchase", "paid"): 4},
+        "statements": {"exp.bank.statement": ({}, {}), "exp.monetary.statement": ({}, {})},
+        "suspense": 0,
+        "year": 2026,
+        "declarations": [],
+    }
+    assert status.attention(clean) == ["Rien à signaler dans ces chiffres."]
+    none = {**clean, "exercice": None, "year": None, "states": {}, "payments": {}, "progress": (None, 0, 0, 0, 0)}
+    doc = status.status_document(none, date(2026, 11, 9))
+    assert doc.subtitle == "aucun exercice dans Experio" and "aucun exercice" in doc.blocks[2]["text"]
+    assert status.attention(none)[0].startswith("Aucun exercice dans Experio")  # never « rien à signaler »
+    one = {**clean, "states": {("sale", "post"): 1}, "payments": {("sale", "unpaid"): 1}}
+    assert "Factures de vente comptabilisées (hors exportées) impayées : 1 sur 1 (100 %)." in status.attention(one)
+    waiting = {**clean, "states": {("purchase", "pending"): 1}}
+    assert "1 facture d'achat en cours de traitement par Experio (à signaler si cela dure)." in status.attention(
+        waiting
+    )
+    unpaid = {**clean, "states": {("sale", "post"): 10}, "payments": {("sale", "unpaid"): 4, ("sale", "paid"): 6}}
+    assert "Factures de vente comptabilisées (hors exportées) impayées : 4 sur 10 (40 %)." in status.attention(unpaid)
+
+
+@pytest.mark.communication
+def test_large_figures_read_in_french_and_still_make_numbers_in_excel():
+    assert status.fr(18895) == "18 895" and status.fr(7) == "7" and status.fr(1234567) == "1 234 567"
+    from engine.tools.reports import formats
+
+    assert formats.number_of(status.fr(18895)) == 18895
