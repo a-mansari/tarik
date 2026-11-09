@@ -9,9 +9,11 @@ configuration) and in the seed files (secrets, loaded into Vault once). `.env.ex
 | Container | Image | What it does | Data |
 |---|---|---|---|
 | `server` | built from `Dockerfile` | One Python process: the workflows, the agent and the tools (`engine/`), the HTTP routes and the team's pages (`server/`), the mail watcher. Port 2024. | none |
-| `db` | `postgres:17-alpine` | Runs, conversations, content versions, accounts, one schema per cabinet. | volume `db_data` |
+| `db` | `pgvector/pgvector:pg17` | Runs, conversations, content versions, accounts, one schema per cabinet. | volume `db_data` |
 | `vault` | `hashicorp/vault:1.18.3` | Secrets and each cabinet's settings. Reachable on the compose network only (no published port). Unsealed again at each start. | volumes `vault_data`, `vault_keys` |
 | `vault-init` | the same Vault image | One-shot at each start (`up`): initialises and unseals Vault the first time, makes the two AppRole logins, loads the seed files. Exits. | `vault_approle`, `vault_settings_approle` |
+
+| `hindsight` | built from `deploy/hindsight/Dockerfile` | Tarik's memory (`engine/memory.py`), only with `--profile memory`: one bank per cabinet, in the schema `hindsight` of `db`. Its fact extraction runs on a Claude Code subscription token. | `db` |
 
 `server` starts after `vault-init` has succeeded and `db` is up. Engine and server are not separate containers.
 
@@ -63,6 +65,11 @@ docker compose -f docker-compose.prod.yml up -d
   file (the working copy mounted): not for a deployment.
 - With a managed Postgres instead of the `db` container, set `POSTGRES_HOST` and remove the `db` service and its
   `depends_on` from the compose file. The user must be allowed to create schemas.
+- The memory (off by default): set `HINDSIGHT_URL`, `HINDSIGHT_LLM_TOKEN` in `.env` (`.env.example`), then
+  `docker compose --profile memory up -d`. `db` runs the pgvector image (Debian) where it ran `postgres:17-alpine`: the
+  data files are the same, but Alpine and Debian sort text differently, so on a stack that already has data run once
+  after the swap: `docker compose exec db psql -U tarik -c 'REINDEX DATABASE tarik'`. A managed Postgres needs the
+  pgvector extension, and a user allowed to `CREATE EXTENSION vector` (Hindsight makes it).
 - Without the Claude Code CLI (only a cabinet whose model is Claude uses it): `INSTALL_CLAUDE_CODE=0` in `.env`.
 - Health: `GET /ok` (no login); the compose file's healthcheck uses it.
 - Logs go to each container's output (warnings and errors only for the server); who did what is on the Logs serveur page.

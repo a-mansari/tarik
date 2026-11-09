@@ -11,6 +11,7 @@ from typing import TypedDict
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 
+from engine import memory
 from engine.calls import within
 from engine.tools.core.conversation import for_client, handed, remember_client_message
 from engine.tools.emails.inbox import untaken
@@ -37,6 +38,14 @@ def called_a_tool(messages):
         if message.type == "tool":
             return True
     return False
+
+
+def kept(by_routine, cabinet, session, message, reply):
+    """Hand a client's exchange to Tarik's memory (engine.memory), then return ``reply``. Not a routine's: its
+    instruction is the operator's, and its report holds Experio's data, which Experio keeps."""
+    if not by_routine:
+        memory.retain_later(cabinet, session, message, reply)
+    return reply
 
 
 async def answered(cabinet, session, message, files, node, skipped=()):
@@ -70,7 +79,7 @@ async def answered(cabinet, session, message, files, node, skipped=()):
         result = await runs.nested("agent", asked, cabinet, session, thread=session, node=node)
         reply = for_client(result["messages"][-1].text)
         if time.monotonic() - started > QUICK:
-            return reply
+            return kept(by_routine, cabinet, session, message, reply)
         if files and await within(cabinet, untaken, session):
             reminder = REMINDER
         elif (
@@ -78,8 +87,8 @@ async def answered(cabinet, session, message, files, node, skipped=()):
         ):
             reminder, answer_reminded = ANSWER_REMINDER, True
         else:
-            return reply
-    return reply
+            return kept(by_routine, cabinet, session, message, reply)
+    return kept(by_routine, cabinet, session, message, reply)
 
 
 class Steps(TypedDict, total=False):

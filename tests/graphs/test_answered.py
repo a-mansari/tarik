@@ -85,3 +85,18 @@ def test_a_routine_s_instruction_is_sent_as_the_routine_s_never_kept_as_a_client
     assert asking["sent"].name == agent.ROUTINE_NAME and "remembered" not in asking
     asyncio.run(chat.answered("c", "chat-1", "oui", [], "tarik"))  # a client, attended
     assert asking["sent"].name is None and asking["remembered"] == ("chat-1", "oui")
+
+
+@pytest.mark.functionality
+def test_a_client_exchange_is_kept_in_memory_once_and_a_routine_s_never(asking, monkeypatch):
+    kept = []
+    monkeypatch.setattr(chat.memory, "retain_later", lambda *args: kept.append(args))
+    asking["turns"] = [turn("ai", text="fait")]
+    asyncio.run(chat.answered("c", "chat-1", "ma TVA est trimestrielle", [], "tarik"))
+    assert kept == [("c", "chat-1", "ma TVA est trimestrielle", "fait")]
+    marked = runs.UNATTENDED.set(True)
+    try:
+        asyncio.run(chat.answered("c", "routine-2-1", "consigne", [], "consigne"))
+    finally:
+        runs.UNATTENDED.reset(marked)
+    assert len(kept) == 1
