@@ -31,6 +31,9 @@ class World:
         self.send_error = None  # what every send raises
         self.events = []  # ("save", names) ("start", message, writer) ("end", message) ("send", recipient, text)
         self.remembered = []
+        self.waiting = []  # the files in the outbox: (id, name, mime)
+        self.refused = set()  # the names of the files Sparrow refuses
+        self.documents = []  # (session, recipient, name) of each file sent
 
 
 @pytest.fixture
@@ -58,6 +61,13 @@ def world(monkeypatch):
             return world.collaborator
         if function is people.remember_whatsapp_sender:
             return world.remembered.append(args)
+        if function is whatsapp.unsent_files:
+            return world.waiting
+        if function is whatsapp.send_unsent_file:
+            session, recipient_id, (_, name, _) = args
+            if name in world.refused:
+                return False
+            return world.documents.append((session, recipient_id, name)) or True
         if function is whatsapp.sparrow.send:
             await asyncio.sleep(world.send_pause)
             if world.send_error:
@@ -332,3 +342,24 @@ def test_a_message_too_heavy_or_unreadable_is_told_in_words_since_sparrow_sends_
     assert sent(world) == [whatsapp.UNREADABLE] * 7
     assert [event for event in world.events if event[0] in ("start", "save")] == []
     assert world.taken == set()
+
+
+@pytest.mark.functionality
+def test_the_files_tarik_made_follow_its_reply_and_a_refused_one_is_told(world):
+    world.waiting = [(1, "a.docx", "m"), (2, "b.pdf", "m")]
+    world.refused = {"b.pdf"}
+    assert forward(text("m1")) == [200]
+    assert world.documents == [("wa-session", RECIPIENT, "a.docx")]
+    assert sent(world) == ["Bonjour Amal", whatsapp.NOT_SENT + "b.pdf"]
+
+
+@pytest.mark.functionality
+def test_a_failure_with_the_files_never_turns_a_delivered_reply_into_a_failed_answer(world, monkeypatch):
+    world.waiting = [(1, "a.docx", "m")]
+
+    def broken(*args):
+        raise RuntimeError("database down")
+
+    monkeypatch.setattr(whatsapp, "unsent_files", broken)
+    assert forward(text("m1")) == [200]
+    assert sent(world) == ["Bonjour Amal"]  # no BUSY: the person is not asked to send again

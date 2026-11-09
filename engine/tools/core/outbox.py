@@ -1,8 +1,11 @@
 """The files Tarik makes for a conversation (an export, a declaration's XML), stored in its outbox (tarik_outbox):
-sent with its next email reply (send_email, attach_session) and downloadable from the conversation in the chat."""
+sent with its next reply (an email's attachments: send_email, attach_session; WhatsApp's documents: send_unsent) and
+downloadable from the conversation in the chat."""
 
 import base64
 
+from engine.tools.core import sparrow
+from engine.tools.core.app import log
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.experio import odoo_call
 from engine.tools.core.queries import Q
@@ -43,3 +46,33 @@ def keep_record_file(session_id, model, record_id, field, name_field, context):
     name = found[name_field] or f"{model}-{record_id}"
     keep_file(session_id, name, base64.b64decode(found[field]))
     return name
+
+
+def unsent_files(session_id):
+    """Return (id, name, mime) of each file conversation ``session_id``'s outbox holds that no reply has sent, in the
+    order made: the bytes are read one file at a time (send_unsent_file)."""
+    with cabinet_db() as db:
+        return [tuple(row) for row in db.execute(Q.outbox_unsent_names, (session_id,))]
+
+
+def send_unsent_file(session_id, recipient_id, file):
+    """Send ``file`` (an unsent_files entry) to ``recipient_id`` as a WhatsApp document and mark it sent. Returns True
+    when it went (or was sent meanwhile), False when it did not: it then stays in the outbox for an email reply,
+    except one Sparrow will never take (422: empty, too big, name too long), marked sent so no reply tries it again.
+    Sparrow's refusal is logged, never raised."""
+    file_id, name, mime = file
+    with cabinet_db() as db:
+        row = db.execute(Q.outbox_file, (file_id, session_id)).fetchone()
+    if row is None:
+        return True
+    sent = True
+    try:
+        sparrow.send_file(recipient_id, name, mime, row[0])
+    except sparrow.SparrowError as error:
+        log(f"whatsapp: {session_id}: file {name}: {error}")
+        if error.status != 422:
+            return False
+        sent = False
+    with cabinet_db() as db:
+        db.execute(Q.mark_outbox_sent, ([file_id],))
+    return sent
