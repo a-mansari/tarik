@@ -170,15 +170,16 @@ def said(message):
     }
 
 
-def attached(shown, results, made):
-    """Give each file name in ``made`` to the entry of ``shown`` it belongs to, under "made": the latest Tarik turn
-    whose tools' results (``results``: entry index -> their texts) name it (each tool that makes a file says its name),
-    else the conversation's last Tarik or routine entry. Returns the names left over (no such entry yet)."""
-    ours = [at for at, entry in enumerate(shown) if entry["who"] in ("Tarik", "Routine")]
+def attached(shown, results, made, guess=True):
+    """Give each file name in ``made`` to the Tarik turn of ``shown`` it belongs to, under "made": the latest one whose
+    tools' results (``results``: entry index -> their texts) name it (each tool that makes a file says its name), else,
+    when ``guess``, the conversation's last Tarik turn (a routine's report is its own). Returns the names left over."""
+    ours = [at for at, entry in enumerate(shown) if entry["who"] == "Tarik"]
     left = []
     for name in made:
-        owner = next((at for at in reversed(ours) if any(name in text for text in results.get(at, []))), None)
-        if owner is None and ours:
+        named = re.compile(rf"(?<![\w.-]){re.escape(name)}(?![\w-])")  # the whole name, not the end of a longer one
+        owner = next((at for at in reversed(ours) if any(named.search(text) for text in results.get(at, []))), None)
+        if owner is None and ours and guess:
             owner = ours[-1]
         if owner is None:
             left.append(name)
@@ -187,12 +188,13 @@ def attached(shown, results, made):
     return left
 
 
-async def messages(session, made=(), left=None):
+async def messages(session, made=(), left=None, guess=True):
     """Return the conversation as the client reads it, from the agent's memory.
 
     Client messages, and each of Tarik's turns with the tools it called (state "running", "done" or "failed") before
     its reply. ``made``: the names of the files Tarik made for it, each shown with the turn that made it (attached);
-    the names that belong to no entry yet are added to the list ``left``, when given."""
+    the names that belong to no turn yet are added to the list ``left``, when given; ``guess`` False: a file no turn
+    names stays there too (a run is going: its tool's answer is not saved yet, and the file is not the last turn's)."""
     saved = await agent.CHECKPOINTER.aget({"configurable": {"thread_id": session, "checkpoint_ns": ""}})
     shown, called = [], {}  # tool call id -> its line in the turn
     results = {}  # index of a turn in ``shown`` -> what its tools answered, to find the files it made
@@ -212,8 +214,8 @@ async def messages(session, made=(), left=None):
                 turn["text"] = runs.UNTRUSTED_TAGS.sub("", message.text).strip()
         elif message.type == "tool" and message.tool_call_id in called:
             called[message.tool_call_id]["state"] = "failed" if message.status == "error" else "done"
-            results.setdefault(len(shown) - 1, []).append(message.text)
-    unattached = attached(shown, results, made)
+            results.setdefault(len(shown) - 1, []).append(agent.text_of(message.content))
+    unattached = attached(shown, results, made, guess)
     if left is not None:
         left.extend(unattached)
     return shown
@@ -242,14 +244,15 @@ async def talk(cabinet, session):
 
     messages includes the message on its way (its Discussion run still going), so the client's words appear at once;
     each Tarik turn lists under "made" the files it made (they download from it); latest is the conversation's
-    latest run; going is True while it runs; made lists the files Tarik made that no turn is there to carry yet."""
+    latest run; going is True while it runs; made lists the files Tarik made that no turn carries (a routine's
+    report, a file made by a run still going whose tool has not answered yet)."""
     outbox = sql.Identifier(cabinet, "tarik_outbox")
     async with runs.pool.connection() as db:
         made = await (await db.execute(sql.SQL(Q.chat_outbox_names).format(outbox=outbox), (session,))).fetchall()
-    unattached = []
-    shown = await messages(session, [name for (name,) in made], unattached)
     latest = next((run for run in await conversations(cabinet) if run["session_id"] == session), None)
     going = bool(latest and latest["status"] in ("queued", "running"))
+    unattached = []
+    shown = await messages(session, [name for (name,) in made], unattached, not going)
     # A Discussion run's message (a client's here, a routine's instruction): shown at once; an email thread's is in
     # Tarik's memory once its run asks.
     if going and latest["graph"] == "discussion":

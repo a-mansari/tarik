@@ -146,14 +146,17 @@ def test_a_file_tarik_made_is_shown_under_the_reply_of_the_turn_that_made_it(mon
         )
 
     saved = [HumanMessage("Un rapport"), *made("1", "a.docx (4 Ko)"), AIMessage("Voilà le premier.")]
-    saved += [HumanMessage("Un autre"), *made("2", "b.xlsx (2 Ko)"), AIMessage("Voilà le second.")]
+    saved += [HumanMessage("Un autre"), *made("2", "b.xlsx (2 Ko), mon_a.docx (1 Ko)"), AIMessage("Voilà le second.")]
     monkeypatch.setattr(api.chat.agent, "CHECKPOINTER", Memory())
     left = []
     shown = asyncio.run(api.chat.messages("s", ["a.docx", "b.xlsx", "c.xml"], left))
     first, second = [entry for entry in shown if entry["who"] == "Tarik"]
-    assert first["made"] == ["a.docx"]  # named by its own turn's tool, not the last turn's
+    assert first["made"] == ["a.docx"]  # named by its own turn's tool, not the end of mon_a.docx in the last turn's
     assert second["made"] == ["b.xlsx", "c.xml"]  # a file no turn names: the last turn's (the reply it answers)
     assert left == [] and "Fichiers prêts" not in json.dumps(shown)  # what the tools answered stays off the page
+    left = []
+    asyncio.run(api.chat.messages("s", ["a.docx", "c.xml"], left, guess=False))
+    assert left == ["c.xml"]  # a run is going: a file no tool named yet is not the last turn's
     saved.clear()
     saved.append(HumanMessage("Bonjour"))
     left = []
