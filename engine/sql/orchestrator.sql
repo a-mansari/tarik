@@ -73,6 +73,21 @@ select status, error from runs where id = %s
 -- name: step_detail
 select detail from steps where run_id = %s and id = %s
 
+-- name: runs_unread
+-- How many runs started on their own in a cabinet this account has not opened yet.
+select count(*) from runs r join users u on u.email = %(email)s
+where r.cabinet = %(cabinet)s and r.parent_id is null and r.started_at > u.runs_baseline
+    and not exists (select 1 from runs_read x where x.email = u.email and x.run_id = r.id)
+
+-- name: run_read
+-- This account has opened the run (no account, a script's token: nothing kept).
+insert into runs_read select email, %(run_id)s::uuid from users where email = %(email)s on conflict do nothing
+
+-- name: runs_read_all
+-- This account has read every run of the cabinet started so far.
+insert into runs_read select u.email, r.id from users u, runs r where u.email = %(email)s and r.cabinet = %(cabinet)s
+on conflict do nothing
+
 -- name: runs_cabinets
 select distinct cabinet from runs order by 1
 

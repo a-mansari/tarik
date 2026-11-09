@@ -4,11 +4,12 @@ writes in Experio is confirmed first. -->
 <script setup>
 import { computed, ref, watch } from "vue";
 
-import { plural, send, usePage } from "../api.js";
+import { loadSession, plural, send, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import PageState from "../components/PageState.vue";
 
-const { data, status, loading } = usePage(() => "/settings");
+const { data, status, loading, reload } = usePage(() => "/settings");
+const problem = ref("");
 const form = ref({});
 const was = ref({});
 
@@ -41,6 +42,18 @@ async function save() {
   scrollTo({ top: 0 });
 }
 
+// Switch a cabinet on or off: off, Tarik reads none of its mail and starts none of its runs. The sidebar and this page
+// are read again, a cabinet switched off leaving both.
+const OFF = "Tarik ne lira plus aucun email de ce cabinet, ne répondra plus à ses discussions et ne lancera plus aucune "
+  + "exécution. Ses réglages et ses données sont gardés. Continuer ?";
+async function activate(cabinet, on) {
+  if (!on && !confirm(OFF)) return;
+  const answer = await send("/settings/active", { cabinet, active: on ? "1" : "0" });
+  problem.value = answer.ok ? "" : answer.data?.error || "Non enregistré.";
+  await loadSession();
+  await reload();
+}
+
 // The page's head: the cabinet's mode, when it is known.
 const modeKnown = computed(() => data.value.dry_run !== null && data.value.dry_run !== undefined);
 const savedNames = computed(() => data.value.saved.map((key) => data.value.names[key]).join(", "));
@@ -62,6 +75,14 @@ function trimHint(f) {
       >{{ data.dry_run ? "Simulation" : "Écritures réelles" }}</span></template></h1>
       <p class="what">Ce que Tarik utilise pour ce cabinet. Un mot de passe ou une clé n'est jamais affiché : il se remplace seulement. Un changement s'applique dès le message suivant.</p>
     </div></div>
+    <div v-if="problem" class="panel bad" role="alert"><b>Non enregistré :</b> {{ problem }}</div>
+    <section class="panel" aria-label="Activation des cabinets">
+      <p>Ce cabinet est <b>actif</b>.
+        <button type="button" @click="activate(data.cabinet, false)">Désactiver ce cabinet</button></p>
+      <p v-for="c in data.inactive" :key="c.name">
+        <CabinetLabel :name="c.name" /><template v-if="c.display"> ({{ c.display }})</template> est <b>désactivé</b>.
+        <button type="button" @click="activate(c.name, true)">Activer</button></p>
+    </section>
     <div v-if="data.unreachable" class="panel bad" role="alert">
       <b>Réglages illisibles.</b> Vault ne répond pas, ou le rôle de cette page (tarik-settings) n'est pas installé :
       <span class="mono">vault/setup.sh</span>.</div>

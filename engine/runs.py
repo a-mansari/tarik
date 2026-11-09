@@ -413,6 +413,24 @@ async def run(run_id):
     return shown
 
 
+async def unread(cabinet, email):
+    """Return how many runs of ``cabinet`` account ``email`` has not opened (Q.runs_unread)."""
+    async with pool.connection() as db:
+        return (await (await db.execute(Q.runs_unread, {"email": email, "cabinet": cabinet})).fetchone())[0]
+
+
+async def read(run_id, email):
+    """Record that account ``email`` opened run ``run_id``."""
+    async with pool.connection() as db:
+        await db.execute(Q.run_read, {"email": email, "run_id": run_id})
+
+
+async def read_all(cabinet, email):
+    """Record that account ``email`` has read every run of ``cabinet`` so far."""
+    async with pool.connection() as db:
+        await db.execute(Q.runs_read_all, {"email": email, "cabinet": cabinet})
+
+
 async def recent(cabinet=None, graph=None, limit=50):
     """Return the runs list: the latest ``limit`` top-level runs, newest first, each followed by the runs nested in
     it (recursively) with their "depth". With a ``graph`` filter, that graph's runs, nested ones included, without

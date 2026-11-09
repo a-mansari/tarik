@@ -97,6 +97,9 @@ td.empty, li.empty { color: var(--muted); padding: 1.2rem .8rem; }
 .note { display: block; color: var(--muted); font-size: .8rem; margin-top: .2rem; }
 
 .chip { display: inline-block; font-size: .75rem; font-weight: 600; padding: .15rem .5rem; border-radius: 999px; background: var(--neutral-bg); color: var(--muted); white-space: nowrap; }
+.unread { display: inline-block; position: relative; vertical-align: middle; font-size: 1rem; font-weight: 400; }
+.unread summary { cursor: pointer; list-style: none; }
+.unread .panel { position: absolute; z-index: 5; top: 2rem; left: 0; width: 17rem; box-shadow: 0 4px 16px rgb(0 0 0 / .2); }
 .chip.big { font-size: .9rem; padding: .3rem .75rem; }
 .chip.ok, .chip.done { background: var(--good-bg); color: var(--good); }
 .chip.question, .chip.wait, .chip.queued, .chip.running { background: var(--wait-bg); color: var(--wait); }
