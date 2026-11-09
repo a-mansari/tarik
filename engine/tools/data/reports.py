@@ -111,8 +111,9 @@ def domain_of(dossier_id, exercice, extra, since_origin=False):
 
 def totals(dossier_id, exercice, context, extra, groupby, values=("debit", "credit"), **more):
     """Return the sums of ``values`` (journal item fields) of the items grouped by ``groupby`` (Experio's read_group
-    rows), at most MAX_GROUPS + 1. ``more``: orderby, since_origin."""
+    rows), at most MAX_GROUPS + 1 unless ``more`` gives a ``limit``. ``more``: orderby, since_origin, limit."""
     since_origin = more.pop("since_origin", False)
+    limit = more.pop("limit", MAX_GROUPS + 1)
     with refused("reports totals", "Experio n'a pas pu lire les écritures : {reason}"):
         return odoo_call(
             "exp.move.line",
@@ -121,7 +122,7 @@ def totals(dossier_id, exercice, context, extra, groupby, values=("debit", "cred
             [f"{value}:sum" for value in values],
             groupby,
             lazy=False,
-            limit=MAX_GROUPS + 1,
+            limit=limit,
             context=context,
             **more,
         )

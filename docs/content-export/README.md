@@ -242,3 +242,7 @@ uses another one. A stack that edited one of these documents itself loses that e
   `Experio_monthly_totals`, `Experio_partner_balances` and `Experio_account_ledger` (`agent.json`, `read_tools`, with the
   two general read tools of the export above, so import this one alone), and the skill `skills/analyse-comptes.md`.
   Import it once the stack runs the commit that adds the tools: before, the import is refused (the tools are unknown).
+- `tarik-contenu-rapport-comptes-20261109.json`: `Tarik_rapport`'s description with its new type « comptes » (`agent.json`,
+  `own_tools`; the report tools of the export above are in it too, so import this one alone) and the skill
+  `skills/analyse-comptes.md`, which now offers that report instead of a document written by hand. Import it once the
+  stack runs the commit that adds the type: before, the agent would offer a type the tool refuses.

@@ -34,6 +34,9 @@ links to its run, step by step. No sender check there: whoever is logged in writ
 - A dossier's books for an exercice, said as an accountant says them: the trial balance, a month by month series, what
   is still open per client or supplier, the ledger of an account. Each ends with its caveats (an exercice not closed is not
   a final result; no opening entries: the balance sheet accounts show the exercice's movements only).
+- The accounts of an exercice as a file (Word, Excel, PDF, Markdown or LaTeX), asked as a « comptes » report: the result
+  so far, the activity month by month, the cash, what clients and suppliers still owe, the VAT, and its points d'attention
+  (rules of Tarik's own on the figures, to be checked). In the chat, one dossier per conversation, as for any reading.
 
 **Process invoices and bank statements.** An invoice is a purchase (received from a supplier) or a
 sale (issued by the dossier to its own customer): say which, or Tarik asks before anything is made. For

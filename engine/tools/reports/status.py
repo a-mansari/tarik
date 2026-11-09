@@ -21,6 +21,7 @@ from engine.tools.dossiers.progress import (
     french_date,
     status_of,
 )
+from engine.tools.reports.accounts import comptes
 from engine.tools.reports.document import parse
 from engine.tools.reports.files import formats_of, room, written
 
@@ -187,18 +188,32 @@ def status_document(found, today=None):
     return parse(f"État du dossier {found['name']}", blocks, period)
 
 
-REPORTS = {"statut": "L'état d'un dossier : avancement, factures, banque, déclarations, points d'attention."}
+REPORTS = {
+    "statut": "L'état d'un dossier : avancement, factures, banque, déclarations, points d'attention.",
+    "comptes": "Les comptes d'un exercice : résultat, activité par mois, trésorerie, clients, fournisseurs, TVA.",
+}
+
+
+def statut(session_id, dossier_id, year):
+    """Return the Document of dossier ``dossier_id``'s status for the exercice of ``year`` (0: the latest). Raises
+    ToolError when the conversation's sender may not read the dossier (check_sender) or Experio can't answer."""
+    allowed = check_sender(session_id, dossier_id)
+    if allowed["status"] == "stop":
+        raise ToolError(allowed["message"])
+    return status_document({**status_of(dossier_id, year), "id": dossier_id})
 
 
 @tool
 def make_report(session_id: str, kind: str, dossier_id: int, formats: list, year: int = 0, filename: str = "") -> str:
-    """Make a report on dossier ``dossier_id`` (``kind``: one of REPORTS; "statut": where it stands in Experio) as
-    ``formats`` (docx, xlsx, pdf, md, tex), for the exercice of ``year`` (0: its latest), and keep the files in
-    conversation ``session_id``'s outbox (files.written). The conversation's sender must have the dossier, as for any
-    work on it (check_sender).
+    """Make a report on dossier ``dossier_id`` (``kind``: one of REPORTS; "statut": where it stands in Experio;
+    "comptes": the exercice's accounts) as ``formats`` (docx, xlsx, pdf, md, tex), for the exercice of ``year`` (0: its
+    latest), and keep the files in conversation ``session_id``'s outbox (files.written). The conversation must be
+    allowed to read the dossier, as for any work on it (check_sender; the accounts as query_data: one dossier in the
+    chat).
 
-    Returns French text saying which files were made. Raises ToolError for an unknown kind or format, a sender who may
-    not read the dossier, an exercice the dossier lacks, Experio not answering, or what files.written refuses."""
+    Returns French text saying which files were made. Raises ToolError for an unknown kind or format, a conversation
+    that may not read the dossier, an exercice the dossier lacks, Experio not answering, or what files.written
+    refuses."""
     if kind not in REPORTS:
         raise ToolError(f"Rapport : un type parmi {', '.join(REPORTS)} (pas « {kind} »).")
     wanted = formats_of(formats)  # before any Experio read: a wrong format, or an outbox already full, costs nothing
@@ -207,8 +222,5 @@ def make_report(session_id: str, kind: str, dossier_id: int, formats: list, year
     if year and not 1990 <= year <= 2100:
         raise ToolError(f"Exercice : une année entre 1990 et 2100 (pas {year}).")
     room(session_id, len(wanted))
-    allowed = check_sender(session_id, dossier_id)
-    if allowed["status"] == "stop":
-        raise ToolError(allowed["message"])
-    found = {**status_of(dossier_id, year), "id": dossier_id}
-    return written(session_id, status_document(found), formats, filename)
+    document = (statut if kind == "statut" else comptes)(session_id, dossier_id, year)
+    return written(session_id, document, formats, filename)
