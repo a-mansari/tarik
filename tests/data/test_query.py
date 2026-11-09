@@ -108,7 +108,8 @@ def test_a_conversation_without_a_sender_reads_its_own_dossier_only(monkeypatch,
     monkeypatch.setattr(query, "sender_of", lambda session_id: None)
     assert query.allowed("chat-1", 5, "ALPHA") == ""  # the first one it asks for is its own
     assert query.allowed("chat-1", 5, "ALPHA") == ""
-    assert "ne porte pas sur le dossier `BETA`" in query.allowed("chat-1", 6, "BETA")
+    refusal = query.allowed("chat-1", 6, "BETA")
+    assert "ne porte pas sur ce dossier" in refusal and "BETA" not in refusal
     assert query.allowed("chat-2", 6, "BETA") == ""  # another conversation, another dossier
 
 

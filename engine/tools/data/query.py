@@ -233,9 +233,22 @@ def allowed(session_id, dossier_id, name):
     if address is None:
         if own_dossier(session_id, dossier_id):
             return ""
-        return f"Cette conversation ne porte pas sur le dossier `{name}` : ouvrez-en une autre pour celui-ci."
+        return "Cette conversation ne porte pas sur ce dossier : ouvrez-en une autre pour celui-ci."  # no name: a probe
     result = allowed_on(address, dossier_id, name)
     return result["message"] if result["status"] == "stop" else ""
+
+
+def opened(dossier_id, session_id):
+    """Return (the dossier's name, the context of every read in it) once dossier ``dossier_id`` is proven and the
+    conversation ``session_id`` may read it: the one gate of every read of a dossier's data (query_data and the
+    reports). Raises ToolError otherwise (require_dossier, allowed)."""
+    name = require_dossier(dossier_id)
+    refusal = allowed(session_id, dossier_id, name)
+    if refusal:
+        raise ToolError(refusal)
+    # Experio's read_group alone keeps only the selected exercice's posted records (exp_account base.py:575-592 and
+    # :332-357); a client asks about any year, as dossiers/progress.py counts.
+    return name, {**in_dossier(dossier_id), "skip_fiscal_year_filter": True}
 
 
 @tool
@@ -275,16 +288,10 @@ def query_data(
         ToolError: the dossier is unknown or not the conversation's, the model, a column, an operator or a value is not
             allowed, or Experio can't answer."""
     source = known(model)
-    name = require_dossier(dossier_id)
-    refusal = allowed(session_id, dossier_id, name)
-    if refusal:
-        raise ToolError(refusal)
+    name, context = opened(dossier_id, session_id)
     terms = terms_of(source, model, domain)
     shown = limit_of(limit)
     full = [("company_id", "=", dossier_id), *source.base, *terms]
-    # Experio's read_group alone keeps only the selected exercice's posted records (exp_account base.py:575-592 and
-    # :332-357); a client asks about any year, as dossiers/progress.py counts.
-    context = {**in_dossier(dossier_id), "skip_fiscal_year_filter": True}
     log(f"query_data dossier {dossier_id} {model} filters on {[term[0] for term in terms]}")
     if group_by or sums:
         return grouped(source, model, name, full, context, group_by or [], sums or [], order, shown)

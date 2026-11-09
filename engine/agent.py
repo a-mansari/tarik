@@ -76,6 +76,10 @@ READ_TOOLS = (
     "consult_cgnc",
     "describe_data",
     "query_data",
+    "trial_balance",
+    "monthly_totals",
+    "partner_balances",
+    "account_ledger",
 )
 
 
@@ -186,8 +190,47 @@ async def query_data(
     )
 
 
+async def report(tool_name, runtime, **arguments):
+    """Read a dossier's books with the report ``tool_name``: the one place that sets the conversation (never the
+    model's)."""
+    return await reading(runtime, tool_name, session_id=session_of(runtime.config), **arguments)
+
+
+async def trial_balance(dossier_id: int, runtime: ToolRuntime, year: int = 0, account_prefix: str = "") -> str:
+    return await report("trial_balance", runtime, dossier_id=dossier_id, year=year, account_prefix=account_prefix)
+
+
+async def monthly_totals(dossier_id: int, account_prefix: str, runtime: ToolRuntime, year: int = 0) -> str:
+    return await report("monthly_totals", runtime, dossier_id=dossier_id, account_prefix=account_prefix, year=year)
+
+
+async def partner_balances(dossier_id: int, account_prefix: str, runtime: ToolRuntime, year: int = 0) -> str:
+    return await report("partner_balances", runtime, dossier_id=dossier_id, account_prefix=account_prefix, year=year)
+
+
+async def account_ledger(
+    dossier_id: int, account_prefix: str, runtime: ToolRuntime, year: int = 0, partner_id: int = 0, limit: int = 50
+) -> str:
+    return await report(
+        "account_ledger",
+        runtime,
+        dossier_id=dossier_id,
+        account_prefix=account_prefix,
+        year=year,
+        partner_id=partner_id,
+        limit=limit,
+    )
+
+
 # The general read tools take more arguments than the others: defined apart, read_tool hands them out by name.
-GENERAL_READS = {"describe_data": describe_data, "query_data": query_data}
+GENERAL_READS = {
+    "describe_data": describe_data,
+    "query_data": query_data,
+    "trial_balance": trial_balance,
+    "monthly_totals": monthly_totals,
+    "partner_balances": partner_balances,
+    "account_ledger": account_ledger,
+}
 
 
 def read_tool(tool_name):
