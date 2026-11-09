@@ -18,6 +18,7 @@ A cabinet is named by its exact Experio database: lowercase letters, digits and 
 
 | Setting | Required | What |
 |---|---|---|
+| `CABINET_NAME` | no | the cabinet's name in Experio (`experio.cabinet.name`), shown on the Cabinets page; Tarik does not use it |
 | `EXPERIO_URL` | no | that cabinet's Experio, `https://` and its host only, when it is not the stack's `ODOO_URL`; changing it needs `ODOO_PASSWORD` (and `ODOO_API_KEY` when set) sent again. A cabinet is still named by its database alone: two Experios' databases of the same name cannot both be served |
 | `ODOO_USER` | yes | Tarik's login in that cabinet's Experio |
 | `ODOO_UID` | yes | Tarik's user id there (a positive number): checked at every connection |
