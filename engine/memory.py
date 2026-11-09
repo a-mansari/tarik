@@ -15,8 +15,10 @@ from engine.tools.core.app import log
 
 URL = os.getenv("HINDSIGHT_URL", "").rstrip("/")
 RECALL_TOKENS = 1500  # what a turn's recall may hold at most, Hindsight's own count
-RECALL_WAIT, RETAIN_WAIT = 8, 30  # seconds: a turn waits for the first, never for the second (retained in background)
+RECALL_WAIT, RETAIN_WAIT = 4, 30  # seconds: a turn waits for the first, never for the second (retained in background)
+QUERY_CHARS, KEPT_CHARS = 1000, 4000  # a long email's start asks and is kept, not all of it (and its quoted thread)
 BACKGROUND = set()  # the retains going on: a task nobody holds can be dropped before it ends
+BACKGROUND_MAX = 20  # more at once (Hindsight slow or down): the new ones are dropped, never queued without end
 
 
 def on():
@@ -33,31 +35,34 @@ async def post(bank, path, body, wait):
 
 
 async def recalled(cabinet, question):
-    """Return what cabinet ``cabinet`` remembers about ``question`` as one text, a fact per line; "" when nothing,
-    when Hindsight is off or when it fails."""
+    """Return what cabinet ``cabinet`` remembers about ``question`` as one text, a fact per line; "" when nothing or
+    when Hindsight is off; None when it failed (the caller does not keep that as an answer)."""
     if not on() or not question.strip():
         return ""
     try:
-        found = await post(cabinet, "memories/recall", {"query": question, "max_tokens": RECALL_TOKENS}, RECALL_WAIT)
+        found = await post(
+            cabinet, "memories/recall", {"query": question[:QUERY_CHARS], "max_tokens": RECALL_TOKENS}, RECALL_WAIT
+        )
     except httpx.HTTPStatusError as error:
         if error.response.status_code != 404:  # 404: the cabinet's bank is made at its first retain, nothing before
             log(f"{cabinet} memory recall: {error}")
+            return None
         return ""
     except Exception as error:
         log(f"{cabinet} memory recall: {type(error).__name__}: {error}")
-        return ""
+        return None
     return "\n".join(f"- {fact['text']}" for fact in found["results"])
 
 
-async def retained(cabinet, session, said, answer):
-    """Give Hindsight a client's message ``said`` and Tarik's ``answer`` in conversation ``session``, to keep the
-    facts worth keeping (it extracts them). It works on it in the background (async): a slow extraction never holds
-    a reply."""
-    if not on():
+async def retained(cabinet, session, said):
+    """Give Hindsight what a client said (``said``) in conversation ``session``, to keep the facts worth keeping (it
+    extracts them). Only their words: Tarik's replies hold Experio's figures, which Experio keeps and changes, and
+    text from untrusted tool results. Hindsight works on it in the background (async): never a reply's wait."""
+    if not on() or not said.strip():
         return
     item = {
-        "content": f"Client : {said}\n\nTarik : {answer}",
-        "context": "Échange d'un client du cabinet avec Tarik, son agent comptable",
+        "content": said[:KEPT_CHARS],
+        "context": "Message d'un client du cabinet à Tarik, son agent comptable",
         "timestamp": datetime.now(UTC).isoformat(),
         "tags": [f"conversation:{session}"],
     }
@@ -67,8 +72,11 @@ async def retained(cabinet, session, said, answer):
         log(f"{cabinet} memory retain: {type(error).__name__}: {error}")
 
 
-def retain_later(cabinet, session, said, answer):
+def retain_later(cabinet, session, said):
     """Start ``retained`` without waiting for it: the client's reply never waits on Hindsight."""
-    task = asyncio.create_task(retained(cabinet, session, said, answer))
+    if len(BACKGROUND) >= BACKGROUND_MAX:
+        log(f"{cabinet} memory retain dropped: {BACKGROUND_MAX} already going on")
+        return
+    task = asyncio.create_task(retained(cabinet, session, said))
     BACKGROUND.add(task)
     task.add_done_callback(BACKGROUND.discard)

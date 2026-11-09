@@ -1,7 +1,7 @@
 # Hindsight (Tarik's memory, engine/memory.py) with the Claude Code CLI added: its fact extraction runs on the same Claude
 # subscription as a Claude cabinet's model (HINDSIGHT_API_LLM_PROVIDER=claude-code). The stock image has no CLI, nor the
 # curl its installer needs. Installed as the main Dockerfile does: downloaded then run, and an empty argument fails the build.
-FROM ghcr.io/vectorize-io/hindsight:latest
+FROM ghcr.io/vectorize-io/hindsight:1.2.0
 ARG CLAUDE_INSTALL_URL
 ARG CLAUDE_CODE_VERSION
 USER root

@@ -78,6 +78,8 @@ services:
     environment:
       HINDSIGHT_API_DATABASE_URL: postgresql://${POSTGRES_USER:-tarik}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-tarik}
       HINDSIGHT_API_DATABASE_SCHEMA: hindsight
+      HINDSIGHT_API_DB_POOL_MIN_SIZE: "1" # its default is 5 to 100 connections: Postgres allows 100 in all, Tarik needs its own
+      HINDSIGHT_API_DB_POOL_MAX_SIZE: "10"
       HINDSIGHT_API_LLM_PROVIDER: claude-code
       HINDSIGHT_API_LLM_MODEL: ${HINDSIGHT_LLM_MODEL:-sonnet}
       HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_LLM_TOKEN:-} # needed to run the memory (.env); not required here: compose reads every service, run or not

@@ -93,7 +93,7 @@ def test_a_client_exchange_is_kept_in_memory_once_and_a_routine_s_never(asking, 
     monkeypatch.setattr(chat.memory, "retain_later", lambda *args: kept.append(args))
     asking["turns"] = [turn("ai", text="fait")]
     asyncio.run(chat.answered("c", "chat-1", "ma TVA est trimestrielle", [], "tarik"))
-    assert kept == [("c", "chat-1", "ma TVA est trimestrielle", "fait")]
+    assert kept == [("c", "chat-1", "ma TVA est trimestrielle")]  # the client's words, not Tarik's reply
     marked = runs.UNATTENDED.set(True)
     try:
         asyncio.run(chat.answered("c", "routine-2-1", "consigne", [], "consigne"))
