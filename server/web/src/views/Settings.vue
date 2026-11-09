@@ -42,16 +42,16 @@ async function save() {
   scrollTo({ top: 0 });
 }
 
-// Switch a cabinet on or off: off, Tarik reads none of its mail and starts none of its runs. The sidebar and this page
-// are read again, a cabinet switched off leaving both.
-const OFF = "Tarik ne lira plus aucun email de ce cabinet, ne répondra plus à ses discussions et ne lancera plus aucune "
-  + "exécution. Ses réglages et ses données sont gardés. Continuer ?";
+// Switch a cabinet on or off, at once: off, Tarik reads none of its mail and starts none of its runs. The sidebar and
+// this page are read again, a cabinet switched off leaving both.
+const switching = ref(false);
 async function activate(cabinet, on) {
-  if (!on && !confirm(OFF)) return;
+  switching.value = true;
   const answer = await send("/settings/active", { cabinet, active: on ? "1" : "0" });
   problem.value = answer.ok ? "" : answer.data?.error || "Non enregistré.";
   await loadSession();
   await reload();
+  switching.value = false;
 }
 
 // The page's head: the cabinet's mode, when it is known.
@@ -76,12 +76,16 @@ function trimHint(f) {
       <p class="what">Ce que Tarik utilise pour ce cabinet. Un mot de passe ou une clé n'est jamais affiché : il se remplace seulement. Un changement s'applique dès le message suivant.</p>
     </div></div>
     <div v-if="problem" class="panel bad" role="alert"><b>Non enregistré :</b> {{ problem }}</div>
-    <section class="panel" aria-label="Activation des cabinets">
-      <p v-if="data.cabinet">Ce cabinet est <b>actif</b>.
-        <button type="button" @click="activate(data.cabinet, false)">Désactiver ce cabinet</button></p>
-      <p v-for="c in data.inactive" :key="c.name">
-        <CabinetLabel :name="c.name" /><template v-if="c.display"> ({{ c.display }})</template> est <b>désactivé</b>.
-        <button type="button" @click="activate(c.name, true)">Activer</button></p>
+    <section v-if="data.cabinet" class="panel cabinet-switches" aria-label="Cabinets actifs">
+      <label class="switch">
+        <input type="checkbox" role="switch" :checked="true" :disabled="switching" @change="activate(data.cabinet, false)">
+        <b><CabinetLabel :name="data.cabinet" /></b> <span class="muted">actif : Tarik lit ses emails et lance ses exécutions</span>
+      </label>
+      <label v-for="c in data.inactive" :key="c.name" class="switch">
+        <input type="checkbox" role="switch" :checked="false" :disabled="switching" @change="activate(c.name, true)">
+        <b><CabinetLabel :name="c.name" /><template v-if="c.display"> ({{ c.display }})</template></b>
+        <span class="muted">désactivé : Tarik n'y lit ni n'y lance rien</span>
+      </label>
     </section>
     <div v-if="data.unreachable" class="panel bad" role="alert">
       <b>Réglages illisibles.</b> Vault ne répond pas, ou le rôle de cette page (tarik-settings) n'est pas installé :

@@ -367,6 +367,8 @@ table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 
 /* The Discussion page: the conversation, then the message to send with its files. */
 a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none; border-radius: 6px; padding: 0 .9rem; background: var(--accent); color: var(--on-accent); }
 button.primary:has(.icon) { display: inline-flex; align-items: center; gap: .4rem; }
+.cabinet-switches { display: grid; gap: .75rem; }
+.cabinet-switches .switch { font-size: .95rem; flex-wrap: wrap; }
 /* A switch: a checkbox drawn as a sliding toggle (role="switch"), its words beside it. */
 .switch { display: inline-flex; align-items: center; gap: .5rem; font-size: .85rem; cursor: pointer; user-select: none; }
 .switch input { appearance: none; position: relative; flex: none; width: 2.3rem; height: 1.3rem; margin: 0; border-radius: 999px; background: var(--line); border: 1px solid var(--muted); cursor: pointer; transition: background .15s, border-color .15s; }
