@@ -108,7 +108,8 @@ def by_mode(state: Run):
 
 
 async def create(state: Run):
-    """Graph node: create the dossier (create_dossier); on an ok result "target" becomes the new dossier's id."""
+    """Graph node: create the dossier (create_dossier); on an ok result "target" becomes the new dossier's id (an ok
+    result of the test mode, which creates nothing, has none)."""
     call = state["call"]
     result = await run_step(
         state,
@@ -123,7 +124,7 @@ async def create(state: Run):
         session_id=call["session_id"],
     )
     update = {"outcomes": [result]}
-    if result.get("status") == "ok":
+    if result.get("status") == "ok" and "dossier_id" in result:
         update["target"] = result["dossier_id"]
     return update
 
@@ -131,10 +132,11 @@ async def create(state: Run):
 @stops_at("resume")
 def after_create(state: Run):
     """Route after creation: "configuration" when a model dossier was given and the dossier is new (not reused from
-    earlier in the conversation), else "fichiers"; "resume" when creation failed."""
-    if failed(state):
-        return "resume"
+    earlier in the conversation), else "fichiers"; "resume" when creation failed, or made no dossier (the test mode:
+    nothing to configure or import into)."""
     last = state["outcomes"][-1]
+    if failed(state) or "dossier_id" not in last:
+        return "resume"
     if (state["call"].get("model_dossier_id") or 0) > 0 and not last.get("reused"):
         return "configuration"
     return "fichiers"
