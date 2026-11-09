@@ -1,6 +1,7 @@
 <!-- The runs of the cabinet picked in the sidebar, latest first, each with the runs it started under it and its model calls' tokens and cost (theirs included); read again at
 each change of the cabinet's runs. A type picked shows one workflow's. -->
 <script setup>
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { graphName, pickedCabinet, plural, send, statusName, usePage } from "../api.js";
@@ -17,8 +18,23 @@ const cabinet = pickedCabinet();
 const TALKING = new Set(["agent", "routine"]); // the runs whose conversation the Discussion page shows
 if (cabinet) useLive(`cabinet=${encodeURIComponent(cabinet)}`, reload);
 
+// The unread bubble's popup: opens on a click, closes on a click elsewhere or Escape.
+const open = ref(false);
+const bubble = ref(null);
+const close = (event) => {
+  if (event.type === "keydown" ? event.key === "Escape" : !bubble.value?.contains(event.target)) open.value = false;
+};
+onMounted(() => {
+  document.addEventListener("click", close);
+  document.addEventListener("keydown", close);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("click", close);
+  document.removeEventListener("keydown", close);
+});
 const markRead = async () => {
   await send("/executions-lues");
+  open.value = false;
   reload();
 };
 const pick = (event) => router.push({ query: event.target.value ? { graph: event.target.value } : {} });
@@ -30,14 +46,16 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
     <div class="head">
       <div>
         <h1>Exécutions<template v-if="data.cabinet"> · <CabinetLabel :name="data.cabinet" /></template>
-          <details v-if="data.unread" class="unread">
-            <summary class="chip wait" :aria-label="`${data.unread} exécution${plural(data.unread)} non lue${plural(data.unread)}`">{{ data.unread }}</summary>
-            <div class="panel">
-              <b>{{ data.unread }} exécution{{ plural(data.unread) }} non lue{{ plural(data.unread) }}</b>
+          <span v-if="data.unread" ref="bubble" class="unread">
+            <button type="button" class="unread-count" :aria-expanded="open" aria-haspopup="true"
+              :aria-label="`${data.unread} exécution${plural(data.unread)} non lue${plural(data.unread)}`"
+              @click="open = !open">{{ data.unread }}</button>
+            <div v-if="open" class="unread-popup" role="dialog" aria-label="Exécutions non lues">
+              <p class="unread-title"><b>{{ data.unread }}</b> exécution{{ plural(data.unread) }} non lue{{ plural(data.unread) }}</p>
               <p class="muted">Une exécution est lue dès que vous l'ouvrez.</p>
-              <button type="button" @click="markRead">Tout marquer comme lu</button>
+              <button type="button" class="primary" @click="markRead">Tout marquer comme lu</button>
             </div>
-          </details>
+          </span>
         </h1>
         <p class="muted">Chaque fois que Tarik travaille : une discussion, un traitement de documents, un dossier, des emails, une routine. Les plus récentes en premier, mises à jour toutes seules.</p>
       </div>

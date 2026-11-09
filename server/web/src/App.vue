@@ -48,11 +48,11 @@ const current = (href) => route.path.startsWith(href);
 
 // A cabinet picked in the sidebar: kept by the server (a cookie), then its dashboard, every page reading it again.
 const pageKey = ref(0);
-async function choose(name) {
-  await send("/cabinet", { cabinet: name });
+async function choose(cabinet) {
+  await send("/cabinet", { cabinet: cabinet.name });
   await loadSession();
   pageKey.value += 1;
-  router.push("/ui/accueil");
+  router.push(cabinet.active ? "/ui/accueil" : "/ui/settings"); // a deactivated one: its switch only
 }
 
 async function logout() {
@@ -98,8 +98,8 @@ watch(() => route.path, async () => {
         <h2>Cabinets</h2>
         <ul class="cabinets">
           <li v-for="cabinet in session.cabinets" :key="cabinet.name">
-            <button type="button" :aria-current="cabinet.chosen ? 'true' : null" @click="choose(cabinet.name)">
-              <CabinetLabel :name="cabinet.name" />
+            <button type="button" :class="{ off: !cabinet.active }" :aria-current="cabinet.chosen ? 'true' : null" @click="choose(cabinet)">
+              <CabinetLabel :name="cabinet.name" /><span v-if="!cabinet.active" class="muted"> · désactivé</span>
             </button>
           </li>
           <li v-if="!session.cabinets.length" class="muted">Aucun cabinet.</li>

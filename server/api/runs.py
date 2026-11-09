@@ -16,7 +16,7 @@ from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, R
 from engine import graphs, prompts, runs
 from engine.agent import ROUTINE_NAME, text_of
 from engine.content import LABELS
-from engine.tools.core.cabinets import CABINETS, using
+from engine.tools.core.cabinets import CABINETS, active, using, vault_settings
 from engine.tools.core.queries import Q
 from engine.tools.dossiers.routines import title_in
 from engine.tools.emails.sending import cabinet_name
@@ -95,17 +95,29 @@ def chosen(request):
 HOME = "/ui/accueil"  # the cabinet's dashboard: where logging in, the brand and picking a cabinet lead
 
 
+def switched_off(request):
+    """Return the deactivated cabinets as {name: its CABINET_NAME} for an admin (who may switch them back on on their
+    Réglages page), {} for anyone else."""
+    if not is_admin(request):
+        return {}
+    _, known = vault_settings()
+    return {name: own.get("CABINET_NAME", "") for name, own in known.items() if not active(own)}
+
+
 def sidebar(request):
-    """Return the sidebar's cabinets: [{name (its database), display (its Experio name), chosen}]."""
-    now = chosen(request)
-    return [{"name": c, "display": display_name(c), "chosen": c == now} for c in sorted(CABINETS)]
+    """Return the sidebar's cabinets: [{name (its database), display (its Experio name), chosen, active}], the
+    deactivated ones (admins only) last."""
+    off = switched_off(request)
+    now = request.cookies.get(CHOSEN) if request.cookies.get(CHOSEN) in off else chosen(request)
+    shown = [{"name": c, "display": display_name(c), "chosen": c == now, "active": True} for c in sorted(CABINETS)]
+    return shown + [{"name": c, "display": off[c], "chosen": c == now, "active": False} for c in sorted(off)]
 
 
 async def choose(request: Request):
     """POST /ui/api/cabinet {cabinet}: remember the cabinet chosen in the sidebar in a cookie (never in an address); 400
     for an unknown cabinet."""
     cabinet = (await request.json()).get("cabinet", "")
-    if cabinet not in CABINETS:
+    if cabinet not in CABINETS and cabinet not in switched_off(request):
         return JSONResponse({"error": "cabinet inconnu"}, status_code=400)
     answer = JSONResponse({"ok": True})
     answer.set_cookie(CHOSEN, cabinet, max_age=365 * 86400, httponly=True, samesite="lax")
