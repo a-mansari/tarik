@@ -128,6 +128,17 @@ def totals(dossier_id, exercice, context, extra, groupby, values=("debit", "cred
         )
 
 
+def open_amounts(dossier_id, exercice, context, prefix, opening, groupby=("partner_id",), **more):
+    """Return the open amounts (Experio's residual of the items not fully reconciled) of the accounts starting with
+    ``prefix``, as read_group rows grouped by ``groupby`` (none: one row for the whole): from the exercice's start when
+    it holds opening entries (``opening``), else from the origin. The one rule of partner_balances and of the accounts
+    report. ``more``: orderby, limit."""
+    extra = [("account_id.code", "=like", f"{prefix}%"), ("amount_residual", "!=", 0)]
+    return totals(
+        dossier_id, exercice, context, extra, list(groupby), ("amount_residual",), since_origin=not opening, **more
+    )
+
+
 def has_opening(dossier_id, exercice, context, prefix):
     """Return whether the exercice holds opening (carry_forward) entries, as Experio's balance report tells them
     (exp_report_balance.py:660-663); False without asking Experio for accounts that never have one (6, 7)."""
@@ -253,10 +264,9 @@ def partner_balances(dossier_id: int, session_id: str, account_prefix: str, year
     Raises:
         ToolError: the dossier is unknown or not the conversation's, ``year`` has no exercice, ``account_prefix`` is
             missing or too short, or Experio can't answer."""
-    name, context, exercice, terms = start("partner_balances", dossier_id, session_id, year, account_prefix, True, 3)
+    name, context, exercice, _ = start("partner_balances", dossier_id, session_id, year, account_prefix, True, 3)
     opening = has_opening(dossier_id, exercice, context, account_prefix)
-    extra = [*terms, ("amount_residual", "!=", 0)]
-    rows = totals(dossier_id, exercice, context, extra, ["partner_id"], ("amount_residual",), since_origin=not opening)
+    rows = open_amounts(dossier_id, exercice, context, account_prefix, opening)
     lines = [
         heading(name, exercice),
         f"Comptes {account_prefix}…, éléments non lettrés à ce jour, "

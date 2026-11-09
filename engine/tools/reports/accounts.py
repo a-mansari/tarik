@@ -3,8 +3,14 @@
 what the figures show by rules of Tarik's own, never a model's.
 
 The figures are the books' own, read with the reports' tools (data/reports.py: the same gate, the same journal items,
-the same caveats). A rule says only what the figures say, and the report says it is an automatic reading, to be
-checked: Tarik states what is written in Experio, never a final result nor an advice."""
+the same open-amount rule, the same caveats). A rule says only what the figures say, and the report says it is an
+automatic reading, to be checked: Tarik states what is written in Experio, never a final result nor an advice.
+
+The accounts of Experio's own ranges: the clients are the accounts 342 (3421, doubtful 3424, effets 3425) and the
+suppliers 441 (exp_account/models/exp_account.py:1494-1497); the VAT due is 4455 minus the recoverable 3455, then 4456
+once declared (liasse/models/tax_package_tva.py:24-36, declaration/models/res_company.py:51-62); the depreciation
+accounts are 6191 to 6193 (liasse/models/tax_package_controle.py:2479) and what depreciates the classes 21 to 23 (the
+financial assets, 24, never do)."""
 
 from datetime import UTC, datetime
 
@@ -12,14 +18,14 @@ from engine.tools.core.app import log
 from engine.tools.core.experio import odoo_call, refused
 from engine.tools.data.query import opened
 from engine.tools.data.reports import (
-    MAX_GROUPS,
-    NO_OPENING_NOTE,
-    OPEN_NOTE,
+    OPENING_NOTE,
     code_of,
     domain_of,
     exercice_of,
     has_opening,
     name_of,
+    notes_of,
+    open_amounts,
     side,
     totals,
 )
@@ -39,21 +45,16 @@ RUBRIQUES = {
     "75": "Produits non courants",
 }
 STOCK = ("6114", "713")  # variation of the stocks (goods; work in progress and finished goods)
-DEPRECIATION = "6193"  # operating depreciation of tangible assets
-FIXED = ("22", "23", "24")  # intangible, tangible and financial fixed assets
+DEPRECIATION = "619"  # operating depreciation: 6191 non-valeurs, 6192 intangible, 6193 tangible
+FIXED = ("21", "22", "23")  # the fixed assets that depreciate
 TOP = 5  # third parties listed
-
-
-def either(*prefixes):
-    """Return the domain terms keeping the accounts starting with any of ``prefixes`` (Odoo's prefix "or")."""
-    terms = [("account_id.code", "=like", f"{prefix}%") for prefix in prefixes]
-    return ["|"] * (len(terms) - 1) + terms
 
 
 def read(dossier_id, exercice, context, *prefixes, groupby="account_id", **more):
     """Return the debit and credit rows (Experio's read_group) of the journal items of the accounts starting with
-    ``prefixes`` for the exercice, grouped by ``groupby``, up to ALL."""
-    return totals(dossier_id, exercice, context, either(*prefixes), [groupby], limit=ALL, **more)
+    ``prefixes`` for the exercice, grouped by ``groupby``, up to ALL. ``more``: orderby, since_origin."""
+    terms = [("account_id.code", "=like", f"{prefix}%") for prefix in prefixes]
+    return totals(dossier_id, exercice, context, ["|"] * (len(terms) - 1) + terms, [groupby], limit=ALL, **more)
 
 
 def sums(rows, *prefixes):
@@ -76,79 +77,74 @@ def last_booked(dossier_id, exercice, context):
     return found[0]["date"] if found else ""
 
 
-def open_items(dossier_id, exercice, context, prefix, opening):
-    """Return (third party rows, total): the open amounts per third party on the accounts of ``prefix`` as
-    partner_balances reads them, biggest of the first MAX_GROUPS first, and the total of all of them (read apart when
-    the list was cut)."""
-    extra = [("account_id.code", "=like", f"{prefix}%"), ("amount_residual", "!=", 0)]
-    rows = totals(dossier_id, exercice, context, extra, ["partner_id"], ("amount_residual",), since_origin=not opening)
-    if len(rows) > MAX_GROUPS:
-        every = totals(dossier_id, exercice, context, extra, [], ("amount_residual",), since_origin=not opening)
-        total = sum(row["amount_residual"] for row in every)
-    else:
-        total = sum(row["amount_residual"] for row in rows)
-    return sorted(rows[:MAX_GROUPS], key=lambda row: -abs(row["amount_residual"])), total
+def open_items(dossier_id, exercice, context, prefix, opening, order):
+    """Return (the biggest TOP open third parties, the total of all of them) of the accounts starting with ``prefix``:
+    the biggest read ordered by amount (``order``: "desc" for the debtors, "asc" for the creditors), the total apart,
+    so a long list is never cut by name."""
+    top = open_amounts(dossier_id, exercice, context, prefix, opening, orderby=f"amount_residual {order}", limit=TOP)
+    every = open_amounts(dossier_id, exercice, context, prefix, opening, groupby=(), limit=1)
+    return top, sum(row.get("amount_residual") or 0 for row in every)
 
 
 def read_accounts(session_id, dossier_id, year):
     """Return everything the report shows for dossier ``dossier_id`` and its exercice of ``year`` (0: the latest), read
-    once. Raises ToolError as opened and exercice_of do, or when Experio can't answer."""
+    once. The balance-sheet accounts (cash, VAT, fixed assets, open third parties) are read from the origin when the
+    exercice holds no opening entries, as the open amounts are. Raises ToolError as opened and exercice_of do, or when
+    Experio can't answer."""
     name, context = opened(dossier_id, session_id)
     exercice = exercice_of(name, dossier_id, year, context)
     log(f"accounts report dossier {dossier_id} exercice {exercice['name']}")
     opening = has_opening(dossier_id, exercice, context, "")
     french = {**context, "lang": "fr_FR"}  # the month labels follow the language of the context
+    balance = {"since_origin": not opening}
     results = read(dossier_id, exercice, context, "6", "7")
+    whole = len(results) < ALL
     return {
         "name": name,
         "exercice": exercice,
         "opening": opening,
         "last": last_booked(dossier_id, exercice, context),
         "results": results,
-        "whole": len(results) < ALL,
+        "whole": whole,
         "months_sales": read(dossier_id, exercice, french, "71", groupby="date:month", orderby="date:month"),
         "months_charges": read(dossier_id, exercice, french, "61", groupby="date:month", orderby="date:month"),
-        "cash": read(dossier_id, exercice, context, "51"),
-        "clients": open_items(dossier_id, exercice, context, "3421", opening),
-        "suppliers": open_items(dossier_id, exercice, context, "4411", opening),
-        "vat": read(dossier_id, exercice, context, "3455", "4455", "4456"),
-        "assets": read(dossier_id, exercice, context, "2"),
+        "cash": read(dossier_id, exercice, context, "51", **balance),
+        "clients": open_items(dossier_id, exercice, context, "342", opening, "desc"),
+        "suppliers": open_items(dossier_id, exercice, context, "441", opening, "asc"),
+        "vat": read(dossier_id, exercice, context, "3455", "4455", "4456", **balance),
+        "assets": read(dossier_id, exercice, context, *FIXED, **balance) if whole else [],
     }
 
 
-def result_of(found):
-    """Return ((label, net, is a charge) lines, total charges, total produits), None when the plan was too long to
-    be read whole."""
+def result_table(found):
+    """Return the table of the result by rubrique and the (charges, produits) totals; (None, None) when the plan was
+    too long to be read whole."""
     if not found["whole"]:
-        return None
+        return None, None
     rubriques = {}
     for row in found["results"]:
         key = code_of(row["account_id"])[:2]
         rubriques[key] = rubriques.get(key, 0.0) + row["debit"] - row["credit"]
-    lines = [
-        (f"{key} {RUBRIQUES.get(key, f'Comptes {key}')}", net, key[0] == "6") for key, net in sorted(rubriques.items())
-    ]
-    charges = sum(net for _, net, is_charge in lines if is_charge)
-    return lines, charges, -sum(net for _, net, is_charge in lines if not is_charge)
-
-
-def result_table(found):
-    """Return the table of the result by rubrique and the (charges, produits) totals; (None, None) when not read."""
-    result = result_of(found)
-    if not result:
-        return None, None
-    lines, charges, produits = result
-    rows = [[label, amount(net), ""] if is_charge else [label, "", amount(-net)] for label, net, is_charge in lines]
+    rows, charges, produits = [], 0.0, 0.0
+    for key, net in sorted(rubriques.items()):
+        label = f"{key} {RUBRIQUES.get(key, f'Comptes {key}')}"
+        if key[0] == "6":
+            charges += net
+            rows.append([label, amount(net), ""])
+        else:
+            produits -= net
+            rows.append([label, "", amount(-net)])
     gap = round(produits - charges, 2)
     gap_said = f"{'excédent' if gap > 0 else 'déficit'} {amount(abs(gap))}" if gap else "nul"
     rows += [
         ["Total", amount(charges), amount(produits)],
         ["Écart produits moins charges, avant écritures de clôture", "", gap_said],
     ]
+    headers = ["Rubrique", "Charges", "Produits"]
     table = {
         "type": "table",
         "caption": "Compte de résultat de l'exercice, à ce jour",
-        "headers": ["Rubrique", "Charges", "Produits"],
+        "headers": headers,
         "rows": rows,
     }
     return table, (charges, produits)
@@ -168,14 +164,18 @@ def by_month(found):
     return [months[start] for start in sorted(months)]
 
 
+def table(caption, headers, body):
+    """Return a table block of ``caption``, ``headers`` and ``body`` rows, None when there is no row."""
+    return {"type": "table", "caption": caption, "headers": headers, "rows": body} if body else None
+
+
 def months_table(found):
     """Return the table of the month by month sales and charges, None when no month has an entry."""
     rows = [
         [month["label"]] + [amount(month[key]) if month[key] is not None else "" for key in ("sales", "charges")]
         for month in by_month(found)
     ]
-    headers = ["Mois", "Produits d'exploitation (71)", "Charges d'exploitation (61)"]
-    return {"type": "table", "caption": "Mois par mois", "headers": headers, "rows": rows} if rows else None
+    return table("Mois par mois", ["Mois", "Produits d'exploitation (71)", "Charges d'exploitation (61)"], rows)
 
 
 def balances_table(caption, rows):
@@ -184,24 +184,20 @@ def balances_table(caption, rows):
         [name_of(row["account_id"], "sans compte"), side(row["debit"] - row["credit"])]
         for row in sorted(rows, key=lambda row: code_of(row["account_id"]))
     ]
-    return {"type": "table", "caption": caption, "headers": ["Compte", "Solde"], "rows": body} if body else None
+    return table(caption, ["Compte", "Solde"], body)
 
 
 def third_party_table(caption, listed):
-    """Return the table of the biggest open third parties of ``listed`` (rows, total) with the total of all; None when
+    """Return the table of the biggest open third parties of ``listed`` (the biggest, the total of all), None when
     nobody is open."""
     rows, total = listed
-    if not rows:
-        return None
-    body = [[name_of(row["partner_id"], "sans tiers"), side(row["amount_residual"])] for row in rows[:TOP]]
-    body.append(["Total de tous les tiers", side(total)])
-    return {"type": "table", "caption": caption, "headers": ["Tiers", "Solde ouvert"], "rows": body}
+    body = [[name_of(row["partner_id"], "sans tiers"), side(row["amount_residual"])] for row in rows]
+    return table(caption, ["Tiers", "Solde ouvert"], [*body, ["Total de tous les tiers", side(total)]] if rows else [])
 
 
 def state_rules(found):
-    """Return the sentences on the exercice itself: not closed, no opening entries."""
-    out = [OPEN_NOTE] if found["exercice"]["state"] not in ("close", "shut") else []
-    return out + ([] if found["opening"] else [NO_OPENING_NOTE])
+    """Return the sentences on the exercice itself: not closed, no opening entries (reports.notes_of's own words)."""
+    return [note for note in notes_of(found["exercice"], "", found["opening"]) if note != OPENING_NOTE]
 
 
 def result_rules(found, totals_):
@@ -217,7 +213,8 @@ def result_rules(found, totals_):
         )
     if sums(found["assets"], *FIXED) > 0 and not sums(results, DEPRECIATION):
         out.append(
-            f"Aucune dotation aux amortissements ({DEPRECIATION}) n'est passée alors que des immobilisations existent."
+            "Aucune dotation aux amortissements (6191 à 6193) n'est passée alors que des immobilisations "
+            "amortissables existent."
         )
     charges, produits = totals_
     if charges > produits:
@@ -229,8 +226,9 @@ def result_rules(found, totals_):
 
 
 def activity_rules(found):
-    """Return the sentence on sales that stop before the last entry (by the months' dates, not their labels)."""
-    sold = [month for month in by_month(found) if month["sales"] is not None]
+    """Return the sentence on sales that stop before the last entry (by the months' dates, not their labels; a month
+    whose sales net to zero is no sales month)."""
+    sold = [month for month in by_month(found) if month["sales"] is not None and round(month["sales"], 2) != 0]
     if not (sold and found["last"] and sold[-1]["start"] < found["last"][:7] + "-01"):
         return []
     return [
@@ -239,35 +237,34 @@ def activity_rules(found):
     ]
 
 
-def cash_rules(found, totals_):
-    """Return the sentences on the cash and the clients: banks in credit, clients open beyond the produits."""
-    out = []
+def cash_rules(found):
+    """Return the sentence on the banks in credit (accounts 514), told to check the bank reconciliation when clients
+    are still open (their total, whole)."""
     overdrawn = [
         row for row in found["cash"] if code_of(row["account_id"]).startswith("514") and row["credit"] > row["debit"]
     ]
-    owed = sum(row["amount_residual"] for row in found["clients"][0] if row["amount_residual"] > 0)
-    if overdrawn:
-        names = ", ".join(
-            f"{name_of(row['account_id'], '')} ({amount(row['credit'] - row['debit'])})" for row in overdrawn
-        )
-        more = (
-            "Avec des clients encore ouverts, le rapprochement bancaire est probablement à vérifier."
-            if owed
-            else "À vérifier."
-        )
-        out.append(f"Des comptes bancaires sont créditeurs : {names}. {more}")
-    if totals_ and totals_[1] and owed > totals_[1]:
-        out.append(
-            f"Les clients ouverts ({amount(owed)}) dépassent les produits de l'exercice ({amount(totals_[1])}) : "
-            "les encaissements sont à vérifier."
-        )
-    return out
+    if not overdrawn:
+        return []
+    names = ", ".join(f"{name_of(row['account_id'], '')} ({amount(row['credit'] - row['debit'])})" for row in overdrawn)
+    more = (
+        "Avec des clients encore ouverts, le rapprochement bancaire est probablement à vérifier."
+        if found["clients"][1] > 0
+        else "À vérifier."
+    )
+    return [f"Des comptes bancaires sont créditeurs : {names}. {more}"]
 
 
 def vat_rules(found):
-    """Return the sentence on the VAT collected and not paid (the 4455 account in credit)."""
-    due = -sums(found["vat"], "4455")
-    return [f"TVA facturée non reversée (4455) : {amount(due)}, à rapprocher des déclarations."] if due > 0 else []
+    """Return the sentences on the VAT as Experio's own table computes it: the due amount (4455 collected minus 3455
+    recoverable), and what is declared and not yet paid (4456)."""
+    out = []
+    due = -sums(found["vat"], "4455") - sums(found["vat"], "3455")
+    if due > 0:
+        out.append(f"TVA à payer selon les comptes (4455 moins 3455) : {amount(due)}, à rapprocher des déclarations.")
+    declared = -sums(found["vat"], "4456")
+    if declared > 0:
+        out.append(f"TVA déclarée restant à payer (4456) : {amount(declared)}.")
+    return out
 
 
 def attention(found, totals_):
@@ -277,7 +274,7 @@ def attention(found, totals_):
         *state_rules(found),
         *result_rules(found, totals_),
         *activity_rules(found),
-        *cash_rules(found, totals_),
+        *cash_rules(found),
         *vat_rules(found),
     ]
     return out or ["Rien à signaler dans ces chiffres."]
@@ -289,23 +286,16 @@ def accounts_document(found, today=None):
     today = today or datetime.now(UTC).date()
     exercice = found["exercice"]
     period = f"{exercice['name']}, du {french_date(exercice['date_start'])} au {french_date(exercice['date_end'])}"
-    table, totals_ = result_table(found)
+    result, totals_ = result_table(found)
     last = f" ; écritures jusqu'au {french_date(found['last'])}" if found["last"] else ""
+    too_long = "Le plan comptable est trop long pour être lu en entier : le résultat n'est pas donné."
     blocks = [{"type": "heading", "level": 1, "text": "Le résultat à ce jour"}]
-    if table:
-        blocks.append(table)
-    else:
-        blocks.append(
-            {
-                "type": "paragraph",
-                "text": "Le plan comptable est trop long pour être lu en entier : le résultat n'est pas donné.",
-            }
-        )
+    blocks.append(result or {"type": "paragraph", "text": too_long})
     for title, block in (
         ("Activité", months_table(found)),
         ("Trésorerie", balances_table("Trésorerie à ce jour (comptes 51)", found["cash"])),
-        ("Clients", third_party_table("Clients : soldes ouverts (3421)", found["clients"])),
-        ("Fournisseurs", third_party_table("Fournisseurs : soldes ouverts (4411)", found["suppliers"])),
+        ("Clients", third_party_table("Clients : plus gros soldes ouverts (342)", found["clients"])),
+        ("Fournisseurs", third_party_table("Fournisseurs : plus gros soldes ouverts (441)", found["suppliers"])),
         ("TVA", balances_table("TVA à ce jour (3455, 4455, 4456)", found["vat"])),
     ):
         if block:

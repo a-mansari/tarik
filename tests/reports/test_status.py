@@ -27,7 +27,13 @@ FOUND = {
 def experio(monkeypatch):
     """Experio holds dossier 7 (FOUND); who is asking is ``allowed``; ``reads`` counts the dossiers read."""
     reads, allowed = [], {"status": "routine", "message": "ok"}
-    monkeypatch.setattr(status, "check_sender", lambda session_id, dossier_id: allowed)
+
+    def opened(dossier_id, session_id):
+        if allowed["status"] == "stop":
+            raise ToolError(allowed["message"])
+        return "ALPHA", {}
+
+    monkeypatch.setattr(status, "opened", opened)
     monkeypatch.setattr(status, "status_of", lambda dossier_id, year=0: reads.append((dossier_id, year)) or dict(FOUND))
     return reads, allowed
 
@@ -104,3 +110,18 @@ def test_a_full_outbox_a_wrong_year_or_no_conversation_cost_no_experio_read(db_c
         with pytest.raises(ToolError, match=message):
             status.make_report(session, "statut", 7, ["docx"], year)
     assert len(reads) == 5  # none of the three read Experio
+
+
+@pytest.mark.security
+def test_in_the_chat_the_status_reads_one_dossier_like_the_accounts(db_cabinet, monkeypatch):
+    from engine.tools.data import query
+
+    monkeypatch.setattr(status, "opened", query.opened)  # the real gate: the chat has no sender
+    monkeypatch.setattr(query, "require_dossier", lambda dossier_id: f"D{dossier_id}")
+    monkeypatch.setattr(query, "sender_of", lambda session_id: None)
+    monkeypatch.setattr(status, "status_of", lambda dossier_id, year=0: dict(FOUND))
+    status.make_report("chat-1", "statut", 7, ["md"])  # the first dossier asked for is the conversation's
+    with pytest.raises(ToolError, match="ne porte pas sur ce dossier"):
+        status.make_report("chat-1", "statut", 8, ["md"])
+    with pytest.raises(ToolError, match="ne porte pas sur ce dossier"):
+        status.make_report("chat-1", "comptes", 8, ["md"])

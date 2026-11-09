@@ -9,7 +9,7 @@ from docx import Document as WordDocument
 
 from engine.tools.core.app import ToolError
 from engine.tools.core.cabinets import cabinet_db
-from engine.tools.data import query
+from engine.tools.data import query, reports
 from engine.tools.reports import accounts, status
 
 EXERCICE = {"name": "Exercice 2026", "date_start": "2026-01-01", "date_end": "2026-12-31", "state": "open"}
@@ -96,7 +96,7 @@ def test_a_dossier_with_nothing_to_flag_says_so():
 @pytest.mark.functionality
 def test_an_exercice_not_closed_and_one_without_opening_entries_are_flagged():
     said = points(found_with(exercice=EXERCICE, opening=False))
-    assert accounts.OPEN_NOTE in said and accounts.NO_OPENING_NOTE in said
+    assert reports.OPEN_NOTE in said and reports.NO_OPENING_NOTE in said and reports.OPENING_NOTE not in said
 
 
 @pytest.mark.functionality
@@ -109,12 +109,22 @@ def test_goods_bought_without_a_stock_variation_cannot_give_a_gross_margin():
 
 
 @pytest.mark.functionality
-def test_fixed_assets_without_a_depreciation_are_flagged():
+def test_depreciable_assets_without_any_dotation_are_flagged():
     assets = [account("23310000", "Installations", 500.0, 0.0), account("28331000", "Amortissements", 0.0, 100.0)]
-    assert any("dotation aux amortissements (6193)" in p for p in points(found_with(assets=assets)))
-    booked = found_with(assets=assets, results=[*found_with()["results"], account("61930000", "Dotations", 40.0, 0.0)])
-    assert not any("dotation aux amortissements" in p for p in points(booked))
+    assert any("dotation aux amortissements (6191 à 6193)" in p for p in points(found_with(assets=assets)))
     assert not any("dotation aux amortissements" in p for p in points(found_with()))
+    for code in ("61910000", "61920000", "61930000"):  # Experio books its dotations on 6191, 6192 and 6193
+        booked = found_with(assets=assets, results=[*found_with()["results"], account(code, "Dotations", 40.0, 0.0)])
+        assert not any("dotation aux amortissements" in p for p in points(booked)), code
+
+
+@pytest.mark.functionality
+def test_only_the_classes_that_depreciate_are_asked_about_a_dotation():
+    financial = [account("24860000", "Dépôts et cautionnements", 500.0, 0.0)]  # never depreciated
+    assert not any("dotation aux amortissements" in p for p in points(found_with(assets=financial)))
+    non_valeurs = [account("21110000", "Frais préliminaires", 500.0, 0.0)]
+    assert any("dotation aux amortissements" in p for p in points(found_with(assets=non_valeurs)))
+    assert accounts.FIXED == ("21", "22", "23")
 
 
 @pytest.mark.functionality
@@ -143,20 +153,51 @@ def test_a_bank_account_in_credit_with_clients_open_asks_for_the_bank_reconcilia
     said = points(found_with(cash=[account("51410100", "Banque", 1.0, 9.0), account("51610000", "Caisse", 0.0, 3.0)]))
     bank = next(p for p in said if p.startswith("Des comptes bancaires sont créditeurs"))
     assert "51410100 Banque (8.00)" in bank and "Caisse" not in bank and "rapprochement bancaire" in bank
+    nobody = found_with(cash=[account("51410100", "Banque", 1.0, 9.0)], clients=([], 0.0))
+    assert "À vérifier." in next(p for p in points(nobody) if p.startswith("Des comptes bancaires"))
 
 
 @pytest.mark.functionality
-def test_clients_open_beyond_the_years_produits_are_flagged():
+def test_the_bank_hint_rests_on_the_total_of_all_the_clients_not_the_few_listed():
+    found = found_with(cash=[account("51410100", "Banque", 1.0, 9.0)], clients=([third("PETIT", 1.0)], 900.0))
+    assert any("rapprochement bancaire" in p for p in points(found))
+
+
+@pytest.mark.functionality
+def test_clients_open_with_the_vat_are_never_compared_with_the_sales_without_it():
     said = points(found_with(clients=([third("ATLAS", 250.0)], 250.0)))
-    assert any("Les clients ouverts (250.00) dépassent les produits de l'exercice (100.00)" in p for p in said)
+    assert not any("dépassent les produits" in p for p in said)
 
 
 @pytest.mark.functionality
-def test_vat_collected_and_not_paid_is_flagged_only_when_the_account_is_in_credit():
-    owed = found_with(vat=[account("44550000", "TVA facturée", 0.0, 4.0)])
-    assert any("TVA facturée non reversée (4455) : 4.00" in p for p in points(owed))
-    paid = found_with(vat=[account("44550000", "TVA facturée", 9.0, 4.0)])
-    assert not any("TVA facturée" in p for p in points(paid))
+def test_the_vat_due_is_the_collected_minus_the_recoverable_as_experios_table_does():
+    owed = found_with(
+        vat=[account("44550000", "TVA facturée", 0.0, 10.0), account("34552000", "TVA récupérable", 3.0, 0.0)]
+    )
+    assert any("TVA à payer selon les comptes (4455 moins 3455) : 7.00" in p for p in points(owed))
+    even = found_with(
+        vat=[account("44550000", "TVA facturée", 0.0, 10.0), account("34552000", "TVA récupérable", 10.0, 0.0)]
+    )
+    assert not any("TVA à payer" in p for p in points(even))
+    credit = found_with(
+        vat=[account("44550000", "TVA facturée", 0.0, 2.0), account("34552000", "TVA récupérable", 9.0, 0.0)]
+    )
+    assert not any("TVA à payer" in p for p in points(credit))
+
+
+@pytest.mark.functionality
+def test_the_vat_declared_and_not_paid_sits_on_4456():
+    said = points(found_with(vat=[account("44560000", "TVA due", 0.0, 12.0)]))
+    assert "TVA déclarée restant à payer (4456) : 12.00." in said
+
+
+@pytest.mark.functionality
+def test_a_month_whose_sales_net_to_zero_is_no_sales_month():
+    found = found_with(
+        months_sales=[month("février 2026", "2026-02-01", 0.0, 5.0), month("mars 2026", "2026-03-01", 4.0, 4.0)],
+        last="2026-05-20",
+    )
+    assert any("après février 2026" in p for p in points(found))
 
 
 @pytest.mark.communication
@@ -178,6 +219,7 @@ def test_the_document_sets_every_part_in_a_table_and_says_where_the_figures_come
     assert document.title == "Comptes du dossier ALPHA" and "Exercice 2026" in document.subtitle
     clients = next(b for b in document.blocks if b.get("caption", "").startswith("Clients"))
     assert clients["rows"][-1] == ["Total de tous les tiers", "débiteur 30.00"]
+    assert clients["caption"] == "Clients : plus gros soldes ouverts (342)"
 
 
 @pytest.mark.communication
@@ -193,31 +235,79 @@ def test_a_part_with_no_figure_is_left_out_of_the_document():
 class Experio:
     """Experio for the report: the gate, the exercice, and the rows each read answers by what it asks."""
 
-    def __init__(self, monkeypatch, refusal=""):
+    def __init__(self, monkeypatch, refusal="", opening=True, partners=1, results=None):
         self.reads = []
+        self.partners, self.results = partners, results
         monkeypatch.setattr(query, "require_dossier", lambda dossier_id: "ALPHA")
         monkeypatch.setattr(query, "allowed", lambda session_id, dossier_id, name: refusal)
         monkeypatch.setattr(accounts, "exercice_of", lambda name, dossier_id, year, context: EXERCICE)
-        monkeypatch.setattr(accounts, "has_opening", lambda *args: True)
+        monkeypatch.setattr(accounts, "has_opening", lambda *args: opening)
         monkeypatch.setattr(accounts, "last_booked", lambda *args: "2026-05-20")
         monkeypatch.setattr(accounts, "totals", self.totals)
+        monkeypatch.setattr(reports, "totals", self.totals)
 
     def totals(self, dossier_id, exercice, context, extra, groupby, values=("debit", "credit"), **more):
         self.reads.append((extra, groupby, values, more, context))
-        if groupby == ["partner_id"]:
-            return [third("ATLAS", 5.0)]
+        if values == ("amount_residual",) and groupby == []:
+            return [{"amount_residual": 900.0}]  # the whole, apart from the biggest listed
+        if values == ("amount_residual",):
+            return [third(f"T{n}", 100.0 - n) for n in range(min(self.partners, more.get("limit", 151)))]
         if groupby == ["date:month"]:
             return [month("mai 2026", "2026-05-01", 0.0, 1.0)]
-        return [account("71110000", "Ventes", 0.0, 1.0)]
+        return self.results if self.results is not None else [account("71110000", "Ventes", 0.0, 1.0)]
 
 
 @pytest.mark.security
 def test_the_report_reads_through_the_one_gate_and_the_dossiers_context(monkeypatch):
     experio = Experio(monkeypatch)
     accounts.read_accounts("s1", 7, 2026)
-    assert len(experio.reads) == 8
+    assert len(experio.reads) == 10
     assert all(read[4]["allowed_company_ids"] == [7] and read[4]["skip_fiscal_year_filter"] for read in experio.reads)
     assert all(read[4].get("lang") == "fr_FR" for read in experio.reads if read[1] == ["date:month"])
+
+
+def read_of(experio, prefix):
+    """The read of the accounts starting with ``prefix`` (the one whose terms name it), None when there is none."""
+    term = ("account_id.code", "=like", f"{prefix}%")
+    return next((read for read in experio.reads if term in read[0] and read[1] == ["account_id"]), None)
+
+
+@pytest.mark.functionality
+def test_the_balance_sheet_accounts_are_read_from_the_origin_when_there_is_no_opening(monkeypatch):
+    without = Experio(monkeypatch, opening=False)
+    accounts.read_accounts("s1", 7, 2026)
+    for prefix in ("51", "3455", "21"):
+        assert read_of(without, prefix)[3]["since_origin"] is True, prefix
+    assert read_of(without, "6")[3].get("since_origin") is None  # the result and the months: movements of the exercice
+    assert all("since_origin" not in read[3] for read in without.reads if read[1] == ["date:month"])
+    with_opening = Experio(monkeypatch, opening=True)
+    accounts.read_accounts("s1", 7, 2026)
+    assert read_of(with_opening, "51")[3]["since_origin"] is False
+
+
+@pytest.mark.functionality
+def test_the_biggest_third_parties_are_read_by_amount_and_the_total_apart_so_a_long_list_is_never_cut_by_name(
+    monkeypatch,
+):
+    experio = Experio(monkeypatch, partners=500)
+    found = accounts.read_accounts("s1", 7, 2026)
+    clients = [read for read in experio.reads if read[2] == ("amount_residual",) and read[1] == ["partner_id"]]
+    assert clients[0][3]["orderby"] == "amount_residual desc" and clients[0][3]["limit"] == accounts.TOP
+    assert clients[1][3]["orderby"] == "amount_residual asc"  # the suppliers: the biggest creditors first
+    rows, total = found["clients"]
+    assert len(rows) == accounts.TOP and total == 900.0
+    assert any(read[1] == [] and read[3]["limit"] == 1 for read in experio.reads)  # the total of all, one row
+
+
+@pytest.mark.functionality
+def test_a_plan_of_exactly_the_limit_is_read_as_too_long_and_the_assets_are_then_not_read(monkeypatch):
+    many = [account(f"6{n:07d}", "Compte", 1.0, 0.0) for n in range(accounts.ALL)]
+    experio = Experio(monkeypatch, results=many)
+    found = accounts.read_accounts("s1", 7, 2026)
+    assert found["whole"] is False and found["assets"] == [] and read_of(experio, "21") is None
+    assert accounts.result_table(found) == (None, None)
+    Experio(monkeypatch, results=many[:-1])
+    assert accounts.read_accounts("s1", 7, 2026)["whole"] is True
 
 
 @pytest.mark.security

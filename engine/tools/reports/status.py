@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 from engine.tools.core.app import ToolError, tool
 from engine.tools.core.words import counted
-from engine.tools.dossiers.people import check_sender
+from engine.tools.data.query import opened
 from engine.tools.dossiers.progress import (
     BOOKED,
     DECLARATION_STATES,
@@ -196,11 +196,13 @@ REPORTS = {
 
 def statut(session_id, dossier_id, year):
     """Return the Document of dossier ``dossier_id``'s status for the exercice of ``year`` (0: the latest). Raises
-    ToolError when the conversation's sender may not read the dossier (check_sender) or Experio can't answer."""
-    allowed = check_sender(session_id, dossier_id)
-    if allowed["status"] == "stop":
-        raise ToolError(allowed["message"])
+    ToolError when the conversation may not read the dossier (query.opened: the sender checked, one dossier in the
+    chat) or Experio can't answer."""
+    opened(dossier_id, session_id)
     return status_document({**status_of(dossier_id, year), "id": dossier_id})
+
+
+KINDS = {"statut": statut, "comptes": comptes}  # what makes each kind of REPORTS
 
 
 @tool
@@ -208,13 +210,12 @@ def make_report(session_id: str, kind: str, dossier_id: int, formats: list, year
     """Make a report on dossier ``dossier_id`` (``kind``: one of REPORTS; "statut": where it stands in Experio;
     "comptes": the exercice's accounts) as ``formats`` (docx, xlsx, pdf, md, tex), for the exercice of ``year`` (0: its
     latest), and keep the files in conversation ``session_id``'s outbox (files.written). The conversation must be
-    allowed to read the dossier, as for any work on it (check_sender; the accounts as query_data: one dossier in the
-    chat).
+    allowed to read the dossier, as for any reading of it (query.opened: the sender checked, one dossier in the chat).
 
     Returns French text saying which files were made. Raises ToolError for an unknown kind or format, a conversation
     that may not read the dossier, an exercice the dossier lacks, Experio not answering, or what files.written
     refuses."""
-    if kind not in REPORTS:
+    if kind not in KINDS:
         raise ToolError(f"Rapport : un type parmi {', '.join(REPORTS)} (pas « {kind} »).")
     wanted = formats_of(formats)  # before any Experio read: a wrong format, or an outbox already full, costs nothing
     if not session_id:
@@ -222,5 +223,4 @@ def make_report(session_id: str, kind: str, dossier_id: int, formats: list, year
     if year and not 1990 <= year <= 2100:
         raise ToolError(f"Exercice : une année entre 1990 et 2100 (pas {year}).")
     room(session_id, len(wanted))
-    document = (statut if kind == "statut" else comptes)(session_id, dossier_id, year)
-    return written(session_id, document, formats, filename)
+    return written(session_id, KINDS[kind](session_id, dossier_id, year), formats, filename)
