@@ -232,3 +232,6 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-documents-20261109.json`: the agent's description of the new tool `Tarik_document` (`agent.json`,
   `own_tools`): reports and analyses as Word, Excel, PDF, Markdown or LaTeX files. Import it once the stack runs the
   commit that adds the tool: before, the import is refused (the tool is unknown).
+- `tarik-contenu-rapport-statut-20261109.json`: the agent's description of the new tool `Tarik_rapport` (`agent.json`,
+  `own_tools`): the dossier status report as Word, Excel, PDF, Markdown or LaTeX files. Import it once the stack runs the
+  commit that adds the tool (and the documents export above): before, the import is refused (the tool is unknown).

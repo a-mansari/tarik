@@ -78,7 +78,7 @@ READ_TOOLS = (
 
 # Agent tools that call a tool of their own directly: no workflow, so check.py and the canvas tests leave them out of
 # what a workflow tool hands over (their names are the functions').
-DIRECT_TOOLS = ("document",)
+DIRECT_TOOLS = ("document", "rapport")
 
 
 def skills():
@@ -490,6 +490,25 @@ async def document(
         return str(failure)
 
 
+@tool("Tarik_rapport", description=DESCRIBED_LATER)
+async def rapport(
+    kind: str, dossier_id: int, formats: list[str], runtime: ToolRuntime, year: int = 0, filename: str = ""
+) -> str:
+    try:
+        return await call(
+            cabinet_of(runtime.config),
+            "make_report",
+            session_id=session_of(runtime.config),
+            kind=kind,
+            dossier_id=dossier_id,
+            formats=formats,
+            year=year,
+            filename=filename,
+        )
+    except ToolFailure as failure:
+        return str(failure)
+
+
 @tool("Experio_archiver_dossier", description=DESCRIBED_LATER)
 async def archiver_dossier(dossier_id: int, runtime: ToolRuntime, client_confirmed: bool = False) -> str:
     return await run_workflow(
@@ -699,6 +718,7 @@ TOOLS = [read_tool(name) for name in READ_TOOLS] + [
     routine,
     reglages,
     document,
+    rapport,
     archiver_dossier,
     solder_ecart,
     declaration_tva,

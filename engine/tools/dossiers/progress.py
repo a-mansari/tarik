@@ -289,10 +289,13 @@ def told(dossier, exercice, progress, invoices, statements, suspense, declaratio
     return "\n\n".join(blocks), figures
 
 
-def progress_of_many(dossiers, year=0):
-    """Return {dossier id: (text, figures)} of ``dossiers`` ([{id, name}], Tarik opens them all), as progress_of
-    says each, in the same 26 Experio calls whatever their number. ``year``: the exercice's, 0 for each one's latest.
-    One dossier Experio refuses fails them all."""
+def collected(dossiers, year=0):
+    """Return {dossier id: what Experio counts of it}: name, exercice (its row or None), progress (the tuple
+    experio_progress gives), states and payments (invoice counts {(type, state): n}), statements ({model: (statements,
+    operations)} counted {state: n}), suspense, year (the exercice's, None without one) and declarations
+    (declarations_of, every dossier's: read each dossier's own periods). ``dossiers``: [{id, name}], Tarik opens them
+    all; ``year``: the exercice's, 0 for each one's latest. The same Experio calls whatever their number (26); one
+    dossier Experio refuses fails them all."""
     ids = [dossier["id"] for dossier in dossiers]
     context = {"allowed_company_ids": ids}
     exercices = exercices_of(ids, year, context)
@@ -301,19 +304,52 @@ def progress_of_many(dossiers, year=0):
     statements, suspense = statement_counts(ids, exercices, context)
     years = {i: int(exercice["date_end"][:4]) for i, exercice in exercices.items()}
     declarations = declarations_of(years, context)
-    found = {}
-    for dossier in dossiers:
-        i = dossier["id"]
-        counts = {model: (of(both[0], i), of(both[1], i)) for model, both in statements.items()}
-        found[i] = told(
-            dossier["name"],
-            exercices.get(i),
-            progress[i],
-            invoice_lines(of(states, i), of(payments, i)),
-            statement_lines(counts, suspense.get(i, 0)),
-            suspense.get(i, 0),
-            declaration_lines(declarations, i, years[i]) if i in years else [],
-        )
+    return {
+        dossier["id"]: {
+            "name": dossier["name"],
+            "exercice": exercices.get(dossier["id"]),
+            "progress": progress[dossier["id"]],
+            "states": of(states, dossier["id"]),
+            "payments": of(payments, dossier["id"]),
+            "statements": {
+                model: (of(both[0], dossier["id"]), of(both[1], dossier["id"])) for model, both in statements.items()
+            },
+            "suspense": suspense.get(dossier["id"], 0),
+            "year": years.get(dossier["id"]),
+            "declarations": declarations,
+        }
+        for dossier in dossiers
+    }
+
+
+def told_of(dossier_id, found):
+    """Return (text, figures) of a dossier from what collected() holds of it, as told() says them."""
+    return told(
+        found["name"],
+        found["exercice"],
+        found["progress"],
+        invoice_lines(found["states"], found["payments"]),
+        statement_lines(found["statements"], found["suspense"]),
+        found["suspense"],
+        declaration_lines(found["declarations"], dossier_id, found["year"]) if found["year"] else [],
+    )
+
+
+def progress_of_many(dossiers, year=0):
+    """Return {dossier id: (text, figures)} of ``dossiers`` ([{id, name}], Tarik opens them all), as progress_of
+    says each, in the same 26 Experio calls whatever their number. ``year``: the exercice's, 0 for each one's latest.
+    One dossier Experio refuses fails them all."""
+    return {i: told_of(i, found) for i, found in collected(dossiers, year).items()}
+
+
+def status_of(dossier_id, year=0):
+    """Return what Experio counts of dossier ``dossier_id`` (collected()'s entry). Raises ToolError as dossier_progress
+    does: Experio can't give the counts, or the dossier has no exercice ``year``."""
+    dossier = require_dossier(dossier_id)
+    with refused(f"dossier_progress {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner son état."):
+        found = collected([{"id": dossier_id, "name": dossier}], year)[dossier_id]
+    if year and not found["exercice"]:  # told() names every exercice found
+        raise ToolError(f"Le dossier `{dossier}` n'a pas d'exercice {year} dans Experio.")
     return found
 
 
@@ -321,12 +357,7 @@ def progress_of(dossier_id, year=0):
     """Return (text, figures): where a dossier stands, as dossier_progress says it, and its figures for a table
     (dossier, progress in % or None, pieces booked and all, operations booked and all, operations in suspense,
     exercice). Raises ToolError as dossier_progress does."""
-    dossier = require_dossier(dossier_id)
-    with refused(f"dossier_progress {dossier_id}", f"Dossier `{dossier}` : Experio n'a pas pu donner son état."):
-        text, figures = progress_of_many([{"id": dossier_id, "name": dossier}], year)[dossier_id]
-    if year and not figures["exercice"]:  # told() names every exercice found
-        raise ToolError(f"Le dossier `{dossier}` n'a pas d'exercice {year} dans Experio.")
-    return text, figures
+    return told_of(dossier_id, status_of(dossier_id, year))
 
 
 @tool
