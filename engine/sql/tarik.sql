@@ -116,6 +116,19 @@ and session_id = (select session_id from tarik_files where invoice_id = %s limit
 -- Whether this conversation already worked in a dossier: a step recorded with it.
 select 1 from tarik_results where session_id = %s and dossier_id = %s limit 1
 
+-- name: dossiers_of_session
+-- === engine/tools/data/query.py ===
+-- Every dossier this conversation worked in: a step recorded with it.
+select distinct dossier_id from tarik_results where session_id = %s and dossier_id is not null
+
+-- name: bind_session_dossier
+-- The dossier a conversation without a sender (the chat, a routine's period) reads: the first one it asked for.
+insert into tarik_session_dossiers (session_id, dossier_id) values (%s, %s) on conflict (session_id) do nothing
+
+-- name: session_dossier
+-- The dossier a conversation without a sender is bound to.
+select dossier_id from tarik_session_dossiers where session_id = %s
+
 -- name: dossiers_created_in_session
 -- The dossiers this conversation already created.
 select distinct dossier_id from tarik_results where session_id = %s and

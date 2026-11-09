@@ -258,6 +258,12 @@ def check_sender(session_id: str, dossier_id: int = 0, invoice_id: int = 0) -> d
     address = sender_of(session_id)
     if address is None:
         return routine("Conversation sans expéditeur à vérifier.")
+    return allowed_on(address, dossier_id, dossier)
+
+
+def allowed_on(address, dossier_id, dossier):
+    """Return the check_sender result for the sender ``address`` (an email or WhatsApp sender) and dossier
+    ``dossier_id`` named ``dossier``: a routine result when they are Experio staff or have the dossier, else a stop."""
     user = collaborator(address)
     if not user:
         return stop(
