@@ -420,9 +420,11 @@ async def unread(cabinet, email):
 
 
 async def read(run_id, email):
-    """Record that account ``email`` opened run ``run_id``."""
+    """Record that account ``email`` opened run ``run_id``: the run started on its own that it belongs to, the one
+    the unread count is made of."""
     async with pool.connection() as db:
-        await db.execute(Q.run_read, {"email": email, "run_id": run_id})
+        root = (await (await db.execute(Q.run_root, (run_id,))).fetchone())[0]
+        await db.execute(Q.run_read, {"email": email, "run_id": root})
 
 
 async def read_all(cabinet, email):

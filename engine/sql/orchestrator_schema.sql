@@ -77,6 +77,7 @@ create table if not exists sessions (
 -- A run counts as unread for an account while it started after the account's runs_baseline (its creation, or this
 -- column's addition) and the account has not opened it.
 alter table users add column if not exists runs_baseline timestamptz not null default now();
+create index if not exists runs_top on runs (cabinet, started_at) where parent_id is null;  -- the unread count
 create table if not exists runs_read (
     email text not null references users (email) on delete cascade,
     run_id uuid not null references runs (id) on delete cascade,

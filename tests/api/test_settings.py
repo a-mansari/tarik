@@ -242,7 +242,13 @@ def test_a_cabinet_is_switched_off_and_on_but_never_the_last_active_one(settings
     async def serve(cabinet):
         served.append(cabinet)
 
+    entries = []
+
+    async def record(author, action, target, **kw):
+        entries.append((action, target))
+
     monkeypatch.setattr(api.settings.experio_api, "serve", serve)
+    monkeypatch.setattr(api.settings.audit, "record", record)
     monkeypatch.setattr(api.settings.cabinets, "reload_cabinets", lambda: None)
     monkeypatch.setattr(api.settings.cabinets, "CABINETS", {"cabinet_a"})
     status, data, _ = asked(api.settings.activation, "POST", {"cabinet": "cabinet_a", "active": "0"})
@@ -256,4 +262,5 @@ def test_a_cabinet_is_switched_off_and_on_but_never_the_last_active_one(settings
     status, data, _ = asked(api.settings.activation, "POST", {"cabinet": "cabinet_b", "active": "1"})
     assert status == 200 and data == {"cabinet": "cabinet_b", "active": True}
     assert vault[0]["data"]["ACTIVE"] == "1" and served == ["cabinet_b"]
+    assert entries[-1] == ("cabinet_reactivated", "cabinet_b")
     assert asked(api.settings.activation, "POST", {"cabinet": "cabinet_b", "active": "x"})[0] == 400

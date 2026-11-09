@@ -77,7 +77,7 @@ function trimHint(f) {
     </div></div>
     <div v-if="problem" class="panel bad" role="alert"><b>Non enregistré :</b> {{ problem }}</div>
     <section class="panel" aria-label="Activation des cabinets">
-      <p>Ce cabinet est <b>actif</b>.
+      <p v-if="data.cabinet">Ce cabinet est <b>actif</b>.
         <button type="button" @click="activate(data.cabinet, false)">Désactiver ce cabinet</button></p>
       <p v-for="c in data.inactive" :key="c.name">
         <CabinetLabel :name="c.name" /><template v-if="c.display"> ({{ c.display }})</template> est <b>désactivé</b>.

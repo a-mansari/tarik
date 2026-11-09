@@ -85,7 +85,8 @@ insert into runs_read select email, %(run_id)s::uuid from users where email = %(
 
 -- name: runs_read_all
 -- This account has read every run of the cabinet started so far.
-insert into runs_read select u.email, r.id from users u, runs r where u.email = %(email)s and r.cabinet = %(cabinet)s
+insert into runs_read select u.email, r.id from users u, runs r
+where u.email = %(email)s and r.cabinet = %(cabinet)s and r.parent_id is null and r.started_at > u.runs_baseline
 on conflict do nothing
 
 -- name: runs_cabinets
