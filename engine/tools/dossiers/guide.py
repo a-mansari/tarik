@@ -8,6 +8,8 @@ but the one on what Tarik may do alone: ticking "post_clear" is the dossier's po
 by the form as that one flag. Each rule gets its behaviour when Tarik is made to follow it; until then the answers are
 the dossier's recorded preferences, which the form says."""
 
+import re
+
 from engine.tools.core.app import ToolError
 
 NOTE_SIZE, OTHER_SIZE = 500, 200
@@ -277,6 +279,12 @@ def as_list(value):
     return value if isinstance(value, list) else [value]
 
 
+def clean(text):
+    """Return ``text`` without the characters that make a link, a tag or a code span in the emails Tarik writes: what a
+    client types in a precision is shown back to them, never as a clickable link."""
+    return re.sub(r"[\[\]<>`]", "", text)
+
+
 def first(answers, key):
     """Return the one text posted for ``key`` in ``answers`` ("" when none)."""
     return (as_list(answers.get(key)) or [""])[0].strip()
@@ -304,7 +312,7 @@ def read(answers, stored):
     for number, question in enumerate(QUESTIONS, 1):
         name = question["id"]
         chosen = list(dict.fromkeys(key for key in as_list(answers.get(name)) if key))
-        note = first(answers, f"{name}__note")[:NOTE_SIZE]
+        note = clean(first(answers, f"{name}__note"))[:NOTE_SIZE]
         cleared = not chosen and f"{name}__seen" in answers and name in stored
         if not (chosen or note or cleared):
             continue
@@ -315,7 +323,7 @@ def read(answers, stored):
         alone = next((options[key] for key in chosen if options[key].get("exclusive")), None)
         if alone and len(chosen) > 1:
             raise ToolError(f"{where} : « {alone['label']} » ne va pas avec un autre choix.")
-        other = first(answers, f"{name}__other")[:OTHER_SIZE]
+        other = clean(first(answers, f"{name}__other"))[:OTHER_SIZE]
         wants_other = [options[key] for key in chosen if options[key].get("other")]
         if wants_other and not other:
             raise ToolError(f"{where} : précisez votre réponse.")

@@ -131,7 +131,10 @@ off. It starts with what Experio keeps for the dossier (type, ICE, IF, TVA frequ
 it and written back only when the client changes it. Then come twelve questions on how Tarik should work on this
 dossier: the sales accounts, mixed invoices, unknown tiers; the bank (what to reconcile, a movement without a document,
 the amount above which Tarik asks); doubtful documents; and what Tarik may validate, change or delete alone and when it
-reports. All are optional, each takes a free precision, and the answers are kept for the dossier. For now only one
+reports. All are optional, each takes a free precision, and the answers are kept for the dossier. Once the form is sent in,
+Tarik writes back in the conversation the form came from (a reply in the email thread, or a WhatsApp text; nothing in
+the chat, whose page says thanks): what it did in Experio, what it recorded for the dossier, and, when the client
+asked for it, that it now posts verified invoices without being asked. For now only one
 acts: ticking « Comptabiliser les pièces claires » is the dossier's setting to post its verified invoices unasked; the
 others are recorded preferences that Tarik will follow as each is built. The Comportement page sets the cabinet-wide
 defaults (« Réglages des dossiers »: posting). Without a public address (`PUBLIC_URL`), or if the client prefers to

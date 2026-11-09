@@ -215,7 +215,7 @@ Covers what a deployment needs: nothing hard-coded, everything in `.env.example`
 ## 5. dossiers
 
 ### tests/dossiers/test_form.py
-A new dossier's form: its one-time link (none without PUBLIC_URL), the steps it shows (Experio's, then the twelve guide questions), what filling it writes to Experio and keeps per dossier (the guide's answers with their precision, post_invoices through the "validate alone" question), refusals that name only the question and leave it open, expiry, test mode, new invoices posted unasked for a dossier set to, and the open page (cabinet isolation, escaping, every question without a script, the script's nonce, nothing loaded from elsewhere).
+A new dossier's form: its one-time link (none without PUBLIC_URL), the steps it shows (Experio's, then the twelve guide questions), what filling it writes to Experio and keeps per dossier (the guide's answers with their precision, post_invoices through the "validate alone" question), refusals that name only the question and leave it open, expiry, test mode, new invoices posted unasked for a dossier set to, the confirmation written back in the conversation (the email thread with its reply headers, WhatsApp, nothing in the chat, a failure never undoing the form), and the open page (cabinet isolation, escaping, every question without a script, the script's nonce, nothing loaded from elsewhere).
 
 ### tests/dossiers/test_management.py
 Covers dossier lists, people and archiving, written only on the client's yes.

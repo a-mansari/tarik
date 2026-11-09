@@ -6,7 +6,7 @@ from starlette.testclient import TestClient
 
 from engine.tools.core.app import ToolError
 from engine.tools.core.cabinets import cabinet_db
-from engine.tools.dossiers import behaviour, form, guide, identity
+from engine.tools.dossiers import behaviour, form, form_reply, guide, identity
 from engine.tools.dossiers.form_link import form_link
 from engine.tools.invoices import pipeline
 
@@ -440,3 +440,133 @@ def test_a_refused_page_ticks_the_radio_that_changes_nothing_again_and_opens_on_
     assert "'unsafe-inline'" not in back.headers["content-security-policy"]
     nonce = back.headers["content-security-policy"].split("'nonce-")[1].split("'")[0]
     assert f'<style nonce="{nonce}">' in back.text
+
+
+@pytest.fixture
+def written(experio, monkeypatch):
+    """What Tarik writes back to the client: the mail replies (thread, reply headers, text) and the WhatsApp texts."""
+    out = {"mail": [], "whatsapp": []}
+    monkeypatch.setattr(
+        form_reply, "sent_in_thread", lambda thread, reply, text: out["mail"].append((thread, reply, text))
+    )
+    monkeypatch.setattr(form_reply, "whatsapp_recipient", lambda session_id: "rid-1" if session_id == "wa-1" else None)
+    monkeypatch.setattr(form_reply, "send", lambda recipient, text: out["whatsapp"].append((recipient, text)))
+    return out
+
+
+def a_mail_thread(session_id, thread_id="<t1@client.ma>"):
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_mail_threads (thread_id, session_id, client_address, subject) values (%s, %s, %s, %s)",
+            (thread_id, session_id, "client@societe.ma", "Créez le dossier ALPHA"),
+        )
+        db.execute(
+            "insert into tarik_mail_messages (message_id, thread_id, uid, from_address, subject, body, references_ids) "
+            "values (%s, %s, 1, %s, %s, %s, %s)",
+            ("<m1@client.ma>", thread_id, "client@societe.ma", "Créez le dossier ALPHA", "Bonjour", "<r0@client.ma>"),
+        )
+
+
+@pytest.mark.functionality
+def test_a_form_from_an_email_is_answered_in_that_thread_with_what_acted_and_what_was_kept(written):
+    a_mail_thread("mail-1")
+    done = form.fill_form(
+        token_of(form_link(7, "mail-1")),
+        {
+            "declaration_mode": "monthly",
+            "regime_type": "encaissement",
+            "reconcile": "safe",
+            "validate_alone": ["post_clear"],
+        },
+    )
+    assert done.confirmed is True and len(written["mail"]) == 1
+    thread, reply, text = written["mail"][0]
+    assert (
+        thread == "<t1@client.ma>"
+        and reply["to"] == "client@societe.ma"
+        and reply["subject"] == "Re: Créez le dossier ALPHA"
+    )
+    assert reply["in_reply_to"] == "<m1@client.ma>" and reply["references"] == "<r0@client.ma>"
+    assert "dossier « ALPHA »" in text
+    applied, recorded = text.split("**Enregistré pour ce dossier :**")
+    assert "Déclaration de TVA : mensuelle" in applied and "Régime de TVA" not in applied  # only what changed
+    assert (
+        "Rapprochement : Lignes sûres seulement" in recorded
+        and "Validation seul : Comptabiliser les pièces claires" in recorded
+    )
+    assert "je comptabiliserai désormais les factures vérifiées sans attendre votre demande" in recorded
+    assert written["whatsapp"] == []
+
+
+@pytest.mark.functionality
+def test_turning_posting_off_and_a_form_that_changes_nothing_say_so(written):
+    a_mail_thread("mail-1")
+    behaviour.set_for_dossier(7, "post_invoices", True, "client@societe.ma")
+    form.fill_form(token_of(form_link(7, "mail-1")), {"validate_alone": ["draft"]})
+    assert "Je ne comptabiliserai plus les factures vérifiées sans votre demande." in written["mail"][0][2]
+    form.fill_form(token_of(form_link(7, "mail-1")), {"regime_type": "encaissement"})  # the dossier's own value
+    assert "rien n'a changé" in written["mail"][1][2] and "Enregistré" not in written["mail"][1][2]
+
+
+@pytest.mark.functionality
+def test_a_whatsapp_conversation_gets_a_plain_text_and_a_chat_one_nothing(written):
+    done = form.fill_form(token_of(form_link(7, "wa-1")), {"reconcile": "all"})
+    recipient, text = written["whatsapp"][0]
+    assert done.confirmed and recipient == "rid-1" and "**" not in text and "Rapprochement : Chaque ligne" in text
+    other = form.fill_form(token_of(form_link(7, "chat-9")), {"reconcile": "all"})
+    assert other.confirmed is False and len(written["whatsapp"]) == 1 and written["mail"] == []
+
+
+@pytest.mark.technical
+def test_a_confirmation_that_cannot_be_sent_never_undoes_the_form(written, monkeypatch):
+    a_mail_thread("mail-1")
+
+    def down(*args):
+        raise ToolError("SMTP refused")
+
+    monkeypatch.setattr(form_reply, "sent_in_thread", down)
+    token = token_of(form_link(7, "mail-1"))
+    done = form.fill_form(token, {"reconcile": "all"})
+    assert done.confirmed is False and stored()["guide_reconcile"]["sel"] == ["all"]
+    with pytest.raises(ToolError, match="déjà été rempli"):  # taken for good
+        form.open_form(token)
+
+
+@pytest.mark.security
+def test_nothing_is_written_back_in_test_mode_nor_after_a_refusal(written, monkeypatch):
+    a_mail_thread("mail-1")
+    monkeypatch.setattr(form, "dry_run", lambda: True)
+    assert form.fill_form(token_of(form_link(7, "mail-1")), {"reconcile": "all"}).confirmed is False
+    monkeypatch.setattr(form, "dry_run", lambda: False)
+    with pytest.raises(ToolError):
+        form.fill_form(token_of(form_link(7, "mail-1")), {"ice": "12ab", "reconcile": "all"})
+    assert written["mail"] == [] and written["whatsapp"] == []
+
+
+@pytest.mark.communication
+def test_the_thank_you_page_says_it_wrote_back_only_when_it_did(written, db_cabinet):
+    from server.server import app
+
+    a_mail_thread("mail-1")
+    client = TestClient(app)
+    sent = client.post(f"/formulaire/{db_cabinet}/{token_of(form_link(7, 'mail-1'))}", content="reconcile=all")
+    assert sent.status_code == 200 and "Je vous ai aussi écrit pour confirmer" in sent.text
+    silent = client.post(f"/formulaire/{db_cabinet}/{token_of(form_link(7, 'chat-9'))}", content="reconcile=all")
+    assert silent.status_code == 200 and "Merci" in silent.text and "Je vous ai aussi écrit" not in silent.text
+
+
+@pytest.mark.security
+def test_a_precision_never_reaches_the_client_as_a_link_or_a_tag(written):
+    a_mail_thread("mail-1")
+    form.fill_form(
+        token_of(form_link(7, "mail-1")),
+        {
+            "reconcile": "all",
+            "reconcile__note": "[Voir votre facture](http://evil.example) <b>vite</b> `x`",
+            "sales_accounts": ["other"],
+            "sales_accounts__other": "[7125](http://evil.example)",
+        },
+    )
+    text = written["mail"][0][2]
+    assert "](" not in text and "<b>" not in text and "`" not in text and "[" not in text
+    assert stored()["guide_reconcile"]["note"] == "Voir votre facture(http://evil.example) bvite/b x"
