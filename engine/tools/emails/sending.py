@@ -23,16 +23,11 @@ from engine.tools.core.app import ToolError, log, ok, tool
 from engine.tools.core.cabinets import cabinet_db, current, setting
 from engine.tools.core.experio import main_company_id, odoo_call
 from engine.tools.core.queries import Q
-from engine.tools.core.words import strip_tags
+from engine.tools.core.words import BOLD, CODE, ITALIC, LINK, strip_tags
 
 MAIL_TIMEOUT = 60  # seconds before the mail server is given up
 
-BOLD = re.compile(r"\*\*(.+?)\*\*|(?<!\w)__(.+?)__(?!\w)")  # **text** or __text__, never inside a word (a__b__c)
-# *text*: single stars, not inside a word nor next to another star, the text not starting or ending with a space.
-ITALIC = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])")
-CODE = re.compile(r"`([^`\n]+)`")  # `text` on one line: a file name, kept as written
 CODE_HTML = '<code style="background:#f2f2f2;padding:1px 4px;border-radius:3px">{}</code>'
-LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")  # [label](http(s) address)
 BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+")  # a list item's mark at a line's start: -, *, •, "1." or "1)"
 NUMBERED = re.compile(r"^\s*\d+[.)]\s+")  # a numbered item: kept numbered, the client answers « 1 oui, 2 non »
 HEADING = re.compile(r"^\s*#{1,6}\s*")  # a Markdown heading's leading #s

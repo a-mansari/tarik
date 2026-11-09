@@ -23,6 +23,7 @@ import httpx
 
 from engine.tools.core.app import log
 from engine.tools.core.cabinets import setting
+from engine.tools.core.words import BOLD, CODE, ITALIC, LINK
 
 # IPv4 only, as experio.py's: the container has no IPv6 route, httpx does not fall back, Sparrow has AAAA records.
 HTTP: Final = httpx.Client(transport=httpx.HTTPTransport(local_address="0.0.0.0"), timeout=httpx.Timeout(15, connect=5))
@@ -63,51 +64,44 @@ def moroccan(phone):
     return number if re.fullmatch(r"212\d{9}", number) else None
 
 
-BOLD, END = "\x00", "\x01"  # marks for a bold span while the other spans are rewritten
-SEPARATOR = re.compile(r":?-{2,}:?")
-
-
-def table_lines(lines):
-    """Return markdown ``lines`` with each table as plain lines (WhatsApp has no tables): the header bold, each row its
-    cells joined by " · " after a dash."""
-    found = []
-    for number, line in enumerate(lines):
-        if not re.fullmatch(r"\s*\|.*\|\s*", line):
-            found.append(line)
-            continue
-        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if all(SEPARATOR.fullmatch(cell) for cell in cells if cell):
-            continue
-        after = lines[number + 1] if number + 1 < len(lines) else ""
-        header = bool(re.fullmatch(r"\s*\|[\s:|-]+\|\s*", after)) and "-" in after
-        joined = " · ".join(cell for cell in cells if cell)
-        found.append(f"{BOLD}{joined}{END}" if header else f"- {joined}")
-    return found
-
-
-def rewritten(text):
-    """Return markdown ``text`` (outside code) in WhatsApp's own marks: *bold*, _italic_, headings as bold lines, links
-    as "name (address)", tables as lines, dash bullets."""
-    text = text.replace(BOLD, "").replace(END, "")
-    text = "\n".join(table_lines(text.split("\n")))
-    text = re.sub(r"^\s*#{1,6}\s*(.+?)\s*#*\s*$", lambda m: BOLD + m.group(1).replace("**", "") + END, text, flags=re.M)
-    text = re.sub(r"^(\s*)[*+] ", r"\1- ", text, flags=re.M)  # a "* " bullet is not an italic mark
-    text = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: BOLD + (m.group(1) or m.group(2)) + END, text)
-    text = re.sub(r"(?<![\w*])\*(?![\s*])(.+?)(?<![\s*])\*(?![\w*])", r"_\1_", text)
-    text = re.sub(
-        r"\[([^\]]+)\]\(([^)\s]+)\)",
-        lambda m: m.group(2) if m.group(1) == m.group(2) else f"{m.group(1)} ({m.group(2)})",
-        text,
-    )
-    text = re.sub(r"^\s*([-*_]\s*){3,}$", "", text, flags=re.M)
-    return text.replace(BOLD, "*").replace(END, "*")
+REWRITE_LIMIT = 10_000  # characters: a longer reply is sent as it is (the rewrite is quadratic on crafted text)
+TRIPLE = re.compile(r"\*\*\*([^*\n]+?)\*\*\*")  # ***text***: bold and italic
+STRIKE = re.compile(r"~~([^~\n]+?)~~")
+FENCE = re.compile(r"```.*?```", re.S)
+HEADING = re.compile(r"^[ \t]*#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$", re.M)  # "## Title", not a dossier's "#857"
+BULLET = re.compile(r"^([ \t]*)[*+•][ \t]+", re.M)
+RULE = re.compile(r"^[ \t]*([-*_][ \t]*){3,}$", re.M)
+BOLD_MARK = "\x01"  # a bold span's mark until the end, so a rewritten * is never read as an italic's
 
 
 def whatsapp_text(markdown):
-    """Return the reply ``markdown`` as WhatsApp shows it: its marks rewritten (rewritten), code spans and fenced code
-    kept as they are (WhatsApp renders them), blank lines reduced to one."""
-    pieces = re.split(r"(```.*?```|`[^`\n]+`)", markdown, flags=re.S)
-    text = "".join(piece if index % 2 else rewritten(piece) for index, piece in enumerate(pieces))
+    """Return Tarik's reply ``markdown`` as WhatsApp shows it: bold and italic and strike in its own marks (*bold*,
+    _italic_, ~strike~), a heading as a bold line, "* " bullets as dashes, a link as "name (address)", a rule dropped,
+    blank lines reduced to one. Code spans and fenced code stay as they are (WhatsApp renders them).
+
+    Apply it once, to the reply as Tarik wrote it. A reply over REWRITE_LIMIT is returned as it is. Tables are not
+    rewritten: Tarik is not told to write any, and their pipes read well enough."""
+    if len(markdown) > REWRITE_LIMIT:
+        return markdown
+    codes = []
+
+    def keep(found):
+        codes.append(found.group(0))
+        return f"\x00{len(codes) - 1}\x00"
+
+    text = CODE.sub(keep, FENCE.sub(keep, markdown.replace("\x00", "").replace(BOLD_MARK, "")))
+    text = HEADING.sub(lambda found: "**" + found.group(1).replace("**", "") + "**", text)
+    text = BULLET.sub(r"\1- ", text)
+    text = TRIPLE.sub(rf"{BOLD_MARK}_\1_{BOLD_MARK}", text)
+    text = ITALIC.sub(r"_\1_", text)
+    text = BOLD.sub(lambda found: f"{BOLD_MARK}{found.group(1) or found.group(2)}{BOLD_MARK}", text)
+    text = STRIKE.sub(r"~\1~", text)
+    text = LINK.sub(
+        lambda found: found.group(2) if found.group(1) == found.group(2) else f"{found.group(1)} ({found.group(2)})",
+        text,
+    )
+    text = RULE.sub("", text).replace(BOLD_MARK, "*")
+    text = re.sub(r"\x00(\d+)\x00", lambda found: codes[int(found.group(1))], text)
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 

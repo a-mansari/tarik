@@ -126,6 +126,10 @@ def file(name, mime, data=b"%PDF-1.4"):
     return {"file": base64.b64encode(data).decode(), "mimetype": mime, "filename": name}
 
 
+def saved(world):
+    return [event[1] for event in world.events if event[0] == "save"]
+
+
 def sent(world):
     return [event[2] for event in world.events if event[0] == "send"]
 
@@ -218,8 +222,8 @@ def test_texts_sent_together_are_read_in_the_order_they_came_one_per_line(world)
 
 @pytest.mark.functionality
 def test_a_person_who_waits_between_messages_gets_one_answer_each_one_after_the_other(world):
-    world.pause, world.send_pause = 0.1, 0.05
-    assert forward(text("m1", "un"), text("m2", "deux"), pause=0.12) == [200, 200]  # the first is already answered
+    world.pause, world.send_pause = 0.05, 0.05
+    assert forward(text("m1", "un"), text("m2", "deux"), pause=0.3) == [200, 200]  # the first is already answered
     assert [event[:2] for event in world.events] == [
         ("start", "un"),
         ("end", "un"),
@@ -232,7 +236,7 @@ def test_a_person_who_waits_between_messages_gets_one_answer_each_one_after_the_
 
 @pytest.mark.functionality
 def test_a_message_sent_while_the_last_is_answered_waits_for_its_turn_as_a_group_of_its_own(world):
-    world.pause = 0.2
+    world.pause = 0.4
     assert forward(text("m1", "un"), text("m2", "deux"), text("m3", "trois"), pause=0.12) == [200] * 3
     starts = [event[1] for event in world.events if event[0] == "start"]
     assert starts == ["un", "deux\ntrois"]  # m2 and m3 came during m1's run: grouped, answered after it
@@ -247,6 +251,43 @@ def test_a_person_who_never_stops_is_answered_all_the_same(world, monkeypatch):
     starts = [event[1] for event in world.events if event[0] == "start"]
     assert len(starts) >= 2  # cut at MAX_WAIT, never waiting for a silence that does not come
     assert "\n".join(starts).split("\n") == [str(n) for n in range(8)]  # nothing lost, nothing twice, in order
+
+
+@pytest.mark.security
+def test_what_a_person_sends_at_once_is_capped_and_the_extra_is_told_once_never_held(world, monkeypatch):
+    monkeypatch.setattr(whatsapp, "MAX_FILES", 2)
+    pages = [{**text(f"m{n}", ""), **file(f"p{n}.pdf", "application/pdf", b"%PDF-1.4" + bytes([n]))} for n in range(5)]
+    assert forward(*pages) == [200] * 5
+    assert saved(world) == [["p0.pdf", "p1.pdf"]]  # the first two, the others dropped
+    assert sent(world).count(whatsapp.TOO_MUCH) == 1  # said once, not once per page
+    monkeypatch.setattr(whatsapp, "BYTES", 10)  # the weight of a page is 9 bytes
+    world.events.clear()
+    assert forward(
+        {**text("n1", ""), **file("a.pdf", "application/pdf")}, {**text("n2", ""), **file("b.pdf", "application/pdf")}
+    ) == [200, 200]
+    assert saved(world) == [["a.pdf"]] and whatsapp.TOO_MUCH in sent(world)
+    monkeypatch.setattr(whatsapp, "MAX_TEXT", 10)
+    world.events.clear()
+    assert forward(text("t1", "123456"), text("t2", "7890123")) == [200, 200]
+    assert [e[1] for e in world.events if e[0] == "start"] == ["123456"] and whatsapp.TOO_MUCH in sent(world)
+
+
+@pytest.mark.functionality
+def test_a_gathering_cancelled_leaves_no_buffer_behind_to_swallow_the_next_messages(world):
+    async def main():
+        whatsapp.gather("cabinet_a", "amal@cabinet.ma", "wa-session", RECIPIENT, "Bonjour", [])
+        await asyncio.sleep(0)  # the wait has begun
+        for task in list(whatsapp.TASKS):
+            task.cancel()
+        await asyncio.gather(*whatsapp.TASKS, return_exceptions=True)
+        assert whatsapp.BUFFERS == {}
+
+    asyncio.run(main())
+
+
+@pytest.mark.functionality
+def test_nothing_is_left_gathered_once_the_answer_started(world):
+    assert forward(text("m1", "un")) == [200] and whatsapp.BUFFERS == {}
 
 
 @pytest.mark.functionality

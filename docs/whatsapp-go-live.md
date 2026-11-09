@@ -83,7 +83,8 @@ Use the test cabinet. Ask questions that do not write in Experio first.
 5. [ ] **Send two photos at once, with a caption on the first.** They are read as one message and answered once, after
        Tarik has been left alone 10 s (3 s for text only). A message sent while Tarik still answers the last one joins
        the next answer. A voice note gets no answer (Sparrow does not forward it).
-6. [ ] **Look at the reply on your phone**: bold shows as *bold*, lists as dashes, a table as lines. No `**` or `##`.
+6. [ ] **Look at the reply on your phone.** Ask « Résume ma situation en une liste, un titre en gras et un mot barré ». Bold
+       shows as *bold*, lists as dashes, no `**` or `##` or `~~`. (Unchecked on a real phone until this step.)
 7. [ ] **A number that is not enrolled** writes to the same WhatsApp number: no answer from Tarik.
 8. [ ] **Click Retirer.** Expected: « n'écrit plus à Tarik », the row back to « Prêt à activer »; a new message from
        your phone is no longer answered.
@@ -113,7 +114,10 @@ logged, its text only on the server).
 
 - Tarik answers inside WhatsApp's 24 h window only; a routine's report stays on email.
 - Messages sent less than 3 s apart (10 s once a file is among them, 30 s at most in all) are answered as one; a text
-  sent 18 s before its file is not (Tarik answers the text first).
+  sent 18 s before its file is not (Tarik answers the text first). One answer holds 10 files, 60 MB and 4000
+  characters at most: the rest is left out and the person told.
+- A reply over 10 000 characters is sent without the WhatsApp formatting (marks as written), and tables are not
+  rewritten.
 - Moroccan numbers only; the phone is the user's `phone` field as it stood when the page was shown.
 - A message taken and not yet answered when the server restarts is lost: the person sends it again.
 - Not done yet: a WhatsApp label in the Discussions list, a cap on queued answers per person, pruning of

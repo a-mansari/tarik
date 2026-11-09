@@ -1,5 +1,7 @@
 """The Sparrow client: a phone belongs to one host, long texts are cut, the token only travels in the header."""
 
+import time
+
 import httpx
 import pytest
 
@@ -209,7 +211,15 @@ REPLY = (
         ("avant\n\n---\n\naprès", "avant\n\naprès"),
         ("a\n\n\n\nb", "a\n\nb"),
         ("`**gardé**` et ``` \n**aussi**\n```", "`**gardé**` et ``` \n**aussi**\n```"),  # code is left as it is
-        ("| Nom | HT |\n|---|---:|\n| Achat | 100 |\n| Vente | 250 |", "*Nom · HT*\n- Achat · 100\n- Vente · 250"),
+        ("~~annulé~~", "~annulé~"),
+        ("***gras italique***", "*_gras italique_*"),
+        ("**Fichier `a.pdf`** reçu", "*Fichier `a.pdf`* reçu"),  # a code span inside bold
+        ("a__b__c et snake_case_name", "a__b__c et snake_case_name"),  # no mark inside a word
+        ("#857 MOROSOFT : facture\nVoir #12 et #13", "#857 MOROSOFT : facture\nVoir #12 et #13"),  # not headings
+        (
+            "| Nom | HT |\n|---|---:|\n| Achat | 100 |",
+            "| Nom | HT |\n|---|---:|\n| Achat | 100 |",
+        ),  # tables are left as written
         ("**un** et *deux*", "*un* et _deux_"),
     ],
 )
@@ -230,3 +240,13 @@ def test_send_writes_the_markdown_in_whatsapp_s_marks_before_cutting_it(relay):
     sparrow.send(RECIPIENT, "**Fait**\n" + "x" * 5000)
     bodies = [body["content"] for *_, body in relay.sent]
     assert bodies[0].startswith("*Fait*") and all(len(body) <= 4096 for body in bodies)
+
+
+@pytest.mark.security
+def test_a_long_or_crafted_reply_never_stalls_the_rewrite():
+    long = "**x** " * 3000  # over REWRITE_LIMIT: sent as written
+    assert sparrow.whatsapp_text(long) == long
+    started = time.monotonic()
+    for crafted in ("   \n" * 2500, "\n" * 9999, "[" * 9999, "a *b " * 1999, "#" * 9999):
+        sparrow.whatsapp_text(crafted)
+    assert time.monotonic() - started < 3  # each is linear or capped, never minutes
