@@ -4,7 +4,7 @@
 
 from engine.knowledge import cgnc
 from engine.tools.core import experio
-from engine.tools.data import query
+from engine.tools.data import query, reports
 from engine.tools.declarations import payment_delay, ras
 from engine.tools.declarations import tva as tva_declaration
 from engine.tools.dossiers import behaviour, export, identity, management, people, progress, routines, search, setup

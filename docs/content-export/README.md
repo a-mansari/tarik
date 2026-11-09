@@ -238,3 +238,7 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-lecture-donnees-20261109.json`: the agent's descriptions of the two new read tools `Experio_describe_data`
   and `Experio_query_data` (`agent.json`, `read_tools`): the general read-only reading of a dossier's data. Import it
   once the stack runs the commit that adds the tools: before, the import is refused (the tools are unknown).
+- `tarik-contenu-rapports-comptes-20261109.json`: the agent's descriptions of the four report tools `Experio_trial_balance`,
+  `Experio_monthly_totals`, `Experio_partner_balances` and `Experio_account_ledger` (`agent.json`, `read_tools`, with the
+  two general read tools of the export above, so import this one alone), and the skill `skills/analyse-comptes.md`.
+  Import it once the stack runs the commit that adds the tools: before, the import is refused (the tools are unknown).

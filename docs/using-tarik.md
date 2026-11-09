@@ -31,6 +31,9 @@ links to its run, step by step. No sender check there: whoever is logged in writ
   operations in suspense, the chart of accounts, exercices...): read only, one dossier at a time, never anything outside
   the models listed in `engine/tools/data/registry.py`, and only for a sender allowed on that dossier. In the chat, where
   nobody is checked, a conversation reads one dossier (the first it asks for): another dossier is another conversation.
+- A dossier's books for an exercice, said as an accountant says them: the trial balance, a month by month series, what
+  is still open per client or supplier, the ledger of an account. Each ends with its caveats (an exercice not closed is not
+  a final result; no opening entries: the balance sheet accounts show the exercice's movements only).
 
 **Process invoices and bank statements.** An invoice is a purchase (received from a supplier) or a
 sale (issued by the dossier to its own customer): say which, or Tarik asks before anything is made. For
