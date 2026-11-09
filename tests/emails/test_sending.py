@@ -156,11 +156,24 @@ def test_a_cabinet_name_experio_could_not_give_is_asked_again(monkeypatch):
         return answer
 
     monkeypatch.setattr(sending, "_names", {})
+    monkeypatch.setattr(sending, "setting", lambda key, default="": default)
     monkeypatch.setattr(sending, "odoo_call", odoo_call)
     monkeypatch.setattr(sending, "main_company_id", lambda: 1)
     monkeypatch.setattr(sending, "current", lambda: "tarik_test_a")
     assert sending.cabinet_name() == ""
     assert sending.cabinet_name() == sending.cabinet_name() == "CABINET TEST"  # then kept: Experio asked once more
+
+
+@pytest.mark.technical
+def test_a_cabinet_name_setting_is_the_name_and_experio_is_not_asked(monkeypatch):
+    def odoo_call(*args, **kwargs):
+        raise AssertionError("Experio asked")
+
+    monkeypatch.setattr(
+        sending, "setting", lambda key, default="": "BOURSE GESTION" if key == "CABINET_NAME" else default
+    )
+    monkeypatch.setattr(sending, "odoo_call", odoo_call)
+    assert sending.cabinet_name() == "BOURSE GESTION"
 
 
 @pytest.mark.communication

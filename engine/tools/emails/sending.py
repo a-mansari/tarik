@@ -117,9 +117,12 @@ _names = {}  # cabinet -> its name in Experio: read once it could be
 
 
 def cabinet_name():
-    """Return the current cabinet's name in Experio (base.main_company), for the signature.
+    """Return the current cabinet's name: its CABINET_NAME setting, else its name in Experio (base.main_company).
 
-    Cached per cabinet once read; "" while Experio cannot be reached (read again next time)."""
+    The one place the name is decided (the signature, the sidebar). The Experio name is cached per cabinet once read;
+    "" while Experio cannot be reached (read again next time)."""
+    if named := setting("CABINET_NAME", ""):
+        return named
     if current() not in _names:
         try:
             _names[current()] = odoo_call("res.company", "read", [main_company_id()], fields=["name"])[0]["name"]
