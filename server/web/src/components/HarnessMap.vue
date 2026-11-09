@@ -1,4 +1,4 @@
-<!-- Tarik's harness as a flow, left to right (server/api/harness.py): clients and the Experio team write by email or on
+<!-- Tarik's harness as a flow, left to right (server/api/harness.py): clients and the Experio team write by email, by WhatsApp or on
 the Discussion page, a routine starts at its schedule; each reaches Tarik through the conversation it joins (Tarik only
 talks in conversations), his reply going back the same way. Around Tarik what he reaches himself: his skills above,
 his model below, his tools on the right in one lane per family (his read tools, each workflow's, his own base's),
@@ -12,7 +12,7 @@ import { read } from "../api.js";
 import Icon from "./Icon.vue";
 import ZoomBar, { MAX_ZOOM, MIN_ZOOM } from "./ZoomBar.vue";
 
-// Read once (the dashboard remounts on a change of cabinet). Failed: an error status, a broken body or no server.
+// Read once (the page remounts on a change of cabinet). Failed: an error status, a broken body or no server.
 const data = ref(null);
 const failed = ref(false);
 read("/harnais").then(

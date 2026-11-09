@@ -16,6 +16,7 @@ export const router = createRouter({
     { path: "/ui/executions/:run", component: view("Run"), meta: { title: "Exécution", pageClass: "wide" } },
     { path: "/ui/workflows", component: view("Workflows"), meta: { title: "Workflows" } },
     { path: "/ui/workflows/:graph", component: view("Workflow"), meta: { title: "Workflow", pageClass: "wide" } },
+    { path: "/ui/architecture", component: view("Architecture"), meta: { title: "Architecture", pageClass: "wide" } },
     { path: "/ui/discussion", component: view("Chat"), meta: { title: "Discussions" } },
     { path: "/ui/discussion/:session", component: view("Chat"), meta: { title: "Discussion" } },
     { path: "/ui/llm-calls", component: view("Prompts"), meta: { title: "LLM Calls" } },

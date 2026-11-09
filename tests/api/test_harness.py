@@ -44,13 +44,19 @@ def test_the_harness_map_links_tarik_to_each_tool_and_each_tool_to_where_it_acts
     assert all(family[name].startswith("workflow:") for name in tools if name not in read and "Tarik_" not in name)
     assert family["Experio_traiter_fichiers"] == "workflow:traitement"
     assert all(nodes[group]["kind"] == "group" for group in family.values())
-    talks = {("clients", "email"), ("clients", "chat"), ("team", "email"), ("team", "chat")}  # only by these two
-    talks |= {(channel, "conversations") for channel in ("email", "chat", "routine")} | {("conversations", "tarik")}
+    talks = {(who, how) for who in ("clients", "team") for how in ("email", "chat", "whatsapp")}  # only by these three
+    talks |= {(channel, "conversations") for channel in ("email", "chat", "whatsapp", "routine")}
+    talks |= {("conversations", "tarik")}
     assert all((a, b, "request") in edges and (b, a, "reply") in edges for a, b in talks)  # answered the same way back
     assert {(a, b) for a, b, kind in edges if b == "tarik"} == {("conversations", "tarik")}  # only in conversations
     shown = content.LABELS["graphs"]  # the Workflows page's names
     assert nodes["chat"]["name"] == shown["discussion"] and nodes["workflow:traitement"]["name"] == shown["traitement"]
     assert not nodes["email"]["off"] and "tarik-secret" not in body
+    assert nodes["whatsapp"]["off"]  # no Sparrow set up here
+    for name in ("SPARROW_URL", "SPARROW_SENDER_ID", "SPARROW_TOKEN"):
+        monkeypatch.setenv(name, "set-here")
+    _, nodes, _ = harness(db_cabinet)
+    assert not nodes["whatsapp"]["off"] and "set-here" not in json.dumps(nodes)  # told as set, never its value
 
 
 @pytest.mark.security
