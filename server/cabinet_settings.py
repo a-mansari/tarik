@@ -28,6 +28,7 @@ ROLE = "/run/vault-settings"  # the page's AppRole files, mounted by docker-comp
 # a yes/no (DRY_RUN: 1 or 0), an HTTPS address, a positive integer, an address, or a comma-separated list of
 # addresses and @domains.
 FIELDS = {
+    "CABINET_NAME": "text",
     "DRY_RUN": "flag",
     "EXPERIO_URL": "url",
     "ODOO_USER": "text",
@@ -44,7 +45,15 @@ FIELDS = {
     "MODEL_ADAPTER": "adapter",
 }
 # Left empty: Tarik does without (MODEL_ADAPTER: the first of ADAPTERS; EXPERIO_URL: ODOO_URL).
-OPTIONAL = {"EXPERIO_URL", "SMTP_FROM", "MAIL_MANAGER", "MAIL_ALLOWED_RECIPIENTS", "ODOO_API_KEY", "MODEL_ADAPTER"}
+OPTIONAL = {
+    "CABINET_NAME",
+    "EXPERIO_URL",
+    "SMTP_FROM",
+    "MAIL_MANAGER",
+    "MAIL_ALLOWED_RECIPIENTS",
+    "ODOO_API_KEY",
+    "MODEL_ADAPTER",
+}
 IN_POSTGRES = "MODEL_ADAPTER"  # kept in cabinet_models, not in Vault
 # Every cabinet setting on the page, but the API's own.
 assert set(FIELDS) - {IN_POSTGRES} == cabinets.CABINET_SETTINGS - {"ACTIVE"}
