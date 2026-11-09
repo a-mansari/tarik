@@ -11,6 +11,7 @@ from typing import TypedDict
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, START, StateGraph
 
+from engine import memory
 from engine.calls import within
 from engine.tools.core.conversation import for_client, handed, remember_client_message
 from engine.tools.emails.inbox import untaken
@@ -70,7 +71,7 @@ async def answered(cabinet, session, message, files, node, skipped=()):
         result = await runs.nested("agent", asked, cabinet, session, thread=session, node=node)
         reply = for_client(result["messages"][-1].text)
         if time.monotonic() - started > QUICK:
-            return reply
+            break
         if files and await within(cabinet, untaken, session):
             reminder = REMINDER
         elif (
@@ -78,7 +79,9 @@ async def answered(cabinet, session, message, files, node, skipped=()):
         ):
             reminder, answer_reminded = ANSWER_REMINDER, True
         else:
-            return reply
+            break
+    if not by_routine:  # a routine's instruction is the operator's, not a client's words
+        memory.retain_later(cabinet, session, message)
     return reply
 
 

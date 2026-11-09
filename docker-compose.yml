@@ -36,6 +36,7 @@ services:
       TARIK_CALLS_PER_CABINET: ${TARIK_CALLS_PER_CABINET:-10}
       TARIK_CALLS_TOTAL: ${TARIK_CALLS_TOTAL:-40}
       TARIK_MODEL_CALLS: ${TARIK_MODEL_CALLS:-10}
+      HINDSIGHT_URL: ${HINDSIGHT_URL:-} # the memory (the hindsight service below, profile memory); empty: Tarik has none
     volumes: # the code, mounted (a change needs a restart, not a build); never vault/ nor .env
       - ./check.py:/app/check.py
       - ./run.py:/app/run.py
@@ -51,7 +52,7 @@ services:
     dns: ["${DNS_PRIMARY:-1.1.1.1}", "${DNS_SECONDARY:-8.8.8.8}"] # the resolvers the container uses (.env, optional)
 
   db:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17 # Postgres 17 with the pgvector extension (the memory's): same data files as postgres:17
     container_name: tarik-postgres
     restart: unless-stopped
     environment:
@@ -60,6 +61,30 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - db_data:/var/lib/postgresql/data
+
+  # Tarik's memory (engine/memory.py): off unless started with the "memory" profile and HINDSIGHT_URL set in .env
+  #   docker compose --profile memory up -d
+  # Its tables are the schema "hindsight" of the db above (pgvector); its fact extraction runs on a Claude Code subscription
+  # token (HINDSIGHT_LLM_TOKEN: `claude setup-token`), its embeddings on a small multilingual model that runs inside.
+  hindsight:
+    profiles: ["memory"]
+    image: tarik-hindsight
+    build:
+      context: deploy/hindsight
+      args:
+        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
+    restart: unless-stopped
+    environment:
+      HINDSIGHT_API_DATABASE_URL: postgresql://${POSTGRES_USER:-tarik}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-tarik}
+      HINDSIGHT_API_DATABASE_SCHEMA: hindsight
+      HINDSIGHT_API_DB_POOL_MIN_SIZE: "1" # its default is 5 to 100 connections: Postgres allows 100 in all, Tarik needs its own
+      HINDSIGHT_API_DB_POOL_MAX_SIZE: "10"
+      HINDSIGHT_API_LLM_PROVIDER: claude-code
+      HINDSIGHT_API_LLM_MODEL: ${HINDSIGHT_LLM_MODEL:-sonnet}
+      HINDSIGHT_API_LLM_API_KEY: ${HINDSIGHT_LLM_TOKEN:-} # needed to run the memory (.env); not required here: compose reads every service, run or not
+      HINDSIGHT_API_EMBEDDINGS_PROVIDER: onnx # multilingual-e5-small: the cabinets write French
+    depends_on: [db]
 
   vault:
     image: hashicorp/vault:1.18.3
