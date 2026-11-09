@@ -73,6 +73,8 @@ READ_TOOLS = (
     "list_accounts",
     "dossier_progress",
     "consult_cgnc",
+    "describe_data",
+    "query_data",
 )
 
 
@@ -183,6 +185,34 @@ def read_tool(tool_name):
 
     async def consult_cgnc(runtime: ToolRuntime, code: str = "", words: str = "") -> str:
         return await reading(runtime, tool_name, code=code, words=words)
+
+    async def describe_data(runtime: ToolRuntime, model: str = "") -> str:
+        return await reading(runtime, tool_name, model=model)
+
+    async def query_data(
+        dossier_id: int,
+        model: str,
+        runtime: ToolRuntime,
+        domain: list | None = None,
+        fields: list | None = None,
+        group_by: list | None = None,
+        sums: list | None = None,
+        order: str = "",
+        limit: int = 50,
+    ) -> str:
+        return await reading(
+            runtime,
+            tool_name,
+            dossier_id=dossier_id,
+            model=model,
+            session_id=session_of(runtime.config),
+            domain=domain,
+            fields=fields,
+            group_by=group_by,
+            sums=sums,
+            order=order,
+            limit=limit,
+        )
 
     function = locals()[tool_name]
     # Described by the tool's own docstring (engine/tools/), kept in content/agent.json to be edited.

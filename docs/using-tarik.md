@@ -27,6 +27,9 @@ links to its run, step by step. No sender check there: whoever is logged in writ
 - The cabinet's dossiers, or find one from a name, even misspelled or partial.
 - A dossier's invoices, optionally only those being read, drafts, posted or paid.
 - The cabinet's collaborators: role, manager or not, number of dossiers.
+- Any figure or list in a dossier's data, however it is asked (invoices by month and tier, journal items by account, bank
+  operations in suspense, the chart of accounts, exercices...): read only, one dossier at a time, never anything outside
+  the models listed in `engine/tools/data/registry.py`, and only for a sender allowed on that dossier.
 
 **Process invoices and bank statements.** An invoice is a purchase (received from a supplier) or a
 sale (issued by the dossier to its own customer): say which, or Tarik asks before anything is made. For

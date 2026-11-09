@@ -235,3 +235,6 @@ uses another one. A stack that edited one of these documents itself loses that e
 - `tarik-contenu-rapport-statut-20261109.json`: the agent's description of the new tool `Tarik_rapport` (`agent.json`,
   `own_tools`): the dossier status report as Word, Excel, PDF, Markdown or LaTeX files. Import it once the stack runs the
   commit that adds the tool (and the documents export above): before, the import is refused (the tool is unknown).
+- `tarik-contenu-lecture-donnees-20261109.json`: the agent's descriptions of the two new read tools `Experio_describe_data`
+  and `Experio_query_data` (`agent.json`, `read_tools`): the general read-only reading of a dossier's data. Import it
+  once the stack runs the commit that adds the tools: before, the import is refused (the tools are unknown).
