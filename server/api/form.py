@@ -153,9 +153,11 @@ async def form_page(request: Request):
                 posted = posted_of(await body_of(request))
                 done = await limited(cabinet, fill_form, token, posted)
                 items = "".join(f"<li>{escape(line)}</li>" for line in done)
+                said = "<p>Je vous ai aussi écrit pour confirmer, dans votre conversation avec Tarik.</p>"
                 return shown(
                     "Merci, c'est enregistré",
-                    f"<header><h1>Merci</h1></header><p>Vos choix pour ce dossier :</p><ul>{items}</ul>",
+                    f"<header><h1>Merci</h1></header><p>Vos choix pour ce dossier :</p><ul>{items}</ul>"
+                    f"{said if done.confirmed else ''}",
                 )
             except ToolError as refused:
                 error = str(refused)

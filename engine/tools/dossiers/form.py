@@ -24,6 +24,7 @@ from engine.tools.core.experio import dry_run, odoo_call, odoo_json, refused, re
 from engine.tools.core.queries import Q
 from engine.tools.dossiers import guide
 from engine.tools.dossiers.behaviour import dossier_rows, dossier_values, set_many_for_dossier
+from engine.tools.dossiers.form_reply import confirm
 from engine.tools.dossiers.identity import (
     CHOICES,
     EDITABLE,
@@ -161,23 +162,25 @@ def read(answers, have, now, stored):
     has it, ``have``, Tarik's setting as it follows, ``now`` (dossier_values), and the guide's answers kept, ``stored``:
     the Experio fields to change ({tool argument: value}, for changes_to to keep those that differ), what Tarik keeps
     for the dossier ({key: value}: the guide's answers that differ, and post_invoices when the question on what it may
-    validate alone says otherwise than the dossier follows), and what the client chose, one line each. Raises ToolError
-    for a value no field takes."""
-    identity, own, lines = {}, {}, []
+    validate alone says otherwise than the dossier follows), what the client chose, one line each, and ``parts``
+    ({"labelled": {identity key: its line}, "recorded": the guide's lines}) for the confirmation. Raises ToolError for a
+    value no field takes."""
+    identity, own, lines, labelled = {}, {}, [], {}
     if guide.first(answers, "folder_type"):
         require_folder_type(guide.first(answers, "folder_type"))
         identity["folder_type"] = guide.first(answers, "folder_type")
-        lines.append(f"{LABELS['folder_type']} : {FOLDER_TYPES[identity['folder_type']]}")
+        labelled["folder_type"] = f"{LABELS['folder_type']} : {FOLDER_TYPES[identity['folder_type']]}"
     for key, size in (("ice", 15), ("if_number", None)):
         value = digits(guide.first(answers, key), LABELS[key], size)
         if value and not locked(have, key):
             identity[key] = value
-            lines.append(f"{EDITABLE[key][1]} : {value}")
+            labelled[key] = f"{EDITABLE[key][1]} : {value}"
     for key in CHOICES:
         if guide.first(answers, key):
             require_choice(key, guide.first(answers, key))
             identity[key] = guide.first(answers, key)
-            lines.append(f"{LABELS[key]} : {CHOICES[key][identity[key]]}")
+            labelled[key] = f"{LABELS[key]} : {CHOICES[key][identity[key]]}"
+    lines = list(labelled.values())
     kept, said, picked = guide.read(answers, stored)
     own.update({f"{guide.KEY}{question}": value for question, value in kept.items()})
     lines += said
@@ -185,13 +188,21 @@ def read(answers, have, now, stored):
         posts = guide.POST_OPTION in picked[guide.POST_QUESTION]
         if now["post_invoices"] != posts:
             own["post_invoices"] = posts
-    return identity, own, lines
+    return identity, own, lines, {"labelled": labelled, "recorded": said}
+
+
+class Done(list):
+    """What a filled form chose, one line each (a list), and ``confirmed``: whether Tarik also wrote it back to the
+    client in their conversation (form_reply)."""
+
+    confirmed = False
 
 
 def fill_form(token, answers):
     """Apply ``answers`` ({field key: text, or a list of texts for a question of several choices}, as the page posts
-    them) to the dossier of the form of ``token``, then close the form. Returns what the client chose, one line each,
-    in plain French (in test mode, nothing written nor closed).
+    them) to the dossier of the form of ``token``, then close the form and tell the client in their conversation.
+    Returns what the client chose, one line each, in plain French, as a Done (in test mode, nothing written, closed nor
+    said).
 
     Every answer is checked before anything is written; the form is then taken (once), Experio written with what
     differs, and the form given back when Experio refuses. Raises ToolError when the form is not open, a value is not
@@ -199,14 +210,16 @@ def fill_form(token, answers):
     dossier_id, session_id = open_form(token)
     dossier = require_dossier(dossier_id)
     kept = dossier_rows(dossier_id)
-    identity, own, lines = read(answers, company(dossier_id), dossier_values(dossier_id, kept), stored_guide(kept))
+    identity, own, lines, parts = read(
+        answers, company(dossier_id), dossier_values(dossier_id, kept), stored_guide(kept)
+    )
     current, changes = changes_to(dossier_id, identity)
     if "declaration_mode" in changes and frequency_closed(dossier_id, current["declaration_mode"]):
         raise ToolError(f"{LABELS['declaration_mode']} : cela se règle dans Experio, pas ici.")
     if changes and conflict(dossier_id, dossier, changes):
         raise ToolError(TAKEN)
     if dry_run():
-        return [f"{TEST_MODE}{line}" for line in lines]
+        return Done(f"{TEST_MODE}{line}" for line in lines)
     with cabinet_db() as db:
         if not db.execute(Q.form_filled, (token,)).fetchone():
             raise ToolError(GONE)
@@ -221,4 +234,7 @@ def fill_form(token, answers):
         with cabinet_db() as db:
             db.execute(Q.form_released, (token,))
         raise
-    return lines
+    done = Done(lines)
+    applied = [line for key, line in parts["labelled"].items() if EDITABLE[key][0] in changes]
+    done.confirmed = confirm(session_id, dossier, applied, parts["recorded"], own.get("post_invoices"))
+    return done

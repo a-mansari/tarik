@@ -341,3 +341,7 @@ insert into whatsapp_recipients (recipient_id, cabinet, email, phone, session_id
 
 -- name: whatsapp_unenrolled
 delete from whatsapp_recipients where recipient_id = %s
+
+-- name: whatsapp_recipient_of_session
+-- The recipient_id of a WhatsApp conversation, for a cabinet's session.
+select recipient_id from whatsapp_recipients where cabinet = %s and session_id = %s

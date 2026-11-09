@@ -697,3 +697,7 @@ update tarik_dossier_forms set filled_at = null where token = %s
 -- name: dossier_behaviour_on
 -- Whether any dossier has its own setting on (a flag kept as true).
 select exists (select 1 from tarik_dossier_behaviour where key = %s and value = 'true'::jsonb)
+
+-- name: thread_reply_basics
+-- Who a thread's replies go to and its subject (the client's address and subject of its first email).
+select client_address, subject from tarik_mail_threads where thread_id = %s
