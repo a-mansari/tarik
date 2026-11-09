@@ -62,17 +62,34 @@ def test_nothing_is_kept_without_a_stored_file_or_a_conversation(db_cabinet, mon
 
 
 @pytest.mark.functionality
-def test_the_waiting_files_go_by_whatsapp_one_each_and_a_refused_one_stays_for_an_email(db_cabinet, monkeypatch):
+def test_a_waiting_file_goes_by_whatsapp_and_a_refused_one_stays_for_an_email(db_cabinet, monkeypatch):
     sent = []
+    refusal = {"a.docx": None, "b.pdf": outbox.sparrow.SparrowError("Sparrow answered 502", 502)}
 
     def send_file(recipient_id, name, mime, data):
-        if name == "b.pdf":
-            raise outbox.sparrow.SparrowError("Sparrow answered 502", 502)
-        sent.append((recipient_id, name, mime, data))
+        if refusal[name]:
+            raise refusal[name]
+        sent.append((recipient_id, name, mime, bytes(data)))
 
     monkeypatch.setattr(outbox.sparrow, "send_file", send_file)
-    for name in ("a.docx", "b.pdf"):
+    for name in refusal:
         outbox.keep_file("s1", name, b"data")
-    assert outbox.send_unsent("s1", "r" * 16) == ["b.pdf"]
+    files = outbox.unsent_files("s1")
+    assert [name for _, name, _ in files] == ["a.docx", "b.pdf"]
+    assert [outbox.send_unsent_file("s1", "r" * 16, file) for file in files] == [True, False]
     assert sent == [("r" * 16, "a.docx", outbox.MIMES["docx"], b"data")]
-    assert [row[0] for row in kept("s1")] == ["b.pdf"]  # a.docx is sent, b.pdf waits for the next reply
+    assert [row[0] for row in kept("s1")] == ["b.pdf"]  # a.docx is sent, b.pdf waits for an email
+    assert outbox.send_unsent_file("s1", "r" * 16, files[0]) is True  # sent meanwhile: nothing is sent twice
+    assert len(sent) == 1
+
+
+@pytest.mark.functionality
+def test_a_file_sparrow_will_never_take_is_given_up_on_not_tried_by_every_reply(db_cabinet, monkeypatch):
+    def send_file(*args):
+        raise outbox.sparrow.SparrowError("Sparrow answered 422", 422)
+
+    monkeypatch.setattr(outbox.sparrow, "send_file", send_file)
+    outbox.keep_file("s1", "empty.pdf", b"")
+    [file] = outbox.unsent_files("s1")
+    assert outbox.send_unsent_file("s1", "r" * 16, file) is False  # the person is told
+    assert outbox.unsent_files("s1") == []  # and no later reply tries it again

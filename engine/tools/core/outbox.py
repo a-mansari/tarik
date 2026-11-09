@@ -48,20 +48,31 @@ def keep_record_file(session_id, model, record_id, field, name_field, context):
     return name
 
 
-def send_unsent(session_id, recipient_id):
-    """Send the files conversation ``session_id``'s outbox holds and no reply has sent, one WhatsApp document each, to
-    ``recipient_id``, marking each sent as it goes. Returns the names of the files that could not be sent (they stay
-    in the outbox, for an email reply); Sparrow's refusal is logged, never raised."""
+def unsent_files(session_id):
+    """Return (id, name, mime) of each file conversation ``session_id``'s outbox holds that no reply has sent, in the
+    order made: the bytes are read one file at a time (send_unsent_file)."""
     with cabinet_db() as db:
-        waiting = db.execute(Q.outbox_unsent, (session_id,)).fetchall()
-    failed = []
-    for file_id, name, mime, data in waiting:
-        try:
-            sparrow.send_file(recipient_id, name, mime, bytes(data))
-        except sparrow.SparrowError as error:
-            log(f"whatsapp: {session_id}: file {name}: {error}")
-            failed.append(name)
-            continue
-        with cabinet_db() as db:
-            db.execute(Q.mark_outbox_sent, ([file_id],))
-    return failed
+        return [tuple(row) for row in db.execute(Q.outbox_unsent_names, (session_id,))]
+
+
+def send_unsent_file(session_id, recipient_id, file):
+    """Send ``file`` (an unsent_files entry) to ``recipient_id`` as a WhatsApp document and mark it sent. Returns True
+    when it went (or was sent meanwhile), False when it did not: it then stays in the outbox for an email reply,
+    except one Sparrow will never take (422: empty, too big, name too long), marked sent so no reply tries it again.
+    Sparrow's refusal is logged, never raised."""
+    file_id, name, mime = file
+    with cabinet_db() as db:
+        row = db.execute(Q.outbox_file, (file_id, session_id)).fetchone()
+    if row is None:
+        return True
+    sent = True
+    try:
+        sparrow.send_file(recipient_id, name, mime, row[0])
+    except sparrow.SparrowError as error:
+        log(f"whatsapp: {session_id}: file {name}: {error}")
+        if error.status != 422:
+            return False
+        sent = False
+    with cabinet_db() as db:
+        db.execute(Q.mark_outbox_sent, ([file_id],))
+    return sent

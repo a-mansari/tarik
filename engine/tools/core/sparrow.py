@@ -10,7 +10,8 @@ number in Experio, or another Tarik user).
 
 Sparrow answers an incoming message's forward within 15 s and never sends it again, so the handler must answer at once.
 Sparrow accepts only Moroccan numbers (212 and 9 digits). WhatsApp allows a text only within 24 h of the person's last
-message (a refusal is a 502, its text cut short by Sparrow) and 4096 characters per text.
+message (a refusal is a 502, its text cut short by Sparrow) and 4096 characters per text. A document (send_file) goes
+in the same window, at most 100 MB, not empty, its name at most 240 characters (else a 422).
 Calls carry the master token, which can message any recipient: use only a recipient_id Tarik stored itself, and give
 ``host_uri`` from Tarik's own settings, never from a client or the model. The calls are blocking: from async code,
 run them in a thread."""
@@ -229,7 +230,7 @@ def send_file(recipient_id, name, mime, data):
     Returns its WhatsApp id. Raises SparrowError."""
     known(recipient_id)
     body = {"recipient_id": recipient_id, "filename": name, "mimetype": mime, "file": base64.b64encode(data).decode()}
-    try:
-        return call("POST", "/messages/send_file", json=body, timeout=httpx.Timeout(60, connect=5))["message_id"]
+    try:  # shortcut: a timeout leaves the file unsent though Sparrow may have delivered it, so it can go twice
+        return call("POST", "/messages/send_file", json=body, timeout=httpx.Timeout(180, connect=5))["message_id"]
     except KeyError:
         raise SparrowError("Sparrow's answer has no message_id") from None

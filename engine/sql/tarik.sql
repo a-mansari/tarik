@@ -578,12 +578,20 @@ where f.session_id = %s and f.statement_id is not null order by f.id, r.id
 -- A file Tarik made for the conversation, kept until its reply carries it.
 insert into tarik_outbox (session_id, file_name, mime_type, data) values (%s, %s, %s, %s)
 
+-- name: outbox_unsent_names
+-- The conversation's files no reply has sent yet (by email or WhatsApp), without their bytes, in the order made.
+select id, file_name, mime_type from tarik_outbox where session_id = %s and sent_at is null order by id
+
+-- name: outbox_file
+-- The bytes of one file of the conversation, while no reply has sent it.
+select data from tarik_outbox where id = %s and session_id = %s and sent_at is null
+
 -- name: outbox_unsent
--- The conversation's files not sent by email yet, in the order made.
+-- The conversation's files no reply has sent yet (by email or WhatsApp), in the order made.
 select id, file_name, mime_type, data from tarik_outbox where session_id = %s and sent_at is null order by id
 
 -- name: mark_outbox_sent
--- Files sent with Tarik's email reply.
+-- Files sent with a reply (an email's attachments, a WhatsApp document).
 update tarik_outbox set sent_at = now() where id = any(%s)
 
 -- name: model_usage_counted

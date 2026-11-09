@@ -30,7 +30,7 @@ from engine.tools.core.app import log
 from engine.tools.core.archives import unpacked
 from engine.tools.core.cabinets import CABINETS
 from engine.tools.core.config import FILE_TYPES
-from engine.tools.core.outbox import send_unsent
+from engine.tools.core.outbox import send_unsent_file, unsent_files
 from engine.tools.core.queries import Q
 from engine.tools.dossiers.people import collaborator, remember_whatsapp_sender
 from server.api.chat import ACCEPTED, MAX_FILE, MAX_FILES, MAX_TEXT, digest, megabytes, problems
@@ -158,6 +158,20 @@ async def tell(cabinet, recipient_id, text):
         log(f"whatsapp: {cabinet}: not told ({error})")
 
 
+async def send_files(cabinet, session, recipient_id):
+    """Send the files Tarik made in the conversation, as documents after its words, one call slot each; tell the person
+    which could not go. The reply already reached them: a failure here is logged, never told as a failed answer."""
+    try:
+        failed = []
+        for file in await limited(cabinet, unsent_files, session):
+            if not await limited(cabinet, send_unsent_file, session, recipient_id, file):
+                failed.append(file[1])
+        if failed:
+            await tell(cabinet, recipient_id, NOT_SENT + ", ".join(failed))
+    except Exception as error:
+        log(f"whatsapp: {cabinet} {session}: the files: {type(error).__name__}: {error}")
+
+
 async def prepared(cabinet, session, email, text, files):
     """Return (reply, files, skipped): a reply when nothing can be run (a limit exceeded, nothing usable in a zip), else
     None with the files Tarik takes (a zip replaced by the files in it) and what it left out, to be run.
@@ -219,9 +233,7 @@ async def answer(cabinet, email, session, recipient_id, text, files):
         if reply is None:
             reply = await run_of(cabinet, session, email, text, files, skipped)
         await limited(cabinet, sparrow.send, recipient_id, reply)
-        failed = await limited(cabinet, send_unsent, session, recipient_id)  # the files Tarik made, after its words
-        if failed:
-            await tell(cabinet, recipient_id, NOT_SENT + ", ".join(failed))
+        await send_files(cabinet, session, recipient_id)
     except sparrow.SparrowError as error:
         log(f"whatsapp: {cabinet} {session}: the reply: {error}")
         if not error.sent:  # nothing reached them: a refusal of the 24 h window too, told if it can be
