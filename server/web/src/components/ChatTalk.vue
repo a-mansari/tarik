@@ -1,7 +1,7 @@
 <!-- A conversation as n8n's chat shows one: the client's messages with their files, what a routine sent (its
 instruction, the line its report opens on: never the client's), each of Tarik's turns with the
-tools it called (done, failed, or still going) before its reply, and Tarik typing while its run goes on; the files Tarik
-made for it (an export) after. Words only as
+tools it called (done, failed, or still going) before its reply, the files it made under that reply, and Tarik typing
+while its run goes on; a file no turn carries (a routine's report, a run still going) below the conversation. Words only as
 the server's markdown (*_html). Patched in place at each refresh: a tools list left open stays open. -->
 <script setup>
 import { plural } from "../api.js";
@@ -63,6 +63,11 @@ const stateWords = { done: "terminé", failed: "en échec" };
             </ul>
           </details>
           <div v-if="entry.text_html" class="reply" v-html="entry.text_html" />
+          <ul v-if="entry.made?.length" class="files made-files" aria-label="Fichiers préparés par Tarik">
+            <li v-for="name in entry.made" :key="name"><Icon name="file" :size="14" /><span>{{ name }}</span><a
+              class="download" :href="fileLink(name)" download :title="`Télécharger ${name}`"
+              :aria-label="`Télécharger ${name}`"><Icon name="download" :size="14" /></a></li>
+          </ul>
           <p v-if="typingAfter(index)" class="typing">
             <span class="dots" aria-label="Tarik répond"><i></i><i></i><i></i></span>
             <RouterLink class="muted" :to="runLink()">suivre l'exécution</RouterLink>
