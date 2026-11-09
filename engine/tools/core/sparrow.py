@@ -63,6 +63,54 @@ def moroccan(phone):
     return number if re.fullmatch(r"212\d{9}", number) else None
 
 
+BOLD, END = "\x00", "\x01"  # marks for a bold span while the other spans are rewritten
+SEPARATOR = re.compile(r":?-{2,}:?")
+
+
+def table_lines(lines):
+    """Return markdown ``lines`` with each table as plain lines (WhatsApp has no tables): the header bold, each row its
+    cells joined by " · " after a dash."""
+    found = []
+    for number, line in enumerate(lines):
+        if not re.fullmatch(r"\s*\|.*\|\s*", line):
+            found.append(line)
+            continue
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if all(SEPARATOR.fullmatch(cell) for cell in cells if cell):
+            continue
+        after = lines[number + 1] if number + 1 < len(lines) else ""
+        header = bool(re.fullmatch(r"\s*\|[\s:|-]+\|\s*", after)) and "-" in after
+        joined = " · ".join(cell for cell in cells if cell)
+        found.append(f"{BOLD}{joined}{END}" if header else f"- {joined}")
+    return found
+
+
+def rewritten(text):
+    """Return markdown ``text`` (outside code) in WhatsApp's own marks: *bold*, _italic_, headings as bold lines, links
+    as "name (address)", tables as lines, dash bullets."""
+    text = text.replace(BOLD, "").replace(END, "")
+    text = "\n".join(table_lines(text.split("\n")))
+    text = re.sub(r"^\s*#{1,6}\s*(.+?)\s*#*\s*$", lambda m: BOLD + m.group(1).replace("**", "") + END, text, flags=re.M)
+    text = re.sub(r"^(\s*)[*+] ", r"\1- ", text, flags=re.M)  # a "* " bullet is not an italic mark
+    text = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: BOLD + (m.group(1) or m.group(2)) + END, text)
+    text = re.sub(r"(?<![\w*])\*(?![\s*])(.+?)(?<![\s*])\*(?![\w*])", r"_\1_", text)
+    text = re.sub(
+        r"\[([^\]]+)\]\(([^)\s]+)\)",
+        lambda m: m.group(2) if m.group(1) == m.group(2) else f"{m.group(1)} ({m.group(2)})",
+        text,
+    )
+    text = re.sub(r"^\s*([-*_]\s*){3,}$", "", text, flags=re.M)
+    return text.replace(BOLD, "*").replace(END, "*")
+
+
+def whatsapp_text(markdown):
+    """Return the reply ``markdown`` as WhatsApp shows it: its marks rewritten (rewritten), code spans and fenced code
+    kept as they are (WhatsApp renders them), blank lines reduced to one."""
+    pieces = re.split(r"(```.*?```|`[^`\n]+`)", markdown, flags=re.S)
+    text = "".join(piece if index % 2 else rewritten(piece) for index, piece in enumerate(pieces))
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def known(recipient_id):
     """Return ``recipient_id`` when it has the form Sparrow makes, else raise SparrowError: it goes into a URL."""
     if not RECIPIENT_ID.fullmatch(str(recipient_id)):
@@ -164,12 +212,12 @@ def parts(text, limit=LIMIT):
 
 
 def send(recipient_id, text):
-    """Send ``text`` to the recipient, in as many messages as WhatsApp's limit needs. Returns the messages' WhatsApp
-    ids. Raises SparrowError whose ``sent`` holds the ids of the parts already delivered: a caller that tries again
-    sends the rest only, not those twice."""
+    """Send ``text`` (markdown, as Tarik writes: see whatsapp_text) to the recipient, in as many messages as WhatsApp's
+    limit needs. Returns the messages' WhatsApp ids. Raises SparrowError whose ``sent`` holds the ids of the parts
+    already delivered: a caller that tries again sends the rest only, not those twice."""
     known(recipient_id)
     ids = []
-    for part in parts(text):
+    for part in parts(whatsapp_text(text)):
         try:
             body = {"recipient_id": recipient_id, "content": part}
             ids.append(call("POST", "/messages/send", json=body)["message_id"])

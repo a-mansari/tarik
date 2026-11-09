@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import collections
 import json
 
 import pytest
@@ -36,6 +37,11 @@ class World:
 def world(monkeypatch):
     world = World()
     monkeypatch.setattr(whatsapp, "CABINETS", frozenset({"cabinet_a"}))
+    monkeypatch.setattr(whatsapp, "TEXT_QUIET", 0.05)  # the waits to gather a person's messages, shortened
+    monkeypatch.setattr(whatsapp, "FILE_QUIET", 0.15)
+    monkeypatch.setattr(whatsapp, "MAX_WAIT", 0.5)
+    monkeypatch.setattr(whatsapp, "LOCKS", collections.defaultdict(asyncio.Lock))  # each test runs its own event loop
+    monkeypatch.setattr(whatsapp, "BUFFERS", {})
 
     async def recipient_of(recipient_id):
         world.looked.append(recipient_id)
@@ -86,9 +92,9 @@ def world(monkeypatch):
     return world
 
 
-def forward(*messages, bearer=RECIPIENT, raw=None, chunks=None):
+def forward(*messages, bearer=RECIPIENT, raw=None, chunks=None, pause=0):
     """Post each of ``messages`` (dicts; or ``raw`` bytes, or ``chunks`` of bytes with no content-length) as Sparrow
-    does and return the statuses, once every answer started has ended."""
+    does, ``pause`` seconds apart, and return the statuses, once every answer started has ended."""
 
     def receiver(parts):
         queue = list(parts)
@@ -105,6 +111,7 @@ def forward(*messages, bearer=RECIPIENT, raw=None, chunks=None):
             headers = [(b"authorization", f"Bearer {bearer}".encode())] if bearer is not None else []
             answer = await api.whatsapp.handler(Request({"type": "http", "headers": headers}, receiver(parts)))
             statuses.append(answer.status_code)
+            await asyncio.sleep(pause)
         await asyncio.gather(*whatsapp.TASKS)
         return statuses
 
@@ -187,9 +194,32 @@ def test_an_empty_message_is_told_so_not_blamed_on_an_archive(world):
 
 
 @pytest.mark.functionality
-def test_a_person_s_messages_are_answered_one_after_the_other_replies_included(world):
-    world.pause, world.send_pause = 0.05, 0.05
-    assert forward(text("m1", "un"), text("m2", "deux")) == [200, 200]
+def test_messages_sent_close_together_are_one_message_a_text_and_its_photos(world):
+    photo = file("a.jpg", "image/jpeg")
+    assert (
+        forward(
+            text("m1", "Factures du mois"),
+            {**text("m2", ""), **photo},
+            {**text("m3", ""), **file("b.jpg", "image/jpeg")},
+        )
+        == [200] * 3
+    )
+    assert [event[0] for event in world.events] == ["save", "start", "end", "send"]  # one run, one answer
+    assert world.events[0] == ("save", ["a.jpg", "b.jpg"])
+    assert world.events[1][1] == "Factures du mois"  # the empty captions add nothing
+    assert len(sent(world)) == 1 and world.remembered == [("wa-session", "amal@cabinet.ma")]
+
+
+@pytest.mark.functionality
+def test_texts_sent_together_are_read_in_the_order_they_came_one_per_line(world):
+    assert forward(text("m1", "dossier First Equipment"), text("m2", "achat")) == [200, 200]
+    assert [event[1] for event in world.events if event[0] == "start"] == ["dossier First Equipment\nachat"]
+
+
+@pytest.mark.functionality
+def test_a_person_who_waits_between_messages_gets_one_answer_each_one_after_the_other(world):
+    world.pause, world.send_pause = 0.1, 0.05
+    assert forward(text("m1", "un"), text("m2", "deux"), pause=0.12) == [200, 200]  # the first is already answered
     assert [event[:2] for event in world.events] == [
         ("start", "un"),
         ("end", "un"),
@@ -198,6 +228,25 @@ def test_a_person_s_messages_are_answered_one_after_the_other_replies_included(w
         ("end", "deux"),
         ("send", RECIPIENT),
     ]
+
+
+@pytest.mark.functionality
+def test_a_message_sent_while_the_last_is_answered_waits_for_its_turn_as_a_group_of_its_own(world):
+    world.pause = 0.2
+    assert forward(text("m1", "un"), text("m2", "deux"), text("m3", "trois"), pause=0.12) == [200] * 3
+    starts = [event[1] for event in world.events if event[0] == "start"]
+    assert starts == ["un", "deux\ntrois"]  # m2 and m3 came during m1's run: grouped, answered after it
+    assert [event[0] for event in world.events][:3] == ["start", "end", "send"]
+
+
+@pytest.mark.functionality
+def test_a_person_who_never_stops_is_answered_all_the_same(world, monkeypatch):
+    monkeypatch.setattr(whatsapp, "TEXT_QUIET", 0.1)
+    monkeypatch.setattr(whatsapp, "MAX_WAIT", 0.25)
+    assert forward(*[text(f"m{n}", f"{n}") for n in range(8)], pause=0.06) == [200] * 8  # 0.48 s of messages
+    starts = [event[1] for event in world.events if event[0] == "start"]
+    assert len(starts) >= 2  # cut at MAX_WAIT, never waiting for a silence that does not come
+    assert "\n".join(starts).split("\n") == [str(n) for n in range(8)]  # nothing lost, nothing twice, in order
 
 
 @pytest.mark.functionality

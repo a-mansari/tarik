@@ -80,10 +80,12 @@ Use the test cabinet. Ask questions that do not write in Experio first.
 3. [ ] **In the Discussions page**: a conversation whose id starts with `wa-` shows your message and Tarik's answer.
 4. [ ] **Send a PDF invoice** for a test dossier you are assigned to (this one does write; the test cabinet is
        `DRY_RUN=0`). Expected: Tarik takes it in charge and says so; a dossier you are not assigned to is refused.
-5. [ ] **Send a photo, then two at once.** Each is answered in turn (not grouped); a voice note gets no answer (Sparrow
-       does not forward it).
-6. [ ] **A number that is not enrolled** writes to the same WhatsApp number: no answer from Tarik.
-7. [ ] **Click Retirer.** Expected: « n'écrit plus à Tarik », the row back to « Prêt à activer »; a new message from
+5. [ ] **Send two photos at once, with a caption on the first.** They are read as one message and answered once, after
+       Tarik has been left alone 10 s (3 s for text only). A message sent while Tarik still answers the last one joins
+       the next answer. A voice note gets no answer (Sparrow does not forward it).
+6. [ ] **Look at the reply on your phone**: bold shows as *bold*, lists as dashes, a table as lines. No `**` or `##`.
+7. [ ] **A number that is not enrolled** writes to the same WhatsApp number: no answer from Tarik.
+8. [ ] **Click Retirer.** Expected: « n'écrit plus à Tarik », the row back to « Prêt à activer »; a new message from
        your phone is no longer answered.
 
 If a step fails: `docker compose logs server | grep -E 'sparrow|whatsapp'` says which call Sparrow refused (its status is
@@ -110,7 +112,8 @@ logged, its text only on the server).
 ## Known limits
 
 - Tarik answers inside WhatsApp's 24 h window only; a routine's report stays on email.
-- A person's messages are answered one after the other, a photo sent right after another is a second answer.
+- Messages sent less than 3 s apart (10 s once a file is among them, 30 s at most in all) are answered as one; a text
+  sent 18 s before its file is not (Tarik answers the text first).
 - Moroccan numbers only; the phone is the user's `phone` field as it stood when the page was shown.
 - A message taken and not yet answered when the server restarts is lost: the person sends it again.
 - Not done yet: a WhatsApp label in the Discussions list, a cap on queued answers per person, pruning of

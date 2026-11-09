@@ -185,3 +185,48 @@ def test_a_foreign_number_is_refused_before_anything_is_asked_of_sparrow(relay):
     with pytest.raises(sparrow.SparrowError, match="Moroccan"):
         sparrow.enroll("+33 6 12 34 56 78", HOST, "Amal", "Cabinet Alami")
     assert relay.sent == []
+
+
+REPLY = (
+    "Bilan : 1 facture vérifiée laissée en brouillon.\n\n**Fait**\n- Facture n° FA5044 (`MGM GEAR`, 3 987,85 DH) : "
+    "corrigée ; compte `61110000 Achats`. Elle reste en brouillon : dites-moi quand la comptabiliser."
+)
+
+
+@pytest.mark.functionality
+@pytest.mark.parametrize(
+    ("markdown", "shown"),
+    [
+        ("**Fait**", "*Fait*"),
+        ("__Fait__", "*Fait*"),
+        ("une *idée* utile", "une _idée_ utile"),
+        ("## Titre\ntexte", "*Titre*\ntexte"),
+        ("## **Titre** gras", "*Titre gras*"),
+        ("* un\n* deux\n  * sous", "- un\n- deux\n  - sous"),
+        ("[Experio](https://x.example/a)", "Experio (https://x.example/a)"),
+        ("[https://x.example](https://x.example)", "https://x.example"),
+        ("2 * 3 * 4 et a*b*c", "2 * 3 * 4 et a*b*c"),  # no italic where none was meant
+        ("avant\n\n---\n\naprès", "avant\n\naprès"),
+        ("a\n\n\n\nb", "a\n\nb"),
+        ("`**gardé**` et ``` \n**aussi**\n```", "`**gardé**` et ``` \n**aussi**\n```"),  # code is left as it is
+        ("| Nom | HT |\n|---|---:|\n| Achat | 100 |\n| Vente | 250 |", "*Nom · HT*\n- Achat · 100\n- Vente · 250"),
+        ("**un** et *deux*", "*un* et _deux_"),
+    ],
+)
+def test_a_reply_is_written_in_whatsapp_s_own_marks(markdown, shown):
+    assert sparrow.whatsapp_text(markdown) == shown
+
+
+@pytest.mark.functionality
+def test_the_reply_tarik_wrote_reads_in_whatsapp_without_a_double_asterisk():
+    shown = sparrow.whatsapp_text(REPLY)
+    assert "**" not in shown and "*Fait*" in shown
+    assert "(`MGM GEAR`, 3 987,85 DH)" in shown  # file and account names keep their code marks
+
+
+@pytest.mark.functionality
+def test_send_writes_the_markdown_in_whatsapp_s_marks_before_cutting_it(relay):
+    relay.answers = {"POST /messages/send": (200, {"message_id": "wamid"})}
+    sparrow.send(RECIPIENT, "**Fait**\n" + "x" * 5000)
+    bodies = [body["content"] for *_, body in relay.sent]
+    assert bodies[0].startswith("*Fait*") and all(len(body) <= 4096 for body in bodies)

@@ -5,8 +5,9 @@ and never sends it again, whatever the answer: a refusal here is final, so the p
 the route answers 200. The recipient_id says which cabinet and which collaborator the message is from (table
 whatsapp_recipients); a message from anyone else is refused (401). The message is answered as a Discussion message is
 (the same graph, in the person's own conversation), by a WhatsApp reply. Sparrow sends the text (content) and at most
-one file (mimetype, filename, file in base64); a reply_to_message_id comes too and is not used: the conversation's
-memory carries the context.
+one file (mimetype, filename, file in base64) per message, so what a person sends close together (a text and its
+photos, the pages of an invoice) is gathered and answered as one message (gather); a reply_to_message_id comes too
+and is not used: the conversation's memory carries the context.
 
 shortcut: a message taken (whatsapp_messages) and not yet answered when the server restarts is lost, the person
 sends it again; no retry store until that is seen."""
@@ -16,6 +17,7 @@ import base64
 import collections
 import json
 import mimetypes
+import time
 import traceback
 
 from starlette.requests import Request
@@ -40,8 +42,12 @@ UNREADABLE = "Je n'ai pas pu lire votre message. Renvoyez-le."
 CAP = MAX_FILE * 4 // 3 + 64 * 1024  # bytes a message may weigh: one file in base64, and its words
 MAX_ID = 128  # characters of a WhatsApp message id
 # A person's messages are answered one after the other: two runs at once on one conversation would write its memory
-# together. shortcut: a photo sent right after another is a second answer, not one for both; group them if it annoys.
+# together. Messages sent close together are one message: a text and its photos, the pages of an invoice sent as
+# photos (WhatsApp sends each as a message of its own). The answer waits until the person has been quiet for
+# TEXT_QUIET seconds, FILE_QUIET once a file is among them (more may follow), and never past MAX_WAIT seconds in all.
+TEXT_QUIET, FILE_QUIET, MAX_WAIT = 3, 10, 30
 LOCKS = collections.defaultdict(asyncio.Lock)
+BUFFERS = {}  # session -> {texts, files, first, last}: the messages being gathered, till their answer starts
 TASKS = set()  # the answers going on: held, or the loop could drop one before it ends
 
 
@@ -86,6 +92,37 @@ def launch(work):
     task = asyncio.create_task(work)
     TASKS.add(task)
     task.add_done_callback(TASKS.discard)
+
+
+def gather(cabinet, email, session, recipient_id, text, files):
+    """Add a message to those being gathered for ``session``; the first one starts the wait (answer_gathered), and each
+    later one extends it."""
+    now = time.monotonic()
+    buffer = BUFFERS.get(session)
+    if buffer is None:
+        BUFFERS[session] = buffer = {"texts": [], "files": [], "first": now, "last": now}
+        launch(answer_gathered(cabinet, email, session, recipient_id))
+    buffer["texts"].append(text)
+    buffer["files"] += files
+    buffer["last"] = now
+
+
+async def answer_gathered(cabinet, email, session, recipient_id):
+    """Wait until the person has been quiet long enough (TEXT_QUIET, FILE_QUIET; at most MAX_WAIT since the first
+    message), then for their turn (the answer to what they sent before goes first), and answer everything they sent by
+    then as one message: the texts one per line, the files together. What they send while Tarik still answers the
+    last message joins this one."""
+    buffer = BUFFERS[session]
+    while True:
+        quiet = FILE_QUIET if buffer["files"] else TEXT_QUIET
+        wait = min(buffer["last"] + quiet, buffer["first"] + MAX_WAIT) - time.monotonic()
+        if wait <= 0:
+            break
+        await asyncio.sleep(wait)
+    async with LOCKS[session]:
+        del BUFFERS[session]  # a message from now on is the next group's
+        text = "\n".join(part for part in buffer["texts"] if part)
+        await answer(cabinet, email, session, recipient_id, text, buffer["files"])
 
 
 async def tell(cabinet, recipient_id, text):
@@ -145,20 +182,19 @@ async def run_of(cabinet, session, email, text, files, skipped):
 
 
 async def answer(cabinet, email, session, recipient_id, text, files):
-    """Answer the message in the background: check the person still is a collaborator, prepare the message, run it and
-    send the reply by WhatsApp, all in their conversation's turn.
+    """Answer the message: check the person still is a collaborator, prepare the message, run it and send the reply by
+    WhatsApp. Called with the conversation's turn held (LOCKS).
 
     Nothing is sent to someone who no longer is a collaborator (as email's refused sender, only logged). A failure
     tells the person once to send again, unless part of a reply already reached them."""
     try:
-        async with LOCKS[session]:
-            if not await limited(cabinet, collaborator, email):
-                log(f"whatsapp: {email} is no collaborator of {cabinet}: not answered")
-                return
-            reply, files, skipped = await prepared(cabinet, session, email, text, files)
-            if reply is None:
-                reply = await run_of(cabinet, session, email, text, files, skipped)
-            await limited(cabinet, sparrow.send, recipient_id, reply)
+        if not await limited(cabinet, collaborator, email):
+            log(f"whatsapp: {email} is no collaborator of {cabinet}: not answered")
+            return
+        reply, files, skipped = await prepared(cabinet, session, email, text, files)
+        if reply is None:
+            reply = await run_of(cabinet, session, email, text, files, skipped)
+        await limited(cabinet, sparrow.send, recipient_id, reply)
     except sparrow.SparrowError as error:
         log(f"whatsapp: {cabinet} {session}: the reply: {error}")
         if not error.sent:  # nothing reached them: a refusal of the 24 h window too, told if it can be
@@ -201,5 +237,5 @@ async def handler(request: Request):
         launch(tell(cabinet, recipient_id, UNREADABLE))
         return JSONResponse({"status": "accepted"})
     if await first_time(message_id):
-        launch(answer(cabinet, email, session, recipient_id, text, files))
+        gather(cabinet, email, session, recipient_id, text, files)
     return JSONResponse({"status": "accepted"})
