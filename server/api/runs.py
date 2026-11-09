@@ -282,7 +282,17 @@ async def runs_page(request: Request):
     cabinet, graph = chosen(request), query.get("graph") or None
     found = await runs.recent(cabinet, graph, 100) if cabinet else []
     spent = await spending(cabinet, Q.usage_of_runs, [run["run_id"] for run in found])
-    return page({"runs": dated(found), "usage": spent, "cabinet": cabinet, "graph": graph, "graphs": runs.NAMES})
+    unread = await runs.unread(cabinet, request.state.user["email"]) if cabinet else 0
+    context = {"runs": dated(found), "usage": spent, "cabinet": cabinet, "graph": graph, "graphs": runs.NAMES}
+    return page({**context, "unread": unread})
+
+
+async def read_page(request: Request):
+    """POST /ui/api/executions-lues: mark every run of the chosen cabinet read for the account; returns {unread: 0}."""
+    cabinet = chosen(request)
+    if cabinet:
+        await runs.read_all(cabinet, request.state.user["email"])
+    return page({"unread": 0})
 
 
 async def run_page(request: Request):
@@ -292,6 +302,7 @@ async def run_page(request: Request):
     found = await runs.run(request.path_params["run_id"])
     if not found:
         return page({"error": "Exécution introuvable"}, 404)
+    await runs.read(found["run_id"], request.state.user["email"])
     output = found["output"] or {}
     is_agent = found["graph"] == "agent"
     shown = conversation(output.get("messages")) if is_agent else []

@@ -3,7 +3,7 @@ each change of the cabinet's runs. A type picked shows one workflow's. -->
 <script setup>
 import { useRoute, useRouter } from "vue-router";
 
-import { graphName, pickedCabinet, statusName, usePage } from "../api.js";
+import { graphName, pickedCabinet, plural, send, statusName, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import ModelUsage from "../components/ModelUsage.vue";
 import PageState from "../components/PageState.vue";
@@ -17,6 +17,10 @@ const cabinet = pickedCabinet();
 const TALKING = new Set(["agent", "routine"]); // the runs whose conversation the Discussion page shows
 if (cabinet) useLive(`cabinet=${encodeURIComponent(cabinet)}`, reload);
 
+const markRead = async () => {
+  await send("/executions-lues");
+  reload();
+};
 const pick = (event) => router.push({ query: event.target.value ? { graph: event.target.value } : {} });
 </script>
 
@@ -25,7 +29,16 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
   <template v-else>
     <div class="head">
       <div>
-        <h1>Exécutions<template v-if="data.cabinet"> · <CabinetLabel :name="data.cabinet" /></template></h1>
+        <h1>Exécutions<template v-if="data.cabinet"> · <CabinetLabel :name="data.cabinet" /></template>
+          <details v-if="data.unread" class="unread">
+            <summary class="chip wait" :aria-label="`${data.unread} exécution${plural(data.unread)} non lue${plural(data.unread)}`">{{ data.unread }}</summary>
+            <div class="panel">
+              <b>{{ data.unread }} exécution{{ plural(data.unread) }} non lue{{ plural(data.unread) }}</b>
+              <p class="muted">Une exécution est lue dès que vous l'ouvrez.</p>
+              <button type="button" @click="markRead">Tout marquer comme lu</button>
+            </div>
+          </details>
+        </h1>
         <p class="muted">Chaque fois que Tarik travaille : une discussion, un traitement de documents, un dossier, des emails, une routine. Les plus récentes en premier, mises à jour toutes seules.</p>
       </div>
       <form class="filters" @submit.prevent>

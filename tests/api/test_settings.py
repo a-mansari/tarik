@@ -189,6 +189,8 @@ def settings_page(vault, monkeypatch):
 
     monkeypatch.setattr(cabinet_settings, "history", history)
     monkeypatch.setattr(api.settings.runs, "pool", Pool())
+    known = ({}, {"cabinet_a": {}, "cabinet_b": {"ACTIVE": "0", "CABINET_NAME": "B"}})
+    monkeypatch.setattr(api.settings.cabinets, "vault_settings", lambda: known)
     return api.settings.cabinet_page
 
 
@@ -199,6 +201,7 @@ def test_the_page_s_data_never_holds_a_secret_only_whether_it_is_set(settings_pa
     shown = {f["key"]: f["value"] for _, items in data["sections"] for f in items}
     assert shown["ODOO_PASSWORD"] is True and shown["IMAP_PASSWORD"] is True and shown["SMTP_PASSWORD"] is False
     assert shown["ODOO_USER"] == "tarik@cabinet.ma"
+    assert data["inactive"] == [{"name": "cabinet_b", "display": "B"}]
     assert "old-password" not in raw and "mailbox-secret" not in raw
     assert data["history"][0]["at"].startswith("20/10 ") and data["history"][0]["changes"][0]["before"] is None
 
@@ -229,3 +232,35 @@ def test_a_change_for_another_cabinet_or_an_older_page_is_refused(settings_page,
     assert status == 400 and "rechargez" in data["error"] and vault == []
     status, data, _ = asked(settings_page, "POST", {"cabinet": "cabinet_a", "version": 4, "DRY_RUN": "0"})
     assert status == 400 and vault == []  # a field not text (here the version) is not taken
+
+
+def test_a_cabinet_is_switched_off_and_on_but_never_the_last_active_one(settings_page, vault, monkeypatch):
+    from server import api
+
+    served = []
+
+    async def serve(cabinet):
+        served.append(cabinet)
+
+    entries = []
+
+    async def record(author, action, target, **kw):
+        entries.append((action, target))
+
+    monkeypatch.setattr(api.settings.experio_api, "serve", serve)
+    monkeypatch.setattr(api.settings.audit, "record", record)
+    monkeypatch.setattr(api.settings.cabinets, "reload_cabinets", lambda: None)
+    monkeypatch.setattr(api.settings.cabinets, "CABINETS", {"cabinet_a"})
+    status, data, _ = asked(api.settings.activation, "POST", {"cabinet": "cabinet_a", "active": "0"})
+    assert status == 400 and "dernier" in data["error"] and vault == []
+    off = {"data": {"data": {**BEFORE, "ACTIVE": "0"}, "metadata": {"version": 4}}}
+    monkeypatch.setattr(
+        cabinet_settings,
+        "_vault",
+        lambda method, path, **kw: off if method == "GET" else vault.append(kw["json"]) or {"data": {"version": 5}},
+    )
+    status, data, _ = asked(api.settings.activation, "POST", {"cabinet": "cabinet_b", "active": "1"})
+    assert status == 200 and data == {"cabinet": "cabinet_b", "active": True}
+    assert vault[0]["data"]["ACTIVE"] == "1" and served == ["cabinet_b"]
+    assert entries[-1] == ("cabinet_reactivated", "cabinet_b")
+    assert asked(api.settings.activation, "POST", {"cabinet": "cabinet_b", "active": "x"})[0] == 400

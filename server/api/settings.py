@@ -9,8 +9,9 @@ from starlette.requests import Request
 
 from engine import runs
 from engine.content import LABELS
+from engine.tools.core import cabinets
 from engine.tools.core.model import ADAPTERS
-from server import cabinet_settings
+from server import audit, cabinet_settings, experio_api
 from server.api.accounts import form_of
 from server.api.runs import chosen, page
 
@@ -86,5 +87,50 @@ async def cabinet_page(request: Request):
         "names": {key: LABELS.get("settings", {}).get(key, {}).get("name", key) for key in cabinet_settings.FIELDS},
         "history": [{**item, "at": runs.when(item["at"])} for item in history],
         "adapters": ADAPTERS,
+        "inactive": await inactive(),
     }
     return page(context, 400 if error else 200)
+
+
+SWITCH = asyncio.Lock()  # the last-active check and the write are one step
+
+
+async def inactive():
+    """Return the deactivated cabinets, to switch back on: [{name, display}], display the cabinet's CABINET_NAME."""
+    _, known = await asyncio.to_thread(cabinets.vault_settings)
+    return [
+        {"name": name, "display": own.get("CABINET_NAME", "")}
+        for name, own in sorted(known.items())
+        if not cabinets.active(own)
+    ]
+
+
+async def activation(request: Request):
+    """POST /ui/api/settings/active {cabinet, active: "1" | "0"}: switch a cabinet on or off. Off, Tarik reads none of
+    its mail, answers none of its chats and starts none of its runs; its settings and data are kept.
+
+    Returns {cabinet, active}; 400 for a bad request or the last active cabinet (the server needs one), 404 for an
+    unknown cabinet."""
+    form = await form_of(request, 2)
+    cabinet, on = form.get("cabinet", ""), form.get("active") == "1"
+    if form.get("active") not in ("0", "1"):
+        return page({"error": "active : 1 ou 0"}, 400)
+    author = request.state.user["email"]
+    async with SWITCH:
+        if not on and {cabinet} == cabinets.CABINETS:
+            return page({"error": "c'est le dernier cabinet actif : Tarik en a besoin d'un"}, 400)
+        try:
+            keys = await cabinet_settings.save(
+                runs.pool, cabinet, {}, None, author, "Activé" if on else "Désactivé", active=on
+            )
+        except LookupError:
+            return page({"error": "cabinet inconnu"}, 404)
+        except ValueError as refused:
+            return page({"error": str(refused)}, 400)
+        if on:
+            await experio_api.serve(cabinet)
+        else:
+            await asyncio.to_thread(cabinets.reload_cabinets)
+    if keys:
+        await audit.record(author, "cabinet_reactivated" if on else "cabinet_closed", cabinet)
+    return page({"cabinet": cabinet, "active": on})

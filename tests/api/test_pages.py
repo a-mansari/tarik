@@ -118,6 +118,7 @@ def answered(handler, path_params=None, query=b"", cookie=None):
 
     headers = [(b"cookie", f"tarik_cabinet={cookie}".encode())] if cookie else []
     scope = {"type": "http", "method": "GET", "path": "/ui/api/x", "headers": headers, "query_string": query}
+    scope["state"] = {"user": {"email": "me@cabinet.ma"}}
     scope["path_params"] = path_params or {}
     answer = asyncio.run(handler(Request(scope)))
     return answer.status_code, json.loads(answer.body)
@@ -136,10 +137,15 @@ def test_the_runs_list_gives_each_run_its_time_as_read(monkeypatch):
     async def spending(cabinet, statement, keys):
         return {"r1": {"tokens": "15", "detail": "", "cost": "< 0,01 $"}}
 
+    async def unread(cabinet, email):
+        return 3
+
     monkeypatch.setattr(api.runs, "spending", spending)
+    monkeypatch.setattr(api.runs.runs, "unread", unread)
     status, shown = answered(api.runs.runs_page, cookie="cab_a")
     assert (
         status == 200
+        and shown["unread"] == 3
         and shown["cabinet"] == "cab_a"
         and shown["runs"][0]["when"] == api.runs.runs.when("2026-10-20T09:33:22+00:00")
         and shown["usage"]["r1"]["tokens"] == "15"
@@ -169,7 +175,11 @@ def test_a_run_s_conversation_reaches_the_page_only_as_the_server_s_markdown(mon
             "steps": [],
         }
 
+    async def read(run_id, email):
+        pass
+
     monkeypatch.setattr(api.runs.runs, "run", run)
+    monkeypatch.setattr(api.runs.runs, "read", read)
     assert answered(api.runs.run_page, {"run_id": "gone"})[0] == 404
     status, shown = answered(api.runs.run_page, {"run_id": "r1"})
     client, tarik = shown["conversation"]
