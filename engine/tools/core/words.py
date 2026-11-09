@@ -18,6 +18,14 @@ def strip_tags(html, by=""):
     return TAG.sub(by, html or "")
 
 
+# The Markdown marks of Tarik's replies, read the same way by the email (engine/tools/emails/sending.py) and the
+# WhatsApp (engine/tools/core/sparrow.py) renderers.
+BOLD = re.compile(r"\*\*(.+?)\*\*|(?<!\w)__(.+?)__(?!\w)")  # **text** or __text__, never inside a word (a__b__c)
+# *text*: single stars, not inside a word nor next to another star, the text not starting or ending with a space.
+ITALIC = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])")
+CODE = re.compile(r"`([^`\n]+)`")  # `text` on one line: a file name, kept as written
+LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")  # [label](http(s) address)
+
 LIGATURES = str.maketrans({"œ": "oe", "Œ": "oe", "æ": "ae", "Æ": "ae", "ß": "ss", "ø": "o", "Ø": "o"})
 
 
