@@ -144,7 +144,7 @@ def test_a_page_older_than_vault_s_version_changes_nothing(vault):
     assert vault == []
 
 
-def asked(handler, method="GET", body=None, path_params=None):
+def asked(handler, method="GET", body=None, path_params=None, cookie=None):
     """``handler``'s answer to an admin's ``method`` (``body`` posted as JSON): (status, the JSON, its raw text)."""
     import json
 
@@ -155,7 +155,8 @@ def asked(handler, method="GET", body=None, path_params=None):
     async def receive():
         return {"type": "http.request", "body": raw}
 
-    scope = {"type": "http", "method": method, "path": "/ui/api/settings", "headers": [], "query_string": b""}
+    headers = [(b"cookie", f"tarik_cabinet={cookie}".encode())] if cookie else []
+    scope = {"type": "http", "method": method, "path": "/ui/api/settings", "headers": headers, "query_string": b""}
     scope["path_params"] = path_params or {}
     request = Request(scope, receive)
     request.state.user = {"email": "a@experio.ma", "name": "A", "role": "admin"}
@@ -190,7 +191,7 @@ def settings_page(vault, monkeypatch):
     monkeypatch.setattr(cabinet_settings, "history", history)
     monkeypatch.setattr(api.settings.runs, "pool", Pool())
     known = ({}, {"cabinet_a": {}, "cabinet_b": {"ACTIVE": "0", "CABINET_NAME": "B"}})
-    monkeypatch.setattr(api.settings.cabinets, "vault_settings", lambda: known)
+    monkeypatch.setattr(api.runs, "vault_settings", lambda: known)
     return api.settings.cabinet_page
 
 
@@ -201,7 +202,7 @@ def test_the_page_s_data_never_holds_a_secret_only_whether_it_is_set(settings_pa
     shown = {f["key"]: f["value"] for _, items in data["sections"] for f in items}
     assert shown["ODOO_PASSWORD"] is True and shown["IMAP_PASSWORD"] is True and shown["SMTP_PASSWORD"] is False
     assert shown["ODOO_USER"] == "tarik@cabinet.ma"
-    assert data["inactive"] == [{"name": "cabinet_b", "display": "B"}]
+    assert data["active"] is True
     assert "old-password" not in raw and "mailbox-secret" not in raw
     assert data["history"][0]["at"].startswith("20/10 ") and data["history"][0]["changes"][0]["before"] is None
 
@@ -264,3 +265,26 @@ def test_a_cabinet_is_switched_off_and_on_but_never_the_last_active_one(settings
     assert vault[0]["data"]["ACTIVE"] == "1" and served == ["cabinet_b"]
     assert entries[-1] == ("cabinet_reactivated", "cabinet_b")
     assert asked(api.settings.activation, "POST", {"cabinet": "cabinet_b", "active": "x"})[0] == 400
+
+
+def test_a_deactivated_cabinet_shows_only_its_switch_and_is_in_the_admin_sidebar(settings_page, monkeypatch):
+    from server import api
+
+    monkeypatch.setattr(api.runs, "CABINETS", {"cabinet_a"})
+    monkeypatch.setattr(api.runs, "display_name", lambda cabinet: "")
+
+    status, data, _ = asked(settings_page, cookie="cabinet_b")
+    assert status == 200 and data == {"cabinet": "cabinet_b", "active": False}
+    assert asked(settings_page, "POST", {"cabinet": "cabinet_b"}, cookie="cabinet_b")[0] == 400
+
+    class Asked:
+        cookies = {"tarik_cabinet": "cabinet_b"}
+        state = type("S", (), {"user": {"role": "admin"}})()
+
+    shown = api.runs.sidebar(Asked())
+    assert [(c["name"], c["active"], c["chosen"]) for c in shown] == [
+        ("cabinet_a", True, False),
+        ("cabinet_b", False, True),
+    ]
+    Asked.state = type("S", (), {"user": {"role": "member"}})()
+    assert [c["name"] for c in api.runs.sidebar(Asked())] == ["cabinet_a"]

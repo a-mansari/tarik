@@ -13,7 +13,7 @@ from engine.tools.core import cabinets
 from engine.tools.core.model import ADAPTERS
 from server import audit, cabinet_settings, experio_api
 from server.api.accounts import form_of
-from server.api.runs import chosen, page
+from server.api.runs import CHOSEN, chosen, page, switched_off
 
 # The page's sections, in order: which settings each shows.
 SECTIONS = {
@@ -53,6 +53,9 @@ async def cabinet_page(request: Request):
     the page opened, or when Vault holds a newer version (see cabinet_settings.save). After a refusal (400) the
     form's non-secret values are sent back as typed. 404 without any cabinet; 503 when Vault cannot be read."""
     cabinet = chosen(request)
+    picked = request.cookies.get(CHOSEN)
+    if picked in switched_off(request):  # a deactivated cabinet: only its switch, to turn it back on
+        return page({"cabinet": picked, "active": False}, 400 if request.method == "POST" else 200)
     if cabinet is None:
         return page({"error": "aucun cabinet"}, 404)
     error, given, saved = None, {}, None
@@ -69,7 +72,7 @@ async def cabinet_page(request: Request):
     try:
         data, version = await asyncio.to_thread(cabinet_settings.latest, cabinet)
     except Exception:
-        return page({"cabinet": cabinet, "unreachable": True, "dry_run": None}, 503)
+        return page({"cabinet": cabinet, "active": True, "unreachable": True, "dry_run": None}, 503)
     sections = fields(data)
     if error:  # the form as it was sent, its secrets never sent back
         for _, items in sections:
@@ -87,22 +90,12 @@ async def cabinet_page(request: Request):
         "names": {key: LABELS.get("settings", {}).get(key, {}).get("name", key) for key in cabinet_settings.FIELDS},
         "history": [{**item, "at": runs.when(item["at"])} for item in history],
         "adapters": ADAPTERS,
-        "inactive": await inactive(),
+        "active": True,
     }
     return page(context, 400 if error else 200)
 
 
 SWITCH = asyncio.Lock()  # the last-active check and the write are one step
-
-
-async def inactive():
-    """Return the deactivated cabinets, to switch back on: [{name, display}], display the cabinet's CABINET_NAME."""
-    _, known = await asyncio.to_thread(cabinets.vault_settings)
-    return [
-        {"name": name, "display": own.get("CABINET_NAME", "")}
-        for name, own in sorted(known.items())
-        if not cabinets.active(own)
-    ]
 
 
 async def activation(request: Request):

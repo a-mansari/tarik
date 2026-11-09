@@ -38,7 +38,13 @@ def test_an_email_thread_reads_as_its_sender_subject_and_message():
 
 def picked(cookie, path="/ui/executions"):
     return type(
-        "R", (), {"cookies": {"tarik_cabinet": cookie} if cookie else {}, "url": type("U", (), {"path": path})}
+        "R",
+        (),
+        {
+            "cookies": {"tarik_cabinet": cookie} if cookie else {},
+            "url": type("U", (), {"path": path}),
+            "state": type("S", (), {})(),
+        },
     )()
 
 

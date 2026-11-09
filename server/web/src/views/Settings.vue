@@ -69,28 +69,24 @@ function trimHint(f) {
   <PageState v-if="!data || status === 403 || status === 404" :status="status" :loading="loading" />
   <template v-else>
     <div class="head"><div>
-      <h1>Réglages · <CabinetLabel :name="data.cabinet" /><template v-if="modeKnown"> <span
+      <h1>Réglages · <CabinetLabel :name="data.cabinet" /><template v-if="data.active && modeKnown"> <span
         class="chip"
         :class="data.dry_run ? '' : 'wait'"
       >{{ data.dry_run ? "Simulation" : "Écritures réelles" }}</span></template></h1>
-      <p class="what">Ce que Tarik utilise pour ce cabinet. Un mot de passe ou une clé n'est jamais affiché : il se remplace seulement. Un changement s'applique dès le message suivant.</p>
-    </div></div>
-    <div v-if="problem" class="panel bad" role="alert"><b>Non enregistré :</b> {{ problem }}</div>
-    <section v-if="data.cabinet" class="panel cabinet-switches" aria-label="Cabinets actifs">
+      <p v-if="!data.active" class="what">Ce cabinet est désactivé : Tarik n'y lit aucun email et n'y lance aucune exécution. Activez-le pour modifier ses réglages.</p>
+      <p v-else class="what">Ce que Tarik utilise pour ce cabinet. Un mot de passe ou une clé n'est jamais affiché : il se remplace seulement. Un changement s'applique dès le message suivant.</p>
+    </div>
       <label class="switch">
-        <input type="checkbox" role="switch" :checked="true" :disabled="switching" @change="activate(data.cabinet, false)">
-        <b><CabinetLabel :name="data.cabinet" /></b> <span class="muted">actif : Tarik lit ses emails et lance ses exécutions</span>
+        <input type="checkbox" role="switch" :checked="data.active" :disabled="switching"
+          @change="activate(data.cabinet, $event.target.checked)">
+        <b>{{ data.active ? "Actif" : "Désactivé" }}</b>
       </label>
-      <label v-for="c in data.inactive" :key="c.name" class="switch">
-        <input type="checkbox" role="switch" :checked="false" :disabled="switching" @change="activate(c.name, true)">
-        <b><CabinetLabel :name="c.name" /><template v-if="c.display"> ({{ c.display }})</template></b>
-        <span class="muted">désactivé : Tarik n'y lit ni n'y lance rien</span>
-      </label>
-    </section>
-    <div v-if="data.unreachable" class="panel bad" role="alert">
+    </div>
+    <div v-if="problem" class="panel bad" role="alert"><b>Non enregistré :</b> {{ problem }}</div>
+    <div v-if="data.active && data.unreachable" class="panel bad" role="alert">
       <b>Réglages illisibles.</b> Vault ne répond pas, ou le rôle de cette page (tarik-settings) n'est pas installé :
       <span class="mono">vault/setup.sh</span>.</div>
-    <template v-else>
+    <template v-else-if="data.active">
       <div v-if="data.error" class="panel bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
       <div v-if="data.saved" class="panel accent" role="status">
         <template v-if="data.saved.length">Enregistré : {{ savedNames }}. En service dès maintenant.</template>
