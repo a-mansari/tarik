@@ -135,6 +135,32 @@ def test_tarik_s_turn_shows_its_tools_as_they_run_then_its_reply(monkeypatch):
     assert [tool["state"] for tool in turn["tools"]] == ["done", "failed"] and turn["text"] == "**Fait.**"
 
 
+def test_a_file_tarik_made_is_shown_under_the_reply_of_the_turn_that_made_it(monkeypatch):
+    class Memory:
+        async def aget(self, config):
+            return {"channel_values": {"messages": saved}}
+
+    def made(call_id, files):
+        return AIMessage("", tool_calls=[{"id": call_id, "name": "Tarik_rapport", "args": {}}]), ToolMessage(
+            f"Fichiers prêts : {files}.", tool_call_id=call_id
+        )
+
+    saved = [HumanMessage("Un rapport"), *made("1", "a.docx (4 Ko)"), AIMessage("Voilà le premier.")]
+    saved += [HumanMessage("Un autre"), *made("2", "b.xlsx (2 Ko)"), AIMessage("Voilà le second.")]
+    monkeypatch.setattr(api.chat.agent, "CHECKPOINTER", Memory())
+    left = []
+    shown = asyncio.run(api.chat.messages("s", ["a.docx", "b.xlsx", "c.xml"], left))
+    first, second = [entry for entry in shown if entry["who"] == "Tarik"]
+    assert first["made"] == ["a.docx"]  # named by its own turn's tool, not the last turn's
+    assert second["made"] == ["b.xlsx", "c.xml"]  # a file no turn names: the last turn's (the reply it answers)
+    assert left == [] and "Fichiers prêts" not in json.dumps(shown)  # what the tools answered stays off the page
+    saved.clear()
+    saved.append(HumanMessage("Bonjour"))
+    left = []
+    assert [entry.get("made") for entry in asyncio.run(api.chat.messages("s", ["a.docx"], left))] == [None]
+    assert left == ["a.docx"]  # nothing has answered yet: the page shows it below
+
+
 def test_a_reply_s_markdown_is_shown_without_its_html():
     shown = api.runs.markdown("**Fait** <img src=x onerror=alert(1)> [x](javascript:alert(1))")
     assert "<strong>Fait</strong>" in shown and "<img" not in shown and 'href="javascript' not in shown
