@@ -3,7 +3,8 @@
 The settings: its Experio login, its mailbox, who may receive Tarik's emails, whether Tarik really writes to Experio
 (DRY_RUN), and its model. They live only in Vault (secret/tarik/cabinets/<cabinet>), except the model (MODEL_ADAPTER,
 not a secret), which is kept in the orchestrator's table cabinet_models. Vault is written with the page's own AppRole
-(tarik-settings, vault/setup.sh), which may only read and update the cabinets' paths: never the shared settings. A
+(tarik-settings, vault/setup.sh), which may only read and update the cabinets' paths and the shared settings' two
+(server/shared_settings.py, the general settings page), nothing else. A
 secret (a password, a key) is never shown nor stored anywhere except Vault: it can only be replaced. Each change is
 recorded (who, when, why, which settings: table settings_changes) and used at once. Any other key in the same Vault
 path is kept unchanged."""
@@ -62,6 +63,13 @@ assert set(FIELDS) - {IN_POSTGRES} == cabinets.CABINET_SETTINGS - {"ACTIVE"}
 # ("test.*@experio.ma", "*").
 RECIPIENT = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+|@[^@\s,]+\.[^@\s,]+|[^\s,]*\*[^\s,]*")
 
+# The shared settings' kinds that are a pattern: an HTTPS address (its host first, no login@ in it, no backslash), and
+# a certificate's SHA-256.
+PATTERNS = {
+    "web": (re.compile(r"https://[^\s/?#@\\]+([/?#]\S*)?"), "est une adresse HTTPS, sans espace"),
+    "sha256": (re.compile(r"[0-9A-Fa-f]{64}"), "est l'empreinte SHA-256 du certificat : 64 caractères hexadécimaux"),
+}
+
 SECRETS = {key for key, kind in FIELDS.items() if kind == "secret"}
 
 _lock = threading.Lock()
@@ -82,20 +90,21 @@ def latest(cabinet, served_only=True):
     return {**found["data"]["data"], IN_POSTGRES: model.chosen_adapter(cabinet)}, found["data"]["metadata"]["version"]
 
 
-def shown(data):
-    """Return the settings as the page shows them: {key: value} for every FIELDS key, a secret only as True (set) or
-    False."""
-    return {key: bool(data.get(key)) if kind == "secret" else data.get(key, "") for key, kind in FIELDS.items()}
+def shown(data, fields=FIELDS):
+    """Return the settings as the page shows them: {key: value} for every ``fields`` key, a secret only as True (set)
+    or False."""
+    return {key: bool(data.get(key)) if kind == "secret" else data.get(key, "") for key, kind in fields.items()}
 
 
-def checked(key, value):
+def checked(key, value, fields=FIELDS, optional=OPTIONAL):
     """Raise ValueError (in plain French) when Tarik could not use ``value`` (already trimmed) for setting ``key``.
 
     The value is only checked, never tidied up: an invalid one is refused. An empty value is accepted only for
-    OPTIONAL settings."""
-    kind = FIELDS[key]
+    ``optional`` settings. ``fields`` and ``optional`` are the cabinets' (FIELDS, OPTIONAL) unless the shared
+    settings' page gives its own (server/shared_settings.py)."""
+    kind = fields[key]
     if value == "":
-        if key in OPTIONAL:
+        if key in optional:
             return
         raise ValueError(f"{key} ne peut pas être vide")
     if kind == "adapter" and value not in ADAPTERS:
@@ -104,6 +113,8 @@ def checked(key, value):
         raise ValueError(f"{key} vaut 1 (simulation) ou 0 (écritures réelles)")
     if kind == "url" and not experio.OWN_EXPERIO.fullmatch(value):
         raise ValueError(f"{key} est l'adresse HTTPS d'Experio, sans chemin")
+    if kind in PATTERNS and not PATTERNS[kind][0].fullmatch(value):
+        raise ValueError(f"{key} {PATTERNS[kind][1]}")
     if kind == "integer" and not (value.isdigit() and int(value) > 0):
         raise ValueError(f"{key} est un nombre entier positif, sans espace (l'identifiant de Tarik dans Experio)")
     if kind == "address" and not EMAIL.fullmatch(value):
@@ -119,26 +130,30 @@ def checked(key, value):
         raise ValueError(f"{key} : ni adresse, ni @domaine, ni motif avec * : {', '.join(wrong)}")
 
 
-def changed(before, given):
+def changed(before, given, fields=FIELDS, optional=OPTIONAL):
     """Return what the form ``given`` ({key: text}) changes in the current settings ``before``, as {key: new value}.
 
-    A non-secret value is trimmed of surrounding spaces, checked (see checked) and otherwise kept as typed; any other
+    A non-secret value is trimmed of surrounding spaces, checked (see checked) when it differs from the stored one and
+    otherwise kept as typed; any other
     difference, a space inside included, counts as a change. A secret is kept exactly as typed, and an empty secret
     leaves the current one unchanged. Keys outside FIELDS are ignored.
 
     Raises ValueError when EXPERIO_URL changes without the Experio secrets already set typed again: Tarik sends them
     to that address, so changing it must not hand the stored ones to another server."""
     found = {}
-    for key, kind in FIELDS.items():
+    for key, kind in fields.items():
         if key not in given:
             continue
         value = given[key] if kind == "secret" else given[key].strip()
         if kind == "secret" and value == "":
             continue
-        if kind != "secret":
-            checked(key, value)
         unset = next(iter(ADAPTERS)) if kind == "adapter" else ""  # an adapter unset: the first
-        if value != (before.get(key) or unset):
+        same = value == (before.get(key) or unset)
+        if same and value:  # unchanged: not checked again, so a stored value blocks no other change
+            continue
+        if kind != "secret":
+            checked(key, value, fields, optional)
+        if not same:
             found[key] = value
     kept = [key for key in ("ODOO_PASSWORD", "ODOO_API_KEY") if before.get(key) and not given.get(key)]
     if "EXPERIO_URL" in found and kept:
@@ -154,10 +169,10 @@ def _vault(method, path, **kwargs):
     return cabinets.vault_request(method, path, token, **kwargs)
 
 
-def recorded(key, before, after):
-    """Return one setting's change as settings_changes stores it: {key, before, after}, both values None for a secret.
-    Return one setting's change as settings_changes stores it: {key, before, after}, both values None for a secret."""
-    if key in SECRETS:
+def recorded(key, before, after, secrets=SECRETS):
+    """Return one setting's change as settings_changes stores it: {key, before, after}, both values None for a key in
+    ``secrets`` (the cabinets' unless the shared settings' page gives its own)."""
+    if key in secrets:
         return {"key": key, "before": None, "after": None}
     return {"key": key, "before": before, "after": after}
 

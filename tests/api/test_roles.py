@@ -13,6 +13,8 @@ from server import server
     ("method", "path"),
     [
         ("GET", "/ui/api/settings"),
+        ("GET", "/ui/api/settings/general"),
+        ("POST", "/ui/api/settings/general"),
         ("GET", "/ui/api/routines"),
         ("POST", "/ui/api/routines"),
         ("POST", "/ui/api/tarik-prompts/agent.json"),
