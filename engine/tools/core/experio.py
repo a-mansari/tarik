@@ -70,18 +70,21 @@ _forms = {}  # cabinet -> the invoice form's fields: each database has its own
 
 
 def expected_uid(value):
-    """Return ODOO_UID ``value`` (str) as Tarik's user id (int) in this cabinet. Raises SystemExit unless it is a
-    positive integer. A login returning any other id means another cabinet (or user): every call then fails."""
-    if not value or not value.isdigit() or int(value) <= 0:
+    """Return ODOO_UID ``value`` (str) as Tarik's user id (int) in this cabinet, or None when it is not set (the
+    login's own uid is then used). Raises SystemExit unless it is a positive integer. A login returning any other id
+    means another cabinet (or user): every call then fails."""
+    if not value:
+        return None
+    if not value.isdigit() or int(value) <= 0:
         raise SystemExit(f"ODOO_UID must be Tarik's user id in this cabinet, got {value!r}")
     return int(value)
 
 
 def account():
-    """Return the current cabinet's (database, Tarik's expected uid, login, key): the key is ODOO_API_KEY, else
+    """Return the current cabinet's (database, Tarik's expected uid or None, login, key): the key is ODOO_API_KEY, else
     ODOO_PASSWORD."""
     key = setting("ODOO_API_KEY", "") or setting("ODOO_PASSWORD")
-    return current(), expected_uid(setting("ODOO_UID")), setting("ODOO_USER"), key
+    return current(), expected_uid(setting("ODOO_UID", "")), setting("ODOO_USER"), key
 
 
 # A cabinet's own Experio: https and its host (a port allowed), Odoo's RPC routes being at its root.
@@ -199,9 +202,9 @@ CHECK_TIMEOUT: Final = 20  # seconds: a typed address that does not answer is to
 def check_login(database, url, user, key, expected):
     """Try Tarik's login with the account given, outside any cabinet and without remembering it, and return the uid.
 
-    Raises PermissionError when Experio refuses the login or the uid is not ``expected``; xmlrpc.client.Fault when
-    Experio fails (an unknown database); OSError, ProtocolError or the like when it does not answer within
-    CHECK_TIMEOUT. A read: nothing is written."""
+    Raises PermissionError when Experio refuses the login or the uid is not ``expected`` (when given);
+    xmlrpc.client.Fault when Experio fails (an unknown database); OSError, ProtocolError or the like when it does
+    not answer within CHECK_TIMEOUT. A read: nothing is written."""
     transport = _timed_transport(url, CHECK_TIMEOUT)
     try:
         uid = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common", transport=transport, allow_none=True).authenticate(
@@ -211,7 +214,7 @@ def check_login(database, url, user, key, expected):
         transport.close()
     if not uid:
         raise PermissionError(f"login refused for {user} on {database}")
-    if uid != expected:
+    if expected and uid != expected:
         raise PermissionError(f"{user} on {database} is uid {uid}, expected {expected}: wrong cabinet or user")
     return uid
 
@@ -221,13 +224,14 @@ def login():
     is refused or the uid is not the cabinet's ODOO_UID."""
     database, expected, user, key = account()
     url = experio_url()
-    if _logins.get((url, database, user, key)) == expected:
-        return expected
+    known = _logins.get((url, database, user, key))
+    if known and known == (expected or known):
+        return known
     # Checks the key, writes nothing: a read.
     uid = once_more_if_cut(True, "login", lambda: rpc("/xmlrpc/2/common").authenticate(database, user, key, {}))
     if not uid:
         raise PermissionError(f"login refused for {user} on {database}")
-    if uid != expected:
+    if expected and uid != expected:
         raise PermissionError(f"{user} on {database} is uid {uid}, expected {expected}: wrong cabinet or user")
     _logins[(url, database, user, key)] = uid
     return uid

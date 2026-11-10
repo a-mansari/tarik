@@ -311,7 +311,7 @@ async def checked_login(cabinet):
     try:
         if not experio.OWN_EXPERIO.fullmatch(url):
             return NO_ANSWER
-        expected = int(data["ODOO_UID"])
+        expected = int(data.get("ODOO_UID") or 0)
         key = data.get("ODOO_API_KEY") or data["ODOO_PASSWORD"]
         await asyncio.to_thread(experio.check_login, cabinet, url, data["ODOO_USER"], key, expected)
     except PermissionError:
