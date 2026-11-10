@@ -53,7 +53,7 @@ You provide a host with Docker and a route on Experio's reverse proxy; the rest 
      `SPARROW_SENDER_ID` and `SPARROW_TOKEN` (Sparrow's address, Experio's one WhatsApp sender, its master token).
    - `cabinets/<cabinet's exact Experio database name>.json`, **one** is enough (the server does not start without
      any); the team adds the others on the **Ajouter un cabinet** page (or the Experio app through the API):
-     the cabinet's Experio login (`ODOO_UID`, `ODOO_USER`, `ODOO_PASSWORD` or `ODOO_API_KEY`), its mailbox
+     the cabinet's Experio login (`ODOO_USER`, `ODOO_PASSWORD` or `ODOO_API_KEY`; `ODOO_UID` is optional: the login's own uid when empty), its mailbox
      (`IMAP_USER`, `IMAP_PASSWORD`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`), `MAIL_ALLOWED_RECIPIENTS`,
      `MAIL_MANAGER`, `DRY_RUN`. **Keep `DRY_RUN=1`** until a cabinet has been checked: Tarik then reads and reports,
      and posts nothing to Experio.

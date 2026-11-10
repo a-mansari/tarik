@@ -297,7 +297,7 @@ async def activation(request: Request):
     return page({"cabinet": cabinet, "active": on})
 
 
-REFUSED = "Experio a refusé ce login, cette clé, ou cet identifiant d'utilisateur (ODOO_UID) : vérifiez-les."
+REFUSED = "Experio a refusé ce login, cette clé, ou l'identifiant d'utilisateur (ODOO_UID, s'il est rempli) : vérifiez."
 NO_ANSWER = "Experio ne répond pas, ou cette adresse n'est pas la bonne : vérifiez EXPERIO_URL."
 UNKNOWN_BASE = "Experio n'a pas accepté la demande : la base de ce cabinet existe-t-elle ? Vérifiez son nom."
 MISSING = "Un réglage nécessaire à la connexion manque : {key}."
