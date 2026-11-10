@@ -1,7 +1,7 @@
-"""The Claude Code CLI as Tarik's model (MODEL_ADAPTER "claude-code", the Cabinets page): one `claude -p` per call,
-its own tools and settings off, logged in with CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`, Vault
-secret/tarik/orchestrator) or ANTHROPIC_API_KEY. The prompt goes in as Anthropic content blocks (stream-json), so
-images and PDFs reach the model as they would through the API."""
+"""The Claude Code CLI as Tarik's model (an LLM of the type claude-code: Claude, the default, or another): one
+`claude -p` per call, its own tools and settings off, logged in with the LLM's token (`claude setup-token`) or
+ANTHROPIC_API_KEY. The prompt goes in as Anthropic content blocks (stream-json), so images and PDFs reach the model as
+they would through the API."""
 
 import json
 import os

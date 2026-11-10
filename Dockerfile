@@ -1,5 +1,5 @@
 # Tarik's orchestrator: LangGraph's MIT parts run the workflows and the agent, engine/tools/ holds the tools, server/server.py serves
-# them all (BSD). The Claude Code CLI is the model when a cabinet picks it (MODEL_ADAPTER, engine/tools/core/claude_code.py).
+# them all (BSD). The Claude Code CLI is the model of the LLM Claude, the default (engine/tools/core/claude_code.py).
 # The team's pages (server/web/, Vue), built first: only their files reach the image.
 FROM node:24-alpine AS web
 WORKDIR /web
@@ -9,7 +9,7 @@ COPY server/web/ ./
 RUN npm run build
 
 FROM python:3.14-slim
-# The Claude Code CLI, for a cabinet whose model is Claude (MODEL_ADAPTER claude-code): INSTALL_CLAUDE_CODE=0 leaves it
+# The Claude Code CLI, for a cabinet whose model is Claude (the LLM Claude, the default; an LLM of the type claude-code): INSTALL_CLAUDE_CODE=0 leaves it
 # out. Its installer's address and version come from the build arguments (.env.example; docker-compose.yml passes them).
 ARG INSTALL_CLAUDE_CODE=1
 ARG CLAUDE_INSTALL_URL

@@ -71,3 +71,72 @@ def test_a_cabinet_never_reads_another_cabinet_s_own_llm(served):
 def test_the_choices_are_claude_first_then_minimax_the_extras_and_custom(served, monkeypatch):
     monkeypatch.setattr(model.cabinets, "llm_extras", lambda: {"zeta": EXTRAS["opus"], "alpha": EXTRAS["opus"]})
     assert list(model.choices()) == ["claude", "minimax", "alpha", "zeta", "custom"]
+
+
+def test_the_old_adapters_are_read_once_for_every_cabinet_not_at_each_call(monkeypatch):
+    queries = []
+
+    class Db:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, query):
+            queries.append(query)
+            return self
+
+        def fetchall(self):
+            return [("cabinet_a", "minimax")]
+
+    monkeypatch.setattr(model.psycopg, "connect", lambda **kw: Db())
+    monkeypatch.setitem(model._legacy, "next", 0.0)
+    assert [model.chosen_adapter(name) for name in ("cabinet_a", "cabinet_b", "cabinet_a")] == [
+        "minimax",
+        "",
+        "minimax",
+    ]
+    assert len(queries) == 1  # one read, whoever asks and however often
+
+
+def test_a_postgres_that_cannot_be_read_keeps_the_last_rows_and_breaks_no_call(monkeypatch):
+    monkeypatch.setitem(model._legacy, "rows", {"cabinet_a": "minimax"})
+    monkeypatch.setitem(model._legacy, "next", 0.0)
+    monkeypatch.setattr(model, "log", lambda line: None)
+
+    def down(**kw):
+        raise model.psycopg.OperationalError("down")
+
+    monkeypatch.setattr(model.psycopg, "connect", down)
+    assert model.chosen_adapter("cabinet_a") == "minimax"
+
+
+@pytest.mark.functionality
+def test_only_minimax_thinks_any_other_api_gets_a_plain_call(served, monkeypatch):
+    from engine import agent
+
+    monkeypatch.setattr(model.cabinets, "llm_extras", lambda: EXTRAS)
+    for choice, thinks in (("minimax", True), ("opus", False)):
+        monkeypatch.setenv("CABINET_A__LLM_CHOICE", choice)
+        assert (agent.model("cabinet_a").thinking is not None) is thinks
+
+
+@pytest.mark.functionality
+def test_a_vision_call_to_another_api_sends_neither_thinking_nor_temperature(served, monkeypatch):
+    monkeypatch.setattr(model.cabinets, "llm_extras", lambda: EXTRAS)
+    monkeypatch.setenv("CABINET_A__LLM_CHOICE", "opus")
+    sent = []
+
+    def post(url, **kw):
+        sent.append(kw["json"])
+        return model.httpx.Response(
+            200,
+            json={"content": [{"type": "text", "text": '{"a": 1}'}], "usage": {}},
+            request=model.httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(model.HTTP, "post", post)
+    with cabinets.using("cabinet_a"):
+        assert model.ask_model("s", [], "i", "Lecture", keys=("a",)) == {"a": 1}
+    assert sent[0]["model"] == "claude-opus" and "thinking" not in sent[0] and "temperature" not in sent[0]

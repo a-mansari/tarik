@@ -8,23 +8,25 @@ import Icon from "./Icon.vue";
 
 const { data, status } = usePage(() => "/settings/llms");
 const rows = ref([]);
+const version = ref(0); // the one the rows were read at: a refusal keeps it, so the same rows are never sent over a newer one
 
-// The rows as stored, a key empty (it is only replaced); after a refusal they stay as typed.
+// The rows as stored, a key empty (it is only replaced); after a refusal they stay as typed, with their version.
 watch(data, (shown) => {
-  if (shown?.error) return;
-  rows.value = (shown?.llms || []).map((one) => ({ ...one, key: "" }));
+  if (shown?.error || !shown) return;
+  rows.value = shown.llms.map((one) => ({ ...one, key: "" }));
+  version.value = shown.version;
 });
 
 const add = () => rows.value.push({ name: "", type: "anthropic-api", model: "", url: "", key: "", key_set: false });
 function remove(index) {
   const one = rows.value[index];
-  if (one.name && !confirm(`Retirer ${one.name} ? Les cabinets qui l'utilisent passeront sur Claude.`)) return;
+  if (one.key_set && !confirm(`Retirer ${one.name} ? Les cabinets qui l'utilisent passeront sur Claude.`)) return;
   rows.value.splice(index, 1);
 }
 
 async function save() {
   const sent = rows.value.map(({ name, type, model, url, key }) => ({ name, type, model, url, key }));
-  const answer = await send("/settings/llms", { version: data.value.version, llms: sent });
+  const answer = await send("/settings/llms", { version: version.value, llms: sent });
   if (answer.data) data.value = answer.data;
 }
 </script>
@@ -57,7 +59,7 @@ async function save() {
           <label class="field"><span class="mono">Clé ou jeton <span class="req" aria-hidden="true">*</span></span>
             <input v-model="one.key" type="password" autocomplete="new-password"
               :placeholder="one.key_set ? '•••••••• défini : laisser vide pour le garder' : 'la clé de l\'API, ou le jeton de claude setup-token'"></label>
-          <button type="button" class="btn btn-icon" title="Retirer" aria-label="Retirer" @click="remove(index)"><Icon name="trash" /></button>
+          <button type="button" class="btn btn-icon" title="Retirer" :aria-label="`Retirer ${one.name || 'ce LLM'}`" @click="remove(index)"><Icon name="trash" /></button>
         </div>
         <div class="llm-actions">
           <button type="button" class="btn" @click="add">Ajouter un LLM</button>

@@ -18,7 +18,7 @@ import httpx
 from psycopg.types.json import Jsonb
 
 from engine.tools.core import cabinets, experio, model
-from engine.tools.core.model import CLAUDE, CUSTOM, LEGACY, TYPES
+from engine.tools.core.model import CLAUDE, CUSTOM, LEGACY, MINIMAX, TYPES
 from engine.tools.core.queries import Q
 from server import audit
 from server.accounts import EMAIL
@@ -75,10 +75,10 @@ LLM_NAME = re.compile(r"[a-z][a-z0-9_-]{0,30}")  # a global LLM's name
 # ("test.*@experio.ma", "*").
 RECIPIENT = re.compile(r"[^@\s,]+@[^@\s,]+\.[^@\s,]+|@[^@\s,]+\.[^@\s,]+|[^\s,]*\*[^\s,]*")
 
-# The shared settings' kinds that are a pattern: an HTTPS address (its host first, no login@ in it, no backslash), and
-# a certificate's SHA-256.
+# The shared settings' kinds that are a pattern: an HTTPS address (its host first, no login@ in it, no backslash, a path
+# but no query nor fragment: a key in an address would be shown and recorded), and a certificate's SHA-256.
 PATTERNS = {
-    "web": (re.compile(r"https://[^\s/?#@\\]+([/?#]\S*)?"), "est une adresse HTTPS, sans espace"),
+    "web": (re.compile(r"https://[^\s/?#@\\]+(/[^\s?#]*)?"), "est une adresse HTTPS, sans espace, sans ? ni #"),
     "sha256": (re.compile(r"[0-9A-Fa-f]{64}"), "est l'empreinte SHA-256 du certificat : 64 caractères hexadécimaux"),
 }
 
@@ -91,8 +91,7 @@ _token = {"token": "", "token_until": 0.0}
 def latest(cabinet, served_only=True):
     """Return the cabinet's current settings and Vault's version of them, as (data, version).
 
-    data holds Vault's keys, with LLM_CHOICE the LLM the cabinet had picked before the LLMs when it has not chosen one
-    since (the adapter kept in Postgres, model.LEGACY). With ``served_only`` False, a deactivated cabinet is
+    data holds Vault's keys as they are. With ``served_only`` False, a deactivated cabinet is
     read too (the Experio API). Raises LookupError when Vault has no such cabinet (or, with ``served_only``, Tarik
     does not serve it)."""
     if cabinet not in cabinets.CABINETS and (served_only or not cabinets.NAME.fullmatch(cabinet)):
@@ -100,10 +99,7 @@ def latest(cabinet, served_only=True):
     found = _vault("GET", f"/v1/secret/data/tarik/cabinets/{cabinet}")
     if not found or not found["data"] or found["data"]["data"] is None:
         raise LookupError("cabinet inconnu")
-    data = found["data"]["data"]
-    if not data.get("LLM_CHOICE") and LEGACY.get(model.chosen_adapter(cabinet)):
-        data = {**data, "LLM_CHOICE": LEGACY[model.chosen_adapter(cabinet)]}
-    return data, found["data"]["metadata"]["version"]
+    return found["data"]["data"], found["data"]["metadata"]["version"]
 
 
 def shown(data, fields=FIELDS):
@@ -123,8 +119,8 @@ def checked(key, value, fields=FIELDS, optional=OPTIONAL):
         if key in optional:
             return
         raise ValueError(f"{key} ne peut pas être vide")
-    if kind == "llm" and value != CUSTOM and not LLM_NAME.fullmatch(value):
-        raise ValueError(f"{key} est le nom d'un LLM global (minuscules, chiffres, - et _) ou {CUSTOM}")
+    if kind == "llm" and value not in (CLAUDE, MINIMAX, CUSTOM, *cabinets.llm_extras()):
+        raise ValueError(f"{key} est {CLAUDE}, {MINIMAX}, un LLM global ajouté, ou {CUSTOM} (le sien)")
     if kind == "llm_type" and value not in TYPES:
         raise ValueError(f"{key} vaut l'un de : {', '.join(TYPES)}")
     if kind == "toggle" and value not in ("0", "1"):
@@ -216,6 +212,27 @@ def recorded(key, before, after, secrets=SECRETS):
 
 
 MOVED = "ces réglages ont changé depuis l'ouverture de la page : rechargez-la et recommencez"
+CONFLICT = 400  # Vault's answer to a check-and-set on a version that is no longer the latest
+
+
+def cas_write(path, version, data):
+    """Write ``data`` at Vault ``path`` over ``version`` (check-and-set: a newer one is never overwritten) with the
+    page's own AppRole, and return the new version. Raises ValueError (in plain French): MOVED when the version is no
+    longer the latest, else that Vault refused (a policy not installed, say). A blocking call: from a thread."""
+    try:
+        return _vault("POST", path, json={"options": {"cas": version}, "data": data})["data"]["version"]
+    except httpx.HTTPStatusError as error:
+        if error.response.status_code == CONFLICT:
+            raise ValueError(MOVED) from error
+        raise ValueError(f"Vault a refusé l'écriture ({error.response.status_code})") from error
+
+
+def effective(cabinet, data):
+    """Return ``data`` (a cabinet's settings as Vault has them) with, as its LLM_CHOICE, the LLM the cabinet had picked
+    before the LLMs (model.LEGACY) when it has not chosen one since: what it really runs on, which is what a form shows
+    and what a change is compared with."""
+    old = LEGACY.get(model.chosen_adapter(cabinet))
+    return data if data.get("LLM_CHOICE") or not old else {**data, "LLM_CHOICE": old}
 
 
 async def save(pool, cabinet, given, seen, author, note="", active=None):
@@ -230,9 +247,10 @@ async def save(pool, cabinet, given, seen, author, note="", active=None):
     The Vault write uses check-and-set on the version read (cas), so a concurrent write makes it fail with ValueError
     (MOVED) instead of being overwritten. The change is recorded in settings_changes and the Journal and used at
     once."""
-    data, version = await asyncio.to_thread(latest, cabinet, seen is not None)
+    stored, version = await asyncio.to_thread(latest, cabinet, seen is not None)
     if seen is not None and version != seen:
         raise ValueError(MOVED)
+    data = await asyncio.to_thread(effective, cabinet, stored)
     found = changed(data, given)
     if active is not None and cabinets.active(data) != active:
         found["ACTIVE"] = "1" if active else "0"
@@ -240,13 +258,9 @@ async def save(pool, cabinet, given, seen, author, note="", active=None):
         return []
     custom_gaps({**data, **found})
     path = f"/v1/secret/data/tarik/cabinets/{cabinet}"
-    try:  # cas: only over the version read, whoever writes in between
-        written = await asyncio.to_thread(
-            _vault, "POST", path, json={"options": {"cas": version}, "data": {**data, **found}}
-        )
-    except httpx.HTTPStatusError as error:
-        raise ValueError(MOVED) from error
-    version = written["data"]["version"]
+    version = await asyncio.to_thread(
+        cas_write, path, version, {**stored, **found}
+    )  # over the version read only; what Vault holds, never the old choice's
     changes = [recorded(key, data.get(key, ""), value) for key, value in found.items()]
     async with pool.connection() as db:
         await db.execute(Q.settings_changed, (cabinet, author, note.strip()[:300], Jsonb(changes), version))

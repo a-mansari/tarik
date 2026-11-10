@@ -1,4 +1,4 @@
-"""The Claude Code CLI as the model (MODEL_ADAPTER claude-code): what it is sent, and its answers read back, a fake
+"""The Claude Code CLI as the model (an LLM of the type claude-code): what it is sent, and its answers read back, a fake
 `claude` on the PATH standing in for it."""
 
 import json

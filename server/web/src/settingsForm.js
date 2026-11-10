@@ -6,7 +6,7 @@
 export function startOf(f) {
   if (f.kind === "secret") return "";
   if (f.kind === "flag" || f.kind === "toggle") return f.value === "0" ? "0" : "1";
-  if (f.kind === "choice") return f.value || Object.keys(f.choices)[0];
+  if (f.kind === "choice") return f.value in f.choices ? f.value : Object.keys(f.choices)[0]; // one removed: the first
   return f.value;
 }
 

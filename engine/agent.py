@@ -28,7 +28,7 @@ from engine.content import AGENT
 from engine.settings import cabinet_of, session_of
 from engine.tools.core import usage
 from engine.tools.core.cabinets import using
-from engine.tools.core.model import llm
+from engine.tools.core.model import MINIMAX, llm
 from engine.tools.data.query import DEFAULT_LIMIT
 
 
@@ -45,15 +45,17 @@ def model(cabinet):
         return ChatClaudeCode(cabinet=cabinet)
     if not chosen.key or not chosen.url:
         raise RuntimeError(f"the LLM {chosen.name!r} has no key or no address: the agent has no model")
+    # Thinking: without it, MiniMax's agent makes decisions the client did not (tests/llm, 2026-10-19: 3 % wrong
+    # without, 1 % with). Any other API gets none: a model that cannot think would refuse every call.
+    thinking = {"thinking": {"type": "enabled", "budget_tokens": 1024}} if chosen.name == MINIMAX else {}
     return ChatAnthropic(
         model=chosen.model,
         anthropic_api_url=chosen.url,
         api_key=chosen.key,
         max_tokens=65536,  # the thinking included
-        # Without it, the agent makes decisions the client did not (tests/llm, 2026-10-19: 3 % wrong without, 1 % with).
-        thinking={"type": "enabled", "budget_tokens": 1024},
         timeout=300,
         max_retries=2,
+        **thinking,
     )
 
 

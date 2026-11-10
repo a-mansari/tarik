@@ -8,14 +8,13 @@ that picked an LLM removed since runs on Claude."""
 
 import asyncio
 
-import httpx
 from psycopg.types.json import Jsonb
 
 from engine.tools.core import cabinets
 from engine.tools.core.model import CLAUDE, CUSTOM, MINIMAX, TYPES
 from engine.tools.core.queries import Q
 from server import audit, cabinet_settings
-from server.cabinet_settings import LLM_NAME, MOVED, PATTERNS
+from server.cabinet_settings import LLM_NAME, MOVED, PATTERNS, cas_write
 
 LLMS = "_llms"  # settings_changes' cabinet column for these: no cabinet's name can start with "_" (cabinets.NAME)
 PATH = "/v1/secret/data/tarik/llms"
@@ -95,23 +94,20 @@ async def save(pool, given, seen, author):
     )  # a key replaced counts: the dicts differ
     if not names:
         return {"saved": [], "fell_back": []}
-    try:
-        written = await asyncio.to_thread(
-            cabinet_settings._vault, "POST", PATH, json={"options": {"cas": version}, "data": after}
-        )
-    except httpx.HTTPStatusError as error:
-        raise ValueError(
-            MOVED if error.response.status_code == 400 else f"Vault a refusé l'écriture ({error.response.status_code})"
-        ) from error
+    _, every = await asyncio.to_thread(cabinets.vault_settings)
+    held = {own.get("LLM_CHOICE") for own in every.values()}
+    for name in sorted(after.keys() - before.keys()):
+        if name in held:  # a cabinet still names it (an LLM removed): it would use this one without being asked
+            raise ValueError(f"{name} : un cabinet a encore ce nom pour LLM ; choisissez un autre nom")
+    version = await asyncio.to_thread(cas_write, PATH, version, after)
     changes = [
         {"key": name, "before": summary(before.get(name)), "after": summary(after.get(name)) if name in after else ""}
         for name in names
     ]
     async with pool.connection() as db:
-        await db.execute(Q.settings_changed, (LLMS, author, "", Jsonb(changes), written["data"]["version"]))
+        await db.execute(Q.settings_changed, (LLMS, author, "", Jsonb(changes), version))
     await asyncio.to_thread(cabinets.reread_vault)
     await audit.record(author, "settings_saved", LLMS, keys=names)
-    _, every = await asyncio.to_thread(cabinets.vault_settings)
     gone = set(before) - set(after)
     return {
         "saved": names,

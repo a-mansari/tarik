@@ -29,8 +29,9 @@ def settings_from_the_environment(request, monkeypatch):
     if "tests/llm/" not in str(request.path):
         monkeypatch.setattr(cabinets, "VAULT_ENABLED", False)
         monkeypatch.setitem(cabinets.POSTGRES, "dbname", testdb.DATABASE)
-    # The orchestrator's table cabinet_models is not in the test database.
-    monkeypatch.setattr(model, "chosen_adapter", lambda cabinet: "")
+    # The orchestrator's table cabinet_models is not in the test database: no cabinet has an old choice, nothing read.
+    monkeypatch.setitem(model._legacy, "rows", {})
+    monkeypatch.setitem(model._legacy, "next", float("inf"))
 
 
 @pytest.fixture(scope="session")

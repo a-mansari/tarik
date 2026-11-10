@@ -40,7 +40,9 @@ def vault(monkeypatch):
     monkeypatch.setattr(cabinet_settings, "_vault", answer)
     monkeypatch.setattr(llms.cabinets, "reread_vault", lambda: None)
     monkeypatch.setattr(
-        llms.cabinets, "vault_settings", lambda: ({}, {"cabinet_a": {"LLM_CHOICE": "opus"}, "cabinet_b": {}})
+        llms.cabinets,
+        "vault_settings",
+        lambda: ({}, {"cabinet_a": {"LLM_CHOICE": "opus"}, "cabinet_b": {"LLM_CHOICE": "ghost"}}),
     )
 
     async def record(*args, **kwargs):
@@ -110,10 +112,31 @@ def test_removing_an_llm_tells_which_cabinets_fall_back_to_claude(vault):
     assert done == {"saved": ["opus"], "fell_back": ["cabinet_a"]}
 
 
+@pytest.mark.security
+def test_a_removed_llm_s_name_cannot_be_given_to_another_while_a_cabinet_still_names_it(vault):
+    with pytest.raises(ValueError, match="un cabinet a encore ce nom"):  # cabinet_b still names "ghost", gone
+        asyncio.run(llms.save(Pool(), keep({**NEW, "name": "ghost"}), 3, "a@experio.ma"))
+    assert asyncio.run(llms.save(Pool(), keep(NEW), 3, "a@experio.ma"))["saved"] == ["haiku"]  # a free name is fine
+
+
 def test_a_page_older_than_vault_is_refused_and_a_vault_refusal_is_told(vault, monkeypatch):
     with pytest.raises(ValueError, match="ont changé"):
         asyncio.run(llms.save(Pool(), keep(NEW), 2, "a@experio.ma"))
     assert vault == []
+
+
+def test_a_vault_that_refuses_is_not_a_page_gone_stale(monkeypatch):
+    import httpx
+
+    def refuse(method, path, **kw):
+        if method == "GET":
+            return {"data": {"data": dict(BEFORE), "metadata": {"version": 3}}}
+        raise httpx.HTTPStatusError("x", request=httpx.Request("POST", "http://v"), response=httpx.Response(403))
+
+    monkeypatch.setattr(cabinet_settings, "_vault", refuse)
+    monkeypatch.setattr(llms.cabinets, "vault_settings", lambda: ({}, {}))
+    with pytest.raises(ValueError, match=r"refusé l'écriture \(403\)"):
+        asyncio.run(llms.save(Pool(), keep(NEW), 3, "a@experio.ma"))
 
 
 def test_the_page_only_knows_whether_a_key_is_set():

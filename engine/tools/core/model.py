@@ -8,6 +8,7 @@ import multiprocessing
 import os
 import re
 import threading
+import time
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from typing import NamedTuple
@@ -99,12 +100,24 @@ class LLM(NamedTuple):
         return f"{self.name} · {self.model}"
 
 
+LEGACY_REFRESH_SECONDS = 300
+_legacy = {"rows": {}, "next": 0.0}
+_legacy_lock = threading.Lock()
+
+
 def chosen_adapter(cabinet):
     """Return the model adapter ``cabinet`` had picked before the LLMs ("claude-code" or "minimax", "" when none): kept
-    for a cabinet that has not chosen an LLM since. It is stored in the orchestrator's table, not in Vault."""
-    with psycopg.connect(**POSTGRES) as db:
-        found = db.execute(Q.model_adapter, (cabinet,)).fetchone()
-    return found[0] if found else ""
+    for a cabinet that has not chosen an LLM since. The orchestrator's table holds them (not Vault); it is read once
+    in a few minutes for every cabinet, not at each call, and a Postgres that cannot be read keeps the last rows."""
+    with _legacy_lock:
+        if time.monotonic() >= _legacy["next"]:
+            try:
+                with psycopg.connect(**POSTGRES) as db:
+                    _legacy["rows"] = dict(db.execute(Q.model_adapters).fetchall())
+            except psycopg.Error as error:
+                log(f"model adapters: {type(error).__name__}")
+            _legacy["next"] = time.monotonic() + LEGACY_REFRESH_SECONDS
+        return _legacy["rows"].get(cabinet, "")
 
 
 def llm_of(name):
@@ -175,10 +188,11 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
             "system": system,
             "messages": [{"role": "user", "content": blocks}],
         }
-        if think:
-            body["thinking"] = {"type": "adaptive"}
-        else:
-            body["temperature"] = 0
+        if chosen.name == MINIMAX:  # only M3 is known to think this way; any other API gets a plain call
+            if think:
+                body["thinking"] = {"type": "adaptive"}
+            else:
+                body["temperature"] = 0
         answer = HTTP.post(
             url.rstrip("/") + "/v1/messages",
             timeout=MODEL_TIMEOUT,

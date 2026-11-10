@@ -299,8 +299,8 @@ select file_name from {outbox} where session_id = %s group by file_name order by
 -- name: settings_changed
 insert into settings_changes (cabinet, author, note, changes, vault_version) values (%s, %s, %s, %s, %s)
 
--- name: model_adapter
-select adapter from orchestrator.cabinet_models where cabinet = %s
+-- name: model_adapters
+select cabinet, adapter from orchestrator.cabinet_models
 
 -- === Who did what in the UI (server/audit.py) ===
 

@@ -94,7 +94,7 @@ async def cabinet_page(request: Request):
         data, version = await asyncio.to_thread(cabinet_settings.latest, cabinet)
     except Exception:
         return page({"cabinet": cabinet, "active": True, "unreachable": True, "dry_run": None}, 503)
-    sections = fields(data)
+    sections = fields(await asyncio.to_thread(cabinet_settings.effective, cabinet, data))
     if error:
         retyped(sections, given)
     context = {

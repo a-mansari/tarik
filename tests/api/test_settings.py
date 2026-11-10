@@ -30,8 +30,9 @@ BEFORE = {
         ("ODOO_USER", "", "vide"),
         ("MAIL_MANAGER", "pas une adresse", "adresse"),
         ("LLM_TYPE", "gpt", "l'un de"),
-        ("LLM_CHOICE", "Pas Un Nom", "LLM global"),
+        ("LLM_CHOICE", "pas-un-llm", "LLM global ajouté"),
         ("LLM_URL", "http://model.example", "HTTPS"),
+        ("LLM_URL", "https://api.example/v1?key=sk-secret", "sans \\? ni #"),
         ("SMTP_FROM", "Tarik <pas-une-adresse>", "expéditeur"),
         ("MAIL_ALLOWED_RECIPIENTS", "@cabinet.ma, n'importe qui", "n'importe qui"),
     ],
@@ -323,3 +324,14 @@ def test_a_switch_is_checked_and_an_unset_one_is_on_so_saving_a_form_writes_noth
     cabinet_settings.checked("CABINET_MEMORY_ENABLED", "0")
     assert cabinet_settings.changed(BEFORE, {"CABINET_MEMORY_ENABLED": "1"}) == {}  # unset is on
     assert cabinet_settings.changed(BEFORE, {"CABINET_MEMORY_ENABLED": "0"}) == {"CABINET_MEMORY_ENABLED": "0"}
+
+
+def test_a_cabinet_on_its_old_choice_can_be_moved_to_claude_and_nothing_else_is_written_for_it(vault, monkeypatch):
+    monkeypatch.setattr(cabinet_settings.model, "chosen_adapter", lambda cabinet: "minimax")  # before the LLMs
+    # the page shows minimax; a save that leaves it changes nothing, and writes no LLM_CHOICE of its own
+    assert asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", {"LLM_CHOICE": "minimax"}, 4, "a@experio.ma")) == []
+    other = asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", {"DRY_RUN": "0"}, 4, "a@experio.ma"))
+    assert other == ["DRY_RUN"] and "LLM_CHOICE" not in vault[-1]["data"]
+    # moved to Claude: written, though Claude is what an unset choice means
+    asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", {"LLM_CHOICE": "claude"}, 4, "a@experio.ma"))
+    assert vault[-1]["data"]["LLM_CHOICE"] == "claude"

@@ -4,6 +4,7 @@ each Vault path and recorded (never a secret's value, never over a newer version
 import asyncio
 import contextlib
 
+import httpx
 import pytest
 
 from server import cabinet_settings, shared_settings
@@ -157,10 +158,10 @@ def failing_second_write(monkeypatch, status):
             data, version = (ORCHESTRATOR, 7) if path.endswith("orchestrator") else (SHARED, 3)
             return {"data": {"data": dict(data), "metadata": {"version": version}}}
         if path.endswith("shared"):
-            raise shared_settings.httpx.HTTPStatusError(
+            raise httpx.HTTPStatusError(
                 "x",
-                request=shared_settings.httpx.Request("POST", "http://v"),
-                response=shared_settings.httpx.Response(status),
+                request=httpx.Request("POST", "http://v"),
+                response=httpx.Response(status),
             )
         written.append(kwargs["json"])
         return {"data": {"version": 9}}
