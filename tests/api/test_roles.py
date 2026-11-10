@@ -15,6 +15,8 @@ from server import server
         ("GET", "/ui/api/settings"),
         ("GET", "/ui/api/settings/general"),
         ("POST", "/ui/api/settings/general"),
+        ("GET", "/ui/api/settings/new"),
+        ("POST", "/ui/api/settings/new"),
         ("GET", "/ui/api/routines"),
         ("POST", "/ui/api/routines"),
         ("POST", "/ui/api/tarik-prompts/agent.json"),

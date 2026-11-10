@@ -8,33 +8,22 @@ import { loadSession, send, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import PageState from "../components/PageState.vue";
 import Icon from "../components/Icon.vue";
+import SettingField from "../components/SettingField.vue";
+import { REAL_WRITES, startValues } from "../settingsForm.js";
 
 const { data, status, loading, reload } = usePage(() => "/settings");
 const problem = ref("");
 const form = ref({});
 const was = ref({});
 
-// A field as the form starts it: a secret empty (it is only replaced), a flag 1 unless 0, an adapter unset the first.
-function start(f, adapters) {
-  if (f.kind === "secret") return "";
-  if (f.kind === "flag") return f.value === "0" ? "0" : "1";
-  if (f.kind === "adapter") return f.value || Object.keys(adapters)[0];
-  return f.value;
-}
-
 watch(data, (shown) => {
-  const values = {};
-  for (const [, items] of shown?.sections || []) {
-    for (const f of items) values[f.key] = start(f, shown.adapters);
-  }
+  const values = startValues(shown);
   form.value = values;
   was.value = { ...values }; // as the page showed them: switching to real writes is confirmed against these
 });
 
 // The cabinet switched from simulation to real writes in Experio by this form.
 const goingReal = () => was.value.DRY_RUN !== "0" && form.value.DRY_RUN === "0";
-const REAL_WRITES = "Tarik écrira réellement dans l'Experio de ce cabinet (brouillons, comptabilisations, dossiers). "
-  + "Continuer ?";
 
 async function save() {
   if (goingReal() && !confirm(REAL_WRITES)) return;
@@ -93,31 +82,8 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
               <span class="card-title">{{ title }}</span>
             </summary>
             <div class="card-body"><div class="field-grid">
-              <label v-for="f in items" :key="f.key" class="field">
-                <span>{{ f.name }} <span class="mono muted">{{ f.key }}</span><template
-                  v-if="f.optional"> <span class="muted">(facultatif)</span></template></span>
-                <select v-if="f.kind === 'flag'" v-model="form[f.key]" :name="f.key">
-                  <option value="1">Simulation</option>
-                  <option value="0">Écritures réelles</option>
-                </select>
-                <select v-else-if="f.kind === 'adapter'" v-model="form[f.key]" :name="f.key">
-                  <option v-for="(label, key) in data.adapters" :key="key" :value="key">{{ label }}</option>
-                </select>
-                <input
-                  v-else-if="f.kind === 'secret'"
-                  v-model="form[f.key]"
-                  type="password"
-                  :name="f.key"
-                  autocomplete="new-password"
-                  :placeholder="placeholder(f)"
-                >
-                <input
-                  v-else
-                  v-model="form[f.key]"
-                  :name="f.key"
-                  :inputmode="f.kind === 'integer' ? 'numeric' : undefined"
-                >
-              </label>
+              <SettingField v-for="f in items" :key="f.key" v-model="form[f.key]" :f="f" :adapters="data.adapters"
+                :placeholder="placeholder(f)" />
             </div></div>
           </details>
       </form>

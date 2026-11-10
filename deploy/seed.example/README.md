@@ -1,7 +1,7 @@
 # Vault seed files
 
-Copy this folder to `deploy/seed/` (ignored by git, it holds secrets), fill it, and give its path as `TARIK_SEED_DIR`
-in `.env`. The `vault-init` container loads each file into Vault when its path does not exist yet:
+Copy this folder to `deploy/seed/` (ignored by git, it holds secrets, and `TARIK_SEED_DIR`'s default), fill it. If you keep
+it elsewhere, give its path as `TARIK_SEED_DIR` in `.env`. The `vault-init` container loads each file into Vault when its path does not exist yet:
 
 | File | Vault path |
 |---|---|

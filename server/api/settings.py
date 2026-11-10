@@ -4,13 +4,15 @@ plain words, each change recorded (who, when, why).
 A secret is never sent to the page: only whether it is set, and a field to replace it."""
 
 import asyncio
+import http.client
+import xmlrpc.client
 
 import httpx
 from starlette.requests import Request
 
 from engine import runs
 from engine.content import LABELS
-from engine.tools.core import cabinets
+from engine.tools.core import cabinets, experio
 from engine.tools.core.model import ADAPTERS
 from server import audit, cabinet_settings, experio_api, shared_settings
 from server.api.accounts import form_of
@@ -227,3 +229,61 @@ async def activation(request: Request):
     if keys:
         await audit.record(author, "cabinet_reactivated" if on else "cabinet_closed", cabinet)
     return page({"cabinet": cabinet, "active": on})
+
+
+REFUSED = "Experio a refusé ce login, cette clé, ou cet identifiant d'utilisateur (ODOO_UID) : vérifiez-les."
+NO_ANSWER = "Experio ne répond pas, ou cette adresse n'est pas la bonne : vérifiez EXPERIO_URL."
+UNKNOWN_BASE = "Experio n'a pas accepté la demande : la base de ce cabinet existe-t-elle ? Vérifiez son nom."
+MISSING = "Un réglage nécessaire à la connexion manque : {key}."
+
+
+async def checked_login(cabinet):
+    """Return "" when Tarik logs in to ``cabinet``'s Experio with the settings Vault holds for it, else a sentence
+    saying what to check (never Experio's own words). The cabinet is not served yet: the login is tried on its own."""
+    data, _ = await asyncio.to_thread(cabinet_settings.latest, cabinet, False)
+    url = (data.get("EXPERIO_URL") or experio.ODOO_URL).rstrip("/")
+    try:
+        if not experio.OWN_EXPERIO.fullmatch(url):
+            return NO_ANSWER
+        expected = int(data["ODOO_UID"])
+        key = data.get("ODOO_API_KEY") or data["ODOO_PASSWORD"]
+        await asyncio.to_thread(experio.check_login, cabinet, url, data["ODOO_USER"], key, expected)
+    except PermissionError:
+        return REFUSED
+    except xmlrpc.client.Fault:  # Experio failed for this request: the database does not exist, for one
+        return UNKNOWN_BASE
+    except KeyError as missing:
+        return MISSING.format(key=missing.args[0])
+    except ValueError, OSError, http.client.HTTPException, xmlrpc.client.ProtocolError:
+        return NO_ANSWER
+    return ""
+
+
+async def new_cabinet_page(request: Request):
+    """GET or POST /ui/api/settings/new: the form that adds a cabinet, and its creation when posted.
+
+    GET returns {sections, adapters}: every setting, empty (DRY_RUN starts in simulation). POST takes JSON {name,
+    <settings>}: the cabinet is created in Vault deactivated (or a deactivated one reactivated, what the form leaves
+    empty kept), Tarik's login to its Experio is tried, and only when it works is the cabinet switched on and served
+    with its mailbox watched. When it fails the cabinet stays deactivated, so a typing mistake never stops the server
+    from starting and nothing of it runs, and the answer is 400 with the sentence to fix; send the form again to retry.
+    Returns {name, mailbox_watched} (201) when it works; 400 for an invalid or reserved name, an invalid setting or a
+    cabinet already active. One cabinet is added at a time (SWITCH)."""
+    if request.method == "GET":
+        return page({"sections": fields({}), "adapters": ADAPTERS})
+    form = await form_of(request, 40)
+    cabinet = form.get("name", "").strip()
+    author = request.state.user["email"]
+    given = {key: value for key, value in form.items() if key in cabinet_settings.FIELDS}
+    async with SWITCH:
+        try:
+            _, _, watched = await experio_api.add(cabinet, given, author, verify=checked_login)
+        except experio_api.Exists:
+            return page({"error": "ce cabinet existe déjà : ses réglages sont dans la page Réglages"}, 400)
+        except experio_api.Unverified as problem:
+            return page(
+                {"error": f"{problem} Le cabinet est créé mais désactivé : corrigez et validez à nouveau."}, 400
+            )
+        except ValueError as refused:
+            return page({"error": str(refused)}, 400)
+    return page({"name": cabinet, "mailbox_watched": watched}, 201)

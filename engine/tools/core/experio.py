@@ -167,14 +167,14 @@ def rpc(path):
     return proxies[endpoint]
 
 
-def _timed_transport(url):
-    """Return an XML-RPC transport for ``url`` (HTTPS or not) whose connections give up after RPC_TIMEOUT seconds."""
+def _timed_transport(url, timeout=RPC_TIMEOUT):
+    """Return an XML-RPC transport for ``url`` (HTTPS or not) whose connections give up after ``timeout`` seconds."""
     base = xmlrpc.client.SafeTransport if url.startswith("https") else xmlrpc.client.Transport
 
     class Timed(base):
         def make_connection(self, host):
             connection = super().make_connection(host)
-            connection.timeout = RPC_TIMEOUT
+            connection.timeout = timeout
             return connection
 
     return Timed()
@@ -191,6 +191,29 @@ def once_more_if_cut(read, label, call):
         log(f"{label} cut off ({type(error).__name__}): asked again")
         time.sleep(1)
         return call()
+
+
+CHECK_TIMEOUT: Final = 20  # seconds: a typed address that does not answer is told quickly
+
+
+def check_login(database, url, user, key, expected):
+    """Try Tarik's login with the account given, outside any cabinet and without remembering it, and return the uid.
+
+    Raises PermissionError when Experio refuses the login or the uid is not ``expected``; xmlrpc.client.Fault when
+    Experio fails (an unknown database); OSError, ProtocolError or the like when it does not answer within
+    CHECK_TIMEOUT. A read: nothing is written."""
+    transport = _timed_transport(url, CHECK_TIMEOUT)
+    try:
+        uid = xmlrpc.client.ServerProxy(f"{url}/xmlrpc/2/common", transport=transport, allow_none=True).authenticate(
+            database, user, key, {}
+        )
+    finally:
+        transport.close()
+    if not uid:
+        raise PermissionError(f"login refused for {user} on {database}")
+    if uid != expected:
+        raise PermissionError(f"{user} on {database} is uid {uid}, expected {expected}: wrong cabinet or user")
+    return uid
 
 
 def login():

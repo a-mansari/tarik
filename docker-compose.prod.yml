@@ -1,4 +1,4 @@
-# Tarik for a deployment (see DEPLOY.md): three containers, nothing to set up by hand.
+# Tarik for a deployment (see DEPLOY.md): four containers (five with the memory profile), nothing to set up by hand.
 #   server      the code (engine/ and server/ in one process), read-only AppRole logins from the volumes below
 #   db          Postgres (or the platform's own: leave this one out with POSTGRES_HOST set)
 #   vault       Vault, on this compose network only (no published port), unsealed again at each start from the
@@ -17,14 +17,14 @@ services:
       context: .
       args:
         INSTALL_CLAUDE_CODE: ${INSTALL_CLAUDE_CODE:-1}
-        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
+        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-https://claude.ai/install.sh}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.300}
     command: ["python", "-m", "server"]
     restart: unless-stopped
     ports:
       - "${TARIK_BIND:-127.0.0.1}:${TARIK_PORT:-2024}:2024"
     environment:
-      VAULT_ADDR: ${VAULT_ADDR:?VAULT_ADDR is required (.env), http://vault:8200 for the bundled Vault}
+      VAULT_ADDR: ${VAULT_ADDR:-http://vault:8200} # the bundled Vault; set it for another
       TARIK_DEFAULT_CABINET: ${TARIK_DEFAULT_CABINET:?TARIK_DEFAULT_CABINET is required (.env)}
       ODOO_URL: ${ODOO_URL:?ODOO_URL is required (.env)}
       TARIK_MODEL_URL: ${TARIK_MODEL_URL:?TARIK_MODEL_URL is required (.env)}
@@ -74,8 +74,8 @@ services:
     build:
       context: deploy/hindsight
       args:
-        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
+        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-https://claude.ai/install.sh}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.300}
     restart: unless-stopped
     ports:
       - "127.0.0.1:9999:9999" # its web UI (read and delete the memories), this machine only: it has no login
@@ -114,7 +114,7 @@ services:
       VAULT_SEED_OVERWRITE: ${VAULT_SEED_OVERWRITE:-0}
     volumes:
       - ./vault/setup.sh:/vault/config/setup.sh:ro
-      - ${TARIK_SEED_DIR:?TARIK_SEED_DIR is required (.env), see deploy/seed.example/}:/seed:ro
+      - ${TARIK_SEED_DIR:-./deploy/seed}:/seed:ro
       - vault_keys:/vault/unseal
       - vault_approle:/vault/approle
       - vault_settings_approle:/vault/settings-approle

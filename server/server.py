@@ -428,6 +428,7 @@ app = Starlette(
         Route("/ui/api/settings", api.settings.cabinet_page, methods=["GET", "POST"]),
         Route("/ui/api/settings/general", api.settings.general_page, methods=["GET", "POST"]),
         Route("/ui/api/settings/active", api.settings.activation, methods=["POST"]),
+        Route("/ui/api/settings/new", api.settings.new_cabinet_page, methods=["GET", "POST"]),
         Route("/ui/api/whatsapp", api.enrollment.enrollment_page, methods=["GET", "POST"]),
         Route("/ui/api/comportement", api.behaviour.behaviour_page, methods=["GET", "POST"]),
         Route("/ui/api/routines", api.routines.routines_page, methods=["GET", "POST"]),

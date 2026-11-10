@@ -142,15 +142,22 @@ def reread_vault():
 # A lowercase letter, then up to 62 lowercase letters, digits or underscores: a Postgres schema name and an env
 # prefix as it is, with no quoting nor case change.
 NAME = re.compile(r"[a-z][a-z0-9_]{0,62}")
+# Schemas the stack itself uses (a cabinet named so would build its tables inside them), besides Postgres's own pg_*.
+RESERVED: Final = frozenset({"public", "orchestrator", "knowledge", "hindsight", "information_schema"})
+
+
+def reserved(name):
+    """True when ``name`` is a schema Postgres or the stack uses: no cabinet may bear it."""
+    return name in RESERVED or name.startswith("pg_")
 
 
 def cabinet_names(value):
     """Return the comma-separated cabinet names in ``value`` (Vault's cabinet paths, or TARIK_CABINETS in the tests)
-    as a frozenset. Raises SystemExit unless each is a lowercase identifier (NAME, not "public" nor "pg_...") and
+    as a frozenset. Raises SystemExit unless each is a lowercase identifier (NAME, not reserved()) and
     none is repeated."""
     names = [name.strip() for name in (value or "").split(",") if name.strip()]
     for name in names:
-        if not NAME.fullmatch(name) or name == "public" or name.startswith("pg_"):
+        if not NAME.fullmatch(name) or reserved(name):
             raise SystemExit(f"TARIK_CABINETS: {name!r} is not a cabinet's exact Experio database name")
     if len(set(names)) != len(names):
         raise SystemExit("TARIK_CABINETS lists a cabinet twice")

@@ -101,6 +101,9 @@ watch(() => route.path, async () => {
           </li>
           <li v-if="!session.cabinets.length" class="muted">Aucun cabinet.</li>
         </ul>
+        <nav v-if="session.admin" aria-label="Ajouter un cabinet">
+          <RouterLink to="/ui/nouveau-cabinet" :aria-current="current('/ui/nouveau-cabinet') ? 'page' : null"><Icon name="plus" />Ajouter un cabinet</RouterLink>
+        </nav>
       </section>
     </aside>
     <div class="column">

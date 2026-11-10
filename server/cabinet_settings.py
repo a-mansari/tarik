@@ -236,18 +236,23 @@ def complete(given):
     return found
 
 
-async def create(pool, cabinet, given, author):
+async def create(pool, cabinet, given, author, active=True):
     """Create cabinet ``cabinet`` in Vault with the settings ``given`` (see complete), record it, and return the keys
     set.
 
     The write uses Vault's check-and-set with cas 0, which Vault accepts only when the path does not exist yet, so an
     existing cabinet is never overwritten. Raises ValueError for an invalid cabinet name or settings, or when the
-    cabinet already exists in Vault."""
-    if not cabinets.NAME.fullmatch(cabinet) or cabinet == "public" or cabinet.startswith("pg_"):
-        raise ValueError("nom de cabinet : la base Experio exacte, en minuscules (lettres, chiffres, _)")
+    cabinet already exists in Vault. ``active`` False creates it deactivated (ACTIVE "0"), to be switched on once it has
+    been checked."""
+    if not cabinets.NAME.fullmatch(cabinet):
+        raise ValueError(
+            "nom de cabinet : la base Experio exacte, en minuscules (lettres, chiffres, _), une lettre d'abord"
+        )
+    if cabinets.reserved(cabinet):
+        raise ValueError("nom de cabinet : ce nom est réservé (un schéma de Tarik ou de Postgres)")
     data = complete(given)
     try:
-        vault = {key: value for key, value in data.items() if key != IN_POSTGRES}
+        vault = {key: value for key, value in data.items() if key != IN_POSTGRES} | ({} if active else {"ACTIVE": "0"})
         written = await asyncio.to_thread(
             _vault, "POST", f"/v1/secret/data/tarik/cabinets/{cabinet}", json={"options": {"cas": 0}, "data": vault}
         )
