@@ -536,3 +536,17 @@ def test_someone_else_replying_to_a_routine_s_report_gets_a_thread_of_their_own(
     with cabinet_db() as db:
         (item,) = inbox.claim(db)
     assert item["session_id"] != "routine-2-202610290900"  # never the routine's conversation: not sent to them
+
+
+@pytest.mark.functionality
+def test_an_ignored_sender_is_set_aside_without_telling_the_manager(mailbox, db_cabinet, monkeypatch):
+    monkeypatch.setenv(f"{db_cabinet.upper()}__MAIL_IGNORED_SENDERS", f"notifications@cabinet.ma, {CHEF}")
+    alerts, threads = stored(
+        mail("notifications@cabinet.ma", "<n1@x>"), mail(CHEF, "<c1@x>"), mail(COLLEAGUE, "<k1@x>")
+    )
+    assert alerts == [None, None, None]
+    assert threads == [
+        ("<c1@x>", CHEF, "ignored"),
+        ("<k1@x>", COLLEAGUE, "new"),
+        ("<n1@x>", "notifications@cabinet.ma", "ignored"),
+    ]

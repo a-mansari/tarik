@@ -96,9 +96,14 @@ def imap_session():
                 box.shutdown()
 
 
+def address_list(key):
+    """Return the entries of the current cabinet's address-list setting ``key``, lowercased; empty when unset."""
+    return [entry.strip().lower() for entry in setting(key, "").split(",") if entry.strip()]
+
+
 def allowed_recipients():
     """Return the current cabinet's whitelist entries (MAIL_ALLOWED_RECIPIENTS), lowercased; empty means nobody."""
-    return [entry.strip().lower() for entry in setting("MAIL_ALLOWED_RECIPIENTS", "").split(",") if entry.strip()]
+    return address_list("MAIL_ALLOWED_RECIPIENTS")
 
 
 def recipient_allowed(address, allowed=None):

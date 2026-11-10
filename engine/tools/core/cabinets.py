@@ -234,6 +234,7 @@ CABINET_SETTINGS = frozenset(
         "SMTP_FROM",
         "MAIL_MANAGER",
         "MAIL_ALLOWED_RECIPIENTS",
+        "MAIL_IGNORED_SENDERS",
         "ACTIVE",  # "0": deactivated by the Experio API (missing: served)
     ]
 )

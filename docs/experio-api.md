@@ -29,6 +29,7 @@ A cabinet is named by its exact Experio database: lowercase letters, digits and 
 | `SMTP_USER`, `SMTP_PASSWORD` | yes | the account Tarik sends with |
 | `SMTP_FROM` | no | the sender clients see, `Tarik <tarik@cabinet.ma>` |
 | `MAIL_ALLOWED_RECIPIENTS` | no | who may receive Tarik's emails: addresses, `@domain`, patterns with `*`, comma-separated; empty: nobody |
+| `MAIL_IGNORED_SENDERS` | no | senders whose emails Tarik sets aside quietly (no reply, no manager alert): same format; empty: none |
 | `MAIL_MANAGER` | no | told when an unknown sender writes, when Experio has no manager for the cabinet |
 
 Values are checked as Tarik reads them; spaces around a value are removed, a secret is kept exactly. A secret is

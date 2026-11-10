@@ -25,6 +25,7 @@ LEAKS = {  # a marker in every setting: none may show in anything a tool returns
     "SMTP_FROM": "leak-from@leak.invalid",
     "MAIL_MANAGER": "leak-manager@leak.invalid",
     "MAIL_ALLOWED_RECIPIENTS": "leak-allowed@leak.invalid",
+    "MAIL_IGNORED_SENDERS": "leak-ignored@leak.invalid",
 }
 SHARED_LEAKS = {
     "IMAP_HOST": "leak-imap-host.invalid",

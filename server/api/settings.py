@@ -24,6 +24,7 @@ SECTIONS = {
     "Experio": ["CABINET_NAME", "DRY_RUN", "EXPERIO_URL", "ODOO_USER", "ODOO_UID", "ODOO_PASSWORD", "ODOO_API_KEY"],
     "Boîte mail de Tarik": ["IMAP_USER", "IMAP_PASSWORD", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM"],
     "Qui reçoit les emails de Tarik": ["MAIL_ALLOWED_RECIPIENTS", "MAIL_MANAGER"],
+    "Emails ignorés": ["MAIL_IGNORED_SENDERS"],
 }
 assert sorted(key for keys in SECTIONS.values() for key in keys) == sorted(cabinet_settings.FIELDS)
 

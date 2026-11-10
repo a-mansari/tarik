@@ -43,6 +43,7 @@ FIELDS = {
     "SMTP_FROM": "sender",
     "MAIL_MANAGER": "address",
     "MAIL_ALLOWED_RECIPIENTS": "recipients",
+    "MAIL_IGNORED_SENDERS": "recipients",
     "MODEL_ADAPTER": "adapter",
 }
 # Left empty: Tarik does without (MODEL_ADAPTER: the first of ADAPTERS; EXPERIO_URL: ODOO_URL).
@@ -52,6 +53,7 @@ OPTIONAL = {
     "SMTP_FROM",
     "MAIL_MANAGER",
     "MAIL_ALLOWED_RECIPIENTS",
+    "MAIL_IGNORED_SENDERS",
     "ODOO_API_KEY",
     "MODEL_ADAPTER",
 }
