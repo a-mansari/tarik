@@ -3,7 +3,8 @@ run page's followRun shared with its canvas) each new step is added as it ends. 
 <script setup>
 import { reactive, ref, watch } from "vue";
 
-import { statusName, stepName } from "../api.js";
+import { stepName } from "../api.js";
+import StatusChip from "./StatusChip.vue";
 
 const props = defineProps({
   run: { type: String, required: true },
@@ -48,7 +49,7 @@ async function load(step, event) {
         <summary>
           <span class="time num">{{ step.when }}</span>
           <span class="name">{{ stepName(graph, step.node) }}</span>
-          <span v-if="step.status" :class="`chip ${step.status}`">{{ statusName(step.status) }}</span>
+          <StatusChip v-if="step.status" :status="step.status" />
           <span class="line">{{ step.summary }}</span>
         </summary>
         <pre class="detail">{{ details[step.id] ?? "…" }}</pre>

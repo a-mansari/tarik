@@ -7,6 +7,7 @@ import { computed, ref, watch } from "vue";
 import { loadSession, plural, send, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import PageState from "../components/PageState.vue";
+import Icon from "../components/Icon.vue";
 
 const { data, status, loading, reload } = usePage(() => "/settings");
 const problem = ref("");
@@ -72,14 +73,15 @@ function trimHint(f) {
       <h1>Réglages · <CabinetLabel :name="data.cabinet" /><template v-if="data.active && modeKnown"> <span
         class="chip"
         :class="data.dry_run ? '' : 'wait'"
-      >{{ data.dry_run ? "Simulation" : "Écritures réelles" }}</span></template></h1>
+        :title="data.dry_run ? 'Simulation : rien n\'est écrit dans Experio' : 'Écritures réelles dans Experio'"
+      ><Icon :name="data.dry_run ? 'flask' : 'content'" :size="14" /><span class="sr-only">{{ data.dry_run ? "Simulation" : "Écritures réelles" }}</span></span></template></h1>
       <p v-if="!data.active" class="what">Ce cabinet est désactivé : Tarik n'y lit aucun email et n'y lance aucune exécution. Activez-le pour modifier ses réglages.</p>
       <p v-else class="what">Ce que Tarik utilise pour ce cabinet. Un mot de passe ou une clé n'est jamais affiché : il se remplace seulement. Un changement s'applique dès le message suivant.</p>
     </div>
-      <label class="switch">
+      <label class="switch" :title="data.active ? 'Actif : cliquer pour désactiver' : 'Désactivé : cliquer pour activer'">
         <input type="checkbox" role="switch" :checked="data.active" :disabled="switching"
           @change="activate(data.cabinet, $event.target.checked)">
-        <b>{{ data.active ? "Actif" : "Désactivé" }}</b>
+        <Icon name="power" :size="18" /><span class="sr-only">{{ data.active ? "Actif" : "Désactivé" }}</span>
       </label>
     </div>
     <div v-if="problem" class="panel bad" role="alert"><b>Non enregistré :</b> {{ problem }}</div>

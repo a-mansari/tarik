@@ -99,7 +99,7 @@ watch(() => route.path, async () => {
         <ul class="cabinets">
           <li v-for="cabinet in session.cabinets" :key="cabinet.name">
             <button type="button" :class="{ off: !cabinet.active }" :aria-current="cabinet.chosen ? 'true' : null" @click="choose(cabinet)">
-              <CabinetLabel :name="cabinet.name" /><span v-if="!cabinet.active" class="muted"> · désactivé</span>
+              <CabinetLabel :name="cabinet.name" /><span v-if="!cabinet.active" class="off-mark" title="Cabinet désactivé"><Icon name="power" :size="14" /><span class="sr-only">désactivé</span></span>
             </button>
           </li>
           <li v-if="!session.cabinets.length" class="muted">Aucun cabinet.</li>
@@ -114,7 +114,7 @@ watch(() => route.path, async () => {
             :aria-current="current(link.href) ? 'page' : null"><Icon :name="link.icon" />{{ link.words }}</RouterLink>
         </nav>
         <form class="who" @submit.prevent="logout">
-          <span>{{ session.user.name }}</span><button type="submit">Se déconnecter</button>
+          <span>{{ session.user.name }}</span><button type="submit" class="icon-button" title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" /></button>
         </form>
       </header>
       <main class="page" :class="route.meta.pageClass">

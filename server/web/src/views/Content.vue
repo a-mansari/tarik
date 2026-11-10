@@ -161,8 +161,8 @@ async function restore() {
         <!-- Read-only fields, not a disabled fieldset, so a member can still preview the Markdown. -->
         <fieldset class="plain">
           <div v-if="data.sections.length > 1" class="card-tools">
-            <button type="button" @click="allCards(true)">Tout déplier</button>
-            <button type="button" @click="allCards(false)">Tout replier</button>
+            <button type="button" class="icon-button" title="Tout déplier" aria-label="Tout déplier" @click="allCards(true)"><Icon name="unfold" /></button>
+            <button type="button" class="icon-button" title="Tout replier" aria-label="Tout replier" @click="allCards(false)"><Icon name="fold" /></button>
           </div>
           <!-- One card per section; closed cards' fields are still sent. -->
           <details

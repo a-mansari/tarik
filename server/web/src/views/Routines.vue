@@ -121,7 +121,7 @@ function remove(routine) {
           <button type="button" class="panel-button" :disabled="managers === undefined"
             @click="editing === routine.id ? close() : open(routine)">
             {{ editing === routine.id ? "Fermer" : "Modifier" }}</button>
-          <button type="button" class="panel-button" @click="remove(routine)">Supprimer</button>
+          <button type="button" class="panel-button icon-button" title="Supprimer" aria-label="Supprimer" @click="remove(routine)"><Icon name="trash" /></button>
         </div>
       </div>
       <p class="muted when">n° {{ routine.id }} · prochaine le <span class="num">{{ routine.next_run_at }}</span> · créée

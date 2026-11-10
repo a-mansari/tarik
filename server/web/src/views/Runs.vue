@@ -4,11 +4,13 @@ each change of the cabinet's runs. A type picked shows one workflow's. -->
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { graphName, pickedCabinet, plural, send, statusName, usePage } from "../api.js";
+import { graphName, pickedCabinet, plural, send, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import ModelUsage from "../components/ModelUsage.vue";
 import PageState from "../components/PageState.vue";
 import { useLive } from "../live.js";
+import StatusChip from "../components/StatusChip.vue";
+import Icon from "../components/Icon.vue";
 
 const route = useRoute();
 const router = useRouter();
@@ -53,7 +55,7 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
             <div v-if="open" class="unread-popup" role="dialog" aria-label="Exécutions non lues">
               <p class="unread-title"><b>{{ data.unread }}</b> exécution{{ plural(data.unread) }} non lue{{ plural(data.unread) }}</p>
               <p class="muted">Une exécution est lue dès que vous l'ouvrez.</p>
-              <button type="button" class="primary" @click="markRead">Tout marquer comme lu</button>
+              <button type="button" class="primary icon-button" title="Tout marquer comme lu" aria-label="Tout marquer comme lu" @click="markRead"><Icon name="check-all" /></button>
             </div>
           </span>
         </h1>
@@ -87,7 +89,7 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
                 :to="`/ui/discussion/${encodeURIComponent(run.session_id)}`">{{ run.session_id }}</RouterLink>
               <span v-else class="muted" aria-label="Aucune discussion">—</span>
             </td>
-            <td><span :class="`chip ${run.status}`">{{ statusName(run.status) }}</span></td>
+            <td><StatusChip :status="run.status" /></td>
             <td class="num">{{ run.seconds }} s<template v-if="!run.ended"> …</template></td>
             <td><ModelUsage :usage="data.usage[run.run_id]" /></td>
           </tr>

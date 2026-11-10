@@ -6,6 +6,7 @@ import { ref } from "vue";
 
 import { roleName, send, usePage } from "../api.js";
 import PageState from "../components/PageState.vue";
+import Icon from "../components/Icon.vue";
 
 const { data, status, loading } = usePage(() => "/comptes");
 const blank = () => ({ email: "", name: "", role: "member" });
@@ -49,7 +50,7 @@ async function copy() {
       <p><b>Lien à envoyer à la personne</b>, valable {{ data.hours }} h et une seule fois. Il n'est montré qu'ici : copiez-le maintenant.</p>
       <div class="copy-row">
         <input id="invitation-link" ref="linkField" class="mono" :value="data.link" readonly>
-        <button type="button" class="primary" @click="copy">{{ copied ? "Copié" : "Copier" }}</button>
+        <button type="button" class="primary icon-button" :title="copied ? 'Copié' : 'Copier le lien'" :aria-label="copied ? 'Copié' : 'Copier le lien'" @click="copy"><Icon :name="copied ? 'check' : 'copy'" /></button>
       </div>
     </div>
     <section class="panel">
@@ -84,9 +85,9 @@ async function copy() {
             </td>
             <td>{{ roleName(a.role) }}</td>
             <td>
-              <span v-if="!a.active" class="chip">Fermé</span>
-              <span v-else-if="!a.has_password" class="chip wait">Invité, sans mot de passe</span>
-              <span v-else class="chip ok">Actif</span>
+              <span v-if="!a.active" class="chip" title="Fermé"><Icon name="ban" :size="14" /><span class="sr-only">Fermé</span></span>
+              <span v-else-if="!a.has_password" class="chip wait" title="Invité, sans mot de passe"><Icon name="mail" :size="14" /><span class="sr-only">Invité, sans mot de passe</span></span>
+              <span v-else class="chip ok" title="Actif"><Icon name="check" :size="14" /><span class="sr-only">Actif</span></span>
             </td>
             <td class="actions">
               <button
