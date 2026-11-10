@@ -610,7 +610,7 @@ def test_asked_for_the_whole_dossier_what_stays_a_draft_is_said_with_why(db_cabi
         "Restent en brouillon dans ce dossier :\n"
         "- 1 facture attend votre réponse à sa question, dans sa conversation.\n"
         "- 1 facture est arrêtée par un point à corriger.\n"
-        "- 2 factures n'ont pas été reprises cette fois (25 au plus à la fois) : redemandez-moi de les reprendre."
+        "- 2 factures n'ont pas été importées par moi : comptabilisez-les dans Experio."
     )
 
 
@@ -939,5 +939,6 @@ def test_no_more_than_so_many_drafts_made_in_experio_are_taken_at_once_and_the_r
     assert told["invoices"] == [50, 51] and told["tell"]
     assert told["message"] == (
         "Restent en brouillon dans ce dossier :\n"
-        "- 1 facture n'a pas été reprise cette fois (2 au plus à la fois) : redemandez-moi de la reprendre."
+        "- 1 facture créée dans Experio n'a pas été reprise cette fois (2 au plus à la fois) : "
+        "redemandez-moi de la reprendre."
     )
