@@ -9,7 +9,8 @@ Hindsight's own operations: failures() reads them for the settings page."""
 
 import asyncio
 import os
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from urllib.parse import quote
 
 import httpx
 
@@ -28,20 +29,17 @@ def on():
     return bool(URL)
 
 
+async def hindsight(client, method, path, **kwargs):
+    """Send ``method`` to Hindsight's ``path`` (under /v1/default) with ``client`` and return its JSON answer."""
+    answer = await client.request(method, f"{URL}/v1/default{path}", **kwargs)
+    answer.raise_for_status()
+    return answer.json()
+
+
 async def post(bank, path, body, wait):
     """POST ``body`` to the cabinet ``bank``'s ``path`` and return Hindsight's JSON answer."""
     async with httpx.AsyncClient(timeout=wait) as client:
-        answer = await client.post(f"{URL}/v1/default/banks/{bank}/{path}", json=body)
-        answer.raise_for_status()
-        return answer.json()
-
-
-async def get(path, wait, params=None):
-    """GET ``path`` (under /v1/default) from Hindsight and return its JSON answer."""
-    async with httpx.AsyncClient(timeout=wait) as client:
-        answer = await client.get(f"{URL}/v1/default{path}", params=params)
-        answer.raise_for_status()
-        return answer.json()
+        return await hindsight(client, "POST", f"/banks/{quote(bank, safe='')}/{path}", json=body)
 
 
 async def recalled(cabinet, question):
@@ -92,30 +90,53 @@ def retain_later(cabinet, session, said):
     task.add_done_callback(BACKGROUND.discard)
 
 
-FAILED_PER_BANK = 20
+FAILED_PER_BANK, FAILED_DAYS, FAILED_WAIT = 20, 7, 6  # a failure fixed since is forgotten; the whole read waits 6 s
+
+
+def moment(text):
+    """Return Hindsight's ISO time ``text`` as a datetime, None when it is none or not one."""
+    try:
+        return datetime.fromisoformat(text)
+    except TypeError, ValueError:
+        return None
 
 
 async def failures():
-    """Return Hindsight's failed operations, newest first: [{cabinet, at, kind, error}], at most FAILED_PER_BANK per
-    cabinet, ``error`` cut to 300 characters. [] when Hindsight is off or nothing failed; None when it cannot be
-    reached (logged)."""
+    """Return Hindsight's failed operations of the last FAILED_DAYS days, newest first: [{id, cabinet, at, kind,
+    error}], at most FAILED_PER_BANK per cabinet, ``at`` an ISO time (None when Hindsight gave none), ``error`` cut to
+    300 characters. [] when Hindsight is off or nothing failed; None when it cannot be reached in FAILED_WAIT seconds
+    (logged). A bank whose operations cannot be read is left out (logged), the others kept."""
     if not on():
         return []
-    found = []
+    params = {"status": "failed", "exclude_parents": "true", "limit": FAILED_PER_BANK}
     try:
-        for bank in (await get("/banks", RECALL_WAIT))["banks"]:
-            params = {"status": "failed", "exclude_parents": "true", "limit": FAILED_PER_BANK}
-            for one in (await get(f"/banks/{bank['bank_id']}/operations", RECALL_WAIT, params))["operations"]:
-                at = one.get("updated_at") or one["created_at"]
-                found.append(
-                    {
-                        "cabinet": bank["bank_id"],
-                        "at": at,
-                        "kind": one.get("operation_type") or one["task_type"],
-                        "error": (one.get("error_message") or "")[:300],
-                    }
-                )
+        async with asyncio.timeout(FAILED_WAIT), httpx.AsyncClient(timeout=RECALL_WAIT) as client:
+            banks = [bank["bank_id"] for bank in (await hindsight(client, "GET", "/banks"))["banks"]]
+            listed = await asyncio.gather(
+                *(
+                    hindsight(client, "GET", f"/banks/{quote(bank, safe='')}/operations", params=params)
+                    for bank in banks
+                ),
+                return_exceptions=True,
+            )
     except Exception as error:
         log(f"memory failures: {type(error).__name__}: {error}")
         return None
-    return sorted(found, key=lambda one: one["at"], reverse=True)
+    since, found = datetime.now(UTC) - timedelta(days=FAILED_DAYS), []
+    for bank, operations in zip(banks, listed, strict=True):
+        if isinstance(operations, Exception):
+            log(f"{bank} memory failures: {type(operations).__name__}: {operations}")
+            continue
+        for one in operations.get("operations", []):
+            at = moment(one.get("updated_at") or one.get("created_at"))
+            if at is None or at >= since:
+                found.append(
+                    {
+                        "id": one.get("id") or one.get("operation_id") or "",
+                        "cabinet": bank,
+                        "at": at and at.isoformat(),
+                        "kind": one.get("operation_type") or one.get("task_type") or "",
+                        "error": (one.get("error_message") or "")[:300],
+                    }
+                )
+    return sorted(found, key=lambda one: moment(one["at"]) or datetime.min.replace(tzinfo=UTC), reverse=True)

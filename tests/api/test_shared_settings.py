@@ -191,7 +191,8 @@ def test_the_page_shows_the_memory_s_failures_in_words_or_that_it_cannot_be_reac
                 "at": "2026-11-10T12:42:29+00:00",
                 "kind": "retain",
                 "error": "token revoked",
-            }
+            },
+            {"cabinet": "experio_cabinet_8", "at": None, "kind": "", "error": ""},  # no time given: not a crash
         ]
 
     monkeypatch.setattr(settings.memory, "URL", "http://hindsight:8888")
@@ -199,6 +200,7 @@ def test_the_page_shows_the_memory_s_failures_in_words_or_that_it_cannot_be_reac
     shown = asyncio.run(settings.memory_state())
     assert shown["on"] is True and shown["failures"][0]["error"] == "token revoked"
     assert shown["failures"][0]["at"] == settings.runs.when("2026-11-10T12:42:29+00:00")  # in words, as every page
+    assert shown["failures"][1]["at"] == ""
 
     async def down():
         return None

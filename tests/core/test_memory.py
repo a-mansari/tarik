@@ -159,57 +159,94 @@ def test_a_routine_s_turn_or_no_memory_leaves_the_prompt_as_it_is(sent, monkeypa
 
 
 def fake_hindsight(monkeypatch, banks, operations):
-    """Hindsight's banks, and each bank's failed operations: what failures() reads."""
+    """Hindsight's banks and each bank's failed operations (or an exception to raise): what failures() reads."""
     asked = []
 
-    async def get(path, wait, params=None):
-        asked.append((path, params))
+    async def hindsight(client, method, path, **kwargs):
+        asked.append((method, path, kwargs.get("params")))
         if path == "/banks":
             return {"banks": [{"bank_id": bank} for bank in banks]}
-        return {"operations": operations[path.split("/")[2]]}
+        found = operations[path.split("/")[2]]
+        if isinstance(found, Exception):
+            raise found
+        return {"operations": found}
 
     monkeypatch.setattr(memory, "URL", "http://hindsight:8888")
-    monkeypatch.setattr(memory, "get", get)
+    monkeypatch.setattr(memory, "hindsight", hindsight)
     return asked
 
 
-def operation(at, error="boom", kind="retain"):
+def operation(days_ago, error="boom", **more):
+    at = (memory.datetime.now(memory.UTC) - memory.timedelta(days=days_ago)).isoformat()
     return {
+        "id": f"op-{days_ago}",
         "created_at": at,
         "updated_at": at,
-        "operation_type": kind,
-        "task_type": "batch_retain",
+        "operation_type": "retain",
         "error_message": error,
+        **more,
     }
 
 
-def test_failures_are_read_from_every_bank_newest_first_with_the_error_cut(monkeypatch):
+def test_failures_of_the_last_days_from_every_bank_newest_first_with_the_error_cut(monkeypatch):
     asked = fake_hindsight(
         monkeypatch,
         ["experio_cabinet_3", "experio_cabinet_8"],
         {
-            "experio_cabinet_3": [operation("2026-11-10T10:00:00+00:00")],
-            "experio_cabinet_8": [operation("2026-11-10T12:00:00+00:00", "x" * 500)],
+            "experio_cabinet_3": [operation(2), operation(30)],  # the second: fixed long since, forgotten
+            "experio_cabinet_8": [operation(1, "x" * 500)],
         },
     )
     found = asyncio.run(memory.failures())
-    assert [(one["cabinet"], one["at"][11:16]) for one in found] == [
-        ("experio_cabinet_8", "12:00"),
-        ("experio_cabinet_3", "10:00"),
+    assert [(one["cabinet"], one["id"]) for one in found] == [
+        ("experio_cabinet_8", "op-1"),
+        ("experio_cabinet_3", "op-2"),
     ]
     assert len(found[0]["error"]) == 300 and found[0]["kind"] == "retain"
-    assert asked[1][1] == {"status": "failed", "exclude_parents": "true", "limit": memory.FAILED_PER_BANK}
+    assert asked[1][2] == {"status": "failed", "exclude_parents": "true", "limit": memory.FAILED_PER_BANK}
 
 
-def test_no_failure_when_off_and_none_when_hindsight_cannot_be_reached(monkeypatch):
+def test_a_row_without_time_or_kind_is_listed_not_a_crash_and_a_bank_that_fails_is_left_out(monkeypatch):
+    lines = []
+    fake_hindsight(
+        monkeypatch,
+        ["a", "b"],
+        {"a": [{"error_message": None}, operation(1)], "b": httpx.ConnectError("down")},
+    )
+    monkeypatch.setattr(memory, "log", lines.append)
+    found = asyncio.run(memory.failures())
+    assert [one["id"] for one in found] == ["op-1", ""] and found[1]["at"] is None and found[1]["kind"] == ""
+    assert len(lines) == 1 and lines[0].startswith("b memory failures")
+
+
+def test_a_bank_name_cannot_change_the_path(monkeypatch):
+    asked = []
+
+    async def hindsight(client, method, path, **kwargs):
+        asked.append(path)
+        return {"banks": [{"bank_id": "x/../y?z"}]} if path == "/banks" else {"operations": []}
+
+    monkeypatch.setattr(memory, "URL", "http://hindsight:8888")
+    monkeypatch.setattr(memory, "hindsight", hindsight)
+    asyncio.run(memory.failures())
+    assert asked[1] == "/banks/x%2F..%2Fy%3Fz/operations"
+
+
+def test_no_failure_when_off_and_none_when_hindsight_is_down_or_too_slow(monkeypatch):
     monkeypatch.setattr(memory, "URL", "")
     assert asyncio.run(memory.failures()) == []
     lines = []
 
-    async def down(*_):
+    async def down(*_, **__):
         raise httpx.ConnectError("down")
 
+    async def slow(*_, **__):
+        await asyncio.sleep(5)
+
     monkeypatch.setattr(memory, "URL", "http://hindsight:8888")
-    monkeypatch.setattr(memory, "get", down)
     monkeypatch.setattr(memory, "log", lines.append)
-    assert asyncio.run(memory.failures()) is None and len(lines) == 1
+    monkeypatch.setattr(memory, "FAILED_WAIT", 0.05)
+    for fake in (down, slow):
+        monkeypatch.setattr(memory, "hindsight", fake)
+        assert asyncio.run(memory.failures()) is None
+    assert len(lines) == 2
