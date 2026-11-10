@@ -12,6 +12,7 @@ import { graphName, session } from "../api.js";
 import { followRun } from "../live.js";
 import Icon from "./Icon.vue";
 import ZoomBar, { MAX_ZOOM, MIN_ZOOM } from "./ZoomBar.vue";
+import StatusChip from "./StatusChip.vue";
 
 const props = defineProps({
   graph: { type: String, required: true },
@@ -1230,7 +1231,7 @@ cytoscape.use(cytoscapeDagre); // once, whatever number of canvases
       <ol v-if="run" class="moment-steps" aria-live="polite">
         <li v-for="step in momentSteps" :key="step.id">
           <span class="num muted">{{ step.when }}</span><b>{{ step.name }}</b>
-          <span v-if="step.status" :class="`chip ${step.status}`">{{ statusLabel(step.status) }}</span>
+          <StatusChip v-if="step.status" :status="step.status" />
           <span v-if="step.summary">{{ step.summary }}</span>
         </li>
       </ol>
@@ -1290,7 +1291,7 @@ cytoscape.use(cytoscapeDagre); // once, whatever number of canvases
               <div class="head-line">
                 <span class="num muted">{{ step.when }}</span>
                 <b v-if="step.name">{{ step.name }}</b>
-                <span v-if="step.status" :class="`chip ${step.status}`">{{ statusLabel(step.status) }}</span>
+                <StatusChip v-if="step.status" :status="step.status" />
               </div>
               <p v-if="step.summary">{{ step.summary }}</p>
               <details @toggle="loadDetail(step.id, $event)">

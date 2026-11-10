@@ -4,7 +4,7 @@ can stop it while it goes on, with the run it was started from and every run it 
 <script setup>
 import { computed, onUnmounted, ref, shallowRef, watch } from "vue";
 
-import { callLink, graphName, plural, send, session, statusName, stepName, usePage } from "../api.js";
+import { callLink, graphName, plural, send, session, stepName, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import CanvasGraph from "../components/CanvasGraph.vue";
 import Icon from "../components/Icon.vue";
@@ -13,6 +13,7 @@ import PageState from "../components/PageState.vue";
 import RunSteps from "../components/RunSteps.vue";
 import RunTalk from "../components/RunTalk.vue";
 import { followRun, stillGoing } from "../live.js";
+import StatusChip from "../components/StatusChip.vue";
 
 const { data, status, loading, reload } = usePage((route) => `/executions/${encodeURIComponent(route.params.run)}`);
 const run = computed(() => data.value?.run);
@@ -77,12 +78,12 @@ async function stop() {
           >
             <Icon name="down" />
             <span><small>A lancé</small><b>{{ graphName(child.graph) }}</b><small>{{ child.when }}</small></span>
-            <span :class="`chip ${child.status}`">{{ statusName(child.status) }}</span>
+            <StatusChip :status="child.status" />
           </RouterLink>
         </div>
       </div>
       <div class="state">
-        <span :class="`chip big ${run.status}`">{{ statusName(run.status) }}</span>
+        <StatusChip :status="run.status" big />
         <span class="num muted">{{ run.seconds }} s</span>
         <button v-if="session.admin && stillGoing(run.status)" type="button" class="panel-button" :disabled="stopping"
           @click="stop"><Icon name="stop" :size="14" /> {{ stopping ? "Arrêt demandé…" : "Arrêter" }}</button>

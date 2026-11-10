@@ -2,11 +2,12 @@
 <script setup>
 import { computed } from "vue";
 
-import { graphDescription, graphName, statusName, usePage } from "../api.js";
+import { graphDescription, graphName, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import CanvasGraph from "../components/CanvasGraph.vue";
 import Icon from "../components/Icon.vue";
 import PageState from "../components/PageState.vue";
+import StatusChip from "../components/StatusChip.vue";
 
 const { data, status, loading } = usePage((route) => {
   const path = `/workflows/${encodeURIComponent(route.params.graph)}`;
@@ -26,8 +27,7 @@ const shownRun = computed(() => data.value.run?.run_id || ""); // the run over t
     <div class="head"><div>
       <h1>{{ graphName(data.graph) }}</h1>
       <p class="what">{{ graphDescription(data.graph) }}</p>
-      <p v-if="data.run" class="muted">Exécution du {{ data.run.when }}, cabinet <CabinetLabel :name="data.run.cabinet" /> · <span
-        :class="`chip ${data.run.status}`">{{ statusName(data.run.status) }}</span> · <RouterLink :to="`/ui/executions/${data.run.run_id}`">toutes ses étapes</RouterLink></p>
+      <p v-if="data.run" class="muted">Exécution du {{ data.run.when }}, cabinet <CabinetLabel :name="data.run.cabinet" /> · <StatusChip :status="data.run.status" /> · <RouterLink :to="`/ui/executions/${data.run.run_id}`">toutes ses étapes</RouterLink></p>
       <p v-else class="muted">Le schéma seul. Choisissez une exécution à droite pour la voir dessus.</p>
     </div></div>
     <CanvasGraph :key="shownRun" :graph="data.graph" :run="shownRun" />
@@ -45,7 +45,7 @@ const shownRun = computed(() => data.value.run?.run_id || ""); // the run over t
             :aria-current="data.run?.run_id === item.run_id ? 'true' : null"
           >
             <span class="num">{{ item.when }} · <span class="mono">{{ item.session_id }}</span></span>
-            <span :class="`chip ${item.status}`">{{ statusName(item.status) }}</span>
+            <StatusChip :status="item.status" />
           </RouterLink>
         </li>
         <li v-if="!data.runs.length" class="muted">Pas encore d'exécution.</li>
