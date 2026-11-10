@@ -82,7 +82,18 @@ let panelEdge = null; // the edge the panel shows
 const dark = matchMedia("(prefers-color-scheme: dark)");
 const restyle = () => cy?.style(styles());
 
-const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+// A token as a plain colour (the tokens are light-dark() pairs, which Cytoscape cannot read): resolved by the browser as the
+// colour of a probe, so the theme applies; other tokens (--font) are read as they are.
+const probe = document.createElement("i");
+const css = (name) => {
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!raw.includes("light-dark(")) return raw;
+  probe.style.color = `var(${name})`;
+  document.body.append(probe);
+  const colour = getComputedStyle(probe).color;
+  probe.remove();
+  return colour;
+};
 const fetchJson = async (url, options) => (await fetch(url, options)).json();
 const layoutUrl = () => `/graphs/${props.graph}/layout`;
 
