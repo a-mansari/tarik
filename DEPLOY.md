@@ -1,6 +1,6 @@
 # Deploying Tarik
 
-For the DevOps team. Tarik runs as **three containers** from one compose file, `docker-compose.prod.yml`, and needs no
+For the DevOps team. Tarik runs as **four containers** (a fifth, the memory, is optional) from one compose file, `docker-compose.prod.yml`, and needs no
 manual setup of Vault or Postgres. No address and no secret is written in the code: they are in `.env` (starting
 configuration) and in the seed files (secrets, loaded into Vault once). `.env.example` is the complete list.
 
@@ -41,7 +41,7 @@ You provide a host with Docker and a route on Experio's reverse proxy; the rest 
 1. **`.env`**: copy `.env.example` and fill the **Required** block's blank lines: `ODOO_URL`, `POSTGRES_PASSWORD`,
    `TARIK_MODEL_URL`, `TARIK_DEFAULT_CABINET`, `TARIK_TRUSTED_PROXIES`. The compose file refuses to start when one is
    missing. Every other line has its default in the file (`VAULT_ADDR`, `TARIK_SEED_DIR`, the Claude Code installer's
-   address and version included). `.env` is never committed and never sent
+   address and version included: they are the compose file's). `.env` is never committed and never sent
    to the image build.
 2. **The seed folder** (`TARIK_SEED_DIR`, `./deploy/seed` unless set): the template is `deploy/seed.example/` (see its `README.md`). It holds
    the secrets Vault starts with, one JSON file per Vault path:
@@ -102,7 +102,7 @@ docker compose -f docker-compose.prod.yml up -d --build
   can reach the port). Set `TARIK_BIND` to the interface the proxy reaches (default `127.0.0.1`: for a proxy on another
   machine, the machine's private address), never the open network.
 
-Then set the public address as `PUBLIC_URL` (seed `shared.json`, or the Paramètres page) so the form links Tarik sends are right.
+Then give the public address as `PUBLIC_URL`: in `shared.json` before the first `up` (the seed is loaded only into paths that do not exist yet), or on the Paramètres page afterwards. The form links Tarik sends use it.
 
 ## 4. First start
 
@@ -114,8 +114,8 @@ Then set the public address as `PUBLIC_URL` (seed `shared.json`, or the Paramèt
    `python check.py` in the server container then says every step is described.
 3. Make the first admin: `docker compose -f docker-compose.prod.yml exec server python -m server.users add <email> "<name>"`
    (the password is asked), then `... role <email> admin`. Other people are made on the Comptes page.
-4. Add the other cabinets on the **Ajouter un cabinet** page (an admin's): Tarik logs in to the cabinet's Experio before
-   keeping it, and leaves it deactivated, with the reason, when the login fails. Then send a test email or write on the
+4. Add the other cabinets on the **Ajouter un cabinet** page (an admin's): Tarik logs in to the cabinet's Experio first, serves it
+   only when that works, and leaves it deactivated, with the reason, when the login fails. Then send a test email or write on the
    Discussion page, still in `DRY_RUN`.
 
 ## 5. Operating

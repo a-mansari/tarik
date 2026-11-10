@@ -16,7 +16,9 @@ once. Every change is recorded in the Journal and in the cabinet's settings hist
 secret's value."""
 
 import asyncio
+import contextlib
 
+import httpx
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -93,9 +95,27 @@ class Exists(ValueError):
     """The cabinet already exists and is active."""
 
 
-async def add(cabinet, settings, actor):
-    """Create ``cabinet`` with ``settings``, or reactivate a deactivated one with them, serve it, record it in the
-    Journal under ``actor`` and return (keys set, created, mailbox watched): created is False for a reactivated one.
+class Unverified(ValueError):
+    """The cabinet was kept deactivated: its check failed. The message is the sentence for the person adding it."""
+
+
+async def switch_off(cabinet, actor):
+    """Deactivate ``cabinet`` after a failure, as far as it can be done: a half-made cabinet must not stop the server
+    from starting. Never raises."""
+    with contextlib.suppress(ValueError, LookupError, httpx.HTTPError, OSError):  # best effort, the cause is raised
+        await cabinet_settings.save(
+            runs.pool, cabinet, {}, None, actor, "Désactivé : mise en service échouée", active=False
+        )
+        await asyncio.to_thread(cabinets.reload_cabinets)
+
+
+async def add(cabinet, settings, actor, verify=None):
+    """Create ``cabinet`` with ``settings``, or reactivate a deactivated one with them (what ``settings`` leaves empty
+    is kept), record it in the Journal under ``actor``, serve it, and return (keys set, created, mailbox watched).
+
+    With ``verify`` (an async function of the cabinet's name returning "" or a sentence), the cabinet is first kept
+    deactivated and served only once ``verify`` says "": otherwise Unverified is raised with its sentence and nothing
+    is served. If serving fails, the cabinet is deactivated and the error raised.
 
     Raises Exists when the cabinet is already active, ValueError (in French) for an invalid name or settings."""
     try:
@@ -104,13 +124,28 @@ async def add(cabinet, settings, actor):
         data = None
     if data is not None and cabinets.active(data):
         raise Exists("ce cabinet existe déjà")
-    if data is None:
-        keys = await cabinet_settings.create(runs.pool, cabinet, settings, actor)
+    created = data is None
+    if created:
+        keys = await cabinet_settings.create(runs.pool, cabinet, settings, actor, active=verify is None)
     else:
-        keys = await cabinet_settings.save(runs.pool, cabinet, settings, None, actor, "Réactivé", active=True)
-    watched = await serve(cabinet)
-    await audit.record(actor, "cabinet_created" if data is None else "cabinet_reactivated", cabinet, keys=keys)
-    return keys, data is None, watched
+        kept = {key: value for key, value in settings.items() if value != ""}
+        keys = await cabinet_settings.save(
+            runs.pool, cabinet, kept, None, actor, "Réactivé", active=True if verify is None else None
+        )
+    await audit.record(actor, "cabinet_created" if created else "cabinet_reactivated", cabinet, keys=keys)
+    try:
+        if verify:
+            problem = await verify(cabinet)
+            if problem:
+                raise Unverified(problem)
+            await cabinet_settings.save(runs.pool, cabinet, {}, None, actor, "Connexion vérifiée", active=True)
+        watched = await serve(cabinet)
+    except Unverified:
+        raise
+    except Exception:
+        await switch_off(cabinet, actor)
+        raise
+    return keys, created, watched
 
 
 async def create(request: Request):
