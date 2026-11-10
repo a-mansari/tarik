@@ -34,15 +34,17 @@
 .btn:disabled { opacity: .5; cursor: default; }
 
 /* --- Field -----------------------------------------------------------------------------------------------------
-   A label above its control: <label class="field"><span>Name</span><input></label>; a hint below in .field-hint, an error
-   in .field-error. Every control is --control-h tall (a textarea grows). */
+   Every text input, select and textarea, anywhere, is styled here: no page restyles a control. A label above its
+   control: <label class="field"><span>Name</span><input></label>; a hint below in .field-hint, an error in .field-error. */
 .field { display: grid; gap: var(--space-1); font-size: var(--text-sm); color: var(--muted); }
-.control, .field :is(input:not([type=checkbox], [type=radio], [type=range], [type=file]), select, textarea),
-.login input {
+input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=submit], [type=button], [type=hidden]), select, textarea {
   font: inherit; font-size: var(--text-md); color: var(--fg); background: var(--bg); border: 1px solid var(--line);
-  border-radius: var(--radius); padding: var(--space-2) .6rem; box-sizing: border-box; width: 100%;
+  border-radius: var(--radius); padding: var(--space-2) .6rem; box-sizing: border-box; max-width: 100%;
 }
-.control:focus-visible, .field :is(input, select, textarea):focus-visible { border-color: var(--accent); }
+input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=submit], [type=button], [type=hidden]), select { min-height: var(--control-h); }
+.field :is(input, select, textarea) { width: 100%; }
+textarea { resize: vertical; line-height: 1.45; }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); }
 .field-hint { font-size: var(--text-xs); color: var(--muted); }
 .field-error { font-size: var(--text-xs); color: var(--bad); }
 .field:has(.field-error) :is(input, select, textarea) { border-color: var(--bad); }
@@ -54,7 +56,7 @@
   background: var(--line); border: 1px solid var(--muted); cursor: pointer; transition: background var(--dur), border-color var(--dur);
 }
 .switch input::after {
-  content: ""; position: absolute; top: 50%; left: .15rem; width: .95rem; height: .95rem; border-radius: 50%;
+  content: ""; position: absolute; top: 50%; left: .15rem; width: .95rem; height: .95rem; border-radius: var(--radius-round);
   background: var(--muted); box-shadow: 0 1px 2px rgb(0 0 0 / .3); transform: translateY(-50%); transition: left var(--dur);
 }
 .switch input:checked { background: var(--accent); border-color: var(--accent); }

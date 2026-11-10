@@ -40,7 +40,9 @@
   --text-xs: .75rem;   /* column heads, eyebrows, chips */
   --text-sm: .85rem;   /* buttons, labels, secondary lines */
   --text-md: .9rem;    /* fields, sidebar */
+  --text-base: 1rem;   /* body */
   --text-lg: 1.05rem;  /* section titles */
+  --text-2xl: 1.25rem; /* a figure in a popup, an arrow */
   --text-xl: 1.6rem;   /* page title */
   --text-stat: 1.9rem; /* a number on its own */
   --weight-normal: 400;
@@ -63,10 +65,13 @@
   --radius-lg: 8px;      /* containers: panels, tables, cards */
   --radius-xl: 10px;     /* popups, metrics */
   --radius-pill: 999px;  /* chips, counters, the switch */
+  --radius-round: 50%;   /* avatars, dots, round buttons */
   --control-h: 2.25rem;  /* every button and field, one height */
   --page-w: 72rem;
 
   /* Depth: borders do the work; a shadow only for what floats. */
+  --ring: 0 0 0 3px var(--accent-soft); /* a halo on a hovered or open control */
+  --ring-inset: inset 0 0 0 1px var(--accent); /* a chosen card's second border */
   --shadow-float: 0 2px 8px rgb(0 0 0 / 25%);
   --shadow-pop: 0 6px 18px rgb(0 0 0 / 25%);
 

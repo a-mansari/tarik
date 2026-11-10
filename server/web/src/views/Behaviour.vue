@@ -59,6 +59,6 @@ async function save(setting, value) {
 /* One padding per card (the body's, not the panel's on top of it), a gap between cards, and the lines of a card close. */
 section .what { margin: .3rem 0 .9rem; }
 .setting { padding: 0; }
-.setting + .setting { margin-top: .75rem; }
+.setting + .setting { margin-top: var(--space-3); }
 .setting .card-body { gap: .35rem; padding: .85rem 1.15rem; }
 </style>

@@ -8,9 +8,9 @@ The UI is a working tool for an accounting team: dense, calm, readable at a glan
 
 ## Rules
 
-1. **No raw values in a page.** Colours, sizes, radii and shadows come from `var(--...)`. A missing token is added to `tokens.css` and shown in `design.html`, not written inline.
+1. **No raw values in a page.** Colours, text sizes, radii, shadows and focus rings come from `var(--...)`. A missing token is added to `tokens.css` and shown in `design.html`, not written inline. `tests/style/test_design_system.py` fails on a raw one, an old class name, or a button without `.btn`.
 2. **Roles, not shades.** Name a colour by what it is for (`--accent`, `--bad-bg`), never by how it looks. Each is one `light-dark(light, dark)` pair, so there is no second dark block to keep in step.
-3. **One height.** Every button and field is `--control-h`. Icon-only buttons keep it, with a `title` and an `aria-label`.
+3. **One height, one look.** Every button and field is `--control-h`, and every text input, select and textarea is styled by `components.css` itself: a page never restyles a control. Icon-only buttons keep it, with a `title` and an `aria-label`.
 4. **One primary action per view** (`.btn-primary`). A tinted choice beside it is `.btn-soft`, quiet ones `.btn` or `.btn-ghost`, destructive ones `.btn-danger` (and they confirm).
 5. **Borders, not shadows.** A shadow only for what floats (`--shadow-pop`: popups, `--shadow-float`: the back-to-top button).
 6. **Status is colour plus words or an icon**, never colour alone: `.chip-good`, `.chip-wait`, `.chip-bad`, `.panel-good|wait|bad` for notices.

@@ -358,8 +358,8 @@ const onUp = () => {
 .key-line.reply line { stroke: var(--frame-1); stroke-dasharray: 5 3; }
 .key-line.uses line { stroke: var(--node-border); }
 .told {
-  display: grid; gap: .15rem; margin: .8rem 0 0; padding: .6rem .8rem; border-radius: 8px;
+  display: grid; gap: .15rem; margin: .8rem 0 0; padding: .6rem .8rem; border-radius: var(--radius-lg);
   border-left: 4px solid var(--hue, var(--accent)); background: var(--neutral-bg); overflow-wrap: anywhere;
 }
-.told .from { color: var(--muted); font-size: .8rem; }
+.told .from { color: var(--muted); font-size: var(--text-sm); }
 </style>
