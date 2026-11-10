@@ -47,7 +47,7 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
   <template v-else>
     <div class="head">
       <div>
-        <h1>Exécutions<template v-if="data.cabinet"> · <CabinetLabel :name="data.cabinet" /></template>
+        <h1><template v-if="data.cabinet"><CabinetLabel :name="data.cabinet" /> · </template>Exécutions
           <span v-if="data.unread" ref="bubble" class="unread">
             <button type="button" class="unread-count" :aria-expanded="open" aria-haspopup="true"
               :aria-label="`${data.unread} exécution${plural(data.unread)} non lue${plural(data.unread)}`"
@@ -59,7 +59,6 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
             </div>
           </span>
         </h1>
-        <p class="muted">Chaque fois que Tarik travaille : une discussion, un traitement de documents, un dossier, des emails, une routine. Les plus récentes en premier, mises à jour toutes seules.</p>
       </div>
       <form class="filters" @submit.prevent>
         <label>Type
@@ -72,7 +71,7 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
     </div>
     <div class="table-wrap">
       <table class="runs">
-        <thead><tr><th>Début</th><th>Type</th><th>Discussion</th><th>État</th><th>Durée</th><th>Modèle</th></tr></thead>
+        <thead><tr><th>Début</th><th>Type</th><th>Discussion</th><th>État</th><th>Durée</th><th>Cost</th></tr></thead>
         <tbody>
           <tr v-for="run in data.runs" :key="run.run_id" :class="{ child: run.depth }">
             <td class="num">{{ run.when }}</td>
@@ -91,7 +90,7 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
             </td>
             <td><StatusChip :status="run.status" /></td>
             <td class="num">{{ run.seconds }} s<template v-if="!run.ended"> …</template></td>
-            <td><ModelUsage :usage="data.usage[run.run_id]" /></td>
+            <td><ModelUsage :usage="data.usage[run.run_id]" cost-only /></td>
           </tr>
           <tr v-if="!data.runs.length"><td colspan="6" class="empty">Aucune exécution pour l'instant. Elles apparaissent ici dès que Tarik travaille.</td></tr>
         </tbody>

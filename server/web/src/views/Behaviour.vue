@@ -30,9 +30,7 @@ async function save(setting, value) {
   <PageState v-if="!data || status === 403 || status === 404" :status="status" :loading="loading" />
   <template v-else>
     <div class="head"><div>
-      <h1>Comportement · <CabinetLabel :name="data.cabinet" /></h1>
-      <p class="what">Comment Tarik se comporte pour ce cabinet. Un changement s'applique dès l'email suivant ; un
-        manager peut aussi le demander à Tarik dans une conversation.</p>
+      <h1><CabinetLabel :name="data.cabinet" /> · Comportement</h1>
     </div></div>
     <div v-if="data.error" class="panel bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
     <section v-for="part in parts" :key="part.scope">
@@ -51,8 +49,6 @@ async function save(setting, value) {
               @change="save(setting, $event.target.value)">
           </label>
           <p class="muted">{{ setting.description }}</p>
-          <p v-if="setting.changed_by" class="muted">Changé par {{ setting.changed_by }} le
-            <span class="num">{{ setting.changed_at }}</span></p>
         </div>
       </article>
     </section>
@@ -61,6 +57,7 @@ async function save(setting, value) {
 
 <style scoped>
 /* One padding per card (the body's, not the panel's on top of it), a gap between cards, and the lines of a card close. */
+section .what { margin: .3rem 0 .9rem; }
 .setting { padding: 0; }
 .setting + .setting { margin-top: .75rem; }
 .setting .card-body { gap: .35rem; padding: .85rem 1.15rem; }

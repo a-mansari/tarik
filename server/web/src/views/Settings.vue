@@ -4,7 +4,7 @@ writes in Experio is confirmed first. -->
 <script setup>
 import { computed, ref, watch } from "vue";
 
-import { loadSession, plural, send, usePage } from "../api.js";
+import { loadSession, send, usePage } from "../api.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import PageState from "../components/PageState.vue";
 import Icon from "../components/Icon.vue";
@@ -60,23 +60,17 @@ const modeKnown = computed(() => data.value.dry_run !== null && data.value.dry_r
 const savedNames = computed(() => data.value.saved.map((key) => data.value.names[key]).join(", "));
 
 const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" : "Non défini");
-function trimHint(f) {
-  if (f.kind === "secret") return "Gardé exactement comme tapé, espaces compris.";
-  return "Les espaces au début et à la fin sont retirés ; le reste est gardé comme tapé.";
-}
 </script>
 
 <template>
   <PageState v-if="!data || status === 403 || status === 404" :status="status" :loading="loading" />
   <template v-else>
     <div class="head"><div>
-      <h1>Réglages · <CabinetLabel :name="data.cabinet" /><template v-if="data.active && modeKnown"> <span
+      <h1><CabinetLabel :name="data.cabinet" /> · Réglages<template v-if="data.active && modeKnown"> <span
         class="chip"
         :class="data.dry_run ? '' : 'wait'"
         :title="data.dry_run ? 'Simulation : rien n\'est écrit dans Experio' : 'Écritures réelles dans Experio'"
       ><Icon :name="data.dry_run ? 'flask' : 'content'" :size="14" /><span class="sr-only">{{ data.dry_run ? "Simulation" : "Écritures réelles" }}</span></span></template></h1>
-      <p v-if="!data.active" class="what">Ce cabinet est désactivé : Tarik n'y lit aucun email et n'y lance aucune exécution. Activez-le pour modifier ses réglages.</p>
-      <p v-else class="what">Ce que Tarik utilise pour ce cabinet. Un mot de passe ou une clé n'est jamais affiché : il se remplace seulement. Un changement s'applique dès le message suivant.</p>
     </div>
       <label class="switch" :title="data.active ? 'Actif : cliquer pour désactiver' : 'Désactivé : cliquer pour activer'">
         <input type="checkbox" role="switch" :checked="data.active" :disabled="switching"
@@ -88,7 +82,8 @@ function trimHint(f) {
     <div v-if="data.active && data.unreachable" class="panel bad" role="alert">
       <b>Réglages illisibles.</b> Vault ne répond pas, ou le rôle de cette page (tarik-settings) n'est pas installé :
       <span class="mono">vault/setup.sh</span>.</div>
-    <template v-else-if="data.active">
+    <p v-else-if="!data.active" class="muted">Cabinet désactivé : activez-le pour modifier ses réglages.</p>
+    <template v-else>
       <div v-if="data.error" class="panel bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
       <div v-if="data.saved" class="panel accent" role="status">
         <template v-if="data.saved.length">Enregistré : {{ savedNames }}. En service dès maintenant.</template>
@@ -99,7 +94,6 @@ function trimHint(f) {
           <details v-for="[title, items] in data.sections" :key="title" class="panel card" open>
             <summary>
               <span class="card-title">{{ title }}</span>
-              <span class="card-meta"><span class="muted">{{ items.length }} réglage{{ plural(items.length) }}</span></span>
             </summary>
             <div class="card-body">
               <label v-for="f in items" :key="f.key" class="field">
@@ -126,8 +120,6 @@ function trimHint(f) {
                   :name="f.key"
                   :inputmode="f.kind === 'integer' ? 'numeric' : undefined"
                 >
-                <small v-if="f.description" class="muted">{{ f.description }}</small>
-                <small class="muted trim">{{ trimHint(f) }}</small>
               </label>
             </div>
           </details>
@@ -136,23 +128,6 @@ function trimHint(f) {
           <section class="panel save-card" aria-label="Enregistrer">
             <button type="submit" form="settings-form" class="primary">Enregistrer</button>
           </section>
-          <aside class="side panel">
-            <h2>Historique</h2>
-            <ol v-if="data.history.length" class="versions settings-history">
-              <li v-for="item in data.history" :key="item.version + item.at"><div class="entry">
-                <span class="num">{{ item.at }}</span> <b>{{ item.author }}</b>
-                <ul>
-                  <li v-for="change in item.changes" :key="change.key">
-                    <b>{{ data.names[change.key] || change.key }}</b>
-                    <template v-if="change.before === null"> : remplacé</template>
-                    <template v-else> : <span class="mono">{{ change.before || "(vide)" }}</span>
-                      → <span class="mono">{{ change.after || "(vide)" }}</span></template>
-                  </li>
-                </ul>
-              </div></li>
-            </ol>
-            <p v-else class="muted">Aucun changement fait depuis cette page.</p>
-          </aside>
         </div>
       </div>
     </template>

@@ -373,13 +373,13 @@ table.runs tr.child td:nth-child(2) { padding-left: calc(.8rem + var(--depth) * 
 /* The Discussion page: the conversation, then the message to send with its files. */
 a.primary { display: inline-flex; align-items: center; gap: .4rem; text-decoration: none; border-radius: 6px; padding: 0 .9rem; background: var(--accent); color: var(--on-accent); }
 button.primary:has(.icon) { display: inline-flex; align-items: center; gap: .4rem; }
-.cabinets .off { opacity: .6; }
 .icon-button { display: inline-flex; align-items: center; justify-content: center; gap: .35rem; line-height: 0; }
 .icon-button svg { display: block; }
 .status-chip { display: inline-flex; align-items: center; line-height: 0; padding: .25rem .4rem; }
 .status-chip.big { padding: .35rem .5rem; }
-.chip:has(> svg) { display: inline-flex; align-items: center; line-height: 0; padding: .25rem .4rem; }
-.cabinets .off-mark { display: inline-flex; vertical-align: middle; margin-left: .3rem; color: var(--muted); }
+.chip:has(> svg) { display: inline-flex; align-items: center; gap: .35rem; line-height: 0; padding: .25rem .5rem; }
+.cabinets .power { display: inline-flex; color: var(--muted); opacity: .5; }
+.cabinets .power.lit { color: var(--accent); opacity: 1; }
 .switch:has(input:checked) > svg { color: var(--accent); }
 /* A switch: a checkbox drawn as a sliding toggle (role="switch"), its words beside it. */
 .switch { display: inline-flex; align-items: center; gap: .5rem; font-size: .85rem; cursor: pointer; user-select: none; }
@@ -473,9 +473,6 @@ button.primary:has(.icon) { display: inline-flex; align-items: center; gap: .4re
 .earlier { margin: .6rem 0; padding: .5rem .75rem; border: 1px dashed var(--line); border-radius: 8px; }
 .earlier > summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
 .earlier .talk { opacity: .85; }
-.settings-history { overflow-wrap: anywhere; }
-.settings-history .mono { white-space: normal; }
-.settings-history ul { margin: .2rem 0 0; padding-left: 1rem; }
 fieldset.plain { border: 0; margin: 0; padding: 0; min-width: 0; display: contents; }
 .add-account { display: flex; flex-wrap: wrap; gap: .8rem; align-items: flex-end; margin-top: .6rem; }
 .add-account .field { flex: 1 1 14rem; }
@@ -498,10 +495,8 @@ fieldset.plain { border: 0; margin: 0; padding: 0; min-width: 0; display: conten
 .sidebar nav a[aria-current="page"] { background: var(--accent-soft); font-weight: 600; }
 .sidebar nav a[aria-current="page"] .icon { color: var(--accent); }
 .sidebar .cabinets { list-style: none; margin: 0; padding: 0; display: grid; gap: .15rem; }
-.sidebar .cabinets button { display: block; width: 100%; text-align: left; font-family: inherit; cursor: pointer; background: none; border: 1px solid transparent; line-height: 1.3; overflow-wrap: anywhere; }
+.sidebar .cabinets button { display: flex; align-items: center; gap: .55rem; width: 100%; text-align: left; font-family: inherit; cursor: pointer; background: none; border: 1px solid transparent; line-height: 1.3; overflow-wrap: anywhere; }
 .sidebar .cabinets button[aria-current="true"] { border-color: var(--accent); background: var(--accent-soft); font-weight: 600; }
-.sidebar .cabinets .mono { font-size: .75rem; font-weight: 400; display: block; }
-.cabinet-name .mono.muted { font-size: .85em; font-weight: 400; }
 @media (max-width: 52rem) {
   .frame { display: block; }
   .sidebar { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -530,11 +525,13 @@ html { scroll-padding-top: 4rem; }
 .metric .value { font-size: 1.9rem; font-weight: 700; line-height: 1.1; }
 .metric .what { color: var(--muted); font-size: .85rem; }
 .metric.bad .value { color: var(--bad); }
-.metrics .usage { margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: .85rem; }
+.metrics .usage { margin: 0; }
+.metrics .usage th, .metrics .usage td { padding: .45rem .8rem; }
+.metrics .usage th:not(:first-child), .metrics .usage td:not(:first-child) { text-align: right; }
 .chat-start .ask { margin: 0 0 .4rem; transition: opacity .3s ease; }
 .dashboard:not(.chatting) #talk { display: none; }
 .dashboard.chatting .metrics { max-height: 0; opacity: 0; margin-block: -.55rem; }
-.dashboard.chatting #dashboard-what, .dashboard.chatting .ask { display: none; }
+.dashboard.chatting .ask { display: none; }
 @media (prefers-reduced-motion: reduce) { .metrics, .chat-start .ask { transition: none; } }
 /* The dashboard fills the viewport under the top bar; its message box sits midway between the numbers and the bottom
    until the conversation takes the page. */

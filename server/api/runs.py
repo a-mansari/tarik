@@ -6,6 +6,7 @@ from content/labels.json. The sidebar chooses the cabinet the pages show (a cook
 under its name in Experio with its database name beside it."""
 
 import json
+import re
 import time
 from pathlib import Path
 
@@ -89,7 +90,7 @@ def chosen(request):
     picked = request.cookies.get(CHOSEN)
     if picked in CABINETS:
         return picked
-    return min(CABINETS) if CABINETS else None
+    return min(CABINETS, key=cabinet_order) if CABINETS else None
 
 
 HOME = "/ui/accueil"  # the cabinet's dashboard: where logging in, the brand and picking a cabinet lead
@@ -104,13 +105,19 @@ def switched_off(request):
     return {name: own.get("CABINET_NAME", "") for name, own in known.items() if not active(own)}
 
 
+def cabinet_order(name):
+    """Return the sort key of a cabinet's database name: experio_cabinet_2 before experio_cabinet_10."""
+    return [int(part) if part.isdigit() else part for part in re.split(r"(\d+)", name)]
+
+
 def sidebar(request):
     """Return the sidebar's cabinets: [{name (its database), display (its Experio name), chosen, active}], the
-    deactivated ones (admins only) last."""
+    deactivated ones (admins only) among the others, all in the order of their database names."""
     off = switched_off(request)
     now = request.cookies.get(CHOSEN) if request.cookies.get(CHOSEN) in off else chosen(request)
-    shown = [{"name": c, "display": display_name(c), "chosen": c == now, "active": True} for c in sorted(CABINETS)]
-    return shown + [{"name": c, "display": off[c], "chosen": c == now, "active": False} for c in sorted(off)]
+    shown = [{"name": c, "display": display_name(c), "chosen": c == now, "active": True} for c in CABINETS]
+    shown += [{"name": c, "display": off[c], "chosen": c == now, "active": False} for c in off]
+    return sorted(shown, key=lambda cabinet: cabinet_order(cabinet["name"]))
 
 
 async def choose(request: Request):
@@ -263,10 +270,12 @@ def cost_shown(cost, priced):
 
 
 def usage_shown(fresh, cached, output, cost, priced):
-    """Return model calls' tokens and cost as the team reads them: {tokens (all of them), detail (input, cached,
-    output), cost (cost_shown)}."""
+    """Return model calls' tokens and cost as the team reads them: {tokens (all of them), input, output, detail
+    (input, cached, output), cost (cost_shown)}."""
     return {
         "tokens": tokens(fresh + cached + output),
+        "input": tokens(fresh + cached),
+        "output": tokens(output),
         "detail": f"{tokens(fresh + cached)} en entrée (dont {tokens(cached)} en cache), {tokens(output)} en sortie",
         "cost": cost_shown(cost, priced),
     }

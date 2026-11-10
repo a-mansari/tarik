@@ -288,3 +288,18 @@ def test_a_deactivated_cabinet_shows_only_its_switch_and_is_in_the_admin_sidebar
     ]
     Asked.state = type("S", (), {"user": {"role": "member"}})()
     assert [c["name"] for c in api.runs.sidebar(Asked())] == ["cabinet_a"]
+
+
+@pytest.mark.functionality
+def test_cabinets_are_ordered_by_their_database_number_not_as_text(monkeypatch):
+    from server import api
+
+    monkeypatch.setattr(api.runs, "CABINETS", {"experio_cabinet_10", "experio_cabinet_2", "other"})
+    monkeypatch.setattr(api.runs, "display_name", lambda cabinet: "")
+    monkeypatch.setattr(api.runs, "switched_off", lambda request: {})
+
+    class Asked:
+        cookies = {}
+
+    assert [c["name"] for c in api.runs.sidebar(Asked())] == ["experio_cabinet_2", "experio_cabinet_10", "other"]
+    assert api.runs.chosen(Asked()) == "experio_cabinet_2"

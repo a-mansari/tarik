@@ -18,26 +18,25 @@ if (cabinet) useLive(`cabinet=${encodeURIComponent(cabinet)}`, reload);
   <template v-else>
     <div class="head">
       <div>
-        <h1>LLM Calls<template v-if="data.cabinet"> · <CabinetLabel :name="data.cabinet" /></template></h1>
-        <p class="muted">Chaque appel du modèle par Tarik, le plus récent d'abord : ce qu'il a reçu (ses instructions, ses outils et toute la discussion), dans quelle discussion et quelle exécution. Gardés 30 jours. Ils contiennent les mots des clients : à ne pas partager.</p>
+        <h1><template v-if="data.cabinet"><CabinetLabel :name="data.cabinet" /> · </template>LLM Calls</h1>
       </div>
     </div>
     <div class="table-wrap">
       <table class="runs">
-        <thead><tr><th>Appel</th><th>Discussion</th><th>Exécution</th><th>Messages reçus</th><th>Modèle</th></tr></thead>
+        <thead><tr><th>Call time</th><th>Discussion</th><th>Exécution</th><th>Messages reçus</th><th>Cost</th></tr></thead>
         <tbody>
           <tr v-for="call in data.calls" :key="call.id">
             <td><RouterLink :to="callLink(call.session_id, call.id)">{{ call.when }}</RouterLink></td>
             <td>
               <RouterLink :to="`/ui/discussion/${encodeURIComponent(call.session_id)}`">{{
-                data.titles[call.session_id] || "(sans texte)" }}</RouterLink>
+                call.session_id }}</RouterLink>
             </td>
             <td>
-              <RouterLink v-if="call.run_id" :to="`/ui/executions/${call.run_id}`">Discussion avec Tarik</RouterLink>
+              <RouterLink v-if="call.run_id" class="mono" :to="`/ui/executions/${call.run_id}`">{{ call.run_id }}</RouterLink>
               <span v-else class="muted">—</span>
             </td>
             <td class="num">{{ call.messages }}</td>
-            <td><ModelUsage :usage="data.usage[call.id]" /></td>
+            <td><ModelUsage :usage="data.usage[call.id]" cost-only /></td>
           </tr>
           <tr v-if="!data.calls.length"><td colspan="5" class="muted">Aucun appel enregistré pour ce cabinet.</td></tr>
         </tbody>
