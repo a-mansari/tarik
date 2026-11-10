@@ -85,10 +85,7 @@ def version_of(versions):
     return f"{versions['orchestrator']}.{versions['shared']}"
 
 
-def shown(data):
-    """Return the settings as the page shows them: {key: value} for every FIELDS key, a secret only as True (set) or
-    False."""
-    return {key: bool(data.get(key)) if kind == "secret" else data.get(key, "") for key, kind in FIELDS.items()}
+CONFLICT = 400  # Vault's answer to a check-and-set on a version that is no longer the latest
 
 
 async def save(pool, given, seen, author, note=""):
@@ -98,7 +95,8 @@ async def save(pool, given, seen, author, note=""):
     ``seen``: the version text the page showed (version_of); ValueError (MOVED) when Vault now holds a newer one in
     either path. A changed address in SENT_TO needs its secret typed again (ValueError). Each path written is written
     with check-and-set on the version read, so a concurrent write fails with ValueError (MOVED) instead of being
-    overwritten."""
+    overwritten; any other Vault refusal is a ValueError saying so. The two paths are two writes: when the second
+    fails, what the first wrote is still recorded and in use, and the error says which keys were saved."""
     stores, versions = await asyncio.to_thread(latest)
     data = merged(stores)
     if seen != version_of(versions):
@@ -109,20 +107,27 @@ async def save(pool, given, seen, author, note=""):
             raise ValueError(f"pour changer {url}, retapez aussi {secret}")
     if not found:
         return []
-    written = 0
+    note = note.strip()[:300]
+    written, version, failure = [], 0, None
     for name, path in PATHS.items():
         mine = {key: value for key, value in found.items() if path_of(key) == name}
         if not mine:
             continue
         body = {"options": {"cas": versions[name]}, "data": {**stores[name], **mine}}  # the path's other keys kept
         try:
-            answer = await asyncio.to_thread(cabinet_settings._vault, "POST", path, json=body)
+            version = (await asyncio.to_thread(cabinet_settings._vault, "POST", path, json=body))["data"]["version"]
         except httpx.HTTPStatusError as error:
-            raise ValueError(MOVED) from error
-        written = answer["data"]["version"]
-    changes = [recorded(key, data.get(key, ""), value, SECRETS) for key, value in found.items()]
-    async with pool.connection() as db:
-        await db.execute(Q.settings_changed, (GENERAL, author, note.strip()[:300], Jsonb(changes), written))
-    await asyncio.to_thread(cabinets.reread_vault)
-    await audit.record(author, "settings_saved", GENERAL, keys=list(found), note=note.strip()[:300])
-    return list(found)
+            conflict = error.response.status_code == CONFLICT
+            failure = MOVED if conflict else f"Vault a refusé l'écriture ({error.response.status_code})"
+            break
+        written += mine
+    if written:
+        changes = [recorded(key, data.get(key, ""), found[key], SECRETS) for key in written]
+        async with pool.connection() as db:
+            await db.execute(Q.settings_changed, (GENERAL, author, note, Jsonb(changes), version))
+        await asyncio.to_thread(cabinets.reread_vault)
+        await audit.record(author, "settings_saved", GENERAL, keys=written, note=note)
+    if failure:
+        done = f" ; déjà enregistrés : {', '.join(written)}" if written else ""
+        raise ValueError(failure + done)
+    return written

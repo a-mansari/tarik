@@ -5,6 +5,7 @@ A secret is never sent to the page: only whether it is set, and a field to repla
 
 import asyncio
 
+import httpx
 from starlette.requests import Request
 
 from engine import runs
@@ -25,13 +26,13 @@ SECTIONS = {
 assert sorted(key for keys in SECTIONS.values() for key in keys) == sorted(cabinet_settings.FIELDS)
 
 
-def field(key, value, words):
+def field(key, value, words, fields=cabinet_settings.FIELDS, optional=cabinet_settings.OPTIONAL):
     """Return one setting as the page shows it: {key, kind, optional, name, description, value}, its words from
-    labels.json (``words``)."""
+    labels.json (``words``); ``fields`` and ``optional`` are the cabinets' unless the general page gives its own."""
     return {
         "key": key,
-        "kind": cabinet_settings.FIELDS[key],
-        "optional": key in cabinet_settings.OPTIONAL,
+        "kind": fields[key],
+        "optional": key in optional,
         "name": words.get(key, {}).get("name", key),
         "description": words.get(key, {}).get("description", ""),
         "value": value,
@@ -74,12 +75,8 @@ async def cabinet_page(request: Request):
     except Exception:
         return page({"cabinet": cabinet, "active": True, "unreachable": True, "dry_run": None}, 503)
     sections = fields(data)
-    if error:  # the form as it was sent, its secrets never sent back
-        for _, items in sections:
-            for item in items:
-                if item["kind"] != "secret" and item["key"] in given:
-                    item["value"] = given[item["key"]]
-    history = await cabinet_settings.history(runs.pool, cabinet)
+    if error:
+        retyped(sections, given)
     context = {
         "cabinet": cabinet,
         "sections": sections,
@@ -88,7 +85,7 @@ async def cabinet_page(request: Request):
         "error": error,
         "saved": saved,
         "names": {key: LABELS.get("settings", {}).get(key, {}).get("name", key) for key in cabinet_settings.FIELDS},
-        "history": [{**item, "at": runs.when(item["at"])} for item in history],
+        "history": await changes_of(cabinet),
         "adapters": ADAPTERS,
         "active": True,
     }
@@ -138,30 +135,36 @@ GENERAL_SECTIONS = {
     },
 }
 assert sorted(key for keys in GENERAL_SECTIONS.values() for key in keys) == sorted(shared_settings.FIELDS)
-GENERAL_NAMES = {key: name for keys in GENERAL_SECTIONS.values() for key, (name, _) in keys.items()}
+GENERAL_WORDS = {
+    key: {"name": name, "description": text} for keys in GENERAL_SECTIONS.values() for key, (name, text) in keys.items()
+}
+GENERAL_SECTIONS = {title: list(keys) for title, keys in GENERAL_SECTIONS.items()}  # the page's order: the keys only
 
 
 def general_fields(data):
-    """Return the general page's sections: [(title, [{key, kind, optional, name, description, value}])], a secret's
-    value only True (set) or False."""
-    values = shared_settings.shown(data)
+    """Return the general page's sections: [(title, [field dicts])], a secret's value only True (set) or False."""
+    values = cabinet_settings.shown(data, shared_settings.FIELDS)
     return [
         (
             title,
-            [
-                {
-                    "key": key,
-                    "kind": shared_settings.FIELDS[key],
-                    "optional": key in shared_settings.OPTIONAL,
-                    "name": name,
-                    "description": description,
-                    "value": values[key],
-                }
-                for key, (name, description) in keys.items()
-            ],
+            [field(key, values[key], GENERAL_WORDS, shared_settings.FIELDS, shared_settings.OPTIONAL) for key in keys],
         )
         for title, keys in GENERAL_SECTIONS.items()
     ]
+
+
+def retyped(sections, given):
+    """Put back in ``sections`` (fields) the non-secret values the form ``given`` held, as typed: after a refusal the
+    form is not lost. A secret is never sent back."""
+    for _, items in sections:
+        for item in items:
+            if item["kind"] != "secret" and item["key"] in given:
+                item["value"] = given[item["key"]]
+
+
+async def changes_of(key):
+    """Return the last settings changes of ``key`` (a cabinet, or the general settings) with their time in words."""
+    return [{**item, "at": runs.when(item["at"])} for item in await cabinet_settings.history(runs.pool, key)]
 
 
 async def general_page(request: Request):
@@ -179,24 +182,22 @@ async def general_page(request: Request):
             )
         except ValueError as refused:
             error = str(refused)
+        except httpx.HTTPError:  # Vault down or sealed while saving
+            error = "Vault ne répond pas : rien n'est sûr de ce qui a été enregistré, rechargez la page"
     try:
         stores, versions = await asyncio.to_thread(shared_settings.latest)
     except Exception:
         return page({"unreachable": True}, 503)
     sections = general_fields(shared_settings.merged(stores))
-    if error:  # the form as it was sent, its secrets never sent back
-        for _, items in sections:
-            for item in items:
-                if item["kind"] != "secret" and item["key"] in given:
-                    item["value"] = given[item["key"]]
-    history = await cabinet_settings.history(runs.pool, shared_settings.GENERAL)
+    if error:
+        retyped(sections, given)
     context = {
         "sections": sections,
         "version": shared_settings.version_of(versions),
         "error": error,
         "saved": saved,
-        "names": GENERAL_NAMES,
-        "history": [{**item, "at": runs.when(item["at"])} for item in history],
+        "names": {key: words["name"] for key, words in GENERAL_WORDS.items()},
+        "history": await changes_of(shared_settings.GENERAL),
     }
     return page(context, 400 if error else 200)
 

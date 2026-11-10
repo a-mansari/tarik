@@ -9,6 +9,7 @@ import PageState from "../components/PageState.vue";
 
 const { data, status, loading } = usePage(() => "/settings/general");
 const form = ref({});
+const was = ref({});
 
 // A field as the form starts it: a secret empty (it is only replaced).
 watch(data, (shown) => {
@@ -17,9 +18,18 @@ watch(data, (shown) => {
     for (const f of items) values[f.key] = f.kind === "secret" ? "" : f.value;
   }
   form.value = values;
+  was.value = { ...values };
 });
 
+// Where Tarik sends its mailboxes' passwords, the clients' documents, the links it emails, or the model's key: a change
+// is confirmed first, a wrong address would hand them over.
+const SENT_OUT = ["IMAP_HOST", "SMTP_HOST", "MAIL_CERT_SHA256", "GLADDEN_URL", "PUBLIC_URL", "MODEL_API_URL", "SPARROW_URL"];
+const WHERE_TO = "Tarik enverra les mots de passe des boîtes mail, les pièces des clients, les liens de formulaire ou "
+  + "la clé du modèle à ces adresses. Continuer ?";
+
 async function save() {
+  const moved = SENT_OUT.filter((key) => form.value[key] !== was.value[key]);
+  if (moved.length && !confirm(`${moved.map((key) => data.value.names[key]).join(", ")} : ${WHERE_TO}`)) return;
   const answer = await send("/settings/general", { ...form.value, version: data.value.version });
   if (answer.data) data.value = answer.data;
   scrollTo({ top: 0 });

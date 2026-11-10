@@ -126,6 +126,56 @@ def test_a_new_address_needs_its_secret_typed_again(vault):
 
 
 def test_a_secret_is_only_shown_as_set_or_not():
-    shown = shared_settings.shown({**SHARED, **ORCHESTRATOR})
+    shown = cabinet_settings.shown({**SHARED, **ORCHESTRATOR}, shared_settings.FIELDS)
     assert shown["MODEL_API_KEY"] is True and shown["CLAUDE_CODE_OAUTH_TOKEN"] is False
     assert shown["IMAP_HOST"] == "imap.old.ma" and "old-key" not in repr(shown)
+
+
+@pytest.mark.parametrize("url", ["https://good.example\\.evil.example", "https://user@evil.example", "http://x.ma"])
+def test_an_address_with_a_backslash_a_login_or_no_https_is_refused(url):
+    with pytest.raises(ValueError, match="HTTPS"):
+        cabinet_settings.checked("PUBLIC_URL", url, shared_settings.FIELDS, shared_settings.OPTIONAL)
+
+
+def test_a_stored_value_tarik_accepts_blocks_no_other_change():
+    before = {"MODEL_API_URL": "http://proxy.internal:4000", "IMAP_FOLDER": "", "IMAP_HOST": "imap.old.ma"}
+    given = {"MODEL_API_URL": "http://proxy.internal:4000", "IMAP_HOST": "imap.new.ma"}
+    assert cabinet_settings.changed(before, given, shared_settings.FIELDS, shared_settings.OPTIONAL) == {
+        "IMAP_HOST": "imap.new.ma"
+    }
+    with pytest.raises(ValueError, match="HTTPS"):  # changed, it is checked
+        cabinet_settings.changed(
+            before, {"MODEL_API_URL": "http://other"}, shared_settings.FIELDS, shared_settings.OPTIONAL
+        )
+
+
+def failing_second_write(monkeypatch, status):
+    written = []
+
+    def answer(method, path, **kwargs):
+        if method == "GET":
+            data, version = (ORCHESTRATOR, 7) if path.endswith("orchestrator") else (SHARED, 3)
+            return {"data": {"data": dict(data), "metadata": {"version": version}}}
+        if path.endswith("shared"):
+            raise shared_settings.httpx.HTTPStatusError(
+                "x",
+                request=shared_settings.httpx.Request("POST", "http://v"),
+                response=shared_settings.httpx.Response(status),
+            )
+        written.append(kwargs["json"])
+        return {"data": {"version": 9}}
+
+    monkeypatch.setattr(cabinet_settings, "_vault", answer)
+    monkeypatch.setattr(shared_settings.cabinets, "reread_vault", lambda: None)
+    monkeypatch.setattr(shared_settings.audit, "record", lambda *args, **kwargs: asyncio.sleep(0))
+    return written
+
+
+@pytest.mark.parametrize(("status", "words"), [(400, "ont changé"), (403, "refusé l'écriture \\(403\\)")])
+def test_when_the_second_path_fails_the_first_is_recorded_and_the_error_says_so(monkeypatch, status, words):
+    written, pool = failing_second_write(monkeypatch, status), Pool()
+    with pytest.raises(ValueError, match=words) as refused:
+        save(pool, {"MODEL_API_KEY": "new-key", "IMAP_PORT": "143"})
+    assert "déjà enregistrés : MODEL_API_KEY" in str(refused.value)
+    assert len(written) == 1 and len(pool.recorded) == 1  # the key is in Vault, so it is in the history too
+    assert [change["key"] for change in pool.recorded[0][3].obj] == ["MODEL_API_KEY"]
