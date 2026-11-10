@@ -49,10 +49,12 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { border-color
 .field-error { font-size: var(--text-xs); color: var(--bad); }
 .field:has(.field-error) :is(input, select, textarea) { border-color: var(--bad); }
 
-/* --- Field grid: fields side by side, one to four per line. Each is at least --field-min wide (narrower, the next one goes
-   below) and at most --field-max (it never fills the line); the grid itself stops at four fields' width. ------------- */
-.field-grid { display: flex; flex-wrap: wrap; align-items: start; gap: var(--space-4); max-width: calc(4 * var(--field-max) + 3 * var(--space-4)); }
-.field-grid > .field { flex: 1 1 var(--field-min); min-width: min(100%, var(--field-min)); max-width: var(--field-max); }
+/* --- Field grid: fields side by side, one to four per line, filling the line. A field is at least --field-min wide
+   (narrower, the next one goes below) and a line never holds more than four. ------------------------------------------ */
+.field-grid {
+  display: grid; align-items: start; gap: var(--space-4);
+  grid-template-columns: repeat(auto-fit, minmax(max(var(--field-min), (100% - 3 * var(--space-4)) / 4), 1fr));
+}
 
 /* --- Switch: <label class="switch"><input type="checkbox" role="switch"><span>Words</span></label> --------------- */
 .switch { display: inline-flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); cursor: pointer; user-select: none; }

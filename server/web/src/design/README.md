@@ -19,7 +19,7 @@ The UI is a working tool for an accounting team: dense, calm, readable at a glan
 
 ## Field grid
 
-Settings-style forms put their fields in `.field-grid`: one to four per line, each at least `--field-min` and at most `--field-max` wide, so a field wraps below when the line is too narrow and never fills the whole line.
+Settings-style forms put their fields in `.field-grid`: one to four per line, filling it, each at least `--field-min` wide, so a field wraps below when the line is too narrow and a line never holds more than four.
 
 ## Status classes
 
