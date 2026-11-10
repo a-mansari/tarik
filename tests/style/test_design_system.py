@@ -47,7 +47,7 @@ def found(pattern, text_of=styles):
         ("a focus ring", r"outline: [0-9.]+px solid"),
         (
             "a spacing",
-            r"\b(?:gap|row-gap|column-gap|padding[\w-]*|margin[\w-]*): [^;}\n]*(?<![\w.-])[0-9]*\.?[0-9]+(?:rem|px)\b",
+            r"\b(?:gap|row-gap|column-gap|padding[\w-]*|margin[\w-]*):\s*[^;}\n]*(?<![\w.])-?[0-9]*\.?[0-9]+(?:rem|px)\b",
         ),
     ],
 )
