@@ -1,0 +1,20 @@
+# The server alone: no database, no Vault, nothing to keep. Put it behind a reverse proxy that terminates TLS (README).
+services:
+  mcp:
+    build:
+      context: ..
+      dockerfile: experio_client_mcp/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"        # the proxy reaches it here; nothing else is published
+    volumes:
+      - ./cabinets.json:/etc/experio-client-mcp/cabinets.json:ro
+    environment:
+      EXPERIO_CLIENT_MCP_HOSTS: ${MCP_PUBLIC_HOST:?the host name clients use, e.g. mcp.example.com}
+      EXPERIO_CLIENT_MCP_TRUST_PROXY: "1"   # the proxy sets X-Forwarded-For and X-Forwarded-Proto
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    pids_limit: 256
