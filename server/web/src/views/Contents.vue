@@ -70,7 +70,7 @@ const KINDS = {
 </template>
 
 <style scoped>
-.capability-group { margin-top: var(--space-5); }
+.capability-group { margin-top: var(--space-6); }
 .capability-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
 .capability-head h2 { margin: 0; }
 .capability-icon { display: inline-grid; place-items: center; width: 1.9rem; height: 1.9rem; border-radius: var(--radius-lg); background: var(--accent-soft); color: var(--accent); }

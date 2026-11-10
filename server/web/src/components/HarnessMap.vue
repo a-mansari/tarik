@@ -314,7 +314,7 @@ const onUp = () => {
 </template>
 
 <style scoped>
-.harness > p { margin: 0 0 .6rem; }
+.harness > p { margin: 0 0 var(--space-2); }
 .map { display: block; height: max(34rem, 82vh); font-family: var(--font); cursor: grab; touch-action: none; user-select: none; }
 .map:active { cursor: grabbing; }
 .titles text { font-size: 15px; font-weight: 650; fill: var(--muted); text-anchor: middle; letter-spacing: .04em; text-transform: uppercase; }
@@ -358,7 +358,7 @@ const onUp = () => {
 .key-line.reply line { stroke: var(--frame-1); stroke-dasharray: 5 3; }
 .key-line.uses line { stroke: var(--node-border); }
 .told {
-  display: grid; gap: .15rem; margin: .8rem 0 0; padding: .6rem .8rem; border-radius: var(--radius-lg);
+  display: grid; gap: var(--space-1); margin: var(--space-3) 0 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-lg);
   border-left: 4px solid var(--hue, var(--accent)); background: var(--neutral-bg); overflow-wrap: anywhere;
 }
 .told .from { color: var(--muted); font-size: var(--text-sm); }
