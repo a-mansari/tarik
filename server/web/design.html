@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tarik design system</title>
+  <!-- The design system's living reference: every token and component, in light and dark. Open it with `npm run dev`
+       at http://localhost:5173/ui/design.html. It is not part of the build and needs no login. -->
+  <link rel="stylesheet" href="/src/design/tokens.css">
+  <link rel="stylesheet" href="/src/design/components.css">
+  <link rel="stylesheet" href="/src/app.css">
+  <style>
+    .guide { max-width: var(--page-w); margin: 0 auto; padding: var(--space-5) var(--space-4) var(--space-7); display: grid; gap: var(--space-6); }
+    .guide > section { display: grid; gap: var(--space-3); }
+    .guide h2 { margin: 0; padding-bottom: var(--space-2); border-bottom: 1px solid var(--line); }
+    .row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+    .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: var(--space-3); }
+    .swatch { display: grid; gap: var(--space-1); font-size: var(--text-xs); }
+    .swatch i { display: block; height: 2.6rem; border-radius: var(--radius); border: 1px solid var(--line); }
+    .swatch code { color: var(--muted); }
+    .scale { display: grid; gap: var(--space-2); }
+    .scale div { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-xs); color: var(--muted); }
+    .scale i { display: block; height: .9rem; background: var(--accent); border-radius: var(--radius-sm); }
+    .box { width: 5rem; height: 3rem; background: var(--accent-soft); border: 1px solid var(--accent); display: grid; place-items: center; font-size: var(--text-xs); }
+    .bar-top { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+    .rule { color: var(--muted); font-size: var(--text-sm); max-width: 60ch; }
+    .do { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: var(--space-3); }
+  </style>
+</head>
+<body>
+<main class="guide">
+  <div class="bar-top">
+    <div>
+      <h1>Tarik design system</h1>
+      <p class="muted">Tokens and components every page is built from. Change a token once, the whole app follows.</p>
+    </div>
+    <div class="row">
+      <button class="btn btn-sm" data-theme-set="auto">Auto</button>
+      <button class="btn btn-sm" data-theme-set="light">Light</button>
+      <button class="btn btn-sm" data-theme-set="dark">Dark</button>
+    </div>
+  </div>
+
+  <section>
+    <h2>Principles</h2>
+    <div class="do">
+      <div class="panel"><b>A working tool.</b><p class="rule">Dense, calm, readable at a glance. A table beats a card grid; an icon beats a sentence when its meaning is clear.</p></div>
+      <div class="panel"><b>One brand colour.</b><p class="rule">Green marks what you can act on and where you are. Green, amber and red are statuses only, never decoration.</p></div>
+      <div class="panel"><b>Tokens, not values.</b><p class="rule">No raw colour, size or radius in a page. If a token is missing, add it to tokens.css and show it here.</p></div>
+      <div class="panel"><b>Little text.</b><p class="rule">A label says what it is. Explanations go in a hover title, never under every field.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Colour</h2>
+    <p class="rule">Roles, not shades. Each is a pair (light, dark) defined once with light-dark().</p>
+    <div class="swatches">
+      <div class="swatch"><i style="background:var(--bg)"></i><b>bg</b><code>page</code></div>
+      <div class="swatch"><i style="background:var(--surface)"></i><b>surface</b><code>panels, tables</code></div>
+      <div class="swatch"><i style="background:var(--fg)"></i><b>fg</b><code>text</code></div>
+      <div class="swatch"><i style="background:var(--muted)"></i><b>muted</b><code>secondary text</code></div>
+      <div class="swatch"><i style="background:var(--line)"></i><b>line</b><code>borders</code></div>
+      <div class="swatch"><i style="background:var(--accent)"></i><b>accent</b><code>actions, links, current</code></div>
+      <div class="swatch"><i style="background:var(--accent-soft)"></i><b>accent-soft</b><code>hover, selected</code></div>
+      <div class="swatch"><i style="background:var(--good)"></i><b>good</b><code>done, ok</code></div>
+      <div class="swatch"><i style="background:var(--wait)"></i><b>wait</b><code>needs someone</code></div>
+      <div class="swatch"><i style="background:var(--bad)"></i><b>bad</b><code>failed, destructive</code></div>
+      <div class="swatch"><i style="background:var(--good-bg)"></i><b>good-bg</b></div>
+      <div class="swatch"><i style="background:var(--wait-bg)"></i><b>wait-bg</b></div>
+      <div class="swatch"><i style="background:var(--bad-bg)"></i><b>bad-bg</b></div>
+      <div class="swatch"><i style="background:var(--neutral-bg)"></i><b>neutral-bg</b><code>tags</code></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Type</h2>
+    <p style="font-size:var(--text-xl);font-weight:var(--weight-bold)">Page title · text-xl</p>
+    <p style="font-size:var(--text-lg);font-weight:var(--weight-medium)">Section title · text-lg</p>
+    <p>Body text · the page default, 15 px. The quick brown fox jumps over the lazy dog.</p>
+    <p style="font-size:var(--text-md)">Fields and sidebar · text-md</p>
+    <p style="font-size:var(--text-sm)">Buttons, labels, secondary lines · text-sm</p>
+    <p style="font-size:var(--text-xs);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)">Column heads, eyebrows · text-xs</p>
+    <p><span class="mono">Mono — ids, paths, code · --mono</span> &nbsp; <span class="num">1 234 567,89 tabular · .num</span></p>
+  </section>
+
+  <section>
+    <h2>Space and shape</h2>
+    <div class="scale">
+      <div><i style="width:var(--space-1)"></i>space-1 · .25rem</div>
+      <div><i style="width:var(--space-2)"></i>space-2 · .5rem</div>
+      <div><i style="width:var(--space-3)"></i>space-3 · .75rem</div>
+      <div><i style="width:var(--space-4)"></i>space-4 · 1rem</div>
+      <div><i style="width:var(--space-5)"></i>space-5 · 1.5rem</div>
+      <div><i style="width:var(--space-6)"></i>space-6 · 2rem</div>
+      <div><i style="width:var(--space-7)"></i>space-7 · 3rem</div>
+    </div>
+    <div class="row">
+      <div class="box" style="border-radius:var(--radius-sm)">sm 4</div>
+      <div class="box" style="border-radius:var(--radius)">6 controls</div>
+      <div class="box" style="border-radius:var(--radius-lg)">lg 8 panels</div>
+      <div class="box" style="border-radius:var(--radius-xl)">xl 10 popups</div>
+      <div class="box" style="border-radius:var(--radius-pill)">pill</div>
+      <div class="box" style="box-shadow:var(--shadow-pop);background:var(--surface);border-color:var(--line)">shadow-pop</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Button</h2>
+    <p class="rule">One per view is primary. A destructive one is danger and confirms first. An icon-only button has a title and an aria-label.</p>
+    <div class="row">
+      <button class="btn btn-primary">Primary</button>
+      <button class="btn btn-soft">Soft</button>
+      <button class="btn">Secondary</button>
+      <button class="btn btn-ghost">Ghost</button>
+      <button class="btn btn-danger">Danger</button>
+      <button class="btn" disabled>Disabled</button>
+    </div>
+    <div class="row">
+      <button class="btn btn-primary btn-sm">Small primary</button>
+      <button class="btn btn-sm">Small</button>
+      <button class="btn btn-icon" title="Edit" aria-label="Edit"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/></svg></button>
+      <button class="btn btn-icon btn-danger" title="Delete" aria-label="Delete"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+    </div>
+  </section>
+
+  <section>
+    <h2>Field and switch</h2>
+    <div class="row" style="align-items:flex-start">
+      <label class="field" style="width:16rem"><span>Name</span><input value="Cabinet Atlas"></label>
+      <label class="field" style="width:16rem"><span>Model</span><select><option>Claude</option><option>MiniMax</option></select></label>
+      <label class="field" style="width:16rem"><span>Recipient</span><input value="not-an-address"><span class="field-error">Not an email address.</span></label>
+    </div>
+    <label class="field" style="max-width:34rem"><span>Instruction</span><textarea rows="3">Send the VAT summary every Monday.</textarea><span class="field-hint">Hint: only when the label alone is not enough.</span></label>
+    <div class="row">
+      <label class="switch"><input type="checkbox" role="switch" checked><span>On</span></label>
+      <label class="switch"><input type="checkbox" role="switch"><span>Off</span></label>
+      <label class="switch"><input type="checkbox" role="switch" disabled><span>Disabled</span></label>
+    </div>
+  </section>
+
+  <section>
+    <h2>Chip</h2>
+    <div class="row">
+      <span class="chip">Neutral</span>
+      <span class="chip chip-good">Done</span>
+      <span class="chip chip-wait">Waiting</span>
+      <span class="chip chip-bad">Failed</span>
+      <span class="chip chip-accent">Active</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Panel and notices</h2>
+    <div class="panel">A plain panel: the container for one thing.</div>
+    <div class="panel panel-accent" role="status">Saved. In service now.</div>
+    <div class="panel panel-wait" role="status">Waiting on the client's answer.</div>
+    <div class="panel panel-good" role="status">Everything posted.</div>
+    <div class="panel panel-bad" role="alert"><b>Not saved:</b> the address is not valid.</div>
+  </section>
+
+  <section>
+    <h2>Table</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Model</th><th>Input tokens</th><th>Output tokens</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td>claude-sonnet</td><td class="num">1,2 M</td><td class="num">12,4 k</td><td class="num">3,21 $</td></tr>
+          <tr><td>MiniMax-M3</td><td class="num">850</td><td class="num">40</td><td class="num">&lt; 0,01 $</td></tr>
+          <tr><td colspan="4" class="empty">An empty table says why, in one line.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<script>
+  const root = document.documentElement;
+  document.querySelectorAll("[data-theme-set]").forEach((button) => button.addEventListener("click", () => {
+    const theme = button.dataset.themeSet;
+    if (theme === "auto") root.removeAttribute("data-theme"); else root.dataset.theme = theme;
+  }));
+</script>
+</body>
+</html>
