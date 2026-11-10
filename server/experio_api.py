@@ -89,6 +89,30 @@ async def one(request: Request):
     return answer(shown(cabinet, data))
 
 
+class Exists(ValueError):
+    """The cabinet already exists and is active."""
+
+
+async def add(cabinet, settings, actor):
+    """Create ``cabinet`` with ``settings``, or reactivate a deactivated one with them, serve it, record it in the
+    Journal under ``actor`` and return (keys set, created, mailbox watched): created is False for a reactivated one.
+
+    Raises Exists when the cabinet is already active, ValueError (in French) for an invalid name or settings."""
+    try:
+        data, _ = await asyncio.to_thread(cabinet_settings.latest, cabinet, False)
+    except LookupError:
+        data = None
+    if data is not None and cabinets.active(data):
+        raise Exists("ce cabinet existe déjà")
+    if data is None:
+        keys = await cabinet_settings.create(runs.pool, cabinet, settings, actor)
+    else:
+        keys = await cabinet_settings.save(runs.pool, cabinet, settings, None, actor, "Réactivé", active=True)
+    watched = await serve(cabinet)
+    await audit.record(actor, "cabinet_created" if data is None else "cabinet_reactivated", cabinet, keys=keys)
+    return keys, data is None, watched
+
+
 async def create(request: Request):
     """POST /api/cabinets: create a new cabinet, or reactivate a deactivated one with the settings given, and serve it.
 
@@ -97,23 +121,14 @@ async def create(request: Request):
     try:
         found, settings = await payload(request)
         cabinet = str(found.get("name") or "")
-        try:
-            data, _ = await asyncio.to_thread(cabinet_settings.latest, cabinet, False)
-        except LookupError:
-            data = None
-        if data is not None and cabinets.active(data):
-            return refused("ce cabinet existe déjà : modifiez-le (PATCH)", 409)
-        if data is None:
-            keys = await cabinet_settings.create(runs.pool, cabinet, settings, ACTOR)
-            action, status = "cabinet_created", 201
-        else:
-            keys = await cabinet_settings.save(runs.pool, cabinet, settings, None, ACTOR, "Réactivé", active=True)
-            action, status = "cabinet_reactivated", 200
+        keys, created, watched = await add(cabinet, settings, ACTOR)
+    except Exists:
+        return refused("ce cabinet existe déjà : modifiez-le (PATCH)", 409)
     except ValueError as error:
         return refused(str(error))
-    watched = await serve(cabinet)
-    await audit.record(ACTOR, action, cabinet, keys=keys)
-    return answer({"name": cabinet, "active": True, "changed": keys, "mailbox_watched": watched}, status)
+    return answer(
+        {"name": cabinet, "active": True, "changed": keys, "mailbox_watched": watched}, 201 if created else 200
+    )
 
 
 async def change(request, cabinet):

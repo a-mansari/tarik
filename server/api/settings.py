@@ -10,7 +10,7 @@ from starlette.requests import Request
 
 from engine import runs
 from engine.content import LABELS
-from engine.tools.core import cabinets
+from engine.tools.core import cabinets, experio
 from engine.tools.core.model import ADAPTERS
 from server import audit, cabinet_settings, experio_api, shared_settings
 from server.api.accounts import form_of
@@ -227,3 +227,46 @@ async def activation(request: Request):
     if keys:
         await audit.record(author, "cabinet_reactivated" if on else "cabinet_closed", cabinet)
     return page({"cabinet": cabinet, "active": on})
+
+
+def checked_login(cabinet):
+    """Return "" when Tarik logs in to ``cabinet``'s Experio with the settings it holds, else a sentence saying what to
+    check (never Experio's own words)."""
+    try:
+        with cabinets.using(cabinet):
+            experio.login()
+    except PermissionError:
+        return "Experio a refusé ce login, cette clé, ou cet identifiant d'utilisateur (ODOO_UID) : vérifiez-les."
+    except Exception:
+        return "Experio ne répond pas, ou cette adresse n'est pas la bonne : vérifiez EXPERIO_URL."
+    return ""
+
+
+async def new_cabinet_page(request: Request):
+    """GET or POST /ui/api/settings/new: the form that adds a cabinet, and its creation when posted.
+
+    GET returns {sections, adapters}: every setting, empty (DRY_RUN starts in simulation). POST takes JSON {name,
+    <settings>}: the cabinet is created in Vault (or a deactivated one reactivated), served at once with its mailbox
+    watched, and Tarik's login to its Experio is tried. When that login fails the cabinet is left deactivated, so a
+    typing mistake never stops the server from starting, and the answer is 400 with the sentence to fix; send the form
+    again to retry. Returns {name, mailbox_watched} when it works; 400 for an invalid name or setting, or a cabinet
+    already active."""
+    if request.method == "GET":
+        return page({"sections": fields({}), "adapters": ADAPTERS})
+    form = await form_of(request, 40)
+    cabinet = form.get("name", "").strip()
+    author = request.state.user["email"]
+    given = {key: value for key, value in form.items() if key in cabinet_settings.FIELDS}
+    try:
+        _, _, watched = await experio_api.add(cabinet, given, author)
+    except experio_api.Exists:
+        return page({"error": "ce cabinet existe déjà : ses réglages sont dans la page Réglages"}, 400)
+    except ValueError as refused:
+        return page({"error": str(refused)}, 400)
+    problem = await asyncio.to_thread(checked_login, cabinet)
+    if problem:
+        await cabinet_settings.save(runs.pool, cabinet, {}, None, author, "Connexion refusée", active=False)
+        await asyncio.to_thread(cabinets.reload_cabinets)
+        await audit.record(author, "cabinet_closed", cabinet)
+        return page({"error": f"{problem} Le cabinet est créé mais désactivé : corrigez et validez à nouveau."}, 400)
+    return page({"name": cabinet, "mailbox_watched": watched}, 201)

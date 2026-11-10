@@ -8,6 +8,7 @@ import pytest
 from starlette.requests import Request
 
 from server import cabinet_settings, experio_api, server
+from server.api import settings as settings_page
 
 FULL = {
     "ODOO_USER": "tarik@cab.ma",
@@ -138,3 +139,81 @@ def test_only_the_experio_key_opens_the_api(monkeypatch):
     assert status("Bearer wrong", "the-key") == 401
     assert status("", "the-key") == 401
     assert status("Bearer ", "") == 401  # no key set: nobody gets in
+
+
+def page_call(method, body=None):
+    """Call the add-cabinet page as an admin of the pages."""
+    raw = json.dumps(body).encode() if body is not None else b""
+
+    async def receive():
+        return {"type": "http.request", "body": raw}
+
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": "/ui/api/settings/new",
+        "headers": [],
+        "query_string": b"",
+        "state": {"user": {"email": "admin@cab.ma"}},
+    }
+    answer = asyncio.run(settings_page.new_cabinet_page(Request(scope, receive)))
+    return answer.status_code, json.loads(answer.body)
+
+
+def test_the_add_cabinet_page_offers_every_setting_empty(vault):
+    status, body = page_call("GET")
+    keys = [f["key"] for _, items in body["sections"] for f in items]
+    assert status == 200 and sorted(keys) == sorted(cabinet_settings.FIELDS) and "ODOO_PASSWORD" in keys
+    assert all(f["value"] in ("", False) for _, items in body["sections"] for f in items)
+
+
+def test_a_cabinet_added_on_the_page_is_created_served_and_started_in_simulation(vault, monkeypatch):
+    monkeypatch.setattr(settings_page, "checked_login", lambda cabinet: "")
+    status, body = page_call("POST", {"name": " cab_new ", **FULL, "DRY_RUN": "1"})
+    assert status == 201 and body == {"name": "cab_new", "mailbox_watched": True}
+    assert vault["cab_new"]["DRY_RUN"] == "1" and "ACTIVE" not in vault["cab_new"]
+
+
+def test_a_cabinet_whose_login_fails_is_left_deactivated_and_comes_back_when_corrected(vault, monkeypatch):
+    monkeypatch.setattr(settings_page, "checked_login", lambda cabinet: "Experio a refusé ce login.")
+    status, body = page_call("POST", {"name": "cab_new", **FULL})
+    assert status == 400 and "refusé" in body["error"] and "désactivé" in body["error"]
+    assert vault["cab_new"]["ACTIVE"] == "0"  # never serving a login that fails: the server still starts
+    assert "p w" not in json.dumps(body)
+    monkeypatch.setattr(settings_page, "checked_login", lambda cabinet: "")
+    status, body = page_call("POST", {"name": "cab_new", **FULL, "ODOO_UID": "13"})
+    assert status == 201 and vault["cab_new"]["ACTIVE"] == "1" and vault["cab_new"]["ODOO_UID"] == "13"
+
+
+def test_the_add_cabinet_page_refuses_a_bad_name_a_missing_setting_and_a_cabinet_already_active(vault, monkeypatch):
+    monkeypatch.setattr(settings_page, "checked_login", lambda cabinet: "")
+    assert page_call("POST", {"name": "Bad-Name", **FULL})[0] == 400
+    status, body = page_call("POST", {"name": "cab_new", "ODOO_USER": "tarik@cab.ma"})
+    assert status == 400 and "manquants" in body["error"] and "cab_new" not in vault
+    assert page_call("POST", {"name": "cab_new", **FULL})[0] == 201
+    status, body = page_call("POST", {"name": "cab_new", **FULL})
+    assert status == 400 and "existe déjà" in body["error"]
+
+
+def test_a_failed_login_is_told_without_experio_s_own_words(monkeypatch):
+    class Using:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(settings_page.cabinets, "using", lambda name: Using())
+    for error, word in (
+        (PermissionError("login refused for bob on db secret_db"), "refusé"),
+        (OSError("dns"), "répond"),
+    ):
+
+        def login(error=error):
+            raise error
+
+        monkeypatch.setattr(settings_page.experio, "login", login)
+        said = settings_page.checked_login("cab_new")
+        assert word in said and "secret_db" not in said and "dns" not in said
+    monkeypatch.setattr(settings_page.experio, "login", lambda: 12)
+    assert settings_page.checked_login("cab_new") == ""

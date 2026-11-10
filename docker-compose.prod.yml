@@ -114,7 +114,7 @@ services:
       VAULT_SEED_OVERWRITE: ${VAULT_SEED_OVERWRITE:-0}
     volumes:
       - ./vault/setup.sh:/vault/config/setup.sh:ro
-      - ${TARIK_SEED_DIR:?TARIK_SEED_DIR is required (.env), see deploy/seed.example/}:/seed:ro
+      - ${TARIK_SEED_DIR:-./deploy/seed}:/seed:ro
       - vault_keys:/vault/unseal
       - vault_approle:/vault/approle
       - vault_settings_approle:/vault/settings-approle
