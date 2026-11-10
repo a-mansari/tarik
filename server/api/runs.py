@@ -394,7 +394,7 @@ async def titles(cabinet, sessions):
 
 async def prompts_page(request: Request):
     """GET /ui/api/llm-calls: return the model calls Tarik made for the cabinet chosen in the sidebar, newest first,
-    with their conversations' titles and each call's tokens and cost (``usage``, usage_shown).
+    with each call's tokens and cost (``usage``, usage_shown).
 
     ?before= (a call id) pages back; ``older`` is set when a full page of 100 came back."""
     cabinet, before = chosen(request), request.query_params.get("before", "")
@@ -402,7 +402,6 @@ async def prompts_page(request: Request):
     context = {
         "cabinet": cabinet,
         "calls": dated(found, "at"),
-        "titles": await titles(cabinet, list({call["session_id"] for call in found})) if found else {},
         "older": found[-1]["id"] if len(found) == 100 else None,
         "usage": await spending(cabinet, Q.usage_of_calls, [call["id"] for call in found]),
     }

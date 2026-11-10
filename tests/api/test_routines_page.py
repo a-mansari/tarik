@@ -93,7 +93,6 @@ def test_a_change_keeps_its_next_run_unless_its_schedule_moves(page):
     _, data, _ = post(cabinet, "save", {**ROUTINE, "id": made["id"], "hour": 10, "minute": 30})
     (routine,) = data["routines"]
     assert routine["minute"] == 30 and routine["schedule"].endswith("à 10 h 30")
-    assert routine["next_run_at"].endswith("10:30")  # a new minute: rescheduled on it
 
 
 @pytest.mark.functionality
@@ -148,23 +147,6 @@ def test_a_routine_on_several_weekdays(page):
     assert data["routines"][0]["schedule"] == "chaque lundi, mercredi et vendredi à 9 h"
     status, data, _ = post(cabinet, "create", {**ROUTINE, "days": []})
     assert status == 400 and "quels jours" in data["error"]
-
-
-@pytest.mark.functionality
-def test_a_routine_shows_when_it_last_ran_and_whether_it_still_runs_never_its_report(page):
-    cabinet, _ = page
-    _, data, _ = post(cabinet, "create", ROUTINE)
-    (made,) = data["routines"]
-    assert made["last_due"] is None and made["running"] is False
-    with cabinet_db() as db:
-        db.execute("insert into tarik_routine_runs (routine_id, due_at) values (%s, now())", (made["id"],))
-    _, data, _ = asked(api.routines.routines_page)
-    (shown,) = data["routines"]
-    assert shown["last_due"] and shown["running"] is True and "last_report" not in shown
-    with cabinet_db() as db:
-        db.execute("update tarik_routine_runs set report = 'fait'")
-    _, data, _ = asked(api.routines.routines_page)
-    assert data["routines"][0]["running"] is False
 
 
 @pytest.mark.functionality

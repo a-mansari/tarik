@@ -182,13 +182,6 @@ def settings_page(vault, monkeypatch):
         ),
     )
 
-    async def history(pool, cabinet):
-        changes = [{"key": "ODOO_PASSWORD", "before": None, "after": None}]
-        return [
-            {"author": "a@experio.ma", "note": "", "changes": changes, "version": 4, "at": "2026-10-20T18:00:00+00:00"}
-        ]
-
-    monkeypatch.setattr(cabinet_settings, "history", history)
     monkeypatch.setattr(api.settings.runs, "pool", Pool())
     known = ({}, {"cabinet_a": {}, "cabinet_b": {"ACTIVE": "0", "CABINET_NAME": "B"}})
     monkeypatch.setattr(api.runs, "vault_settings", lambda: known)
@@ -204,7 +197,6 @@ def test_the_page_s_data_never_holds_a_secret_only_whether_it_is_set(settings_pa
     assert shown["ODOO_USER"] == "tarik@cabinet.ma"
     assert data["active"] is True
     assert "old-password" not in raw and "mailbox-secret" not in raw
-    assert data["history"][0]["at"].startswith("20/10 ") and data["history"][0]["changes"][0]["before"] is None
 
 
 @pytest.mark.security

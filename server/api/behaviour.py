@@ -4,7 +4,6 @@ another's), each switch or delay changed by the team as an admin can ask Tarik i
 
 from starlette.requests import Request
 
-from engine import runs
 from engine.calls import within
 from engine.tools.core.app import ToolError
 from engine.tools.dossiers.behaviour import change, settings
@@ -32,7 +31,7 @@ async def behaviour_page(request: Request):
         except ToolError as refused:
             error = str(refused)
     found = [
-        {**item, "changed_at": item["changed_at"] and runs.when(item["changed_at"])}
+        {key: value for key, value in item.items() if not key.startswith("changed_")}
         for item in await within(cabinet, settings)
     ]
     return page({"cabinet": cabinet, "settings": found, "error": error}, 400 if error else 200)

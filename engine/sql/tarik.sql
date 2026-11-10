@@ -630,14 +630,6 @@ from tarik_routines order by id
 update tarik_routines set enabled = %s, kind = %s, every = %s, days = %s, hour = %s, minute = %s, notify = %s,
 prompt = %s, name = %s, next_run_at = %s where id = %s
 
--- name: routine_last_runs
--- Each routine's latest run: when it was due and whether it still runs (nothing reported yet), one primary key
--- probe per routine.
-select r.id, last.due_at, last.due_at is not null and last.report is null from tarik_routines r
-left join lateral (
-    select due_at, report from tarik_routine_runs where routine_id = r.id order by due_at desc limit 1
-) last on true
-
 -- name: routine_enabled
 -- Pause or resume a routine, with its next run (a resumed routine runs at its next time, never the missed ones).
 update tarik_routines set enabled = %s, next_run_at = %s where id = %s

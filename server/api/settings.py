@@ -85,7 +85,6 @@ async def cabinet_page(request: Request):
         "error": error,
         "saved": saved,
         "names": {key: LABELS.get("settings", {}).get(key, {}).get("name", key) for key in cabinet_settings.FIELDS},
-        "history": await changes_of(cabinet),
         "adapters": ADAPTERS,
         "active": True,
     }
