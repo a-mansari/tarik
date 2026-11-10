@@ -44,6 +44,7 @@ FIELDS = {
     "MAIL_MANAGER": "address",
     "MAIL_ALLOWED_RECIPIENTS": "recipients",
     "MODEL_ADAPTER": "adapter",
+    "CABINET_MEMORY_ENABLED": "toggle",
 }
 # Left empty: Tarik does without (MODEL_ADAPTER: the first of ADAPTERS; EXPERIO_URL: ODOO_URL).
 OPTIONAL = {
@@ -54,6 +55,7 @@ OPTIONAL = {
     "MAIL_ALLOWED_RECIPIENTS",
     "ODOO_API_KEY",
     "MODEL_ADAPTER",
+    "CABINET_MEMORY_ENABLED",
 }
 IN_POSTGRES = "MODEL_ADAPTER"  # kept in cabinet_models, not in Vault
 # Every cabinet setting on the page, but the API's own.
@@ -109,6 +111,8 @@ def checked(key, value, fields=FIELDS, optional=OPTIONAL):
         raise ValueError(f"{key} ne peut pas être vide")
     if kind == "adapter" and value not in ADAPTERS:
         raise ValueError(f"{key} vaut l'un de : {', '.join(ADAPTERS)}")
+    if kind == "toggle" and value not in ("0", "1"):
+        raise ValueError(f"{key} vaut 1 (activée) ou 0 (désactivée)")
     if kind == "flag" and value not in ("0", "1"):
         raise ValueError(f"{key} vaut 1 (simulation) ou 0 (écritures réelles)")
     if kind == "url" and not experio.OWN_EXPERIO.fullmatch(value):
@@ -147,7 +151,7 @@ def changed(before, given, fields=FIELDS, optional=OPTIONAL):
         value = given[key] if kind == "secret" else given[key].strip()
         if kind == "secret" and value == "":
             continue
-        unset = next(iter(ADAPTERS)) if kind == "adapter" else ""  # an adapter unset: the first
+        unset = {"adapter": next(iter(ADAPTERS)), "toggle": "1"}.get(kind, "")  # unset: the first adapter, a toggle on
         same = value == (before.get(key) or unset)
         if same and value:  # unchanged: not checked again, so a stored value blocks no other change
             continue

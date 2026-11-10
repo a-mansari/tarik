@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 import httpx
 
+from engine.tools.core import cabinets
 from engine.tools.core.app import log
 
 URL = os.getenv("HINDSIGHT_URL", "").rstrip("/")
@@ -27,6 +28,22 @@ BACKGROUND_MAX = 20  # more at once (Hindsight slow or down): the new ones are d
 def on():
     """True when Hindsight is set up (HINDSIGHT_URL)."""
     return bool(URL)
+
+
+def enabled(cabinet):
+    """True when Tarik may use his memory for ``cabinet``: Hindsight is set up (on) and neither the general switch
+    (MEMORY_ENABLED, the Paramètres page) nor the cabinet's own (CABINET_MEMORY_ENABLED, its Réglages page) says "0".
+    Read from the settings each time (Vault's, kept in memory and read again every few minutes, and at once after a
+    save), so a switch applies to the next message, with no restart."""
+    if not on():
+        return False
+    if cabinets.VAULT_ENABLED:
+        shared, every = cabinets.vault_settings()
+        asked = (shared.get("MEMORY_ENABLED"), every.get(cabinet, {}).get("CABINET_MEMORY_ENABLED"))
+    else:  # the tests: the environment, as cabinets.source() gives it
+        every = cabinets.source()
+        asked = (every.get("MEMORY_ENABLED"), every.get(f"{cabinet.upper()}__CABINET_MEMORY_ENABLED"))
+    return "0" not in asked
 
 
 async def hindsight(client, method, path, **kwargs):
@@ -44,8 +61,8 @@ async def post(bank, path, body, wait):
 
 async def recalled(cabinet, question):
     """Return what cabinet ``cabinet`` remembers about ``question`` as one text, a fact per line; "" when nothing or
-    when Hindsight is off; None when it failed (the caller does not keep that as an answer)."""
-    if not on() or not question.strip():
+    when the memory is off (enabled); None when it failed (the caller does not keep that as an answer)."""
+    if not enabled(cabinet) or not question.strip():
         return ""
     try:
         found = await post(
@@ -66,7 +83,7 @@ async def retained(cabinet, session, said):
     """Give Hindsight what a client said (``said``) in conversation ``session``, to keep the facts worth keeping (it
     extracts them). Only their words: Tarik's replies hold Experio's figures, which Experio keeps and changes, and
     text from untrusted tool results. Hindsight works on it in the background (async): never a reply's wait."""
-    if not on() or not said.strip():
+    if not enabled(cabinet) or not said.strip():
         return
     item = {
         "content": said[:KEPT_CHARS],
@@ -82,6 +99,8 @@ async def retained(cabinet, session, said):
 
 def retain_later(cabinet, session, said):
     """Start ``retained`` without waiting for it: the client's reply never waits on Hindsight."""
+    if not enabled(cabinet):
+        return
     if len(BACKGROUND) >= BACKGROUND_MAX:
         log(f"{cabinet} memory retain dropped: {BACKGROUND_MAX} already going on")
         return

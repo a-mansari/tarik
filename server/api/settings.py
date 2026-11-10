@@ -21,6 +21,7 @@ from server.api.runs import CHOSEN, chosen, page, switched_off
 # The page's sections, in order: which settings each shows.
 SECTIONS = {
     "Modèle": ["MODEL_ADAPTER"],
+    "Mémoire": ["CABINET_MEMORY_ENABLED"],
     "Experio": ["CABINET_NAME", "DRY_RUN", "EXPERIO_URL", "ODOO_USER", "ODOO_UID", "ODOO_PASSWORD", "ODOO_API_KEY"],
     "Boîte mail de Tarik": ["IMAP_USER", "IMAP_PASSWORD", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM"],
     "Qui reçoit les emails de Tarik": ["MAIL_ALLOWED_RECIPIENTS", "MAIL_MANAGER"],
@@ -95,6 +96,13 @@ async def cabinet_page(request: Request):
 
 # The general page's sections (the settings every cabinet shares), each with its name and what it does, in plain words.
 GENERAL_SECTIONS = {
+    "Mémoire": {
+        "MEMORY_ENABLED": (
+            "Mémoire de Tarik",
+            "Activée : Tarik retient ce que disent les clients et s'en sert. Désactivée : il n'y accède plus et ne "
+            "retient plus rien, pour aucun cabinet ; ce qui est déjà retenu est gardé.",
+        ),
+    },
     "Serveur mail": {
         "IMAP_HOST": ("Serveur IMAP", "Où Tarik lit les emails, pour tous les cabinets."),
         "IMAP_PORT": ("Port IMAP", "993 en général."),

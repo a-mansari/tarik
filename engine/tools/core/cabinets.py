@@ -234,6 +234,7 @@ CABINET_SETTINGS = frozenset(
         "SMTP_FROM",
         "MAIL_MANAGER",
         "MAIL_ALLOWED_RECIPIENTS",
+        "CABINET_MEMORY_ENABLED",  # optional: "0" turns Tarik's memory off for this cabinet (missing: on)
         "ACTIVE",  # "0": deactivated by the Experio API (missing: served)
     ]
 )
@@ -250,6 +251,7 @@ SHARED_SETTINGS = frozenset(
         "MODEL_API_URL",  # secret/tarik/orchestrator, optional (the provider's Anthropic-style address)
         "CLAUDE_CODE_OAUTH_TOKEN",  # secret/tarik/orchestrator, optional: the claude CLI's login (`claude setup-token`)
         "EXPERIO_API_KEY",  # secret/tarik/orchestrator: what the Experio app shows to create, change or close cabinets
+        "MEMORY_ENABLED",  # optional: "0" turns Tarik's memory off for every cabinet (missing: on)
         "GLADDEN_URL",  # optional: Experio's Gladden classifier (its runner's /gladden)
         "GLADDEN_CALLBACK_URL",  # optional: this server's /gladden as Gladden reaches it
         "PUBLIC_URL",  # optional: this server as clients reach it (a new dossier's form link, dossiers/form_link.py)
