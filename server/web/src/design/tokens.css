@@ -40,7 +40,7 @@
   --text-xs: .75rem;   /* column heads, eyebrows, chips */
   --text-sm: .85rem;   /* buttons, labels, secondary lines */
   --text-md: .9rem;    /* fields, sidebar */
-  --text-base: 1rem;   /* body */
+  --text-base: .9375rem; /* body: 15 px */
   --text-lg: 1.05rem;  /* section titles */
   --text-2xl: 1.25rem; /* a figure in a popup, an arrow */
   --text-xl: 1.6rem;   /* page title */

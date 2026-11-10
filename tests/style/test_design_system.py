@@ -23,9 +23,17 @@ def styles(path):
     return text if path.suffix == ".css" else "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", text, flags=re.S))
 
 
+DIAGRAMS = "HarnessMap.vue"  # SVG text sizes are drawing units (px), not text sizes of the page
+
+
 def found(pattern, text_of=styles):
     """Return 'file: line' for each match of ``pattern`` in the pages."""
-    return [f"{p.relative_to(SRC)}: {m.group(0)[:70]}" for p in PAGES for m in re.finditer(pattern, text_of(p))]
+    return [
+        f"{p.relative_to(SRC)}: {m.group(0)[:70]}"
+        for p in PAGES
+        for m in re.finditer(pattern, text_of(p))
+        if not (p.name == DIAGRAMS and "px" in m.group(0) and "font" in m.group(0))
+    ]
 
 
 @pytest.mark.style
@@ -33,9 +41,9 @@ def found(pattern, text_of=styles):
     ("what", "pattern"),
     [
         ("a colour", r"#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\("),
-        ("a radius", r"border-radius: (?!var\()[^;}\n]*(?:px|%)"),
-        ("a shadow", r"box-shadow: (?!var\(|none)[^;}\n]*"),
-        ("a text size", r"font-size: [0-9.]+rem"),
+        ("a radius", r"border-radius: [^;}\n]*(?<!var\()(?<![\w-])[1-9][0-9.]*(?:px|%|rem)"),
+        ("a shadow", r"box-shadow: [^;}\n]*[0-9.]+(?:px|rem)"),
+        ("a text size", r"font(?:-size)?: (?!inherit|var\()[^;}\n]*?[0-9.]+(?:rem|px)\b"),
         ("a focus ring", r"outline: [0-9.]+px solid"),
     ],
 )
@@ -45,11 +53,19 @@ def test_a_page_takes_its_values_from_the_design_tokens(what, pattern):
     )
 
 
+CLASS_ATTRIBUTE = re.compile(r':?class="[^"]*"')
+
+
+def class_attributes(path):
+    """Return the class and :class attributes of a Vue file, for the old names to be looked for in them alone."""
+    return "\n".join(CLASS_ATTRIBUTE.findall(path.read_text())) if path.suffix == ".vue" else ""
+
+
 @pytest.mark.style
 def test_no_page_uses_a_class_the_design_system_replaced():
     names = "|".join(OLD_CLASSES)
-    pattern = rf'class="[^"]*(?<![\w-])(?:{names})(?![\w-])|panel (?:bad|accent)(?![\w-])'
-    assert not found(pattern, lambda p: p.read_text() if p.suffix == ".vue" else ""), "use .btn-*, .panel-*"
+    old = rf"(?<![\w-])(?:{names})(?![\w-])|panel (?:bad|accent)(?![\w-])"
+    assert not found(old, class_attributes), "use .btn-*, .panel-*"
 
 
 @pytest.mark.style
