@@ -1307,18 +1307,24 @@ def waiting_drafts(
     # or posted and put back to draft since) only when the client asks for them: the whole dossier, or by name.
     # (Its hold may be recorded under another conversation the same file came in: it is still this one's draft.)
     waiting += [invoice_id for invoice_id, owner in kept if owner == session_id or invoice_id in mine]
-    others = set()
+    others, by_people = set(), set()
     if dossier_id and stopped:
         others |= {i for i, (step, status) in furthest_outcomes(elsewhere).items() if resumable(step, status, True)}
     if dossier_id and held:
         others |= {invoice_id for invoice_id, owner in kept if owner != session_id}
         # Posted by Tarik, still a draft in Experio only when someone put it back (the domain below keeps the drafts).
         others |= {i for i, outcome in furthest_outcomes(reposted).items() if outcome == ("post_invoice", "ok")}
+        # Only on the client's own words (an automatic follow-up writes none): no search of the dossier's drafts else.
+        by_people = made_in_experio(dossier_id) if normalized(own_words(client_message)) else set()
+        others |= by_people
     others -= set(waiting) | set(mine)
     if others:  # still drafts of this dossier, whatever conversation (or dossier) left them
         domain = [("id", "in", sorted(others)), ("state", "in", ["pending", "draft"]), ("company_id", "=", dossier_id)]
         others = set(odoo_call("exp.invoice", "search", domain))
     asked = asked_among(others, dossier_id, client_message) if others else []
+    # Of the drafts people made in Experio, only so many at once: the rest is said, to be asked for again.
+    cut = [i for i in asked if i in by_people][AT_ONCE:]
+    asked = [i for i in asked if i not in cut]
     waiting += asked
     # A message naming invoices (Tarik's number, the invoice's own, its supplier) is about those only: nothing else of
     # the conversation is taken up with them, however long it has been waiting.
@@ -1362,7 +1368,7 @@ def waiting_drafts(
             facturation=billed,
             statements=statements,
         )
-    left = left_in_dossier(dossier_id, {*waiting, *billed}) if held and asks_whole(client_message) else ""
+    left = left_in_dossier(dossier_id, {*waiting, *billed}, cut) if held and (cut or asks_whole(client_message)) else ""
     if left and waiting:
         return ok(left, invoices=waiting, tell=True)  # told in the reply, with what is posted
     hint = elsewhere_hint(elsewhere_left, client_message, held) if not waiting else ""
@@ -1404,6 +1410,24 @@ def statements_to_resume(session_id, held):
     return sorted(waiting)
 
 
+# Drafts of other conversations or made in Experio taken in one message: a run goes one invoice at a time.
+AT_ONCE = 25
+
+
+def made_in_experio(dossier_id):
+    """Return the dossier's drafts that people made in Experio (not Facturation's, which have their own path): none
+    Tarik made, worked on or asked about. They are taken like another conversation's drafts: only when the client's
+    own words ask for the whole dossier or name them (asked_among), then from Experio's reading on."""
+    domain = [("company_id", "=", dossier_id), ("state", "in", ["pending", "draft"])]
+    if "gst_invoice_id" in experio_form()["types"]:
+        domain.append(("gst_invoice_id", "=", False))
+    found = odoo_call("exp.invoice", "search", domain)
+    if not found:
+        return set()
+    with cabinet_db() as db:
+        return set(found) - {i for (i,) in db.execute(Q.invoices_known_to_tarik, (found, found, found))}
+
+
 def facturation_drafts(dossier_id, client_message):
     """Return the dossier's drafts made by Experio's Facturation (gst_invoice_id set) that the client's own words ask
     for: the whole dossier, or named (asked_among). [] when the client wrote nothing, or the cabinet's Experio has no
@@ -1429,9 +1453,11 @@ def elsewhere_hint(count, client_message, held):
     example = whole_example(client_message, held)
     return counted(
         count,
-        " {} brouillon d'une autre conversation attend dans ce dossier. Pour le reprendre aussi, écrivez "
+        " {} brouillon d'une autre conversation ou créé dans Experio attend dans ce dossier. "
+        "Pour le reprendre aussi, écrivez "
         f"« {example} » ou nommez-le (numéro de facture ou fournisseur).",
-        " {} brouillons d'autres conversations attendent dans ce dossier. Pour les reprendre aussi, écrivez "
+        " {} brouillons d'autres conversations ou créés dans Experio attendent dans ce dossier. "
+        "Pour les reprendre aussi, écrivez "
         f"« {example} » ou nommez-les (numéro de facture ou fournisseur).",
     )
 
@@ -1484,10 +1510,11 @@ def asks_whole(client_message):
     return bool(WHOLE.search(normalized(own_words(client_message))))
 
 
-def left_in_dossier(dossier_id, taken):
+def left_in_dossier(dossier_id, taken, cut=()):
     """When the client asks for the whole dossier: return the lines reporting how many of its drafts stay drafts,
     except those ``taken``, and why: a question waiting in their conversation, stopped by a step, or not imported by
-    Tarik. "" when none stay or no ``dossier_id``."""
+    Tarik; ``cut`` are the drafts made in Experio left for the next message (AT_ONCE). "" when none stay or no
+    ``dossier_id``."""
     if not dossier_id:
         return ""
     domain = [("id", "not in", sorted(taken)), ("company_id", "=", dossier_id), ("state", "in", ["pending", "draft"])]
@@ -1496,7 +1523,7 @@ def left_in_dossier(dossier_id, taken):
         return ""
     with cabinet_db() as db:
         asked = {i for i, _ in db.execute(Q.pending_of_invoices, (left,))}
-        made = {i for (i,) in db.execute(Q.invoices_made_by_tarik, (left,))}
+        made = {i for (i,) in db.execute(Q.invoices_known_to_tarik, (left, left, left))}  # Tarik's, once worked on
     counts = [
         (
             len(asked),
@@ -1509,7 +1536,14 @@ def left_in_dossier(dossier_id, taken):
             "{} factures sont arrêtées par un point à corriger.",
         ),
         (
-            len(set(left) - made - asked),
+            len(set(left) & set(cut)),
+            f"{{}} facture créée dans Experio n'a pas été reprise cette fois ({AT_ONCE} au plus à la fois) : "
+            "redemandez-moi de la reprendre.",
+            f"{{}} factures créées dans Experio n'ont pas été reprises cette fois ({AT_ONCE} au plus à la fois) : "
+            "redemandez-moi de les reprendre.",
+        ),
+        (
+            len(set(left) - made - asked - set(cut)),
             "{} facture n'a pas été importée par moi : comptabilisez-la dans Experio.",
             "{} factures n'ont pas été importées par moi : comptabilisez-les dans Experio.",
         ),
