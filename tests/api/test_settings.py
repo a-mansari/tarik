@@ -166,7 +166,7 @@ def asked(handler, method="GET", body=None, path_params=None, cookie=None):
 
 @pytest.fixture
 def settings_page(vault, monkeypatch):
-    """The Réglages page's handler over the fake Vault, its cabinet cabinet_a, a secret's change in its history."""
+    """The Réglages page's handler over the fake Vault, its cabinet cabinet_a."""
     from server import api
 
     monkeypatch.setattr(api.settings, "chosen", lambda request: "cabinet_a")

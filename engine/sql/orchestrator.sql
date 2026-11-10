@@ -306,10 +306,6 @@ select adapter from orchestrator.cabinet_models where cabinet = %s
 insert into cabinet_models (cabinet, adapter) values (%s, %s)
 on conflict (cabinet) do update set adapter = excluded.adapter, updated_at = now()
 
--- name: settings_history
-select author, note, changes, vault_version, created_at from settings_changes where cabinet = %s
-order by id desc limit %s
-
 -- === Who did what in the UI (server/audit.py) ===
 
 -- name: audit_recorded

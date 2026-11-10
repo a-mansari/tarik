@@ -161,11 +161,6 @@ def retyped(sections, given):
                 item["value"] = given[item["key"]]
 
 
-async def changes_of(key):
-    """Return the last settings changes of ``key`` (a cabinet, or the general settings) with their time in words."""
-    return [{**item, "at": runs.when(item["at"])} for item in await cabinet_settings.history(runs.pool, key)]
-
-
 async def general_page(request: Request):
     """GET or POST /ui/api/settings/general: return the settings every cabinet shares, after saving a change when
     posted. POST takes JSON {version, note?, <settings>}; refused (400) when Vault holds a newer version
@@ -196,7 +191,6 @@ async def general_page(request: Request):
         "error": error,
         "saved": saved,
         "names": {key: words["name"] for key, words in GENERAL_WORDS.items()},
-        "history": await changes_of(shared_settings.GENERAL),
     }
     return page(context, 400 if error else 200)
 

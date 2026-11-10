@@ -259,13 +259,3 @@ async def create(pool, cabinet, given, author):
             await db.execute(Q.model_adapter_set, (cabinet, data[IN_POSTGRES]))
         await db.execute(Q.settings_changed, (cabinet, author, "Créé", Jsonb(changes), written["data"]["version"]))
     return list(data)
-
-
-async def history(pool, cabinet, limit=30):
-    """Return the cabinet's last ``limit`` settings changes, newest first: [{author, note, changes, version, at}]."""
-    async with pool.connection() as db:
-        rows = await (await db.execute(Q.settings_history, (cabinet, limit))).fetchall()
-    return [
-        {"author": author, "note": note, "changes": changes, "version": version, "at": at}
-        for author, note, changes, version, at in rows
-    ]
