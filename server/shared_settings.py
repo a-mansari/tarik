@@ -20,6 +20,7 @@ GENERAL = "_general"  # settings_changes' cabinet column for these: no cabinet's
 
 # Each setting the page shows with what it holds (cabinet_settings.checked's kinds), and the Vault path it lives in.
 FIELDS = {
+    "MEMORY_ENABLED": "toggle",
     "IMAP_HOST": "text",
     "IMAP_PORT": "integer",
     "IMAP_FOLDER": "text",
@@ -38,6 +39,7 @@ FIELDS = {
     "SPARROW_TOKEN": "secret",
 }
 OPTIONAL = {
+    "MEMORY_ENABLED",
     "MAIL_CERT_SHA256",
     "MODEL_API_URL",
     "MODEL_API_KEY",

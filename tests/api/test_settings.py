@@ -295,3 +295,11 @@ def test_cabinets_are_ordered_by_their_database_number_not_as_text(monkeypatch):
 
     assert [c["name"] for c in api.runs.sidebar(Asked())] == ["experio_cabinet_2", "experio_cabinet_10", "other"]
     assert api.runs.chosen(Asked()) == "experio_cabinet_2"
+
+
+def test_a_switch_is_checked_and_an_unset_one_is_on_so_saving_a_form_writes_nothing_new():
+    with pytest.raises(ValueError, match="vaut 1"):
+        cabinet_settings.checked("CABINET_MEMORY_ENABLED", "oui")
+    cabinet_settings.checked("CABINET_MEMORY_ENABLED", "0")
+    assert cabinet_settings.changed(BEFORE, {"CABINET_MEMORY_ENABLED": "1"}) == {}  # unset is on
+    assert cabinet_settings.changed(BEFORE, {"CABINET_MEMORY_ENABLED": "0"}) == {"CABINET_MEMORY_ENABLED": "0"}

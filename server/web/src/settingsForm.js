@@ -1,11 +1,12 @@
 // What the cabinet forms share (the Réglages page and the Ajouter un cabinet page): how a field starts, and the
 // confirmation before a cabinet writes for real in Experio.
 
-// A field as the form starts it: a secret empty (it is only replaced), a flag 1 (simulation) unless stored as 0, an
+// A field as the form starts it: a secret empty (it is only replaced), a flag 1 (simulation) or a toggle 1 (on) unless
+// stored as 0, an
 // adapter the stored one or the first.
 export function startOf(f, adapters) {
   if (f.kind === "secret") return "";
-  if (f.kind === "flag") return f.value === "0" ? "0" : "1";
+  if (f.kind === "flag" || f.kind === "toggle") return f.value === "0" ? "0" : "1";
   if (f.kind === "adapter") return f.value || Object.keys(adapters)[0];
   return f.value;
 }
