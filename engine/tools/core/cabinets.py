@@ -50,7 +50,7 @@ VAULT_REFRESH_SECONDS = 300
 VAULT_RETRY_SECONDS = 30
 
 _vault_lock = threading.Lock()
-_vault_state = {"token": "", "token_until": 0.0, "values": None, "next_read": 0.0}
+_vault_state = {"token": "", "token_until": 0.0, "values": None, "llms": {}, "next_read": 0.0}
 
 
 def vault_request(method, path, token="", **kwargs):
@@ -102,6 +102,12 @@ def read_vault():
     return shared, cabinets
 
 
+def read_llms():
+    """Read the extra global LLMs from Vault (secret/tarik/llms): {name: {type, model, url, key}}; {} when there are
+    none."""
+    return _vault_field("GET", "/v1/secret/data/tarik/llms", "data") or {}
+
+
 def _refresh_vault(wait):
     """Read every setting again into _vault_state, retrying for ``wait`` seconds on a first read (then raising).
     Once values were read, a Vault outage keeps the last ones and the next read is tried VAULT_RETRY_SECONDS
@@ -110,6 +116,7 @@ def _refresh_vault(wait):
     while True:
         try:
             _vault_state["values"] = read_vault()
+            _vault_state["llms"] = read_llms()
             _vault_state["next_read"] = time.monotonic() + VAULT_REFRESH_SECONDS
             return
         except Exception as error:
@@ -129,6 +136,15 @@ def vault_settings(wait=0):
         if _vault_state["values"] is None or time.monotonic() >= _vault_state["next_read"]:
             _refresh_vault(wait)
         return _vault_state["values"]
+
+
+def llm_extras():
+    """Return the extra global LLMs {name: {type, model, url, key}}, read again with the settings (vault_settings);
+    none without Vault (the tests)."""
+    if not VAULT_ENABLED:
+        return {}
+    vault_settings()
+    return _vault_state["llms"]
 
 
 def reread_vault():
@@ -234,6 +250,11 @@ CABINET_SETTINGS = frozenset(
         "SMTP_FROM",
         "MAIL_MANAGER",
         "MAIL_ALLOWED_RECIPIENTS",
+        "LLM_CHOICE",  # optional: the global LLM the cabinet picks (claude, minimax, an extra's name), or "custom"
+        "LLM_TYPE",  # custom LLM: a key of model.TYPES
+        "LLM_MODEL",
+        "LLM_URL",  # an API's address
+        "LLM_KEY",  # an API's key, or the Claude Code CLI's token
         "CABINET_MEMORY_ENABLED",  # optional: "0" turns Tarik's memory off for this cabinet (missing: on)
         "ACTIVE",  # "0": deactivated by the Experio API (missing: served)
     ]

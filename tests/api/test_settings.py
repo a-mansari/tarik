@@ -29,7 +29,9 @@ BEFORE = {
         ("ODOO_UID", "-3", "entier positif"),
         ("ODOO_USER", "", "vide"),
         ("MAIL_MANAGER", "pas une adresse", "adresse"),
-        ("MODEL_ADAPTER", "gpt", "l'un de"),
+        ("LLM_TYPE", "gpt", "l'un de"),
+        ("LLM_CHOICE", "Pas Un Nom", "LLM global"),
+        ("LLM_URL", "http://model.example", "HTTPS"),
         ("SMTP_FROM", "Tarik <pas-une-adresse>", "expéditeur"),
         ("MAIL_ALLOWED_RECIPIENTS", "@cabinet.ma, n'importe qui", "n'importe qui"),
     ],
@@ -129,13 +131,31 @@ def test_a_change_is_written_over_the_version_shown_and_recorded_without_any_sec
     assert "password" not in repr(pool.recorded)
 
 
-def test_the_model_is_kept_in_postgres_never_in_vault(vault):
+def test_the_llm_choice_is_kept_in_vault_with_the_rest_and_nothing_in_postgres(vault):
     pool = Pool()
-    done = asyncio.run(cabinet_settings.save(pool, "cabinet_a", {"MODEL_ADAPTER": "claude-code"}, 4, "a@experio.ma"))
-    assert done == ["MODEL_ADAPTER"] and vault == []
-    (chosen, (cabinet, _, _, changes, version)) = pool.recorded
-    assert chosen == ("cabinet_a", "claude-code") and version == 4  # Vault's version, as it was
-    assert changes.obj == [{"key": "MODEL_ADAPTER", "before": "", "after": "claude-code"}]
+    done = asyncio.run(cabinet_settings.save(pool, "cabinet_a", {"LLM_CHOICE": "minimax"}, 4, "a@experio.ma"))
+    assert done == ["LLM_CHOICE"] and vault[0]["data"]["LLM_CHOICE"] == "minimax"
+    (recorded,) = pool.recorded  # the history only: no cabinet_models write
+    assert recorded[3].obj == [{"key": "LLM_CHOICE", "before": "", "after": "minimax"}]
+
+
+def test_a_cabinet_picking_its_own_llm_must_give_what_runs_it(vault):
+    for given, missing in [
+        ({"LLM_CHOICE": "custom"}, "LLM_MODEL, LLM_KEY"),
+        ({"LLM_CHOICE": "custom", "LLM_MODEL": "m", "LLM_KEY": "k", "LLM_TYPE": "anthropic-api"}, "LLM_URL"),
+    ]:
+        with pytest.raises(ValueError, match=missing):
+            asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", given, 4, "a@experio.ma"))
+    ok = {"LLM_CHOICE": "custom", "LLM_MODEL": "sonnet", "LLM_KEY": "token"}  # a Claude Code one needs no address
+    assert sorted(asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", ok, 4, "a@experio.ma"))) == sorted(ok)
+
+
+@pytest.mark.security
+def test_a_new_llm_address_needs_its_key_typed_again():
+    before = {"LLM_CHOICE": "custom", "LLM_URL": "https://old.example", "LLM_KEY": "k"}
+    with pytest.raises(ValueError, match="retapez aussi LLM_KEY"):
+        cabinet_settings.changed(before, {"LLM_URL": "https://other.example"})
+    assert cabinet_settings.changed(before, {"LLM_URL": "https://other.example", "LLM_KEY": "k2"})
 
 
 def test_a_page_older_than_vault_s_version_changes_nothing(vault):

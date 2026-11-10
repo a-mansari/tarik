@@ -41,6 +41,7 @@ vault policy write tarik-settings - <<'POLICY'
 path "secret/data/tarik/cabinets/*"   { capabilities = ["create", "read", "update"] }
 path "secret/data/tarik/shared"       { capabilities = ["create", "read", "update"] }
 path "secret/data/tarik/orchestrator" { capabilities = ["create", "read", "update"] }
+path "secret/data/tarik/llms"         { capabilities = ["create", "read", "update"] }
 POLICY
 vault write auth/approle/role/tarik-settings token_policies=tarik-settings token_ttl=15m token_max_ttl=1h secret_id_ttl=0 >/dev/null
 vault read -field=role_id auth/approle/role/tarik-settings/role-id > /vault/settings-approle/role_id

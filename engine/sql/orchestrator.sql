@@ -302,10 +302,6 @@ insert into settings_changes (cabinet, author, note, changes, vault_version) val
 -- name: model_adapter
 select adapter from orchestrator.cabinet_models where cabinet = %s
 
--- name: model_adapter_set
-insert into cabinet_models (cabinet, adapter) values (%s, %s)
-on conflict (cabinet) do update set adapter = excluded.adapter, updated_at = now()
-
 -- === Who did what in the UI (server/audit.py) ===
 
 -- name: audit_recorded

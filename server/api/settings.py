@@ -12,15 +12,14 @@ from starlette.requests import Request
 
 from engine import memory, runs
 from engine.content import LABELS
-from engine.tools.core import cabinets, experio
-from engine.tools.core.model import ADAPTERS
-from server import audit, cabinet_settings, experio_api, shared_settings
+from engine.tools.core import cabinets, experio, model
+from server import audit, cabinet_settings, experio_api, llms, shared_settings
 from server.api.accounts import form_of
 from server.api.runs import CHOSEN, chosen, page, switched_off
 
 # The page's sections, in order: which settings each shows.
 SECTIONS = {
-    "Modèle": ["MODEL_ADAPTER"],
+    "LLM": ["LLM_CHOICE", "LLM_TYPE", "LLM_MODEL", "LLM_URL", "LLM_KEY"],
     "Mémoire": ["CABINET_MEMORY_ENABLED"],
     "Experio": ["CABINET_NAME", "DRY_RUN", "EXPERIO_URL", "ODOO_USER", "ODOO_UID", "ODOO_PASSWORD", "ODOO_API_KEY"],
     "Boîte mail de Tarik": ["IMAP_USER", "IMAP_PASSWORD", "SMTP_USER", "SMTP_PASSWORD", "SMTP_FROM"],
@@ -29,13 +28,28 @@ SECTIONS = {
 assert sorted(key for keys in SECTIONS.values() for key in keys) == sorted(cabinet_settings.FIELDS)
 
 
-def field(key, value, words, fields=cabinet_settings.FIELDS, optional=cabinet_settings.OPTIONAL):
-    """Return one setting as the page shows it: {key, kind, optional, name, description, value}, its words from
-    labels.json (``words``); ``fields`` and ``optional`` are the cabinets' unless the general page gives its own."""
+# The cabinet's own LLM is shown only when the cabinet picks it (and its address only for an API): [key, value] pairs
+# that must all hold in the form. Shown, it is required.
+WHEN = {
+    "LLM_TYPE": [["LLM_CHOICE", model.CUSTOM]],
+    "LLM_MODEL": [["LLM_CHOICE", model.CUSTOM]],
+    "LLM_URL": [["LLM_CHOICE", model.CUSTOM], ["LLM_TYPE", "anthropic-api"]],
+    "LLM_KEY": [["LLM_CHOICE", model.CUSTOM]],
+}
+LISTS = {"llm": "choice", "llm_type": "choice"}  # the kinds a list: its choices come with the field
+
+
+def field(key, value, words, fields=cabinet_settings.FIELDS, optional=cabinet_settings.OPTIONAL, choices=None):
+    """Return one setting as the page shows it: {key, kind, optional, name, description, value, when, choices}, its
+    words from labels.json (``words``); ``fields`` and ``optional`` are the cabinets' unless the general page gives
+    its own; ``choices`` the LLMs a cabinet may pick (model.choices)."""
+    kind = fields[key]
     return {
         "key": key,
-        "kind": fields[key],
-        "optional": key in optional,
+        "kind": LISTS.get(kind, kind),
+        "choices": {"llm": choices, "llm_type": model.TYPES}.get(kind),
+        "when": WHEN.get(key, []),
+        "optional": key in optional and key not in WHEN,
         "name": words.get(key, {}).get("name", key),
         "description": words.get(key, {}).get("description", ""),
         "value": value,
@@ -45,8 +59,11 @@ def field(key, value, words, fields=cabinet_settings.FIELDS, optional=cabinet_se
 def fields(data):
     """Return the page's sections with their fields: [(title, [field dicts])], a secret's value only True (set) or
     False."""
-    values, words = cabinet_settings.shown(data), LABELS.get("settings", {})
-    return [(title, [field(key, values[key], words) for key in keys]) for title, keys in SECTIONS.items()]
+    values, words, llms = cabinet_settings.shown(data), LABELS.get("settings", {}), model.choices()
+    shown = [
+        (title, [field(key, values[key], words, choices=llms) for key in keys]) for title, keys in SECTIONS.items()
+    ]
+    return shown
 
 
 async def cabinet_page(request: Request):
@@ -88,7 +105,6 @@ async def cabinet_page(request: Request):
         "error": error,
         "saved": saved,
         "names": {key: LABELS.get("settings", {}).get(key, {}).get("name", key) for key in cabinet_settings.FIELDS},
-        "adapters": ADAPTERS,
         "active": True,
     }
     return page(context, 400 if error else 200)
@@ -114,13 +130,13 @@ GENERAL_SECTIONS = {
             "Seulement si le serveur mail a un certificat auto-signé : son empreinte SHA-256.",
         ),
     },
-    "Modèle": {
-        "MODEL_API_URL": ("Adresse du modèle", "L'adresse du fournisseur du modèle. Vide : celle du .env."),
-        "MODEL_API_KEY": ("Clé du modèle", "Pour un cabinet dont le modèle n'est pas Claude Code."),
+    "LLMs globaux : Claude et MiniMax": {
         "CLAUDE_CODE_OAUTH_TOKEN": (
-            "Connexion Claude Code",
-            "Pour un cabinet dont le modèle est Claude Code : le jeton de `claude setup-token`.",
+            "Jeton de Claude",
+            "Le LLM Claude (la CLI Claude Code) : le jeton de `claude setup-token`.",
         ),
+        "MODEL_API_URL": ("Adresse de MiniMax", "Le LLM MiniMax : l'adresse de son API. Vide : celle du .env."),
+        "MODEL_API_KEY": ("Clé de MiniMax", "Le LLM MiniMax : la clé de son API."),
     },
     "Experio": {
         "EXPERIO_API_KEY": (
@@ -180,6 +196,34 @@ async def memory_state():
         "on": memory.on(),
         "failures": None if failed is None else [{**one, "at": runs.when(one["at"])} for one in failed],
     }
+
+
+async def llms_page(request: Request):
+    """GET or POST /ui/api/settings/llms: return the extra global LLMs (server/llms.py), after replacing them when
+    posted. POST takes JSON {version, llms: [{name, type, model, url, key}]}, a key "" keeping the stored one.
+
+    Returns {llms: [{name, type, model, url, key_set}], version, types, saved, fell_back, error}: a key is never sent.
+    400 when the change is refused (the LLMs are then sent back as stored); 503 when Vault cannot be read."""
+    error, result = None, None
+    if request.method == "POST":
+        try:
+            body = await request.json()
+        except ValueError:
+            body = None
+        try:
+            if not isinstance(body, dict) or not isinstance(body.get("version"), int):
+                raise ValueError("demande illisible")
+            result = await llms.save(runs.pool, body.get("llms"), body["version"], request.state.user["email"])
+        except ValueError as refused:
+            error = str(refused)
+        except httpx.HTTPError:
+            error = "Vault ne répond pas : rechargez la page"
+    try:
+        data, version = await asyncio.to_thread(llms.latest)
+    except Exception:
+        return page({"unreachable": True}, 503)
+    context = {"llms": llms.shown(data), "version": version, "types": model.TYPES, "error": error, **(result or {})}
+    return page(context, 400 if error else 200)
 
 
 async def general_page(request: Request):
@@ -283,7 +327,7 @@ async def checked_login(cabinet):
 async def new_cabinet_page(request: Request):
     """GET or POST /ui/api/settings/new: the form that adds a cabinet, and its creation when posted.
 
-    GET returns {sections, adapters}: every setting, empty (DRY_RUN starts in simulation). POST takes JSON {name,
+    GET returns {sections}: every setting, empty (DRY_RUN starts in simulation). POST takes JSON {name,
     <settings>}: the cabinet is created in Vault deactivated (or a deactivated one reactivated, what the form leaves
     empty kept), Tarik's login to its Experio is tried, and only when it works is the cabinet switched on and served
     with its mailbox watched. When it fails the cabinet stays deactivated, so a typing mistake never stops the server
@@ -291,7 +335,7 @@ async def new_cabinet_page(request: Request):
     Returns {name, mailbox_watched} (201) when it works; 400 for an invalid or reserved name, an invalid setting or a
     cabinet already active. One cabinet is added at a time (SWITCH)."""
     if request.method == "GET":
-        return page({"sections": fields({}), "adapters": ADAPTERS})
+        return page({"sections": fields({})})
     form = await form_of(request, 40)
     cabinet = form.get("name", "").strip()
     author = request.state.user["email"]

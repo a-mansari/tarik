@@ -1,4 +1,4 @@
-<!-- One setting as a form field, by its kind: simulation or real writes, an on/off switch, the model, a secret (replaced, never shown), or
+<!-- One setting as a form field, by its kind: simulation or real writes, an on/off switch, a choice (an LLM, a type), a secret (replaced, never shown), or
 text. Its label is the variable's name, a red star marks a required one, and what it does is its placeholder (and its
 tooltip, for a list). The field's value is the parent's (v-model). Used by the cabinet pages and the general one. -->
 <script setup>
@@ -8,7 +8,6 @@ import Icon from "./Icon.vue";
 
 const props = defineProps({
   f: { type: Object, required: true },
-  adapters: { type: Object, default: () => ({}) },
 });
 const value = defineModel({ type: String, default: "" });
 
@@ -31,8 +30,8 @@ const hint = computed(() => (props.f.kind === "secret" && props.f.value
       <option value="1">Simulation</option>
       <option value="0">Écritures réelles</option>
     </select>
-    <select v-else-if="f.kind === 'adapter'" v-model="value" :name="f.key">
-      <option v-for="(label, key) in adapters" :key="key" :value="key">{{ label }}</option>
+    <select v-else-if="f.kind === 'choice'" v-model="value" :name="f.key">
+      <option v-for="(label, key) in f.choices" :key="key" :value="key">{{ label }}</option>
     </select>
     <input
       v-else-if="f.kind === 'secret'"

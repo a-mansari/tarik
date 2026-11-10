@@ -1,8 +1,8 @@
 """Tarik, the cabinet's agent: its instructions and tool descriptions (content/agent.json), its skills
 (content/skills/), its read tools (engine/tools/) and its workflow tools (the graphs), on the cabinet's model.
 
-model() picks the model from the cabinet's MODEL_ADAPTER: MiniMax (agent.json's model, with a thinking budget, at the
-provider's Anthropic-style address and Vault's MODEL_API_KEY) or Claude through the Claude Code CLI.
+model() picks the model from the cabinet's LLM (engine/tools/core/model.py llm): an Anthropic-style API (MiniMax, with a
+thinking budget, at its address and with its key) or Claude through the Claude Code CLI.
 What every workflow tool gets besides the model's arguments (the conversation's id, its files, the client's latest
 message, the cabinet) comes from the thread and its messages, never from the model (fixed())."""
 
@@ -27,33 +27,28 @@ from engine.claude_code import ChatClaudeCode
 from engine.content import AGENT
 from engine.settings import cabinet_of, session_of
 from engine.tools.core import usage
-from engine.tools.core.cabinets import setting, using
-from engine.tools.core.model import MODEL_URL, adapter
+from engine.tools.core.cabinets import using
+from engine.tools.core.model import llm
 from engine.tools.data.query import DEFAULT_LIMIT
 
 
 def model(cabinet):
-    """Return the chat model for a run of ``cabinet``, chosen by that cabinet's MODEL_ADAPTER setting.
+    """Return the chat model for a run of ``cabinet``: its LLM (model.llm: the global one it picked, or its own).
 
-    "claude-code" gives ChatClaudeCode; otherwise ChatAnthropic on agent.json's model, at MODEL_API_URL (Vault's, else
-    .env's TARIK_MODEL_URL) with MODEL_API_KEY. Settings are read within the cabinet.
+    A Claude Code LLM gives ChatClaudeCode; an API one ChatAnthropic on its model, at its address, with its key and a
+    thinking budget. Settings are read within the cabinet.
 
-    Raises:
-        RuntimeError: MODEL_API_KEY or MODEL_API_URL is not set and the adapter is not claude-code.
-    """
+    Raises RuntimeError: the LLM is an API one with no key or no address."""
     with using(cabinet):
-        chosen, key, url = adapter(), setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", MODEL_URL)
-    if chosen == "claude-code":  # the Cabinets page's choice
+        chosen = llm()
+    if chosen.type == "claude-code":
         return ChatClaudeCode(cabinet=cabinet)
-    if not key or not url:
-        raise RuntimeError(
-            "MODEL_API_KEY (Vault secret/tarik/orchestrator) or MODEL_API_URL (Vault) / TARIK_MODEL_URL (.env) is "
-            "not set: the agent has no model"
-        )
+    if not chosen.key or not chosen.url:
+        raise RuntimeError(f"the LLM {chosen.name!r} has no key or no address: the agent has no model")
     return ChatAnthropic(
-        model=AGENT["model"],  # content/agent.json
-        anthropic_api_url=url,
-        api_key=key,
+        model=chosen.model,
+        anthropic_api_url=chosen.url,
+        api_key=chosen.key,
         max_tokens=65536,  # the thinking included
         # Without it, the agent makes decisions the client did not (tests/llm, 2026-10-19: 3 % wrong without, 1 % with).
         thinking={"type": "enabled", "budget_tokens": 1024},
@@ -803,8 +798,9 @@ async def usage_counted(request, handler):
         if used:
             cached = (used.get("input_token_details") or {}).get("cache_read") or 0
             fresh, output = used["input_tokens"] - cached, used["output_tokens"]
-            # the model asked (agent.json), as PRICES names it; not the tools' threads, a long tool never delays it
-            await asyncio.to_thread(counted_in, cabinet_of(get_config()), AGENT["model"], fresh, cached, output)
+            # the model asked, as PRICES names it; not the tools' threads, a long tool never delays it
+            asked = request.model.model
+            await asyncio.to_thread(counted_in, cabinet_of(get_config()), asked, fresh, cached, output)
     return response
 
 

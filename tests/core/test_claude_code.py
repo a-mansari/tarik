@@ -148,7 +148,7 @@ def test_tool_args_the_cli_keeps_refusing_are_asked_again_with_any_values_for_th
 
     schemas = []
 
-    def ask(system, content, schema, timeout=0):
+    def ask(system, content, schema, timeout=0, **login):
         schemas.append(schema["properties"]["tool_calls"]["items"])
         if len(schemas) == 1:
             raise claude_code.ClaudeCodeUnreadable("retries spent")
@@ -197,9 +197,19 @@ def test_the_agent_gets_the_cli_s_tool_calls_and_the_cli_the_whole_conversation(
 
 
 @pytest.mark.technical
-def test_an_unknown_adapter_falls_back_to_minimax(monkeypatch):
+def test_a_cabinet_with_no_llm_chosen_runs_on_claude(monkeypatch):
     monkeypatch.setattr(cabinets, "CABINETS", frozenset({"cabinet_a"}))
-    monkeypatch.setattr(model, "chosen_adapter", lambda cabinet: "gpt")
+    monkeypatch.setattr(model, "chosen_adapter", lambda cabinet: "")
     with cabinets.using("cabinet_a"):
-        assert model.adapter() == "minimax"
-    assert claude_code.MODEL
+        found = model.llm()
+    assert (found.name, found.type, found.model) == (model.CLAUDE, "claude-code", claude_code.MODEL)
+
+
+@pytest.mark.technical
+def test_an_old_adapter_choice_keeps_its_llm_and_an_unknown_one_is_claude(monkeypatch):
+    monkeypatch.setattr(cabinets, "CABINETS", frozenset({"cabinet_a"}))
+    monkeypatch.setattr(model, "model_name", lambda: "MiniMax-M3")
+    for adapter, name in [("minimax", model.MINIMAX), ("claude-code", model.CLAUDE), ("gpt", model.CLAUDE)]:
+        monkeypatch.setattr(model, "chosen_adapter", lambda cabinet, adapter=adapter: adapter)
+        with cabinets.using("cabinet_a"):
+            assert model.llm().name == name

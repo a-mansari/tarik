@@ -107,11 +107,11 @@ create table if not exists settings_changes (
     created_at timestamptz not null default now()
 );
 create index if not exists settings_changes_cabinet on settings_changes (cabinet, id desc);
--- Each cabinet's model (MODEL_ADAPTER, the Cabinets page): not a secret, so not in Vault; here, outside the cabinets'
--- schemas, no tool reads it, nor the agent.
+-- What each cabinet picked as its model before the LLMs (the Réglages page now keeps LLM_CHOICE in Vault): read only,
+-- for a cabinet that has not picked an LLM since (engine.tools.core.model.LEGACY); nothing writes it any more.
 create table if not exists cabinet_models (
     cabinet text primary key,
-    adapter text not null,  -- a key of engine.tools.core.model.ADAPTERS
+    adapter text not null,  -- claude-code or minimax (engine.tools.core.model.LEGACY)
     updated_at timestamptz not null default now()
 );
 

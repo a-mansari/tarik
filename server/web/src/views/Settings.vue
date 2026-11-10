@@ -9,7 +9,7 @@ import CabinetLabel from "../components/CabinetLabel.vue";
 import PageState from "../components/PageState.vue";
 import Icon from "../components/Icon.vue";
 import SettingField from "../components/SettingField.vue";
-import { REAL_WRITES, startValues } from "../settingsForm.js";
+import { REAL_WRITES, startValues, visible } from "../settingsForm.js";
 
 const { data, status, loading, reload } = usePage(() => "/settings");
 const problem = ref("");
@@ -80,7 +80,7 @@ const savedNames = computed(() => data.value.saved.map((key) => data.value.names
               <span class="card-title">{{ title }}</span>
             </summary>
             <div class="card-body"><div class="field-grid">
-              <SettingField v-for="f in items" :key="f.key" v-model="form[f.key]" :f="f" :adapters="data.adapters" />
+              <SettingField v-for="f in items.filter((one) => visible(one, form))" :key="f.key" v-model="form[f.key]" :f="f" />
             </div></div>
           </details>
       </form>
