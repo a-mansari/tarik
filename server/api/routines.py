@@ -20,7 +20,6 @@ from engine.tools.dossiers.routines import (
     WEEKDAYS,
     WEEKEND,
     WORKDAYS,
-    ZONE,
     admins,
     next_of,
     problem_of,
@@ -33,23 +32,8 @@ from server.api.runs import chosen, page
 
 
 def shown():
-    """Return the current cabinet's routines for the page, each with its schedule in words and its last run (when it
-    was due, and whether it still runs)."""
-    with cabinet_db() as db:
-        last = {row[0]: row[1:] for row in db.execute(Q.routine_last_runs).fetchall()}
-    found = []
-    for routine in routines_of_cabinet():
-        due, running = last.get(routine["id"], (None, False))
-        found.append(
-            {
-                **routine,
-                "schedule": when(*(routine[key] for key in SCHEDULE)),
-                "next_run_at": routine["next_run_at"].astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
-                "last_due": due and due.astimezone(ZONE).strftime("%Y-%m-%d %H:%M"),
-                "running": running,  # its last period not reported yet
-            }
-        )
-    return found
+    """Return the current cabinet's routines for the page, each with its schedule in words."""
+    return [{**routine, "schedule": when(*(routine[key] for key in SCHEDULE))} for routine in routines_of_cabinet()]
 
 
 def cleaned(given):
