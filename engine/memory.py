@@ -32,7 +32,8 @@ def on():
 
 def enabled(cabinet):
     """True when Tarik may use his memory for ``cabinet``: Hindsight is set up (on) and neither the general switch
-    (MEMORY_ENABLED, the Paramètres page) nor the cabinet's own (CABINET_MEMORY_ENABLED, its Réglages page) says "0".
+    (MEMORY_ENABLED, the Paramètres page) nor the cabinet's own (CABINET_MEMORY_ENABLED, its Réglages page) says
+    anything but "1" (a value edited by hand in Vault, "false" or "off", turns it off: a safety switch fails closed).
     Read from the settings each time (Vault's, kept in memory and read again every few minutes, and at once after a
     save), so a switch applies to the next message, with no restart."""
     if not on():
@@ -43,7 +44,7 @@ def enabled(cabinet):
     else:  # the tests: the environment, as cabinets.source() gives it
         every = cabinets.source()
         asked = (every.get("MEMORY_ENABLED"), every.get(f"{cabinet.upper()}__CABINET_MEMORY_ENABLED"))
-    return "0" not in asked
+    return all(str(value).strip() in ("", "1") for value in asked if value is not None)  # any other value: off
 
 
 async def hindsight(client, method, path, **kwargs):

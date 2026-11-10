@@ -777,7 +777,7 @@ async def remembered(request, handler):
     """Middleware: add to the system prompt what the cabinet's memory holds about the client's last message
     (memory.recalled), as untrusted data: it comes from what clients said. Nothing for a routine's turn."""
     question = client_message(request)  # the request holds the state, as a tool's runtime does
-    config = get_config()
+    config = get_config() if question else None
     if question and memory.enabled(cabinet_of(config)):  # before the cache: a switch turned off ends what was recalled
         key = cabinet_of(config), session_of(config), question
         if key not in RECALLED:
