@@ -44,13 +44,13 @@ async function copy() {
       <h1>Comptes</h1>
       <p class="muted">Qui peut ouvrir ces pages. Un membre lit tout et écrit à Tarik dans Discussions ; un administrateur change aussi ce que Tarik utilise (contenu, réglages des cabinets, disposition des schémas) et gère les comptes. Un nouveau compte reçoit un lien à usage unique pour choisir son mot de passe ({{ data.hours }} h).</p>
     </div></div>
-    <div v-if="data.error" class="panel bad" role="alert"><b>Non fait :</b> {{ data.error }}.</div>
-    <div v-if="data.done" class="panel accent" role="status">{{ data.done }}</div>
-    <div v-if="data.link" class="panel accent link-once" role="status">
+    <div v-if="data.error" class="panel panel-bad" role="alert"><b>Non fait :</b> {{ data.error }}.</div>
+    <div v-if="data.done" class="panel panel-accent" role="status">{{ data.done }}</div>
+    <div v-if="data.link" class="panel panel-accent link-once" role="status">
       <p><b>Lien à envoyer à la personne</b>, valable {{ data.hours }} h et une seule fois. Il n'est montré qu'ici : copiez-le maintenant.</p>
       <div class="copy-row">
         <input id="invitation-link" ref="linkField" class="mono" :value="data.link" readonly>
-        <button type="button" class="primary icon-button" :title="copied ? 'Copié' : 'Copier le lien'" :aria-label="copied ? 'Copié' : 'Copier le lien'" @click="copy"><Icon :name="copied ? 'check' : 'copy'" /></button>
+        <button type="button" class="btn btn-primary btn-icon" :title="copied ? 'Copié' : 'Copier le lien'" :aria-label="copied ? 'Copié' : 'Copier le lien'" @click="copy"><Icon :name="copied ? 'check' : 'copy'" /></button>
       </div>
     </div>
     <section class="panel">
@@ -71,7 +71,7 @@ async function copy() {
             <option value="admin">Administrateur</option>
           </select>
         </label>
-        <button type="submit" class="primary">Créer et obtenir le lien</button>
+        <button type="submit" class="btn btn-primary">Créer et obtenir le lien</button>
       </form>
     </section>
     <div class="table-wrap">
@@ -93,16 +93,16 @@ async function copy() {
               <button
                 v-if="a.active"
                 type="button"
-                class="panel-button"
+                class="btn btn-soft"
                 @click="act({ action: 'role', email: a.email, role: otherRole(a) })"
               >{{ roleButton(a) }}</button>
-              <button type="button" class="panel-button" @click="act({ action: 'link', email: a.email })">
+              <button type="button" class="btn btn-soft" @click="act({ action: 'link', email: a.email })">
                 {{ a.active ? "Nouveau lien" : "Rouvrir avec un lien" }}
               </button>
               <button
                 v-if="a.active"
                 type="button"
-                class="panel-button"
+                class="btn btn-soft"
                 @click="act({ action: 'close', email: a.email }, `Fermer le compte de ${a.email} ? Ses sessions prennent fin.`)"
               >Fermer</button>
             </td>

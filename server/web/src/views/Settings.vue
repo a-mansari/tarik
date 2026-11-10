@@ -78,14 +78,14 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
         <Icon name="power" :size="18" /><span class="sr-only">{{ data.active ? "Actif" : "Désactivé" }}</span>
       </label>
     </div>
-    <div v-if="problem" class="panel bad" role="alert"><b>Non enregistré :</b> {{ problem }}</div>
-    <div v-if="data.active && data.unreachable" class="panel bad" role="alert">
+    <div v-if="problem" class="panel panel-bad" role="alert"><b>Non enregistré :</b> {{ problem }}</div>
+    <div v-if="data.active && data.unreachable" class="panel panel-bad" role="alert">
       <b>Réglages illisibles.</b> Vault ne répond pas, ou le rôle de cette page (tarik-settings) n'est pas installé :
       <span class="mono">vault/setup.sh</span>.</div>
     <p v-else-if="!data.active" class="muted">Cabinet désactivé : activez-le pour modifier ses réglages.</p>
     <template v-else>
-      <div v-if="data.error" class="panel bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
-      <div v-if="data.saved" class="panel accent" role="status">
+      <div v-if="data.error" class="panel panel-bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
+      <div v-if="data.saved" class="panel panel-accent" role="status">
         <template v-if="data.saved.length">Enregistré : {{ savedNames }}. En service dès maintenant.</template>
         <template v-else>Rien n'a changé.</template>
       </div>
@@ -126,7 +126,7 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
         </form>
         <div class="side-column">
           <section class="panel save-card" aria-label="Enregistrer">
-            <button type="submit" form="settings-form" class="primary">Enregistrer</button>
+            <button type="submit" form="settings-form" class="btn btn-primary">Enregistrer</button>
           </section>
         </div>
       </div>

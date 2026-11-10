@@ -55,7 +55,7 @@ const pick = (event) => router.push({ query: event.target.value ? { graph: event
             <div v-if="open" class="unread-popup" role="dialog" aria-label="Exécutions non lues">
               <p class="unread-title"><b>{{ data.unread }}</b> exécution{{ plural(data.unread) }} non lue{{ plural(data.unread) }}</p>
               <p class="muted">Une exécution est lue dès que vous l'ouvrez.</p>
-              <button type="button" class="primary icon-button" title="Tout marquer comme lu" aria-label="Tout marquer comme lu" @click="markRead"><Icon name="check-all" /></button>
+              <button type="button" class="btn btn-primary btn-icon" title="Tout marquer comme lu" aria-label="Tout marquer comme lu" @click="markRead"><Icon name="check-all" /></button>
             </div>
           </span>
         </h1>

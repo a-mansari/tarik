@@ -185,8 +185,8 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
         <b>{{ form.notify || "…" }}</b>.</p>
       <div class="foot-actions">
         <label class="switch"><input v-model="form.enabled" type="checkbox" role="switch"> Active dès maintenant</label>
-        <button type="button" class="panel-button" @click="$emit('cancel')">Annuler</button>
-        <button type="submit" class="primary" :disabled="busy || midnight || noDay">{{ busy ? "Enregistrement…" : submitWords }}</button>
+        <button type="button" class="btn btn-soft" @click="$emit('cancel')">Annuler</button>
+        <button type="submit" class="btn btn-primary" :disabled="busy || midnight || noDay">{{ busy ? "Enregistrement…" : submitWords }}</button>
       </div>
     </footer>
   </form>
@@ -204,11 +204,9 @@ legend { float: left; font-weight: 600; display: flex; align-items: flex-start; 
 .task input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .task:hover { border-color: var(--muted); }
 .task.chosen { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-.task:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .task span { font-size: .8rem; line-height: 1.35; }
 .examples { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; font-size: .8rem; }
 .example, .preset { font: inherit; background: none; border-radius: 999px; padding: .2rem .6rem; cursor: pointer; }
-.example:focus-visible, .preset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .example { color: var(--fg); border: 1px dashed var(--line); }
 .example:hover { border-color: var(--accent); }
 .segmented { display: inline-flex; flex-wrap: wrap; justify-self: start; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); }
@@ -216,6 +214,7 @@ legend { float: left; font-weight: 600; display: flex; align-items: flex-start; 
 .segmented button:first-child { border-left: 0; }
 .segmented button:hover { background: var(--accent-soft); }
 .segmented button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.task:has(input:focus-visible) { outline: var(--focus); outline-offset: var(--focus-offset); }
 .segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .days button { text-transform: capitalize; min-width: 3rem; }
 .week { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem; }

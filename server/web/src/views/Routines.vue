@@ -87,15 +87,15 @@ function remove(routine) {
       <div>
         <h1><CabinetLabel :name="data.cabinet" /> · Routines</h1>
       </div>
-      <button v-if="editing !== 'new'" type="button" class="primary" :disabled="managers === undefined"
+      <button v-if="editing !== 'new'" type="button" class="btn btn-primary" :disabled="managers === undefined"
         :title="managers === undefined ? 'Lecture des administrateurs dans Experio…' : undefined" @click="open(null)">
         <Icon name="plus" /> Nouvelle routine</button>
     </div>
     <div ref="banner">
-      <div v-if="data.error" class="panel bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
+      <div v-if="data.error" class="panel panel-bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
     </div>
 
-    <section v-if="editing === 'new'" class="panel accent" aria-label="Nouvelle routine">
+    <section v-if="editing === 'new'" class="panel panel-accent" aria-label="Nouvelle routine">
       <h2>Nouvelle routine</h2>
       <RoutineForm :form="form" :kinds="data.kinds" :weekdays="data.weekdays" :presets="data.presets" :managers="managers"
         :busy="busy" submit-words="Créer la routine" @submit="submit" @cancel="close" />
@@ -112,10 +112,10 @@ function remove(routine) {
           <span class="muted">{{ routine.schedule }} · rapport à {{ routine.notify }}</span>
         </div>
         <div class="routine-tools">
-          <button type="button" class="panel-button icon-button" :disabled="managers === undefined"
+          <button type="button" class="btn btn-soft btn-icon" :disabled="managers === undefined"
             :title="editing === routine.id ? 'Fermer' : 'Modifier'" :aria-label="editing === routine.id ? 'Fermer' : 'Modifier'"
             :aria-expanded="editing === routine.id" @click="editing === routine.id ? close() : open(routine)"><Icon name="edit" /></button>
-          <button type="button" class="panel-button icon-button" title="Supprimer" aria-label="Supprimer" @click="remove(routine)"><Icon name="trash" /></button>
+          <button type="button" class="btn btn-soft btn-icon" title="Supprimer" aria-label="Supprimer" @click="remove(routine)"><Icon name="trash" /></button>
         </div>
       </div>
       <RoutineForm v-if="editing === routine.id" :form="form" :kinds="data.kinds" :weekdays="data.weekdays"
@@ -125,7 +125,7 @@ function remove(routine) {
       <p><b>Aucune routine pour ce cabinet.</b></p>
       <p class="muted">Une routine fait faire à Tarik une tâche à date fixe : préparer la TVA chaque mois, envoyer
         l'avancement chaque lundi, ou suivre une consigne que vous écrivez.</p>
-      <button type="button" class="primary" :disabled="managers === undefined" @click="open(null)">
+      <button type="button" class="btn btn-primary" :disabled="managers === undefined" @click="open(null)">
         <Icon name="plus" /> Créer la première</button>
     </div>
   </template>

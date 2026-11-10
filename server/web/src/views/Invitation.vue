@@ -42,7 +42,7 @@ async function choose() {
           <span>Encore</span>
           <input v-model="again" type="password" name="again" :minlength="data.min" required autocomplete="new-password">
         </label>
-        <button type="submit" class="primary">Enregistrer</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
       </form>
     </template>
     <p v-else class="bad-text" role="alert">{{ data?.error || "Page indisponible." }}</p>

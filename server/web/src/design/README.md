@@ -17,6 +17,6 @@ The UI is a working tool for an accounting team: dense, calm, readable at a glan
 7. **Little text.** A label says what the thing is. Explanations go in a `title`, not under every field. Use `.field-hint` only when the label cannot be clear.
 8. **Space on the 4 px rhythm** (`--space-1` to `--space-7`); radius by role: `--radius` controls, `--radius-lg` containers, `--radius-xl` popups, `--radius-pill` chips.
 
-## Old class names
+## Status classes
 
-Pages still using `.primary`, `.panel-button`, `.card-action`, `.panel.accent`, ... are styled by the same rules (they are listed beside the new names in `components.css`). Move a page to the new names when you touch it; once none uses an old name, delete it from the list.
+A run's or conversation's status is also a chip class (`.chip.done`, `.chip.wait`, `.chip.error`, ...): the status names come from the server, so `StatusChip` and the tables set them as they are. Anything not driven by a status uses `.chip-good|wait|bad|accent`.

@@ -37,16 +37,16 @@ async function act(action, person) {
   <PageState v-if="!data || status === 403 || status === 404" :status="status" :loading="loading" />
   <template v-else-if="data.unreachable">
     <h1><CabinetLabel :name="data.cabinet" /> · WhatsApp</h1>
-    <div v-if="data.error" class="panel bad" role="alert"><b>Non fait :</b> {{ data.error }}</div>
-    <div v-if="data.done" class="panel accent" role="status">{{ data.done }}</div>
-    <div class="panel bad" role="alert">Experio ne répond pas pour ce cabinet : la liste des collaborateurs est introuvable pour le moment. Réessayez dans un instant.</div>
+    <div v-if="data.error" class="panel panel-bad" role="alert"><b>Non fait :</b> {{ data.error }}</div>
+    <div v-if="data.done" class="panel panel-accent" role="status">{{ data.done }}</div>
+    <div class="panel panel-bad" role="alert">Experio ne répond pas pour ce cabinet : la liste des collaborateurs est introuvable pour le moment. Réessayez dans un instant.</div>
   </template>
   <template v-else>
     <div class="head"><div>
       <h1><CabinetLabel :name="data.cabinet" /> · WhatsApp</h1>
     </div></div>
-    <div v-if="data.error" class="panel bad" role="alert"><b>Non fait :</b> {{ data.error }}</div>
-    <div v-if="data.done" class="panel accent" role="status">{{ data.done }}</div>
+    <div v-if="data.error" class="panel panel-bad" role="alert"><b>Non fait :</b> {{ data.error }}</div>
+    <div v-if="data.done" class="panel panel-accent" role="status">{{ data.done }}</div>
     <div class="table-wrap">
       <table class="runs accounts">
         <thead><tr><th>Collaborateur</th><th>Numéro</th><th>État</th><th>Action</th></tr></thead>
@@ -56,8 +56,8 @@ async function act(action, person) {
             <td class="mono">{{ p.phone || "—" }}</td>
             <td><span class="chip" :class="STATES[p.state].chip">{{ STATES[p.state].words }}</span></td>
             <td class="actions">
-              <button v-if="p.state === 'ready'" type="button" class="panel-button" :disabled="busy" @click="act('enroll', p)">{{ busy ? "Patientez…" : "Activer" }}</button>
-              <button v-else-if="p.state === 'enrolled'" type="button" class="panel-button" :disabled="busy" @click="act('remove', p)">Retirer</button>
+              <button v-if="p.state === 'ready'" type="button" class="btn btn-soft" :disabled="busy" @click="act('enroll', p)">{{ busy ? "Patientez…" : "Activer" }}</button>
+              <button v-else-if="p.state === 'enrolled'" type="button" class="btn btn-soft" :disabled="busy" @click="act('remove', p)">Retirer</button>
             </td>
           </tr>
           <tr v-if="!data.people.length"><td colspan="4" class="muted">Ce cabinet n'a aucun collaborateur dans Experio.</td></tr>

@@ -85,14 +85,14 @@ async function stop() {
       <div class="state">
         <StatusChip :status="run.status" big />
         <span class="num muted">{{ run.seconds }} s</span>
-        <button v-if="session.admin && stillGoing(run.status)" type="button" class="panel-button" :disabled="stopping"
+        <button v-if="session.admin && stillGoing(run.status)" type="button" class="btn btn-soft" :disabled="stopping"
           @click="stop"><Icon name="stop" :size="14" /> {{ stopping ? "Arrêt demandé…" : "Arrêter" }}</button>
       </div>
     </div>
 
-    <div v-if="stopError" class="panel bad" role="alert"><b>Non arrêtée :</b> {{ stopError }}</div>
+    <div v-if="stopError" class="panel panel-bad" role="alert"><b>Non arrêtée :</b> {{ stopError }}</div>
 
-    <div v-if="run.error" class="panel bad"><b>L'exécution a échoué.</b> {{ run.error }}</div>
+    <div v-if="run.error" class="panel panel-bad"><b>L'exécution a échoué.</b> {{ run.error }}</div>
 
     <CanvasGraph :graph="run.graph" :run="run.run_id" :events="events" />
 
@@ -103,7 +103,7 @@ async function stop() {
       </dl>
     </section>
 
-    <section v-if="data.summary" class="panel accent">
+    <section v-if="data.summary" class="panel panel-accent">
       <h2>Ce que le client lit</h2>
       <pre class="said">{{ data.summary }}</pre>
     </section>

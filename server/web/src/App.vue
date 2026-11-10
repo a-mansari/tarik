@@ -111,7 +111,7 @@ watch(() => route.path, async () => {
             :aria-current="current(link.href) ? 'page' : null"><Icon :name="link.icon" />{{ link.words }}</RouterLink>
         </nav>
         <form class="who" @submit.prevent="logout">
-          <span>{{ session.user.name }}</span><button type="submit" class="icon-button" title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" /></button>
+          <span>{{ session.user.name }}</span><button type="submit" class="btn btn-icon" title="Se déconnecter" aria-label="Se déconnecter"><Icon name="logout" /></button>
         </form>
       </header>
       <main class="page" :class="route.meta.pageClass">

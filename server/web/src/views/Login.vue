@@ -45,7 +45,7 @@ async function login() {
     <form @submit.prevent="login">
       <label>Email <input v-model="email" type="email" name="email" autocomplete="username" required autofocus></label>
       <label>Mot de passe <input v-model="password" type="password" name="password" autocomplete="current-password" required></label>
-      <button type="submit">Se connecter</button>
+      <button type="submit" class="btn btn-primary">Se connecter</button>
     </form>
   </section>
 </template>

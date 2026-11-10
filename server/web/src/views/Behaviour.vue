@@ -32,7 +32,7 @@ async function save(setting, value) {
     <div class="head"><div>
       <h1><CabinetLabel :name="data.cabinet" /> · Comportement</h1>
     </div></div>
-    <div v-if="data.error" class="panel bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
+    <div v-if="data.error" class="panel panel-bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
     <section v-for="part in parts" :key="part.scope">
       <h2>{{ part.title }}</h2>
       <p class="what">{{ part.what }}</p>
