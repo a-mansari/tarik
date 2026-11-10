@@ -81,6 +81,8 @@
 .panel-bad { border-left: 4px solid var(--bad); }
 .panel-wait { border-left: 4px solid var(--wait); }
 .panel-good { border-left: 4px solid var(--good); }
+.panel-link { display: grid; gap: var(--space-2); align-content: start; color: var(--fg); text-decoration: none; transition: background var(--dur), border-color var(--dur); }
+.panel-link:hover { border-color: var(--accent); background: var(--accent-soft); }
 
 /* --- Table: wrap it in .table-wrap (it scrolls in its own frame). Numbers get .num, an empty row td.empty. ------- */
 .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); }

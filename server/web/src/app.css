@@ -94,8 +94,6 @@ pre.said { font-family: var(--font); font-size: 1em; }
 .panel-steps details summary { cursor: pointer; color: var(--muted); font-size: .85rem; }
 .panel-steps pre.detail { max-height: 22rem; overflow: auto; font-size: .75rem; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); gap: 1rem; }
-.cards a.card { display: grid; gap: .3rem; text-decoration: none; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 1rem; }
-.cards a.card:hover { border-color: var(--accent); }
 .runs-side { list-style: none; margin: 0; padding: 0; display: grid; gap: .3rem; }
 .runs-side a { display: flex; justify-content: space-between; gap: .5rem; padding: .4rem .5rem; border-radius: var(--radius); text-decoration: none; color: var(--fg); }
 .runs-side a[aria-current="true"], .runs-side a:hover { background: var(--accent-soft); }

@@ -1,10 +1,11 @@
 <!-- The Paramètres page: what every cabinet shares (the mail server, the model, the Experio key, Gladden, Sparrow), in
-plain words, each change kept (who, when). A key or a token is never sent here: only whether it is set, and a field to
+plain words, each change kept (who, when) by the server. A key or a token is never sent here: only whether it is set, and a field to
 replace it. -->
 <script setup>
 import { computed, ref, watch } from "vue";
 
-import { plural, send, usePage } from "../api.js";
+import { send, usePage } from "../api.js";
+import Icon from "../components/Icon.vue";
 import PageState from "../components/PageState.vue";
 
 const { data, status, loading } = usePage(() => "/settings/general");
@@ -42,10 +43,11 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
 <template>
   <PageState v-if="!data || status === 403" :status="status" :loading="loading" />
   <template v-else>
-    <div class="head"><div>
+    <div class="head">
       <h1>Paramètres</h1>
-      <p class="what">Ce que Tarik partage entre tous les cabinets. Une clé ou un jeton n'est jamais affiché : il se remplace seulement. Un changement s'applique dès le message suivant.</p>
-    </div></div>
+      <button v-if="!data.unreachable" type="submit" form="general-form" class="btn btn-primary btn-icon" title="Enregistrer"
+        aria-label="Enregistrer"><Icon name="check" /></button>
+    </div>
     <div v-if="data.unreachable" class="panel panel-bad" role="alert">
       <b>Paramètres illisibles.</b> Vault ne répond pas, ou le rôle de cette page (tarik-settings) n'a pas le droit de
       lire ces réglages : relancer <span class="mono">vault/setup.sh</span>.</div>
@@ -55,15 +57,13 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
         <template v-if="data.saved.length">Enregistré : {{ savedNames }}. En service dès maintenant.</template>
         <template v-else>Rien n'a changé.</template>
       </div>
-      <div class="flow content-flow">
-        <form id="general-form" class="content-form" autocomplete="off" @submit.prevent="save">
+      <form id="general-form" class="content-form" autocomplete="off" @submit.prevent="save">
           <details v-for="[title, items] in data.sections" :key="title" class="panel card" open>
             <summary>
               <span class="card-title">{{ title }}</span>
-              <span class="card-meta"><span class="muted">{{ items.length }} réglage{{ plural(items.length) }}</span></span>
             </summary>
             <div class="card-body">
-              <label v-for="f in items" :key="f.key" class="field">
+              <label v-for="f in items" :key="f.key" class="field" :title="f.description || undefined">
                 <span>{{ f.name }} <span class="mono muted">{{ f.key }}</span><template
                   v-if="f.optional"> <span class="muted">(facultatif)</span></template></span>
                 <input
@@ -75,34 +75,15 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
                   :placeholder="placeholder(f)"
                 >
                 <input v-else v-model="form[f.key]" :name="f.key" :inputmode="f.kind === 'integer' ? 'numeric' : undefined">
-                <small class="muted">{{ f.description }}</small>
               </label>
             </div>
           </details>
-        </form>
-        <div class="side-column">
-          <section class="panel save-card" aria-label="Enregistrer">
-            <button type="submit" form="general-form" class="btn btn-primary">Enregistrer</button>
-          </section>
-          <aside class="side panel">
-            <h2>Historique</h2>
-            <ol v-if="data.history.length" class="versions settings-history">
-              <li v-for="item in data.history" :key="item.version + item.at"><div class="entry">
-                <span class="num">{{ item.at }}</span> <b>{{ item.author }}</b>
-                <ul>
-                  <li v-for="change in item.changes" :key="change.key">
-                    <b>{{ data.names[change.key] || change.key }}</b>
-                    <template v-if="change.before === null"> : remplacé</template>
-                    <template v-else> : <span class="mono">{{ change.before || "(vide)" }}</span>
-                      → <span class="mono">{{ change.after || "(vide)" }}</span></template>
-                  </li>
-                </ul>
-              </div></li>
-            </ol>
-            <p v-else class="muted">Aucun changement fait depuis cette page.</p>
-          </aside>
-        </div>
-      </div>
+      </form>
     </template>
   </template>
 </template>
+
+<style scoped>
+/* Related fields share a line, each as wide as it needs, wrapping on a narrow screen. */
+#general-form .card-body { grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 22rem)); align-items: start; }
+</style>

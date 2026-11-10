@@ -56,7 +56,7 @@ const KINDS = {
       </div>
       <ul class="capability-cards">
         <li v-for="document in group.documents" :key="document.path">
-          <RouterLink class="capability-card" :to="`/ui/tarik-prompts/${document.path}`">
+          <RouterLink class="panel panel-accent panel-link" :to="`/ui/tarik-prompts/${document.path}`">
             <b>{{ document.title }}</b>
             <span v-if="KINDS[group.key]?.counted" class="chip">{{ document.fields }} {{ KINDS[group.key].counted }}{{ plural(document.fields) }}</span>
             <span v-if="document.change" class="muted capability-change">
@@ -70,14 +70,13 @@ const KINDS = {
 </template>
 
 <style scoped>
-.capability-group { margin-top: 1.4rem; }
-.capability-head { display: flex; align-items: center; gap: .5rem; margin-bottom: .6rem; }
-.capability-head h2 { margin: 0; font-size: 1.05rem; }
-.capability-icon { display: inline-grid; place-items: center; width: 1.9rem; height: 1.9rem; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
-.capability-tools { margin-left: auto; display: flex; gap: .3rem; }
-.capability-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .6rem; }
-.capability-card { display: grid; gap: .35rem; align-content: start; height: 100%; box-sizing: border-box; padding: .75rem .85rem; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; background: var(--surface); color: var(--fg); text-decoration: none; }
-.capability-card:hover { border-color: var(--accent); background: var(--accent-soft); }
-.capability-card .chip { justify-self: start; }
-.capability-change { display: flex; align-items: center; gap: .3rem; font-size: .8rem; }
+.capability-group { margin-top: var(--space-5); }
+.capability-head { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); }
+.capability-head h2 { margin: 0; }
+.capability-icon { display: inline-grid; place-items: center; width: 1.9rem; height: 1.9rem; border-radius: var(--radius-lg); background: var(--accent-soft); color: var(--accent); }
+.capability-tools { margin-left: auto; display: flex; gap: var(--space-1); }
+.capability-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--space-3); }
+.capability-cards .panel-link { height: 100%; box-sizing: border-box; }
+.capability-cards .chip { justify-self: start; }
+.capability-change { display: flex; align-items: center; gap: var(--space-1); font-size: var(--text-xs); }
 </style>
