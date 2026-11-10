@@ -70,6 +70,8 @@ docker compose -f docker-compose.prod.yml up -d
   data files are the same, but Alpine and Debian sort text differently, so on a stack that already has data run once
   after the swap: `docker compose exec db psql -U tarik -c 'REINDEX DATABASE tarik'`. A managed Postgres needs the
   pgvector extension, and a user allowed to `CREATE EXTENSION vector` (Hindsight makes it).
+- The memory's web UI (read and delete what Tarik remembers, a bank per cabinet) is on `http://127.0.0.1:9999` of the
+  host, never the network: it has no login. From another machine: `ssh -L 9999:127.0.0.1:9999 <host>`.
 - Without the Claude Code CLI (only a cabinet whose model is Claude uses it): `INSTALL_CLAUDE_CODE=0` in `.env`.
 - Health: `GET /ok` (no login); the compose file's healthcheck uses it.
 - Logs go to each container's output (warnings and errors only for the server); who did what is on the Logs serveur page.

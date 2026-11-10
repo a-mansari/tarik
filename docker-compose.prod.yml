@@ -77,6 +77,8 @@ services:
         CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-}
         CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:9999:9999" # its web UI (read and delete the memories), this machine only: it has no login
     environment:
       HINDSIGHT_API_DATABASE_URL: postgresql://${POSTGRES_USER:-tarik}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-tarik}
       HINDSIGHT_API_DATABASE_SCHEMA: hindsight
