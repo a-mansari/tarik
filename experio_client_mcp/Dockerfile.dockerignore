@@ -1,7 +1,0 @@
-# This image holds only the server: nothing of Tarik, no credentials, no tests.
-*
-!experio_client_mcp
-experio_client_mcp/tests
-experio_client_mcp/.venv
-experio_client_mcp/cabinets.json
-**/__pycache__
