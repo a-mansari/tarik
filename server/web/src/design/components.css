@@ -45,6 +45,7 @@ input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=submit
 .field :is(input, select, textarea) { width: 100%; }
 textarea { resize: vertical; line-height: 1.45; }
 input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: var(--accent); }
+.field .req { color: var(--bad); }  /* a required field: the red star after its name */
 .field-hint { font-size: var(--text-xs); color: var(--muted); }
 .field-error { font-size: var(--text-xs); color: var(--bad); }
 .field:has(.field-error) :is(input, select, textarea) { border-color: var(--bad); }
