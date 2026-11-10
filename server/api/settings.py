@@ -10,7 +10,7 @@ import xmlrpc.client
 import httpx
 from starlette.requests import Request
 
-from engine import runs
+from engine import memory, runs
 from engine.content import LABELS
 from engine.tools.core import cabinets, experio
 from engine.tools.core.model import ADAPTERS
@@ -163,11 +163,23 @@ def retyped(sections, given):
                 item["value"] = given[item["key"]]
 
 
+async def memory_state():
+    """Return Tarik's memory as the general page shows it: {on, failures}, failures [{cabinet, at, kind, error}] (at in
+    words) or None when Hindsight cannot be reached; so a Claude token gone bad, which Hindsight only learns while it
+    extracts, is seen here."""
+    failed = await memory.failures()
+    return {
+        "on": memory.on(),
+        "failures": None if failed is None else [{**one, "at": runs.when(one["at"])} for one in failed],
+    }
+
+
 async def general_page(request: Request):
     """GET or POST /ui/api/settings/general: return the settings every cabinet shares, after saving a change when
     posted. POST takes JSON {version, note?, <settings>}; refused (400) when Vault holds a newer version
     (shared_settings.save) or a value is not usable, the non-secret values then sent back as typed. 503 when Vault
-    cannot be read, or the page's role may not read these paths (vault/setup.sh)."""
+    cannot be read, or the page's role may not read these paths (vault/setup.sh). The answer holds the memory's state
+    (memory_state)."""
     error, given, saved = None, {}, None
     if request.method == "POST":
         form = await form_of(request, 40)
@@ -193,6 +205,7 @@ async def general_page(request: Request):
         "error": error,
         "saved": saved,
         "names": {key: words["name"] for key, words in GENERAL_WORDS.items()},
+        "memory": await memory_state(),
     }
     return page(context, 400 if error else 200)
 
