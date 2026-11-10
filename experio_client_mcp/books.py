@@ -11,6 +11,7 @@ import re
 
 from experio_client_mcp import registry
 from experio_client_mcp.experio import Refusal, an_id, experio_errors, in_dossier, odoo_call, require_dossier
+from experio_client_mcp.query import limit_of
 
 LINES = registry.MODELS["exp.move.line"]
 STATES = registry.MODELS["exp.fiscal.entries"].columns["state"].values
@@ -51,8 +52,13 @@ RUBRIQUES = {
     "75": "Produits non courants",
 }
 STOCK = ("6114", "713")  # variation of the stocks (goods; work in progress and finished goods)
-DEPRECIATION = "619"  # operating depreciation: 6191 non-valeurs, 6192 intangible, 6193 tangible
-FIXED = ("21", "22", "23")  # the fixed assets that depreciate (the financial ones, 24, never do)
+DEPRECIATION = (
+    "6191",
+    "6192",
+    "6193",
+)  # operating depreciation: non-valeurs, intangible, tangible (6194+ are provisions)
+FIXED = ("21", "22", "23")  # the fixed assets that depreciate (the financial ones, 24, never do) ...
+IN_PROGRESS = "239"  # ... but not the ones in progress: Experio's depreciation table has no dotation for them
 
 
 def amount(value):
@@ -84,9 +90,8 @@ def french_date(day):
 
 
 def prefix_term(prefix, required=False, minimum=1):
-    """Return the domain terms keeping the accounts whose code starts with ``prefix`` (ASCII digits), none for an empty
-    one unless ``required``. Raises Refusal for anything but ``minimum`` to 8 digits."""
-    prefix = str(prefix or "").strip()
+    """Return the domain terms keeping the accounts whose code starts with ``prefix`` (ASCII digits, already
+    stripped), none for an empty one unless ``required``. Raises Refusal for anything but ``minimum`` to 8 digits."""
     if not prefix and not required:
         return []
     if not PREFIX.fullmatch(prefix) or len(prefix) < minimum:
@@ -95,35 +100,46 @@ def prefix_term(prefix, required=False, minimum=1):
     return [("account_id.code", "=like", f"{prefix}%")]
 
 
-def exercice_of(name, dossier_id, year):
-    """Return the dossier's exercice of ``year``, else its latest, as {name, date_start, date_end, state}. Raises
-    Refusal
-    when ``year`` is not a year or the dossier has no such exercice."""
-    if year and (not an_id(year) or year > 2100):
+def exercice_of(dossier_id, year):
+    """Return the dossier's exercice of ``year`` (the one that starts in it, else the latest overlapping it), else its
+    latest, as {name, date_start, date_end, state}. Raises Refusal when ``year`` is not a year or the dossier has no
+    such exercice."""
+    if year and (not an_id(year) or not 1900 <= year <= 2100):
         raise Refusal("year : une année sur quatre chiffres, ou 0 pour le dernier exercice.")
-    domain = [("company_id", "=", dossier_id)]
-    if year:
-        domain += [("date_start", "<=", f"{year}-12-31"), ("date_end", ">=", f"{year}-01-01")]
+    base = [("company_id", "=", dossier_id)]
+    domains = (
+        [
+            [*base, ("date_start", ">=", f"{year}-01-01"), ("date_start", "<=", f"{year}-12-31")],
+            [*base, ("date_start", "<=", f"{year}-12-31"), ("date_end", ">=", f"{year}-01-01")],
+        ]
+        if year
+        else [base]
+    )  # exercices need not start in January: « 2024 » is the one starting in 2024, else the one running into it
+    found = []
     with experio_errors("la lecture des exercices"):
-        found = odoo_call(
-            "exp.fiscal.entries",
-            "search_read",
-            domain,
-            fields=["name", "date_start", "date_end", "state"],
-            order="date_end desc",
-            limit=1,
-            context=in_dossier(dossier_id),
-        )
+        for domain in domains:
+            found = odoo_call(
+                "exp.fiscal.entries",
+                "search_read",
+                domain,
+                fields=["name", "date_start", "date_end", "state"],
+                order="date_end desc",
+                limit=1,
+                context=in_dossier(dossier_id),
+            )
+            if found:
+                break
     if not found:
         raise Refusal(f"Le dossier n'a pas d'exercice{f' {year}' if year else ''} dans Experio.")
     return found[0]
 
 
 def start(dossier_id, year, prefix, required=True, minimum=1):
-    """Return (the dossier's name, its exercice, the prefix's domain terms): the start of every report. Raises Refusal
-    as require_dossier, exercice_of and prefix_term do."""
+    """Return (the dossier's name, its exercice, the prefix's domain terms, the prefix stripped): the start of every
+    report. Raises Refusal as require_dossier, exercice_of and prefix_term do."""
     name = require_dossier(dossier_id)
-    return name, exercice_of(name, dossier_id, year), prefix_term(prefix, required, minimum)
+    prefix = str(prefix or "").strip()
+    return name, exercice_of(dossier_id, year), prefix_term(prefix, required, minimum), prefix
 
 
 def about(name, exercice):
@@ -179,7 +195,8 @@ def open_amounts(dossier_id, exercice, prefix, opening, groupby=("partner_id",),
 
 def has_opening(dossier_id, exercice, prefix):
     """Return whether the exercice holds opening (carry_forward) entries, as Experio's balance report tells them
-    (exp_report_balance.py:660-663); False without asking Experio for accounts that never have one (6, 7)."""
+    (account_reports/models/exp_report_balance.py:677-678); False without asking Experio for accounts that never have
+    one (6, 7)."""
     if prefix[:1] not in BALANCE_SHEET:
         return False
     domain = domain_of(dossier_id, exercice, [("move_id.move_category", "=", "carry_forward")])
@@ -201,7 +218,7 @@ def trial_balance(dossier_id, year=0, account_prefix=""):
     """A dossier's trial balance for an exercice: each account's debit, credit and balance (debit minus credit, with its
     side), then the totals, from the posted items, closure entries left out. A list cut at 150 accounts gives no
     total."""
-    name, exercice, terms = start(dossier_id, year, account_prefix, required=False)
+    name, exercice, terms, account_prefix = start(dossier_id, year, account_prefix, required=False)
     opening = has_opening(dossier_id, exercice, account_prefix)
     rows = totals(dossier_id, exercice, terms, ["account_id"])
     shown = sorted(rows[:MAX_GROUPS], key=lambda row: code_of(row["account_id"]))
@@ -225,7 +242,7 @@ def trial_balance(dossier_id, year=0, account_prefix=""):
 def monthly_totals(dossier_id, account_prefix, year=0):
     """The month by month debit, credit and balance of the accounts starting with ``account_prefix`` over an exercice;
     a month with no entry is absent."""
-    name, exercice, terms = start(dossier_id, year, account_prefix)
+    name, exercice, terms, account_prefix = start(dossier_id, year, account_prefix)
     opening = has_opening(dossier_id, exercice, account_prefix)
     rows = totals(
         dossier_id,
@@ -248,11 +265,31 @@ def monthly_totals(dossier_id, account_prefix, year=0):
     return {**about(name, exercice), "rows": months, "notes": notes_of(exercice, account_prefix, opening)}
 
 
+def require_lettrable(dossier_id, prefix):
+    """Raise Refusal unless an account starting with ``prefix`` is one Experio reconciles (a receivable or payable
+    account, or one marked reconcilable: exp_account/models/exp_move.py:4593-4610): the residual of the others is
+    always zero, which would read as « nothing owed »."""
+    domain = [
+        ("code", "=like", f"{prefix}%"),
+        "|",
+        ("reconcile", "=", True),
+        ("account_type", "in", ["asset_receivable", "liability_payable"]),
+    ]
+    with experio_errors("la lecture des comptes"):
+        found = odoo_call("exp.account", "search", domain, limit=1, context=in_dossier(dossier_id))
+    if not found:
+        raise Refusal(
+            f"account_prefix {prefix} : Experio ne suit les montants ouverts que sur les comptes de tiers lettrables "
+            "(342 clients, 441 fournisseurs, 442...). Sur un autre compte, utilisez trial_balance ou account_ledger."
+        )
+
+
 def partner_balances(dossier_id, account_prefix, year=0):
     """What is still open per third party on the accounts starting with ``account_prefix`` (at least 3 digits), at
     the end
     of an exercice: Experio's residual of the items not fully reconciled, the biggest first, then the total."""
-    name, exercice, _ = start(dossier_id, year, account_prefix, True, 3)
+    name, exercice, _, account_prefix = start(dossier_id, year, account_prefix, True, 3)
+    require_lettrable(dossier_id, account_prefix)
     opening = has_opening(dossier_id, exercice, account_prefix)
     rows = open_amounts(dossier_id, exercice, account_prefix, opening)
     shown = sorted(rows[:MAX_GROUPS], key=lambda row: -abs(row["amount_residual"]))
@@ -284,20 +321,18 @@ def partner_balances(dossier_id, account_prefix, year=0):
 def account_ledger(dossier_id, account_prefix, year=0, partner_id=0, limit=50):
     """The journal items of the accounts starting with ``account_prefix`` over an exercice, oldest first (at most
     100)."""
-    name, exercice, terms = start(dossier_id, year, account_prefix)
+    name, exercice, terms, account_prefix = start(dossier_id, year, account_prefix)
     if partner_id and not an_id(partner_id):
         raise Refusal("partner_id : un numéro entier positif est attendu, ou 0 pour tous les tiers.")
-    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-        raise Refusal(f"limit : un entier de 1 à {MAX_LINES} est attendu.")
-    shown = min(limit, MAX_LINES)
+    shown = limit_of(limit, MAX_LINES)
     domain = domain_of(dossier_id, exercice, [*terms, *([("partner_id", "=", partner_id)] if partner_id else [])])
     fields = ["date", "journal_id", "move_id", "name", "partner_id", "debit", "credit"]
     context = in_dossier(dossier_id)
     with experio_errors("la lecture des écritures"):
         rows = odoo_call(
-            "exp.move.line", "search_read", domain, fields=fields, order="date, id", limit=shown, context=context
+            "exp.move.line", "search_read", domain, fields=fields, order="date, id", limit=shown + 1, context=context
         )
-        total = len(rows) if len(rows) < shown else odoo_call("exp.move.line", "search_count", domain, context=context)
+    more, rows = len(rows) > shown, rows[:shown]  # one more than shown tells there is more, with no count of the whole
     lines = [
         {
             "date": r["date"],
@@ -311,14 +346,11 @@ def account_ledger(dossier_id, account_prefix, year=0, partner_id=0, limit=50):
         for r in rows
     ]
     opening = has_opening(dossier_id, exercice, account_prefix)
-    more = (
-        [f"{total - len(rows)} ligne(s) de plus non affichées : précisez le compte, le tiers ou la limite."]
-        if total > len(rows)
-        else []
-    )
+    cut = ["Des lignes de plus ne sont pas affichées : précisez le compte, le tiers ou la limite."] if more else []
     return {
         **about(name, exercice),
-        "total_lines": total,
+        "shown": len(lines),
+        "more": more,
         "rows": lines,
-        "notes": [*more, *notes_of(exercice, account_prefix, opening)],
+        "notes": [*cut, *notes_of(exercice, account_prefix, opening)],
     }

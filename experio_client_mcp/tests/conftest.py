@@ -31,9 +31,12 @@ class Experio:
     """The fake: records every call (who, what) and answers by model and method, never more than the user may see."""
 
     def __init__(self):
-        self.calls, self.authentications, self.fault = [], [], None
+        self.calls, self.authentications, self.fault, self.auth_fault = [], [], None, None
         self.invoices = [{"id": 1, "invoice_number": "F1", "partner_id": [3, "ATLAS"], "state": "post"}]
         self.lines, self.invoice_groups = [], []
+        # account code -> (debit, credit): what the books of every dossier hold
+        self.accounts = {"71110000": (0.0, 100.0), "51410000": (0.0, 50.0), "34550000": (50.0, 0.0),
+                         "34560000": (30.0, 0.0), "44550000": (0.0, 200.0), "34210000": (120.0, 0.0)}  # fmt: skip
 
     def user(self, db, uid):
         users = DATABASES[db]["users"]
@@ -41,6 +44,8 @@ class Experio:
 
     def authenticate(self, db, login, key, _context):
         self.authentications.append((db, login))
+        if self.auth_fault:
+            raise xmlrpc.client.Fault(1, self.auth_fault)
         if db not in DATABASES:
             raise xmlrpc.client.Fault(1, "database does not exist")
         found = DATABASES[db]["users"].get(login)
@@ -67,6 +72,8 @@ class Experio:
             return self.invoices
         if (model, method) == ("exp.invoice", "read_group"):
             return self.invoice_groups
+        if (model, method) == ("exp.account", "search"):
+            return [1] if domain[0][2].startswith(("342", "441", "442")) else []
         if method == "search":
             return []
         if (model, method) == ("exp.move.line", "read_group") and "amount_residual:sum" in args[1]:
@@ -75,6 +82,11 @@ class Experio:
                 if args[2]
                 else [{"amount_residual": 30.0}]
             )
+        if (model, method) == ("exp.move.line", "read_group") and args[2] == ["account_id"]:
+            wanted = tuple(t[2][:-1] for t in domain if t[0] == "account_id.code") or ("",)
+            return [{"account_id": [n, f"{code} Compte"], "debit": d, "credit": c, "__count": 1}
+                    for n, (code, (d, c)) in enumerate(self.accounts.items(), 1)
+                    if code.startswith(wanted)]  # fmt: skip
         if (model, method) == ("exp.move.line", "read_group"):
             return [{"account_id": [1, "71110000 Ventes"], "debit": 0.0, "credit": 100.0, "__count": 2,
                      "date:month": "janvier 2026", "__range": {"date:month": {"from": "2026-01-01"}}}]  # fmt: skip
@@ -104,7 +116,8 @@ def fake(fake_server):
     url, experio_fake = fake_server
     experio_fake.calls.clear()
     experio_fake.authentications.clear()
-    experio_fake.fault, experio_fake.lines, experio_fake.invoice_groups = None, [], []
+    experio_fake.fault, experio_fake.auth_fault = None, None
+    experio_fake.lines, experio_fake.invoice_groups = [], []
     return experio_fake
 
 

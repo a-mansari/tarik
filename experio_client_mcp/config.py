@@ -4,6 +4,7 @@ the clients bring their own Experio login or API key with every request, and the
 import json
 import os
 import re
+import secrets
 from pathlib import Path
 from typing import Final
 
@@ -22,10 +23,19 @@ FAILED_WINDOW: Final = number("FAILED_WINDOW", 600)  # seconds a failure is reme
 PAUSE: Final = number("PAUSE", 900)  # seconds a login or an address is refused after too many failures
 LOGIN_TTL: Final = number("LOGIN_TTL", 300)  # seconds a successful login is remembered
 TIMEOUT: Final = number("TIMEOUT", 30)  # seconds, per Experio call
+DEADLINE: Final = number("DEADLINE", 90)  # seconds, for one tool call: no further Experio call is made after it
+THREADS: Final = number("THREADS", 30)  # worker threads at once, in all
+CABINET_THREADS: Final = number("CABINET_THREADS", 8)  # ... and for one cabinet
+AUTH_CONCURRENT: Final = number("AUTH_CONCURRENT", 8)  # logins tried at once, in all
+AUTH_WAITING: Final = number("AUTH_WAITING", 64)  # logins waiting for a place before the server answers 503
+MAX_BODY: Final = number("MAX_BODY", 262_144)  # bytes of a request
 MAX_CHARS: Final = number("MAX_CHARS", 100_000)  # an answer longer than this is refused
 PUBLIC_HOSTS: Final = [
     h for h in os.environ.get("EXPERIO_CLIENT_MCP_HOSTS", "").split(",") if h.strip()
 ]  # Host headers
+AUDIT_SECRET: Final = os.environ.get("EXPERIO_CLIENT_MCP_AUDIT_SECRET") or secrets.token_hex(
+    16
+)  # keys the audit's user fingerprints; without it they change at each start
 TRUST_PROXY: Final = os.environ.get("EXPERIO_CLIENT_MCP_TRUST_PROXY") == "1"  # X-Forwarded-For is the proxy's own
 ALLOW_INSECURE: Final = os.environ.get("EXPERIO_CLIENT_MCP_ALLOW_INSECURE") == "1"  # http Experio: tests only
 

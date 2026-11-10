@@ -6,13 +6,15 @@ import contextvars
 import http.client
 import logging
 import threading
+import time
+import xml.parsers.expat
 import xmlrpc.client
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final
 
 from experio_client_mcp import audit, config
 
-READS: Final = {"search", "search_read", "search_count", "read", "read_group", "fields_get"}
+READS: Final = {"search", "search_read", "search_count", "read", "read_group"}
 # Experio's client dossiers (engine/tools/core/config.py DOSSIER_DOMAIN in Tarik): enabled, not the cabinet's own
 # company (id 1), not deleted.
 DOSSIERS: Final = (("enabled", "=", True), ("id", "!=", 1), ("is_deleted", "=", False))
@@ -37,26 +39,28 @@ class Session:
     login: str
     key: str
     uid: int
+    dossiers: dict = field(default_factory=dict, compare=False, repr=False)  # id -> name of those already proven mine
 
 
 SESSION: contextvars.ContextVar[Session] = contextvars.ContextVar("session")
+DEADLINE: contextvars.ContextVar[float] = contextvars.ContextVar("deadline")  # time.monotonic() a tool call ends by
+ACCESS = (3, 4)  # Experio's fault codes for access denied and access error (app/addons/base/controllers/rpc.py:26-43)
 _local = threading.local()  # this thread's proxies: one connection per thread and endpoint
 
 
-class _Transport(xmlrpc.client.SafeTransport):
+class _Timeout:
+    def make_connection(self, host):
+        connection = super().make_connection(host)
+        connection.timeout = config.TIMEOUT
+        return connection
+
+
+class _Transport(_Timeout, xmlrpc.client.SafeTransport):
     """HTTPS XML-RPC with a timeout; the certificate and the host name are checked, as by default."""
 
-    def make_connection(self, host):
-        connection = super().make_connection(host)
-        connection.timeout = config.TIMEOUT
-        return connection
 
-
-class _PlainTransport(xmlrpc.client.Transport):
-    def make_connection(self, host):
-        connection = super().make_connection(host)
-        connection.timeout = config.TIMEOUT
-        return connection
+class _PlainTransport(_Timeout, xmlrpc.client.Transport):
+    """Plain http: only when ALLOW_INSECURE is set, for the tests."""
 
 
 def _proxy(url, path):
@@ -73,12 +77,16 @@ class Unreachable(Exception):
 
 def authenticate(cabinet, url, login, key):
     """Return the Experio user id of ``login`` in database ``cabinet`` with ``key`` (a password or an API key), 0 when
-    Experio refuses them. Raises Unreachable when Experio does not answer."""
+    Experio refuses them. Raises Unreachable when Experio does not answer or fails: only a refusal is a wrong
+    credential, an Experio error must not count against the client."""
     try:
         return int(_proxy(url, "/xmlrpc/2/common").authenticate(cabinet, login, key, {}) or 0)
-    except xmlrpc.client.Fault:
-        return 0  # an unknown database or login: the same answer as a wrong key, so nothing is told apart
-    except (OSError, http.client.HTTPException, xmlrpc.client.ProtocolError) as error:
+    except xmlrpc.client.Fault as fault:
+        if fault.faultCode in ACCESS:
+            return 0
+        log.warning("experio authenticate fault %s", fault.faultCode)
+        raise Unreachable from None
+    except (OSError, http.client.HTTPException, xmlrpc.client.ProtocolError, xml.parsers.expat.ExpatError) as error:
         log.warning("experio unreachable: %s", type(error).__name__)
         raise Unreachable from None
 
@@ -94,6 +102,8 @@ def odoo_call(model, method, *args, **kw):
     if method not in READS:
         raise ValueError(f"{method} is not a read")
     session = SESSION.get()
+    if time.monotonic() > DEADLINE.get(float("inf")):
+        raise Refusal("La lecture prend trop de temps : réduisez la période ou ajoutez des filtres.")
     kw["context"] = {**SKIP_EXERCICE, **(kw.get("context") or {})}
     return _proxy(session.url, "/xmlrpc/2/object").execute_kw(
         session.cabinet, session.uid, session.key, model, method, list(args), kw
@@ -114,7 +124,7 @@ class experio_errors:  # noqa: N801 -- a context manager used like a statement
         if error is None or isinstance(error, Refusal):
             return False
         audit.event("experio_error", what=self.what, error=kind.__name__)
-        if isinstance(error, xmlrpc.client.Fault) and error.faultCode in (2, 3, 4):  # access refused by Experio
+        if isinstance(error, xmlrpc.client.Fault) and error.faultCode in ACCESS:  # access refused by Experio
             raise Refusal(f"Experio refuse l'accès à {self.what} pour ce compte.") from None
         if isinstance(error, xmlrpc.client.Fault | xmlrpc.client.ProtocolError | OSError | http.client.HTTPException):
             raise Refusal(f"Experio n'a pas pu faire {self.what} : réessayez plus tard.") from None
@@ -122,7 +132,8 @@ class experio_errors:  # noqa: N801 -- a context manager used like a statement
 
 
 def an_id(value):
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+    """Whether ``value`` is a record id: a positive integer XML-RPC can carry (32 bits)."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 < value < 2**31
 
 
 NOT_YOURS = "Dossier inconnu ou non accessible avec ce compte."  # the same words for a dossier that does not exist
@@ -134,10 +145,13 @@ def require_dossier(dossier_id):
     user may open: a client learns nothing about a dossier that is not theirs."""
     if not an_id(dossier_id):
         raise Refusal("dossier_id : un numéro de dossier (list_dossiers) est attendu.")
+    session = SESSION.get()
+    if dossier_id in session.dossiers:  # proven for this login already: it lasts as long as the remembered login
+        return session.dossiers[dossier_id]
     with experio_errors("la lecture du dossier"):
-        session = SESSION.get()
         mine = odoo_call("res.users", "read", [session.uid], fields=["company_ids"])[0]["company_ids"]
         found = odoo_call("res.company", "search_read", [("id", "=", dossier_id), *DOSSIERS], fields=["name"])
     if dossier_id not in mine or not found:
         raise Refusal(NOT_YOURS)
+    session.dossiers[dossier_id] = found[0]["name"]
     return found[0]["name"]

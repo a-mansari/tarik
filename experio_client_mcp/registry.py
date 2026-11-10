@@ -16,12 +16,12 @@ Experio's own definitions each entry stands on (../experio_app, addons/):
   205-222, account_reports/models/exp_report_balance.py:658-678): a closed year's revenue would read 0 with them, and
   it drops the lines of deleted journals (:664-665): not copied, a dotted journal term would also drop the items without
   a journal. An opening (à-nouveau) entry is move_category "carry_forward"
-  (exp_report_balance.py:660-663); the journal category below is the dynamic balance sheet's test and can differ in
-  imported data. amount_residual is the stored amount still open on a line, zero once reconciled (exp_move.py:3480-3487,
-  :3780-3802); Experio's own "still open" filter is amount_residual != 0 (:526-527).
+  (account_reports/models/exp_report_balance.py:677-678); the journal category below is the dynamic balance sheet's
+  test and can differ in imported data. amount_residual is the stored amount still open on a line, zero once reconciled
+  (exp_move.py:3480-3487, :3780-3802); Experio's own "still open" filter is amount_residual != 0 (:526-527).
 - exp.journal: journal_category, exp_account/models/exp_journal.py:48 (normal, a_nouveau, cloture).
 - exp.fiscal.entries: state, exp_account/models/exp_fiscal_entries.py:405; close is set by action_close (:797-802), shut
-  once the closure entries are generated (:1601-1604).
+  by the step that follows, once the closure entries exist (:1590-1604 requires it to generate the opening entries).
 - exp.bank.statement.line: state, bank/models/bank_statement_line.py:430; debit is the outgoing amount and credit the
   incoming one, in the statement's currency (:286-306); pending waits for the exchange rate (:442)."""
 
@@ -181,7 +181,7 @@ MODELS: Final = {
                 draft="brouillon",
                 open="ouvert",
                 close="comptes arrêtés, écritures de clôture non générées",
-                shut="clôture faite (écritures de clôture et à-nouveaux générés)",
+                shut="clôture faite (écritures de clôture générées)",
             ),
         },
         order="date_end desc",

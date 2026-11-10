@@ -147,3 +147,84 @@ def test_a_bad_cabinets_file_stops_the_server_before_it_starts(tmp_path, monkeyp
             config.load_cabinets(path)
     path.write_text('{"cab_a": {"url": "https://experio.example/"}}')
     assert config.load_cabinets(path) == {"cab_a": "https://experio.example"}
+
+
+@pytest.mark.security
+def test_a_burst_of_wrong_keys_for_one_login_reaches_experio_only_until_the_pause(client, fake):
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(20) as pool:
+        codes = list(pool.map(lambda n: rpc(client, "cab_a", "tools/list", headers=auth("alice", f"w{n}")).status_code,
+                              range(20)))  # fmt: skip
+    assert len(fake.authentications) == 3  # FAILED_MAX: the others find the pause
+    assert codes.count(401) == 3 and codes.count(429) == 17
+
+
+@pytest.mark.security
+def test_a_paused_login_does_not_lock_its_owner_out_while_the_session_is_remembered(client):
+    assert rpc(client, "cab_a", "tools/list").status_code == 200
+    for _ in range(3):
+        rpc(client, "cab_a", "tools/list", headers=auth("alice", "wrong"))  # an attacker pauses the login
+    assert rpc(client, "cab_a", "tools/list").status_code == 200  # the owner's remembered key still works
+
+
+@pytest.mark.security
+def test_an_experio_error_at_login_is_not_a_wrong_key(client, fake):
+    fake.auth_fault = "psycopg2.OperationalError: too many connections"
+    for _ in range(5):
+        assert rpc(client, "cab_a", "tools/list").status_code == 503
+    fake.auth_fault = None
+    assert rpc(client, "cab_a", "tools/list").status_code == 200  # nothing was counted against the client
+
+
+@pytest.mark.security
+def test_a_request_body_over_the_cap_is_refused(client, monkeypatch):
+    from experio_client_mcp import config
+
+    monkeypatch.setattr(config, "MAX_BODY", 100)
+    assert client.post("/cab_a/mcp", content="x" * 200, headers=ALICE).status_code == 413
+
+
+@pytest.mark.security
+def test_an_ipv6_address_stands_for_its_whole_64_and_the_counters_stay_bounded(app, monkeypatch):
+    from experio_client_mcp import limits
+
+    seen = {app.address({"client": (f"2001:db8:1:2::{n:x}", 1)}, {}) for n in range(1, 50)}
+    assert seen == {"2001:db8:1:2::/64"}
+    now = [0.0]
+    failures = limits.Failures(lambda: now[0])
+    monkeypatch.setattr(limits, "MAX_KEYS", 20)
+    for n in range(20):
+        failures.failed(("cab_a", f"x{n}"))
+    now[0] = 10_000  # all out of the window
+    for n in range(20):
+        failures.failed(("cab_a", f"y{n}"))
+    assert len(failures.seen) <= 21
+
+
+@pytest.mark.security
+def test_a_cabinet_whose_threads_are_all_busy_refuses_at_once():
+    import anyio
+
+    from experio_client_mcp.experio import Refusal
+    from experio_client_mcp.limits import Capacity
+
+    async def main():
+        capacity = Capacity()
+        capacity.cabinets["cab_a"] = anyio.CapacityLimiter(1)
+        await capacity.cabinets["cab_a"].acquire()
+        with pytest.raises(Refusal, match="sollicité"):
+            await capacity.run("cab_a", lambda: 1)
+        assert await capacity.run("cab_b", lambda: 2) == 2  # another cabinet is not held up
+
+    anyio.run(main)
+
+
+@pytest.mark.security
+def test_a_second_api_key_brings_no_second_allowance(client, monkeypatch):
+    from experio_client_mcp import config
+
+    monkeypatch.setattr(config, "RATE_PER_MINUTE", 2)
+    assert [rpc(client, "cab_a", "tools/list").status_code for _ in range(2)] == [200, 200]
+    other_key = auth("ALICE", "ka")  # the same user, the login in another case
+    assert rpc(client, "cab_a", "tools/list", headers=other_key).status_code in (401, 429)

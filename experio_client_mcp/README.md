@@ -48,9 +48,19 @@ mcp.example.com {
 }
 ```
 
-Limits and settings (environment, prefix `EXPERIO_CLIENT_MCP_`): `RATE_PER_MINUTE` (60), `CONCURRENT` (3), `FAILED_MAX` (5),
-`FAILED_WINDOW` (600 s), `PAUSE` (900 s), `LOGIN_TTL` (300 s), `TIMEOUT` (30 s per Experio call), `MAX_CHARS`
-(100 000), `HOSTS` (the host names clients use: any other Host or Origin is refused).
+Settings (environment, prefix `EXPERIO_CLIENT_MCP_`): `CABINETS` (path of the cabinets file, default
+`/etc/experio-client-mcp/cabinets.json`), `HOSTS` (the host names clients use: any other Host or Origin is refused),
+`TRUST_PROXY` (1 behind the proxy: its `X-Forwarded-For` and `-Proto` are used; without it every client shares the
+proxy's address and the server warns at start), `AUDIT_SECRET` (keys the user fingerprints of the audit trail: set it,
+or they change at each start). The plain variables `HOST` (0.0.0.0) and `PORT` (8080) set where it listens: publish the
+port to the proxy only, never to the internet.
+
+Limits (same prefix): `RATE_PER_MINUTE` (60) and `CONCURRENT` (3), per **user** (cabinet and login: a second API key
+brings no second allowance); `FAILED_MAX` (5), `FAILED_WINDOW` (600 s), `PAUSE` (900 s) for wrong credentials, counted
+before the next try and ignored for a login already remembered; `LOGIN_TTL` (300 s); `TIMEOUT` (30 s per Experio call)
+and `DEADLINE` (90 s per tool call); `THREADS` (30) and `CABINET_THREADS` (8) bound the calls to Experio in all and per
+cabinet (a full cabinet is refused at once); `AUTH_CONCURRENT` (8) and `AUTH_WAITING` (64) bound the logins tried at
+once; `MAX_BODY` (262 144 bytes); `MAX_CHARS` (100 000).
 
 **One process.** The throttles are in memory, so run one container; to scale out, add the same limits at the proxy.
 `GET /healthz` answers `{"status": "ok"}` and nothing else.

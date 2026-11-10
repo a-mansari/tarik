@@ -5,13 +5,15 @@ Tarik's accounts report (engine/tools/reports/accounts.py): a rule changed there
 
 The accounts are Experio's own ranges: the clients are 342 (3421, doubtful 3424, effets 3425) and the suppliers 441
 (exp_account/models/exp_account.py:1494-1497); the VAT due is 4455 minus the recoverable 3455, then 4456 once declared
-(liasse/models/tax_package_tva.py:24-36, declaration/models/res_company.py:51-62); the depreciation accounts are 6191 to
-6193 (liasse/models/tax_package_controle.py:2479) and what depreciates is the classes 21 to 23."""
+(liasse/models/tax_package_tva.py:24-36, declaration/models/res_company.py:51-62; a credit is carried on 3456,
+:68-82); the depreciation accounts are 6191 to 6193 (liasse/models/tax_package_controle.py:2479) and what
+depreciates is the classes 21 to 23 (not 239, in progress: liasse/models/tax_package_amort.py:36)."""
 
 from experio_client_mcp.books import (
     ALL,
     DEPRECIATION,
     FIXED,
+    IN_PROGRESS,
     OPENING_NOTE,
     RUBRIQUES,
     STOCK,
@@ -69,7 +71,7 @@ def read_accounts(dossier_id, year):
     holds
     no opening entries."""
     name = require_dossier(dossier_id)
-    exercice = exercice_of(name, dossier_id, year)
+    exercice = exercice_of(dossier_id, year)
     opening = has_opening(dossier_id, exercice, "")
     french = {"context": {**in_dossier(dossier_id), "lang": "fr_FR"}}  # the month labels follow the context's language
     balance = {"since_origin": not opening}
@@ -83,7 +85,7 @@ def read_accounts(dossier_id, year):
         "cash": read(dossier_id, exercice, "51", **balance),
         "clients": open_items(dossier_id, exercice, "342", opening, "desc"),
         "suppliers": open_items(dossier_id, exercice, "441", opening, "asc"),
-        "vat": read(dossier_id, exercice, "3455", "4455", "4456", **balance),
+        "vat": read(dossier_id, exercice, "3455", "3456", "4455", "4456", **balance),
         "assets": read(dossier_id, exercice, *FIXED, **balance) if whole else [],
     }  # fmt: skip
 
@@ -140,7 +142,8 @@ def result_rules(found, result):
             "Aucune variation de stock (6114, 713) n'est passée alors que des achats de marchandises (611) le sont : "
             "la marge brute ne peut pas être calculée."
         )
-    if sums(found["assets"], *FIXED) > 0 and not sums(results, DEPRECIATION):
+    depreciable = sums(found["assets"], *FIXED) - sums(found["assets"], IN_PROGRESS)
+    if depreciable > 0 and not sums(results, *DEPRECIATION):
         out.append(
             "Aucune dotation aux amortissements (6191 à 6193) n'est passée alors que des immobilisations "
             "amortissables existent."
@@ -190,6 +193,9 @@ def vat_rules(found):
     declared = -sums(found["vat"], "4456")
     if declared > 0:
         out.append(f"TVA déclarée restant à payer (4456) : {amount(declared)}.")
+    credit = sums(found["vat"], "3456")
+    if credit > 0:
+        out.append(f"Crédit de TVA reporté (3456) : {amount(credit)}, à rapprocher des déclarations.")
     return out
 
 

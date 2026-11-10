@@ -3,7 +3,7 @@ the invoices (credit notes apart), the bank operations. Each is one query over t
 limits."""
 
 from experio_client_mcp.experio import DOSSIERS, SESSION, Refusal, experio_errors, odoo_call
-from experio_client_mcp.query import query_data
+from experio_client_mcp.query import GRANULARITIES, query_data
 
 INVOICE = [
     "invoice_number", "invoice_date", "partner_id", "type", "refund", "currency_id", "amount_untaxed", "amount_tva",
@@ -12,7 +12,6 @@ INVOICE = [
 BANK = ["date", "payment_ref", "amount", "debit", "credit", "state", "journal_id", "partner_id"]
 POSTED = ["post", "export"]  # a posted invoice (exp_invoice.py:2199); pending and draft are not
 AMOUNTS = ["amount_untaxed", "amount_tva", "amount_total", "amount_residual"]
-PERIODS = ("day", "week", "month", "quarter", "year")
 
 
 def dossiers(query=""):
@@ -60,8 +59,8 @@ def invoices(dossier_id, date_from="", date_to="", state="", unpaid_only=False, 
 def invoice_totals(dossier_id, date_from="", date_to="", period="month"):
     """Return the posted invoices' count, untaxed, VAT, total and residual per period, type, credit note and currency;
     each row adds net_untaxed and net_total (negated for a credit note, so the rows of one type and currency add up)."""
-    if period not in PERIODS:
-        raise Refusal(f"period : {', '.join(PERIODS)}")
+    if period not in GRANULARITIES:
+        raise Refusal(f"period : {', '.join(GRANULARITIES)}")
     group = f"invoice_date:{period}"
     domain = [["state", "in", POSTED], *dates("invoice_date", date_from, date_to)]
     found = query_data(
@@ -80,6 +79,8 @@ def invoice_totals(dossier_id, date_from="", date_to="", period="month"):
             round(sign * row.get("amount_untaxed", 0), 2),
             round(sign * row.get("amount_total", 0), 2),
         )
+    if found["truncated"]:
+        found["notes"] = ["Groupes coupés : aucun total n'est complet. Réduisez la période ou prenez period=year."]
     return found
 
 

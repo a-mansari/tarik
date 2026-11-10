@@ -38,6 +38,9 @@ WRONG_REPORT_ARGUMENTS = [
     ("partner_balances", {"account_prefix": "44"}),
     ("trial_balance", {"year": -1}),
     ("trial_balance", {"year": 99999}),
+    ("trial_balance", {"year": 5}),
+    ("trial_balance", {"dossier_id": 99999999999}),
+    ("partner_balances", {"account_prefix": "445"}),  # Experio keeps no open amount on such an account
     ("account_ledger", {"account_prefix": "6", "limit": 0}),
     ("account_ledger", {"account_prefix": "6", "partner_id": -1}),
 ]
@@ -94,7 +97,7 @@ def test_the_query_never_leaves_the_registry(client, fake, arguments):
 def test_only_reads_can_ever_reach_experio():
     with pytest.raises(ValueError, match="not a read"):
         experio.odoo_call("exp.invoice", "unlink", [1])
-    assert {"search", "search_read", "search_count", "read", "read_group", "fields_get"} == experio.READS
+    assert {"search", "search_read", "search_count", "read", "read_group"} == experio.READS
 
 
 @pytest.mark.security
@@ -130,6 +133,7 @@ def test_an_answer_over_the_cap_is_refused_not_cut(client, fake, monkeypatch):
 
 @pytest.mark.security
 def test_the_audit_names_what_was_done_and_never_a_value_a_login_or_a_key(client, fake, capsys):
+    audit.drain()
     capsys.readouterr()
     call(
         client,
@@ -138,6 +142,7 @@ def test_the_audit_names_what_was_done_and_never_a_value_a_login_or_a_key(client
         {"dossier_id": 5, "model": "exp.invoice", "domain": [["partner_name", "ilike", "TOPSECRET"]]},
     )
     call(client, "cab_a", "query_data", {"dossier_id": 7, "model": "exp.invoice"})
+    audit.drain()
     out = capsys.readouterr().out
     lines = [json.loads(line) for line in out.splitlines() if line.startswith("{")]
     tools = [line for line in lines if line["event"] == "tool"]
@@ -156,7 +161,12 @@ def test_the_accounts_report_gives_the_result_the_notes_and_the_rules(client, fa
     error, data = call(client, "cab_a", "accounts_report", {"dossier_id": 5, "year": 2026})
     assert not error and data["dossier"] == "ALPHA" and data["exercice"]["state"] == "open"
     assert data["result"]["produits"] == 100.0 and data["result"]["gap"]["meaning"] == "excédent"
-    assert any("non clôturé" in p for p in data["points_d_attention"])
+    points = " ".join(data["points_d_attention"])
+    assert "non clôturé" in points
+    assert "TVA à payer selon les comptes (4455 moins 3455) : 150.00" in points  # 200 collected, 50 recoverable
+    assert "Crédit de TVA reporté (3456) : 30.00" in points
+    assert "créditeurs : 51410000 Compte (50.00)" in points  # a bank account in credit
+    assert data["cash"] == [{"account": "51410000 Compte", "balance": -50.0, "side": "créditeur"}]
 
 
 @pytest.mark.functionality
@@ -178,3 +188,38 @@ def test_credit_notes_are_netted_in_the_invoice_totals(client, fake):
     assert not error
     assert [(g["net_untaxed"], g["net_total"]) for g in data["groups"]] == [(100.0, 120.0), (-20.0, -24.0)]
     assert sum(g["net_untaxed"] for g in data["groups"]) == 80.0
+
+
+@pytest.mark.functionality
+def test_the_trial_balance_adds_up_and_a_prefix_with_spaces_is_the_same_prefix(client, fake):
+    error, data = call(client, "cab_a", "trial_balance", {"dossier_id": 5, "year": 2026})
+    assert not error and data["total"] == {"debit": 200.0, "credit": 350.0, "balance": -150.0}
+    error, data = call(client, "cab_a", "partner_balances", {"dossier_id": 5, "account_prefix": " 342 "})
+    assert not error and data["rows"][0]["balance"] == 30.0 and data["total"]["side"] == "débiteur"
+
+
+@pytest.mark.functionality
+def test_a_group_list_that_is_cut_says_so(client, fake):
+    fake.invoice_groups = [{"invoice_date:month": f"m{n}", "type": "sale", "refund": False, "__count": 1}
+                           for n in range(201)]  # fmt: skip
+    error, data = call(client, "cab_a", "invoice_totals", {"dossier_id": 5})
+    assert not error and data["truncated"] and "coupés" in data["notes"][0]
+
+
+@pytest.mark.functionality
+def test_a_page_that_is_not_full_has_no_more_and_one_that_is_says_so(client, fake):
+    fake.invoices = [{"id": n, "invoice_number": f"F{n}", "state": "post"} for n in range(3)]
+    arguments = {"dossier_id": 5, "model": "exp.invoice", "fields": ["invoice_number"]}
+    assert call(client, "cab_a", "query_data", {**arguments, "limit": 5})[1]["more"] is False
+    error, data = call(client, "cab_a", "query_data", {**arguments, "limit": 2})
+    assert data["more"] is True and data["shown"] == 2 and len(data["rows"]) == 2
+    assert not any(c["method"] == "search_count" for c in fake.calls)
+
+
+@pytest.mark.technical
+def test_a_slow_experio_stops_a_tool_at_its_deadline(client, fake, monkeypatch):
+    from experio_client_mcp import config
+
+    monkeypatch.setattr(config, "DEADLINE", -1)
+    error, text = call(client, "cab_a", "trial_balance", {"dossier_id": 5})
+    assert error and "trop de temps" in text

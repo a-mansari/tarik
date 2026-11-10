@@ -1,6 +1,6 @@
 """The general read: what can be read (describe_data) and the reading itself (query_data), over the registry only.
 
-Read only by construction: search_read, search_count and read_group, nothing else exists here. It never takes a model,
+Read only by construction: search_read and read_group, nothing else exists here. It never takes a model,
 field, operator, sort or grouping the registry (registry.py) does not list; the dossier is asked for by id, proven
 (experio.require_dossier: one of this user's own), forced into every domain and into Experio's context. Filters are
 plain [field, operator, value] triples, all true together: no "or", no path through another model. A port of Tarik's
@@ -9,7 +9,7 @@ query (engine/tools/data/query.py): a rule changed there is changed here too."""
 import datetime
 import re
 
-from experio_client_mcp.experio import Refusal, experio_errors, in_dossier, odoo_call, require_dossier
+from experio_client_mcp.experio import Refusal, an_id, experio_errors, in_dossier, odoo_call, require_dossier
 from experio_client_mcp.registry import (
     CHOICE,
     DATE,
@@ -80,10 +80,6 @@ def a_day(value):
 
 def a_number(value):
     return isinstance(value, int | float) and not isinstance(value, bool)
-
-
-def an_id(value):
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
 # What each kind but a choice takes: its test and how the refusal names it.
@@ -173,11 +169,11 @@ def order_of(order, allowed):
     return order.strip()
 
 
-def limit_of(limit):
-    """Return ``limit`` as a number of rows (1 to MAX_LIMIT). Raises Refusal for anything but an integer."""
+def limit_of(limit, cap=MAX_LIMIT):
+    """Return ``limit`` as a number of rows (1 to ``cap``). Raises Refusal for anything but an integer."""
     if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
-        raise Refusal(f"limit : un entier de 1 à {MAX_LIMIT} est attendu.")
-    return min(limit, MAX_LIMIT)
+        raise Refusal(f"limit : un entier de 1 à {cap} est attendu.")
+    return min(limit, cap)
 
 
 def rounded(row):
@@ -189,11 +185,11 @@ def query_data(
     dossier_id, model, domain=None, fields=None, group_by=None, sums=None, order="", limit=DEFAULT_LIMIT, group_limit=2
 ):
     """Read one of the user's dossiers, read only: records, or counts and sums grouped, over the registry's models and
-    columns. Returns {dossier, model, total, shown, rows} (records) or {dossier, model, groups, truncated} (grouped:
-    truncated says more groups exist than the limit shows). Raises Refusal for a dossier that is not the user's, a
-    model,
-    column, operator or value the registry does not allow, or an Experio refusal. ``group_limit``: how many columns a
-    grouping may take, for the curated tools: the agent's own query_data always passes two."""
+    columns. Returns {dossier, model, shown, more, rows} (records: ``more`` says rows were left out) or
+    {dossier, model, groups, truncated} (grouped: truncated says more groups exist than the limit shows). Raises
+    Refusal for a dossier that is not the user's, a model, column, operator or value the registry does not allow, or
+    an Experio refusal. ``group_limit``: how many columns a grouping may take, for the curated tools: the agent's own
+    query_data always passes two."""
     source = known(model)
     name = require_dossier(dossier_id)
     terms = terms_of(source, model, domain)
@@ -210,11 +206,11 @@ def query_data(
     ordered = order_of(order, [n for n, c in source.columns.items() if c.kind in SORTABLE])
     with experio_errors("la lecture des données"):
         rows = odoo_call(
-            model, "search_read", full, fields=wanted, order=ordered or source.order, limit=shown, context=context
+            model, "search_read", full, fields=wanted, order=ordered or source.order, limit=shown + 1, context=context
         )
-        # a page that is not full is everything there is
-        total = len(rows) if len(rows) < shown else odoo_call(model, "search_count", full, context=context)
-    return {"dossier": name, "model": model, "total": total, "shown": len(rows), "rows": [rounded(r) for r in rows]}
+    more = len(rows) > shown  # one more than shown tells there is more, with no count over the whole table
+    return {"dossier": name, "model": model, "shown": min(len(rows), shown), "more": more,
+            "rows": [rounded(r) for r in rows[:shown]]}  # fmt: skip
 
 
 def grouped(source, model, name, full, context, group_by, sums, order, shown, group_limit=2):
