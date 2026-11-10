@@ -92,7 +92,7 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
             <summary>
               <span class="card-title">{{ title }}</span>
             </summary>
-            <div class="card-body">
+            <div class="card-body"><div class="field-grid">
               <label v-for="f in items" :key="f.key" class="field">
                 <span>{{ f.name }} <span class="mono muted">{{ f.key }}</span><template
                   v-if="f.optional"> <span class="muted">(facultatif)</span></template></span>
@@ -118,7 +118,7 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
                   :inputmode="f.kind === 'integer' ? 'numeric' : undefined"
                 >
               </label>
-            </div>
+            </div></div>
           </details>
       </form>
     </template>
@@ -127,6 +127,4 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
 
 <style scoped>
 .head-tools { display: flex; align-items: center; gap: var(--space-4); }
-/* Related fields share a line (service logins side by side), each as wide as it needs, wrapping on a narrow screen. */
-#settings-form .card-body { grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 22rem)); align-items: start; }
 </style>

@@ -69,6 +69,8 @@
   --radius-round: 50%;   /* avatars, dots, round buttons */
   --control-h: 2.25rem;  /* every button and field, one height */
   --page-w: 72rem;
+  --field-min: 18rem;    /* a field in a field grid: narrower than this, the next one wraps below... */
+  --field-max: 22rem;    /* ...and never wider than this: at most four fit on a line (5 x min + 4 gaps > 4 x max + 3 gaps) */
 
   /* Depth: borders do the work; a shadow only for what floats. */
   --ring: 0 0 0 3px var(--accent-soft); /* a halo on a hovered or open control */

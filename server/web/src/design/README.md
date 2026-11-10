@@ -17,6 +17,10 @@ The UI is a working tool for an accounting team: dense, calm, readable at a glan
 7. **Little text.** A label says what the thing is. Explanations go in a `title`, not under every field. Use `.field-hint` only when the label cannot be clear.
 8. **Space on the 4 px rhythm**: `--space-N` is N × 4 px (1, 2, 3, 4, 5, 6, 8, 12), and gap, padding and margin use them; radius by role: `--radius` controls, `--radius-lg` containers, `--radius-xl` popups, `--radius-pill` chips.
 
+## Field grid
+
+Settings-style forms put their fields in `.field-grid`: one to four per line, each at least `--field-min` and at most `--field-max` wide, so a field wraps below when the line is too narrow and never fills the whole line.
+
 ## Status classes
 
 A run's or conversation's status is also a chip class (`.chip.done`, `.chip.wait`, `.chip.error`, ...): the status names come from the server, so `StatusChip` and the tables set them as they are. Anything not driven by a status uses `.chip-good|wait|bad|accent`.
