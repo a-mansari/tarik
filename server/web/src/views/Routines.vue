@@ -85,13 +85,7 @@ function remove(routine) {
   <template v-else>
     <div class="head">
       <div>
-        <h1>Routines · <CabinetLabel :name="data.cabinet" /></h1>
-        <p class="what">Ce que Tarik refait à date fixe pour ce cabinet, sur tous les dossiers que son compte
-          Experio peut ouvrir, et dont il envoie le rapport par e-mail à un administrateur du cabinet. Une routine
-          prépare et rapporte : elle ne déclare, ne comptabilise et ne confirme jamais rien.</p>
-        <p class="what">Chaque routine lance à son heure le workflow
-          <RouterLink to="/ui/workflows/routine">Routine</RouterLink> : chaque période se suit, dossier par dossier,
-          dans les <RouterLink to="/ui/executions?graph=routine">Exécutions</RouterLink>.</p>
+        <h1><CabinetLabel :name="data.cabinet" /> · Routines</h1>
       </div>
       <button v-if="editing !== 'new'" type="button" class="primary" :disabled="managers === undefined"
         :title="managers === undefined ? 'Lecture des administrateurs dans Experio…' : undefined" @click="open(null)">
@@ -118,15 +112,12 @@ function remove(routine) {
           <span class="muted">{{ routine.schedule }} · rapport à {{ routine.notify }}</span>
         </div>
         <div class="routine-tools">
-          <button type="button" class="panel-button" :disabled="managers === undefined"
-            @click="editing === routine.id ? close() : open(routine)">
-            {{ editing === routine.id ? "Fermer" : "Modifier" }}</button>
+          <button type="button" class="panel-button icon-button" :disabled="managers === undefined"
+            :title="editing === routine.id ? 'Fermer' : 'Modifier'" :aria-label="editing === routine.id ? 'Fermer' : 'Modifier'"
+            :aria-expanded="editing === routine.id" @click="editing === routine.id ? close() : open(routine)"><Icon name="edit" /></button>
           <button type="button" class="panel-button icon-button" title="Supprimer" aria-label="Supprimer" @click="remove(routine)"><Icon name="trash" /></button>
         </div>
       </div>
-      <p class="muted when">n° {{ routine.id }} · prochaine le <span class="num">{{ routine.next_run_at }}</span> · créée
-        par {{ routine.created_by }}<template v-if="routine.last_due"> · dernière le
-          <span class="num">{{ routine.last_due }}</span>{{ routine.running ? " (en cours)" : "" }}</template></p>
       <RoutineForm v-if="editing === routine.id" :form="form" :kinds="data.kinds" :weekdays="data.weekdays"
         :presets="data.presets" :managers="managers" :busy="busy" @submit="submit" @cancel="close" />
     </article>
@@ -145,7 +136,6 @@ function remove(routine) {
 .routine-head { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1rem; }
 .routine-what { display: grid; gap: .15rem; flex: 1 1 18rem; min-width: 0; }
 .routine-tools { display: flex; gap: .4rem; }
-.when { margin: 0; font-size: .85rem; }
 .routine > .routine-form { border-top: 1px solid var(--line); margin-top: .4rem; padding-top: .8rem; }
 .state { min-width: 6.5rem; }
 .state .on { color: var(--good); font-weight: 600; }

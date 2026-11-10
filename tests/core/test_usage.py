@@ -45,6 +45,8 @@ def test_a_total_missing_a_model_s_price_says_so():
     assert usage_shown(1_000, 500, 200, 0.5, False)["cost"] == "0,50 $ + ?"
     assert usage_shown(10, 0, 5, None, False) == {
         "tokens": "15",
+        "input": "10",
+        "output": "5",
         "detail": "10 en entrée (dont 0 en cache), 5 en sortie",
         "cost": "prix inconnu",
     }

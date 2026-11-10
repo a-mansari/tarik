@@ -15,8 +15,8 @@ const signed = computed(() => Boolean(session.user) && !route.meta.open);
 // The sidebar's general pages and the cabinet's pages; an admin's own pages at the end of each.
 const general = computed(() => {
   const links = [
-    { href: "/ui/workflows", icon: "workflows", words: "Workflows" },
     { href: "/ui/architecture", icon: "network", words: "Architecture" },
+    { href: "/ui/workflows", icon: "workflows", words: "Workflows" },
     { href: "/ui/tarik-prompts", icon: "content", words: "Tarik capabilities" },
   ];
   if (session.admin) {
@@ -29,21 +29,17 @@ const general = computed(() => {
   return links;
 });
 const cabinetPages = computed(() => {
-  const links = [
+  const mine = [
     { href: "/ui/accueil", icon: "home", words: "Accueil" },
-    { href: "/ui/executions", icon: "runs", words: "Exécutions" },
     { href: "/ui/discussion", icon: "chat", words: "Discussions" },
+    { href: "/ui/routines", icon: "clock", words: "Routines", admin: true },
+    { href: "/ui/whatsapp", icon: "chat", words: "WhatsApp", admin: true },
+    { href: "/ui/comportement", icon: "toggle", words: "Comportement", admin: true },
+    { href: "/ui/settings", icon: "settings", words: "Réglages", admin: true },
+    { href: "/ui/executions", icon: "runs", words: "Exécutions" },
     { href: "/ui/llm-calls", icon: "prompts", words: "LLM Calls" },
   ];
-  if (session.admin) {
-    links.push(
-      { href: "/ui/routines", icon: "clock", words: "Routines" },
-      { href: "/ui/comportement", icon: "toggle", words: "Comportement" },
-      { href: "/ui/whatsapp", icon: "chat", words: "WhatsApp" },
-      { href: "/ui/settings", icon: "settings", words: "Réglages" },
-    );
-  }
-  return links;
+  return mine.filter((link) => session.admin || !link.admin);
 });
 const current = (href) => route.path.startsWith(href);
 
@@ -100,7 +96,7 @@ watch(() => route.path, async () => {
         <ul class="cabinets">
           <li v-for="cabinet in session.cabinets" :key="cabinet.name">
             <button type="button" :class="{ off: !cabinet.active }" :aria-current="cabinet.chosen ? 'true' : null" @click="choose(cabinet)">
-              <CabinetLabel :name="cabinet.name" /><span v-if="!cabinet.active" class="off-mark" title="Cabinet désactivé"><Icon name="power" :size="14" /><span class="sr-only">désactivé</span></span>
+              <span class="power" :class="{ lit: cabinet.active }" :title="cabinet.active ? 'Cabinet actif' : 'Cabinet désactivé'"><Icon name="power" :size="14" /><span class="sr-only">{{ cabinet.active ? "actif" : "désactivé" }}</span></span><CabinetLabel :name="cabinet.name" />
             </button>
           </li>
           <li v-if="!session.cabinets.length" class="muted">Aucun cabinet.</li>

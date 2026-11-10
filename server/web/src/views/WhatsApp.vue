@@ -36,15 +36,14 @@ async function act(action, person) {
 <template>
   <PageState v-if="!data || status === 403 || status === 404" :status="status" :loading="loading" />
   <template v-else-if="data.unreachable">
-    <h1>WhatsApp · <CabinetLabel :name="data.cabinet" /></h1>
+    <h1><CabinetLabel :name="data.cabinet" /> · WhatsApp</h1>
     <div v-if="data.error" class="panel bad" role="alert"><b>Non fait :</b> {{ data.error }}</div>
     <div v-if="data.done" class="panel accent" role="status">{{ data.done }}</div>
     <div class="panel bad" role="alert">Experio ne répond pas pour ce cabinet : la liste des collaborateurs est introuvable pour le moment. Réessayez dans un instant.</div>
   </template>
   <template v-else>
     <div class="head"><div>
-      <h1>WhatsApp · <CabinetLabel :name="data.cabinet" /></h1>
-      <p class="muted">Les collaborateurs du cabinet qui peuvent écrire à Tarik sur WhatsApp. Le numéro utilisé est celui du champ téléphone de leur compte Experio, au format marocain (+212 ou 06…). Activer un collaborateur lui envoie un message de bienvenue ; Tarik ne répond qu'aux collaborateurs activés.</p>
+      <h1><CabinetLabel :name="data.cabinet" /> · WhatsApp</h1>
     </div></div>
     <div v-if="data.error" class="panel bad" role="alert"><b>Non fait :</b> {{ data.error }}</div>
     <div v-if="data.done" class="panel accent" role="status">{{ data.done }}</div>

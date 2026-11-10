@@ -12,7 +12,7 @@ const { data, status, loading } = usePage(() => "/workflows");
       <h1>Workflows</h1>
       <p class="muted">Ce que Tarik sait faire, étape par étape. Ouvrez un workflow pour voir son schéma et ses exécutions.</p>
     </div></div>
-    <div class="cards">
+    <div class="cards stack">
       <RouterLink v-for="name in data.graphs" :key="name" class="card" :to="`/ui/workflows/${name}`">
         <b>{{ graphName(name) }}</b>
         <span>{{ graphDescription(name) }}</span>
@@ -21,3 +21,7 @@ const { data, status, loading } = usePage(() => "/workflows");
     </div>
   </template>
 </template>
+
+<style scoped>
+.stack { grid-template-columns: minmax(0, 1fr); }
+</style>

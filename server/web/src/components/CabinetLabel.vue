@@ -1,4 +1,4 @@
-<!-- A cabinet as the team reads it: its name in Experio, its database beside it (what the code and the logs use). -->
+<!-- A cabinet as the team reads it: its name in Experio (its database name when Experio gave none). -->
 <script setup>
 import { computed } from "vue";
 
@@ -9,8 +9,5 @@ const shown = computed(() => cabinetDisplay(props.name) || "");
 </script>
 
 <template>
-  <span class="cabinet-name">
-    <template v-if="shown">{{ shown }} <span class="mono muted">({{ name }})</span></template>
-    <span v-else class="mono">{{ name }}</span>
-  </span>
+  <span class="cabinet-name">{{ shown || name }}</span>
 </template>

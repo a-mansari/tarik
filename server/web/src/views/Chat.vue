@@ -76,14 +76,13 @@ watch(() => data.value?.going, async (going, was) => {
   <template v-else>
     <div class="head">
       <div>
-        <h1>Discussions<template v-if="data.cabinet"> · <CabinetLabel :name="data.cabinet" /></template></h1>
-        <p class="muted">Toutes les discussions avec Tarik, la plus récente d'abord : celles écrites ici, comme un client du cabinet avec ses factures ou relevés joints, et les fils d'emails des clients, à lire seulement. Chaque message est une exécution, à suivre étape par étape.</p>
+        <h1><template v-if="data.cabinet"><CabinetLabel :name="data.cabinet" /> · </template>Discussions</h1>
       </div>
       <RouterLink v-if="data.cabinet" class="primary" :to="`/ui/discussion/${data.new}`"><Icon name="plus" />Nouvelle discussion</RouterLink>
     </div>
     <div class="table-wrap">
       <table class="runs">
-        <thead><tr><th>Dernier message</th><th>Canal</th><th>Premier message</th><th>État</th><th>Modèle</th></tr></thead>
+        <thead><tr><th>Dernier message</th><th>Canal</th><th>Premier message</th><th>État</th><th>Cost</th></tr></thead>
         <tbody>
           <tr v-for="item in data.conversations" :key="item.session_id">
             <td class="num">{{ item.started }}</td>
@@ -104,7 +103,7 @@ watch(() => data.value?.going, async (going, was) => {
                   »</template></span></template>
             </td>
             <td><span class="chip" :class="chips[item.state]">{{ stateName(item.state) }}</span></td>
-            <td><ModelUsage :usage="item.usage" /></td>
+            <td><ModelUsage :usage="item.usage" cost-only /></td>
           </tr>
           <tr v-if="!data.conversations.length"><td colspan="5" class="muted">Aucune discussion pour ce cabinet.</td></tr>
         </tbody>

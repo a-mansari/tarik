@@ -8,7 +8,6 @@ import { pickedCabinet, usePage } from "../api.js";
 import { useLive } from "../live.js";
 import CabinetLabel from "../components/CabinetLabel.vue";
 import ChatForm from "../components/ChatForm.vue";
-import ModelUsage from "../components/ModelUsage.vue";
 import PageState from "../components/PageState.vue";
 
 const router = useRouter();
@@ -26,8 +25,7 @@ const opened = (answer) =>
   <div v-else class="dashboard">
     <div class="head">
       <div>
-        <h1 id="dashboard-title"><CabinetLabel :name="data.cabinet" /></h1>
-        <p id="dashboard-what" class="muted">Les {{ data.days }} derniers jours de Tarik pour ce cabinet.</p>
+        <h1 id="dashboard-title"><CabinetLabel :name="data.cabinet" /> · Accueil</h1>
       </div>
     </div>
     <section class="metrics" :aria-label="`Les ${data.days} derniers jours`">
@@ -38,11 +36,16 @@ const opened = (answer) =>
         <div class="metric"><span class="value num">{{ data.metrics.conversations }}</span><span class="what">discussions</span></div>
         <div class="metric"><span class="value num">{{ data.metrics.cost }}</span><span class="what">coût des modèles</span></div>
       </div>
-      <ul v-if="data.metrics.models.length" class="usage">
-        <li v-for="used in data.metrics.models" :key="used.model">
-          <strong>{{ used.model }}</strong> : <ModelUsage :usage="used" full />
-        </li>
-      </ul>
+      <div v-if="data.metrics.models.length" class="table-wrap">
+        <table class="runs usage">
+          <thead><tr><th>Modèle</th><th>Tokens en entrée</th><th>Tokens en sortie</th><th>Coût</th></tr></thead>
+          <tbody>
+            <tr v-for="used in data.metrics.models" :key="used.model">
+              <td>{{ used.model }}</td><td class="num">{{ used.input }}</td><td class="num">{{ used.output }}</td><td class="num">{{ used.cost }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </section>
     <section class="panel chat-start">
       <h2 class="ask">Écrire à Tarik</h2>
