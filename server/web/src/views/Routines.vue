@@ -132,8 +132,8 @@ function remove(routine) {
 </template>
 
 <style scoped>
-.routine { display: grid; gap: .5rem; }
-.routine-head { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem 1rem; }
+.routine { display: grid; gap: var(--space-2); }
+.routine-head { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem var(--space-4); }
 .routine-what { display: grid; gap: .15rem; flex: 1 1 18rem; min-width: 0; }
 .routine-tools { display: flex; gap: .4rem; }
 .routine > .routine-form { border-top: 1px solid var(--line); margin-top: .4rem; padding-top: .8rem; }
@@ -141,5 +141,5 @@ function remove(routine) {
 .state .on { color: var(--good); font-weight: 600; }
 .empty { display: grid; gap: .4rem; justify-items: start; }
 .empty p { margin: 0; }
-section h2 { margin: 0 0 .8rem; font-size: 1.05rem; }
+section h2 { margin: 0 0 .8rem; font-size: var(--text-lg); }
 </style>

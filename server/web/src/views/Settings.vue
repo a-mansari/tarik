@@ -55,8 +55,6 @@ async function activate(cabinet, on) {
   switching.value = false;
 }
 
-// The page's head: the cabinet's mode, when it is known.
-const modeKnown = computed(() => data.value.dry_run !== null && data.value.dry_run !== undefined);
 const savedNames = computed(() => data.value.saved.map((key) => data.value.names[key]).join(", "));
 
 const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" : "Non défini");
@@ -66,17 +64,17 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
   <PageState v-if="!data || status === 403 || status === 404" :status="status" :loading="loading" />
   <template v-else>
     <div class="head"><div>
-      <h1><CabinetLabel :name="data.cabinet" /> · Réglages<template v-if="data.active && modeKnown"> <span
-        class="chip"
-        :class="data.dry_run ? '' : 'wait'"
-        :title="data.dry_run ? 'Simulation : rien n\'est écrit dans Experio' : 'Écritures réelles dans Experio'"
-      ><Icon :name="data.dry_run ? 'flask' : 'content'" :size="14" /><span class="sr-only">{{ data.dry_run ? "Simulation" : "Écritures réelles" }}</span></span></template></h1>
+      <h1><CabinetLabel :name="data.cabinet" /> · Réglages</h1>
     </div>
+      <div class="head-tools">
+        <button v-if="data.active && !data.unreachable" type="submit" form="settings-form" class="btn btn-primary btn-icon"
+          title="Enregistrer" aria-label="Enregistrer"><Icon name="check" /></button>
       <label class="switch" :title="data.active ? 'Actif : cliquer pour désactiver' : 'Désactivé : cliquer pour activer'">
         <input type="checkbox" role="switch" :checked="data.active" :disabled="switching"
           @change="activate(data.cabinet, $event.target.checked)">
         <Icon name="power" :size="18" /><span class="sr-only">{{ data.active ? "Actif" : "Désactivé" }}</span>
       </label>
+      </div>
     </div>
     <div v-if="problem" class="panel panel-bad" role="alert"><b>Non enregistré :</b> {{ problem }}</div>
     <div v-if="data.active && data.unreachable" class="panel panel-bad" role="alert">
@@ -89,8 +87,7 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
         <template v-if="data.saved.length">Enregistré : {{ savedNames }}. En service dès maintenant.</template>
         <template v-else>Rien n'a changé.</template>
       </div>
-      <div class="flow content-flow">
-        <form id="settings-form" class="content-form" autocomplete="off" @submit.prevent="save">
+      <form id="settings-form" class="content-form" autocomplete="off" @submit.prevent="save">
           <details v-for="[title, items] in data.sections" :key="title" class="panel card" open>
             <summary>
               <span class="card-title">{{ title }}</span>
@@ -100,8 +97,8 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
                 <span>{{ f.name }} <span class="mono muted">{{ f.key }}</span><template
                   v-if="f.optional"> <span class="muted">(facultatif)</span></template></span>
                 <select v-if="f.kind === 'flag'" v-model="form[f.key]" :name="f.key">
-                  <option value="1">Simulation : Tarik dit ce qu'il ferait, rien n'est écrit dans Experio</option>
-                  <option value="0">Écritures réelles : Tarik crée et modifie dans Experio</option>
+                  <option value="1">Simulation</option>
+                  <option value="0">Écritures réelles</option>
                 </select>
                 <select v-else-if="f.kind === 'adapter'" v-model="form[f.key]" :name="f.key">
                   <option v-for="(label, key) in data.adapters" :key="key" :value="key">{{ label }}</option>
@@ -123,13 +120,13 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
               </label>
             </div>
           </details>
-        </form>
-        <div class="side-column">
-          <section class="panel save-card" aria-label="Enregistrer">
-            <button type="submit" form="settings-form" class="btn btn-primary">Enregistrer</button>
-          </section>
-        </div>
-      </div>
+      </form>
     </template>
   </template>
 </template>
+
+<style scoped>
+.head-tools { display: flex; align-items: center; gap: var(--space-4); }
+/* Related fields share a line (service logins side by side), each as wide as it needs, wrapping on a narrow screen. */
+#settings-form .card-body { grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 22rem)); align-items: start; }
+</style>

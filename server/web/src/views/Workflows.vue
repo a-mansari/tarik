@@ -13,7 +13,7 @@ const { data, status, loading } = usePage(() => "/workflows");
       <p class="muted">Ce que Tarik sait faire, étape par étape. Ouvrez un workflow pour voir son schéma et ses exécutions.</p>
     </div></div>
     <div class="cards stack">
-      <RouterLink v-for="name in data.graphs" :key="name" class="card" :to="`/ui/workflows/${name}`">
+      <RouterLink v-for="name in data.graphs" :key="name" class="panel panel-link" :to="`/ui/workflows/${name}`">
         <b>{{ graphName(name) }}</b>
         <span>{{ graphDescription(name) }}</span>
         <span class="muted">{{ data.counts[name] }} étapes</span>

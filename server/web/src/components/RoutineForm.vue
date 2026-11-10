@@ -194,46 +194,46 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
 
 <style scoped>
 .routine-form { display: grid; }
-.step-row { border: 0; border-top: 1px solid var(--line); margin: 0; padding: 1rem 0; display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: .6rem 1.2rem; }
+.step-row { border: 0; border-top: 1px solid var(--line); margin: 0; padding: var(--space-4) 0; display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: .6rem 1.2rem; }
 .step-row:first-child { border-top: 0; padding-top: .2rem; }
-legend { float: left; font-weight: 600; display: flex; align-items: flex-start; gap: .5rem; padding: 0; line-height: 1.5rem; }
-.step { flex: none; display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: .8rem; }
+legend { float: left; font-weight: 600; display: flex; align-items: flex-start; gap: var(--space-2); padding: 0; line-height: 1.5rem; }
+.step { flex: none; display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: var(--radius-round); background: var(--accent-soft); color: var(--accent); font-size: var(--text-sm); }
 .controls { display: grid; gap: .7rem; min-width: 0; }
-.tasks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
-.task { position: relative; display: grid; align-content: start; gap: .2rem; padding: .6rem .7rem; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--bg); color: var(--fg); }
+.tasks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
+.task { position: relative; display: grid; align-content: start; gap: .2rem; padding: .6rem .7rem; border: 1px solid var(--line); border-radius: var(--radius-lg); cursor: pointer; background: var(--bg); color: var(--fg); }
 .task input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .task:hover { border-color: var(--muted); }
-.task.chosen { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
-.task span { font-size: .8rem; line-height: 1.35; }
-.examples { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; font-size: .8rem; }
-.example, .preset { font: inherit; background: none; border-radius: 999px; padding: .2rem .6rem; cursor: pointer; }
+.task.chosen { border-color: var(--accent); background: var(--accent-soft); box-shadow: var(--ring-inset); }
+.task span { font-size: var(--text-sm); line-height: 1.35; }
+.examples { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; font-size: var(--text-sm); }
+.example, .preset { font: inherit; background: none; border-radius: var(--radius-pill); padding: .2rem .6rem; cursor: pointer; }
 .example { color: var(--fg); border: 1px dashed var(--line); }
 .example:hover { border-color: var(--accent); }
-.segmented { display: inline-flex; flex-wrap: wrap; justify-self: start; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); }
-.segmented button { font: inherit; font-size: .85rem; color: var(--fg); background: none; border: 0; border-left: 1px solid var(--line); padding: .4rem .85rem; cursor: pointer; }
+.segmented { display: inline-flex; flex-wrap: wrap; justify-self: start; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; background: var(--bg); }
+.segmented button { font: inherit; font-size: var(--text-sm); color: var(--fg); background: none; border: 0; border-left: 1px solid var(--line); padding: .4rem .85rem; cursor: pointer; }
 .segmented button:first-child { border-left: 0; }
 .segmented button:hover { background: var(--accent-soft); }
 .segmented button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .task:has(input:focus-visible) { outline: var(--focus); outline-offset: var(--focus-offset); }
-.segmented button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.segmented button:focus-visible { outline: var(--focus); outline-offset: calc(var(--focus-offset) * -1); }
 .days button { text-transform: capitalize; min-width: 3rem; }
-.week { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem; }
+.week { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) .8rem; }
 .presets { display: flex; gap: .3rem; }
-.preset { font-size: .8rem; color: var(--muted); border: 1px solid transparent; }
+.preset { font-size: var(--text-sm); color: var(--muted); border: 1px solid transparent; }
 .preset:hover { color: var(--fg); }
 .preset.on { color: var(--accent); border-color: var(--accent); }
 .when { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
-.field.inline { display: flex; align-items: center; gap: .5rem; }
+.field.inline { display: flex; align-items: center; gap: var(--space-2); }
 .field.inline :is(select, input) { width: auto; }
-.warn { color: var(--bad); margin: 0; font-size: .85rem; }
-.form-foot { border-top: 1px solid var(--line); padding-top: 1rem; display: grid; gap: .8rem; }
-.recap { margin: 0; padding: .6rem .8rem; border-radius: 6px; background: var(--bg); border-left: 3px solid var(--accent); }
-.foot-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; }
+.warn { color: var(--bad); margin: 0; font-size: var(--text-sm); }
+.form-foot { border-top: 1px solid var(--line); padding-top: var(--space-4); display: grid; gap: .8rem; }
+.recap { margin: 0; padding: .6rem .8rem; border-radius: var(--radius); background: var(--bg); border-left: 3px solid var(--accent); }
+.foot-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); }
 .foot-actions .switch { margin-right: auto; }
 @media (max-width: 720px) {
   .step-row, .tasks { grid-template-columns: 1fr; }
   /* phone: the joined bar wraps, so each button gets its own border */
   .segmented { border: 0; border-radius: 0; gap: .3rem; background: none; }
-  .segmented button, .segmented button:first-child { border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+  .segmented button, .segmented button:first-child { border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
 }
 </style>
