@@ -31,7 +31,7 @@
 .btn-sm { min-height: 1.9rem; padding: var(--space-1) var(--space-3); font-size: var(--text-xs); }
 .btn-icon { padding-inline: var(--space-2); line-height: 0; }
 .btn-icon svg { display: block; }
-.btn:disabled { opacity: .5; cursor: progress; }
+.btn:disabled { opacity: .5; cursor: default; }
 
 /* --- Field -----------------------------------------------------------------------------------------------------
    A label above its control: <label class="field"><span>Name</span><input></label>; a hint below in .field-hint, an error
