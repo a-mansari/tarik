@@ -45,8 +45,6 @@ async function activate(cabinet, on) {
 }
 
 const savedNames = computed(() => data.value.saved.map((key) => data.value.names[key]).join(", "));
-
-const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" : "Non défini");
 </script>
 
 <template>
@@ -82,8 +80,7 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
               <span class="card-title">{{ title }}</span>
             </summary>
             <div class="card-body"><div class="field-grid">
-              <SettingField v-for="f in items" :key="f.key" v-model="form[f.key]" :f="f" :adapters="data.adapters"
-                :placeholder="placeholder(f)" />
+              <SettingField v-for="f in items" :key="f.key" v-model="form[f.key]" :f="f" :adapters="data.adapters" />
             </div></div>
           </details>
       </form>
