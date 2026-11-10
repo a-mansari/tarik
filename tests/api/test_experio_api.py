@@ -304,6 +304,18 @@ def test_check_login_refuses_a_refused_login_and_another_uid_and_remembers_nothi
     assert len(closed) == 3 and settings_page.experio.CHECK_TIMEOUT <= 30
 
 
+def test_check_login_takes_the_logins_uid_when_none_is_expected(monkeypatch):
+    class Proxy:
+        def __init__(self, url, transport, allow_none):
+            pass
+
+        def authenticate(self, *args):
+            return 77
+
+    monkeypatch.setattr(settings_page.experio.xmlrpc.client, "ServerProxy", Proxy)
+    assert settings_page.experio.check_login("db", "https://exp.example", "u", "k", 0) == 77
+
+
 @pytest.mark.security
 @pytest.mark.parametrize("settings", [{"LLM_CHOICE": "custom"}, {"LLM_URL": "https://x.example"}, {"LLM_KEY": "k"}])
 def test_the_api_does_not_set_a_cabinet_s_own_llm_whose_address_gets_its_documents(settings):

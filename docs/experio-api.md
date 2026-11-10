@@ -21,13 +21,13 @@ A cabinet is named by its exact Experio database: lowercase letters, digits and 
 | `CABINET_NAME` | no | the cabinet's name, to tell cabinets apart; Tarik does not use it |
 | `EXPERIO_URL` | no | that cabinet's Experio, `https://` and its host only, when it is not the stack's `ODOO_URL`; changing it needs `ODOO_PASSWORD` (and `ODOO_API_KEY` when set) sent again. A cabinet is still named by its database alone: two Experios' databases of the same name cannot both be served |
 | `ODOO_USER` | yes | Tarik's login in that cabinet's Experio |
-| `ODOO_UID` | yes | Tarik's user id there (a positive number): checked at every connection |
+| `ODOO_UID` | no | Tarik's user id there; taken from the login when empty, checked at every connection when set |
 | `ODOO_PASSWORD` | yes | its password (secret) |
 | `ODOO_API_KEY` | no | an Experio API key, used instead of the password when set (secret) |
 | `DRY_RUN` | no | `1` simulation (default for a new cabinet), `0` real writes in Experio |
 | `IMAP_USER`, `IMAP_PASSWORD` | yes | Tarik's mailbox for this cabinet (reading) |
 | `SMTP_USER`, `SMTP_PASSWORD` | yes | the account Tarik sends with |
-| `SMTP_FROM` | no | the sender clients see, `Tarik <tarik@cabinet.ma>` |
+| `SMTP_FROM` | no | the sender clients see; empty: `Tarik <SMTP_USER>` |
 | `MAIL_ALLOWED_RECIPIENTS` | no | who may receive Tarik's emails: addresses, `@domain`, patterns with `*`, comma-separated; empty: nobody |
 | `MAIL_IGNORED_SENDERS` | no | senders whose emails Tarik sets aside quietly (no reply, no manager alert): same format; empty: none |
 | `MAIL_MANAGER` | no | told when an unknown sender writes, when Experio has no manager for the cabinet |

@@ -297,7 +297,7 @@ async def activation(request: Request):
     return page({"cabinet": cabinet, "active": on})
 
 
-REFUSED = "Experio a refusé ce login, cette clé, ou cet identifiant d'utilisateur (ODOO_UID) : vérifiez-les."
+REFUSED = "Experio a refusé ce login, cette clé, ou l'identifiant d'utilisateur (ODOO_UID, s'il est rempli) : vérifiez."
 NO_ANSWER = "Experio ne répond pas, ou cette adresse n'est pas la bonne : vérifiez EXPERIO_URL."
 UNKNOWN_BASE = "Experio n'a pas accepté la demande : la base de ce cabinet existe-t-elle ? Vérifiez son nom."
 MISSING = "Un réglage nécessaire à la connexion manque : {key}."
@@ -311,7 +311,7 @@ async def checked_login(cabinet):
     try:
         if not experio.OWN_EXPERIO.fullmatch(url):
             return NO_ANSWER
-        expected = int(data["ODOO_UID"])
+        expected = int(data.get("ODOO_UID") or 0)
         key = data.get("ODOO_API_KEY") or data["ODOO_PASSWORD"]
         await asyncio.to_thread(experio.check_login, cabinet, url, data["ODOO_USER"], key, expected)
     except PermissionError:

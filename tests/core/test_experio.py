@@ -35,7 +35,8 @@ def test_an_invoice_tool_needs_a_real_invoice_id(bad):
 @pytest.mark.security
 def test_tarik_user_id_is_locked():
     assert expected_uid("430") == 430
-    for bad in (None, "", "0", "-1", "abc", " 430"):
+    assert expected_uid("") is None and expected_uid(None) is None
+    for bad in ("0", "-1", "abc", " 430"):
         with pytest.raises(SystemExit):
             expected_uid(bad)
 
