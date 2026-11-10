@@ -304,6 +304,13 @@ select invoice_id, step, status from tarik_results where invoice_id in
 -- Which of the invoices Tarik made from a file.
 select invoice_id from tarik_files where invoice_id = any(%s)
 
+-- name: invoices_known_to_tarik
+-- Which of the invoices Tarik has made, worked on or asked about (a file, an outcome or a question): the others were
+-- made in Experio by people.
+select invoice_id from tarik_files where invoice_id = any(%s)
+union select invoice_id from tarik_results where invoice_id = any(%s)
+union select invoice_id from tarik_pending where invoice_id = any(%s)
+
 -- name: pending_of_invoices
 -- The pending question of each of the invoices.
 select invoice_id, question from tarik_pending where invoice_id = any(%s)

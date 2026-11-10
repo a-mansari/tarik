@@ -6,6 +6,13 @@ from engine.tools.core.app import ok, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.conversation import yes_no
 from engine.tools.invoices import exercice, intake, pipeline
+from engine.tools.invoices.pipeline import made_in_experio
+
+
+@pytest.fixture(autouse=True)
+def none_made_in_experio(monkeypatch):
+    """The dossier's drafts people made in Experio: none, but in the tests of made_in_experio itself."""
+    monkeypatch.setattr(pipeline, "made_in_experio", lambda dossier_id: set())
 
 
 @pytest.fixture
@@ -522,7 +529,7 @@ def test_posting_takes_the_conversations_own_held_drafts_first(db_cabinet, monke
     assert pipeline.waiting_drafts("this", held=True, dossier_id=5)["invoices"] == [7]
     assert pipeline.waiting_drafts("new", held=True, dossier_id=5)["invoices"] == []
     told = pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message="Comptabilisez-les.")["message"]
-    assert "2 brouillons d'autres conversations attendent" in told
+    assert "2 brouillons d'autres conversations ou créés dans Experio attendent" in told
     assert "« comptabilisez toutes les factures du dossier »" in told
     assert pipeline.waiting_drafts(
         "new", held=True, dossier_id=5, client_message="Comptabilisez toutes les factures du dossier."
@@ -603,7 +610,7 @@ def test_asked_for_the_whole_dossier_what_stays_a_draft_is_said_with_why(db_cabi
         "Restent en brouillon dans ce dossier :\n"
         "- 1 facture attend votre réponse à sa question, dans sa conversation.\n"
         "- 1 facture est arrêtée par un point à corriger.\n"
-        "- 2 factures n'ont pas été importées par moi : comptabilisez-les dans Experio."
+        "- 2 factures n'ont pas été reprises cette fois (25 au plus à la fois) : redemandez-moi de les reprendre."
     )
 
 
@@ -860,3 +867,77 @@ def test_a_yes_to_a_new_account_creates_it_and_a_yes_to_an_account_confirms_it(m
     several = {"2": "71241000 Travaux", "3": "71243000 Prestations de services"}
     pipeline.answer_invoice({**item, "choices": several}, "le deuxième", "")
     assert made == [("new", 5, "71240000", True), ("confirm", 5, 2, True), ("set", 5, several)]
+
+
+@pytest.mark.functionality
+def test_the_drafts_people_made_in_experio_are_those_tarik_never_made_worked_on_or_asked_about(db_cabinet, monkeypatch):
+    asked = []
+    monkeypatch.setattr(pipeline, "experio_form", lambda: {"types": {"gst_invoice_id": "many2one"}})
+    monkeypatch.setattr(
+        pipeline, "odoo_call", lambda model, method, domain: asked.append(domain) or [30, 31, 32, 33, 34]
+    )
+    with cabinet_db() as db:
+        db.execute(
+            "insert into tarik_files (session_id, file_name, mime_type, data, invoice_id) values "
+            "('s', 'a.pdf', 'application/pdf', '', 30)"
+        )
+        db.execute("insert into tarik_pending (invoice_id, session_id, step, question) values (31, 's', 'x', 'q')")
+    pipeline.record_step("r", "s", "check_invoice", {"status": "ok", "message": "m", "invoice_id": 32})
+    assert made_in_experio(5) == {33, 34}
+    assert asked == [[("company_id", "=", 5), ("state", "in", ["pending", "draft"]), ("gst_invoice_id", "=", False)]]
+    monkeypatch.setattr(pipeline, "experio_form", lambda: {"types": {}})  # no Facturation in this Experio
+    assert made_in_experio(5) == {33, 34} and asked[-1] == asked[0][:2]
+
+
+@pytest.mark.security
+def test_the_drafts_people_made_in_experio_are_taken_only_when_the_client_asks_for_the_dossier(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])
+    monkeypatch.setattr(pipeline, "made_in_experio", lambda dossier_id: {50, 51, 52})
+    NAMES = {50: "ALPHA TRANSPORT", 51: "BRAVO LOGISTIQUE", 52: "CHARLIE SERVICES"}
+
+    def odoo_call(model, method, domain, **kw):
+        if method == "search_read":
+            return [{"id": i, "invoice_number": f"X-{i}", "partner_id": [i, NAMES[i]]} for i in domain[0][2]]
+        return [] if domain[0][1] == "not in" else domain[0][2]
+
+    monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
+    told = pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message="Comptabilisez les factures.")
+    assert told["invoices"] == []
+    assert "3 brouillons d'autres conversations ou créés dans Experio attendent" in told["message"]
+    assert (
+        pipeline.waiting_drafts("new", held=True, client_message="Comptabilisez toutes les factures.")["invoices"] == []
+    )
+    for said, taken in [
+        ("Comptabilisez toutes les factures du dossier.", [50, 51, 52]),
+        ("Comptabilisez la X-51.", [51]),
+        ("Comptabilisez celle de Charlie.", [52]),
+    ]:
+        assert pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message=said)["invoices"] == taken, said
+    # Only when the client asks to post: reading drafts again never takes what people made.
+    assert (
+        pipeline.waiting_drafts("new", stopped=True, dossier_id=5, client_message="Reprenez toutes les factures")[
+            "invoices"
+        ]
+        == []
+    )
+
+
+@pytest.mark.functionality
+def test_no_more_than_so_many_drafts_made_in_experio_are_taken_at_once_and_the_rest_is_said(db_cabinet, monkeypatch):
+    monkeypatch.setattr(pipeline, "facturation_drafts", lambda dossier_id, words: [])
+    monkeypatch.setattr(pipeline, "AT_ONCE", 2)
+    monkeypatch.setattr(pipeline, "made_in_experio", lambda dossier_id: {50, 51, 52})
+    remaining = [52]
+
+    def odoo_call(model, method, domain, **kw):
+        return remaining if domain[0][1] == "not in" else domain[0][2]
+
+    monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
+    told = pipeline.waiting_drafts(
+        "new", held=True, dossier_id=5, client_message="Comptabilisez toutes les factures du dossier."
+    )
+    assert told["invoices"] == [50, 51] and told["tell"]
+    assert told["message"] == (
+        "Restent en brouillon dans ce dossier :\n"
+        "- 1 facture n'a pas été reprise cette fois (2 au plus à la fois) : redemandez-moi de la reprendre."
+    )
