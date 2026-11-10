@@ -3,8 +3,9 @@
 #   - initialises it (one key share), keeps the unseal key and root token in vault/.local/unseal/
 #   - enables the secrets store (kv v2 at secret/) and AppRole logins
 #   - gives tarik-mcp a role that may only read secret/tarik/*, its ids in vault/.local/approle/
-#   - gives tarik-settings (the Cabinets page, the Experio API) a role that may only read, create and update each
-#     cabinet's own settings, secret/tarik/cabinets/*, its ids in vault/.local/settings-approle/
+#   - gives tarik-settings (the Cabinets page, the general settings page, the Experio API) a role that may only read,
+#     create and update each cabinet's own settings, secret/tarik/cabinets/*, and the shared ones, secret/tarik/shared
+#     and secret/tarik/orchestrator, its ids in vault/.local/settings-approle/
 #   - makes EXPERIO_API_KEY (secret/tarik/orchestrator) once, a random key the Experio app shows to the API
 # Safe to run again: each step is skipped when already done. In a deployment it runs as the vault-init container
 # (docker-compose.prod.yml), against the Vault container, at each start of the stack.
@@ -35,8 +36,11 @@ vault read -field=role_id auth/approle/role/tarik-mcp/role-id > /vault/approle/r
 [ -s /vault/approle/secret_id ] || vault write -f -field=secret_id auth/approle/role/tarik-mcp/secret-id > /vault/approle/secret_id
 vault policy write tarik-settings - <<'POLICY'
 # The Cabinets page edits each cabinet's own settings, and the Experio API creates a cabinet's path (never deletes
-# one: a cabinet is deactivated, ACTIVE 0); nothing else, never the shared settings nor the orchestrator's.
-path "secret/data/tarik/cabinets/*" { capabilities = ["create", "read", "update"] }
+# one: a cabinet is deactivated, ACTIVE 0). The general settings page edits the shared ones and the orchestrator's.
+# Nothing else, and nothing is ever deleted.
+path "secret/data/tarik/cabinets/*"   { capabilities = ["create", "read", "update"] }
+path "secret/data/tarik/shared"       { capabilities = ["create", "read", "update"] }
+path "secret/data/tarik/orchestrator" { capabilities = ["create", "read", "update"] }
 POLICY
 vault write auth/approle/role/tarik-settings token_policies=tarik-settings token_ttl=15m token_max_ttl=1h secret_id_ttl=0 >/dev/null
 vault read -field=role_id auth/approle/role/tarik-settings/role-id > /vault/settings-approle/role_id

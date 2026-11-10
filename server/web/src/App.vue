@@ -22,6 +22,7 @@ const general = computed(() => {
   if (session.admin) {
     links.push(
       { href: "/ui/comptes", icon: "accounts", words: "Comptes" },
+      { href: "/ui/parametres", icon: "settings", words: "Paramètres" },
       { href: "/ui/logs-serveur", icon: "journal", words: "Logs serveur" },
     );
   }

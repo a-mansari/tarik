@@ -11,7 +11,7 @@ from engine import runs
 from engine.content import LABELS
 from engine.tools.core import cabinets
 from engine.tools.core.model import ADAPTERS
-from server import audit, cabinet_settings, experio_api
+from server import audit, cabinet_settings, experio_api, shared_settings
 from server.api.accounts import form_of
 from server.api.runs import CHOSEN, chosen, page, switched_off
 
@@ -91,6 +91,112 @@ async def cabinet_page(request: Request):
         "history": [{**item, "at": runs.when(item["at"])} for item in history],
         "adapters": ADAPTERS,
         "active": True,
+    }
+    return page(context, 400 if error else 200)
+
+
+# The general page's sections (the settings every cabinet shares), each with its name and what it does, in plain words.
+GENERAL_SECTIONS = {
+    "Serveur mail": {
+        "IMAP_HOST": ("Serveur IMAP", "Où Tarik lit les emails, pour tous les cabinets."),
+        "IMAP_PORT": ("Port IMAP", "993 en général."),
+        "IMAP_FOLDER": ("Dossier lu", "Le dossier de la boîte que Tarik lit (INBOX)."),
+        "SMTP_HOST": ("Serveur SMTP", "Par où Tarik envoie ses emails."),
+        "SMTP_PORT": ("Port SMTP", "465 (SSL) ou 587 (STARTTLS)."),
+        "MAIL_CERT_SHA256": (
+            "Empreinte du certificat",
+            "Seulement si le serveur mail a un certificat auto-signé : son empreinte SHA-256.",
+        ),
+    },
+    "Modèle": {
+        "MODEL_API_URL": ("Adresse du modèle", "L'adresse du fournisseur du modèle. Vide : celle du .env."),
+        "MODEL_API_KEY": ("Clé du modèle", "Pour un cabinet dont le modèle n'est pas Claude Code."),
+        "CLAUDE_CODE_OAUTH_TOKEN": (
+            "Connexion Claude Code",
+            "Pour un cabinet dont le modèle est Claude Code : le jeton de `claude setup-token`.",
+        ),
+    },
+    "Experio": {
+        "EXPERIO_API_KEY": (
+            "Clé de l'API Tarik",
+            "La clé que l'app Experio montre pour créer, modifier ou fermer des cabinets. La changer coupe le lien "
+            "jusqu'à ce qu'Experio ait la nouvelle.",
+        ),
+        "PUBLIC_URL": (
+            "Adresse publique de Tarik",
+            "Pour les liens vers les formulaires que Tarik envoie aux clients.",
+        ),
+    },
+    "Gladden": {
+        "GLADDEN_URL": ("Adresse de Gladden", "Le classeur de pièces d'Experio. Vide : Gladden n'est pas utilisé."),
+        "GLADDEN_CALLBACK_URL": ("Adresse de retour", "L'adresse de ce serveur, telle que Gladden l'atteint."),
+    },
+    "WhatsApp (Sparrow)": {
+        "SPARROW_URL": ("Adresse de Sparrow", "Le relais WhatsApp d'Experio. Vide : pas de WhatsApp."),
+        "SPARROW_SENDER_ID": ("Expéditeur", "L'identifiant de l'expéditeur WhatsApp d'Experio, chez Sparrow."),
+        "SPARROW_TOKEN": ("Jeton de Sparrow", "Le jeton principal de Sparrow."),
+    },
+}
+assert sorted(key for keys in GENERAL_SECTIONS.values() for key in keys) == sorted(shared_settings.FIELDS)
+GENERAL_NAMES = {key: name for keys in GENERAL_SECTIONS.values() for key, (name, _) in keys.items()}
+
+
+def general_fields(data):
+    """Return the general page's sections: [(title, [{key, kind, optional, name, description, value}])], a secret's
+    value only True (set) or False."""
+    values = shared_settings.shown(data)
+    return [
+        (
+            title,
+            [
+                {
+                    "key": key,
+                    "kind": shared_settings.FIELDS[key],
+                    "optional": key in shared_settings.OPTIONAL,
+                    "name": name,
+                    "description": description,
+                    "value": values[key],
+                }
+                for key, (name, description) in keys.items()
+            ],
+        )
+        for title, keys in GENERAL_SECTIONS.items()
+    ]
+
+
+async def general_page(request: Request):
+    """GET or POST /ui/api/settings/general: return the settings every cabinet shares, after saving a change when
+    posted. POST takes JSON {version, note?, <settings>}; refused (400) when Vault holds a newer version
+    (shared_settings.save) or a value is not usable, the non-secret values then sent back as typed. 503 when Vault
+    cannot be read, or the page's role may not read these paths (vault/setup.sh)."""
+    error, given, saved = None, {}, None
+    if request.method == "POST":
+        form = await form_of(request, 40)
+        given = {key: value for key, value in form.items() if key in shared_settings.FIELDS}
+        try:
+            saved = await shared_settings.save(
+                runs.pool, given, form.get("version", ""), request.state.user["email"], form.get("note", "")
+            )
+        except ValueError as refused:
+            error = str(refused)
+    try:
+        stores, versions = await asyncio.to_thread(shared_settings.latest)
+    except Exception:
+        return page({"unreachable": True}, 503)
+    sections = general_fields(shared_settings.merged(stores))
+    if error:  # the form as it was sent, its secrets never sent back
+        for _, items in sections:
+            for item in items:
+                if item["kind"] != "secret" and item["key"] in given:
+                    item["value"] = given[item["key"]]
+    history = await cabinet_settings.history(runs.pool, shared_settings.GENERAL)
+    context = {
+        "sections": sections,
+        "version": shared_settings.version_of(versions),
+        "error": error,
+        "saved": saved,
+        "names": GENERAL_NAMES,
+        "history": [{**item, "at": runs.when(item["at"])} for item in history],
     }
     return page(context, 400 if error else 200)
 
