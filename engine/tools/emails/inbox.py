@@ -7,8 +7,8 @@ already opened in the mailbox is still answered, and a thread waiting for the cl
 replies.
 
 Tarik answers only the cabinet's collaborators and Experio's own staff, and only when the whitelist
-(MAIL_ALLOWED_RECIPIENTS) lets Tarik write to them. Any other email is set aside without being read by the agent, so
-it creates nothing in Experio."""
+(MAIL_ALLOWED_RECIPIENTS) lets Tarik write to them, and the sender is not on MAIL_IGNORED_SENDERS (set aside quietly).
+Any other email is set aside without being read by the agent, so it creates nothing in Experio."""
 
 import contextlib
 import hashlib
@@ -29,7 +29,7 @@ from engine.tools.core.words import counted, strip_tags
 from engine.tools.dossiers.behaviour import behaviour
 from engine.tools.dossiers.people import collaborator
 from engine.tools.dossiers.setup import setups_settled, waiting_setups
-from engine.tools.emails.sending import imap_session, recipient_allowed, send_email
+from engine.tools.emails.sending import address_list, imap_session, recipient_allowed, send_email
 from engine.tools.invoices.pipeline import waiting_drafts
 
 LEASE_MINUTES = 30  # a run silent longer than this is taken as dead: the thread is picked up again
@@ -235,6 +235,8 @@ def refusal(sender, auto):
     use Tarik; an automatic email (``auto``) gives a reason only."""
     if auto:
         return "C'est une réponse automatique ou un message de liste de diffusion.", None
+    if recipient_allowed(sender, address_list("MAIL_IGNORED_SENDERS")):
+        return "L'expéditeur est dans la liste des expéditeurs ignorés.", None  # set aside quietly: no alert
     if not recipient_allowed(sender):
         reason = "L'expéditeur n'est pas dans la liste des adresses autorisées."
         return reason, reason

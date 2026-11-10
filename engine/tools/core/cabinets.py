@@ -250,6 +250,7 @@ CABINET_SETTINGS = frozenset(
         "SMTP_FROM",
         "MAIL_MANAGER",
         "MAIL_ALLOWED_RECIPIENTS",
+        "MAIL_IGNORED_SENDERS",
         "LLM_CHOICE",  # optional: the global LLM the cabinet picks (claude, minimax, an extra's name), or "custom"
         "LLM_TYPE",  # custom LLM: a key of model.TYPES
         "LLM_MODEL",
