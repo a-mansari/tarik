@@ -1202,34 +1202,34 @@ cytoscape.use(cytoscapeDagre); // once, whatever number of canvases
       </select>
     </label>
     <div class="replay" role="group" aria-label="Rejouer l'exécution">
-      <button type="button" aria-label="Moment précédent" @click="previous">◀</button>
+      <button type="button" class="btn" aria-label="Moment précédent" @click="previous">◀</button>
       <input type="range" min="0" :max="replay.max" :value="replay.value" aria-label="Moment rejoué" @input="onMoment">
-      <button type="button" aria-label="Moment suivant" @click="next">▶</button>
-      <button type="button" :disabled="replay.whole" @click="go(null)">Tout</button>
+      <button type="button" class="btn" aria-label="Moment suivant" @click="next">▶</button>
+      <button type="button" class="btn" :disabled="replay.whole" @click="go(null)">Tout</button>
       <span class="muted" role="status">{{ replay.label }}</span>
     </div>
   </div>
   <div class="flow">
     <div class="canvas-wrap">
       <div class="canvas-tools">
-        <button type="button" @click="home">Au début</button>
+        <button type="button" class="btn" @click="home">Au début</button>
         <ZoomBar :zoom="zoom" @update:zoom="zoomTo" @fit="fit" />
-        <button type="button" id="fold-all" class="icon-button" :class="{ folding: tools.allOpen }" :hidden="tools.foldHidden"
+        <button type="button" id="fold-all" class="btn btn-icon" :class="{ folding: tools.allOpen }" :hidden="tools.foldHidden"
           :aria-label="tools.allOpen ? 'Tout replier' : 'Tout déplier'"
           :data-tip="tools.allOpen ? 'Tout replier : refermer chaque sous-workflow' : 'Tout déplier : ouvrir chaque sous-workflow'" @click="foldAll">
           <svg v-bind="ICON" class="unfold"><path d="M7 15l5 5 5-5"/><path d="M7 9l5-5 5 5"/></svg>
           <svg v-bind="ICON" class="fold"><path d="M7 20l5-5 5 5"/><path d="M7 4l5 5 5-5"/></svg>
         </button>
         <template v-if="session.admin">
-          <button type="button" class="icon-button" :disabled="!tools.dirty || tools.saving" aria-label="Enregistrer la disposition"
+          <button type="button" class="btn btn-icon" :disabled="!tools.dirty || tools.saving" aria-label="Enregistrer la disposition"
             data-tip="Enregistrer la disposition, pour toute l'équipe" @click="save">
             <svg v-bind="ICON"><path d="M5 3h11l3 3v13a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z"/><path d="M8 3v5h7V3"/><rect x="8" y="13" width="8" height="5" rx="1"/></svg>
           </button>
-          <button type="button" class="icon-button" :disabled="!tools.dirty" aria-label="Annuler les modifications"
+          <button type="button" class="btn btn-icon" :disabled="!tools.dirty" aria-label="Annuler les modifications"
             data-tip="Annuler les modifications : revenir à la disposition enregistrée" @click="undo">
             <svg v-bind="ICON"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
           </button>
-          <button type="button" class="icon-button" :data-confirm="tools.confirm ? 'yes' : ''" aria-label="Disposition automatique"
+          <button type="button" class="btn btn-icon" :data-confirm="tools.confirm ? 'yes' : ''" aria-label="Disposition automatique"
             data-tip="Disposition automatique : oublier la disposition enregistrée" @click="reset">
             <svg v-bind="ICON"><path d="m4 20 10-10"/><path d="m12 8 2 2"/><path d="M17 3v4M15 5h4M20 10v3M18.5 11.5h3M9 3v2M8 4h2"/></svg>
             <span class="confirm-text">Confirmer ?</span>
@@ -1281,8 +1281,8 @@ cytoscape.use(cytoscapeDagre); // once, whatever number of canvases
         <p v-if="panel.description" class="what">{{ panel.description }}</p>
         <p class="mono muted">{{ panel.id }}</p>
         <div v-if="panel.fold || panel.whole" class="panel-actions">
-          <button v-if="panel.fold" type="button" class="panel-button" @click="toggle(panel.id)">{{ panel.fold }}</button>
-          <RouterLink v-if="panel.whole" class="panel-button" :to="`/ui/workflows/${panel.whole}`">Ouvrir le workflow</RouterLink>
+          <button v-if="panel.fold" type="button" class="btn btn-soft" @click="toggle(panel.id)">{{ panel.fold }}</button>
+          <RouterLink v-if="panel.whole" class="btn btn-soft" :to="`/ui/workflows/${panel.whole}`">Ouvrir le workflow</RouterLink>
         </div>
         <template v-if="!run">
           <p v-if="panel.into.length">Vient de : {{ panel.into.join(", ") }}</p>
@@ -1294,7 +1294,7 @@ cytoscape.use(cytoscapeDagre); // once, whatever number of canvases
           <template v-if="panel.started.length">
             <p>{{ panel.started.length > 1 ? "Exécutions lancées par cette étape :" : "Exécution lancée par cette étape :" }}</p>
             <div class="panel-actions">
-              <RouterLink v-for="child in panel.started" :key="child.run_id" class="panel-button" :to="`/ui/executions/${child.run_id}`">{{ child.words }}</RouterLink>
+              <RouterLink v-for="child in panel.started" :key="child.run_id" class="btn btn-soft" :to="`/ui/executions/${child.run_id}`">{{ child.words }}</RouterLink>
             </div>
           </template>
           <ol class="panel-steps">
@@ -1319,13 +1319,13 @@ cytoscape.use(cytoscapeDagre); // once, whatever number of canvases
         <p class="muted">{{ panel.conditional ? "Suivie selon le cas." : "Toujours suivie." }}</p>
         <p>Tracé</p>
         <div class="panel-actions">
-          <button v-for="[style, name] in ROUTES" :key="style" type="button" class="panel-button"
+          <button v-for="[style, name] in ROUTES" :key="style" type="button" class="btn btn-soft"
             :aria-pressed="String(panel.style === style && !panel.points)" @click="route(style)">{{ name }}</button>
         </div>
         <p>Points de passage : {{ panel.points }}</p>
         <div class="panel-actions">
-          <button type="button" class="panel-button" @click="addPoint">Ajouter un point de passage</button>
-          <button v-if="panel.points" type="button" class="panel-button" @click="clearPoints">Retirer les points</button>
+          <button type="button" class="btn btn-soft" @click="addPoint">Ajouter un point de passage</button>
+          <button v-if="panel.points" type="button" class="btn btn-soft" @click="clearPoints">Retirer les points</button>
         </div>
         <p class="muted">Faites glisser un point pour déplacer la liaison ; double-cliquez dessus pour le retirer.</p>
       </template>

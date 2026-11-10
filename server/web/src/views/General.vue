@@ -46,12 +46,12 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
       <h1>Paramètres</h1>
       <p class="what">Ce que Tarik partage entre tous les cabinets. Une clé ou un jeton n'est jamais affiché : il se remplace seulement. Un changement s'applique dès le message suivant.</p>
     </div></div>
-    <div v-if="data.unreachable" class="panel bad" role="alert">
+    <div v-if="data.unreachable" class="panel panel-bad" role="alert">
       <b>Paramètres illisibles.</b> Vault ne répond pas, ou le rôle de cette page (tarik-settings) n'a pas le droit de
       lire ces réglages : relancer <span class="mono">vault/setup.sh</span>.</div>
     <template v-else>
-      <div v-if="data.error" class="panel bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
-      <div v-if="data.saved" class="panel accent" role="status">
+      <div v-if="data.error" class="panel panel-bad" role="alert"><b>Non enregistré :</b> {{ data.error }}.</div>
+      <div v-if="data.saved" class="panel panel-accent" role="status">
         <template v-if="data.saved.length">Enregistré : {{ savedNames }}. En service dès maintenant.</template>
         <template v-else>Rien n'a changé.</template>
       </div>
@@ -82,7 +82,7 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
         </form>
         <div class="side-column">
           <section class="panel save-card" aria-label="Enregistrer">
-            <button type="submit" form="general-form" class="primary">Enregistrer</button>
+            <button type="submit" form="general-form" class="btn btn-primary">Enregistrer</button>
           </section>
           <aside class="side panel">
             <h2>Historique</h2>

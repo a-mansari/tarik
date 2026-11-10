@@ -78,7 +78,7 @@ watch(() => data.value?.going, async (going, was) => {
       <div>
         <h1><template v-if="data.cabinet"><CabinetLabel :name="data.cabinet" /> · </template>Discussions</h1>
       </div>
-      <RouterLink v-if="data.cabinet" class="primary" :to="`/ui/discussion/${data.new}`"><Icon name="plus" />Nouvelle discussion</RouterLink>
+      <RouterLink v-if="data.cabinet" class="btn btn-primary" :to="`/ui/discussion/${data.new}`"><Icon name="plus" />Nouvelle discussion</RouterLink>
     </div>
     <div class="table-wrap">
       <table class="runs">

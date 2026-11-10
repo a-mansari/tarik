@@ -22,5 +22,5 @@ defineExpose({ tell });
 </script>
 
 <template>
-  <div v-if="told" ref="box" :class="['panel', told.bad ? 'bad' : 'accent']" role="status">{{ told.text }}</div>
+  <div v-if="told" ref="box" :class="['panel', told.bad ? 'panel-bad' : 'panel-accent']" role="status">{{ told.text }}</div>
 </template>

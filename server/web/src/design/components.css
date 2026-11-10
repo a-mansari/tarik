@@ -1,38 +1,37 @@
-/* Tarik's components, built from design/tokens.css only. The names below are the design system's; the older class names
-   the pages still use (.primary, .panel-button, ...) are listed beside them, so one rule styles both, and move to the new
-   names a page at a time. See design/README.md for when to use which. */
+/* Tarik's components, built from design/tokens.css only. See design/README.md for when to use which. */
 
 /* Focus: one ring, everywhere, for the keyboard only. */
 :focus-visible { outline: var(--focus); outline-offset: var(--focus-offset); }
+
+/* hidden means hidden, whatever display a component sets. */
+[hidden] { display: none !important; }
 
 /* --- Button ---------------------------------------------------------------------------------------------------
    .btn is the secondary look (a bordered surface). Modifiers: .btn-primary (the page's main action, one per view),
    .btn-soft (a tinted choice beside it), .btn-ghost (no frame), .btn-danger, .btn-sm; an icon-only one is .btn-icon with
    a title and an aria-label. */
-.btn, .card-action, .card-tools button, .compare button, .who button, .replay button, .canvas-tools button,
-button.primary, a.primary, .panel-button, .login button {
+.btn {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
   min-height: var(--control-h); padding: var(--space-2) .9rem; box-sizing: border-box;
   font: inherit; font-size: var(--text-sm); font-weight: var(--weight-normal); line-height: var(--leading-tight);
   color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   cursor: pointer; text-decoration: none; transition: background var(--dur), border-color var(--dur);
 }
-.btn:hover, .card-tools button:hover, .who button:hover, .replay button:hover, .canvas-tools button:hover { background: var(--bg); }
-.btn-primary, button.primary, a.primary, .login button, .compare button, .panel-button[aria-pressed="true"] {
+.btn:hover { background: var(--bg); }
+.btn-primary, .btn-soft[aria-pressed="true"] {
   color: var(--on-accent); background: var(--accent); border-color: var(--accent);
 }
-.btn-primary:hover, button.primary:hover, a.primary:hover, .panel-button[aria-pressed="true"]:hover { filter: brightness(1.08); background: var(--accent); }
-.btn-soft, .panel-button { color: var(--fg); background: var(--accent-soft); border-color: var(--accent); }
-.btn-soft:hover, .panel-button:hover { background: var(--accent-soft); filter: brightness(.97); }
+.btn-primary:hover, .btn-soft[aria-pressed="true"]:hover { filter: brightness(1.08); background: var(--accent); }
+.btn-soft { color: var(--fg); background: var(--accent-soft); border-color: var(--accent); }
+.btn-soft:hover { background: var(--accent-soft); filter: brightness(.97); }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--muted); }
 .btn-ghost:hover { background: var(--accent-soft); color: var(--fg); }
 .btn-danger { color: var(--bad); border-color: var(--bad); background: var(--surface); }
 .btn-danger:hover { background: var(--bad-bg); }
 .btn-sm { min-height: 1.9rem; padding: var(--space-1) var(--space-3); font-size: var(--text-xs); }
-.btn-icon, .icon-button { line-height: 0; }
-.btn-icon { padding-inline: var(--space-2); }
-.icon-button svg { display: block; }
-.btn:disabled, .panel-button:disabled, button.primary:disabled, .replay button:disabled, .canvas-tools button:disabled { opacity: .5; cursor: progress; }
+.btn-icon { padding-inline: var(--space-2); line-height: 0; }
+.btn-icon svg { display: block; }
+.btn:disabled { opacity: .5; cursor: default; }
 
 /* --- Field -----------------------------------------------------------------------------------------------------
    A label above its control: <label class="field"><span>Name</span><input></label>; a hint below in .field-hint, an error
@@ -78,8 +77,8 @@ button.primary, a.primary, .panel-button, .login button {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
   padding: var(--space-4) 1.15rem; min-width: 0;
 }
-.panel.accent, .panel-accent { border-left: 4px solid var(--accent); }
-.panel.bad, .panel-bad { border-left: 4px solid var(--bad); }
+.panel-accent { border-left: 4px solid var(--accent); }
+.panel-bad { border-left: 4px solid var(--bad); }
 .panel-wait { border-left: 4px solid var(--wait); }
 .panel-good { border-left: 4px solid var(--good); }
 

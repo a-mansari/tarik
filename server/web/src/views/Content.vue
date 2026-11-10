@@ -141,8 +141,8 @@ async function restore() {
       <p v-if="data.model" class="muted">Modèle : <b>{{ data.model }}</b> (se change dans le code, pas ici).</p>
     </div></div>
     <div v-if="!session.admin" class="panel" role="status">Lecture seule : seul un administrateur modifie le contenu.</div>
-    <div v-if="error" class="panel bad" role="alert"><b>Non enregistré :</b> {{ error }}. Corrigez puis enregistrez à nouveau.</div>
-    <div v-if="saved === '1'" class="panel accent" role="status">Enregistré. Tarik l'utilise dès le message suivant.</div>
+    <div v-if="error" class="panel panel-bad" role="alert"><b>Non enregistré :</b> {{ error }}. Corrigez puis enregistrez à nouveau.</div>
+    <div v-if="saved === '1'" class="panel panel-accent" role="status">Enregistré. Tarik l'utilise dès le message suivant.</div>
     <div v-else-if="saved === '0'" class="panel" role="status">Rien n'a changé : aucune nouvelle version.</div>
     <ContentStatus ref="told" @saved="reload" />
     <div v-if="data.compare" class="panel compare-banner">
@@ -152,8 +152,8 @@ async function restore() {
         <template v-else>elle n'a rien changé.</template>
         Les champs gardent le texte en service.</p>
       <div class="panel-actions">
-        <button v-if="canRestore" type="button" class="primary" :disabled="busy" @click="restore">Revenir à cette version</button>
-        <RouterLink class="panel-button" :to="`/ui/tarik-prompts/${data.path}`" @click="cleared">Fermer</RouterLink>
+        <button v-if="canRestore" type="button" class="btn btn-primary" :disabled="busy" @click="restore">Revenir à cette version</button>
+        <RouterLink class="btn btn-soft" :to="`/ui/tarik-prompts/${data.path}`" @click="cleared">Fermer</RouterLink>
       </div>
     </div>
     <div class="flow content-flow">
@@ -161,8 +161,8 @@ async function restore() {
         <!-- Read-only fields, not a disabled fieldset, so a member can still preview the Markdown. -->
         <fieldset class="plain">
           <div v-if="data.sections.length > 1" class="card-tools">
-            <button type="button" class="icon-button" title="Tout déplier" aria-label="Tout déplier" @click="allCards(true)"><Icon name="unfold" /></button>
-            <button type="button" class="icon-button" title="Tout replier" aria-label="Tout replier" @click="allCards(false)"><Icon name="fold" /></button>
+            <button type="button" class="btn btn-icon" title="Tout déplier" aria-label="Tout déplier" @click="allCards(true)"><Icon name="unfold" /></button>
+            <button type="button" class="btn btn-icon" title="Tout replier" aria-label="Tout replier" @click="allCards(false)"><Icon name="fold" /></button>
           </div>
           <!-- One card per section; closed cards' fields are still sent. -->
           <details
@@ -181,7 +181,7 @@ async function restore() {
                 </span>
                 <span class="muted">{{ section.fields.length }} champ{{ plural(section.fields.length) }}</span>
                 <a
-                  class="card-action"
+                  class="btn"
                   :href="`${API}${here}?export=${i}`"
                   download
                   :data-tip="data.tips.section_export"
@@ -190,7 +190,7 @@ async function restore() {
                 >Exporter</a>
                 <ContentImport
                   v-if="session.admin"
-                  class="card-action"
+                  class="btn"
                   :to="here"
                   :tip="data.tips.section_import"
                   @done="(answer) => told?.tell(answer)"
@@ -221,7 +221,7 @@ async function restore() {
                       <button
                         v-if="f.long"
                         type="button"
-                        class="card-action preview-toggle"
+                        class="btn preview-toggle"
                         :aria-label="editing[f.key] ? 'Aperçu Markdown' : 'Modifier'"
                         :data-tip="editing[f.key] ? 'Aperçu Markdown' : 'Modifier'"
                         @click="togglePreview(f.key, $event)"
@@ -254,7 +254,7 @@ async function restore() {
                     <button
                       v-if="f.long"
                       type="button"
-                      class="card-action preview-toggle"
+                      class="btn preview-toggle"
                       :aria-label="editing[f.key] ? 'Aperçu Markdown' : 'Modifier'"
                       :data-tip="editing[f.key] ? 'Aperçu Markdown' : 'Modifier'"
                       @click="togglePreview(f.key, $event)"
@@ -294,7 +294,7 @@ async function restore() {
               placeholder="ex. : demander l'exercice avant le compte"
             ></textarea>
           </label>
-          <button type="submit" form="content-form" class="primary" :disabled="busy">Enregistrer</button>
+          <button type="submit" form="content-form" class="btn btn-primary" :disabled="busy">Enregistrer</button>
         </section>
         <aside class="side panel">
           <h2>Historique</h2>

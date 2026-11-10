@@ -42,6 +42,6 @@ if (cabinet) useLive(`cabinet=${encodeURIComponent(cabinet)}`, reload);
         </tbody>
       </table>
     </div>
-    <p v-if="data.older"><RouterLink class="panel-button" :to="`/ui/llm-calls?before=${data.older}`">Plus ancien</RouterLink></p>
+    <p v-if="data.older"><RouterLink class="btn btn-soft" :to="`/ui/llm-calls?before=${data.older}`">Plus ancien</RouterLink></p>
   </template>
 </template>

@@ -126,7 +126,7 @@ function onKey(event) {
       <label class="attach"><Icon name="attach" /><span>Joindre des fichiers</span>
         <input type="file" name="files" multiple :accept="accepted" @change="picked"></label>
       <ul class="chosen" aria-live="polite"><li v-for="(file, at) in files" :key="at">{{ file.name }}</li></ul>
-      <button type="submit" class="primary icon-button" title="Envoyer" aria-label="Envoyer" :disabled="busy || sending"><Icon name="send" /></button>
+      <button type="submit" class="btn btn-primary btn-icon" title="Envoyer" aria-label="Envoyer" :disabled="busy || sending"><Icon name="send" /></button>
     </div>
     <p v-if="failure" class="bad-text">{{ failure }}</p>
     <details class="limits" :open="limitsOpen" @toggle="limitsOpen = $event.target.open">

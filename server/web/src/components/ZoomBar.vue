@@ -17,7 +17,7 @@ const ticks = useId(); // one datalist per bar on a page
 </script>
 
 <template>
-  <button type="button" class="icon-button" aria-label="Tout voir" data-tip="Tout voir : le schéma entier, centré" @click="emit('fit')">
+  <button type="button" class="btn btn-icon" aria-label="Tout voir" data-tip="Tout voir : le schéma entier, centré" @click="emit('fit')">
     <Icon name="fit" />
   </button>
   <label class="zoom-slider" data-tip="Zoom : glisser, ou cliquer une graduation">

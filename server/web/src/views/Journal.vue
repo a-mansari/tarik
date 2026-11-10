@@ -74,6 +74,6 @@ function older() {
         </tbody>
       </table>
     </div>
-    <p v-if="data.older"><RouterLink class="panel-button" :to="older()">Plus ancien</RouterLink></p>
+    <p v-if="data.older"><RouterLink class="btn btn-soft" :to="older()">Plus ancien</RouterLink></p>
   </template>
 </template>
