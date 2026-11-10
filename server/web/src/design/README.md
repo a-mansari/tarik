@@ -15,7 +15,11 @@ The UI is a working tool for an accounting team: dense, calm, readable at a glan
 5. **Borders, not shadows.** A shadow only for what floats (`--shadow-pop`: popups, `--shadow-float`: the back-to-top button).
 6. **Status is colour plus words or an icon**, never colour alone: `.chip-good`, `.chip-wait`, `.chip-bad`, `.panel-good|wait|bad` for notices.
 7. **Little text.** A label says what the thing is. Explanations go in a `title`, not under every field. Use `.field-hint` only when the label cannot be clear.
-8. **Space on the 4 px rhythm** (`--space-1` to `--space-7`); radius by role: `--radius` controls, `--radius-lg` containers, `--radius-xl` popups, `--radius-pill` chips.
+8. **Space on the 4 px rhythm**: `--space-N` is N × 4 px (1, 2, 3, 4, 5, 6, 8, 12), and gap, padding and margin use them; radius by role: `--radius` controls, `--radius-lg` containers, `--radius-xl` popups, `--radius-pill` chips.
+
+## Field grid
+
+Settings-style forms put their fields in `.field-grid`: one to four per line, filling it, each at least `--field-min` wide, so a field wraps below when the line is too narrow and a line never holds more than four.
 
 ## Status classes
 

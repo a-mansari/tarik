@@ -45,6 +45,10 @@ def found(pattern, text_of=styles):
         ("a shadow", r"box-shadow: [^;}\n]*[0-9.]+(?:px|rem)"),
         ("a text size", r"font(?:-size)?: (?!inherit|var\()[^;}\n]*?[0-9.]+(?:rem|px)\b"),
         ("a focus ring", r"outline: [0-9.]+px solid"),
+        (
+            "a spacing",
+            r"\b(?:gap|row-gap|column-gap|padding[\w-]*|margin[\w-]*):\s*[^;}\n]*(?<![\w.])-?[0-9]*\.?[0-9]+(?:rem|px)\b",
+        ),
     ],
 )
 def test_a_page_takes_its_values_from_the_design_tokens(what, pattern):

@@ -194,46 +194,46 @@ const what = computed(() => (props.form.kind === "instruction" && props.form.pro
 
 <style scoped>
 .routine-form { display: grid; }
-.step-row { border: 0; border-top: 1px solid var(--line); margin: 0; padding: var(--space-4) 0; display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: .6rem 1.2rem; }
-.step-row:first-child { border-top: 0; padding-top: .2rem; }
+.step-row { border: 0; border-top: 1px solid var(--line); margin: 0; padding: var(--space-4) 0; display: grid; grid-template-columns: 11rem minmax(0, 1fr); gap: var(--space-2) var(--space-5); }
+.step-row:first-child { border-top: 0; padding-top: var(--space-1); }
 legend { float: left; font-weight: 600; display: flex; align-items: flex-start; gap: var(--space-2); padding: 0; line-height: 1.5rem; }
 .step { flex: none; display: inline-grid; place-items: center; width: 1.5rem; height: 1.5rem; border-radius: var(--radius-round); background: var(--accent-soft); color: var(--accent); font-size: var(--text-sm); }
-.controls { display: grid; gap: .7rem; min-width: 0; }
+.controls { display: grid; gap: var(--space-3); min-width: 0; }
 .tasks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-2); }
-.task { position: relative; display: grid; align-content: start; gap: .2rem; padding: .6rem .7rem; border: 1px solid var(--line); border-radius: var(--radius-lg); cursor: pointer; background: var(--bg); color: var(--fg); }
+.task { position: relative; display: grid; align-content: start; gap: var(--space-1); padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-lg); cursor: pointer; background: var(--bg); color: var(--fg); }
 .task input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .task:hover { border-color: var(--muted); }
 .task.chosen { border-color: var(--accent); background: var(--accent-soft); box-shadow: var(--ring-inset); }
 .task span { font-size: var(--text-sm); line-height: 1.35; }
-.examples { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; font-size: var(--text-sm); }
-.example, .preset { font: inherit; background: none; border-radius: var(--radius-pill); padding: .2rem .6rem; cursor: pointer; }
+.examples { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); font-size: var(--text-sm); }
+.example, .preset { font: inherit; background: none; border-radius: var(--radius-pill); padding: var(--space-1) var(--space-2); cursor: pointer; }
 .example { color: var(--fg); border: 1px dashed var(--line); }
 .example:hover { border-color: var(--accent); }
 .segmented { display: inline-flex; flex-wrap: wrap; justify-self: start; border: 1px solid var(--line); border-radius: var(--radius-lg); overflow: hidden; background: var(--bg); }
-.segmented button { font: inherit; font-size: var(--text-sm); color: var(--fg); background: none; border: 0; border-left: 1px solid var(--line); padding: .4rem .85rem; cursor: pointer; }
+.segmented button { font: inherit; font-size: var(--text-sm); color: var(--fg); background: none; border: 0; border-left: 1px solid var(--line); padding: var(--space-2) var(--space-3); cursor: pointer; }
 .segmented button:first-child { border-left: 0; }
 .segmented button:hover { background: var(--accent-soft); }
 .segmented button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
 .task:has(input:focus-visible) { outline: var(--focus); outline-offset: var(--focus-offset); }
 .segmented button:focus-visible { outline: var(--focus); outline-offset: calc(var(--focus-offset) * -1); }
 .days button { text-transform: capitalize; min-width: 3rem; }
-.week { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) .8rem; }
-.presets { display: flex; gap: .3rem; }
+.week { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.presets { display: flex; gap: var(--space-1); }
 .preset { font-size: var(--text-sm); color: var(--muted); border: 1px solid transparent; }
 .preset:hover { color: var(--fg); }
 .preset.on { color: var(--accent); border-color: var(--accent); }
-.when { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem; }
+.when { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .field.inline { display: flex; align-items: center; gap: var(--space-2); }
 .field.inline :is(select, input) { width: auto; }
 .warn { color: var(--bad); margin: 0; font-size: var(--text-sm); }
-.form-foot { border-top: 1px solid var(--line); padding-top: var(--space-4); display: grid; gap: .8rem; }
-.recap { margin: 0; padding: .6rem .8rem; border-radius: var(--radius); background: var(--bg); border-left: 3px solid var(--accent); }
+.form-foot { border-top: 1px solid var(--line); padding-top: var(--space-4); display: grid; gap: var(--space-3); }
+.recap { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius); background: var(--bg); border-left: 3px solid var(--accent); }
 .foot-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-2); }
 .foot-actions .switch { margin-right: auto; }
 @media (max-width: 720px) {
   .step-row, .tasks { grid-template-columns: 1fr; }
   /* phone: the joined bar wraps, so each button gets its own border */
-  .segmented { border: 0; border-radius: 0; gap: .3rem; background: none; }
+  .segmented { border: 0; border-radius: 0; gap: var(--space-1); background: none; }
   .segmented button, .segmented button:first-child { border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
 }
 </style>

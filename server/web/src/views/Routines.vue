@@ -133,13 +133,13 @@ function remove(routine) {
 
 <style scoped>
 .routine { display: grid; gap: var(--space-2); }
-.routine-head { display: flex; flex-wrap: wrap; align-items: center; gap: .8rem var(--space-4); }
-.routine-what { display: grid; gap: .15rem; flex: 1 1 18rem; min-width: 0; }
-.routine-tools { display: flex; gap: .4rem; }
-.routine > .routine-form { border-top: 1px solid var(--line); margin-top: .4rem; padding-top: .8rem; }
+.routine-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); }
+.routine-what { display: grid; gap: var(--space-1); flex: 1 1 18rem; min-width: 0; }
+.routine-tools { display: flex; gap: var(--space-2); }
+.routine > .routine-form { border-top: 1px solid var(--line); margin-top: var(--space-2); padding-top: var(--space-3); }
 .state { min-width: 6.5rem; }
 .state .on { color: var(--good); font-weight: 600; }
-.empty { display: grid; gap: .4rem; justify-items: start; }
+.empty { display: grid; gap: var(--space-2); justify-items: start; }
 .empty p { margin: 0; }
-section h2 { margin: 0 0 .8rem; font-size: var(--text-lg); }
+section h2 { margin: 0 0 var(--space-3); font-size: var(--text-lg); }
 </style>
