@@ -1,7 +1,7 @@
-"""The Claude Code CLI as Tarik's model (MODEL_ADAPTER "claude-code", the Cabinets page): one `claude -p` per call,
-its own tools and settings off, logged in with CLAUDE_CODE_OAUTH_TOKEN (`claude setup-token`, Vault
-secret/tarik/orchestrator) or ANTHROPIC_API_KEY. The prompt goes in as Anthropic content blocks (stream-json), so
-images and PDFs reach the model as they would through the API."""
+"""The Claude Code CLI as Tarik's model (an LLM of the type claude-code: Claude, the default, or another): one
+`claude -p` per call, its own tools and settings off, logged in with the LLM's token (`claude setup-token`) or
+ANTHROPIC_API_KEY. The prompt goes in as Anthropic content blocks (stream-json), so images and PDFs reach the model as
+they would through the API."""
 
 import json
 import os
@@ -12,10 +12,9 @@ import threading
 import time
 
 from engine.tools.core import usage
-from engine.tools.core.cabinets import setting
 from engine.tools.core.config import MODEL_TIMEOUT
 
-MODEL = "sonnet"  # shortcut: one model for the CLI, make it a setting when a cabinet needs another
+MODEL = "sonnet"  # the model of the global LLM Claude; any other LLM of this type names its own (ask: ``model``)
 EFFORT = "medium"  # set, not left to the CLI's default, which can change between versions
 
 
@@ -60,12 +59,12 @@ class ClaudeCodeUnreadable(ClaudeCodeError):
     """No answer in the shape asked: none structured, the CLI's retries at one spent, or the schema too long."""
 
 
-def ask(system, content, schema, timeout=MODEL_TIMEOUT):
+def ask(system, content, schema, timeout=MODEL_TIMEOUT, token="", model=MODEL):
     """Return the CLI's answer to one user message ``content`` (Anthropic content blocks) under system prompt
     ``system``: the dict matching JSON ``schema``, within ``timeout`` seconds (the wait for a free process included).
+    ``token``: the CLI's login (an LLM's key; none: the CLI's own), ``model`` the CLI's model.
     Raises ClaudeCodeUnreadable when it gives no answer in that shape, ClaudeCodeError when the CLI is missing,
     busy, times out or fails."""
-    token = setting("CLAUDE_CODE_OAUTH_TOKEN", "")
     env = {**os.environ, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
     if token:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token
@@ -82,7 +81,7 @@ def ask(system, content, schema, timeout=MODEL_TIMEOUT):
             command = [
                 "claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--no-session-persistence",
-                "--model", MODEL, "--effort", EFFORT, "--system-prompt-file", prompt,
+                "--model", model, "--effort", EFFORT, "--system-prompt-file", prompt,
                 "--json-schema", shape,
             ]  # fmt: skip
             try:

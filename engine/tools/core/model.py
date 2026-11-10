@@ -1,5 +1,5 @@
-"""The vision model the tools ask (MiniMax-M3 through its Anthropic-style API, or Claude through the Claude Code CLI,
-per cabinet), and the pages of the documents clients send, rendered as images it can read."""
+"""The LLMs (Claude through the Claude Code CLI, MiniMax or any Anthropic-style API; a cabinet picks one, or has its
+own) and the vision model the tools ask, and the pages of the documents clients send, rendered as images it can read."""
 
 import base64
 import io
@@ -8,14 +8,16 @@ import multiprocessing
 import os
 import re
 import threading
+import time
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
+from typing import NamedTuple
 
 import httpx
 import psycopg
 from PIL import Image, ImageOps
 
-from engine.tools.core import claude_code, pdfs, usage
+from engine.tools.core import cabinets, claude_code, pdfs, usage
 from engine.tools.core.app import ToolError, log
 from engine.tools.core.cabinets import current, setting
 from engine.tools.core.config import MAX_PAGES, MAX_SIDE, MODEL_TIMEOUT, PDF_TIMEOUT, POSTGRES, SCALE
@@ -71,29 +73,93 @@ def json_answer(text, keys=()):
 # setting that must not also sit in the environment), which Vault's MODEL_API_URL (secret/tarik/orchestrator) overrides.
 MODEL_URL = os.getenv("TARIK_MODEL_URL", "").strip()
 
-# The models a cabinet may work with (MODEL_ADAPTER, the Cabinets page): the first one when it names none.
-ADAPTERS = {
-    "minimax": "MiniMax-M3, par l'API de MiniMax (MODEL_API_KEY)",
-    "claude-code": f"Claude ({claude_code.MODEL}), par la CLI Claude Code (CLAUDE_CODE_OAUTH_TOKEN)",
+# The LLMs. An LLM is a type (what drives it), a model, an address and a secret. Global ones every cabinet may pick (the
+# Réglages page): Claude (the Claude Code CLI, CLAUDE_CODE_OAUTH_TOKEN) and MiniMax (MODEL_API_URL and MODEL_API_KEY),
+# always there, and the extras the Paramètres page adds (Vault secret/tarik/llms). A cabinet picks one (LLM_CHOICE), or
+# "custom": an LLM of its own (LLM_TYPE, LLM_MODEL, LLM_URL, LLM_KEY, in its own Vault path).
+CLAUDE, MINIMAX, CUSTOM = "claude", "minimax", "custom"
+TYPES = {
+    "claude-code": "Claude Code : la CLI Claude, connectée par un jeton",
+    "anthropic-api": "API de style Anthropic : une adresse, une clé, un modèle",
 }
+LEGACY = {"claude-code": CLAUDE, "minimax": MINIMAX}  # cabinet_models' adapters (before the LLMs), as LLMs
+
+
+class LLM(NamedTuple):
+    """One LLM as the current call uses it: its name (claude, minimax, an extra's, custom), type (a key of TYPES),
+    model, address (an API's) and key (an API's key, or the Claude Code CLI's token)."""
+
+    name: str
+    type: str
+    model: str
+    url: str
+    key: str
+
+    @property
+    def label(self):
+        return f"{self.name} · {self.model}"
+
+
+LEGACY_REFRESH_SECONDS = 300
+_legacy = {"rows": {}, "next": 0.0}
+_legacy_lock = threading.Lock()
 
 
 def chosen_adapter(cabinet):
-    """Return the model adapter ``cabinet`` picked on the Cabinets page ("" when none). It is stored in the
-    orchestrator's table: not in Vault (it is no secret), nor in the cabinet's schema (no tool nor agent reads it)."""
-    with psycopg.connect(**POSTGRES) as db:
-        found = db.execute(Q.model_adapter, (cabinet,)).fetchone()
-    return found[0] if found else ""
+    """Return the model adapter ``cabinet`` had picked before the LLMs ("claude-code" or "minimax", "" when none): kept
+    for a cabinet that has not chosen an LLM since. The orchestrator's table holds them (not Vault); it is read once
+    in a few minutes for every cabinet, not at each call, and a Postgres that cannot be read keeps the last rows."""
+    with _legacy_lock:
+        if time.monotonic() >= _legacy["next"]:
+            try:
+                with psycopg.connect(**POSTGRES) as db:
+                    _legacy["rows"] = dict(db.execute(Q.model_adapters).fetchall())
+            except psycopg.Error as error:
+                log(f"model adapters: {type(error).__name__}")
+            _legacy["next"] = time.monotonic() + LEGACY_REFRESH_SECONDS
+        return _legacy["rows"].get(cabinet, "")
 
 
-def adapter():
-    """Return the current cabinet's model adapter (a key of ADAPTERS): its choice, else "minimax"."""
-    chosen = chosen_adapter(current())
-    return chosen if chosen in ADAPTERS else "minimax"
+def llm_of(name):
+    """Return the global LLM ``name`` as the current cabinet's call may use it: Claude, MiniMax or an extra; None when
+    it is none of them (an extra removed since)."""
+    if name == CLAUDE:
+        return LLM(CLAUDE, "claude-code", claude_code.MODEL, "", setting("CLAUDE_CODE_OAUTH_TOKEN", ""))
+    if name == MINIMAX:
+        return LLM(
+            MINIMAX, "anthropic-api", model_name(), setting("MODEL_API_URL", MODEL_URL), setting("MODEL_API_KEY", "")
+        )
+    one = cabinets.llm_extras().get(name)
+    return LLM(name, one.get("type", ""), one.get("model", ""), one.get("url", ""), one.get("key", "")) if one else None
+
+
+def llm():
+    """Return the current cabinet's LLM: its own (custom), else the global one it picked, else (nothing picked, or
+    that one removed) Claude, unless it had picked an adapter before the LLMs (LEGACY)."""
+    chosen = setting("LLM_CHOICE", "") or LEGACY.get(chosen_adapter(current()), "") or CLAUDE
+    if chosen == CUSTOM:
+        own = (setting(key, "") for key in ("LLM_TYPE", "LLM_MODEL", "LLM_URL", "LLM_KEY"))
+        found = LLM(CUSTOM, *own)
+        return found._replace(type=found.type or next(iter(TYPES)))
+    return llm_of(chosen) or llm_of(CLAUDE)
+
+
+def choices():
+    """Return the LLMs a cabinet may pick as {name: words}, Claude first, then MiniMax, the extras, and custom."""
+    extras = {
+        name: f"{name} : {one.get('model', '')} ({one.get('type', '')})"
+        for name, one in sorted(cabinets.llm_extras().items())
+    }
+    return {
+        CLAUDE: f"Claude : {claude_code.MODEL}, par la CLI Claude Code",
+        MINIMAX: "MiniMax : par son API de style Anthropic",
+        **extras,
+        CUSTOM: "Personnalisé : un LLM propre à ce cabinet",
+    }
 
 
 def model_name():
-    """Return the model name every tool sends to the MiniMax API: the agent's own (agent.json)."""
+    """Return MiniMax's model name: the agent's own (agent.json)."""
     return json.loads(content("agent.json"))["model"]
 
 
@@ -108,23 +174,25 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
         keys: the keys the answer must hold (json_answer).
 
     Raises ToolError when the model is not configured, refuses, can't be reached, or answers unreadably."""
-    if adapter() == "claude-code":
-        return ask_claude_code(system, pages, instruction, what, keys)
-    key, url = setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", MODEL_URL)
+    chosen = llm()
+    if chosen.type == "claude-code":
+        return ask_claude_code(system, pages, instruction, what, keys, chosen)
+    key, url = chosen.key, chosen.url
     if not key or not url:
         raise ToolError(f"{what} : le modèle n'est pas encore configuré.")
     blocks = [*images_of(pages), {"type": "text", "text": instruction}]
     try:
         body = {
-            "model": model_name(),
+            "model": chosen.model,
             "max_tokens": 16384,  # the thinking included: M3 thinks as long as it needs, 1k to 8k tokens
             "system": system,
             "messages": [{"role": "user", "content": blocks}],
         }
-        if think:
-            body["thinking"] = {"type": "adaptive"}
-        else:
-            body["temperature"] = 0
+        if chosen.name == MINIMAX:  # only M3 is known to think this way; any other API gets a plain call
+            if think:
+                body["thinking"] = {"type": "adaptive"}
+            else:
+                body["temperature"] = 0
         answer = HTTP.post(
             url.rstrip("/") + "/v1/messages",
             timeout=MODEL_TIMEOUT,
@@ -146,12 +214,15 @@ def ask_model(system, pages, instruction, what, think=True, keys=()):
         raise ToolError(f"{what} : {READER} a donné une réponse illisible ; réessayez dans quelques minutes.") from None
 
 
-def ask_claude_code(system, pages, instruction, what, keys):
-    """Return ask_model's answer through the Claude Code CLI (it does not think on demand: no ``think``), a JSON
-    object holding ``keys`` by the CLI's own schema check. Raises ToolError when the CLI fails or gives no answer."""
+def ask_claude_code(system, pages, instruction, what, keys, chosen):
+    """Return ask_model's answer through the Claude Code CLI as LLM ``chosen`` (its token, its model; it does not think
+    on demand: no ``think``), a JSON object holding ``keys`` by the CLI's own schema check. Raises ToolError when the
+    CLI fails or gives no answer."""
     blocks = [*images_of(pages), {"type": "text", "text": instruction}]
     try:
-        return claude_code.ask(system, blocks, {"type": "object", "required": list(keys)})
+        return claude_code.ask(
+            system, blocks, {"type": "object", "required": list(keys)}, token=chosen.key, model=chosen.model
+        )
     except claude_code.ClaudeCodeStopped:
         raise ToolError(f"{what} : arrêté avec son exécution.") from None
     except claude_code.ClaudeCodeError as error:

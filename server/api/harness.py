@@ -17,7 +17,7 @@ from engine import agent, content
 from engine.tools.core.app import TOOLS
 from engine.tools.core.cabinets import setting, using
 from engine.tools.core.experio import dry_run
-from engine.tools.core.model import ADAPTERS, adapter
+from engine.tools.core.model import llm
 from engine.tools.dossiers.routines import routines_of_cabinet, title_of
 from server.api.content import GROUPS, PART_NAMES
 from server.api.runs import chosen, graph_name, is_admin, page
@@ -58,7 +58,7 @@ def harness(cabinet, admin=False):
     (where tools act); of edge: request (toward Tarik), reply (back to who wrote), uses (Tarik's own reach), leads (a
     tool to where it acts). ``admin``: the routines are named, else only counted."""
     with using(cabinet):
-        chosen_model = adapter()
+        chosen_model = llm().label
         mailbox = bool(setting("IMAP_USER", ""))
         whatsapp = all(setting(name, "") for name in ("SPARROW_URL", "SPARROW_SENDER_ID", "SPARROW_TOKEN"))
         testing = dry_run()
@@ -117,7 +117,7 @@ def harness(cabinet, admin=False):
         both(channel, "conversations")
     both("conversations", "tarik")
 
-    node("model", "model", ADAPTERS[chosen_model], "Le modèle choisi pour ce cabinet (page Réglages).")
+    node("model", "model", chosen_model, "Le modèle choisi pour ce cabinet (page Réglages).")
     edge("tarik", "model")
     node("skills", "group", GROUPS["competences"][0], "Ce que Tarik suit pour un type de demande (load_skill).")
     for name, description, _ in agent.skills():  # each loaded by load_skill, by its name

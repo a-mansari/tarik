@@ -20,6 +20,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from engine.tools.core import claude_code
 from engine.tools.core.cabinets import using
 from engine.tools.core.config import MODEL_TIMEOUT
+from engine.tools.core.model import llm
 
 # The agent's model calls' own threads, one per run at most (engine/runs.py SLOTS): not asyncio's default pool, the
 # server's other short to_thread work never waits behind them. The CLI processes are capped in claude_code.PROCESSES.
@@ -128,15 +129,17 @@ class ChatClaudeCode(BaseChatModel):
         names = [found["name"] for found in tools]
         prompt, content = (system or "") + PROTOCOL.replace("{tools}", listed or "(none)"), flattened(conversation)
         with using(self.cabinet):
+            chosen = llm()  # the cabinet's LLM: its login and its model
+            login = {"token": chosen.key, "model": chosen.model}
             started = time.monotonic()
             try:
-                answer = claude_code.ask(prompt, content, answer_schema(tools))
+                answer = claude_code.ask(prompt, content, answer_schema(tools), **login)
             except claude_code.ClaudeCodeUnreadable:
                 left = MODEL_TIMEOUT - (time.monotonic() - started)
                 if not tools or left < 60:  # nothing to loosen, or no time: one model call's time in all
                     raise
                 # args the CLI kept refusing: asked again with any values, the tools' own checks then answer them
-                answer = claude_code.ask(prompt, content, answer_schema(tools, loose=True), timeout=left)
+                answer = claude_code.ask(prompt, content, answer_schema(tools, loose=True), timeout=left, **login)
         calls = [
             {"name": call["name"], "args": call.get("args") or {}, "id": f"toolu_{uuid.uuid4().hex[:24]}"}
             for call in answer.get("tool_calls") or []

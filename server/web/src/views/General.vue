@@ -6,6 +6,7 @@ import { computed, ref, watch } from "vue";
 
 import { send, usePage } from "../api.js";
 import Icon from "../components/Icon.vue";
+import LlmList from "../components/LlmList.vue";
 import PageState from "../components/PageState.vue";
 import SettingField from "../components/SettingField.vue";
 
@@ -67,6 +68,7 @@ const savedNames = computed(() => data.value.saved.map((key) => data.value.names
             </div></div>
           </details>
       </form>
+      <LlmList />
       <section v-if="data.memory?.on" class="panel">
         <h2>Mémoire de Tarik</h2>
         <p v-if="data.memory.failures === null" class="panel-bad" role="alert">

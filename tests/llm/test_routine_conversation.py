@@ -7,13 +7,14 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from engine import agent
+from engine.tools.core import model
 from tests.llm.conftest import CABINET
 
 
 @pytest.mark.live
-@pytest.mark.parametrize("chosen", ["minimax", "claude-code"])
+@pytest.mark.parametrize("chosen", [model.MINIMAX, model.CLAUDE])
 def test_each_model_answers_a_conversation_a_routine_began(monkeypatch, chosen):
-    monkeypatch.setattr(agent, "adapter", lambda: chosen)
+    monkeypatch.setattr(agent, "llm", lambda: model.llm_of(chosen))
     history = [
         SystemMessage("Tu es Tarik, l'assistant comptable du cabinet. Réponds en une phrase."),
         HumanMessage(agent.BEGAN.format("Rappel Manager"), name=agent.ROUTINE_NAME),

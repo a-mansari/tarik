@@ -29,7 +29,10 @@ BEFORE = {
         ("ODOO_UID", "-3", "entier positif"),
         ("ODOO_USER", "", "vide"),
         ("MAIL_MANAGER", "pas une adresse", "adresse"),
-        ("MODEL_ADAPTER", "gpt", "l'un de"),
+        ("LLM_TYPE", "gpt", "l'un de"),
+        ("LLM_CHOICE", "pas-un-llm", "LLM global ajouté"),
+        ("LLM_URL", "http://model.example", "HTTPS"),
+        ("LLM_URL", "https://api.example/v1?key=sk-secret", "sans \\? ni #"),
         ("SMTP_FROM", "Tarik <pas-une-adresse>", "expéditeur"),
         ("MAIL_ALLOWED_RECIPIENTS", "@cabinet.ma, n'importe qui", "n'importe qui"),
     ],
@@ -129,13 +132,31 @@ def test_a_change_is_written_over_the_version_shown_and_recorded_without_any_sec
     assert "password" not in repr(pool.recorded)
 
 
-def test_the_model_is_kept_in_postgres_never_in_vault(vault):
+def test_the_llm_choice_is_kept_in_vault_with_the_rest_and_nothing_in_postgres(vault):
     pool = Pool()
-    done = asyncio.run(cabinet_settings.save(pool, "cabinet_a", {"MODEL_ADAPTER": "claude-code"}, 4, "a@experio.ma"))
-    assert done == ["MODEL_ADAPTER"] and vault == []
-    (chosen, (cabinet, _, _, changes, version)) = pool.recorded
-    assert chosen == ("cabinet_a", "claude-code") and version == 4  # Vault's version, as it was
-    assert changes.obj == [{"key": "MODEL_ADAPTER", "before": "", "after": "claude-code"}]
+    done = asyncio.run(cabinet_settings.save(pool, "cabinet_a", {"LLM_CHOICE": "minimax"}, 4, "a@experio.ma"))
+    assert done == ["LLM_CHOICE"] and vault[0]["data"]["LLM_CHOICE"] == "minimax"
+    (recorded,) = pool.recorded  # the history only: no cabinet_models write
+    assert recorded[3].obj == [{"key": "LLM_CHOICE", "before": "", "after": "minimax"}]
+
+
+def test_a_cabinet_picking_its_own_llm_must_give_what_runs_it(vault):
+    for given, missing in [
+        ({"LLM_CHOICE": "custom"}, "LLM_MODEL, LLM_KEY"),
+        ({"LLM_CHOICE": "custom", "LLM_MODEL": "m", "LLM_KEY": "k", "LLM_TYPE": "anthropic-api"}, "LLM_URL"),
+    ]:
+        with pytest.raises(ValueError, match=missing):
+            asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", given, 4, "a@experio.ma"))
+    ok = {"LLM_CHOICE": "custom", "LLM_MODEL": "sonnet", "LLM_KEY": "token"}  # a Claude Code one needs no address
+    assert sorted(asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", ok, 4, "a@experio.ma"))) == sorted(ok)
+
+
+@pytest.mark.security
+def test_a_new_llm_address_needs_its_key_typed_again():
+    before = {"LLM_CHOICE": "custom", "LLM_URL": "https://old.example", "LLM_KEY": "k"}
+    with pytest.raises(ValueError, match="retapez aussi LLM_KEY"):
+        cabinet_settings.changed(before, {"LLM_URL": "https://other.example"})
+    assert cabinet_settings.changed(before, {"LLM_URL": "https://other.example", "LLM_KEY": "k2"})
 
 
 def test_a_page_older_than_vault_s_version_changes_nothing(vault):
@@ -303,3 +324,14 @@ def test_a_switch_is_checked_and_an_unset_one_is_on_so_saving_a_form_writes_noth
     cabinet_settings.checked("CABINET_MEMORY_ENABLED", "0")
     assert cabinet_settings.changed(BEFORE, {"CABINET_MEMORY_ENABLED": "1"}) == {}  # unset is on
     assert cabinet_settings.changed(BEFORE, {"CABINET_MEMORY_ENABLED": "0"}) == {"CABINET_MEMORY_ENABLED": "0"}
+
+
+def test_a_cabinet_on_its_old_choice_can_be_moved_to_claude_and_nothing_else_is_written_for_it(vault, monkeypatch):
+    monkeypatch.setattr(cabinet_settings.model, "chosen_adapter", lambda cabinet: "minimax")  # before the LLMs
+    # the page shows minimax; a save that leaves it changes nothing, and writes no LLM_CHOICE of its own
+    assert asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", {"LLM_CHOICE": "minimax"}, 4, "a@experio.ma")) == []
+    other = asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", {"DRY_RUN": "0"}, 4, "a@experio.ma"))
+    assert other == ["DRY_RUN"] and "LLM_CHOICE" not in vault[-1]["data"]
+    # moved to Claude: written, though Claude is what an unset choice means
+    asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", {"LLM_CHOICE": "claude"}, 4, "a@experio.ma"))
+    assert vault[-1]["data"]["LLM_CHOICE"] == "claude"
