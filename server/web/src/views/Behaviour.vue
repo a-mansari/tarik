@@ -37,21 +37,21 @@ async function save(setting, value) {
       <h2>{{ part.title }}</h2>
       <p class="what">{{ part.what }}</p>
       <div class="field-grid">
-      <article v-for="setting in part.settings" :key="`${setting.key}-${shown}`" class="panel card setting">
-        <div class="card-body">
-          <label v-if="setting.kind === 'flag'" class="switch">
-            <input type="checkbox" role="switch" :checked="setting.value" :disabled="busy"
-              @change="save(setting, $event.target.checked ? 1 : 0)">
-            <b>{{ setting.name }}</b>
-          </label>
-          <label v-else class="field">
-            <b>{{ setting.name }}</b>
-            <input type="number" min="0" max="120" inputmode="numeric" :value="setting.value" :disabled="busy"
-              @change="save(setting, $event.target.value)">
-          </label>
-          <p class="muted">{{ setting.description }}</p>
-        </div>
-      </article>
+        <article v-for="setting in part.settings" :key="`${setting.key}-${shown}`" class="panel card setting">
+          <div class="card-body">
+            <label v-if="setting.kind === 'flag'" class="switch">
+              <input type="checkbox" role="switch" :checked="setting.value" :disabled="busy"
+                @change="save(setting, $event.target.checked ? 1 : 0)">
+              <b>{{ setting.name }}</b>
+            </label>
+            <label v-else class="field">
+              <b>{{ setting.name }}</b>
+              <input type="number" min="0" max="120" inputmode="numeric" :value="setting.value" :disabled="busy"
+                @change="save(setting, $event.target.value)">
+            </label>
+            <p class="muted">{{ setting.description }}</p>
+          </div>
+        </article>
       </div>
     </section>
   </template>
@@ -60,6 +60,6 @@ async function save(setting, value) {
 <style scoped>
 /* One padding per card (the body's, not the panel's on top of it); the cards sit on the field grid. */
 section .what { margin: var(--space-1) 0 var(--space-4); }
-.setting { padding: 0; }
+.setting { padding: 0; align-self: stretch; }
 .setting .card-body { gap: var(--space-1); padding: var(--space-3) var(--space-5); }
 </style>
