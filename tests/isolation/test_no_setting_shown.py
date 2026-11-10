@@ -9,7 +9,7 @@ from xmlrpc.server import SimpleXMLRPCRequestHandler, SimpleXMLRPCServer
 
 import pytest
 
-from engine.tools.core import experio
+from engine.tools.core import cabinets, experio
 from engine.tools.core.app import TOOLS
 from engine.tools.core.cabinets import POSTGRES, cabinet_db, using
 from shared import A, call_text
@@ -26,6 +26,10 @@ LEAKS = {  # a marker in every setting: none may show in anything a tool returns
     "MAIL_MANAGER": "leak-manager@leak.invalid",
     "MAIL_ALLOWED_RECIPIENTS": "leak-allowed@leak.invalid",
     "MAIL_IGNORED_SENDERS": "leak-ignored@leak.invalid",
+    "LLM_TYPE": "anthropic-api",  # the cabinet's own LLM, an API one: its address, key and model are leaks
+    "LLM_MODEL": "leak-llm-model",
+    "LLM_URL": "https://leak-llm.invalid",
+    "LLM_KEY": "leak-llm-key",
 }
 SHARED_LEAKS = {
     "IMAP_HOST": "leak-imap-host.invalid",
@@ -33,6 +37,13 @@ SHARED_LEAKS = {
     "IMAP_FOLDER": "LeakFolder",
     "MODEL_API_KEY": "leak-model-key",
     "MODEL_API_URL": "http://leak-model.invalid",
+    "CLAUDE_CODE_OAUTH_TOKEN": "leak-claude-token",
+}
+EXTRA = {
+    "type": "anthropic-api",
+    "model": "leak-extra-model",
+    "url": "https://leak-extra.invalid",
+    "key": "leak-extra-key",
 }
 
 
@@ -85,6 +96,8 @@ def test_no_tool_ever_shows_a_setting(schemas, monkeypatch, experio_mode):
         monkeypatch.setenv(f"{A.upper()}__{key}", value)
     for key, value in SHARED_LEAKS.items():
         monkeypatch.setenv(key, value)
+    monkeypatch.setenv(f"{A.upper()}__LLM_CHOICE", "custom")  # not a leak: a word, but it makes llm() read the above
+    monkeypatch.setattr(cabinets, "llm_extras", lambda: {"leakx": EXTRA})  # an extra global LLM, any cabinet may name
     monkeypatch.setattr(time, "sleep", lambda seconds: None)  # the waiting steps, without the wait
     with using(A), cabinet_db() as db:  # an email thread "x", so the email tools go as far as the mailbox
         db.execute(
@@ -93,8 +106,9 @@ def test_no_tool_ever_shows_a_setting(schemas, monkeypatch, experio_mode):
             "on conflict do nothing"
         )
     markers = [
-        *LEAKS.values(),
+        *(value for key, value in LEAKS.items() if key != "LLM_TYPE"),
         *SHARED_LEAKS.values(),
+        *(value for key, value in EXTRA.items() if key != "type"),
         "leak-odoo-url",
         "leak-fault-text",
         "127.0.0.1",

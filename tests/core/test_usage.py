@@ -79,6 +79,8 @@ def test_an_agent_model_call_s_tokens_are_kept_under_its_saved_prompt(monkeypatc
     async def made(request):  # the order make_agent gives them: logged around usage_counted
         return await agent.usage_counted.awrap_model_call(request, model)
 
-    request = SimpleNamespace(system_message=None, tools=[], messages=[])
+    request = SimpleNamespace(system_message=None, tools=[], messages=[], model=SimpleNamespace(model="m-x"))
     asyncio.run(prompts.logged.awrap_model_call(request, made))
-    assert kept == [("cabinet_a", agent.AGENT["model"], 600, 400, 50, 7)] and usage.PROMPT_CALL.get() is None
+    assert kept == [
+        ("cabinet_a", "m-x", 600, 400, 50, 7)
+    ]  # the model the cabinet's LLM named and usage.PROMPT_CALL.get() is None

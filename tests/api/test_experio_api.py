@@ -302,3 +302,22 @@ def test_check_login_refuses_a_refused_login_and_another_uid_and_remembers_nothi
             settings_page.experio.check_login("db", "https://exp.example", "u", "k", expected)
     assert settings_page.experio.check_login("db", "https://exp.example", "u", "k", 12) == 12
     assert len(closed) == 3 and settings_page.experio.CHECK_TIMEOUT <= 30
+
+
+@pytest.mark.security
+@pytest.mark.parametrize("settings", [{"LLM_CHOICE": "custom"}, {"LLM_URL": "https://x.example"}, {"LLM_KEY": "k"}])
+def test_the_api_does_not_set_a_cabinet_s_own_llm_whose_address_gets_its_documents(settings):
+    class Request:
+        async def json(self):
+            return {"settings": settings}
+
+    with pytest.raises(ValueError, match="page Réglages"):
+        asyncio.run(experio_api.payload(Request()))
+
+
+def test_the_api_may_pick_a_global_llm():
+    class Request:
+        async def json(self):
+            return {"settings": {"LLM_CHOICE": "minimax"}}
+
+    assert asyncio.run(experio_api.payload(Request()))[1] == {"LLM_CHOICE": "minimax"}

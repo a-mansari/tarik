@@ -43,7 +43,8 @@ async def payload(request):
     """Return the request's JSON object and its settings, as (body, settings).
 
     settings is the body's "settings" object ({} when absent), every value a string. Raises ValueError (in French)
-    when the body is not JSON or settings is not an object of strings."""
+    when the body is not JSON, settings is not an object of strings, or it sets a cabinet's own LLM: its address is
+    where Tarik would send the cabinet's documents, so that stays with an admin on the Réglages page."""
     try:
         found = await request.json()
     except ValueError:
@@ -51,6 +52,10 @@ async def payload(request):
     settings = found.get("settings", {}) if isinstance(found, dict) else None
     if not isinstance(settings, dict) or not all(isinstance(value, str) for value in settings.values()):
         raise ValueError("settings : un objet de textes {RÉGLAGE: valeur}")
+    if settings.get("LLM_CHOICE") == cabinet_settings.CUSTOM or set(settings) & set(cabinet_settings.CUSTOM_LLM):
+        raise ValueError(
+            "un LLM propre au cabinet se règle sur la page Réglages, pas par l'API (LLM_CHOICE : un LLM global)"
+        )
     return found, settings
 
 

@@ -250,3 +250,62 @@ def test_no_failure_when_off_and_none_when_hindsight_is_down_or_too_slow(monkeyp
         monkeypatch.setattr(memory, "hindsight", fake)
         assert asyncio.run(memory.failures()) is None
     assert len(lines) == 2
+
+
+@pytest.fixture
+def switches(monkeypatch):
+    """Turn the memory on (Hindsight set up, the tests' environment as the settings) and return a setter for the
+    general switch and a cabinet's own."""
+    monkeypatch.setattr(memory, "URL", "http://hindsight:8888")
+    monkeypatch.setattr(memory.cabinets, "VAULT_ENABLED", False)
+
+    def set_(general=None, cabinet=None, name="experio_cabinet_8"):
+        for key, value in (("MEMORY_ENABLED", general), (f"{name.upper()}__CABINET_MEMORY_ENABLED", cabinet)):
+            if value is None:
+                monkeypatch.delenv(key, raising=False)
+            else:
+                monkeypatch.setenv(key, value)
+
+    set_()
+    return set_
+
+
+@pytest.mark.parametrize(
+    ("general", "own", "on"),
+    [
+        (None, None, True),
+        ("1", "1", True),
+        ("0", None, False),
+        (None, "0", False),
+        ("0", "0", False),
+        ("1", "0", False),
+    ],
+)
+def test_the_memory_is_used_when_neither_the_general_switch_nor_the_cabinets_says_off(switches, general, own, on):
+    switches(general, own)
+    assert memory.enabled("experio_cabinet_8") is on
+
+
+def test_a_cabinets_own_switch_leaves_the_others_on(switches):
+    switches(None, "0", "experio_cabinet_8")
+    assert memory.enabled("experio_cabinet_8") is False and memory.enabled("experio_cabinet_3") is True
+
+
+def test_a_switch_off_means_no_recall_and_no_retain_at_all(switches, sent):
+    switches("0")
+    assert asyncio.run(memory.recalled("experio_cabinet_8", "TVA ?")) == ""
+    asyncio.run(memory.retained("experio_cabinet_8", "s1", "Bonjour"))
+    asyncio.run(memory.recalled("experio_cabinet_3", "TVA ?"))
+    assert sent == []  # nothing sent to Hindsight for any cabinet
+
+
+def test_a_switch_turned_off_ends_what_was_recalled_before(switches, sent, monkeypatch):
+    from langchain_core.messages import HumanMessage
+
+    from engine import agent
+
+    agent.RECALLED.clear()
+    asked = Request([HumanMessage("Ma TVA ?")])
+    assert "TVA trimestrielle" in system_seen(asked, monkeypatch)  # on: recalled and cached
+    switches("0")
+    assert system_seen(asked, monkeypatch) == "Tu es Tarik."  # off: not served from the cache

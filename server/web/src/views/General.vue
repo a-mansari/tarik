@@ -6,7 +6,9 @@ import { computed, ref, watch } from "vue";
 
 import { send, usePage } from "../api.js";
 import Icon from "../components/Icon.vue";
+import LlmList from "../components/LlmList.vue";
 import PageState from "../components/PageState.vue";
+import SettingField from "../components/SettingField.vue";
 
 const { data, status, loading } = usePage(() => "/settings/general");
 const form = ref({});
@@ -37,7 +39,6 @@ async function save() {
 }
 
 const savedNames = computed(() => data.value.saved.map((key) => data.value.names[key]).join(", "));
-const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" : "Non défini");
 </script>
 
 <template>
@@ -63,22 +64,11 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
               <span class="card-title">{{ title }}</span>
             </summary>
             <div class="card-body"><div class="field-grid">
-              <label v-for="f in items" :key="f.key" class="field" :title="f.description || undefined">
-                <span>{{ f.name }} <span class="mono muted">{{ f.key }}</span><template
-                  v-if="f.optional"> <span class="muted">(facultatif)</span></template></span>
-                <input
-                  v-if="f.kind === 'secret'"
-                  v-model="form[f.key]"
-                  type="password"
-                  :name="f.key"
-                  autocomplete="new-password"
-                  :placeholder="placeholder(f)"
-                >
-                <input v-else v-model="form[f.key]" :name="f.key" :inputmode="f.kind === 'integer' ? 'numeric' : undefined">
-              </label>
+              <SettingField v-for="f in items" :key="f.key" v-model="form[f.key]" :f="f" />
             </div></div>
           </details>
       </form>
+      <LlmList />
       <section v-if="data.memory?.on" class="panel">
         <h2>Mémoire de Tarik</h2>
         <p v-if="data.memory.failures === null" class="panel-bad" role="alert">

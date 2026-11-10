@@ -8,18 +8,18 @@ when, why: settings_changes, under GENERAL) and used at once. Any other key in a
 
 import asyncio
 
-import httpx
 from psycopg.types.json import Jsonb
 
 from engine.tools.core import cabinets
 from engine.tools.core.queries import Q
 from server import audit, cabinet_settings
-from server.cabinet_settings import MOVED, changed, recorded
+from server.cabinet_settings import MOVED, cas_write, changed, recorded
 
 GENERAL = "_general"  # settings_changes' cabinet column for these: no cabinet's name can start with "_" (cabinets.NAME)
 
 # Each setting the page shows with what it holds (cabinet_settings.checked's kinds), and the Vault path it lives in.
 FIELDS = {
+    "MEMORY_ENABLED": "toggle",
     "IMAP_HOST": "text",
     "IMAP_PORT": "integer",
     "IMAP_FOLDER": "text",
@@ -38,6 +38,7 @@ FIELDS = {
     "SPARROW_TOKEN": "secret",
 }
 OPTIONAL = {
+    "MEMORY_ENABLED",
     "MAIL_CERT_SHA256",
     "MODEL_API_URL",
     "MODEL_API_KEY",
@@ -85,9 +86,6 @@ def version_of(versions):
     return f"{versions['orchestrator']}.{versions['shared']}"
 
 
-CONFLICT = 400  # Vault's answer to a check-and-set on a version that is no longer the latest
-
-
 async def save(pool, given, seen, author, note=""):
     """Apply the form ``given`` to the shared settings (cabinet_settings.changed) and return the keys changed (list;
     [] when nothing changes).
@@ -113,12 +111,10 @@ async def save(pool, given, seen, author, note=""):
         mine = {key: value for key, value in found.items() if path_of(key) == name}
         if not mine:
             continue
-        body = {"options": {"cas": versions[name]}, "data": {**stores[name], **mine}}  # the path's other keys kept
-        try:
-            version = (await asyncio.to_thread(cabinet_settings._vault, "POST", path, json=body))["data"]["version"]
-        except httpx.HTTPStatusError as error:
-            conflict = error.response.status_code == CONFLICT
-            failure = MOVED if conflict else f"Vault a refusé l'écriture ({error.response.status_code})"
+        try:  # the path's other keys kept
+            version = await asyncio.to_thread(cas_write, path, versions[name], {**stores[name], **mine})
+        except ValueError as refused:
+            failure = str(refused)
             break
         written += mine
     if written:
