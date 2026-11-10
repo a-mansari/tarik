@@ -179,3 +179,29 @@ def test_when_the_second_path_fails_the_first_is_recorded_and_the_error_says_so(
     assert "déjà enregistrés : MODEL_API_KEY" in str(refused.value)
     assert len(written) == 1 and len(pool.recorded) == 1  # the key is in Vault, so it is in the history too
     assert [change["key"] for change in pool.recorded[0][3].obj] == ["MODEL_API_KEY"]
+
+
+def test_the_page_shows_the_memory_s_failures_in_words_or_that_it_cannot_be_reached(monkeypatch):
+    from server.api import settings
+
+    async def failed():
+        return [
+            {
+                "cabinet": "experio_cabinet_8",
+                "at": "2026-11-10T12:42:29+00:00",
+                "kind": "retain",
+                "error": "token revoked",
+            }
+        ]
+
+    monkeypatch.setattr(settings.memory, "URL", "http://hindsight:8888")
+    monkeypatch.setattr(settings.memory, "failures", failed)
+    shown = asyncio.run(settings.memory_state())
+    assert shown["on"] is True and shown["failures"][0]["error"] == "token revoked"
+    assert shown["failures"][0]["at"] == settings.runs.when("2026-11-10T12:42:29+00:00")  # in words, as every page
+
+    async def down():
+        return None
+
+    monkeypatch.setattr(settings.memory, "failures", down)
+    assert asyncio.run(settings.memory_state())["failures"] is None

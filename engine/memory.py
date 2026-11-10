@@ -3,7 +3,9 @@ Tarik's Postgres: docker-compose.yml). One Hindsight bank per cabinet (named as 
 are never read for another. Only HINDSIGHT_URL turns it on; empty, nothing here does anything.
 
 Never an error for the caller: a Hindsight that is down or slow costs a turn nothing but its memories (logged).
-Hindsight's REST API (its /openapi.json): POST /v1/default/banks/{bank}/memories to retain, .../memories/recall."""
+Hindsight's REST API (its /openapi.json): POST /v1/default/banks/{bank}/memories to retain, .../memories/recall.
+A retain is accepted at once and extracted later (async), so a failure, a revoked Claude token above all, shows only in
+Hindsight's own operations: failures() reads them for the settings page."""
 
 import asyncio
 import os
@@ -30,6 +32,14 @@ async def post(bank, path, body, wait):
     """POST ``body`` to the cabinet ``bank``'s ``path`` and return Hindsight's JSON answer."""
     async with httpx.AsyncClient(timeout=wait) as client:
         answer = await client.post(f"{URL}/v1/default/banks/{bank}/{path}", json=body)
+        answer.raise_for_status()
+        return answer.json()
+
+
+async def get(path, wait, params=None):
+    """GET ``path`` (under /v1/default) from Hindsight and return its JSON answer."""
+    async with httpx.AsyncClient(timeout=wait) as client:
+        answer = await client.get(f"{URL}/v1/default{path}", params=params)
         answer.raise_for_status()
         return answer.json()
 
@@ -80,3 +90,32 @@ def retain_later(cabinet, session, said):
     task = asyncio.create_task(retained(cabinet, session, said))
     BACKGROUND.add(task)
     task.add_done_callback(BACKGROUND.discard)
+
+
+FAILED_PER_BANK = 20
+
+
+async def failures():
+    """Return Hindsight's failed operations, newest first: [{cabinet, at, kind, error}], at most FAILED_PER_BANK per
+    cabinet, ``error`` cut to 300 characters. [] when Hindsight is off or nothing failed; None when it cannot be
+    reached (logged)."""
+    if not on():
+        return []
+    found = []
+    try:
+        for bank in (await get("/banks", RECALL_WAIT))["banks"]:
+            params = {"status": "failed", "exclude_parents": "true", "limit": FAILED_PER_BANK}
+            for one in (await get(f"/banks/{bank['bank_id']}/operations", RECALL_WAIT, params))["operations"]:
+                at = one.get("updated_at") or one["created_at"]
+                found.append(
+                    {
+                        "cabinet": bank["bank_id"],
+                        "at": at,
+                        "kind": one.get("operation_type") or one["task_type"],
+                        "error": (one.get("error_message") or "")[:300],
+                    }
+                )
+    except Exception as error:
+        log(f"memory failures: {type(error).__name__}: {error}")
+        return None
+    return sorted(found, key=lambda one: one["at"], reverse=True)

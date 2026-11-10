@@ -79,6 +79,24 @@ const placeholder = (f) => (f.value ? "Défini — laisser vide pour le garder" 
             </div></div>
           </details>
       </form>
+      <section v-if="data.memory.on" class="panel" aria-label="Mémoire de Tarik">
+        <h2>Mémoire de Tarik</h2>
+        <p v-if="data.memory.failures === null" class="panel-bad" role="alert">
+          <b>La mémoire ne répond pas.</b> Tarik répond sans elle, et ne retient rien tant qu'elle est arrêtée.</p>
+        <p v-else-if="!data.memory.failures.length" class="muted">Aucune opération en échec.</p>
+        <template v-else>
+          <p role="alert"><b>{{ data.memory.failures.length }} opération{{ data.memory.failures.length > 1 ? "s" : "" }}
+            en échec :</b> ce que des clients ont dit n'a pas été retenu. Un jeton Claude refusé ou révoqué
+            (<span class="mono">HINDSIGHT_LLM_TOKEN</span>) en est la cause la plus courante.</p>
+          <div class="table-wrap"><table class="runs">
+            <thead><tr><th>Quand</th><th>Cabinet</th><th>Opération</th><th>Erreur</th></tr></thead>
+            <tbody><tr v-for="one in data.memory.failures" :key="one.cabinet + one.at + one.error">
+              <td class="num">{{ one.at }}</td><td class="mono">{{ one.cabinet }}</td><td>{{ one.kind }}</td>
+              <td>{{ one.error }}</td>
+            </tr></tbody>
+          </table></div>
+        </template>
+      </section>
     </template>
   </template>
 </template>
