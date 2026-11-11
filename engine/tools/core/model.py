@@ -5,7 +5,6 @@ import base64
 import io
 import json
 import multiprocessing
-import os
 import re
 import threading
 import time
@@ -69,10 +68,6 @@ def json_answer(text, keys=()):
     return found[0]
 
 
-# The provider's Anthropic-style address: the stack's default from .env (TARIK_MODEL_URL; not MODEL_API_URL, a Vault
-# setting that must not also sit in the environment), which Vault's MODEL_API_URL (secret/tarik/orchestrator) overrides.
-MODEL_URL = os.getenv("TARIK_MODEL_URL", "").strip()
-
 # The LLMs. An LLM is a type (what drives it), a model, an address and a secret. Global ones every cabinet may pick (the
 # Réglages page): Claude (the Claude Code CLI, CLAUDE_CODE_OAUTH_TOKEN) and MiniMax (MODEL_API_URL and MODEL_API_KEY),
 # always there, and the extras the Paramètres page adds (Vault secret/tarik/llms). A cabinet picks one (LLM_CHOICE), or
@@ -126,9 +121,7 @@ def llm_of(name):
     if name == CLAUDE:
         return LLM(CLAUDE, "claude-code", claude_code.MODEL, "", setting("CLAUDE_CODE_OAUTH_TOKEN", ""))
     if name == MINIMAX:
-        return LLM(
-            MINIMAX, "anthropic-api", model_name(), setting("MODEL_API_URL", MODEL_URL), setting("MODEL_API_KEY", "")
-        )
+        return LLM(MINIMAX, "anthropic-api", model_name(), setting("MODEL_API_URL", ""), setting("MODEL_API_KEY", ""))
     one = cabinets.llm_extras().get(name)
     return LLM(name, one.get("type", ""), one.get("model", ""), one.get("url", ""), one.get("key", "")) if one else None
 

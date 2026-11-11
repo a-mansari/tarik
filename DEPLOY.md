@@ -8,8 +8,8 @@ configuration) and in the seed files (secrets, loaded into Vault once). `.env.ex
 
 You provide a host with Docker and a route on Experio's reverse proxy; the rest is the team's, from the pages.
 
-1. `cp .env.example .env` and fill the five blank lines: `ODOO_URL`, `POSTGRES_PASSWORD` (`openssl rand -hex 24`),
-   `TARIK_MODEL_URL`, `TARIK_DEFAULT_CABINET`, plus `TARIK_TRUSTED_PROXIES` (the proxy's address). Every other line has a
+1. `cp .env.example .env` and fill the four blank lines: `ODOO_URL`, `POSTGRES_PASSWORD` (`openssl rand -hex 24`),
+   `TARIK_DEFAULT_CABINET`, plus `TARIK_TRUSTED_PROXIES` (the proxy's address). Every other line has a
    working default (the Claude Code installer's address and version included).
 2. `cp -r deploy/seed.example deploy/seed` and fill it with what the Experio and Tarik teams hand over (section 2): the
    model's key, the mail servers, **one** cabinet's login and mailbox. Keep `DRY_RUN=1`.
@@ -32,20 +32,20 @@ You provide a host with Docker and a route on Experio's reverse proxy; the rest 
 
 | Network | Detail |
 |---|---|
-| Outbound | `ODOO_URL` (Experio: HTTPS, XML-RPC and JSON-RPC); `TARIK_MODEL_URL` (the model provider, HTTPS); each cabinet's IMAP and SMTP hosts (set in the seed, ports 993 and 465 or 587); Gladden if `GLADDEN_URL` is set. At image build only: package registries and, unless `INSTALL_CLAUDE_CODE=0`, the Claude Code installer. |
+| Outbound | `ODOO_URL` (Experio: HTTPS, XML-RPC and JSON-RPC); the model providers (Claude's CLI, MiniMax's `MODEL_API_URL`: HTTPS); each cabinet's IMAP and SMTP hosts (set in the seed, ports 993 and 465 or 587); Gladden if `GLADDEN_URL` is set. At image build only: package registries and, unless `INSTALL_CLAUDE_CODE=0`, the Claude Code installer. |
 | Inbound | The team's browsers to `/ui/`; the Experio app to `/api/` (its key only); Gladden's callback to `/gladden/<token>` when Gladden is used. Publish port 2024 through Experio's reverse proxy; nothing else (section 3). |
 | Replicas | **One `server`.** The pages' live updates are kept in the process's memory (`engine/live.py`): a second replica would show stale pages. Scale up the machine, not the count. |
 
 ## 2. What to provide
 
 1. **`.env`**: copy `.env.example` and fill the **Required** block's blank lines: `ODOO_URL`, `POSTGRES_PASSWORD`,
-   `TARIK_MODEL_URL`, `TARIK_DEFAULT_CABINET`, `TARIK_TRUSTED_PROXIES`. The compose file refuses to start when one is
+   `TARIK_DEFAULT_CABINET`, `TARIK_TRUSTED_PROXIES`. The compose file refuses to start when one is
    missing. Every other line has its default in the file (`VAULT_ADDR`, `TARIK_SEED_DIR`, the Claude Code installer's
    address and version included: they are the compose file's). `.env` is never committed and never sent
    to the image build.
 2. **The seed folder** (`TARIK_SEED_DIR`, `./deploy/seed` unless set): the template is `deploy/seed.example/` (see its `README.md`). It holds
    the secrets Vault starts with, one JSON file per Vault path:
-   - `orchestrator.json`: `MODEL_API_KEY`, and `EXPERIO_API_KEY` (the key the Experio app sends to `/api/`; leave it
+   - `orchestrator.json`: `MODEL_API_KEY` and `MODEL_API_URL` (the MiniMax LLM's; Claude needs neither), and `EXPERIO_API_KEY` (the key the Experio app sends to `/api/`; leave it
      out and Vault makes a random one, which only Vault shows).
    - `shared.json`: the mail servers (`IMAP_HOST`, `IMAP_PORT`, `IMAP_FOLDER`, `SMTP_HOST`, `SMTP_PORT`,
      `MAIL_CERT_SHA256`), optionally `GLADDEN_URL` and `GLADDEN_CALLBACK_URL`, `PUBLIC_URL` (this server as clients reach it: a new dossier's form link, and the host Sparrow calls Tarik on for WhatsApp (`/sparrow/handler` must be reachable there from outside);
