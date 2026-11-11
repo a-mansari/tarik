@@ -499,11 +499,13 @@ def headline(outcomes):
     statements = sum(
         outcome[0] == "report_statement" and outcome[1] == "ok" for found in outcomes.values() for outcome in found
     )
+    imported = 0  # statements imported with no pointing in this run (an answer to their bank question)
     for key, found in outcomes.items():
         if key is None:
             continue
         step, status = found[-1][:2]
         where = section_of(step, status)
+        imported += key < 0 and (step, status) == ("import_bank_statement", "ok")
         if key < 0 and where in ("problem", "question"):
             problems, questions = problems + (where == "problem"), questions + (where == "question")
         elif key < 0:
@@ -522,6 +524,7 @@ def headline(outcomes):
             reading += 1
     counts = [
         counted(statements, "{} relevé traité", "{} relevés traités"),
+        counted(max(imported - statements, 0), "{} relevé importé", "{} relevés importés"),
         counted(posted, "{} facture comptabilisée", "{} factures comptabilisées"),
         counted(held, "{} facture vérifiée laissée en brouillon", "{} factures vérifiées laissées en brouillon"),
         counted(reading, "{} facture que Experio lit encore", "{} factures que Experio lit encore"),
@@ -1329,7 +1332,7 @@ def waiting_drafts(
     # A message naming invoices (Tarik's number, the invoice's own, its supplier) is about those only: nothing else of
     # the conversation is taken up with them, however long it has been waiting.
     named = []
-    if dossier_id and waiting and not asks_whole(client_message):
+    if dossier_id and waiting and not asks_whole(client_message, dossier_id):
         named = asked_among(waiting, dossier_id, client_message)
     # The dossier's drafts from Experio's own invoicing (Facturation), posted when the client asks for them: never
     # read nor checked by Tarik (no scan, accounts per line), they start at the dossier's settings.
@@ -1368,7 +1371,8 @@ def waiting_drafts(
             facturation=billed,
             statements=statements,
         )
-    left = left_in_dossier(dossier_id, {*waiting, *billed}, cut) if held and (cut or asks_whole(client_message)) else ""
+    whole = held and (cut or asks_whole(client_message, dossier_id))
+    left = left_in_dossier(dossier_id, {*waiting, *billed}, cut) if whole else ""
     if left and waiting:
         return ok(left, invoices=waiting, tell=True)  # told in the reply, with what is posted
     hint = elsewhere_hint(elsewhere_left, client_message, held) if not waiting else ""
@@ -1481,6 +1485,8 @@ WHOLE = re.compile(  # « toutes les factures (du dossier) », never « les fact
     r"(?<![a-z])(?:tout le dossier|(?:toutes|tous) (?:les|ses) (?:factures|brouillons)(?: du dossier)?"
     r"(?! (?:de|du|d|des) )|toutes celles du dossier|l ensemble (?:des factures|des brouillons|du dossier))(?![a-z])"
 )
+# « les factures en brouillon(s) de la société X »: the whole dossier only when X is the conversation's dossier.
+DRAFTS_OF = re.compile(r"(?<![a-z])les factures en brouillons? (?:de la societe|du dossier) (.+)", re.DOTALL)
 # The client's own verb, to say back how to ask for the whole dossier (normalized stem -> as written).
 VERBS = {"comptabilis": "comptabilisez", "repren": "reprenez", "relanc": "relancez", "termin": "terminez"}
 
@@ -1505,9 +1511,19 @@ def supplier_names(name):
     return [whole, first]
 
 
-def asks_whole(client_message):
-    """True when the client's own words ask for the whole dossier (« toutes les factures du dossier »)."""
-    return bool(WHOLE.search(normalized(own_words(client_message))))
+def dossier_name(dossier_id):
+    """Return dossier ``dossier_id``'s name as Experio has it."""
+    return odoo_call("res.company", "read", [dossier_id], fields=["name"])[0]["name"]
+
+
+def asks_whole(client_message, dossier_id):
+    """True when the client's own words ask for the whole dossier (« toutes les factures du dossier », or « les
+    factures en brouillon de la société X » with X the dossier ``dossier_id``: a supplier is never taken for it)."""
+    words = normalized(own_words(client_message))
+    if WHOLE.search(words):
+        return True
+    named = DRAFTS_OF.search(words)
+    return bool(named and dossier_id and named.group(1).startswith(normalized(dossier_name(dossier_id))))
 
 
 def left_in_dossier(dossier_id, taken, cut=()):
@@ -1560,7 +1576,7 @@ def asked_among(ids, dossier_id, client_message):
     words = normalized(own_words(client_message))
     if not words:
         return []
-    if WHOLE.search(words):
+    if asks_whole(client_message, dossier_id):
         return sorted(ids)
     drafts = odoo_call(
         "exp.invoice",
