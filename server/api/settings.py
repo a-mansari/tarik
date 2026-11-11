@@ -136,7 +136,10 @@ GENERAL_SECTIONS = {
             "Jeton de Claude",
             "Le LLM Claude (la CLI Claude Code) : le jeton de `claude setup-token`.",
         ),
-        "MODEL_API_URL": ("Adresse de MiniMax", "Le LLM MiniMax : l'adresse de son API. Vide : celle du .env."),
+        "MODEL_API_URL": (
+            "Adresse de MiniMax",
+            "Le LLM MiniMax : l'adresse de son API. Vide : MiniMax n'est pas utilisable.",
+        ),
         "MODEL_API_KEY": ("Clé de MiniMax", "Le LLM MiniMax : la clé de son API."),
     },
     "Experio": {

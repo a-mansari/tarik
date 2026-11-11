@@ -15,7 +15,7 @@ import pytest
 from langchain_anthropic.chat_models import convert_to_anthropic_tool
 
 from engine.tools.core.cabinets import setting, using
-from engine.tools.core.model import MODEL_URL, model_name
+from engine.tools.core.model import model_name
 
 CABINET = os.getenv("TARIK_TEST_CABINET", "experio_cabinet_8")
 REPEAT = int(os.getenv("REPEAT", "1"))
@@ -40,7 +40,7 @@ def ask():
     """ask(skill, messages) -> the model's whole answer (its JSON: content blocks, usage) and the seconds it took."""
     instructions, skills, tools, (start, all_tools) = agent()
     with using(CABINET):
-        key, url = setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", MODEL_URL)
+        key, url = setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", "")
     if not key:
         pytest.skip("no MODEL_API_KEY in Vault secret/tarik/orchestrator")
     http = httpx.Client(timeout=180, headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
