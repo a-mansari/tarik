@@ -45,7 +45,7 @@ You provide a host with Docker and a route on Experio's reverse proxy; the rest 
    to the image build.
 2. **The seed folder** (`TARIK_SEED_DIR`, `./deploy/seed` unless set): the template is `deploy/seed.example/` (see its `README.md`). It holds
    the secrets Vault starts with, one JSON file per Vault path:
-   - `orchestrator.json`: `MODEL_API_KEY`, and `EXPERIO_API_KEY` (the key the Experio app sends to `/api/`; leave it
+   - `orchestrator.json`: `MODEL_API_KEY` and `MODEL_API_URL` (the MiniMax LLM's; Claude needs neither), and `EXPERIO_API_KEY` (the key the Experio app sends to `/api/`; leave it
      out and Vault makes a random one, which only Vault shows).
    - `shared.json`: the mail servers (`IMAP_HOST`, `IMAP_PORT`, `IMAP_FOLDER`, `SMTP_HOST`, `SMTP_PORT`,
      `MAIL_CERT_SHA256`), optionally `GLADDEN_URL` and `GLADDEN_CALLBACK_URL`, `PUBLIC_URL` (this server as clients reach it: a new dossier's form link, and the host Sparrow calls Tarik on for WhatsApp (`/sparrow/handler` must be reachable there from outside);

@@ -27,7 +27,7 @@ of the n8n stack runs in it:
   there (all of it, a group, or one section) to keep it or to fill another stack. No file holds it: back up the
   database, or keep an export. `docs/using-tarik.md` is for the cabinets.
 - **Its Postgres** (service `db`): runs, conversations, layouts (schema `orchestrator`) and each cabinet's schema.
-- **Its model key**: Vault `secret/tarik/orchestrator` (`MODEL_API_KEY`, `MODEL_API_URL` optional).
+- **Its model key**: Vault `secret/tarik/orchestrator` (`MODEL_API_KEY` and `MODEL_API_URL`, the MiniMax LLM's; Claude needs `CLAUDE_CODE_OAUTH_TOKEN`).
 - **Its mail watcher** (`engine/mail.py`), for every cabinet with a mailbox of its own (`IMAP_USER`).
 - **Its Vault** (service `vault`): read-only for Tarik, an AppRole on `secret/tarik/*`, and the Cabinets page's own,
   which may only update `secret/tarik/cabinets/*`; both set up by `vault/setup.sh`.

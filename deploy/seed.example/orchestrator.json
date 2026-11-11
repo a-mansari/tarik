@@ -1,4 +1,5 @@
 {
   "MODEL_API_KEY": "CHANGE_ME the model provider's key",
+  "MODEL_API_URL": "CHANGE_ME the provider's Anthropic-style address (MiniMax's), or delete both lines to use Claude only",
   "EXPERIO_API_KEY": "CHANGE_ME the key the Experio app sends to /api/ (openssl rand -hex 32), or delete this line: Vault makes a random one"
 }
