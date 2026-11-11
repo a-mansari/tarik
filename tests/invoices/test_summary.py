@@ -90,6 +90,14 @@ def test_an_outcome_s_sub_points_nest_under_its_own_bullet(db_cabinet):
 
 
 @pytest.mark.communication
+def test_a_statement_imported_by_an_answer_is_told(db_cabinet):
+    for file_id, name in ((1, "01"), (2, "02")):
+        imported = {"status": "ok", "message": f"`{name}.pdf` : relevé importé.", "file_id": file_id}
+        record_step("r", "s", "import_bank_statement", imported)
+    assert run_summary("r")["message"] == "Bilan : 2 relevés importés."
+
+
+@pytest.mark.communication
 def test_an_invoice_waits_on_one_question_its_latest(db_cabinet):
     for asked in (
         "Facture 9 : « Objet : X » ne désigne pas un seul compte.",

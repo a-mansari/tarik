@@ -549,6 +549,7 @@ def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them
         return [] if method == "search_read" else domain[0][2]  # nothing to post: the dossier's drafts, none
 
     monkeypatch.setattr(pipeline, "odoo_call", odoo_call)
+    monkeypatch.setattr(pipeline, "dossier_name", lambda dossier_id: "TEST")
     pipeline.hold_posting(7, "another")
     pipeline.hold_posting(8, "another")
     for said, taken in [
@@ -560,6 +561,12 @@ def test_drafts_of_other_conversations_are_taken_only_when_the_client_names_them
         ("Comptabilisez-la.", []),  # this thread's: none held here
         ("Comptabilisez les factures du dossier TEST.", []),  # naming the dossier is not asking for all of it
         ("Comptabilisez toutes les factures du dossier TEST.", [7, 8]),
+        ("Merci de comptabiliser les factures en brouillons de la société TEST", [7, 8]),
+        ("Comptabilisez les factures en brouillon du dossier TEST.", [7, 8]),
+        ("Comptabilisez les factures en brouillon de Midas.", [7]),  # a supplier's, not the whole dossier
+        ("Comptabilisez les factures en brouillon de la société Midas", [7]),  # not the dossier's name
+        ("Comptabilisez les factures en brouillon pour Midas", [7]),
+        ("Comptabilisez les factures en brouillon", []),  # no scope: this conversation's
         ("Comptabilisez toutes les factures du fournisseur Exelentia.", [8]),  # filtered, not the whole dossier
     ]:
         assert pipeline.waiting_drafts("new", held=True, dossier_id=5, client_message=said)["invoices"] == taken, said
