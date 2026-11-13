@@ -30,7 +30,8 @@ SIDES = {"achat": {"achat"}, "vente": {"vente"}, "mixte": {"achat", "vente"}}
 
 def classify_pages(pages, what, dossier=""):
     """Ask the model what a document's ``pages`` are. Returns (category, reason in French): category is achat,
-    vente, rb (bank statement) or autre (neither: a contract, a schedule, a screenshot).
+    vente, rb (bank statement), avis (a bank's notice of operation) or autre (none of them: a contract, a schedule, a
+    screenshot).
 
     Args:
         what: the step's name in logs and errors.
@@ -41,11 +42,11 @@ def classify_pages(pages, what, dossier=""):
     result = ask_model(
         tool_prompt("classify-document"),
         pages,
-        client
-        + 'Answer with only a JSON object: {"category": "achat"|"vente"|"rb"|"autre", "reason": "one French sentence"}',
+        client + 'Answer with only a JSON object: {"category": "achat"|"vente"|"rb"|"avis"|"autre", '
+        '"reason": "one French sentence"}',
         what,
     )
-    if result.get("category") not in ("achat", "vente", "rb", "autre"):
+    if result.get("category") not in ("achat", "vente", "rb", "avis", "autre"):
         log(f"{what}: unexpected category {result.get('category')!r}")
         raise ToolError(
             f"{what} : {READER} n'a pas su dire si c'est une facture d'achat, de vente ou un relevé bancaire ; "

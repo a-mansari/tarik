@@ -228,6 +228,14 @@ async def import_statement(state: File):
     return {"last": result, "outcomes": [result]}
 
 
+async def adjust_notice(state: File):
+    """Graph node: adjust the statement line the file, a bank's notice of operation, details (adjust_from_notice)."""
+    result = await run_step(
+        state, "adjust_from_notice", file_id=state["file_id"], dossier_id=state["call"]["dossier_id"]
+    )
+    return {"last": result, "outcomes": [result]}
+
+
 async def split(state: File):
     """Graph node: cut the file into one file per invoice (split_invoices)."""
     call = state["call"]
@@ -259,12 +267,12 @@ async def import_sheet(state: File):
 
 @stops_at(END)
 def after_identify(state: File):
-    """Route: "releve" for a bank statement, "tableur" for a table of invoices, else "decoupage"; END when
-    identification was not ok."""
+    """Route: "releve" for a bank statement, "tableur" for a table of invoices, "avis" for a bank's notice of operation,
+    else "decoupage"; END when identification was not ok."""
     last = state["last"]
     if last.get("status") != "ok":
         return END
-    return {"statement": "releve", "sheet": "tableur"}.get(last.get("kind"), "decoupage")
+    return {"statement": "releve", "sheet": "tableur", "notice": "avis"}.get(last.get("kind"), "decoupage")
 
 
 def invoice_run(state: File, entry, call=None, **document):
@@ -359,6 +367,7 @@ file = StateGraph(File, output_schema=Outcomes)
 file.add_node("identification", identify)
 file.add_node("releve", import_statement)
 file.add_node("tableur", import_sheet)
+file.add_node("avis", adjust_notice)
 file.add_node("pointage", point_statement)
 file.add_node("operations", POINTING)
 file.add_node("comptabilisation_releve", post_statement)
@@ -376,7 +385,8 @@ def file_start(state: File):
 
 
 file.add_conditional_edges(START, file_start, ["identification", "facture", "pointage"])
-file.add_conditional_edges("identification", after_identify, ["releve", "tableur", "decoupage", END])
+file.add_conditional_edges("identification", after_identify, ["releve", "tableur", "avis", "decoupage", END])
+file.add_edge("avis", END)
 file.add_conditional_edges("tableur", sheet_drafts, ["facture", END])
 file.add_conditional_edges("releve", after_import, ["pointage", END])
 file.add_conditional_edges("pointage", after_reading, ["operations", "comptabilisation_releve", END])

@@ -34,6 +34,7 @@ KIND_LABEL = {
     "invoice": "une facture",
     "statement": "un relevé bancaire",
     "sheet": "un tableur de factures",
+    "notice": "un avis d'opération",
     "other": "ni une facture ni un relevé",
 }
 # How a client corrects what a file they sent is, in their own words (normalized): it wins over Gladden's and the
@@ -65,7 +66,9 @@ def require_kind(name, kind, wanted):
     if kind is None:
         raise ToolError(f"`{name}` n'est pas encore identifié : appelez d'abord identify_document.")
     if kind != wanted:
-        other = "import_bank_statement" if kind == "statement" else "split_invoices puis create_draft_invoice"
+        other = {"statement": "import_bank_statement", "notice": "adjust_from_notice"}.get(
+            kind, "split_invoices puis create_draft_invoice"
+        )
         raise ToolError(f"`{name}` est {KIND_LABEL[kind]}, pas {KIND_LABEL[wanted]} : utilisez {other}.")
 
 
@@ -216,7 +219,7 @@ def identify_document(file_id: int, client_message: str = "") -> dict:
         # Gladden calls an invoice: a screenshot of a software screen otherwise became a draft in Experio.
         if kind != "invoice" or mime.startswith("image/"):
             category, reason = classify_pages(pages, "Identification du document")
-            kind = {"rb": "statement", "autre": "other"}.get(category, "invoice")
+            kind = {"rb": "statement", "autre": "other", "avis": "notice"}.get(category, "invoice")
         db.execute(Q.set_file_kind, (kind, file_id))
         if kind == "statement" and read == "bank" and bank:  # its bank (a TPE's is its network): chosen_journal's
             db.execute(Q.set_file_gladden_bank, (bank.lower(), file_id))  # second signal; Experio matches it =ilike

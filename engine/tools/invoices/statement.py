@@ -579,17 +579,9 @@ RAS_RECENT = 6  # the dossier's latest declared tables of each kind a payment ma
 FEE_WORDS = ("commission", "commissions", "com", "frais")  # a bank fee's label, as banks print it
 
 
-def fee_pairs(lines, unsettled, operations):
-    """Return {line id: (operation, TVA to write or None)} for the bank's fee lines and their TVA lines among ``lines``
-    (all the statement's open lines), both among ``unsettled`` (ids of the lines no operation settles yet).
-
-    A bank prints a commission and its TVA as two lines of one date (« COMMISSION SUR VIREMENT » 20.00, « TVA SUR
-    COMMISSION » 2.00). As on a TPE statement (tpe.py, Experio's own table): the commission takes the dossier's HT bank
-    fee operation (6147, frais_without_tax, with its 10 % tax: Experio books the TVA on top, get_tax_debit_and_credit),
-    its TVA written as printed (the line's tax_amount, over the rate's rounding); the TVA line takes « Taxe Bancaire »
-    (bank_fee, tax), which posts nothing (should_generate_move). A TVA line pairs only with the one line of its date
-    whose 10 % it is, pointed or not, and only when that line's label says a fee (FEE_WORDS: not a card insurance nor
-    a stamp duty); the dossier needs both operations."""
+def fee_operations(operations):
+    """Return (the dossier's HT bank fee operation on 6147 with its 10 % tax, its « Taxe Bancaire » operation) among
+    ``operations`` ({id: operation}); None for each it lacks."""
     fee = next(
         (
             o
@@ -603,6 +595,21 @@ def fee_pairs(lines, unsettled, operations):
         None,
     )
     tax = next((o for o in operations.values() if o["type"] == "bank_fee" and o.get("bank_type") == "tax"), None)
+    return fee, tax
+
+
+def fee_pairs(lines, unsettled, operations):
+    """Return {line id: (operation, TVA to write or None)} for the bank's fee lines and their TVA lines among ``lines``
+    (all the statement's open lines), both among ``unsettled`` (ids of the lines no operation settles yet).
+
+    A bank prints a commission and its TVA as two lines of one date (« COMMISSION SUR VIREMENT » 20.00, « TVA SUR
+    COMMISSION » 2.00). As on a TPE statement (tpe.py, Experio's own table): the commission takes the dossier's HT bank
+    fee operation (6147, frais_without_tax, with its 10 % tax: Experio books the TVA on top, get_tax_debit_and_credit),
+    its TVA written as printed (the line's tax_amount, over the rate's rounding); the TVA line takes « Taxe Bancaire »
+    (bank_fee, tax), which posts nothing (should_generate_move). A TVA line pairs only with the one line of its date
+    whose 10 % it is, pointed or not, and only when that line's label says a fee (FEE_WORDS: not a card insurance nor
+    a stamp duty); the dossier needs both operations."""
+    fee, tax = fee_operations(operations)
     if not (fee and tax):
         return {}
     paid = [line for line in lines if side(line) == "outbound" and line["payment_ref"]]
