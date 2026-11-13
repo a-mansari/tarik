@@ -15,8 +15,8 @@ run against the real Sparrow. This is what to set up and how to test it with one
 
 ## 1. Before the first test
 
-- [ ] **Import the content.** Contenu page, import `docs/content-export/tarik-contenu-whatsapp-20261105.json` (the two new
-      Journal entries' words). Until then `python check.py` reports `journal action whatsapp_enrolled: no words`.
+- [ ] **Import the content.** Contenu page, import the stack's content with the two new
+      Journal entries' words. Until then `python check.py` reports `journal action whatsapp_enrolled: no words`.
 - [ ] **`.env`** holds the four keys below (a change applies at the next start of the server):
 
   | Key | Value |
