@@ -15,8 +15,8 @@ services:
       context: .
       args: # the Claude Code CLI's installer (.env.example); INSTALL_CLAUDE_CODE=0 leaves it out
         INSTALL_CLAUDE_CODE: ${INSTALL_CLAUDE_CODE:-1}
-        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
+        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-https://claude.ai/install.sh}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.300}
     command: ["python", "-m", "server"] # as the image's own, for an image built before server/ held the server
     restart: unless-stopped
     ports:
@@ -89,8 +89,8 @@ services:
     build:
       context: deploy/hindsight
       args:
-        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-}
-        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-}
+        CLAUDE_INSTALL_URL: ${CLAUDE_INSTALL_URL:-https://claude.ai/install.sh}
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.300}
     restart: unless-stopped
     ports:
       - "127.0.0.1:9999:9999" # its web UI (read and delete the memories), this machine only: it has no login

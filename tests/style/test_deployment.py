@@ -13,6 +13,19 @@ ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE = ROOT / ".env.example"
 CODE = [*(ROOT / "engine").rglob("*.py"), *(ROOT / "server").rglob("*.py"), ROOT / "run.py"]
 URL = re.compile(r"https?://(?!localhost|127\.0\.0\.1|0\.0\.0\.0)[a-z0-9-]+(\.[a-z0-9-]+)+", re.IGNORECASE)
+# Tuning with a default in the code or in the compose files (the Postgres names: the compose files only): left out of
+# .env.example to keep it short.
+UNLISTED = {
+    "TARIK_GRAPH_URL",
+    "TARIK_PROMPTS_KEEP_DAYS",
+    "TARIK_CALLS_PER_CABINET",
+    "TARIK_CALLS_TOTAL",
+    "TARIK_MODEL_CALLS",
+    "POSTGRES_HOST",
+    "POSTGRES_DB",
+    "POSTGRES_USER",
+    "MEMORY_ENABLED",
+}
 READ = re.compile(r"""(?:getenv|environ\.get|environ)\(?\[?\s*["']([A-Z][A-Z0-9_]+)["']""")
 
 
@@ -33,7 +46,7 @@ def test_every_environment_variable_the_code_reads_is_in_env_example():
     if not EXAMPLE.exists():
         pytest.skip(".env.example is not mounted here")
     text = EXAMPLE.read_text()
-    read = {name for path in CODE for name in READ.findall(path.read_text())} - {"TARIK_CABINETS"}  # the tests' only
+    read = {name for path in CODE for name in READ.findall(path.read_text())} - {"TARIK_CABINETS"} - UNLISTED
     assert sorted(name for name in read if name not in text) == []
 
 
@@ -52,7 +65,7 @@ def test_every_shared_setting_is_in_env_example_and_passed_to_the_server(compose
     if not EXAMPLE.exists():
         pytest.skip(".env.example is not mounted here")
     lines = {line.split("=", 1)[0].strip() for line in EXAMPLE.read_text().splitlines() if "=" in line}
-    assert sorted(SHARED_SETTINGS - lines) == []
+    assert sorted(SHARED_SETTINGS - {"MEMORY_ENABLED"} - lines) == []
     if not (ROOT / compose).exists():
         pytest.skip(f"{compose} is not here")
     passed = (ROOT / compose).read_text()
