@@ -1,7 +1,7 @@
 """Serve the Experio app's API: create a cabinet, change its settings or close it, with Tarik serving it (or stopping)
 at once, without a restart.
 
-Only the Experio app may call it, with its key (EXPERIO_API_KEY, in Vault's secret/tarik/orchestrator) as a Bearer
+Only the Experio app may call it, with its key (EXPERIO_API_KEY, in .env) as a Bearer
 token, checked by server.py's Guard; a session of the pages is never enough. JSON in and out, every error in plain
 French under "error". docs/experio-api.md is the guide for Experio's developers.
 
@@ -75,7 +75,7 @@ async def serve(cabinet):
 
 async def listing(request: Request):
     """GET /api/cabinets: return every cabinet Vault holds, deactivated ones included, as [{name, active}]."""
-    _, known = await asyncio.to_thread(cabinets.vault_settings)
+    known = await asyncio.to_thread(cabinets.vault_settings)
     return answer([{"name": name, "active": cabinets.active(own)} for name, own in sorted(known.items())])
 
 

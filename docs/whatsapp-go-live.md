@@ -17,8 +17,7 @@ run against the real Sparrow. This is what to set up and how to test it with one
 
 - [ ] **Import the content.** Contenu page, import `docs/content-export/tarik-contenu-whatsapp-20261105.json` (the two new
       Journal entries' words). Until then `python check.py` reports `journal action whatsapp_enrolled: no words`.
-- [ ] **Vault `secret/tarik/shared`** holds the four keys below, as `DEPLOY.md` describes for `shared.json`
-      (`VAULT_SEED_OVERWRITE=1` merges them into an existing path):
+- [ ] **`.env`** holds the four keys below (a change applies at the next start of the server):
 
   | Key | Value |
   | --- | --- |
@@ -27,8 +26,7 @@ run against the real Sparrow. This is what to set up and how to test it with one
   | `SPARROW_SENDER_ID` | `SM3DpyJAXOQNG2kR`, the sender of Experio's WhatsApp number `212781220229` (see « Proven on 2026-11-05 ») |
   | `SPARROW_TOKEN` | Sparrow's master token |
 
-  The local dev Vault holds all four. A deployed stack has its own Vault: the three `SPARROW_*` keys must be put there too
-  (`deploy/seed.example/shared.json` lists them).
+  Each stack has its own `.env`: the three `SPARROW_*` keys must be in every one that runs WhatsApp (`.env.example` lists them).
 - [ ] **Build and restart.** `cd server/web && npm run build`, then restart the server. The start creates
       `whatsapp_recipients` and `whatsapp_messages` (orchestrator) and `tarik_whatsapp_senders` in each cabinet's schema.
 - [ ] **Sparrow can reach Tarik.** From outside the network:

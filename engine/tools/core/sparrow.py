@@ -1,5 +1,4 @@
-"""Sparrow: Experio's WhatsApp relay, Tarik's WhatsApp channel (SPARROW_URL, SPARROW_SENDER_ID and SPARROW_TOKEN, Vault
-secret/tarik/shared).
+"""Sparrow: Experio's WhatsApp relay, Tarik's WhatsApp channel (SPARROW_URL, SPARROW_SENDER_ID and SPARROW_TOKEN, .env).
 
 Experio's dossiers are configured with one WhatsApp sender (SPARROW_SENDER_ID, the sender Tarik enrolls under). A person
 is a *recipient* of it: a phone number, the host Sparrow forwards their messages to (``host_uri``, a bare host: Sparrow

@@ -27,7 +27,7 @@ of the n8n stack runs in it:
   there (all of it, a group, or one section) to keep it or to fill another stack. No file holds it: back up the
   database, or keep an export. `docs/using-tarik.md` is for the cabinets.
 - **Its Postgres** (service `db`): runs, conversations, layouts (schema `orchestrator`) and each cabinet's schema.
-- **Its model key**: Vault `secret/tarik/orchestrator` (`MODEL_API_KEY` and `MODEL_API_URL`, the MiniMax LLM's; Claude needs `CLAUDE_CODE_OAUTH_TOKEN`).
+- **Its model key**: `.env` (`MODEL_API_KEY` and `MODEL_API_URL`, the MiniMax LLM's; Claude needs `CLAUDE_CODE_OAUTH_TOKEN`), like every setting the cabinets share.
 - **Its mail watcher** (`engine/mail.py`), for every cabinet with a mailbox of its own (`IMAP_USER`).
 - **Its Vault** (service `vault`): read-only for Tarik, an AppRole on `secret/tarik/*`, and the Cabinets page's own,
   which may only update `secret/tarik/cabinets/*`; both set up by `vault/setup.sh`.
@@ -70,8 +70,8 @@ backed up outside the repository. Only the cabinets' Experio is outside this sta
 ## Run it
 
 Its `.env` (never in git, from `.env.example`) gives what it needs to start: `ODOO_URL`, `POSTGRES_PASSWORD`,
-`VAULT_ADDR`, `TARIK_DEFAULT_CABINET`, and the optional limits and addresses; `.env.example` also
-lists every setting it reads from Vault. No address is written in the code (`tests/style/test_deployment.py`).
+`VAULT_ADDR`, the shared settings (mail server, model, Gladden, Sparrow), and the optional limits and addresses;
+`.env.example` also lists every setting each cabinet keeps in Vault. No address is written in the code (`tests/style/test_deployment.py`).
 To deploy it, see `DEPLOY.md` and `docker-compose.prod.yml`.
 
 ```bash
@@ -137,7 +137,7 @@ with every run live, step by step.
    naming a tool Tarik lacks, emptying a text or reshaping a document is refused. Then each cabinet's own settings,
    on the Cabinets page (`server/cabinet_settings.py`): its Experio login, its mailbox, who may receive Tarik's emails,
    simulation or real writes (confirmed first). Vault stays their only home, written with the page's own AppRole
-   (`tarik-settings`: read and update `secret/tarik/cabinets/*` only, never the shared settings nor a new cabinet);
+   (`tarik-settings`: read and update `secret/tarik/cabinets/*` only; the shared settings are `.env`'s, shown read only on the Paramètres page);
    a secret is never shown, only replaced; a change is written over the version the page showed only, kept (who,
    when, why, which settings; never a secret's value: table `settings_changes`) and in use at once.
 5. **Mail** — done: a cabinet switched over from the n8n stack; then the email test and `-m llm` again.

@@ -55,7 +55,8 @@ from engine.tools.core.cabinets import (
     CABINETS,
     VAULT_ENABLED,
     create_schemas,
-    misplaced_in_vault,
+    misplaced,
+    shared,
     using,
     vault_settings,
 )
@@ -148,13 +149,9 @@ class Guard:
 
 
 def experio_key_shown(request):
-    """True when the request's Bearer token is the Experio app's key (EXPERIO_API_KEY, from Vault); always False when no
-    key is set."""
-    if VAULT_ENABLED:
-        shared, _ = vault_settings()
-        key = shared.get("EXPERIO_API_KEY", "")
-    else:
-        key = os.getenv("EXPERIO_API_KEY", "")
+    """True when the request's Bearer token is the Experio app's key (EXPERIO_API_KEY, .env); always False when no key
+    is set."""
+    key = shared("EXPERIO_API_KEY")
     return bool(key) and hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {key}")
 
 
@@ -240,14 +237,18 @@ async def start(request: Request):
     """POST /runs/{graph}: start a run of ``graph`` by hand and record it in the Journal.
 
     With wait true (the default), waits for the run and returns it (see runs.run); with wait false, returns {run_id,
-    status: "queued"} at once (202). 404 for an unknown graph, 403 for the Routine workflow (its schedule starts it)."""
+    status: "queued"} at once (202). 404 for an unknown graph, 403 for the Routine workflow (its schedule starts it),
+    400 when no cabinet is named."""
     name = request.path_params["graph"]
     if name not in runs.NAMES:
         return JSONResponse({"error": f"unknown graph {name!r}"}, status_code=404)
     if name == "routine":  # a period is claimed by its schedule first (engine/routines.py): never one by hand
         return JSONResponse({"error": "a routine runs at its time only (Routines page)"}, status_code=403)
     payload = await request.json()
-    run_id, task = await runs.start(name, payload)
+    try:
+        run_id, task = await runs.start(name, payload)
+    except ValueError as refused:  # no cabinet named, none by default
+        return JSONResponse({"error": str(refused)}, status_code=400)
     await audit.record(request.state.user["email"], "run_started", name, run_id=run_id)
     if payload.get("wait", True):
         await asyncio.wait({task})  # stopped meanwhile (runs.stop): its run says so
@@ -359,18 +360,17 @@ async def step(request: Request):
 
 
 def check_cabinets():
-    """Check at start that Vault is set, every cabinet is fully configured, and each schema is ready.
+    """Check at start that Vault is set, every cabinet is fully configured, and each schema is ready. No cabinet is
+    fine: the first is added on the Cabinets page.
 
-    Raises SystemExit (nothing is served) when Vault is off, no cabinet is configured, a setting is in the wrong
-    Vault path, or a cabinet's Experio account check fails (engine.tools.core.experio.account); PermissionError
-    for an EXPERIO_URL Tarik would not use (experio_url)."""
+    Raises SystemExit (nothing is served) when Vault is off, a setting is in the wrong place, or a cabinet's Experio
+    account check fails (engine.tools.core.experio.account); PermissionError for an EXPERIO_URL Tarik would not use
+    (experio_url)."""
     if not VAULT_ENABLED:
-        raise SystemExit("VAULT_ADDR is not set: Tarik's settings are read from Vault only")
-    if not CABINETS:
-        raise SystemExit("no cabinet in Vault (secret/tarik/cabinets/<cabinet>): no cabinet to serve")
-    misplaced = misplaced_in_vault(*vault_settings())
-    if misplaced:
-        raise SystemExit(f"settings not where they belong (see engine/tools/core/cabinets.py): {', '.join(misplaced)}")
+        raise SystemExit("VAULT_ADDR is not set: the cabinets' settings are read from Vault only")
+    stray = misplaced(vault_settings())
+    if stray:
+        raise SystemExit(f"settings not where they belong (see engine/tools/core/cabinets.py): {', '.join(stray)}")
     for name in sorted(CABINETS):
         with using(name):
             account()  # exact database name and Tarik's user id, or SystemExit
@@ -426,7 +426,7 @@ app = Starlette(
         Route("/ui/api/logs-serveur", api.journal.journal_page),
         Route("/ui/live", changes),
         Route("/ui/api/settings", api.settings.cabinet_page, methods=["GET", "POST"]),
-        Route("/ui/api/settings/general", api.settings.general_page, methods=["GET", "POST"]),
+        Route("/ui/api/settings/general", api.settings.general_page),
         Route("/ui/api/settings/llms", api.settings.llms_page, methods=["GET", "POST"]),
         Route("/ui/api/settings/active", api.settings.activation, methods=["POST"]),
         Route("/ui/api/settings/new", api.settings.new_cabinet_page, methods=["GET", "POST"]),

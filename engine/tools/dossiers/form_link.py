@@ -12,7 +12,7 @@ FORM_DAYS = 7
 
 def form_link(dossier_id, session_id):
     """Make a form for dossier ``dossier_id`` (conversation ``session_id``) and return its link, or "" when this
-    server's public address (PUBLIC_URL, Vault secret/tarik/shared) is not set: Tarik then asks by email."""
+    server's public address (PUBLIC_URL, .env) is not set: Tarik then asks by email."""
     base = setting("PUBLIC_URL", "").rstrip("/")
     if not base:
         return ""

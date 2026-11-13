@@ -5,8 +5,9 @@ vault/.local/
 .claude/*
 !.claude/skills/
 
-# Vault seed files hold secrets (deploy/seed.example/ is the template)
-deploy/seed/
 experio_mcp/.venv/
 experio_mcp/*.json
 experio-reports/
+
+# Old Vault seed files (no longer used by the stack) may still hold secrets on a machine
+deploy/seed/

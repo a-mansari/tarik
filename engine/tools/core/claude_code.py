@@ -12,6 +12,7 @@ import threading
 import time
 
 from engine.tools.core import usage
+from engine.tools.core.cabinets import SHARED_SETTINGS
 from engine.tools.core.config import MODEL_TIMEOUT
 
 MODEL = "sonnet"  # the model of the global LLM Claude; any other LLM of this type names its own (ask: ``model``)
@@ -20,6 +21,9 @@ EFFORT = "medium"  # set, not left to the CLI's default, which can change betwee
 
 # At most this many CLI processes at once in the server (each holds a few hundred MB), the agent's calls and the
 # tools' vision calls together: more wait their turn, within their own timeout.
+# What the CLI's child process never gets from the server's environment: the shared settings (.env) and the secrets
+# that are not settings.
+WITHHELD = SHARED_SETTINGS | {"POSTGRES_PASSWORD", "TARIK_GRAPH_TOKEN"}
 PROCESSES = threading.BoundedSemaphore(int(os.getenv("TARIK_MODEL_CALLS", "10")))
 ARGUMENT = 128 * 1024  # Linux's limit on one argument (MAX_ARG_STRLEN), its final NUL included
 
@@ -65,7 +69,9 @@ def ask(system, content, schema, timeout=MODEL_TIMEOUT, token="", model=MODEL):
     ``token``: the CLI's login (an LLM's key; none: the CLI's own), ``model`` the CLI's model.
     Raises ClaudeCodeUnreadable when it gives no answer in that shape, ClaudeCodeError when the CLI is missing,
     busy, times out or fails."""
-    env = {**os.environ, "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"}
+    # Not the server's secrets: the shared settings (.env), the database's password and the scripts' token stay out.
+    env = {key: value for key, value in os.environ.items() if key not in WITHHELD}
+    env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
     if token:
         env["CLAUDE_CODE_OAUTH_TOKEN"] = token
     message = {"type": "user", "message": {"role": "user", "content": content}}

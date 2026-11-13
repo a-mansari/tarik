@@ -204,7 +204,7 @@ def settings_page(vault, monkeypatch):
     )
 
     monkeypatch.setattr(api.settings.runs, "pool", Pool())
-    known = ({}, {"cabinet_a": {}, "cabinet_b": {"ACTIVE": "0", "CABINET_NAME": "B"}})
+    known = {"cabinet_a": {}, "cabinet_b": {"ACTIVE": "0", "CABINET_NAME": "B"}}
     monkeypatch.setattr(api.runs, "vault_settings", lambda: known)
     return api.settings.cabinet_page
 
@@ -248,7 +248,7 @@ def test_a_change_for_another_cabinet_or_an_older_page_is_refused(settings_page,
     assert status == 400 and vault == []  # a field not text (here the version) is not taken
 
 
-def test_a_cabinet_is_switched_off_and_on_but_never_the_last_active_one(settings_page, vault, monkeypatch):
+def test_a_cabinet_is_switched_off_and_on_even_the_last_active_one(settings_page, vault, monkeypatch):
     from server import api
 
     served = []
@@ -266,7 +266,9 @@ def test_a_cabinet_is_switched_off_and_on_but_never_the_last_active_one(settings
     monkeypatch.setattr(api.settings.cabinets, "reload_cabinets", lambda: None)
     monkeypatch.setattr(api.settings.cabinets, "CABINETS", {"cabinet_a"})
     status, data, _ = asked(api.settings.activation, "POST", {"cabinet": "cabinet_a", "active": "0"})
-    assert status == 400 and "dernier" in data["error"] and vault == []
+    assert status == 200 and data == {"cabinet": "cabinet_a", "active": False}  # the server runs with no cabinet
+    assert entries[-1] == ("cabinet_closed", "cabinet_a")
+    vault.clear()
     off = {"data": {"data": {**BEFORE, "ACTIVE": "0"}, "metadata": {"version": 4}}}
     monkeypatch.setattr(
         cabinet_settings,
@@ -335,3 +337,16 @@ def test_a_cabinet_on_its_old_choice_can_be_moved_to_claude_and_nothing_else_is_
     # moved to Claude: written, though Claude is what an unset choice means
     asyncio.run(cabinet_settings.save(Pool(), "cabinet_a", {"LLM_CHOICE": "claude"}, 4, "a@experio.ma"))
     assert vault[-1]["data"]["LLM_CHOICE"] == "claude"
+
+
+def test_the_workflow_page_lists_no_runs_when_no_cabinet_is_served(monkeypatch):
+    """No cabinet chosen must not mean every cabinet's runs (a None cabinet is no filter in the runs query)."""
+    from server import api
+
+    async def recent(cabinet, graph, limit):
+        raise AssertionError("runs listed with no cabinet")
+
+    monkeypatch.setattr(api.runs, "CABINETS", set())
+    monkeypatch.setattr(api.runs.runs, "recent", recent)
+    status, data, _ = asked(api.runs.workflow_page, path_params={"graph": "agent"})
+    assert status == 200 and data["runs"] == []

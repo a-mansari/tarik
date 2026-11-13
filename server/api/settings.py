@@ -170,9 +170,9 @@ GENERAL_WORDS = {
 GENERAL_SECTIONS = {title: list(keys) for title, keys in GENERAL_SECTIONS.items()}  # the page's order: the keys only
 
 
-def general_fields(data):
+def general_fields():
     """Return the general page's sections: [(title, [field dicts])], a secret's value only True (set) or False."""
-    values = cabinet_settings.shown(data, shared_settings.FIELDS)
+    values = shared_settings.current()
     return [
         (
             title,
@@ -231,39 +231,13 @@ async def llms_page(request: Request):
 
 
 async def general_page(request: Request):
-    """GET or POST /ui/api/settings/general: return the settings every cabinet shares, after saving a change when
-    posted. POST takes JSON {version, note?, <settings>}; refused (400) when Vault holds a newer version
-    (shared_settings.save) or a value is not usable, the non-secret values then sent back as typed. 503 when Vault
-    cannot be read, or the page's role may not read these paths (vault/setup.sh). The answer holds the memory's state
-    (memory_state)."""
-    error, given, saved = None, {}, None
-    if request.method == "POST":
-        form = await form_of(request, 40)
-        given = {key: value for key, value in form.items() if key in shared_settings.FIELDS}
-        try:
-            saved = await shared_settings.save(
-                runs.pool, given, form.get("version", ""), request.state.user["email"], form.get("note", "")
-            )
-        except ValueError as refused:
-            error = str(refused)
-        except httpx.HTTPError:  # Vault down or sealed while saving
-            error = "Vault ne répond pas : rien n'est sûr de ce qui a été enregistré, rechargez la page"
-    try:
-        stores, versions = await asyncio.to_thread(shared_settings.latest)
-    except Exception:
-        return page({"unreachable": True}, 503)
-    sections = general_fields(shared_settings.merged(stores))
-    if error:
-        retyped(sections, given)
+    """GET /ui/api/settings/general: return the settings every cabinet shares, read only (they are .env's: edit it and
+    restart to change one), and the memory's state (memory_state)."""
     context = {
-        "sections": sections,
-        "version": shared_settings.version_of(versions),
-        "error": error,
-        "saved": saved,
-        "names": {key: words["name"] for key, words in GENERAL_WORDS.items()},
+        "sections": general_fields(),
         "memory": await memory_state(),
     }
-    return page(context, 400 if error else 200)
+    return page(context)
 
 
 SWITCH = asyncio.Lock()  # the last-active check and the write are one step
@@ -273,16 +247,13 @@ async def activation(request: Request):
     """POST /ui/api/settings/active {cabinet, active: "1" | "0"}: switch a cabinet on or off. Off, Tarik reads none of
     its mail, answers none of its chats and starts none of its runs; its settings and data are kept.
 
-    Returns {cabinet, active}; 400 for a bad request or the last active cabinet (the server needs one), 404 for an
-    unknown cabinet."""
+    Returns {cabinet, active}; 400 for a bad request, 404 for an unknown cabinet."""
     form = await form_of(request, 2)
     cabinet, on = form.get("cabinet", ""), form.get("active") == "1"
     if form.get("active") not in ("0", "1"):
         return page({"error": "active : 1 ou 0"}, 400)
     author = request.state.user["email"]
     async with SWITCH:
-        if not on and {cabinet} == cabinets.CABINETS:
-            return page({"error": "c'est le dernier cabinet actif : Tarik en a besoin d'un"}, 400)
         try:
             keys = await cabinet_settings.save(
                 runs.pool, cabinet, {}, None, author, "Activé" if on else "Désactivé", active=on
