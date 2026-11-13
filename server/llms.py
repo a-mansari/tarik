@@ -94,7 +94,7 @@ async def save(pool, given, seen, author):
     )  # a key replaced counts: the dicts differ
     if not names:
         return {"saved": [], "fell_back": []}
-    _, every = await asyncio.to_thread(cabinets.vault_settings)
+    every = await asyncio.to_thread(cabinets.vault_settings)
     held = {own.get("LLM_CHOICE") for own in every.values()}
     for name in sorted(after.keys() - before.keys()):
         if name in held:  # a cabinet still names it (an LLM removed): it would use this one without being asked

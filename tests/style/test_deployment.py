@@ -1,12 +1,13 @@
 """What a deployment needs stays in .env.example: no address in the code, every environment variable the code reads
-written there, and nothing in it that Vault holds (the server refuses to start with such a copy)."""
+written there, every shared setting in .env.example and in both compose files, and no cabinet's own setting in it (Vault
+holds those: the server refuses to start with such a copy)."""
 
 import re
 from pathlib import Path
 
 import pytest
 
-from engine.tools.core.cabinets import misplaced_in_vault
+from engine.tools.core.cabinets import SHARED_SETTINGS, misplaced
 
 ROOT = Path(__file__).resolve().parents[2]
 EXAMPLE = ROOT / ".env.example"
@@ -37,9 +38,22 @@ def test_every_environment_variable_the_code_reads_is_in_env_example():
 
 
 @pytest.mark.technical
-def test_env_example_holds_no_setting_vault_holds():
+def test_env_example_holds_no_setting_a_cabinet_owns():
     if not EXAMPLE.exists():
         pytest.skip(".env.example is not mounted here")
     lines = [line.split("=", 1)[0].strip() for line in EXAMPLE.read_text().splitlines() if "=" in line]
     names = [name for name in lines if re.fullmatch(r"[A-Z][A-Z0-9_]+", name)]
-    assert misplaced_in_vault({}, {}, environ=dict.fromkeys(names, "x")) == []
+    assert misplaced({}, environ=dict.fromkeys(names, "x")) == []
+
+
+@pytest.mark.technical
+@pytest.mark.parametrize("compose", ["docker-compose.yml", "docker-compose.prod.yml"])
+def test_every_shared_setting_is_in_env_example_and_passed_to_the_server(compose):
+    if not EXAMPLE.exists():
+        pytest.skip(".env.example is not mounted here")
+    lines = {line.split("=", 1)[0].strip() for line in EXAMPLE.read_text().splitlines() if "=" in line}
+    assert sorted(SHARED_SETTINGS - lines) == []
+    if not (ROOT / compose).exists():
+        pytest.skip(f"{compose} is not here")
+    passed = (ROOT / compose).read_text()
+    assert sorted(key for key in SHARED_SETTINGS if f"      {key}: ${{{key}:" not in passed) == []

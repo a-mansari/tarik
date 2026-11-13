@@ -1,10 +1,10 @@
 """The stack's default cabinet, and how a run's config names its cabinet and conversation. Every other setting
-(Vault: the shared ones, the orchestrator's own, each cabinet's) is read through engine.tools.core.cabinets.setting,
+(the environment for the shared ones, Vault for each cabinet's) is read through engine.tools.core.cabinets.setting,
 within a cabinet."""
 
 import os
 
-DEFAULT_CABINET = os.getenv("TARIK_DEFAULT_CABINET", "experio_cabinet_8")
+DEFAULT_CABINET = os.getenv("TARIK_DEFAULT_CABINET", "")  # empty: a run must name its cabinet (runs.start refuses)
 
 
 def cabinet_of(config):

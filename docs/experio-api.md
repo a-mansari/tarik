@@ -6,9 +6,9 @@ once, without a restart. Code: `server/experio_api.py`.
 ## Access
 
 - Every call sends the Experio app's key as a Bearer token: `Authorization: Bearer <key>`.
-- The key is made once inside Vault by `vault/setup.sh` (`secret/tarik/orchestrator`, `EXPERIO_API_KEY`). Nobody types
-  it; Experio's admin reads it from Vault and keeps it in the Experio app's own secrets.
-- No key, a wrong key, or no key set in Vault: `401`. A session of Tarik's pages never opens the API.
+- The key is `EXPERIO_API_KEY` in the server's `.env` (`openssl rand -hex 32`); Experio's admin keeps it in the Experio
+  app's own secrets.
+- No key, a wrong key, or no key set in `.env`: `401`. A session of Tarik's pages never opens the API.
 - Call it over HTTPS only: the settings sent include passwords.
 
 ## The cabinet

@@ -197,11 +197,13 @@ async def start(name, payload, slots=SLOTS, unattended=False):
 
     ``payload`` is the POST /runs body: {input, session_id?, thread_id?, cabinet?}. The session and cabinet default
     to the input's call, then to a new id and DEFAULT_CABINET; only the agent gets a thread (thread_id, else the
-    session)."""
+    session). ValueError when no cabinet is named and none is the default."""
     given = payload.get("input") or {}
     call = given.get("call") or {}  # a workflow's "Appel" inputs: its conversation and cabinet are there
     session = payload.get("session_id") or call.get("session_id") or payload.get("thread_id") or str(uuid.uuid4())
     cabinet = payload.get("cabinet") or call.get("cabinet") or given.get("cabinet") or DEFAULT_CABINET
+    if not cabinet:
+        raise ValueError("no cabinet: name one, or set TARIK_DEFAULT_CABINET")
     thread = (payload.get("thread_id") or session) if name == "agent" else None
     run_id = await created(name, given, cabinet, session, thread)
     running = execute(run_id, name, cabinet, session, thread, given, slots=slots, unattended=unattended)

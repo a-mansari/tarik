@@ -1,7 +1,7 @@
 # The tests
 
 How to run: `python -m pytest` in the container (everything but the live model tests); `python -m pytest -m llm -s`
-for the live model tests (slow, billed, need the model key in Vault). **To add a situation met with a client, see
+for the live model tests (slow, billed, need the model key in the environment). **To add a situation met with a client, see
 section 9: one line in `tests/llm/test_decisions.py` is usually enough.**
 
 ## 0. Configuration and markers
@@ -17,7 +17,7 @@ section 9: one line in `tests/llm/test_decisions.py` is usually enough.**
 **tests/conftest.py** (root fixtures)
 - Calls `content.load()` at import time.
 - `_test_database` (session, autouse) runs `testdb.start()` and holds this run's lock.
-- `settings_from_the_environment` (autouse) sets `VAULT_ENABLED=False` and points Postgres at the test database. It skips this for any path under `tests/llm/`, which reads the model key from Vault.
+- `settings_from_the_environment` (autouse) sets `VAULT_ENABLED=False` and points Postgres at the test database. It skips this for any path under `tests/llm/`, which needs the cabinets from Vault.
 - `_db_schema` (session) creates one throwaway cabinet schema, `testdb.schema("db")`.
 - `db_cabinet` empties that cabinet before and after each test and runs the test inside `cabinets.using(...)`.
 
@@ -122,7 +122,7 @@ Covers the tests' own database housekeeping.
 
 ### tests/core/test_vault.py (the vault category)
 Covers settings from Vault against a stand-in HTTP Vault: AppRole login, paths, refresh, outage, misplaced keys.
-- `test_each_cabinet_reads_its_own_path_and_the_shared_one` [security]: a cabinet reads only its own path plus the shared path.
+- `test_each_cabinet_reads_its_own_path_and_the_shared_ones_are_the_environments` [security]: a cabinet reads only its own path, plus the shared settings from the environment.
 - `test_the_environment_is_not_read_with_vault` [security]: env variables are ignored when Vault is enabled.
 - `test_the_cabinets_are_the_vaults_paths` [technical]: the list of cabinets comes from Vault's paths.
 - `test_a_changed_secret_applies_at_the_next_read` [technical]: an updated secret is picked up at the next read.
@@ -210,7 +210,8 @@ Covers code and content consistency: ruff, tool names in skills, prompt files, n
 Covers what a deployment needs: nothing hard-coded, everything in `.env.example`.
 - `test_no_address_is_written_in_the_code` [technical]: no URL (but localhost) in `engine/`, `server/` or `run.py`.
 - `test_every_environment_variable_the_code_reads_is_in_env_example` [technical]: every variable the code reads is written in `.env.example` (skipped where it is not mounted).
-- `test_env_example_holds_no_setting_vault_holds` [technical]: no `.env.example` line is a Vault setting, which the server refuses to start with in the environment.
+- `test_env_example_holds_no_setting_a_cabinet_owns` [technical]: no `.env.example` line is a cabinet's own setting, which the server refuses to start with in the environment.
+- `test_every_shared_setting_is_in_env_example_and_passed_to_the_server` [technical]: each shared setting is in `.env.example` and passed to the server by both compose files.
 
 ## 5. dossiers
 
@@ -1224,9 +1225,9 @@ Covers admin-made accounts, one-time links, the last admin, and the audit journa
 ### How they run
 - Command: `python -m pytest -m llm -s`. They are slow and billed.
 - They are left out by default through the `addopts` line in pytest.ini.
-- The root conftest leaves Vault on for any path containing `tests/llm/`, because the API key comes from Vault.
+- The root conftest leaves Vault on for any path containing `tests/llm/`, because the cabinets come from Vault (the model's key is the environment's).
 - Environment variables (from `tests/llm/conftest.py:19-21`):
-  - `TARIK_TEST_CABINET` (default `experio_cabinet_8`) is the cabinet whose `MODEL_API_KEY` and `MODEL_API_URL` are read from Vault.
+  - `TARIK_TEST_CABINET` (default `experio_cabinet_8`) is the cabinet the model's `MODEL_API_KEY` and `MODEL_API_URL` (the environment's) are read for.
   - `REPEAT` (default 1) is how many times each case runs.
   - `THINKING=off` disables extended thinking. By default thinking is on with a 1024-token budget and `max_tokens` 16384. With thinking off, the call uses temperature 0 and `max_tokens` 4096.
 - If no key is found, the session-scoped `ask` fixture calls `pytest.skip`.

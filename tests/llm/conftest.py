@@ -42,7 +42,7 @@ def ask():
     with using(CABINET):
         key, url = setting("MODEL_API_KEY", ""), setting("MODEL_API_URL", "")
     if not key:
-        pytest.skip("no MODEL_API_KEY in Vault secret/tarik/orchestrator")
+        pytest.skip("no MODEL_API_KEY in the environment (.env)")
     http = httpx.Client(timeout=180, headers={"x-api-key": key, "anthropic-version": "2023-06-01"})
 
     def call(skill, messages):

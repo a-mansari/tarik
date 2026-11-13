@@ -94,7 +94,7 @@ OWN_EXPERIO: Final = re.compile(r"https://[A-Za-z0-9.-]+(:\d{1,5})?/?")
 def experio_url():
     """Return the current cabinet's Experio address: its EXPERIO_URL, else ODOO_URL (the stack's).
 
-    Raises PermissionError when EXPERIO_URL is not OWN_EXPERIO, wherever it was written (Vault, the seed): the
+    Raises PermissionError when EXPERIO_URL is not OWN_EXPERIO, wherever it was written (Vault): the
     password is never sent over plain HTTP nor to a path."""
     own = setting("EXPERIO_URL", "")
     if own and not OWN_EXPERIO.fullmatch(own):

@@ -8,13 +8,15 @@ import Icon from "./Icon.vue";
 
 const props = defineProps({
   f: { type: Object, required: true },
+  locked: { type: Boolean, default: false },
 });
 const value = defineModel({ type: String, default: "" });
 
 // A secret already set is never shown: its placeholder says so, and that an empty field keeps it.
-const hint = computed(() => (props.f.kind === "secret" && props.f.value
-  ? "•••••••• défini : laisser vide pour le garder"
-  : props.f.description));
+const hint = computed(() => {
+  if (props.locked) return props.f.kind === "secret" ? (props.f.value ? "•••••••• défini" : "non défini") : props.f.description;
+  return props.f.kind === "secret" && props.f.value ? "•••••••• défini : laisser vide pour le garder" : props.f.description;
+});
 </script>
 
 <template>
@@ -22,15 +24,15 @@ const hint = computed(() => (props.f.kind === "secret" && props.f.value
     <span class="mono">{{ f.key }}<template v-if="!f.optional"><span class="req" aria-hidden="true"> *</span><span
       class="sr-only"> (obligatoire)</span></template></span>
     <span v-if="f.kind === 'toggle'" class="switch">
-      <input type="checkbox" role="switch" :name="f.key" :checked="value !== '0'"
+      <input type="checkbox" role="switch" :name="f.key" :disabled="locked" :checked="value !== '0'"
         @change="value = $event.target.checked ? '1' : '0'">
       <Icon name="power" :size="18" /><span>{{ value === "0" ? "Désactivée" : "Activée" }}</span>
     </span>
-    <select v-else-if="f.kind === 'flag'" v-model="value" :name="f.key">
+    <select v-else-if="f.kind === 'flag'" v-model="value" :name="f.key" :disabled="locked">
       <option value="1">Simulation</option>
       <option value="0">Écritures réelles</option>
     </select>
-    <select v-else-if="f.kind === 'choice'" v-model="value" :name="f.key">
+    <select v-else-if="f.kind === 'choice'" v-model="value" :name="f.key" :disabled="locked">
       <option v-for="(label, key) in f.choices" :key="key" :value="key">{{ label }}</option>
     </select>
     <input
@@ -38,6 +40,7 @@ const hint = computed(() => (props.f.kind === "secret" && props.f.value
       v-model="value"
       type="password"
       :name="f.key"
+      :disabled="locked"
       autocomplete="new-password"
       :placeholder="hint"
     >
@@ -45,6 +48,7 @@ const hint = computed(() => (props.f.kind === "secret" && props.f.value
       v-else
       v-model="value"
       :name="f.key"
+      :disabled="locked"
       :inputmode="f.kind === 'integer' ? 'numeric' : undefined"
       :placeholder="hint"
     >

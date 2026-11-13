@@ -1,5 +1,5 @@
 """Gladden: Experio's document classifier (LayoutLMv3), on its runner. identify_document asks it first when
-GLADDEN_URL and GLADDEN_CALLBACK_URL are set (Vault secret/tarik/shared). The model
+GLADDEN_URL and GLADDEN_CALLBACK_URL are set (.env). The model
 (engine/tools/invoices/classify.py) decides when Gladden gives no type, and checks every answer other than
 "invoice" on a PDF (engine/tools/invoices/intake.py).
 

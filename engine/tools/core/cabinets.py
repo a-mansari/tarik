@@ -5,10 +5,10 @@ Postgres schema (its files, results, questions, mail). A setting is either the c
 (CABINET_SETTINGS: its Experio login, its mailbox's credentials and addresses) or shared by all of them
 (SHARED_SETTINGS: the mail server; the model's key and address, the orchestrator's own), never both.
 
-Settings come from Vault (VAULT_ADDR): secret/tarik/shared and secret/tarik/orchestrator hold the shared ones,
-secret/tarik/cabinets/<cabinet> each cabinet's own, and the cabinets are the paths listed there.
-The tests set them in the environment instead: TARIK_CABINETS lists the cabinets, and a cabinet's own
-settings are prefixed with its name (EXPERIO_CABINET_8__ODOO_UID).
+The shared settings are environment variables (.env, .env.example), read once at start: changing one means a restart.
+A cabinet's own settings come from Vault (VAULT_ADDR): secret/tarik/cabinets/<cabinet> each, and the cabinets are the
+paths listed there, made on the Cabinets page. The tests set them in the environment instead: TARIK_CABINETS lists
+the cabinets, and a cabinet's own settings are prefixed with its name (EXPERIO_CABINET_8__ODOO_UID).
 
 Settings stay on the server: no tool returns one, and only a ToolError's own message reaches
 the agent (tests/isolation/test_no_setting_shown.py checks every tool).
@@ -18,12 +18,12 @@ cabinet-specific goes through current(): with no cabinet set it fails. There is 
 default cabinet, so a call can only ever work in the one it named.
 
 The orchestrator logs in with tarik-mcp's AppRole (role_id and secret_id files in /run/vault, vault/setup.sh), whose
-policy only reads secret/tarik/*. Everything is read at start, then again every 5 minutes, so a
+policy only reads secret/tarik/*. The cabinets' settings are read at start, then again every 5 minutes, so a
 changed secret applies without a restart. A cabinet created through the Experio API is served at once
 (server/experio_api.py reloads CABINETS and creates its schema); one added in Vault by hand needs a restart, since
 schemas are otherwise created at start. When Vault can't be reached, the last values stay in use. Without
-VAULT_ADDR, nothing is read here and the settings come from the environment: the tests only (server/server.py
-refuses to start)."""
+VAULT_ADDR, nothing is read here and the cabinets' settings come from the environment: the tests only
+(server/server.py refuses to start)."""
 
 import contextlib
 import contextvars
@@ -88,18 +88,14 @@ def _vault_field(method, path, key):
 
 
 def read_vault():
-    """Read every setting from Vault. Returns (shared, cabinets): shared is {key: value} from secret/tarik/shared and
-    secret/tarik/orchestrator (the latter wins); cabinets is {cabinet: {key: value}} for each cabinet path."""
-    shared = _vault_field("GET", "/v1/secret/data/tarik/shared", "data") or {}
-    own = _vault_field("GET", "/v1/secret/data/tarik/orchestrator", "data") or {}
-    shared = {**shared, **own}
+    """Read every cabinet's settings from Vault. Returns {cabinet: {key: value}} for each cabinet path."""
     listed = _vault_field("LIST", "/v1/secret/metadata/tarik/cabinets", "keys") or []
     cabinets = {}
     for name in listed:
         if name.endswith("/"):
             continue
         cabinets[name] = _vault_read("GET", f"/v1/secret/data/tarik/cabinets/{name}")["data"]["data"]
-    return shared, cabinets
+    return cabinets
 
 
 def read_llms():
@@ -130,7 +126,7 @@ def _refresh_vault(wait):
 
 
 def vault_settings(wait=0):
-    """Return (shared, cabinets) as read_vault does, read again once VAULT_REFRESH_SECONDS old. ``wait``: seconds
+    """Return the cabinets' settings as read_vault does, read again once VAULT_REFRESH_SECONDS old. ``wait``: seconds
     to keep trying a first read (Vault still starting or unsealing)."""
     with _vault_lock:
         if _vault_state["values"] is None or time.monotonic() >= _vault_state["next_read"]:
@@ -191,7 +187,7 @@ def served():
     TARIK_CABINETS."""
     if not VAULT_ENABLED:
         return cabinet_names(os.getenv("TARIK_CABINETS"))
-    _shared, cabinets = vault_settings(wait=60)
+    cabinets = vault_settings(wait=60)
     return cabinet_names(",".join(name for name, own in cabinets.items() if active(own)))
 
 
@@ -260,7 +256,7 @@ CABINET_SETTINGS = frozenset(
         "ACTIVE",  # "0": deactivated by the Experio API (missing: served)
     ]
 )
-# The same for every cabinet: Vault secret/tarik/shared (the tests: env <KEY>).
+# The same for every cabinet: the environment, <KEY> (.env.example).
 SHARED_SETTINGS = frozenset(
     [
         "IMAP_HOST",
@@ -269,10 +265,10 @@ SHARED_SETTINGS = frozenset(
         "SMTP_HOST",
         "SMTP_PORT",
         "MAIL_CERT_SHA256",
-        "MODEL_API_KEY",  # secret/tarik/orchestrator
-        "MODEL_API_URL",  # secret/tarik/orchestrator, optional (the provider's Anthropic-style address)
-        "CLAUDE_CODE_OAUTH_TOKEN",  # secret/tarik/orchestrator, optional: the claude CLI's login (`claude setup-token`)
-        "EXPERIO_API_KEY",  # secret/tarik/orchestrator: what the Experio app shows to create, change or close cabinets
+        "MODEL_API_KEY",  # the model's (MiniMax)
+        "MODEL_API_URL",  # optional (the provider's Anthropic-style address)
+        "CLAUDE_CODE_OAUTH_TOKEN",  # optional: the claude CLI's login (`claude setup-token`)
+        "EXPERIO_API_KEY",  # what the Experio app shows to create, change or close cabinets
         "MEMORY_ENABLED",  # optional: "0" turns Tarik's memory off for every cabinet (missing: on)
         "GLADDEN_URL",  # optional: Experio's Gladden classifier (its runner's /gladden)
         "GLADDEN_CALLBACK_URL",  # optional: this server's /gladden as Gladden reaches it
@@ -284,28 +280,28 @@ SHARED_SETTINGS = frozenset(
 )
 
 
-def source():
-    """Return every setting as one mapping: <KEY> for a shared one, <CABINET>__<KEY> for a cabinet's own."""
+def own(cabinet, key):
+    """Return cabinet ``cabinet``'s own setting ``key`` as stored (None when unset): Vault's, or in the tests the
+    environment's <CABINET>__<KEY>."""
     if not VAULT_ENABLED:
-        return os.environ
-    shared, cabinets = vault_settings()
-    every = dict(shared)
-    for name, own in cabinets.items():
-        for key, value in own.items():
-            every[f"{name.upper()}__{key}"] = value
-    return every
+        return os.environ.get(f"{cabinet.upper()}__{key}")
+    return vault_settings().get(cabinet, {}).get(key)
+
+
+def shared(key, default=""):
+    """Return shared setting ``key`` from the environment (``default`` when unset or empty). It needs no cabinet."""
+    return os.environ.get(key) or default
 
 
 def setting(key, default=None):
-    """Return setting ``key`` for the current cabinet: for a cabinet setting, the cabinet's own value
-    (<CABINET>__<KEY> in source()), never another cabinet's nor an unprefixed one; for a shared one, <KEY>.
-    An unset or empty setting returns ``default``. Raises KeyError for an unknown key, or an unset one without
-    default."""
+    """Return setting ``key`` for the current cabinet: for a cabinet setting, the cabinet's own value, never another
+    cabinet's; for a shared one, the environment's <KEY>. An unset or empty setting returns ``default``. Raises
+    KeyError for an unknown key, or an unset one without default."""
     if key in CABINET_SETTINGS:
-        value = source().get(f"{current().upper()}__{key}")
+        value = own(current(), key)
     elif key in SHARED_SETTINGS:
         current()  # shared, but still only within a cabinet's call
-        value = source().get(key)
+        value = shared(key)
     else:
         raise KeyError(f"unknown setting {key}")
     if value is None or value == "":
@@ -315,18 +311,19 @@ def setting(key, default=None):
     return value
 
 
-def misplaced_in_vault(shared, cabinets, environ=os.environ):
-    """Return the misplaced settings (sorted list of "path:key" or environment names), with Vault: a key under the
-    wrong Vault path or unknown, or a setting still in ``environ``, where it would be a second copy. The server
-    refuses to start with any."""
-    found = [f"tarik/shared:{key}" for key in shared if key not in SHARED_SETTINGS]
-    for name, own in cabinets.items():
-        found += [f"tarik/cabinets/{name}:{key}" for key in own if key not in CABINET_SETTINGS]
-    known = CABINET_SETTINGS | SHARED_SETTINGS
-    # TARIK_CABINETS, a setting (<KEY>) or a cabinet's own (<CABINET>__<KEY>), set in the environment.
+def misplaced(cabinets, environ=os.environ):
+    """Return the misplaced settings (sorted list of "path:key" or environment names): a key in a cabinet's Vault path
+    that is not a cabinet setting, or a cabinet's own setting still in ``environ``, where it would be a second copy
+    (the shared ones are the environment's, and no longer in Vault). The server refuses to start with any."""
+    found = []
+    for name, values in cabinets.items():
+        found += [f"tarik/cabinets/{name}:{key}" for key in values if key not in CABINET_SETTINGS]
+    # TARIK_CABINETS, a cabinet's own setting, or any prefixed one (<CABINET>__<KEY>: no shared setting has a cabinet).
     for name, value in environ.items():
         _cabinet, _, key = name.partition("__")
-        if value and (name == "TARIK_CABINETS" or name in known or key in known):
+        if value and (
+            name == "TARIK_CABINETS" or name in CABINET_SETTINGS or key in CABINET_SETTINGS | SHARED_SETTINGS
+        ):
             found.append(name)
     return sorted(found)
 

@@ -213,3 +213,16 @@ def test_an_old_adapter_choice_keeps_its_llm_and_an_unknown_one_is_claude(monkey
         monkeypatch.setattr(model, "chosen_adapter", lambda cabinet, adapter=adapter: adapter)
         with cabinets.using("cabinet_a"):
             assert model.llm().name == name
+
+
+@pytest.mark.security
+def test_the_cli_process_gets_none_of_the_servers_secrets(tmp_path, monkeypatch):
+    fake_cli(tmp_path, monkeypatch, {"is_error": False, "structured_output": {"kind": "facture"}, "modelUsage": {}})
+    script = tmp_path / "claude"
+    script.write_text(script.read_text().replace("cat > ", f"env > {tmp_path}/env\ncat > ", 1))
+    for name in ("MODEL_API_KEY", "EXPERIO_API_KEY", "SPARROW_TOKEN", "POSTGRES_PASSWORD", "TARIK_GRAPH_TOKEN"):
+        monkeypatch.setenv(name, f"secret-{name}")
+    with cabinets.using("cabinet_a"):
+        model.ask_model("sys", [], "Quoi ?", "Identification", keys=("kind",))
+    seen = (tmp_path / "env").read_text()
+    assert "secret-" not in seen and "PATH=" in seen

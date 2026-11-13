@@ -42,7 +42,7 @@ def vault(monkeypatch):
     monkeypatch.setattr(
         llms.cabinets,
         "vault_settings",
-        lambda: ({}, {"cabinet_a": {"LLM_CHOICE": "opus"}, "cabinet_b": {"LLM_CHOICE": "ghost"}}),
+        lambda: {"cabinet_a": {"LLM_CHOICE": "opus"}, "cabinet_b": {"LLM_CHOICE": "ghost"}},
     )
 
     async def record(*args, **kwargs):
@@ -134,7 +134,7 @@ def test_a_vault_that_refuses_is_not_a_page_gone_stale(monkeypatch):
         raise httpx.HTTPStatusError("x", request=httpx.Request("POST", "http://v"), response=httpx.Response(403))
 
     monkeypatch.setattr(cabinet_settings, "_vault", refuse)
-    monkeypatch.setattr(llms.cabinets, "vault_settings", lambda: ({}, {}))
+    monkeypatch.setattr(llms.cabinets, "vault_settings", lambda: {})
     with pytest.raises(ValueError, match=r"refusé l'écriture \(403\)"):
         asyncio.run(llms.save(Pool(), keep(NEW), 3, "a@experio.ma"))
 

@@ -32,18 +32,13 @@ def on():
 
 def enabled(cabinet):
     """True when Tarik may use his memory for ``cabinet``: Hindsight is set up (on) and neither the general switch
-    (MEMORY_ENABLED, the Paramètres page) nor the cabinet's own (CABINET_MEMORY_ENABLED, its Réglages page) says
+    (MEMORY_ENABLED, in .env) nor the cabinet's own (CABINET_MEMORY_ENABLED, its Réglages page) says
     anything but "1" (a value edited by hand in Vault, "false" or "off", turns it off: a safety switch fails closed).
-    Read from the settings each time (Vault's, kept in memory and read again every few minutes, and at once after a
-    save), so a switch applies to the next message, with no restart."""
+    The cabinet's switch is read each time (Vault's, kept in memory and read again every few minutes, and at once
+    after a save), so it applies to the next message, with no restart; the general one is read at start."""
     if not on():
         return False
-    if cabinets.VAULT_ENABLED:
-        shared, every = cabinets.vault_settings()
-        asked = (shared.get("MEMORY_ENABLED"), every.get(cabinet, {}).get("CABINET_MEMORY_ENABLED"))
-    else:  # the tests: the environment, as cabinets.source() gives it
-        every = cabinets.source()
-        asked = (every.get("MEMORY_ENABLED"), every.get(f"{cabinet.upper()}__CABINET_MEMORY_ENABLED"))
+    asked = (os.environ.get("MEMORY_ENABLED"), cabinets.own(cabinet, "CABINET_MEMORY_ENABLED"))
     return all(str(value).strip() in ("", "1") for value in asked if value is not None)  # any other value: off
 
 

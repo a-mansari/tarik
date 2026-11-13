@@ -101,7 +101,7 @@ def switched_off(request):
     Réglages page), {} for anyone else."""
     if not is_admin(request):
         return {}
-    _, known = vault_settings()
+    known = vault_settings()
     return {name: own.get("CABINET_NAME", "") for name, own in known.items() if not active(own)}
 
 
@@ -439,9 +439,10 @@ async def workflow_page(request: Request):
         return page({"error": "Workflow introuvable"}, 404)
     run_id = request.query_params.get("run")
     found = await runs.run(run_id) if run_id else None
+    cabinet = chosen(request)
     context = {
         "graph": graph,
         "run": found and {**found, "when": runs.when(found["started"])},
-        "runs": dated(await runs.recent(chosen(request), graph, 30)),
+        "runs": dated(await runs.recent(cabinet, graph, 30)) if cabinet else [],  # None would list every cabinet's
     }
     return page(context)

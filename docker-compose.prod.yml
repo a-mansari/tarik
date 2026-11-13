@@ -4,8 +4,8 @@
 #   vault       Vault, on this compose network only (no published port), unsealed again at each start from the
 #               vault_keys volume
 #   vault-init  one-shot at each start: initialises and unseals Vault the first time, makes the two AppRoles and their
-#               login files, and loads the seed files (deploy/seed.example/) into the paths that do not exist yet
-# vault-init refuses a seed file still holding CHANGE_ME and a Vault with no cabinet. Every address, port and limit comes from .env (.env.example); nothing is written here.
+#               login files
+# The shared settings (mail server, model, Gladden, Sparrow...) are .env's; the cabinets are made on the Cabinets page. Every address, port and limit comes from .env (.env.example); nothing is written here.
 #   docker compose -f docker-compose.prod.yml build
 #   docker compose -f docker-compose.prod.yml up -d
 name: tarik
@@ -25,7 +25,7 @@ services:
       - "${TARIK_BIND:-127.0.0.1}:${TARIK_PORT:-2024}:2024"
     environment:
       VAULT_ADDR: ${VAULT_ADDR:-http://vault:8200} # the bundled Vault; set it for another
-      TARIK_DEFAULT_CABINET: ${TARIK_DEFAULT_CABINET:?TARIK_DEFAULT_CABINET is required (.env)}
+      TARIK_DEFAULT_CABINET: ${TARIK_DEFAULT_CABINET:-}
       ODOO_URL: ${ODOO_URL:?ODOO_URL is required (.env)}
       TARIK_GRAPH_TOKEN: ${TARIK_GRAPH_TOKEN:-}
       TARIK_TRUSTED_PROXIES: ${TARIK_TRUSTED_PROXIES:?TARIK_TRUSTED_PROXIES is required (.env), the reverse proxy's address}
@@ -38,6 +38,24 @@ services:
       TARIK_CALLS_TOTAL: ${TARIK_CALLS_TOTAL:-40}
       TARIK_MODEL_CALLS: ${TARIK_MODEL_CALLS:-10}
       HINDSIGHT_URL: ${HINDSIGHT_URL:-} # the memory (the hindsight service below, profile memory); empty: Tarik has none
+      # The settings every cabinet shares (.env.example): read at start, a change means a restart.
+      IMAP_HOST: ${IMAP_HOST:-}
+      IMAP_PORT: ${IMAP_PORT:-993}
+      IMAP_FOLDER: ${IMAP_FOLDER:-INBOX}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      MAIL_CERT_SHA256: ${MAIL_CERT_SHA256:-}
+      MODEL_API_URL: ${MODEL_API_URL:-}
+      MODEL_API_KEY: ${MODEL_API_KEY:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      EXPERIO_API_KEY: ${EXPERIO_API_KEY:-}
+      MEMORY_ENABLED: ${MEMORY_ENABLED:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      GLADDEN_URL: ${GLADDEN_URL:-}
+      GLADDEN_CALLBACK_URL: ${GLADDEN_CALLBACK_URL:-}
+      SPARROW_URL: ${SPARROW_URL:-}
+      SPARROW_SENDER_ID: ${SPARROW_SENDER_ID:-}
+      SPARROW_TOKEN: ${SPARROW_TOKEN:-}
     volumes:
       - vault_approle:/run/vault:ro # role_id, secret_id: reads secret/tarik/*
       - vault_settings_approle:/run/vault-settings:ro # the Cabinets page's: each cabinet's own settings only
@@ -110,10 +128,8 @@ services:
     entrypoint: ["sh", "/vault/config/setup.sh"]
     environment:
       VAULT_ADDR: http://vault:8200 # the Vault container, on this network
-      VAULT_SEED_OVERWRITE: ${VAULT_SEED_OVERWRITE:-0}
     volumes:
       - ./vault/setup.sh:/vault/config/setup.sh:ro
-      - ${TARIK_SEED_DIR:-./deploy/seed}:/seed:ro
       - vault_keys:/vault/unseal
       - vault_approle:/vault/approle
       - vault_settings_approle:/vault/settings-approle

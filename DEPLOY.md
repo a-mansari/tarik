@@ -1,22 +1,20 @@
 # Deploying Tarik
 
 For the DevOps team. Tarik runs as **four containers** (a fifth, the memory, is optional) from one compose file, `docker-compose.prod.yml`, and needs no
-manual setup of Vault or Postgres. No address and no secret is written in the code: they are in `.env` (starting
-configuration) and in the seed files (secrets, loaded into Vault once). `.env.example` is the complete list.
+manual setup of Vault or Postgres. No address and no secret is written in the code: what every cabinet shares is in `.env`
+(`.env.example` is the complete list), and each cabinet's own settings (its Experio login, its mailbox) are typed by the
+Tarik team on the **Ajouter un cabinet** page, which keeps them in Vault.
 
 ## The short version
 
 You provide a host with Docker and a route on Experio's reverse proxy; the rest is the team's, from the pages.
 
-1. `cp .env.example .env` and fill the four blank lines: `ODOO_URL`, `POSTGRES_PASSWORD` (`openssl rand -hex 24`),
-   `TARIK_DEFAULT_CABINET`, plus `TARIK_TRUSTED_PROXIES` (the proxy's address). Every other line has a
-   working default (the Claude Code installer's address and version included).
-2. `cp -r deploy/seed.example deploy/seed` and fill it with what the Experio and Tarik teams hand over (section 2): the
-   model's key, the mail servers, **one** cabinet's login and mailbox. Keep `DRY_RUN=1`.
-3. `docker compose -f docker-compose.prod.yml up -d --build`, then wait for `server` to be healthy.
-4. On the proxy, route the public host name to the machine's port 2024 (section 3).
-5. Hand over to the team: they make the first admin, load the content (section 4), and add every other cabinet on the
-   **Ajouter un cabinet** page. Nothing more is asked of DevOps.
+1. `cp .env.example .env` and fill it (section 2): the Experio address, the database password, the proxy's address, the
+   mail server, the model's login. Every other line has a working default or can stay empty.
+2. `docker compose -f docker-compose.prod.yml up -d --build`, then wait for `server` to be healthy.
+3. On the proxy, route the public host name to the machine's port 2024 (section 3).
+4. Hand over to the team: they make the first admin, load the content (section 4), and add every cabinet on the
+   **Ajouter un cabinet** page, in `DRY_RUN`. Nothing more is asked of DevOps.
 
 ## 1. The containers
 
@@ -25,57 +23,54 @@ You provide a host with Docker and a route on Experio's reverse proxy; the rest 
 | `server` | built from `Dockerfile` | One Python process: the workflows, the agent and the tools (`engine/`), the HTTP routes and the team's pages (`server/`), the mail watcher. Port 2024. | none |
 | `db` | `pgvector/pgvector:pg17` | Runs, conversations, content versions, accounts, one schema per cabinet. | volume `db_data` |
 | `vault` | `hashicorp/vault:1.18.3` | Secrets and each cabinet's settings. Reachable on the compose network only (no published port). Unsealed again at each start. | volumes `vault_data`, `vault_keys` |
-| `vault-init` | the same Vault image | One-shot at each start (`up`): initialises and unseals Vault the first time, makes the two AppRole logins, loads the seed files. Exits. | `vault_approle`, `vault_settings_approle` |
+| `vault-init` | the same Vault image | One-shot at each start (`up`): initialises and unseals Vault the first time, makes the two AppRole logins. Exits. | `vault_approle`, `vault_settings_approle` |
 | `hindsight` | built from `deploy/hindsight/Dockerfile` | Tarik's memory (`engine/memory.py`), only with `--profile memory`: one bank per cabinet, in the schema `hindsight` of `db`. Its fact extraction runs on a Claude Code subscription token. | `db` |
 
 `server` starts after `vault-init` has succeeded and `db` is up. Engine and server are not separate containers.
 
 | Network | Detail |
 |---|---|
-| Outbound | `ODOO_URL` (Experio: HTTPS, XML-RPC and JSON-RPC); the model providers (Claude's CLI, MiniMax's `MODEL_API_URL`: HTTPS); each cabinet's IMAP and SMTP hosts (set in the seed, ports 993 and 465 or 587); Gladden if `GLADDEN_URL` is set. At image build only: package registries and, unless `INSTALL_CLAUDE_CODE=0`, the Claude Code installer. |
+| Outbound | `ODOO_URL` (Experio: HTTPS, XML-RPC and JSON-RPC); the model providers (Claude's CLI, MiniMax's `MODEL_API_URL`: HTTPS); the mail server (`IMAP_HOST`, `SMTP_HOST` in `.env`, ports 993 and 465 or 587); Gladden if `GLADDEN_URL` is set. At image build only: package registries and, unless `INSTALL_CLAUDE_CODE=0`, the Claude Code installer. |
 | Inbound | The team's browsers to `/ui/`; the Experio app to `/api/` (its key only); Gladden's callback to `/gladden/<token>` when Gladden is used. Publish port 2024 through Experio's reverse proxy; nothing else (section 3). |
 | Replicas | **One `server`.** The pages' live updates are kept in the process's memory (`engine/live.py`): a second replica would show stale pages. Scale up the machine, not the count. |
 
 ## 2. What to provide
 
-1. **`.env`**: copy `.env.example` and fill the **Required** block's blank lines: `ODOO_URL`, `POSTGRES_PASSWORD`,
-   `TARIK_DEFAULT_CABINET`, `TARIK_TRUSTED_PROXIES`. The compose file refuses to start when one is
-   missing. Every other line has its default in the file (`VAULT_ADDR`, `TARIK_SEED_DIR`, the Claude Code installer's
-   address and version included: they are the compose file's). `.env` is never committed and never sent
-   to the image build.
-2. **The seed folder** (`TARIK_SEED_DIR`, `./deploy/seed` unless set): the template is `deploy/seed.example/` (see its `README.md`). It holds
-   the secrets Vault starts with, one JSON file per Vault path:
-   - `orchestrator.json`: `MODEL_API_KEY` and `MODEL_API_URL` (the MiniMax LLM's; Claude needs neither), and `EXPERIO_API_KEY` (the key the Experio app sends to `/api/`; leave it
-     out and Vault makes a random one, which only Vault shows).
-   - `shared.json`: the mail servers (`IMAP_HOST`, `IMAP_PORT`, `IMAP_FOLDER`, `SMTP_HOST`, `SMTP_PORT`,
-     `MAIL_CERT_SHA256`), optionally `GLADDEN_URL` and `GLADDEN_CALLBACK_URL`, `PUBLIC_URL` (this server as clients reach it: a new dossier's form link, and the host Sparrow calls Tarik on for WhatsApp (`/sparrow/handler` must be reachable there from outside);
-     without it Tarik asks the settings by email). A form's link is a one-time key in the address (`/formulaire/<cabinet>/<token>`): keep that path out of long-lived proxy or funnel logs, and, for the WhatsApp channel, `SPARROW_URL`,
-     `SPARROW_SENDER_ID` and `SPARROW_TOKEN` (Sparrow's address, Experio's one WhatsApp sender, its master token).
-   - `cabinets/<cabinet's exact Experio database name>.json`, **one** is enough (the server does not start without
-     any); the team adds the others on the **Ajouter un cabinet** page (or the Experio app through the API):
-     the cabinet's Experio login (`ODOO_USER`, `ODOO_PASSWORD` or `ODOO_API_KEY`; `ODOO_UID` is optional: the login's own uid when empty), its mailbox
-     (`IMAP_USER`, `IMAP_PASSWORD`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`), `MAIL_ALLOWED_RECIPIENTS`,
-     `MAIL_MANAGER`, `DRY_RUN`. **Keep `DRY_RUN=1`** until a cabinet has been checked: Tarik then reads and reports,
-     and posts nothing to Experio.
+One file, `.env` (copy `.env.example`: every line is explained there). It is never committed and never sent to the image
+build; protect it like a secret, it holds the keys below. The compose file refuses to start when a required line is
+missing.
 
-   Those values come from the Experio and Tarik teams, not from DevOps. The seed folder is secret: keep it out of git
-   (`deploy/seed/` is ignored), with the same protection as `.env`.
+- **Required**: `ODOO_URL` (Experio), `POSTGRES_PASSWORD` (`openssl rand -hex 24`), `TARIK_TRUSTED_PROXIES` (the proxy's
+  address).
+- **The mail server**: `IMAP_HOST` and `SMTP_HOST` (every cabinet's mailbox is on it; the ports, the folder and a
+  self-signed certificate's fingerprint have their own lines). The stack starts without them, but no cabinet can be added.
+- **The model**: `CLAUDE_CODE_OAUTH_TOKEN` (the default LLM, from `claude setup-token`: use a token made for this stack)
+  and/or `MODEL_API_URL` with `MODEL_API_KEY` (MiniMax). With neither, Tarik has no model.
+- **The Experio app's key**: `EXPERIO_API_KEY` (`openssl rand -hex 32`), which the Experio app sends to `/api/`; empty:
+  that API accepts nothing.
+- **Optional**: `PUBLIC_URL` (this server as clients reach it: the form links Tarik sends and WhatsApp's callback; without
+  it Tarik asks the settings by email; a form link holds a one-time key in its path, keep `/formulaire/` out of
+  long-lived proxy logs), `GLADDEN_URL` and `GLADDEN_CALLBACK_URL`, `SPARROW_URL`, `SPARROW_SENDER_ID` and `SPARROW_TOKEN`
+  (WhatsApp), `MEMORY_ENABLED`, the limits.
 
-A path is written into Vault only when it does not exist yet. Later, cabinets are created and changed through the Experio
-API (`docs/experio-api.md`) or the Cabinets page, and those changes are kept at every restart. To push a changed seed
-file into existing paths, run the stack once with `VAULT_SEED_OVERWRITE=1`: it merges `orchestrator.json` and `shared.json`
-only, never a cabinet's file (a cabinet's edited settings, `DRY_RUN` included, are never reverted). `vault-init` stops with
-a message when a seed file still holds `CHANGE_ME`, and when Vault ends with no cabinet.
+The values come from the Experio and Tarik teams, not from DevOps. A change to `.env` applies at the next start
+(`docker compose -f docker-compose.prod.yml up -d`); the Paramètres page shows these settings and cannot change them.
+
+**Each cabinet's own settings** are not DevOps's: its Experio login (`ODOO_USER`, `ODOO_PASSWORD` or `ODOO_API_KEY`), its
+mailbox (`IMAP_USER`, `IMAP_PASSWORD`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`), `MAIL_ALLOWED_RECIPIENTS`,
+`MAIL_MANAGER`, `DRY_RUN`. An admin of the Tarik team types them on the **Ajouter un cabinet** page (or the Experio app
+sends them through the API, `docs/experio-api.md`); they are kept in Vault, and later changes are on the Cabinets page.
+**A cabinet starts in `DRY_RUN=1`**: Tarik then reads and reports, and posts nothing to Experio, until it has been
+checked. There is no seed file: Vault starts empty and the server starts with no cabinet.
 
 ## 3. Build and run
 
 ```bash
-cp .env.example .env                    # fill the Required block
-cp -r deploy/seed.example deploy/seed   # fill it
+cp .env.example .env                    # fill it (section 2)
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-- The image holds the code; the server mounts only the two AppRole volumes. `docker-compose.yml` is the development
+- The image holds the code; the server mounts only the two AppRole volumes and takes the shared settings from `.env`. `docker-compose.yml` is the development
   file (the working copy mounted): not for a deployment.
 - With a managed Postgres instead of the `db` container, set `POSTGRES_HOST` and remove the `db` service and its
   `depends_on` from the compose file. The user must be allowed to create schemas.
@@ -102,11 +97,11 @@ docker compose -f docker-compose.prod.yml up -d --build
   can reach the port). Set `TARIK_BIND` to the interface the proxy reaches (default `127.0.0.1`: for a proxy on another
   machine, the machine's private address), never the open network.
 
-Then give the public address as `PUBLIC_URL`: in `shared.json` before the first `up` (the seed is loaded only into paths that do not exist yet), or on the Paramètres page afterwards. The form links Tarik sends use it.
+Then give the public address as `PUBLIC_URL` in `.env` and restart: the form links Tarik sends use it.
 
 ## 4. First start
 
-1. `docker compose -f docker-compose.prod.yml logs vault-init` ends with "vault ready", and `server` becomes healthy.
+1. `docker compose -f docker-compose.prod.yml logs vault-init` ends with "vault ready", and `server` becomes healthy (with no cabinet yet: that is normal).
 2. **Load the content** (the prompts, skills and labels live in Postgres, not in the image): on the Contenu page (Tarik
    prompts > Import) or by script with the bearer token (`TARIK_GRAPH_TOKEN` in `.env`):
    `curl -X POST -H "authorization: Bearer $TARIK_GRAPH_TOKEN" -H "content-type: application/json" --data @deploy/tarik-contenu-complet-20261110.json http://127.0.0.1:2024/ui/api/tarik-prompts-import`
@@ -114,13 +109,13 @@ Then give the public address as `PUBLIC_URL`: in `shared.json` before the first 
    `python check.py` in the server container then says every step is described.
 3. Make the first admin: `docker compose -f docker-compose.prod.yml exec server python -m server.users add <email> "<name>"`
    (the password is asked), then `... role <email> admin`. Other people are made on the Comptes page.
-4. Add the other cabinets on the **Ajouter un cabinet** page (an admin's): Tarik logs in to the cabinet's Experio first, serves it
+4. Add every cabinet on the **Ajouter un cabinet** page (an admin's): Tarik logs in to the cabinet's Experio first, serves it
    only when that works, and leaves it deactivated, with the reason, when the login fails. Then send a test email or write on the
    Discussion page, still in `DRY_RUN`.
 
 ## 5. Operating
 
-- **Backup**: the volumes `db_data` (runs, conversations, the content's versions, the accounts, each cabinet's schema),
+- **Backup**: `.env` and the volumes `db_data` (runs, conversations, the content's versions, the accounts, each cabinet's schema),
   `vault_data` **and `vault_keys`** (Vault's data is unreadable without its unseal key; both are needed to restore it).
   Tarik keeps no other file.
 - **Restart**: any container can restart on its own. After a restart Vault unseals itself, and `server` keeps the last
@@ -128,9 +123,15 @@ Then give the public address as `PUBLIC_URL`: in `shared.json` before the first 
 - **Upgrade**: build the new image, `up -d` (`vault-init` runs again and changes nothing). The server ends in error
   the runs the stop cut off; the follow-up on their email thread or conversation takes them up again. A change made
   in the database by hand (content) is read only at start: restart.
+- **A stack that kept the shared settings in Vault** (`secret/tarik/shared`, `secret/tarik/orchestrator`, before this
+  change): put each of their keys in `.env` first (`.env.example` lists them), then `up -d --build`. Tarik no longer
+  reads those two paths; delete them from Vault once the stack works. The cabinets, and the extra LLMs of the
+  Paramètres page, stay in Vault untouched. **Read `EXPERIO_API_KEY` from Vault first**: the old setup made it there, and
+  nobody typed it. Put it in `.env` (or make a new one with `openssl rand -hex 32` and give it to the Experio app),
+  else the Experio app gets 401 on `/api/`.
 - **Limits**: `TARIK_CALLS_PER_CABINET`, `TARIK_CALLS_TOTAL` and `TARIK_MODEL_CALLS` cap the model calls at once.
-- **A secret changed**: through the Cabinets page or the Experio API for a cabinet; for the shared or the model's, edit
-  the seed file and run once with `VAULT_SEED_OVERWRITE=1` (`orchestrator.json` and `shared.json` only).
+- **A secret changed**: through the Cabinets page or the Experio API for a cabinet; for a shared one or the model's, edit
+  `.env` and run `up -d` (the server restarts).
 
 ## 6. For the security review
 
@@ -153,7 +154,7 @@ Then give the public address as `PUBLIC_URL`: in `shared.json` before the first 
 ## 7. What was tested
 
 The stack was run end to end from empty volumes on one machine, with dummy secrets and an unreachable Experio address:
-Vault initialised and unsealed itself, the roles and seed paths were made, the server read them, created its schema,
+Vault initialised and unsealed itself, the roles were made, the server read them, created its schema,
 reported healthy and started the mail watcher; Vault was restarted and unsealed itself; a second `up` changed
 nothing. Not tested: a real Experio and mailbox, the content import on a fresh stack, a managed Postgres, TLS and a
 KMS seal.

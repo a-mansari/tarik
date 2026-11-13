@@ -2,11 +2,10 @@
 
 The settings: its Experio login, its mailbox, who may receive Tarik's emails, whether Tarik really writes to Experio
 (DRY_RUN), its LLM (a global one it picks, or its own) and its memory. They live only in Vault
-(secret/tarik/cabinets/<cabinet>). Vault is written with the page's own AppRole
-(tarik-settings, vault/setup.sh), which may only read and update the cabinets' paths and the shared settings' two
-(server/shared_settings.py, the general settings page), nothing else. A
-secret (a password, a key) is never shown nor stored anywhere except Vault: it can only be replaced. Each change is
-recorded (who, when, why, which settings: table settings_changes) and used at once. Any other key in the same Vault
+(secret/tarik/cabinets/<cabinet>). Vault is written with the page's own AppRole (tarik-settings, vault/setup.sh),
+which may only read and update the cabinets' paths (and the extra LLMs'), nothing else. A secret (a password, a key)
+is never shown nor stored anywhere except Vault: it can only be replaced. Each change is recorded (who, when, why,
+which settings: table settings_changes) and used at once. Any other key in the same Vault
 path is kept unchanged."""
 
 import asyncio
@@ -105,21 +104,20 @@ def latest(cabinet, served_only=True):
     return found["data"]["data"], found["data"]["metadata"]["version"]
 
 
-def shown(data, fields=FIELDS):
-    """Return the settings as the page shows them: {key: value} for every ``fields`` key, a secret only as True (set)
+def shown(data):
+    """Return the settings as the page shows them: {key: value} for every FIELDS key, a secret only as True (set)
     or False."""
-    return {key: bool(data.get(key)) if kind == "secret" else data.get(key, "") for key, kind in fields.items()}
+    return {key: bool(data.get(key)) if kind == "secret" else data.get(key, "") for key, kind in FIELDS.items()}
 
 
-def checked(key, value, fields=FIELDS, optional=OPTIONAL):
+def checked(key, value):
     """Raise ValueError (in plain French) when Tarik could not use ``value`` (already trimmed) for setting ``key``.
 
     The value is only checked, never tidied up: an invalid one is refused. An empty value is accepted only for
-    ``optional`` settings. ``fields`` and ``optional`` are the cabinets' (FIELDS, OPTIONAL) unless the shared
-    settings' page gives its own (server/shared_settings.py)."""
-    kind = fields[key]
+    OPTIONAL settings."""
+    kind = FIELDS[key]
     if value == "":
-        if key in optional:
+        if key in OPTIONAL:
             return
         raise ValueError(f"{key} ne peut pas être vide")
     if kind == "llm" and value not in (CLAUDE, MINIMAX, CUSTOM, *cabinets.llm_extras()):
@@ -166,7 +164,7 @@ def custom_gaps(data):
         raise ValueError(f"un LLM propre au cabinet demande : {', '.join(missing)}")
 
 
-def changed(before, given, fields=FIELDS, optional=OPTIONAL):
+def changed(before, given):
     """Return what the form ``given`` ({key: text}) changes in the current settings ``before``, as {key: new value}.
 
     A non-secret value is trimmed of surrounding spaces, checked (see checked) when it differs from the stored one and
@@ -177,7 +175,7 @@ def changed(before, given, fields=FIELDS, optional=OPTIONAL):
     Raises ValueError when an address changes (GUARDED) without the secrets already set typed again: Tarik sends them
     to that address, so changing it must not hand the stored ones to another server."""
     found = {}
-    for key, kind in fields.items():
+    for key, kind in FIELDS.items():
         if key not in given:
             continue
         value = given[key] if kind == "secret" else given[key].strip()
@@ -188,7 +186,7 @@ def changed(before, given, fields=FIELDS, optional=OPTIONAL):
         if same and value:  # unchanged: not checked again, so a stored value blocks no other change
             continue
         if kind != "secret":
-            checked(key, value, fields, optional)
+            checked(key, value)
         if not same:
             found[key] = value
     for url, secrets in GUARDED.items():
@@ -206,10 +204,10 @@ def _vault(method, path, **kwargs):
     return cabinets.vault_request(method, path, token, **kwargs)
 
 
-def recorded(key, before, after, secrets=SECRETS):
+def recorded(key, before, after):
     """Return one setting's change as settings_changes stores it: {key, before, after}, both values None for a key in
-    ``secrets`` (the cabinets' unless the shared settings' page gives its own)."""
-    if key in secrets:
+    SECRETS."""
+    if key in SECRETS:
         return {"key": key, "before": None, "after": None}
     return {"key": key, "before": before, "after": after}
 

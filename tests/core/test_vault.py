@@ -1,5 +1,5 @@
-"""Settings from Vault: the AppRole login, the shared and per-cabinet paths, the refresh, an outage,
-and settings found where they don't belong. Against a stand-in Vault (HTTP)."""
+"""Settings from Vault (the cabinets') and the environment (the shared ones): the AppRole login, the per-cabinet paths,
+the refresh, an outage, and settings found where they don't belong. Against a stand-in Vault (HTTP)."""
 
 import json
 import threading
@@ -11,7 +11,6 @@ import pytest
 from engine.tools.core import cabinets
 
 SECRETS = {
-    "shared": {"IMAP_HOST": "mail.example.ma", "SMTP_HOST": "smtp.example.ma"},
     "cabinets/experio_cabinet_8": {"ODOO_UID": "430", "IMAP_PASSWORD": "p8"},
     "cabinets/experio_cabinet_60": {"ODOO_UID": "12", "IMAP_PASSWORD": "p60"},
 }
@@ -70,6 +69,7 @@ def fake(monkeypatch, tmp_path):
     threading.Thread(target=server.serve_forever, daemon=True).start()
     monkeypatch.setattr(cabinets, "VAULT_ADDRESS", f"http://127.0.0.1:{server.server_address[1]}")
     monkeypatch.setattr(cabinets, "VAULT_ENABLED", True)
+    monkeypatch.setenv("IMAP_HOST", "mail.example.ma")
     monkeypatch.setattr(cabinets, "VAULT_APPROLE", str(tmp_path))
     monkeypatch.setattr(cabinets, "_vault_state", {"token": "", "token_until": 0.0, "values": None, "next_read": 0.0})
     monkeypatch.setattr(cabinets, "CABINETS", frozenset({"experio_cabinet_8", "experio_cabinet_60"}))
@@ -78,7 +78,7 @@ def fake(monkeypatch, tmp_path):
 
 
 @pytest.mark.security
-def test_each_cabinet_reads_its_own_path_and_the_shared_one(fake):
+def test_each_cabinet_reads_its_own_path_and_the_shared_ones_are_the_environments(fake):
     with cabinets.using("experio_cabinet_8"):
         assert (cabinets.setting("ODOO_UID"), cabinets.setting("IMAP_PASSWORD"), cabinets.setting("IMAP_HOST")) == (
             "430",
@@ -102,7 +102,7 @@ def test_the_environment_is_not_read_with_vault(fake, monkeypatch):
 
 @pytest.mark.technical
 def test_the_cabinets_are_the_vaults_paths(fake):
-    assert cabinets.cabinet_names(",".join(cabinets.vault_settings()[1])) == {"experio_cabinet_8", "experio_cabinet_60"}
+    assert cabinets.cabinet_names(",".join(cabinets.vault_settings())) == {"experio_cabinet_8", "experio_cabinet_60"}
 
 
 @pytest.mark.technical
@@ -151,20 +151,25 @@ def test_a_wrong_approle_is_refused(fake, tmp_path):
 
 @pytest.mark.security
 def test_settings_in_the_wrong_place_stop_the_server():
-    good = ({"IMAP_HOST": "h"}, {"experio_cabinet_8": {"ODOO_UID": "1"}}, {"ODOO_URL": "u", "POSTGRES_DB": "x"})
-    assert cabinets.misplaced_in_vault(*good) == []
+    good = ({"experio_cabinet_8": {"ODOO_UID": "1"}}, {"ODOO_URL": "u", "POSTGRES_DB": "x", "IMAP_HOST": "h"})
+    assert cabinets.misplaced(*good) == []  # a shared setting is the environment's
     bad = (
-        {"IMAP_HOST": "h", "ODOO_PASSWORD": "shared?"},
         {"experio_cabinet_8": {"ODOO_UID": "1", "IMAP_HOST": "own?", "TYPO": "x"}},
-        {"ODOO_URL": "u", "IMAP_PASSWORD": "left", "EXPERIO_CABINET_8__ODOO_UID": "left", "TARIK_CABINETS": "x"},
+        {
+            "ODOO_URL": "u",
+            "IMAP_PASSWORD": "left",
+            "EXPERIO_CABINET_8__ODOO_UID": "left",
+            "TARIK_CABINETS": "x",
+            "EXPERIO_CABINET_8__MODEL_API_KEY": "own?",
+        },
     )
-    assert cabinets.misplaced_in_vault(*bad) == sorted(
+    assert cabinets.misplaced(*bad) == sorted(
         [
-            "tarik/shared:ODOO_PASSWORD",
             "tarik/cabinets/experio_cabinet_8:IMAP_HOST",
             "tarik/cabinets/experio_cabinet_8:TYPO",
             "IMAP_PASSWORD",
             "EXPERIO_CABINET_8__ODOO_UID",
+            "EXPERIO_CABINET_8__MODEL_API_KEY",
             "TARIK_CABINETS",
         ]
     )
