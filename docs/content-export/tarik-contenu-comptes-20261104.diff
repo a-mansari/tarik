@@ -1,9 +1,0 @@
---- a/tools/choose-account.md
-+++ b/tools/choose-account.md
-@@ -37,4 +37,5 @@
- Rules:
- - Classify on the designation, never on the amount: 100 000 DH of main d'oeuvre and 100 000 DH of marchandise are two different accounts.
- - Several accounts share a label ("Achats de marchandises" twice, different codes): take the lowest code, it is the main one.
--- You cannot create an account. If the plan has nothing suitable, set nothing and say which account is missing.
-+- When one account of the list clearly fits, give its code. When you are not sure, set code to null and give in close the codes of the list that come nearest (3 at most, nearest first).
-+- When nothing in the list is near, set code to null, close to [] and give new: the code of the list the missing account belongs under (its parent, of the same class) and a short French label for it (« Terrassement »). Tarik asks the client before creating it.
