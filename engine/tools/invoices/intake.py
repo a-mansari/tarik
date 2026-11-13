@@ -150,6 +150,12 @@ def as_pdf(mime, data):
     return to_pdf(bytes(data)) if mime.startswith("image/") else bytes(data)
 
 
+def says_notice(text):
+    """True when a first page's ``text`` prints a bank's notice of operation as its title: Gladden calls such a PDF an
+    invoice, so the model must look at it."""
+    return bool(re.search(r"avis (?:d |de )?(?:operations?|debit|credit)", normalized(text)))
+
+
 def identified(name, file_id, kind, reason=""):
     """Return identify_document's result for file ``name``: a routine result for an invoice or a statement; for ``kind``
     "other", a stop result giving ``reason`` (nothing is made of the file)."""
@@ -217,7 +223,7 @@ def identify_document(file_id: int, client_message: str = "") -> dict:
         # Gladden's "bank" is checked by the model, which has the last word: Gladden calls a leasing schedule, a
         # contract or a customs slip a bank statement (its first page is a table of amounts and dates). So is a photo
         # Gladden calls an invoice: a screenshot of a software screen otherwise became a draft in Experio.
-        if kind != "invoice" or mime.startswith("image/"):
+        if kind != "invoice" or mime.startswith("image/") or says_notice(pdf_text(raw, 1)):
             category, reason = classify_pages(pages, "Identification du document")
             kind = {"rb": "statement", "autre": "other", "avis": "notice"}.get(category, "invoice")
         db.execute(Q.set_file_kind, (kind, file_id))

@@ -16,7 +16,7 @@ Nothing is posted.
 
 from datetime import date, timedelta
 
-from engine.tools.core.app import ok, question, routine, step_tool, stop
+from engine.tools.core.app import ToolError, log, ok, question, routine, step_tool, stop
 from engine.tools.core.cabinets import cabinet_db
 from engine.tools.core.config import TEST_MODE
 from engine.tools.core.experio import dry_run, in_dossier, odoo_call, odoo_json, refused
@@ -26,10 +26,11 @@ from engine.tools.invoices.intake import as_pdf, file_row, require_kind
 from engine.tools.invoices.statement import LINE, fee_operations, open_statements, operation_on, operations_of
 
 WIZARD = "bank.statement.split.wizard"
-LINE_FIELDS = ["state", "date", "payment_ref", "debit", "credit", "operation_id", "exp_payment_method_id"]
-LINE_FIELDS += ["original_line_id", "currency_id", "company_currency_id"]
+NOTICE_FIELDS = ["state", "date", "payment_ref", "debit", "credit", "statement_id", "original_line_id"]
+NOTICE_FIELDS += ["currency_id", "company_currency_id"]
 ADJUSTABLE = ("draft", "suspense", "ready")  # the lines Experio's action_adjust accepts (bank_statement_line.py:921)
 KINDS = ("principal", "commission", "tva", "timbre")  # the parts Tarik places; any other kind is the cabinet's
+NO_DETECTION = {"ignore_bank_line_info_detection": True}  # bank_statement_line.py create (:2327)
 NEAR_DAYS = 5  # the notice's date or value date and the line's, when several lines have the notice's amount
 
 
@@ -37,22 +38,33 @@ def checked_parts(read):
     """Return (the parts [{"kind", "amount"}] with amounts signed as the statement's (credit positive), "") when the
     notice read can be applied, (None, why in French) when not, (None, "") when it has one part (nothing to adjust).
 
-    Applied means: parts adding up to the net total (to the cent), one principal part at most, a TVA only with a
-    commission (to carry it), no other kind."""
-    parts = [{"kind": p.get("kind"), "amount": round(float(p.get("amount") or 0), 2)} for p in read.get("parts") or []]
-    total = round(float(read.get("total") or 0), 2)
+    Applied means: readable amounts, parts adding up to the net total (to the cent) and all of its sign, one principal
+    part, bigger than the others together, a TVA only with a commission and at 10 % of it (as fee_pairs takes it), no
+    other kind. The model reads the notice: nothing it says is written unless it is that coherent."""
+    try:
+        parts = [{"kind": p.get("kind"), "amount": round(float(p.get("amount") or 0), 2)} for p in read["parts"]]
+        total = round(float(read["total"]), 2)
+    except AttributeError, KeyError, TypeError, ValueError:
+        return None, "je n'ai pas pu lire ses montants"
     if len(parts) < 2:
         return None, ""
     if abs(round(sum(p["amount"] for p in parts), 2) - total) > 0.005:
         return None, "ses lignes ne font pas le montant total que j'ai lu"
-    other = sorted({p["kind"] for p in parts if p["kind"] not in KINDS})
+    other = sorted({str(p["kind"]) for p in parts if p["kind"] not in KINDS})
     if other or any(p["amount"] == 0 for p in parts):
-        return None, f"il a une ligne que je ne sais pas placer ({', '.join(map(str, other)) or 'montant nul'})"
+        return None, f"il a une ligne que je ne sais pas placer ({', '.join(other) or 'montant nul'})"
+    if any(p["amount"] * total < 0 for p in parts):
+        return None, "ses lignes ne sont pas toutes du même côté que son total"
     kinds = [p["kind"] for p in parts]
     if kinds.count("principal") != 1:
         return None, "il n'a pas exactement une ligne principale"
+    amounts = {p["kind"]: abs(p["amount"]) for p in parts}
     if kinds.count("tva") > 1 or kinds.count("commission") > 1 or kinds.count("tva") > kinds.count("commission"):
         return None, "ses commissions et sa TVA ne vont pas par paires"
+    if sum(a for kind, a in amounts.items() if kind != "principal") >= amounts["principal"]:
+        return None, "ses frais dépassent l'opération elle-même"
+    if "tva" in amounts and abs(amounts["tva"] - amounts["commission"] * 0.1) > 0.02:
+        return None, "sa TVA n'est pas 10 % de la commission"
     return parts, ""
 
 
@@ -63,9 +75,9 @@ def line_net(line):
 
 def found_line(lines, read):
     """Return (the one line among ``lines`` the notice details, why not): the lines whose net amount is the notice's, or
-    their group already adjusted; when several, the ones near the notice's dates, then the one whose label cites its
-    reference. (None, "adjusted") for an adjusted group that already adds up, (None, "none") for no line, (None,
-    "several") for no single one."""
+    their group already adjusted; among them, those near the notice's dates (when it gives one), then when several the
+    one whose label cites its reference. (None, "adjusted") for an adjusted group that already adds up, (None,
+    "none") for no line, (None, "several") for no single one."""
     total = round(float(read["total"]), 2)
     singles = [line for line in lines if not line["original_line_id"] and line["state"] in ADJUSTABLE]
     groups = {}
@@ -75,10 +87,9 @@ def found_line(lines, read):
     same = [line for line in singles if line_net(line) == total]
     if not same and any(round(sum(map(line_net, group)), 2) == total for group in groups.values()):
         return None, "adjusted"
-    if len(same) > 1:
-        days = [d for d in (read.get("date"), read.get("value_date")) if d]
-        near = [line for line in same if any(close(line["date"], d) for d in days)]
-        same = near if near else same
+    days = [d for d in (read.get("date"), read.get("value_date")) if d]
+    if days:  # the amount alone never decides: an old line of the same amount, or another dossier's notice
+        same = [line for line in same if any(close(line["date"], d) for d in days)]
     if len(same) > 1 and read.get("reference"):
         cited = [line for line in same if normalized(str(read["reference"])) in normalized(line["payment_ref"] or "")]
         same = cited or same
@@ -114,7 +125,7 @@ def wizard_lines(line, parts, operations):
     made = [{"debit": -rest if rest < 0 else 0, "credit": rest if rest > 0 else 0}]
     for part in others:
         values = {
-            "statement_id": line["statement_id"],
+            "statement_id": line["statement_id"][0],
             "date": line["date"],
             "payment_ref": line["payment_ref"],
             "operation_id": operation[part["kind"]]["id"],
@@ -139,26 +150,63 @@ def read_notice(file_id):
         '"reference": string or null, "total": number, "parts": [{"label": string, "kind": '
         '"principal"|"commission"|"tva"|"timbre"|"autre", "amount": number}]}'
     )
-    return name, ask_model(tool_prompt("read-bank-notice"), pages, instruction, "Lecture de l'avis", keys=("parts",))
+    return name, ask_model(
+        tool_prompt("read-bank-notice"), pages, instruction, "Lecture de l'avis", keys=("parts", "total")
+    )
 
 
-def lines_of(dossier_id, context):
-    """Return the open bank statement lines of dossier ``dossier_id`` (dicts with their statement_id), oldest first."""
-    lines = []
-    for statement in open_statements(dossier_id):
-        read = odoo_call(LINE, "read", statement["line_ids"], fields=LINE_FIELDS, context=context)
-        lines += [{**line, "statement_id": statement["id"]} for line in read]
-    return lines
+def lines_of(dossier_id, total, context):
+    """Return the bank statement lines of dossier ``dossier_id``'s open statements a notice of net ``total`` may detail,
+    in one read: those of that amount, and the lines of adjusted groups (original_line_id), to know a group that
+    already adds up to it."""
+    statements = [statement["id"] for statement in open_statements(dossier_id)]
+    amount = abs(total)
+    within = [
+        term
+        for side in ("debit", "credit")
+        for term in ("&", (side, ">=", amount - 0.005), (side, "<=", amount + 0.005))
+    ]
+    domain = [("statement_id", "in", statements), "|", "|", ("original_line_id", "!=", 0), *within]
+    return (
+        odoo_call(LINE, "search_read", domain, fields=NOTICE_FIELDS, order="id", context=context) if statements else []
+    )
+
+
+def restored(line, wizard, context):
+    """Put ``line`` back as it was after a failed adjustment (its amounts, the lines made for the wizard removed); True
+    when it is done, False (logged) when Experio refuses that too."""
+    try:
+        made = odoo_call(WIZARD, "read", [wizard], fields=["line_ids"], context=context)[0]["line_ids"]
+        extra = [i for i in made if i != line["id"]]
+        if extra:
+            odoo_call(LINE, "unlink", extra, context=context)
+        odoo_call(LINE, "write", [line["id"]], {"debit": line["debit"], "credit": line["credit"]}, context=context)
+        return True
+    except Exception as failure:
+        log(f"restored {line['id']}: {failure}")
+        return False
 
 
 def adjusted(line, made, context):
     """Adjust ``line`` as ``made`` says (wizard_lines), through Experio's wizard; the first item holds the original's
-    new debit and credit."""
+    new debit and credit.
+
+    The wizard's lines are the statement's real lines (action_adjust), so the write changes them at once: when the
+    validation then fails, the line is put back (restored). The new lines are created without Experio's detection of
+    a tiers, method or invoice from the label (ignore_bank_line_info_detection): their label is the transfer's, which
+    would give a commission the transfer's supplier."""
     action = odoo_json(LINE, "action_adjust", [line["id"]], context=context)
     wizard = action["res_id"]
     commands = [[1, line["id"], made[0]]] + [[0, 0, values] for values in made[1:]]
-    odoo_call(WIZARD, "write", [wizard], {"line_ids": commands}, context=context)
-    odoo_json(WIZARD, "validate_lines", [wizard], context=context)
+    try:
+        odoo_call(WIZARD, "write", [wizard], {"line_ids": commands}, context={**context, **NO_DETECTION})
+        odoo_json(WIZARD, "validate_lines", [wizard], context=context)
+    except Exception:
+        if not restored(line, wizard, context):
+            raise ToolError(
+                f"L'opération « {line['payment_ref']} » est peut-être à moitié ajustée : le cabinet doit la vérifier."
+            ) from None
+        raise
 
 
 @step_tool
@@ -177,21 +225,21 @@ def adjust_from_notice(file_id: int, dossier_id: int) -> dict:
         return routine(f"`{name}` : avis d'une seule ligne, rien à ajuster.")
     context = in_dossier(dossier_id)
     with refused(f"adjust_from_notice {file_id}", f"`{name}` : Experio n'a pas pu lire les opérations du dossier."):
-        line, missing = found_line(lines_of(dossier_id, context), read)
+        line, missing = found_line(lines_of(dossier_id, float(read["total"]), context), read)
     total = f"{abs(float(read['total'])):.2f}"
     if missing == "adjusted":
         return routine(f"`{name}` : l'opération de {total} est déjà ajustée.")
     if missing == "none":
         return stop(
-            f"`{name}` : aucune opération non comptabilisée de {total} dans les relevés du dossier : importez "
-            "d'abord le relevé qui la contient, puis renvoyez l'avis."
+            f"`{name}` : aucune opération non comptabilisée de {total}, à la date de l'avis, dans les relevés du "
+            "dossier : importez d'abord le relevé qui la contient, puis renvoyez l'avis."
         )
     if missing == "several":
         return question(
             f"`{name}` : plusieurs opérations de {total} pourraient être celle de cet avis : à quelle date est-elle "
             "sur le relevé ? Rien n'a été ajusté."
         )
-    if line["currency_id"] != line["company_currency_id"]:
+    if line["currency_id"][0] != line["company_currency_id"][0]:
         return stop(f"`{name}` : l'opération est en devise, le cabinet l'ajuste dans Experio.")
     made, lacking = wizard_lines(line, parts, operations_of(dossier_id, context))
     if not made:
@@ -201,6 +249,9 @@ def adjust_from_notice(file_id: int, dossier_id: int) -> dict:
     text = f"`{name}` : l'opération « {line['payment_ref']} » de {total} est ajustée en {said}."
     if dry_run():
         return ok(TEST_MODE + text)
-    with refused(f"adjust_from_notice {file_id}", f"`{name}` : Experio a refusé l'ajustement ({{reason}})."):
+    with refused(
+        f"adjust_from_notice {file_id}",
+        f"`{name}` : Experio a refusé l'ajustement ({{reason}}), l'opération est remise comme avant.",
+    ):
         adjusted(line, made, context)
     return ok(text)

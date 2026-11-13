@@ -11,8 +11,8 @@ create table if not exists tarik_files (
     data bytea not null,
     invoice_id integer, -- the draft invoice made from it: a second call must not make another
     parent_id integer references tarik_files (id), -- set on each invoice cut out of a multi-invoice PDF
-    -- identify_document, before anything is created; entries: import_entries took it (imported or refused)
-    kind text, -- invoice, statement, sheet, entries or other (tarik_files_kind_check, below)
+    -- identify_document, before anything is created; notice: a bank's notice of operation (adjust_from_notice); entries: import_entries took it (imported or refused)
+    kind text, -- invoice, statement, sheet, notice, entries or other (tarik_files_kind_check, below)
     statement_id integer, -- the bank statement imported from it: a second call must not import it again
     created_at timestamptz not null default now()
 );
@@ -25,7 +25,7 @@ create index if not exists tarik_files_statement_content on tarik_files (content
 -- A file's kinds: dropped and added again at each start, so a new kind applies to old schemas too.
 alter table tarik_files drop constraint if exists tarik_files_kind_check;
 alter table tarik_files add constraint tarik_files_kind_check
-    check (kind in ('invoice', 'statement', 'sheet', 'entries', 'other', 'certificate', 'folder'));
+    check (kind in ('invoice', 'statement', 'sheet', 'entries', 'other', 'certificate', 'folder', 'notice'));
 -- folder: a file the client sent as an import folder's documents, made into that exp.import.folder (folder_id).
 alter table tarik_files add column if not exists folder_id integer;
 -- certificate: a supplier's attestation de regularite fiscale the client sent to answer settle_withholding's question,
