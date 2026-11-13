@@ -23,6 +23,7 @@ from engine.tools.invoices import (
     intake,
     journal,
     listing,
+    notice,
     pipeline,
     posting,
     prepaid,

@@ -144,3 +144,17 @@ def test_the_same_invoice_file_sent_again_makes_no_second_draft(db_cabinet, monk
     alive.clear()  # the first draft was deleted in Experio: the file makes its draft
     other = add("facture (2).pdf", "invoice", data=b"%PDF same")
     assert intake.create_draft_invoice(other, 557)["invoice_id"] == 43
+
+
+@pytest.mark.functionality
+def test_a_bank_notice_is_taken_up_again_only_when_the_client_names_it(db_cabinet):
+    notice = add("avis cih.jpg", "notice")
+    assert files_to_process("s")["files"] == []
+    assert files_to_process("s", client_message="reprenez avis cih.jpg")["files"] == [notice]
+
+
+@pytest.mark.functionality
+def test_a_pdf_that_prints_a_notice_of_operation_as_its_title_goes_to_the_model():
+    assert intake.says_notice("CIH BANK\nAVIS D'OPERATION\nDATE 28/04/2025")
+    assert intake.says_notice("Avis de débit n° 12")
+    assert not intake.says_notice("FACTURE N° 12 — paiement par avis d'échéance")

@@ -62,6 +62,7 @@ STEPS = {
     "identify_document": "identifier le document",
     "import_bank_statement": "importer le relevé bancaire",
     "import_invoice_sheet": "importer le tableur de factures",
+    "adjust_from_notice": "ajuster l'opération d'après l'avis",
     "list_open_statements": "lister les relevés à pointer",
     "settle_statement": "pointer le relevé",
     "detect_statement_lines": "obtenir la détection d'Experio sur le relevé",
@@ -1185,9 +1186,10 @@ def files_to_process(session_id: str, entries: bool = False, asked: bool = False
     ``asked``: the client's message asked for files to be processed; when none is found, the result reports to the
     client that the attachment did not arrive (NO_FILE).
 
-    A file identify_document found to be neither an invoice nor a statement (a payment receipt) was refused once and
-    said so: it is not listed again, which would re-run and re-refuse it at every message and keep the conversation's
-    drafts from being taken up. It is listed again only when ``client_message`` names it (« c'est une facture »)."""
+    A file identify_document found to be neither an invoice nor a statement (a payment receipt), or to be a bank's
+    notice (taken up once, adjust_from_notice), was refused or taken up once and said so: it is not listed again,
+    which would re-run it at every message and keep the conversation's drafts from being taken up. It is listed again
+    only when ``client_message`` names it (« c'est une facture »)."""
     with cabinet_db() as db:
         rows = db.execute(
             Q.files_to_process,
@@ -1195,7 +1197,9 @@ def files_to_process(session_id: str, entries: bool = False, asked: bool = False
         ).fetchall()
     message = own_words(client_message)
     own = [
-        i for i, name, kind in rows if is_entries(i, name) == entries and (kind != "other" or file_named(name, message))
+        i
+        for i, name, kind in rows
+        if is_entries(i, name) == entries and (kind not in ("other", "notice") or file_named(name, message))
     ]
     if asked and not own:
         return ok(NO_FILE, files=[], tell=True)
